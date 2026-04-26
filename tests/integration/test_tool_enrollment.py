@@ -166,7 +166,11 @@ class TestPruneTool:
         finally:
             current_bot_id.reset(tok)
 
-        assert "2 tool enrollment(s)" in result
+        import json as _json
+        payload = _json.loads(result)
+        assert payload["removed"] == 2
+        assert payload["blocked"] == 0
+        assert "Pruned 2" in payload["message"]
 
         invalidate_enrolled_cache()
         assert await get_enrolled_tool_names("prune-bot") == ["b"]

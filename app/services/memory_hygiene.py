@@ -401,6 +401,115 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+_TOOL_PRUNE_PROTECTION_DAYS = 7
+
+
+async def _build_tools_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
+    """Build a markdown snapshot of the bot's enrolled tool working set.
+
+    Mirrors ``_build_working_set_snapshot`` for tools. Surfaces fetch_count,
+    last_used_at, age, source, and pinned status so memory hygiene can prune
+    stale ``source='fetched'`` enrollments. Pinned tools (in ``Bot.pinned_tools``)
+    that have never been used are surfaced as ``never used`` so the bot can
+    flag them in its hygiene summary.
+    """
+    from app.db.models import Bot, BotToolEnrollment
+
+    now_utc = datetime.now(timezone.utc)
+
+    bot_row = await db.get(Bot, bot_id)
+    pinned_set: set[str] = set()
+    if bot_row is not None:
+        pinned_value = getattr(bot_row, "pinned_tools", None) or []
+        if isinstance(pinned_value, list):
+            pinned_set = {str(p) for p in pinned_value if p}
+
+    rows = (await db.execute(
+        select(
+            BotToolEnrollment.tool_name,
+            BotToolEnrollment.source,
+            BotToolEnrollment.enrolled_at,
+            BotToolEnrollment.fetch_count,
+            BotToolEnrollment.last_used_at,
+        )
+        .where(BotToolEnrollment.bot_id == bot_id)
+        .order_by(BotToolEnrollment.fetch_count.asc(), BotToolEnrollment.enrolled_at.asc())
+    )).all()
+
+    enrolled_names = {r.tool_name for r in rows}
+    pinned_unused = sorted(pinned_set - enrolled_names)
+
+    if not rows and not pinned_unused:
+        return "## Working set — tools\n\n_(no enrolled tools — nothing to prune)_"
+
+    lines = [
+        "## Working set — tools",
+        "",
+        f"You have {len(rows)} enrolled tool(s)" + (
+            f" and {len(pinned_unused)} pinned-but-never-used tool(s)" if pinned_unused else ""
+        ) + ". Listed by fetch count (lowest first):",
+        "",
+        "**Reading the counts**:",
+        "- `you used Nx` = number of successful invocations from this bot.",
+        "- `last used DATE` = most recent successful call (or `never`).",
+        "- `enrolled DATE (Nd ago)` = age. Tools enrolled < 7 days ago are protected.",
+        "- `pinned` = listed in your `Bot.pinned_tools` — protected, only prune via override.",
+        "- `source=fetched` = enrolled by semantic discovery; freely prunable when stale.",
+        "- `source=starter|manual` = explicit enrollment; usually keep unless clearly stale.",
+        "- A tool with 0 uses but `pinned` is intentional — surface it in your summary, do not prune.",
+        "",
+    ]
+
+    all_protected = True
+    for r in rows:
+        enrolled_at = r.enrolled_at
+        if enrolled_at and enrolled_at.tzinfo is None:
+            enrolled_at = enrolled_at.replace(tzinfo=timezone.utc)
+        age_days = (now_utc - enrolled_at).days if enrolled_at else 0
+        is_pinned = r.tool_name in pinned_set
+        is_recent = age_days < _TOOL_PRUNE_PROTECTION_DAYS
+        protected = is_pinned or is_recent
+        if not protected:
+            all_protected = False
+        last_used = r.last_used_at.date().isoformat() if r.last_used_at else "never"
+        enrolled = enrolled_at.date().isoformat() if enrolled_at else "?"
+        flags = []
+        if is_pinned:
+            flags.append("**[pinned]**")
+        if protected:
+            flags.append("**[protected]**")
+        flag_tag = (" " + " ".join(flags)) if flags else ""
+        lines.append(
+            f"- `{r.tool_name}` — you used {r.fetch_count}x (last: {last_used}), "
+            f"enrolled {enrolled} ({age_days}d ago), source={r.source}{flag_tag}"
+        )
+
+    if pinned_unused:
+        lines.append("")
+        lines.append("**Pinned tools with no recorded use**:")
+        for name in pinned_unused:
+            lines.append(f"- `{name}` — never used, pinned **[protected]**")
+
+    if all_protected and not pinned_unused:
+        lines.append("")
+        lines.append(
+            "**All tools are protected — skip pruning. Still review for pinned tools you "
+            "could unpin via the admin UI.**"
+        )
+
+    lines.append("")
+    lines.append(
+        "To prune: `prune_enrolled_tools(tool_names=[...])`. Pinned or recent (<7d) "
+        "tools require `overrides={\"tool_name\": \"reason\"}` (e.g. \"user unpinned\", "
+        "\"replaced by X\", \"capability deprecated\"). If `prune_enrolled_tools` is not "
+        "in your loaded tools, call `get_tool_info(tool_name=\"prune_enrolled_tools\")` "
+        "first to enroll it. Pinned-but-unused tools should be **reported in your summary**, "
+        "not pruned — pins are user intent."
+    )
+
+    return "\n".join(lines)
+
+
 async def _build_inject_audit_samples(bot_id: str, db: AsyncSession) -> str:
     """Build sample turns for skills with 5+ auto-injects (last 14 days).
 
@@ -873,6 +982,16 @@ async def create_hygiene_task(
         prompt = f"{prompt}\n\n{ch_snapshot}"
     except Exception:
         logger.warning("Failed to build channel snapshot for %s %s", job_type, bot_id, exc_info=True)
+
+    # Both job types get the tools working set snapshot. Memory hygiene prunes
+    # stale tool enrollments alongside its other cleanup; skill review uses it
+    # to reason about tool usage when judging skills.
+    try:
+        tools_snapshot = await _build_tools_working_set_snapshot(bot_id, db)
+        if tools_snapshot:
+            prompt = f"{prompt}\n\n{tools_snapshot}"
+    except Exception:
+        logger.warning("Failed to build tools working-set snapshot for %s %s", job_type, bot_id, exc_info=True)
 
     # Only skill_review gets the working set, recent activity, and previous review
     if job_type == "skill_review":

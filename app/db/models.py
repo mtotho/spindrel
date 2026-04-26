@@ -1091,6 +1091,8 @@ class BotToolEnrollment(Base):
         nullable=False,
         server_default=text("now()"),
     )
+    fetch_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class PromptTemplate(Base):

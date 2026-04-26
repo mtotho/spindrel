@@ -821,3 +821,19 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - Primary, scratch, and previous channel sessions are equal transcript owners, but only one session is active for a single turn.
 - Showing all archived sections as the default made a new primary session look like it already had 100+ sections and suggested the agent had access to a flattened channel memory it does not actually receive.
 - Keeping inventory available behind an explicit scope preserves admin discoverability without lying about runtime context.
+
+### Attention Items own attention state; Beacons are canvas rendering
+**Decided 2026-04-26.** Human-visible warnings and structured system failures use one `WorkspaceAttentionItem` domain model. The Spatial Canvas renders active items as Attention Beacons, but spatial nodes do not own warning lifecycle.
+
+**Contract.**
+- `workspace_attention_items` owns source, target, severity, status, dedupe, occurrence count, evidence, response metadata, and future assignment shape.
+- `workspace_spatial_nodes` remains the single source of truth for canvas positions only.
+- Bot-authored beacons are created through policy-gated heartbeat/spatial tools and attach to existing channel/bot/widget/system targets.
+- Structured system failures are admin-only Attention Items; bot-authored channel beacons remain visible to non-admin channel viewers.
+- Reply status is distinct from resolution: a response marks `responded`, while humans or the source bot must still resolve the item.
+- Future assignment adds workflow state around the item rather than overloading item lifecycle.
+
+**Why.**
+- The same visual marker can represent a bot warning, an automatic trace failure, or future investigate/report work without duplicating models.
+- Keeping coordinates out of the attention table prevents a second spatial placement source of truth.
+- Keeping assignment separate avoids painting a simple alert model into a command-queue corner too early.

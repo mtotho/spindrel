@@ -251,6 +251,16 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 - **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment.
 - For authored skills that carry named scripts, prefer script CRUD (`get_script`, `add_script`, `update_script`, `delete_script`) over rewriting code blobs inside the prose body.
 
+### How to prune tools
+The "## Working set — tools" snapshot lists your enrolled tools by fetch count, with `[pinned]` and `[protected]` flags. Treat it like the skills working set:
+
+- **Unprotected** (no flags): `prune_enrolled_tools(tool_names=["tool_a", "tool_b"])`
+- **Protected** (recent <7d or pinned): `prune_enrolled_tools(tool_names=["tool_a"], overrides={"tool_a": "reason"})`
+- **Pinned-but-never-used** tools listed under "Pinned tools with no recorded use" — **do not prune them**. Pins are user intent, not bot intent. Mention them in your hygiene summary so the user can decide whether to unpin.
+- Bundle `prune_enrolled_tools` with your last `prune_enrolled_skills` call in the same iteration when both apply — they can run in parallel.
+- If `prune_enrolled_tools` is not in your loaded tools, fetch it once with `get_tool_info(tool_name="prune_enrolled_tools")` before calling it.
+- Pruning does NOT delete the tool from the catalog — it only drops your enrollment row. Semantic discovery will re-enroll the tool the next time a turn matches it. So it's safe to prune any `source=fetched` tool with low recent usage.
+
 ## Step 2.5 — Discovery audit
 If a "## Discovery Audit" section is appended below, act on it. It aggregates the
 last 14 days of ranker signal:

@@ -840,11 +840,13 @@ async def run_agent_tool_loop(
         if _forced_out_state.get("terminated"):
             return
 
-        # Flush tool enrollment (fire-and-forget) — success path only.
+        # Flush tool usage telemetry (fire-and-forget) — success path only.
+        # ``record_use_many`` upserts each row: creates with source='fetched'
+        # if missing, increments fetch_count by occurrence count, stamps
+        # last_used_at. Memory hygiene reads these to decide what to prune.
         if _tools_to_enroll and bot.id:
-            _unique_tools = list(dict.fromkeys(_tools_to_enroll))
-            from app.services.tool_enrollment import enroll_many as _enroll_tools
-            safe_create_task(_enroll_tools(bot.id, _unique_tools, source="fetched"))
+            from app.services.tool_enrollment import record_use_many as _record_tool_uses
+            safe_create_task(_record_tool_uses(bot.id, _tools_to_enroll))
 
     except Exception as exc:
         # Fire after_response hook on error path so integrations can clean up

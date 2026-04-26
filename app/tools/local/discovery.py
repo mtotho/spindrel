@@ -138,6 +138,9 @@ async def get_tool_info(tool_name: str) -> str:
     return response_json
 
 
+_TOOL_PRUNE_PROTECTION_DAYS = 7
+
+
 @register({
     "type": "function",
     "function": {
@@ -148,7 +151,9 @@ async def get_tool_info(tool_name: str) -> str:
             "successful use. Use this in memory hygiene runs to drop tools you "
             "don't actively use — their slot in your working set will be freed "
             "and the semantic discovery layer will resurface them only when a "
-            "user message is relevant."
+            "user message is relevant. Tools enrolled less than 7 days ago and "
+            "tools listed in your bot's pinned_tools require an explicit override "
+            "reason."
         ),
         "parameters": {
             "type": "object",
@@ -158,6 +163,15 @@ async def get_tool_info(tool_name: str) -> str:
                     "items": {"type": "string"},
                     "description": "Tool names to unenroll from this bot's working set",
                 },
+                "overrides": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": (
+                        "Override reasons for protected tools. Map of tool_name to reason string. "
+                        "Required for pinned tools or recently-enrolled tools (<7d). "
+                        "Example reasons: 'user unpinned', 'replaced by X', 'capability deprecated'."
+                    ),
+                },
             },
             "required": ["tool_names"],
         },
@@ -166,27 +180,154 @@ async def get_tool_info(tool_name: str) -> str:
     "type": "object",
     "properties": {
         "removed": {"type": "integer"},
+        "blocked": {"type": "integer"},
         "requested": {"type": "integer"},
+        "message": {"type": "string"},
         "error": {"type": "string"},
     },
 })
-async def prune_enrolled_tools(tool_names: list[str]) -> str:
-    """Remove the listed tools from this bot's persistent enrollment."""
+async def prune_enrolled_tools(
+    tool_names: list[str],
+    overrides: dict[str, str] | None = None,
+) -> str:
+    """Remove the listed tools from this bot's persistent enrollment.
+
+    Protected tools (pinned on the bot, or enrolled < 7 days ago) require an
+    override reason. The unenroll batch is partial-allowed: protected names
+    without overrides are reported as ``blocked`` and the rest are pruned.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from app.db.engine import async_session
+    from app.db.models import Bot, BotToolEnrollment
+    from app.services.tool_enrollment import unenroll_many
+
     bot_id = current_bot_id.get()
     if not bot_id:
         return json.dumps({"error": "no bot context"}, ensure_ascii=False)
     if not tool_names:
         return json.dumps({"error": "no tool names provided"}, ensure_ascii=False)
 
-    from app.services.tool_enrollment import unenroll_many
+    overrides = overrides or {}
 
-    try:
-        removed = await unenroll_many(bot_id, tool_names)
-    except Exception as exc:
-        logger.exception("prune_enrolled_tools failed for bot %s", bot_id)
-        return json.dumps({"error": f"Failed to prune enrollments: {exc}"}, ensure_ascii=False)
+    now = datetime.now(timezone.utc)
+    protection_cutoff = now - timedelta(days=_TOOL_PRUNE_PROTECTION_DAYS)
 
-    return json.dumps({"removed": removed, "requested": len(tool_names)}, ensure_ascii=False)
+    async with async_session() as db:
+        enrollment_rows = (await db.execute(
+            select(
+                BotToolEnrollment.tool_name,
+                BotToolEnrollment.source,
+                BotToolEnrollment.enrolled_at,
+            ).where(
+                BotToolEnrollment.bot_id == bot_id,
+                BotToolEnrollment.tool_name.in_(tool_names),
+            )
+        )).all()
+        bot_row = await db.get(Bot, bot_id)
+
+    enrollments_by_name = {r.tool_name: r for r in enrollment_rows}
+    pinned_set: set[str] = set()
+    if bot_row is not None:
+        pinned_value = getattr(bot_row, "pinned_tools", None) or []
+        if isinstance(pinned_value, list):
+            pinned_set = {str(p) for p in pinned_value if p}
+
+    allowed: list[str] = []
+    blocked: list[dict] = []
+    overridden: list[dict] = []
+
+    for name in tool_names:
+        is_pinned = name in pinned_set
+        enrollment = enrollments_by_name.get(name)
+        is_recent = False
+        age_days: int | None = None
+        if enrollment is not None:
+            enrolled_at = enrollment.enrolled_at
+            if enrolled_at.tzinfo is None:
+                enrolled_at = enrolled_at.replace(tzinfo=timezone.utc)
+            is_recent = enrolled_at > protection_cutoff
+            age_days = (now - enrolled_at).days
+
+        if is_pinned or is_recent:
+            reason = overrides.get(name)
+            entry = {
+                "tool_name": name,
+                "pinned": is_pinned,
+                "recent": is_recent,
+                "age_days": age_days,
+            }
+            if reason:
+                entry["reason"] = reason
+                overridden.append(entry)
+                allowed.append(name)
+            else:
+                protection_reason = []
+                if is_pinned:
+                    protection_reason.append("pinned")
+                if is_recent:
+                    protection_reason.append(
+                        f"enrolled {age_days}d ago (<{_TOOL_PRUNE_PROTECTION_DAYS}d)"
+                    )
+                entry["reason_needed"] = ", ".join(protection_reason)
+                blocked.append(entry)
+        else:
+            allowed.append(name)
+
+    if overridden:
+        try:
+            import asyncio
+
+            from app.agent.context import current_correlation_id, current_session_id
+            from app.agent.recording import _record_trace_event
+            for ov in overridden:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=current_correlation_id.get(),
+                    session_id=current_session_id.get(),
+                    bot_id=bot_id,
+                    client_id=None,
+                    event_type="tool_prune_override",
+                    event_name=ov["tool_name"],
+                    data=ov,
+                ))
+        except Exception:
+            logger.debug("Failed to record tool_prune_override trace events", exc_info=True)
+
+    removed = 0
+    if allowed:
+        try:
+            removed = await unenroll_many(bot_id, allowed)
+        except Exception as exc:
+            logger.exception("prune_enrolled_tools failed for bot %s", bot_id)
+            return json.dumps(
+                {"error": f"Failed to prune enrollments: {exc}", "removed": 0, "blocked": len(blocked)},
+                ensure_ascii=False,
+            )
+
+    parts: list[str] = []
+    if removed:
+        parts.append(f"Pruned {removed} enrollment(s)")
+    if blocked:
+        protected_list = "; ".join(
+            f"{b['tool_name']} ({b['reason_needed']})" for b in blocked
+        )
+        parts.append(
+            f"{len(blocked)} blocked (need override): {protected_list}"
+        )
+    if not parts:
+        parts.append(f"No matching enrollments to remove ({len(tool_names)} requested)")
+
+    return json.dumps(
+        {
+            "removed": removed,
+            "blocked": len(blocked),
+            "requested": len(tool_names),
+            "message": ". ".join(parts) + ".",
+        },
+        ensure_ascii=False,
+    )
 
 
 @register({

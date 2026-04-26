@@ -143,6 +143,17 @@ The canvas also has a fixed far-left **Memory Observatory** landmark. It gives t
 
 The canvas can also show **edge beacons** for important off-screen landmarks and active surfaces: Memory Observatory, Now Well, channels, widgets, and bots. Beacons sit on the viewport edge and can fly the camera to their target. The beacon toggle persists in `localStorage`.
 
+## Attention Beacons
+
+Attention Beacons are active [Attention Items](attention-beacons.md) rendered
+on the canvas. They attach to existing channel, bot, widget, or system
+targets and do not create or move `workspace_spatial_nodes` rows.
+
+Bot-authored items render as warning badges on their target. Structured
+system failures render as asteroid-style markers and are admin-only. Clicking
+a Beacon opens the Attention drawer with the message, next steps, status
+actions, reply handoff, and trace evidence when available.
+
 ## Reserved dashboard slug
 
 Internally, canvas widget pins live under a reserved widget-dashboard slug, `workspace:spatial`. This slug is filtered out of every UI surface that lists dashboards (tabs, target pickers, recents, sidebar). It exists so canvas pins reuse the entire existing widget-dashboard plumbing — envelope, contract snapshot, presentation snapshot, source bot, iframe auth — without a parallel widget host path.

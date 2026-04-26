@@ -39,6 +39,14 @@ Scope is the domain model — actors, rooms, conversations, discovery, integrati
 | **Iteration** | One LLM call inside a Turn. A single Turn may produce many Iterations when the model calls tools. | step, cycle |
 | **Message** | A persisted row in the Channel transcript. May carry attachments, tool envelopes, and `metadata.hidden`/`metadata.pipeline_step`/`metadata.kind` markers that exclude it from replay. | entry, row |
 
+## Attention and work intake
+
+| Term | Definition | Aliases to avoid |
+|---|---|---|
+| **Attention Item** | Persisted attention/work-intake state in `workspace_attention_items`: source, target, severity, lifecycle, dedupe, evidence, response, and future assignment metadata. | issue, alert row |
+| **Attention Beacon** | The Spatial Canvas rendering of an active Attention Item. Bot-authored beacons render as warning badges; system-authored structured failures render as asteroid-style markers. | issue marker, alert |
+| **System Attention Item** | Admin-only Attention Item created by structured failure detectors such as failed ToolCalls, TraceEvents, or HeartbeatRuns. | log alert |
+
 ---
 
 ## Discovery and residency

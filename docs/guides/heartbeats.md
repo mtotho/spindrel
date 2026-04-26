@@ -169,6 +169,20 @@ Why heartbeat-prompts-launch-pipelines is the model:
 
 See the [Pipelines guide](pipelines.md) for pipeline configuration and the `run_pipeline` tool.
 
+## Attention Beacons From Heartbeats
+
+Spatially enabled heartbeat bots can raise [Attention Beacons](attention-beacons.md)
+when their channel bot policy allows it.
+
+The relevant policy flag is `allow_attention_beacons`. When enabled, the bot
+can use `place_attention_beacon` to create or refresh a deduped Attention
+Item, and `resolve_attention_beacon` to resolve one of its own items.
+
+Heartbeat context includes nearby and self-authored bot beacons so bots can
+avoid duplicating warnings and can resolve stale ones. System-authored
+structured-failure beacons remain admin-only and are not injected into bot
+context in v1.
+
 ---
 
 ## Metadata Injection

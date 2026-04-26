@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Iterable
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -202,6 +202,127 @@ async def unenroll_many(
         await own_db.commit()
     invalidate_enrolled_cache(bot_id)
     return result.rowcount or 0
+
+
+# ---------------------------------------------------------------------------
+# Usage telemetry
+# ---------------------------------------------------------------------------
+
+def _record_use_stmts(bot_id: str, tool_name: str):
+    """Build dialect-specific INSERT ... ON CONFLICT DO UPDATE for usage."""
+    base_values = {
+        "bot_id": bot_id,
+        "tool_name": tool_name,
+        "source": "fetched",
+        "fetch_count": 1,
+        "last_used_at": func.now(),
+    }
+    pg_stmt = pg_insert(BotToolEnrollment).values(**base_values)
+    pg_stmt = pg_stmt.on_conflict_do_update(
+        index_elements=["bot_id", "tool_name"],
+        set_={
+            "fetch_count": BotToolEnrollment.fetch_count + 1,
+            "last_used_at": func.now(),
+        },
+    )
+
+    sqlite_stmt = sqlite_insert(BotToolEnrollment).values(**base_values)
+    sqlite_stmt = sqlite_stmt.on_conflict_do_update(
+        index_elements=["bot_id", "tool_name"],
+        set_={
+            "fetch_count": BotToolEnrollment.fetch_count + 1,
+            "last_used_at": func.now(),
+        },
+    )
+    return pg_stmt, sqlite_stmt
+
+
+async def record_use(
+    bot_id: str,
+    tool_name: str,
+    *,
+    db: AsyncSession | None = None,
+) -> None:
+    """Record a successful tool invocation.
+
+    Upserts the enrollment row: increments ``fetch_count`` and stamps
+    ``last_used_at = now()``. Creates a ``source='fetched'`` row if one does
+    not exist (matches the previous post-call enroll behavior).
+
+    Strict superset of ``enroll(source='fetched')`` — call this from the
+    dispatcher's success path instead of ``enroll`` so that usage telemetry
+    accumulates on every successful call (incl. pinned tools that were
+    never enrolled through semantic discovery).
+    """
+    if not bot_id or not tool_name:
+        return
+
+    pg_stmt, sqlite_stmt = _record_use_stmts(bot_id, tool_name)
+
+    if db is not None:
+        await db.execute(_pick_stmt(db, pg_stmt, sqlite_stmt))
+        invalidate_enrolled_cache(bot_id)
+        return
+
+    async with async_session() as own_db:
+        await own_db.execute(_pick_stmt(own_db, pg_stmt, sqlite_stmt))
+        await own_db.commit()
+    invalidate_enrolled_cache(bot_id)
+
+
+async def record_use_many(
+    bot_id: str,
+    tool_names: Iterable[str],
+    *,
+    db: AsyncSession | None = None,
+) -> None:
+    """Batch ``record_use`` for multiple tool invocations.
+
+    Counts duplicates so a tool called N times in one turn bumps
+    ``fetch_count`` by N. One DB round-trip per unique tool.
+    """
+    from collections import Counter
+
+    counts = Counter(n for n in tool_names if n)
+    if not bot_id or not counts:
+        return
+
+    async def _apply(session: AsyncSession) -> None:
+        for name, n in counts.items():
+            base_values = {
+                "bot_id": bot_id,
+                "tool_name": name,
+                "source": "fetched",
+                "fetch_count": n,
+                "last_used_at": func.now(),
+            }
+            pg_stmt = pg_insert(BotToolEnrollment).values(**base_values)
+            pg_stmt = pg_stmt.on_conflict_do_update(
+                index_elements=["bot_id", "tool_name"],
+                set_={
+                    "fetch_count": BotToolEnrollment.fetch_count + pg_stmt.excluded.fetch_count,
+                    "last_used_at": pg_stmt.excluded.last_used_at,
+                },
+            )
+            sqlite_stmt = sqlite_insert(BotToolEnrollment).values(**base_values)
+            sqlite_stmt = sqlite_stmt.on_conflict_do_update(
+                index_elements=["bot_id", "tool_name"],
+                set_={
+                    "fetch_count": BotToolEnrollment.fetch_count + sqlite_stmt.excluded.fetch_count,
+                    "last_used_at": sqlite_stmt.excluded.last_used_at,
+                },
+            )
+            await session.execute(_pick_stmt(session, pg_stmt, sqlite_stmt))
+
+    if db is not None:
+        await _apply(db)
+        invalidate_enrolled_cache(bot_id)
+        return
+
+    async with async_session() as own_db:
+        await _apply(own_db)
+        await own_db.commit()
+    invalidate_enrolled_cache(bot_id)
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 |---|---|
 | [Admin Terminal](admin-terminal.md) | Browser-based shell into the Spindrel container — admin-only |
 | [Agent Harnesses](agent-harnesses.md) | Remote Claude Code sessions in the Spindrel UI; Codex-compatible runtime boundary |
+| [Attention Beacons](attention-beacons.md) | Shared attention/work-intake items rendered as Spatial Canvas beacons |
 | [API](api.md) | Public REST API for external callers |
 | [BlueBubbles](bluebubbles.md) | iMessage integration specifics |
 | [Bot Skills](bot-skills.md) | Self-improving agents + skill authoring |
