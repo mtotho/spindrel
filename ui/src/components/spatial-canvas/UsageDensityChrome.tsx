@@ -18,6 +18,8 @@ interface UsageDensityChromeProps {
   onBotsVisibleChange: (visible: boolean) => void;
   botsReduced: boolean;
   onBotsReducedChange: (reduced: boolean) => void;
+  landmarkBeaconsVisible: boolean;
+  onLandmarkBeaconsVisibleChange: (visible: boolean) => void;
 }
 
 const WINDOWS: DensityWindow[] = ["24h", "7d", "30d"];
@@ -72,6 +74,8 @@ export function UsageDensityChrome({
   onBotsVisibleChange,
   botsReduced,
   onBotsReducedChange,
+  landmarkBeaconsVisible,
+  onLandmarkBeaconsVisibleChange,
 }: UsageDensityChromeProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -198,6 +202,18 @@ export function UsageDensityChrome({
                   onChange={(e) => onBotsReducedChange(e.target.checked)}
                   disabled={!botsVisible}
                   className="ml-2 accent-accent cursor-pointer disabled:opacity-40"
+                />
+              </label>
+            </div>
+            <div className="mt-1 border-t border-surface-border/60 pt-2">
+              <div className="mb-1.5 text-[10px] uppercase tracking-wider">Wayfinding</div>
+              <label className="flex flex-row items-center justify-between cursor-pointer gap-2">
+                <span>Edge beacons</span>
+                <input
+                  type="checkbox"
+                  checked={landmarkBeaconsVisible}
+                  onChange={(e) => onLandmarkBeaconsVisibleChange(e.target.checked)}
+                  className="ml-2 accent-accent cursor-pointer"
                 />
               </label>
             </div>

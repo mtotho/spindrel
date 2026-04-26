@@ -28,6 +28,7 @@ export const BOTS_VISIBLE_KEY = "spatial.bots.visible";
 export const BOTS_REDUCED_KEY = "spatial.bots.reduced";
 export const TRAILS_MODE_KEY = "spatial.trails.mode";
 export const MINIMAP_VISIBLE_KEY = "spatial.minimap.visible";
+export const LANDMARK_BEACONS_VISIBLE_KEY = "spatial.landmarkBeacons.visible";
 export const LENS_HINT_SEEN_KEY = "spatial.onboarding.lensHintSeen";
 
 // Push-through dive — tunables for the continuous-zoom-into-channel gesture.
@@ -124,6 +125,17 @@ export function loadTrailsMode(storage: Storage = localStorage): TrailsMode {
 export function loadMinimapVisible(storage: Storage = localStorage): boolean {
   try {
     const v = storage.getItem(MINIMAP_VISIBLE_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* storage disabled */
+  }
+  return true;
+}
+
+export function loadLandmarkBeaconsVisible(storage: Storage = localStorage): boolean {
+  try {
+    const v = storage.getItem(LANDMARK_BEACONS_VISIBLE_KEY);
     if (v === "1") return true;
     if (v === "0") return false;
   } catch {

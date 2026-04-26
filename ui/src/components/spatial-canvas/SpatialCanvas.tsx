@@ -61,6 +61,7 @@ import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
+import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
@@ -112,6 +113,7 @@ import {
   BOTS_VISIBLE_KEY,
   TRAILS_MODE_KEY,
   MINIMAP_VISIBLE_KEY,
+  LANDMARK_BEACONS_VISIBLE_KEY,
   DIVE_SCALE_THRESHOLD,
   DIVE_DWELL_MS,
   DIVE_VIEWPORT_MARGIN,
@@ -137,6 +139,7 @@ import {
   loadBotsVisible,
   loadTrailsMode,
   loadMinimapVisible,
+  loadLandmarkBeaconsVisible,
   clampCamera,
   loadStoredCamera,
   projectFisheye,
@@ -525,6 +528,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [botsReduced, setBotsReduced] = useState<boolean>(loadBotsReduced);
   const [trailsMode, setTrailsMode] = useState<TrailsMode>(loadTrailsMode);
   const [minimapVisible, setMinimapVisible] = useState<boolean>(loadMinimapVisible);
+  const [landmarkBeaconsVisible, setLandmarkBeaconsVisible] = useState<boolean>(loadLandmarkBeaconsVisible);
   // Right-click context menu — single instance at a time. `worldXY` is set
   // when the user right-clicks on the empty background so "Add widget here"
   // can drop the new pin at the click position rather than camera center.
@@ -548,10 +552,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       localStorage.setItem(BOTS_REDUCED_KEY, botsReduced ? "1" : "0");
       localStorage.setItem(TRAILS_MODE_KEY, trailsMode);
       localStorage.setItem(MINIMAP_VISIBLE_KEY, minimapVisible ? "1" : "0");
+      localStorage.setItem(LANDMARK_BEACONS_VISIBLE_KEY, landmarkBeaconsVisible ? "1" : "0");
     } catch {
       /* storage disabled */
     }
-  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode, minimapVisible]);
+  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode, minimapVisible, landmarkBeaconsVisible]);
 
   const cycleTrailsMode = useCallback(() => {
     setTrailsMode((curr) => {
@@ -1417,6 +1422,82 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }, "immediate");
   }, [scheduleCamera]);
 
+  const edgeBeacons = useMemo(() => {
+    const beacons = [
+      {
+        id: "memory-observatory",
+        label: "Memory Observatory",
+        shortLabel: "Memory",
+        worldX: MEMORY_OBSERVATORY_X,
+        worldY: MEMORY_OBSERVATORY_Y,
+        colorClass: "border-violet-300/40 text-violet-200 hover:border-violet-200/70",
+        icon: Brain,
+        onClick: flyToMemoryObservatory,
+      },
+      {
+        id: "now-well",
+        label: "Now Well",
+        shortLabel: "Now",
+        worldX: WELL_X,
+        worldY: WELL_Y,
+        colorClass: "border-sky-300/35 text-sky-100 hover:border-sky-200/65",
+        icon: Target,
+        onClick: flyToWell,
+      },
+    ];
+
+    for (const node of nodes ?? []) {
+      const worldX = node.world_x + node.world_w / 2;
+      const worldY = node.world_y + node.world_h / 2;
+      if (node.channel_id) {
+        const channel = channelsById.get(node.channel_id);
+        beacons.push({
+          id: `channel-${node.id}`,
+          label: channel ? `#${channel.name}` : "Channel",
+          shortLabel: "Channel",
+          worldX,
+          worldY,
+          colorClass: "border-cyan-300/35 text-cyan-100 hover:border-cyan-200/65",
+          icon: MessageCircle,
+          onClick: () => flyToChannel(node.channel_id!),
+        });
+      } else if (node.pin) {
+        beacons.push({
+          id: `widget-${node.id}`,
+          label: node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget",
+          shortLabel: "Widget",
+          worldX,
+          worldY,
+          colorClass: "border-amber-300/35 text-amber-100 hover:border-amber-200/65",
+          icon: LayoutDashboard,
+          onClick: () => flyToNodeById(node.id),
+        });
+      } else if (node.bot_id && botsVisible) {
+        const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
+        beacons.push({
+          id: `bot-${node.id}`,
+          label: botName,
+          shortLabel: "Bot",
+          worldX,
+          worldY,
+          colorClass: "border-emerald-300/35 text-emerald-100 hover:border-emerald-200/65",
+          icon: UsersIcon,
+          onClick: () => flyToNodeById(node.id),
+        });
+      }
+    }
+    return beacons;
+  }, [
+    nodes,
+    channelsById,
+    botsVisible,
+    flyToMemoryObservatory,
+    flyToWell,
+    flyToChannel,
+    flyToNodeById,
+  ]);
+
+
   // Register canvas commands as palette items. They appear under the
   // "Canvas" group at the top of ⌘K while the canvas is mounted, replacing
   // the previous SVG radial wheel. Handler bindings mirror the radial action
@@ -1483,6 +1564,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         onSelect: () => setMinimapVisible((v) => !v),
       },
       {
+        id: "canvas-toggle-landmark-beacons",
+        label: landmarkBeaconsVisible ? "Canvas: Hide edge beacons" : "Canvas: Show edge beacons",
+        category: "Canvas",
+        icon: Locate,
+        onSelect: () => setLandmarkBeaconsVisible((v) => !v),
+      },
+      {
         id: "canvas-toggle-bots",
         label: botsVisible ? "Canvas: Hide bots" : "Canvas: Show bots",
         category: "Canvas",
@@ -1501,6 +1589,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     trailsMode,
     connectionsEnabled,
     minimapVisible,
+    landmarkBeaconsVisible,
     botsVisible,
   ]);
 
@@ -2549,6 +2638,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         selection={memorySelection}
         onClose={() => setMemorySelection(null)}
       />
+      {landmarkBeaconsVisible && (
+        <SpatialEdgeBeacons
+          camera={camera}
+          viewport={viewportSize}
+          beacons={edgeBeacons}
+          maxVisible={9}
+        />
+      )}
       <div
         className="absolute top-4 right-4 z-[2] flex flex-row items-stretch gap-2"
         onPointerDown={(e) => e.stopPropagation()}
@@ -2569,6 +2666,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           onBotsVisibleChange={setBotsVisible}
           botsReduced={botsReduced}
           onBotsReducedChange={setBotsReduced}
+          landmarkBeaconsVisible={landmarkBeaconsVisible}
+          onLandmarkBeaconsVisibleChange={setLandmarkBeaconsVisible}
         />
         <ShortcutChip />
       </div>
