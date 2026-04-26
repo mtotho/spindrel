@@ -73,6 +73,11 @@ import {
   ShortcutChip,
 } from "./SpatialCanvasChrome";
 import { MovementTraceLayer } from "./MovementTraceLayer";
+import {
+  MemoryObservationPanel,
+  MemoryObservatory,
+  type MemoryObservationSelection,
+} from "./MemoryObservatory";
 import { buildWidgetOverviewClusters } from "./widgetOverviewClusters";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
@@ -87,6 +92,7 @@ import {
   LayoutDashboard,
   Map as MapIcon,
   Sparkles,
+  Brain,
   Target,
   Users as UsersIcon,
 } from "lucide-react";
@@ -117,6 +123,8 @@ import {
   WELL_X,
   WELL_Y,
   WELL_Y_SQUASH,
+  MEMORY_OBSERVATORY_X,
+  MEMORY_OBSERVATORY_Y,
   type DensityIntensity,
   type DensityWindow,
   type TrailsMode,
@@ -452,6 +460,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     channelId: string;
     channelName: string;
   } | null>(null);
+  const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
 
   // Mobile + reduced-motion gates. We disable the starfield + halo breathing
@@ -1397,7 +1406,18 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
   }, [scheduleCamera]);
 
-  // Register the 8 canvas commands as palette items. They appear under the
+  const flyToMemoryObservatory = useCallback(() => {
+    const rect = viewportRectRef.current;
+    if (!rect.width || !rect.height) return;
+    const targetScale = Math.min(0.9, Math.max(0.55, cameraRef.current.scale));
+    scheduleCamera({
+      x: rect.width / 2 - MEMORY_OBSERVATORY_X * targetScale,
+      y: rect.height / 2 - MEMORY_OBSERVATORY_Y * targetScale,
+      scale: targetScale,
+    }, "immediate");
+  }, [scheduleCamera]);
+
+  // Register canvas commands as palette items. They appear under the
   // "Canvas" group at the top of ⌘K while the canvas is mounted, replacing
   // the previous SVG radial wheel. Handler bindings mirror the radial action
   // bundle the deleted menu used. Lives below `flyToWell` so the action
@@ -1424,6 +1444,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         category: "Canvas",
         icon: Target,
         onSelect: () => flyToWell(),
+      },
+      {
+        id: "canvas-fly-to-memory",
+        label: "Canvas: Fly to Memory Observatory",
+        category: "Canvas",
+        icon: Brain,
+        onSelect: () => flyToMemoryObservatory(),
       },
       {
         id: "canvas-cycle-activity",
@@ -1467,6 +1494,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     scheduleCamera,
     fitAllNodes,
     flyToWell,
+    flyToMemoryObservatory,
     cycleDensityIntensity,
     cycleTrailsMode,
     densityIntensity,
@@ -1519,6 +1547,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     (window as unknown as { __spindrelSpatial?: object }).__spindrelSpatial = {
       recenter: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
       flyToNow: () => flyToWell(),
+      flyToMemory: () => flyToMemoryObservatory(),
       fitAll: () => fitAllNodes(),
       flyToChannel: (channelId: string) => flyToChannel(channelId),
       setCamera: (next: { x: number; y: number; scale: number }) => scheduleCamera(next, "immediate"),
@@ -1539,7 +1568,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         })),
     };
     return cancelPan;
-  }, [scheduleCamera, flyToWell, fitAllNodes, flyToChannel]);
+  }, [scheduleCamera, flyToWell, flyToMemoryObservatory, fitAllNodes, flyToChannel]);
 
   const flyToWorldBounds = useCallback(
     (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06) => {
@@ -2222,6 +2251,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             zoom={interactiveZoom}
             lens={nowWellLens}
           />
+          <div
+            className="absolute"
+            style={{
+              left: MEMORY_OBSERVATORY_X,
+              top: MEMORY_OBSERVATORY_Y,
+              zIndex: 4,
+            }}
+          >
+            <MemoryObservatory
+              zoom={interactiveZoom}
+              lens={
+                lensEngaged && focalScreen
+                  ? projectFisheye(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y, camera, focalScreen, lensRadius)
+                  : null
+              }
+              onInspect={setMemorySelection}
+            />
+          </div>
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
             const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
@@ -2497,6 +2544,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       {diveCandidate && (
         <DivePulseOverlay channelLabel={diveCandidate.label} />
       )}
+      <MemoryObservationPanel
+        selection={memorySelection}
+        onClose={() => setMemorySelection(null)}
+      />
       <div
         className="absolute top-4 right-4 z-[2] flex flex-row items-stretch gap-2"
         onPointerDown={(e) => e.stopPropagation()}

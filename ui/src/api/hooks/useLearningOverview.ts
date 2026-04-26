@@ -68,6 +68,48 @@ export interface LearningOverview {
   memory_activity: MemoryFileActivity[];
 }
 
+export interface MemoryObservatoryFile {
+  id: string;
+  bot_id: string;
+  bot_name: string;
+  file_path: string;
+  write_count: number;
+  hygiene_count: number;
+  last_operation: string;
+  last_updated_at: string;
+  source_file?: SourceFileTarget | null;
+}
+
+export interface MemoryObservatoryBot {
+  bot_id: string;
+  bot_name: string;
+  write_count: number;
+  hot_files: MemoryObservatoryFile[];
+  last_updated_at?: string | null;
+}
+
+export interface MemoryObservatoryBurst {
+  id: string;
+  correlation_id: string;
+  bot_id: string;
+  bot_name: string;
+  job_type?: string | null;
+  write_count: number;
+  file_count: number;
+  created_at: string;
+}
+
+export interface MemoryObservatoryResponse {
+  days: number;
+  total_writes: number;
+  active_bot_count: number;
+  hidden_bot_count: number;
+  bots: MemoryObservatoryBot[];
+  hot_files: MemoryObservatoryFile[];
+  recent_events: MemoryFileActivity[];
+  bursts: MemoryObservatoryBurst[];
+}
+
 export type LearningSearchSource = "memory" | "bot_knowledge" | "channel_knowledge" | "history";
 
 export interface SourceFileTarget {
@@ -168,6 +210,15 @@ export function useLearningMemoryActivity(days = 30) {
     queryKey: ["learning-memory-activity", days],
     queryFn: () =>
       apiFetch<MemoryFileActivity[]>(`/api/v1/admin/learning/memory-activity?days=${days}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMemoryObservatory(days = 30) {
+  return useQuery({
+    queryKey: ["learning-memory-observatory", days],
+    queryFn: () =>
+      apiFetch<MemoryObservatoryResponse>(`/api/v1/admin/learning/memory-observatory?days=${days}`),
     refetchInterval: 30_000,
   });
 }

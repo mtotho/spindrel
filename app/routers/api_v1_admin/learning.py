@@ -151,6 +151,44 @@ class LearningOverviewOut(BaseModel):
     recent_runs: list[RecentHygieneRun] = []
     memory_activity: list[MemoryFileActivity] = []
 
+class MemoryObservatoryFile(BaseModel):
+    id: str
+    bot_id: str
+    bot_name: str
+    file_path: str
+    write_count: int = 0
+    hygiene_count: int = 0
+    last_operation: str = "write"
+    last_updated_at: datetime
+    source_file: Optional[SourceFileTarget] = None
+
+class MemoryObservatoryBot(BaseModel):
+    bot_id: str
+    bot_name: str
+    write_count: int = 0
+    hot_files: list[MemoryObservatoryFile] = []
+    last_updated_at: Optional[datetime] = None
+
+class MemoryObservatoryBurst(BaseModel):
+    id: str
+    correlation_id: str
+    bot_id: str
+    bot_name: str
+    job_type: Optional[str] = None
+    write_count: int = 0
+    file_count: int = 0
+    created_at: datetime
+
+class MemoryObservatoryResponse(BaseModel):
+    days: int
+    total_writes: int = 0
+    active_bot_count: int = 0
+    hidden_bot_count: int = 0
+    bots: list[MemoryObservatoryBot] = []
+    hot_files: list[MemoryObservatoryFile] = []
+    recent_events: list[MemoryFileActivity] = []
+    bursts: list[MemoryObservatoryBurst] = []
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -507,6 +545,129 @@ async def _memory_activity(
     return activity
 
 
+def _build_memory_observatory(
+    activity: list[MemoryFileActivity],
+    *,
+    days: int,
+    lane_limit: int = 12,
+    hot_file_limit: int = 6,
+    event_limit: int = 150,
+) -> MemoryObservatoryResponse:
+    by_bot: dict[str, dict] = {}
+    by_file: dict[tuple[str, str], dict] = {}
+    by_corr: dict[str, dict] = {}
+
+    for event in activity:
+        bot_id = event.bot_id or "unknown"
+        bot_name = event.bot_name or bot_id
+        by_bot.setdefault(bot_id, {
+            "bot_id": bot_id,
+            "bot_name": bot_name,
+            "write_count": 0,
+            "last_updated_at": None,
+        })
+        bot_entry = by_bot[bot_id]
+        bot_entry["write_count"] += 1
+        if bot_entry["last_updated_at"] is None or event.created_at > bot_entry["last_updated_at"]:
+            bot_entry["last_updated_at"] = event.created_at
+
+        file_key = (bot_id, event.file_path)
+        by_file.setdefault(file_key, {
+            "bot_id": bot_id,
+            "bot_name": bot_name,
+            "file_path": event.file_path,
+            "write_count": 0,
+            "hygiene_count": 0,
+            "last_operation": event.operation or "write",
+            "last_updated_at": event.created_at,
+            "source_file": event.source_file,
+        })
+        file_entry = by_file[file_key]
+        file_entry["write_count"] += 1
+        if event.is_hygiene:
+            file_entry["hygiene_count"] += 1
+        if event.created_at >= file_entry["last_updated_at"]:
+            file_entry["last_operation"] = event.operation or "write"
+            file_entry["last_updated_at"] = event.created_at
+            file_entry["source_file"] = event.source_file
+
+        if event.correlation_id:
+            burst = by_corr.setdefault(event.correlation_id, {
+                "correlation_id": event.correlation_id,
+                "bot_id": bot_id,
+                "bot_name": bot_name,
+                "job_type": event.job_type,
+                "write_count": 0,
+                "files": set(),
+                "created_at": event.created_at,
+            })
+            burst["write_count"] += 1
+            burst["files"].add(event.file_path)
+            if event.created_at > burst["created_at"]:
+                burst["created_at"] = event.created_at
+            if event.job_type:
+                burst["job_type"] = event.job_type
+
+    files = [
+        MemoryObservatoryFile(
+            id=f"{entry['bot_id']}:{entry['file_path']}",
+            bot_id=entry["bot_id"],
+            bot_name=entry["bot_name"],
+            file_path=entry["file_path"],
+            write_count=entry["write_count"],
+            hygiene_count=entry["hygiene_count"],
+            last_operation=entry["last_operation"],
+            last_updated_at=entry["last_updated_at"],
+            source_file=entry["source_file"],
+        )
+        for entry in by_file.values()
+    ]
+    files.sort(key=lambda item: (item.write_count, item.last_updated_at), reverse=True)
+
+    files_by_bot: dict[str, list[MemoryObservatoryFile]] = {}
+    for item in files:
+        files_by_bot.setdefault(item.bot_id, []).append(item)
+
+    bot_rows = [
+        MemoryObservatoryBot(
+            bot_id=entry["bot_id"],
+            bot_name=entry["bot_name"],
+            write_count=entry["write_count"],
+            last_updated_at=entry["last_updated_at"],
+            hot_files=files_by_bot.get(entry["bot_id"], [])[:hot_file_limit],
+        )
+        for entry in by_bot.values()
+    ]
+    bot_rows.sort(key=lambda item: (item.write_count, item.last_updated_at or datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+
+    bursts = [
+        MemoryObservatoryBurst(
+            id=f"burst:{entry['correlation_id']}",
+            correlation_id=entry["correlation_id"],
+            bot_id=entry["bot_id"],
+            bot_name=entry["bot_name"],
+            job_type=entry["job_type"],
+            write_count=entry["write_count"],
+            file_count=len(entry["files"]),
+            created_at=entry["created_at"],
+        )
+        for entry in by_corr.values()
+        if entry["write_count"] > 1 or entry["job_type"]
+    ]
+    bursts.sort(key=lambda item: (item.write_count, item.created_at), reverse=True)
+
+    return MemoryObservatoryResponse(
+        days=days,
+        total_writes=len(activity),
+        active_bot_count=len(bot_rows),
+        hidden_bot_count=max(0, len(bot_rows) - lane_limit),
+        bots=bot_rows[:lane_limit],
+        hot_files=files[:hot_file_limit * 2],
+        recent_events=activity[:event_limit],
+        bursts=bursts[:12],
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -562,6 +723,19 @@ async def learning_memory_activity(
         job_types=_selected_ids(job_type),
         limit=limit,
     )
+
+
+@router.get("/memory-observatory", response_model=MemoryObservatoryResponse)
+async def learning_memory_observatory(
+    days: int = Query(default=30, ge=0, le=365),
+    limit: int = Query(default=250, ge=1, le=500),
+    lane_limit: int = Query(default=12, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Observatory-ready aggregate for the spatial memory landmark."""
+    activity = await _memory_activity(db, days=days, limit=limit)
+    return _build_memory_observatory(activity, days=days, lane_limit=lane_limit)
 
 
 @router.get("/knowledge-library", response_model=KnowledgeLibraryResponse)

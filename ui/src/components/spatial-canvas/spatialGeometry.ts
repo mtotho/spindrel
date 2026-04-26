@@ -132,6 +132,8 @@ export function loadMinimapVisible(storage: Storage = localStorage): boolean {
 export const WELL_X = 0;
 export const WELL_Y = 2200;
 export const WELL_Y_SQUASH = 0.55;
+export const MEMORY_OBSERVATORY_X = -2800;
+export const MEMORY_OBSERVATORY_Y = 100;
 export const WELL_RINGS: { minutes: number; label: string; major?: boolean }[] = [
   { minutes: 15, label: "15m" },
   { minutes: 60, label: "1h", major: true },
