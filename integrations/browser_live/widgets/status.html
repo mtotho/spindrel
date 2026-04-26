@@ -200,8 +200,11 @@ icon: globe
     });
   }
 
-  // Initial paint from the envelope the host injected.
-  render((sp && sp.toolResult && sp.toolResult.data) || {});
+  // Initial paint from the envelope the host injected. The host bakes the
+  // tool result fields directly onto window.spindrel.toolResult (and
+  // window.spindrel.result), so read top-level — only callTool/onToolResult
+  // responses are wrapped as `{data: ...}`.
+  render((sp && (sp.result || sp.toolResult)) || {});
 
   // Re-paint whenever state_poll refreshes the envelope.
   if (sp && sp.onToolResult) {
@@ -227,7 +230,7 @@ icon: globe
   // While unpaired, poll a bit faster so the connection appears quickly
   // after the user finishes the Options page. Stops once a browser pairs.
   var fastPoll = setInterval(async function () {
-    var data = sp && sp.toolResult && sp.toolResult.data;
+    var data = sp && (sp.result || sp.toolResult);
     if (data && data.connections && data.connections.length) {
       clearInterval(fastPoll);
       return;

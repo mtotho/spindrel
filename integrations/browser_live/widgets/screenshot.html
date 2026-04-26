@@ -18,7 +18,7 @@
 <script>
 (function () {
   var sp = window.spindrel;
-  var data = (sp && sp.toolResult && sp.toolResult.data) || {};
+  var data = (sp && (sp.result || sp.toolResult)) || {};
   var titleEl = document.getElementById("title");
   var metaEl = document.getElementById("meta");
   var img = document.getElementById("img");

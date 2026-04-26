@@ -143,6 +143,64 @@ export const LENS_SIZE_EXP = 1.5;
 export const LENS_SETTLE_MS = 250;
 export const LENS_MIN_SCALE = 0.2;
 
+export interface WorldBbox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/**
+ * Visible viewport in world coordinates, given the current camera and
+ * viewport pixel size. Optional `marginPx` extends the bbox by that many
+ * screen pixels of overdraw on every side (converted to world coords).
+ *
+ * Used by world-layer renderers (MovementHistoryLayer, ConnectionLineLayer,
+ * UsageDensityLayer, MovementTraceLayer) to cull off-screen content and
+ * clip their backing SVGs to viewport-sized rectangles. iOS Safari WebKit
+ * (esp. as a home-screen PWA) refuses to allocate SVG rasterization buffers
+ * past ~4096px in either axis; world-bbox-sized SVGs blow that ceiling at
+ * deep zoom and white-screen the canvas.
+ */
+export function getViewportWorldBbox(
+  camera: Camera,
+  viewport: { w: number; h: number },
+  marginPx = 0,
+): WorldBbox {
+  const m = marginPx / Math.max(camera.scale, 1e-6);
+  // `+ 0` normalizes -0 to +0 — bbox math doesn't care about IEEE sign of
+  // zero, but downstream `Object.is` / strict-equal callers (esp. in tests)
+  // do, so we erase the distinction at the source.
+  return {
+    minX: -camera.x / camera.scale - m + 0,
+    minY: -camera.y / camera.scale - m + 0,
+    maxX: (viewport.w - camera.x) / camera.scale + m + 0,
+    maxY: (viewport.h - camera.y) / camera.scale + m + 0,
+  };
+}
+
+/** Axis-aligned intersection. Returns null when the boxes don't overlap. */
+export function intersectBbox(a: WorldBbox, b: WorldBbox): WorldBbox | null {
+  const minX = Math.max(a.minX, b.minX);
+  const minY = Math.max(a.minY, b.minY);
+  const maxX = Math.min(a.maxX, b.maxX);
+  const maxY = Math.min(a.maxY, b.maxY);
+  if (minX >= maxX || minY >= maxY) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+/** Cheap AABB-vs-AABB hit test. */
+export function bboxOverlaps(a: WorldBbox, b: WorldBbox): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+}
+
+/**
+ * Defensive ceiling on SVG width/height attributes. Picked to stay under the
+ * iOS WebKit raster-buffer limit (~4096px in either axis) with margin.
+ * Layers that compute their own bbox should clamp the resulting w/h to this.
+ */
+export const SVG_MAX_DIMENSION_PX = 4096;
+
 export function clampCamera(camera: Camera): Camera {
   return {
     x: camera.x,

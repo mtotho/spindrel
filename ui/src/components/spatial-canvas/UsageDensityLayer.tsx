@@ -3,7 +3,8 @@ import { useUsageBreakdown, type BreakdownGroup } from "../../api/hooks/useUsage
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import { UsageHalo } from "./UsageHalo";
 import { channelHue } from "./ChannelTile";
-import type { DensityIntensity, DensityWindow } from "./spatialGeometry";
+import type { DensityIntensity, DensityWindow, WorldBbox } from "./spatialGeometry";
+import { bboxOverlaps } from "./spatialGeometry";
 
 export type { DensityWindow };
 
@@ -41,6 +42,10 @@ interface UsageDensityLayerProps {
   compare: boolean;
   animate: boolean;
   suppressedChannelIds?: Set<string>;
+  /** Visible world bbox + overdraw. Halos outside this bbox are not
+   *  rendered — keeps the GPU layer count manageable on iOS PWAs at
+   *  deep zoom. Optional for tests / non-canvas use. */
+  viewportBbox?: WorldBbox;
 }
 
 const WINDOW_HOURS: Record<DensityWindow, number> = {
@@ -106,6 +111,7 @@ export function UsageDensityLayer({
   compare,
   animate,
   suppressedChannelIds,
+  viewportBbox,
 }: UsageDensityLayerProps) {
   const after = useMemo(() => isoHoursAgo(WINDOW_HOURS[densityWindow]), [densityWindow]);
   const before = useMemo(() => nowIso(), [densityWindow]);
@@ -205,6 +211,20 @@ export function UsageDensityLayer({
 
         const cx = node.world_x + node.world_w / 2;
         const cy = node.world_y + node.world_h / 2;
+
+        // Cull halos outside the viewport. Each halo is its own GPU layer
+        // (animated radial-gradient div); skipping off-screen ones drops
+        // composite-layer count from O(channels) to O(visible-channels) at
+        // deep zoom, which is what iOS WebKit budgets for.
+        if (viewportBbox) {
+          const haloBbox: WorldBbox = {
+            minX: cx - radius,
+            minY: cy - radius,
+            maxX: cx + radius,
+            maxY: cy + radius,
+          };
+          if (!bboxOverlaps(haloBbox, viewportBbox)) return null;
+        }
 
         return (
           <UsageHalo

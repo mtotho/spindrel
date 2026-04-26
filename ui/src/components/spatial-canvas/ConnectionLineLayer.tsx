@@ -1,5 +1,11 @@
 import { useMemo } from "react";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
+import {
+  SVG_MAX_DIMENSION_PX,
+  bboxOverlaps,
+  intersectBbox,
+  type WorldBbox,
+} from "./spatialGeometry";
 
 /**
  * Toggleable layer that draws faint curved lines from each pinned widget
@@ -11,12 +17,19 @@ import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
  * pan/zoom apply for free. NOT projected through the P16 lens — endpoints
  * would drift from the tiles' rendered positions when the lens is engaged;
  * accepted v1 limitation.
+ *
+ * Viewport clipping: SVG width/height is the intersection of the line
+ * content bbox and the visible viewport. Lines whose endpoints AND chord
+ * miss the viewport are culled. Without this, deep zoom blew the iOS
+ * WebKit raster ceiling.
  */
 
 interface ConnectionLineLayerProps {
   nodes: SpatialNode[];
   hoveredNodeId: string | null;
   suppressedChannelIds?: Set<string>;
+  /** Visible world bbox + overdraw. Optional for tests / non-canvas use. */
+  viewportBbox?: WorldBbox;
 }
 
 interface LinePair {
@@ -28,7 +41,21 @@ interface LinePair {
   highlighted: boolean;
 }
 
-export function ConnectionLineLayer({ nodes, hoveredNodeId, suppressedChannelIds }: ConnectionLineLayerProps) {
+function lineBbox(l: LinePair): WorldBbox {
+  return {
+    minX: Math.min(l.fromX, l.toX),
+    minY: Math.min(l.fromY, l.toY),
+    maxX: Math.max(l.fromX, l.toX),
+    maxY: Math.max(l.fromY, l.toY),
+  };
+}
+
+export function ConnectionLineLayer({
+  nodes,
+  hoveredNodeId,
+  suppressedChannelIds,
+  viewportBbox,
+}: ConnectionLineLayerProps) {
   const lines = useMemo<LinePair[]>(() => {
     const channelCenterById = new Map<string, { x: number; y: number }>();
     for (const n of nodes) {
@@ -48,21 +75,34 @@ export function ConnectionLineLayer({ nodes, hoveredNodeId, suppressedChannelIds
       if (!target) continue; // deleted/missing source channel — skip
       const fromX = n.world_x + n.world_w / 2;
       const fromY = n.world_y + n.world_h / 2;
-      out.push({
+      const pair: LinePair = {
         id: n.id,
         fromX,
         fromY,
         toX: target.x,
         toY: target.y,
         highlighted: hoveredNodeId === n.id,
-      });
+      };
+      // Cull lines whose chord bbox is entirely off-screen. A bezier with
+      // perpendicular control point can bow up to ~80 world-px out of the
+      // chord bbox; we expand slightly before testing.
+      if (viewportBbox) {
+        const lb = lineBbox(pair);
+        const padded: WorldBbox = {
+          minX: lb.minX - 100,
+          minY: lb.minY - 100,
+          maxX: lb.maxX + 100,
+          maxY: lb.maxY + 100,
+        };
+        if (!bboxOverlaps(padded, viewportBbox)) continue;
+      }
+      out.push(pair);
     }
     return out;
-  }, [nodes, hoveredNodeId, suppressedChannelIds]);
+  }, [nodes, hoveredNodeId, suppressedChannelIds, viewportBbox]);
 
-  // Compute viewBox bounds large enough to cover all endpoints + a margin.
-  // SVG sized to fit the world-rect of the lines; positioned absolutely at
-  // the bounds origin so its internal coords match world coords.
+  // SVG bbox sized to the kept lines. 200px content margin keeps the bezier
+  // arc inside the viewBox; viewport clipping then trims outer edges.
   const bounds = useMemo(() => {
     if (lines.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -73,15 +113,23 @@ export function ConnectionLineLayer({ nodes, hoveredNodeId, suppressedChannelIds
       maxY = Math.max(maxY, l.fromY, l.toY);
     }
     const margin = 200;
-    return {
-      x: minX - margin,
-      y: minY - margin,
-      w: (maxX - minX) + margin * 2,
-      h: (maxY - minY) + margin * 2,
+    const contentBbox: WorldBbox = {
+      minX: minX - margin,
+      minY: minY - margin,
+      maxX: maxX + margin,
+      maxY: maxY + margin,
     };
-  }, [lines]);
+    const drawBbox = viewportBbox ? intersectBbox(contentBbox, viewportBbox) : contentBbox;
+    if (!drawBbox) return { x: 0, y: 0, w: 0, h: 0 };
+    return {
+      x: drawBbox.minX,
+      y: drawBbox.minY,
+      w: Math.min(drawBbox.maxX - drawBbox.minX, SVG_MAX_DIMENSION_PX),
+      h: Math.min(drawBbox.maxY - drawBbox.minY, SVG_MAX_DIMENSION_PX),
+    };
+  }, [lines, viewportBbox]);
 
-  if (lines.length === 0) return null;
+  if (lines.length === 0 || bounds.w === 0 || bounds.h === 0) return null;
 
   return (
     <div
@@ -104,7 +152,6 @@ export function ConnectionLineLayer({ nodes, hoveredNodeId, suppressedChannelIds
           const dy = l.toY - l.fromY;
           const len = Math.hypot(dx, dy) || 1;
           const offset = Math.min(80, len * 0.18);
-          // Perpendicular direction (rotate dx,dy by 90°).
           const px = -dy / len;
           const py = dx / len;
           const cx = mx + px * offset;

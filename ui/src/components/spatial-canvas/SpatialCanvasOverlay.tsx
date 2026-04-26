@@ -1,7 +1,9 @@
 import { useLocation } from "react-router-dom";
+import { X } from "lucide-react";
 import { useUIStore } from "../../stores/ui";
 import { SpatialCanvas } from "./SpatialCanvas";
 import { parseChannelSurfaceFromPath } from "../../stores/channelLastSurface";
+import { useIsMobile } from "../../hooks/useIsMobile";
 
 /**
  * Overlay shell for the spatial canvas. Wraps `<SpatialCanvas />` with the
@@ -37,6 +39,31 @@ export function SpatialCanvasOverlay() {
 }
 
 function ChromeBar({ onClose }: { onClose: () => void }) {
+  const isMobile = useIsMobile();
+  if (isMobile) {
+    // 44×44 hit target — no text label (mobile users can't hit Esc anyway,
+    // and the canvas pan/zoom area is the entire viewport, so a button
+    // wide enough to read takes meaningful canvas real estate).
+    // env(safe-area-inset-*) keeps the button clear of the iPhone notch /
+    // Dynamic Island when running as a home-screen PWA in standalone mode.
+    return (
+      <button
+        type="button"
+        onClick={onClose}
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+        aria-label="Close spatial canvas"
+        className="absolute z-[2] flex items-center justify-center w-11 h-11 rounded-full bg-surface-raised/90 backdrop-blur border border-surface-border text-text active:bg-surface"
+        style={{
+          top:   "max(12px, env(safe-area-inset-top))",
+          right: "max(12px, env(safe-area-inset-right))",
+        }}
+      >
+        <X className="w-5 h-5" aria-hidden />
+      </button>
+    );
+  }
   return (
     <div
       onPointerDown={(e) => e.stopPropagation()}

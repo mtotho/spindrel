@@ -101,9 +101,15 @@ import {
   clampCamera,
   loadStoredCamera,
   projectFisheye,
+  getViewportWorldBbox,
+  intersectBbox,
+  SVG_MAX_DIMENSION_PX,
   type Camera,
   type LensTransform,
+  type WorldBbox,
 } from "./spatialGeometry";
+import { useIsMobile } from "../../hooks/useIsMobile";
+import { useReducedMotion } from "../../hooks/useReducedMotion";
 import {
   upcomingOrbitBucket,
   upcomingOrbit,
@@ -358,6 +364,15 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     channelName: string;
   } | null>(null);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+
+  // Mobile + reduced-motion gates. We disable the starfield + halo breathing
+  // on mobile (especially iOS PWAs, where every continuous animation is a
+  // GPU layer compounding the SVG-raster cost) and under the system
+  // `prefers-reduced-motion: reduce` preference. Tile interaction, dive, and
+  // trails are NOT animation-gated — those communicate state.
+  const isMobile = useIsMobile();
+  const reducedMotion = useReducedMotion();
+  const animationsEnabled = !isMobile && !reducedMotion;
 
   // Token-usage density layer state. Defaults: subtle (on), 24h, channel-hued
   // (compare off), breathing on. Persisted to localStorage so the user's
@@ -1130,6 +1145,17 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [viewportWorldBounds],
   );
 
+  // Tight viewport bbox in world coords used by SVG-rendering layers
+  // (MovementHistory, ConnectionLine, MovementTrace) and the halo culler.
+  // 200px screen-pixel overdraw so partial-edge content still renders.
+  // Distinct from `viewportWorldBounds` (3x viewport) which gates iframe
+  // mounting — that one's generous because remounting iframes is expensive;
+  // for SVG clipping we want the tightest bbox that still hides edge clips.
+  const viewportBbox = useMemo<WorldBbox | undefined>(() => {
+    if (viewportSize.w === 0 || viewportSize.h === 0) return undefined;
+    return getViewportWorldBbox(camera, viewportSize, 200);
+  }, [camera, viewportSize]);
+
   const nowWellLens =
     lensEngaged && focalScreen
       ? projectFisheye(WELL_X, WELL_Y, camera, focalScreen, lensRadius)
@@ -1531,7 +1557,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         overscrollBehavior: "none",
       }}
     >
-      <CanvasStarfield />
+      {animationsEnabled && <CanvasStarfield />}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div ref={worldRef} className="absolute inset-0" style={worldStyle}>
           <OriginMarker />
@@ -1541,8 +1567,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               intensity={densityIntensity}
               window={densityWindow}
               compare={densityCompare}
-              animate={densityAnimate}
+              animate={densityAnimate && animationsEnabled}
               suppressedChannelIds={clusteredChannelIds}
+              viewportBbox={viewportBbox}
             />
           )}
           {connectionsEnabled && (
@@ -1550,6 +1577,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               nodes={nodes ?? []}
               hoveredNodeId={hoveredNodeId}
               suppressedChannelIds={clusteredChannelIds}
+              viewportBbox={viewportBbox}
             />
           )}
           {trailsMode !== "off" && (
@@ -1558,9 +1586,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               mode={trailsMode}
               hoveredNodeId={hoveredNodeId}
               scale={camera.scale}
+              viewportBbox={viewportBbox}
             />
           )}
-          <MovementTraceLayer nodes={nodes ?? []} />
+          <MovementTraceLayer nodes={nodes ?? []} viewportBbox={viewportBbox} />
           <NowWell
             tickedNow={tickedNow}
             zoom={camera.scale}
@@ -1597,7 +1626,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   top: winnerNode.world_y,
                   width: winnerNode.world_w,
                   height: winnerNode.world_h,
-                  zIndex: winnerNode.z_index,
+                  zIndex: 30 + winnerNode.z_index,
                 }}
               >
                 <ChannelClusterMarker
@@ -1629,7 +1658,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 top: cluster.worldY - 43,
                 width: 86,
                 height: 86,
-                zIndex: 2,
+                zIndex: 1,
               }}
             >
               <WidgetClusterMarker
@@ -2005,7 +2034,7 @@ function NowButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function MovementTraceLayer({ nodes }: { nodes: SpatialNode[] }) {
+function MovementTraceLayer({ nodes, viewportBbox }: { nodes: SpatialNode[]; viewportBbox?: WorldBbox }) {
   const now = Date.now();
   const traces = nodes
     .map((node) => {
@@ -2024,6 +2053,22 @@ function MovementTraceLayer({ nodes }: { nodes: SpatialNode[] }) {
       const fromY = movement.from.y + node.world_h / 2;
       const toX = movement.to.x + node.world_w / 2;
       const toY = movement.to.y + node.world_h / 2;
+      // Cull traces whose chord+halo bbox falls entirely outside the
+      // viewport. The halo circle around `to` extends roughly node-radius
+      // out, so pad the bbox before testing.
+      if (viewportBbox) {
+        const haloR = Math.max(node.world_w, node.world_h) * 0.7;
+        const tb: WorldBbox = {
+          minX: Math.min(fromX, toX) - haloR,
+          minY: Math.min(fromY, toY) - haloR,
+          maxX: Math.max(fromX, toX) + haloR,
+          maxY: Math.max(fromY, toY) + haloR,
+        };
+        if (tb.minX > viewportBbox.maxX || tb.maxX < viewportBbox.minX
+            || tb.minY > viewportBbox.maxY || tb.maxY < viewportBbox.minY) {
+          return null;
+        }
+      }
       return { node, fromX, fromY, toX, toY, opacity };
     })
     .filter(Boolean) as Array<{
@@ -2037,14 +2082,22 @@ function MovementTraceLayer({ nodes }: { nodes: SpatialNode[] }) {
   if (traces.length === 0) return null;
   const xs = traces.flatMap((t) => [t.fromX, t.toX]);
   const ys = traces.flatMap((t) => [t.fromY, t.toY]);
-  const minX = Math.min(...xs) - 80;
-  const minY = Math.min(...ys) - 80;
-  const maxX = Math.max(...xs) + 80;
-  const maxY = Math.max(...ys) + 80;
+  const contentBbox: WorldBbox = {
+    minX: Math.min(...xs) - 80,
+    minY: Math.min(...ys) - 80,
+    maxX: Math.max(...xs) + 80,
+    maxY: Math.max(...ys) + 80,
+  };
+  const drawBbox = viewportBbox ? intersectBbox(contentBbox, viewportBbox) : contentBbox;
+  if (!drawBbox) return null;
+  const minX = drawBbox.minX;
+  const minY = drawBbox.minY;
+  const width = Math.min(drawBbox.maxX - drawBbox.minX, SVG_MAX_DIMENSION_PX);
+  const height = Math.min(drawBbox.maxY - drawBbox.minY, SVG_MAX_DIMENSION_PX);
   return (
     <svg
       className="absolute pointer-events-none overflow-visible"
-      style={{ left: minX, top: minY, width: maxX - minX, height: maxY - minY }}
+      style={{ left: minX, top: minY, width, height }}
       aria-hidden
     >
       <defs>
