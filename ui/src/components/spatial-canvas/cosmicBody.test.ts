@@ -1,87 +1,110 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
-  bodyGradients,
-  bodyGradientPrimaryOnly,
-  bodyParticles,
-  widerOrganicBorderRadius,
+  planetAtmosphereStops,
+  planetBandRects,
+  planetMoonProps,
+  planetSpotCircles,
+  planetTraits,
 } from "./cosmicBody.ts";
 
-test("widerOrganicBorderRadius is deterministic per id", () => {
-  const a = widerOrganicBorderRadius("channel-abc");
-  const b = widerOrganicBorderRadius("channel-abc");
-  assert.equal(a, b, "same id should produce identical border-radius string");
+test("planetTraits is deterministic per id", () => {
+  const a = planetTraits("channel-abc");
+  const b = planetTraits("channel-abc");
+  assert.deepEqual(a, b);
 });
 
-test("widerOrganicBorderRadius enforces visible asymmetry", () => {
-  // Pull 12 different ids; for each, parse the 8 percentages and assert
-  // that the spread between max and min is at least 30%. Asymmetry is what
-  // turns "fat circle" silhouettes into recognizable organic shapes.
-  const ids = [
-    "abc", "def", "ghi", "jkl", "mno", "pqr",
-    "stu", "vwx", "yz0", "123", "456", "789",
-  ];
-  for (const id of ids) {
-    const radius = widerOrganicBorderRadius(id);
-    const nums = (radius.match(/[\d.]+/g) ?? []).map(Number);
-    assert.equal(nums.length, 8, `expected 8 percentages, got ${nums.length} for id=${id}`);
-    const spread = Math.max(...nums) - Math.min(...nums);
+test("planetTraits surface distribution covers most of the 5 types over 20 ids", () => {
+  // We expect at least 3 of the 5 surface types to show up across a small
+  // sample. This catches the case where a bad mod / bad bit slot pinned every
+  // tile to the same surface.
+  const seen = new Set<string>();
+  for (let i = 0; i < 20; i++) {
+    seen.add(planetTraits(`ch-${i}`).surface);
+  }
+  assert.ok(seen.size >= 3, `expected ≥3 surface types across 20 ids, saw ${[...seen].join(", ")}`);
+});
+
+test("planetTraits accessory distribution is roughly 50% none / 25% ring / 25% moon", () => {
+  // Loose bounds — the LCG isn't statistical-grade. Goal: make sure the
+  // probability split isn't 100% / 0% (broken bit slot) or 0% / 100% (broken
+  // threshold).
+  let none = 0;
+  let ring = 0;
+  let moon = 0;
+  const N = 60;
+  for (let i = 0; i < N; i++) {
+    const acc = planetTraits(`accessory-roll-${i}`).accessory;
+    if (acc === null) none++;
+    else if (acc === "ring") ring++;
+    else moon++;
+  }
+  assert.ok(none > 0 && ring > 0 && moon > 0, `expected all three accessory types over ${N} ids — got none=${none} ring=${ring} moon=${moon}`);
+  assert.ok(none > N * 0.25 && none < N * 0.75, `none-rate ${(none / N).toFixed(2)} should be near 0.5`);
+});
+
+test("ringAngleDeg always lies in [-45, 45] when accessory is 'ring'", () => {
+  for (let i = 0; i < 50; i++) {
+    const t = planetTraits(`ring-test-${i}`);
+    if (t.accessory !== "ring") continue;
     assert.ok(
-      spread >= 30,
-      `id=${id} produced spread=${spread.toFixed(1)} < 30 (radius=${radius})`,
+      t.ringAngleDeg >= -45 && t.ringAngleDeg <= 45,
+      `ring angle ${t.ringAngleDeg} out of [-45, 45] for id=ring-test-${i}`,
     );
   }
 });
 
-test("widerOrganicBorderRadius percentages stay in [15, 100] band", () => {
-  // Asymmetry enforcement may invert low corners (replace v with 100 - v).
-  // Inverted corners can land at 100 (when v=0, but our floor is 15 → max
-  // inverted is 85) but never above 100 or below 0.
-  for (const id of ["x", "yy", "zzz", "channel-1", "channel-2"]) {
-    const radius = widerOrganicBorderRadius(id);
-    const nums = (radius.match(/[\d.]+/g) ?? []).map(Number);
-    for (const n of nums) {
-      assert.ok(n >= 15 && n <= 100, `corner ${n} out of range for id=${id}`);
-    }
+test("moon center lies outside the planet (≥40) but inside extended viewBox (≤60)", () => {
+  for (let i = 0; i < 50; i++) {
+    const t = planetTraits(`moon-test-${i}`);
+    if (t.accessory !== "moon") continue;
+    const moon = planetMoonProps(t, 200);
+    const dist = Math.sqrt((moon.cx - 50) ** 2 + (moon.cy - 50) ** 2);
+    assert.ok(
+      dist >= 40 && dist <= 60,
+      `moon distance ${dist.toFixed(2)} out of [40, 60] for id=moon-test-${i}`,
+    );
   }
 });
 
-test("bodyGradients emits exactly three radial-gradient layers", () => {
-  const css = bodyGradients("channel-xyz", 200, "normal");
-  const matches = css.match(/radial-gradient\(/g) ?? [];
-  assert.equal(matches.length, 3, `expected 3 gradients, got ${matches.length} in ${css}`);
-});
-
-test("bodyGradients warm intensity boosts inner alphas", () => {
-  const normal = bodyGradients("channel-xyz", 200, "normal");
-  const warm = bodyGradients("channel-xyz", 200, "warm");
-  // Pull the first alpha value from each (inside the first hsla(...) call).
-  const normalAlpha = parseFloat(normal.match(/hsla\([^)]+,\s*([\d.]+)\)/)?.[1] ?? "0");
-  const warmAlpha = parseFloat(warm.match(/hsla\([^)]+,\s*([\d.]+)\)/)?.[1] ?? "0");
+test("planetAtmosphereStops 'warm' has higher final-stop alpha than 'normal'", () => {
+  const warm = planetAtmosphereStops(120, "warm");
+  const normal = planetAtmosphereStops(120, "normal");
+  const lastAlpha = (stops: { color: string }[]) =>
+    parseFloat(stops[stops.length - 1].color.match(/,\s*([\d.]+)\)$/)?.[1] ?? "0");
   assert.ok(
-    warmAlpha > normalAlpha,
-    `warm alpha ${warmAlpha} should exceed normal alpha ${normalAlpha}`,
+    lastAlpha(warm) > lastAlpha(normal),
+    `warm alpha ${lastAlpha(warm)} should exceed normal alpha ${lastAlpha(normal)}`,
   );
 });
 
-test("bodyGradientPrimaryOnly emits exactly one radial-gradient", () => {
-  const css = bodyGradientPrimaryOnly(120, "normal");
-  const matches = css.match(/radial-gradient\(/g) ?? [];
-  assert.equal(matches.length, 1);
+test("planetBandRects returns 3..5 entries when surface is 'bands'", () => {
+  for (let i = 0; i < 50; i++) {
+    const t = planetTraits(`bands-test-${i}`);
+    if (t.surface !== "bands") continue;
+    const rects = planetBandRects(t, 220);
+    assert.ok(
+      rects.length >= 3 && rects.length <= 5,
+      `expected 3..5 bands, got ${rects.length} for id=bands-test-${i}`,
+    );
+  }
 });
 
-test("bodyParticles is deterministic per id", () => {
-  const a = bodyParticles("ch-abc", 8);
-  const b = bodyParticles("ch-abc", 8);
-  assert.deepEqual(a, b);
-});
-
-test("bodyParticles respects count + bounds", () => {
-  const particles = bodyParticles("ch-xyz", 10);
-  assert.equal(particles.length, 10);
-  for (const p of particles) {
-    assert.ok(p.x >= 10 && p.x <= 90, `x=${p.x} out of [10,90]`);
-    assert.ok(p.y >= 10 && p.y <= 90, `y=${p.y} out of [10,90]`);
-    assert.ok(p.size === 1 || p.size === 2);
+test("planetSpotCircles returns 2..4 dots, all inside the 40-radius planet", () => {
+  for (let i = 0; i < 50; i++) {
+    const t = planetTraits(`spots-test-${i}`);
+    if (t.surface !== "spots") continue;
+    const circles = planetSpotCircles(t);
+    assert.ok(
+      circles.length >= 2 && circles.length <= 4,
+      `expected 2..4 spots, got ${circles.length} for id=spots-test-${i}`,
+    );
+    for (const c of circles) {
+      const dist = Math.sqrt((c.cx - 50) ** 2 + (c.cy - 50) ** 2);
+      assert.ok(
+        dist + c.r <= 40,
+        `spot at (${c.cx.toFixed(1)}, ${c.cy.toFixed(1)}) r=${c.r.toFixed(1)} extends beyond planet (dist+r=${(dist + c.r).toFixed(2)})`,
+      );
+    }
   }
 });

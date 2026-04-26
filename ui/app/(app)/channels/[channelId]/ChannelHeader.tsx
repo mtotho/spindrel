@@ -594,12 +594,30 @@ export function ChannelHeader({
       {/* Beam to spatial canvas — sits to the LEFT of the dashboard switch
           so the dashboard button stays the rightmost slot (mirrors the
           chat button's position on the dashboard top bar). Sparkles glyph
-          carries the "beam me up" transport vibe. Desktop-only for now. */}
+          carries the "beam me up" transport vibe. Desktop-only for now.
+
+          The sessionStorage handoff lets the canvas recenter on this channel's
+          tile at a safe overview zoom on mount — without it, the camera state
+          loaded from localStorage can re-trigger the push-through dive
+          immediately and suck the user back into the channel they just left. */}
       {!isMobile && (
         <button
           className="header-icon-btn"
           style={{ width: iconSize, height: iconSize }}
-          onClick={() => navigate("/")}
+          onClick={() => {
+            if (channelId) {
+              try {
+                sessionStorage.setItem(
+                  "spatial.beamFromChannel",
+                  JSON.stringify({ channelId, ts: Date.now() }),
+                );
+              } catch {
+                // sessionStorage unavailable (private mode, etc.) — swallow;
+                // the mount-time dive cooldown still catches the loop.
+              }
+            }
+            navigate("/");
+          }}
           title="Beam to spatial canvas"
           aria-label="Beam to spatial canvas"
         >

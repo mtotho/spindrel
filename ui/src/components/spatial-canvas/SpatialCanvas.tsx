@@ -290,6 +290,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const cameraCommitTimerRef = useRef<number | null>(null);
   const cameraMovingTimerRef = useRef<number | null>(null);
   const [diving, setDiving] = useState(false);
+  // Mount timestamp — gates push-through dive detection for the first 1.5s
+  // after the canvas remounts. Belt-and-suspenders against any flow that
+  // lands the user at high zoom over a tile (route change, hot reload,
+  // future "open canvas centered on X" entry points), not just the
+  // beam-me-up case the sessionStorage handoff covers.
+  const mountedAtRef = useRef<number>(Date.now());
   // Persist camera on every change EXCEPT during the dive transition. Dive
   // tweens the camera to a tile-fill target right before navigating away;
   // we want to remember the user's *pre-dive* exploration camera, not the
@@ -791,6 +797,60 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }, "immediate");
   }, [nodes, scheduleCamera]);
 
+  // Beam-me-up handoff. When the user clicks the "Beam to spatial canvas"
+  // button on a channel route, ChannelHeader sets a sessionStorage flag with
+  // the source channel id + timestamp before navigating home. On the canvas's
+  // next mount, we look that flag up, find the matching tile, and recenter
+  // the camera on it at a safe overview zoom (well below the push-through
+  // dive threshold). Without this, the camera state loaded from localStorage
+  // can leave the user already zoomed deep over the source tile, and the
+  // dive detector immediately re-fires and sucks them back in.
+  const beamConsumedRef = useRef(false);
+  useEffect(() => {
+    if (beamConsumedRef.current) return;
+    if (!nodes || nodes.length === 0) return;
+    const rect = viewportRectRef.current;
+    if (!rect.width || !rect.height) return;
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem("spatial.beamFromChannel");
+    } catch {
+      beamConsumedRef.current = true;
+      return;
+    }
+    if (!raw) {
+      beamConsumedRef.current = true;
+      return;
+    }
+    try {
+      sessionStorage.removeItem("spatial.beamFromChannel");
+    } catch {
+      // Ignore — flag will just expire on the timestamp check next time.
+    }
+    beamConsumedRef.current = true;
+    let parsed: { channelId?: string; ts?: number } | null = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!parsed?.channelId || typeof parsed.ts !== "number") return;
+    if (Date.now() - parsed.ts > 5000) return;
+    const tile = nodes.find((n) => n.channel_id === parsed!.channelId);
+    if (!tile) return;
+    const targetScale = DIVE_SCALE_THRESHOLD * 0.7;
+    const tileCx = tile.world_x + tile.world_w / 2;
+    const tileCy = tile.world_y + tile.world_h / 2;
+    scheduleCamera(
+      {
+        scale: targetScale,
+        x: rect.width / 2 - tileCx * targetScale,
+        y: rect.height / 2 - tileCy * targetScale,
+      },
+      "immediate",
+    );
+  }, [nodes, viewportSize.w, viewportSize.h, scheduleCamera]);
+
   // Manual wheel listener with { passive: false } — React's synthetic onWheel
   // is passive by default, so preventDefault() would be silently ignored and
   // the page would scroll underneath.
@@ -1099,6 +1159,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [divePulseProgress, setDivePulseProgress] = useState(0);
 
   useEffect(() => {
+    // Mount-time cooldown — defends against any flow that lands the canvas
+    // at high zoom over a tile right after mount (most often: beam-me-up
+    // back from a channel route, where the camera state loaded from
+    // localStorage might re-trigger a dive into the channel we just left).
+    if (Date.now() - mountedAtRef.current < 1500) {
+      setDiveCandidate(null);
+      return;
+    }
     if (diving || draggingNodeId) {
       setDiveCandidate(null);
       return;

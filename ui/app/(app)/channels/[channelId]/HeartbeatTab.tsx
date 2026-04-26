@@ -23,6 +23,7 @@ import { HeartbeatHistoryList } from "./HeartbeatHistoryList";
 import { ContextPreview, HeartbeatTemplatePreview } from "./HeartbeatContextPreview";
 import { SpatialPolicyCard } from "./SpatialBotPolicyControls";
 import { HeartbeatExecutionControls, normalizeExecutionPolicy } from "./HeartbeatExecutionControls";
+import { saveMatchesCurrentDraft, shouldApplyServerDraft } from "./autosaveDraft";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -279,6 +280,7 @@ export function HeartbeatTab({
   const [templatePreviewExpanded, setTemplatePreviewExpanded] = useState(false);
   const hbFormRef = useRef<any>(null);
   const hbDirtyRef = useRef(false);
+  const hbSavePendingRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch templates to render linked template content
@@ -296,6 +298,13 @@ export function HeartbeatTab({
 
   useEffect(() => {
     if (!data || isFetching) return;
+    if (!shouldApplyServerDraft({
+      dirty: hbDirtyRef.current,
+      pending: hbSavePendingRef.current,
+      hasScheduledSave: saveTimeoutRef.current != null,
+    })) {
+      return;
+    }
     if (data?.config) {
       const nextForm = {
         interval_minutes: data.config.interval_minutes ?? 60,
@@ -383,13 +392,18 @@ export function HeartbeatTab({
       method: "PUT",
       body: JSON.stringify(body),
     }),
-    onSuccess: () => {
+    onSuccess: (_saved: any, draft: any) => {
       queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
       queryClient.invalidateQueries({ queryKey: ["channel-spatial-bot-policy", channelId] });
-      hbDirtyRef.current = false;
-      setHbDirty(false);
-      setHbLastSavedAt(Date.now());
+      if (saveMatchesCurrentDraft({ savedDraft: draft, currentDraft: hbFormRef.current })) {
+        hbDirtyRef.current = false;
+        setHbDirty(false);
+        setHbLastSavedAt(Date.now());
+      }
+    },
+    onSettled: () => {
+      hbSavePendingRef.current = false;
     },
   });
 
@@ -401,9 +415,12 @@ export function HeartbeatTab({
     saveTimeoutRef.current = setTimeout(async () => {
       saveTimeoutRef.current = null;
       if (!hbFormRef.current) return;
+      const draft = hbFormRef.current;
+      hbSavePendingRef.current = true;
       try {
-        await saveMutationRef.current.mutateAsync(hbFormRef.current);
+        await saveMutationRef.current.mutateAsync(draft);
       } catch {
+        hbSavePendingRef.current = false;
         // Error state is surfaced via saveMutation.isError / header pill.
       }
     }, 800);

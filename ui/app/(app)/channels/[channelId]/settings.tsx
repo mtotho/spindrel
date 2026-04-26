@@ -18,6 +18,7 @@ import { useIsAdmin } from "@/src/hooks/useScope";
 import { prettyIntegrationName } from "@/src/utils/format";
 import type { ChannelSettings } from "@/src/types/api";
 import { SaveStatusPill, type SaveStatusTone } from "@/src/components/shared/SettingsControls";
+import { saveMatchesCurrentDraft, shouldApplyServerDraft } from "./autosaveDraft";
 
 // Tab components
 import { HistoryTab } from "./HistoryTab";
@@ -93,6 +94,7 @@ export default function ChannelSettingsScreen() {
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [channelDirty, setChannelDirty] = useState(false);
   const [channelLastSavedAt, setChannelLastSavedAt] = useState<number | null>(null);
+  const channelDirtyRef = useRef(false);
   const [heartbeatSaveState, setHeartbeatSaveState] = useState<ChildSaveState>({
     dirty: false,
     isPending: false,
@@ -152,7 +154,14 @@ export default function ChannelSettingsScreen() {
 
   useEffect(() => {
     if (settings) {
-      setForm({
+      if (!shouldApplyServerDraft({
+        dirty: channelDirtyRef.current,
+        pending: updateMutation.isPending,
+        hasScheduledSave: saveTimeoutRef.current != null,
+      })) {
+        return;
+      }
+      const nextForm = {
         name: settings.name,
         private: settings.private,
         user_id: settings.user_id,
@@ -199,9 +208,13 @@ export default function ChannelSettingsScreen() {
         layout_mode: settings.layout_mode,
         widget_theme_ref: settings.widget_theme_ref,
         pipeline_mode: settings.pipeline_mode,
-      });
+      };
+      setForm(nextForm);
+      formRef.current = nextForm;
+      channelDirtyRef.current = false;
+      setChannelDirty(false);
     }
-  }, [settings]);
+  }, [settings, updateMutation.isPending]);
 
   // Debounced auto-save: every patch() triggers a save after 800ms.
   // Multiple rapid changes batch into one PATCH request.
@@ -218,10 +231,14 @@ export default function ChannelSettingsScreen() {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
       saveTimeoutRef.current = null;
+      const draft = formRef.current;
       try {
-        await mutationRef.current.mutateAsync(formRef.current);
-        setChannelDirty(false);
-        setChannelLastSavedAt(Date.now());
+        await mutationRef.current.mutateAsync(draft);
+        if (saveMatchesCurrentDraft({ savedDraft: draft, currentDraft: formRef.current })) {
+          channelDirtyRef.current = false;
+          setChannelDirty(false);
+          setChannelLastSavedAt(Date.now());
+        }
       } catch {
         // Error state handled by updateMutation.isError
       }
@@ -241,7 +258,12 @@ export default function ChannelSettingsScreen() {
 
   const patch = useCallback(
     <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => {
-      setForm((f) => ({ ...f, [key]: value }));
+      setForm((f) => {
+        const next = { ...f, [key]: value };
+        formRef.current = next;
+        return next;
+      });
+      channelDirtyRef.current = true;
       setChannelDirty(true);
       debouncedSave();
     },
