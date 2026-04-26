@@ -21,6 +21,7 @@ interface SourceFileInspectorProps {
   fallbackUrl?: string | null;
   onClose: () => void;
   onOpenFallback?: (url: string) => void;
+  onShowSource?: () => void;
   variant?: "aside" | "panel";
   className?: string;
 }
@@ -82,6 +83,7 @@ export function SourceFileInspector({
   fallbackUrl,
   onClose,
   onOpenFallback,
+  onShowSource,
   variant = "aside",
   className = "",
 }: SourceFileInspectorProps) {
@@ -150,7 +152,10 @@ export function SourceFileInspector({
             size="small"
             variant="secondary"
             icon={preview ? <Code size={13} /> : <Eye size={13} />}
-            onPress={() => setPreview((value) => !value)}
+            onPress={() => {
+              if (preview) onShowSource?.();
+              setPreview((value) => !value);
+            }}
           />
         )}
         <ActionButton

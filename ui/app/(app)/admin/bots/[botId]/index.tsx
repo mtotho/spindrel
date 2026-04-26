@@ -48,7 +48,7 @@ import { SectionNav } from "./SectionNav";
 import { SkillsSection } from "./SkillsSection";
 import { ToolsSection } from "./ToolsSection";
 import { WorkspaceSection } from "./WorkspaceSection";
-import { BOT_GROUPS, LEGACY_SECTION_TO_GROUP, MOBILE_NAV_BREAKPOINT, type BotGroupKey } from "./constants";
+import { BOT_GROUPS, HARNESS_BOT_GROUPS, LEGACY_SECTION_TO_GROUP, MOBILE_NAV_BREAKPOINT, type BotGroupKey } from "./constants";
 
 function fmtTokens(n: number | undefined | null): string {
   if (!n) return "--";
@@ -166,9 +166,10 @@ function IdentitySection({ draft, editorData, isNew, update }: {
   update: (patch: Partial<BotConfig>) => void;
 }) {
   const { open: termOpen, options: termOpts, openTerminal, closeTerminal } = useTerminalDrawer();
+  const isHarness = !!draft.harness_runtime;
   return (
     <div className="flex flex-col gap-6">
-      <SectionFrame title="Identity" description="Name, ownership, and the model chain used for this bot.">
+      <SectionFrame title="Identity" description={isHarness ? "Name and ownership. The harness runtime owns model selection." : "Name, ownership, and the model chain used for this bot."}>
         <Row>
           <Col>
             <FormRow label="Bot ID" description={isNew ? "Stable route and config id." : "Bot IDs are immutable after creation."}>
@@ -180,18 +181,22 @@ function IdentitySection({ draft, editorData, isNew, update }: {
           </Col>
         </Row>
         <Row>
-          <Col>
-            <FormRow label="Primary model">
-              <LlmModelDropdown value={draft.model || ""} selectedProviderId={draft.model_provider_id ?? undefined} onChange={(model, providerId) => update({ model, model_provider_id: providerId ?? null })} />
-            </FormRow>
-          </Col>
+          {!isHarness && (
+            <Col>
+              <FormRow label="Primary model">
+                <LlmModelDropdown value={draft.model || ""} selectedProviderId={draft.model_provider_id ?? undefined} onChange={(model, providerId) => update({ model, model_provider_id: providerId ?? null })} />
+              </FormRow>
+            </Col>
+          )}
           <Col>
             <FormRow label="Owner"><UserSelect value={draft.user_id ?? null} onChange={(v) => update({ user_id: v })} /></FormRow>
           </Col>
         </Row>
-        <FormRow label="Fallback models">
-          <FallbackModelList value={draft.fallback_models ?? []} onChange={(fallback_models) => update({ fallback_models })} />
-        </FormRow>
+        {!isHarness && (
+          <FormRow label="Fallback models">
+            <FallbackModelList value={draft.fallback_models ?? []} onChange={(fallback_models) => update({ fallback_models })} />
+          </FormRow>
+        )}
       </SectionFrame>
       <SectionFrame title="Display" description="How this bot appears in Spindrel surfaces and integrations.">
         <Row>
@@ -206,7 +211,7 @@ function IdentitySection({ draft, editorData, isNew, update }: {
           }} placeholder=":robot_face:" />
         </FormRow>
       </SectionFrame>
-      {editorData.model_param_definitions?.length > 0 && (
+      {!isHarness && editorData.model_param_definitions?.length > 0 && (
         <SectionFrame title="Model parameters" description="Overrides for model-specific controls when this provider exposes them.">
           <ModelParamsSection definitions={editorData.model_param_definitions} support={editorData.model_param_support} reasoningCapableModels={editorData.reasoning_capable_models} model={draft.model} params={draft.model_params || {}} onChange={(p) => update({ model_params: p })} />
         </SectionFrame>
@@ -538,9 +543,31 @@ export default function BotEditorScreen() {
     navigate({ hash: group }, { replace: true });
   }, [navigate]);
 
+  // Harness bots delegate the agent loop to an external runtime, so the
+  // prompt/tools/skills/memory/workspace sections don't apply. Hide them so
+  // the user can't try to set a system prompt and wonder why it does nothing.
+  const isHarnessBot = !!draft?.harness_runtime;
+  const visibleGroups = isHarnessBot ? HARNESS_BOT_GROUPS : undefined;
+
+  // Force the active group back into the visible set when toggling harness on
+  // — otherwise the user could be stuck looking at "Tools & Skills" with an
+  // empty pane after they pick a runtime in the Identity panel.
+  useEffect(() => {
+    if (isHarnessBot && !HARNESS_BOT_GROUPS.includes(activeGroup)) {
+      setActiveGroup("identity");
+    }
+  }, [isHarnessBot, activeGroup, setActiveGroup]);
+
   useEffect(() => {
     if (editorData?.bot && loadedBotId !== botId) {
-      setDraft({ ...editorData.bot });
+      // Pre-seed harness_runtime from ?harness=<id> when creating a new bot.
+      // Lets the harnesses page deep-link "Create harness bot" → here with the
+      // runtime already filled in, so the user only has to pick a name.
+      const harnessParam = isNew ? new URLSearchParams(location.search).get("harness") : null;
+      setDraft({
+        ...editorData.bot,
+        ...(harnessParam ? { harness_runtime: harnessParam } : {}),
+      });
       setDirty(isNew);
       setSaved(false);
       setFilter("");
@@ -576,7 +603,12 @@ export default function BotEditorScreen() {
       if (isNew) {
         const id = typeof payload.id === "string" ? payload.id : "";
         const name = typeof payload.name === "string" ? payload.name : "";
-        const model = typeof payload.model === "string" ? payload.model : "";
+        const harnessRuntime = typeof payload.harness_runtime === "string" ? payload.harness_runtime : "";
+        // Harness bots delegate model selection to the runtime; satisfy the
+        // NOT-NULL bot.model column with a clearly inert sentinel.
+        const model = typeof payload.model === "string" && payload.model
+          ? payload.model
+          : (harnessRuntime ? `harness:${harnessRuntime}` : "");
         if (!id || !name || !model) return;
         await createMutation.mutateAsync({ ...payload, id, name, model } as Partial<BotConfig> & { id: string; name: string; model: string });
         navigate(`/admin/bots/${id}`);
@@ -637,9 +669,9 @@ export default function BotEditorScreen() {
       />
       {isMobile && <div className="border-b border-surface-raised/60 px-4 py-2"><SettingsSearchBox value={filter} onChange={setFilter} placeholder="Find setting..." /></div>}
       {saveMutation.isError && <div className="bg-danger/10 px-4 py-2 text-[12px] text-danger">{saveErrorMessage}</div>}
-      {isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile />}
+      {isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile visibleGroups={visibleGroups} />}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {!isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile={false} />}
+        {!isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile={false} visibleGroups={visibleGroups} />}
         <main className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-5 md:px-6">
             {activeGroup === "overview" && <OverviewSection draft={draft} usage={usageSummary} logs={usageLogs} setGroup={setActiveGroup} />}

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Play, RefreshCw, Terminal } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { CheckCircle2, Circle, Play, Plus, RefreshCw, Terminal } from "lucide-react";
 
 import { apiFetch } from "@/src/api/client";
 import { PageHeader } from "@/src/components/layout/PageHeader";
@@ -36,6 +37,7 @@ export default function HarnessesScreen() {
   const { data, isLoading, isError, error, refetch } = useHarnesses();
   const { refreshing, onRefresh } = usePageRefresh([["admin-harnesses"]]);
   const { open, options, openTerminal, closeTerminal } = useTerminalDrawer();
+  const navigate = useNavigate();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
@@ -99,6 +101,7 @@ export default function HarnessesScreen() {
                   subtitle: cmd,
                   seedCommand: cmd,
                 })}
+                onCreateBot={() => navigate(`/admin/bots/new?harness=${encodeURIComponent(rt.name)}`)}
               />
             ))}
           </div>
@@ -127,9 +130,11 @@ export default function HarnessesScreen() {
 function RuntimeCard({
   runtime,
   onRunSuggested,
+  onCreateBot,
 }: {
   runtime: HarnessRuntime;
   onRunSuggested: (cmd: string) => void;
+  onCreateBot: () => void;
 }) {
   const label = RUNTIME_LABEL[runtime.name] ?? runtime.name;
   return (
@@ -164,8 +169,8 @@ function RuntimeCard({
           <p className="mt-1 break-words font-mono text-[11px] leading-relaxed text-text-dim">
             {runtime.detail}
           </p>
-          {!runtime.ok && runtime.suggested_command && (
-            <div className="mt-2">
+          <div className="mt-2 flex flex-wrap gap-2">
+            {!runtime.ok && runtime.suggested_command && (
               <ActionButton
                 label={`Run ${runtime.suggested_command}`}
                 variant="primary"
@@ -173,8 +178,15 @@ function RuntimeCard({
                 icon={<Play size={13} />}
                 onPress={() => onRunSuggested(runtime.suggested_command!)}
               />
-            </div>
-          )}
+            )}
+            <ActionButton
+              label="Create harness bot"
+              variant={runtime.ok ? "primary" : "ghost"}
+              size="small"
+              icon={<Plus size={13} />}
+              onPress={onCreateBot}
+            />
+          </div>
         </div>
       </div>
     </div>

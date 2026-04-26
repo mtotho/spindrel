@@ -34,3 +34,13 @@ export const LEGACY_SECTION_TO_GROUP: Record<string, BotGroupKey> = {
 };
 
 export const MOBILE_NAV_BREAKPOINT = 768;
+
+/** Groups visible when this bot delegates to an external agent harness.
+ *  Prompt, tools, skills, memory, workspace files, etc. are owned by the
+ *  harness — surfacing them in our UI just invites confusion ("why doesn't
+ *  setting a system prompt work?"). */
+export const HARNESS_BOT_GROUPS: readonly BotGroupKey[] = [
+  "overview",
+  "identity",
+  "advanced",
+];

@@ -12,7 +12,7 @@ export interface LensTransform {
 
 export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 1 };
 export const MIN_SCALE = 0.03;
-export const MAX_SCALE = 3.0;
+export const MAX_SCALE = 8.0;
 export const CAMERA_STORAGE_KEY = "spatial.camera";
 
 // Canvas chrome preferences. Persisted across sessions so the user lands
@@ -33,9 +33,12 @@ export const LENS_HINT_SEEN_KEY = "spatial.onboarding.lensHintSeen";
 // Push-through dive — tunables for the continuous-zoom-into-channel gesture.
 // User keeps zooming in on a channel tile; once `camera.scale` crosses
 // `DIVE_SCALE_THRESHOLD` AND the viewport center sits inside the tile's
-// padded bbox, a `DIVE_DWELL_MS`-long timer arms the dive. Cancel by
-// zooming out, panning the center off the tile, or starting a drag.
-export const DIVE_SCALE_THRESHOLD = MAX_SCALE * 0.85;
+// padded bbox, a `DIVE_DWELL_MS`-long timer arms the dive. This is
+// intentionally decoupled from `MAX_SCALE`: non-channel regions can support
+// deeper inspection zooms without making channel push-through harder to
+// trigger. Cancel by zooming out, panning the center off the tile, or
+// starting a drag.
+export const DIVE_SCALE_THRESHOLD = 2.55;
 export const DIVE_DWELL_MS = 450;
 export const DIVE_VIEWPORT_MARGIN = 0.2;
 

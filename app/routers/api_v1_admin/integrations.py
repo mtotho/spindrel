@@ -428,12 +428,17 @@ async def install_deps(integration_id: str, _auth=Depends(require_scopes("integr
         raise HTTPException(status_code=404, detail=f"No Python dependencies found for integration {integration_id!r}")
 
     try:
+        # ``-U`` so pressing the button on already-satisfied deps actually
+        # bumps them to the latest version that fits the spec (no-op on fresh
+        # installs). Without it, `pip install foo>=0.1.0` would print
+        # "already satisfied" against an existing 0.1.5 even when 0.1.10 is
+        # out — defeats the "Reinstall (upgrade)" use case.
         if packages:
             # Install from YAML-declared package names (always complete)
-            cmd = [sys.executable, "-m", "pip", "install", "-q", *packages]
+            cmd = [sys.executable, "-m", "pip", "install", "-q", "-U", *packages]
         else:
             # Fallback to requirements.txt
-            cmd = [sys.executable, "-m", "pip", "install", "-q", "-r", req_path]
+            cmd = [sys.executable, "-m", "pip", "install", "-q", "-U", "-r", req_path]
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

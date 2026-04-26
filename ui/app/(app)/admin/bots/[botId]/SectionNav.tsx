@@ -9,20 +9,26 @@ export function SectionNav({
   filter,
   matchingSections,
   isMobile,
+  visibleGroups,
 }: {
   active: BotGroupKey;
   onSelect: (k: BotGroupKey) => void;
   filter: string;
   matchingSections: Set<BotGroupKey>;
   isMobile: boolean;
+  visibleGroups?: readonly BotGroupKey[];
 }) {
+  const groups = visibleGroups
+    ? BOT_GROUPS.filter((g) => visibleGroups.includes(g.key))
+    : BOT_GROUPS;
+
   if (isMobile) {
     return (
       <div className="border-b border-surface-raised/60 bg-surface px-4 py-2">
         <SelectInput
           value={active}
           onChange={(value) => onSelect(value as BotGroupKey)}
-          options={BOT_GROUPS.map((group) => ({ label: group.label, value: group.key }))}
+          options={groups.map((group) => ({ label: group.label, value: group.key }))}
         />
       </div>
     );
@@ -31,7 +37,7 @@ export function SectionNav({
   return (
     <aside className="w-[190px] shrink-0 overflow-y-auto px-3 py-4">
       <div className="flex flex-col gap-1">
-        {BOT_GROUPS.map((group) => {
+        {groups.map((group) => {
           const dimmed = !!filter && !matchingSections.has(group.key);
           return (
             <SettingsControlRow

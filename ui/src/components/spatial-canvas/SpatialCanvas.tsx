@@ -1761,6 +1761,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     },
     [foregroundBbox],
   );
+  const ambientZoom = camera.scale;
   const interactiveZoom = cameraMoving ? Math.min(camera.scale, 0.99) : camera.scale;
 
   const nowWellLens =
@@ -2248,7 +2249,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           <MovementTraceLayer nodes={nodes ?? []} viewportBbox={viewportBbox} />
           <NowWell
             tickedNow={tickedNow}
-            zoom={interactiveZoom}
+            zoom={ambientZoom}
             lens={nowWellLens}
           />
           <div
@@ -2260,7 +2261,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             }}
           >
             <MemoryObservatory
-              zoom={interactiveZoom}
+              zoom={ambientZoom}
               lens={
                 lensEngaged && focalScreen
                   ? projectFisheye(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y, camera, focalScreen, lensRadius)

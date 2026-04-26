@@ -1479,6 +1479,7 @@ export default function ChatScreen() {
     modelProviderIdOverride: turnProviderIdOverride,
     onModelOverrideChange: handleModelOverrideChange,
     defaultModel: channel?.model_override || bot?.model,
+    hideModelOverride: !!bot?.harness_runtime,
     currentBotId: channel?.bot_id,
     isMultiBot: (channel?.member_bots?.length ?? 0) > 0,
     channelId,
@@ -2406,6 +2407,7 @@ function ThreadFullScreenBody({
   const [sendError, setSendError] = useState<string | null>(null);
   const [modelOverride, setModelOverride] = useState<string | undefined>(undefined);
   const [modelProviderId, setModelProviderId] = useState<string | null>(null);
+  const { data: threadBot } = useBot(botId);
   const syntheticMessages = useMemo(
     () => [buildThreadParentPreviewRow(threadSessionId, parentMessage)],
     [threadSessionId, parentMessage],
@@ -2476,6 +2478,7 @@ function ThreadFullScreenBody({
                 setModelOverride(m ?? undefined);
                 setModelProviderId(providerId ?? null);
               }}
+              hideModelOverride={!!threadBot?.harness_runtime}
               chatMode={chatMode}
             />
           </ChatComposerShell>

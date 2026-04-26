@@ -631,6 +631,7 @@ function ChannelChatSession({
                     modelProviderIdOverride={src.modelProviderIdOverride}
                     onModelOverrideChange={src.setModelOverride}
                     defaultModel={bot?.model}
+                    hideModelOverride={!!bot?.harness_runtime}
                     configOverhead={overheadPct}
                     compact
                     chatMode={chatMode}
@@ -692,6 +693,7 @@ function ChannelChatSession({
                 modelProviderIdOverride={src.modelProviderIdOverride}
                 onModelOverrideChange={src.setModelOverride}
                 defaultModel={bot?.model}
+                hideModelOverride={!!bot?.harness_runtime}
                 configOverhead={overheadPct}
                 compact
                 chatMode={chatMode}
@@ -954,6 +956,7 @@ function FixedSessionChatSession({
           modelProviderIdOverride={modelProviderId}
           onModelOverrideChange={setModelOverride}
           defaultModel={bots?.find((b) => b.id === botId)?.model}
+          hideModelOverride={!!bots?.find((b) => b.id === botId)?.harness_runtime}
           configOverhead={overheadPct}
           compact
           chatMode={chatMode}
@@ -1621,6 +1624,7 @@ function EphemeralChatSession({
                     modelProviderIdOverride={modelProviderId}
                     onModelOverrideChange={setModelOverride}
                     defaultModel={bots?.find((b) => b.id === botId)?.model}
+                    hideModelOverride={!!bots?.find((b) => b.id === botId)?.harness_runtime}
                     configOverhead={overheadPct}
                     compact
                     chatMode={chatMode}
@@ -1676,6 +1680,7 @@ function EphemeralChatSession({
                     modelProviderIdOverride={modelProviderId}
                     onModelOverrideChange={setModelOverride}
                     defaultModel={bots?.find((b) => b.id === botId)?.model}
+                    hideModelOverride={!!bots?.find((b) => b.id === botId)?.harness_runtime}
                     configOverhead={overheadPct}
                     compact
                     chatMode={chatMode}
@@ -2118,6 +2123,7 @@ function ThreadChatSession({
                     slashSurface="session"
                     availableSlashCommands={threadAvailableSlashCommands}
                     defaultModel={bot?.model}
+                    hideModelOverride={!!bot?.harness_runtime}
                     configOverhead={overheadPct}
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
@@ -2171,6 +2177,7 @@ function ThreadChatSession({
                     currentBotId={botId}
                     channelId={storeKey}
                     defaultModel={bot?.model}
+                    hideModelOverride={!!bot?.harness_runtime}
                     configOverhead={overheadPct}
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
@@ -2210,6 +2217,7 @@ function ThreadChatSession({
                 slashSurface="session"
                 availableSlashCommands={threadAvailableSlashCommands}
                 defaultModel={bot?.model}
+                hideModelOverride={!!bot?.harness_runtime}
                 configOverhead={overheadPct}
                 modelOverride={modelOverride}
                 modelProviderIdOverride={modelProviderId}

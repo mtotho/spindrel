@@ -307,7 +307,21 @@ function DependencySection({ item, kind }: { item: IntegrationItem; kind: "pytho
           {failed && <SharedStatusBadge label="Install failed" variant="danger" />}
         </div>
       ) : (
-        <SharedStatusBadge label="All dependencies available" variant="success" />
+        <div className="flex flex-wrap items-center gap-2">
+          <SharedStatusBadge label="All dependencies available" variant="success" />
+          {/* System deps don't accept a generic "reinstall" — apt-installs are per-package. */}
+          {kind !== "system" && (
+            <ActionButton
+              label={pending ? "Reinstalling..." : "Reinstall (upgrade)"}
+              onPress={handleInstall}
+              disabled={pending}
+              size="small"
+              variant="ghost"
+              icon={<Download size={12} />}
+            />
+          )}
+          {failed && <SharedStatusBadge label="Reinstall failed" variant="danger" />}
+        </div>
       )}
     </div>
   );

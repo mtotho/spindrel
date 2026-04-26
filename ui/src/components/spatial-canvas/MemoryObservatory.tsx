@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Brain, ExternalLink, FileText, Search, Sparkles, X } from "lucide-react";
 import {
@@ -15,6 +15,8 @@ import {
   buildObservatoryEventMarks,
   buildObservatoryLanes,
   memoryFileKey,
+  observatoryHorizonDays,
+  temporalLaneScale,
 } from "./memoryObservatoryLayout";
 
 export type MemoryObservationSelection =
@@ -28,10 +30,11 @@ interface MemoryObservatoryProps {
   onInspect: (selection: MemoryObservationSelection) => void;
 }
 
-const W = 980;
-const H = 680;
+const W = 1240;
+const H = 920;
 const FAR_THRESHOLD = 0.28;
 const MID_THRESHOLD = 0.72;
+const DETAIL_THRESHOLD = 1.15;
 
 function fmtRelative(value?: string | null) {
   if (!value) return "never";
@@ -63,6 +66,22 @@ function selectionFallback(selection: MemoryObservationSelection) {
   return selection.event.bot_id ? `/admin/bots/${encodeURIComponent(selection.event.bot_id)}#learning` : "/admin/learning#Memory";
 }
 
+function displayFileName(path: string) {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+function detailWorldSize(zoom: number, screenPx: number, minScreenPx = 0) {
+  return Math.max(minScreenPx, screenPx) / Math.max(zoom, 0.1);
+}
+
+function fileMarkKey(file: MemoryObservatoryFile) {
+  return memoryFileKey(file.bot_id, file.file_path);
+}
+
+function eventMarkKey(event: MemoryFileActivity, index: number) {
+  return `event:${event.correlation_id ?? event.created_at}:${event.file_path}:${index}`;
+}
+
 export function MemoryObservationPanel({
   selection,
   onClose,
@@ -71,6 +90,10 @@ export function MemoryObservationPanel({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    setExpanded(false);
+  }, [selection]);
   if (!selection) return null;
 
   const sourceFile = selectionSourceFile(selection);
@@ -78,7 +101,9 @@ export function MemoryObservationPanel({
   if (sourceFile) {
     return (
       <div
-        className="absolute bottom-4 right-4 z-[4] w-[min(520px,calc(100vw-2rem))] max-h-[min(720px,calc(100vh-2rem))]"
+        className={`absolute bottom-4 right-4 z-[4] max-h-[min(720px,calc(100vh-2rem))] transition-[width] duration-200 ${
+          expanded ? "w-[min(920px,calc(100vw-2rem))]" : "w-[min(520px,calc(100vw-2rem))]"
+        }`}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <SourceFileInspector
@@ -88,6 +113,7 @@ export function MemoryObservationPanel({
           subtitle={selection.kind === "event" ? `${selection.event.operation} by ${selection.event.bot_name}` : undefined}
           fallbackUrl={fallback}
           onOpenFallback={(url) => navigate(url)}
+          onShowSource={() => setExpanded(true)}
           onClose={onClose}
           className="h-[min(720px,calc(100vh-2rem))]"
         />
@@ -155,18 +181,20 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
   const navigate = useNavigate();
   const [days, setDays] = useState(30);
   const [query, setQuery] = useState("");
+  const [hoveredMarkKey, setHoveredMarkKey] = useState<string | null>(null);
   const observatory = useMemoryObservatory(days);
   const search = useLearningSearch();
 
   const data = observatory.data;
+  const horizonDays = observatoryHorizonDays(days);
   const maxWriteCount = Math.max(1, ...(data?.hot_files.map((file) => file.write_count) ?? [1]));
   const lanes = useMemo(
-    () => buildObservatoryLanes(data?.bots ?? [], maxWriteCount),
-    [data?.bots, maxWriteCount],
+    () => buildObservatoryLanes(data?.bots ?? [], maxWriteCount, horizonDays),
+    [data?.bots, maxWriteCount, horizonDays],
   );
   const eventMarks = useMemo(
-    () => buildObservatoryEventMarks(data?.recent_events ?? [], lanes),
-    [data?.recent_events, lanes],
+    () => buildObservatoryEventMarks(data?.recent_events ?? [], lanes, horizonDays),
+    [data?.recent_events, lanes, horizonDays],
   );
   const matchedKeys = useMemo(() => {
     const results = search.data?.results ?? [];
@@ -187,11 +215,24 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
 
   const showMid = zoom >= FAR_THRESHOLD;
   const showClose = zoom >= MID_THRESHOLD;
+  const showDetail = zoom >= DETAIL_THRESHOLD;
+  const showRichDetail = zoom >= 2.1;
+  const detailLabelSize = detailWorldSize(zoom, 12);
+  const detailMetaSize = detailWorldSize(zoom, 10);
+  const detailGap = detailWorldSize(zoom, 8);
+  const maxLaneRx = Math.max(250, ...lanes.map((lane) => lane.rx));
+  const maxLaneRy = Math.max(122, ...lanes.map((lane) => lane.ry));
+  const temporalRings = [
+    { days: 1, label: "24h" },
+    { days: 7, label: "7d" },
+    { days: 30, label: "30d" },
+    { days: 90, label: "90d+" },
+  ].filter((ring) => horizonDays >= ring.days || (days === 0 && ring.days <= 90));
   const effectiveOpacity = observatory.error ? 0.55 : 1;
 
   return (
     <div
-      className="absolute pointer-events-auto"
+      className="absolute pointer-events-none"
       data-tile-kind="memory-observatory"
       style={{
         left: -W / 2,
@@ -203,9 +244,8 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
         opacity: effectiveOpacity,
       }}
       title="Memory Observatory"
-      onPointerDown={(e) => e.stopPropagation()}
     >
-      <svg width={W} height={H} viewBox={`${-W / 2} ${-H / 2} ${W} ${H}`} className="absolute inset-0 overflow-visible">
+      <svg width={W} height={H} viewBox={`${-W / 2} ${-H / 2} ${W} ${H}`} className="absolute inset-0 overflow-visible pointer-events-none">
         <defs>
           <radialGradient id="memory-observatory-core" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="rgb(var(--color-purple))" stopOpacity="0.22" />
@@ -213,8 +253,44 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
             <stop offset="100%" stopColor="rgb(var(--color-purple))" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <ellipse cx="0" cy="0" rx="250" ry="125" fill="url(#memory-observatory-core)" />
-        <ellipse cx="0" cy="0" rx="118" ry="58" fill="none" stroke="rgb(var(--color-purple) / 0.35)" strokeWidth="1.3" strokeDasharray="7 9" />
+        <ellipse cx="0" cy="0" rx="330" ry="162" fill="url(#memory-observatory-core)" />
+        <ellipse cx="0" cy="0" rx="155" ry="74" fill="none" stroke="rgb(var(--color-purple) / 0.35)" strokeWidth="1.3" strokeDasharray="7 9" />
+        {showMid && temporalRings.map((ring) => {
+          const ageFactor = Math.min(1, ring.days / horizonDays);
+          const scale = temporalLaneScale(ageFactor);
+          const rx = maxLaneRx * scale;
+          const ry = maxLaneRy * scale;
+          return (
+            <g key={ring.label}>
+              <ellipse
+                cx="0"
+                cy="0"
+                rx={rx}
+                ry={ry}
+                fill="none"
+                stroke="rgb(var(--color-text-dim))"
+                strokeOpacity={0.11}
+                strokeWidth={0.9}
+                strokeDasharray="3 12"
+              />
+              {showRichDetail && (
+                <text
+                  x={rx + detailGap}
+                  y={detailMetaSize * 0.4}
+                  fill="rgb(var(--color-text-dim))"
+                  fillOpacity={0.48}
+                  fontSize={detailMetaSize}
+                  paintOrder="stroke"
+                  stroke="rgb(var(--color-surface-base))"
+                  strokeOpacity={0.72}
+                  strokeWidth={detailWorldSize(zoom, 2, 0.9)}
+                >
+                  {ring.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
         <circle cx="0" cy="0" r="26" fill="rgb(var(--color-purple) / 0.18)" stroke="rgb(var(--color-purple) / 0.55)" strokeWidth="1.2" />
         {showMid && lanes.map((lane) => (
           <g key={lane.bot.bot_id}>
@@ -230,41 +306,124 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
               strokeDasharray="4 10"
             />
             {lane.files.map((mark) => {
-              const matched = matchedKeys.has(memoryFileKey(mark.file.bot_id, mark.file.file_path));
+              const markKey = fileMarkKey(mark.file);
+              const matched = matchedKeys.has(markKey);
+              const hovered = hoveredMarkKey === markKey;
+              const prominent = mark.rank === 0 || mark.file.write_count >= 4 || mark.file.hygiene_count >= 2 || matched;
+              const showLabel = showRichDetail && (prominent || hovered);
+              const markerRadius = showDetail
+                ? Math.max(detailWorldSize(zoom, 10), Math.min(detailWorldSize(zoom, hovered || prominent ? 28 : 20), mark.r * 0.4))
+                : mark.r;
+              const labelX = mark.x + markerRadius + detailGap;
+              const labelY = mark.y - detailGap * 0.25;
               return (
-                <circle
+                <g
                   key={mark.file.id}
-                  cx={mark.x}
-                  cy={mark.y}
-                  r={mark.r}
-                  fill={mark.color}
-                  fillOpacity={matched ? 0.75 : 0.28}
-                  stroke={mark.color}
-                  strokeOpacity={matched ? 0.95 : 0.42}
-                  strokeWidth={matched ? 2.2 : 1}
+                  className="pointer-events-auto"
                   style={{ cursor: "pointer" }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onMouseEnter={() => setHoveredMarkKey(markKey)}
+                  onMouseLeave={() => setHoveredMarkKey((current) => current === markKey ? null : current)}
                   onClick={() => onInspect({ kind: "file", file: mark.file })}
-                />
+                >
+                  <title>{`${mark.file.file_path} · ${mark.file.write_count} writes`}</title>
+                  <circle
+                    cx={mark.x}
+                    cy={mark.y}
+                    r={markerRadius}
+                    fill={mark.color}
+                    fillOpacity={matched ? 0.75 : showDetail ? 0.38 : 0.28}
+                    stroke={mark.color}
+                    strokeOpacity={matched ? 0.95 : showDetail ? 0.62 : 0.42}
+                    strokeWidth={detailWorldSize(zoom, matched ? 2.2 : hovered ? 2 : 1.4)}
+                  />
+                  {showLabel && (
+                    <>
+                      <text
+                        x={labelX}
+                        y={labelY}
+                        fill="rgb(var(--color-text))"
+                        fillOpacity={hovered || matched ? 0.98 : 0.78}
+                        fontSize={detailLabelSize}
+                        fontWeight={650}
+                        paintOrder="stroke"
+                        stroke="rgb(var(--color-surface-base))"
+                        strokeOpacity={0.82}
+                        strokeWidth={detailWorldSize(zoom, 3)}
+                      >
+                        {displayFileName(mark.file.file_path)}
+                      </text>
+                      <text
+                        x={labelX}
+                        y={labelY + detailLabelSize + detailWorldSize(zoom, 2, 1)}
+                        fill="rgb(var(--color-text-muted))"
+                        fillOpacity={hovered || matched ? 0.78 : 0.58}
+                        fontSize={detailMetaSize}
+                        paintOrder="stroke"
+                        stroke="rgb(var(--color-surface-base))"
+                        strokeOpacity={0.82}
+                        strokeWidth={detailWorldSize(zoom, 2.4)}
+                      >
+                        {mark.file.write_count} writes · {fmtRelative(mark.file.last_updated_at)}
+                      </text>
+                    </>
+                  )}
+                </g>
               );
             })}
           </g>
         ))}
         {showMid && eventMarks.map((mark, index) => {
           const matched = matchedKeys.has(mark.matchKey);
+          const markKey = eventMarkKey(mark.event, index);
+          const hovered = hoveredMarkKey === markKey;
+          const eventRadius = showDetail
+            ? detailWorldSize(zoom, hovered || matched ? 8 : mark.event.is_hygiene ? 6 : 4)
+            : (matched ? mark.r + 2 : mark.r);
           return (
-            <g key={`${mark.event.correlation_id ?? mark.event.created_at}:${mark.event.file_path}:${index}`}>
+            <g
+              key={`${mark.event.correlation_id ?? mark.event.created_at}:${mark.event.file_path}:${index}`}
+              className="pointer-events-auto"
+              style={{ cursor: "pointer" }}
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseEnter={() => setHoveredMarkKey(markKey)}
+              onMouseLeave={() => setHoveredMarkKey((current) => current === markKey ? null : current)}
+              onClick={() => onInspect({ kind: "event", event: mark.event })}
+            >
+              <title>{`${mark.event.operation} · ${mark.event.file_path}`}</title>
               {mark.event.is_hygiene && (
-                <circle cx={mark.x} cy={mark.y} r={mark.r + 5} fill="none" stroke={mark.color} strokeOpacity={matched ? 0.9 : 0.36} strokeWidth="1" />
+                <circle
+                  cx={mark.x}
+                  cy={mark.y}
+                  r={eventRadius + detailWorldSize(zoom, 6)}
+                  fill="none"
+                  stroke={mark.color}
+                  strokeOpacity={matched ? 0.9 : 0.36}
+                  strokeWidth={detailWorldSize(zoom, 1.1)}
+                />
               )}
               <circle
                 cx={mark.x}
                 cy={mark.y}
-                r={matched ? mark.r + 2 : mark.r}
+                r={eventRadius}
                 fill={mark.color}
                 fillOpacity={matched ? 0.95 : 0.72}
-                style={{ cursor: "pointer" }}
-                onClick={() => onInspect({ kind: "event", event: mark.event })}
               />
+              {showRichDetail && (hovered || matched) && (
+                <text
+                  x={mark.x + eventRadius + detailGap * 0.6}
+                  y={mark.y + detailMetaSize * 0.35}
+                  fill="rgb(var(--color-text-dim))"
+                  fillOpacity={0.62}
+                  fontSize={detailMetaSize}
+                  paintOrder="stroke"
+                  stroke="rgb(var(--color-surface-base))"
+                  strokeOpacity={0.78}
+                  strokeWidth={detailWorldSize(zoom, 2.2)}
+                >
+                  {mark.event.operation}
+                </text>
+              )}
             </g>
           );
         })}
@@ -287,11 +446,12 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
         <button
           key={lane.bot.bot_id}
           type="button"
-          className="absolute max-w-[160px] truncate rounded-full bg-surface-raised/70 px-2 py-1 text-[10px] font-medium text-text-muted ring-1 ring-surface-border/60 backdrop-blur hover:text-text"
+          className="absolute max-w-[160px] truncate rounded-full bg-surface-raised/70 px-2 py-1 text-[10px] font-medium text-text-muted ring-1 ring-surface-border/60 backdrop-blur hover:text-text pointer-events-auto"
           style={{
-            left: W / 2 + Math.cos(lane.angle) * (lane.rx + 72) - 80,
-            top: H / 2 + Math.sin(lane.angle) * (lane.ry + 36) - 12,
+            left: W / 2 + Math.cos(lane.angle) * (lane.rx + 90) - 80,
+            top: H / 2 + Math.sin(lane.angle) * (lane.ry + 48) - 12,
           }}
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={() => navigate(`/admin/bots/${encodeURIComponent(lane.bot.bot_id)}#learning`)}
           title={`${lane.bot.bot_name} · ${lane.bot.write_count} writes`}
         >
@@ -300,7 +460,10 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
       ))}
 
       {showClose && !accessDenied && (
-        <div className="absolute left-1/2 top-[calc(50%+92px)] flex w-[430px] -translate-x-1/2 flex-col gap-2 rounded-md bg-surface-raised/88 p-3 text-[12px] text-text-muted shadow-lg ring-1 ring-surface-border backdrop-blur">
+        <div
+          className="absolute left-1/2 top-[calc(50%+255px)] flex w-[520px] -translate-x-1/2 flex-col gap-2 rounded-md bg-surface-raised/88 p-3 text-[12px] text-text-muted shadow-lg ring-1 ring-surface-border backdrop-blur pointer-events-auto"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center gap-2">
             <div className="flex min-h-[34px] flex-1 items-center gap-2 rounded-md bg-input px-2.5 text-text-dim focus-within:ring-2 focus-within:ring-accent/25">
               <Search size={13} />

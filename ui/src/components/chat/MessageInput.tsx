@@ -67,6 +67,9 @@ interface Props {
   canTogglePlanMode?: boolean;
   onTogglePlanMode?: () => void;
   onApprovePlan?: () => void;
+  /** Hide the inline model-override pill. Set for harness bots — the
+   *  external runtime owns its own model selection. */
+  hideModelOverride?: boolean;
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -87,7 +90,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -311,7 +314,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const isTerminalMode = chatMode === "terminal";
   const terminalBorder = `${t.surfaceBorder}cc`;
   const addMenuVisible = !isTerminalMode || !collapsed;
-  const modelPillVisible = onModelOverrideChange && !isTerminalMode;
+  const modelPillVisible = onModelOverrideChange && !isTerminalMode && !hideModelOverride;
   const terminalHint = text.trim().startsWith("/") ? "command" : "message";
   const hasOverride = !!modelOverride;
   const effectiveName = modelOverride
