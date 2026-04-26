@@ -33,10 +33,17 @@ class AuthStatus:
     ``ok`` is the only field UIs need to gate on; ``detail`` is human-readable
     instructions ("Logged in via /home/spindrel/.claude/.credentials.json" or
     "Run `claude login` inside the Spindrel container").
+
+    ``suggested_command`` is an optional hint the admin UI can offer as a
+    one-click action (opens the in-app terminal pre-seeded with the command).
+    Each integration owns this hint — core knows nothing about Claude vs Codex
+    auth flows. Leave ``None`` for runtimes that have no copy-pasteable setup
+    command.
     """
 
     ok: bool
     detail: str
+    suggested_command: str | None = None
 
 
 @dataclass

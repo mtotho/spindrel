@@ -130,7 +130,7 @@ export function UsageDensityChrome({
           aria-expanded={advancedOpen}
           aria-label="Activity options"
           title="Activity options"
-          className={`flex flex-row items-center px-2 py-1.5 rounded-md backdrop-blur border text-xs cursor-pointer ${
+          className={`flex flex-row items-center justify-center h-7 px-2 rounded-md backdrop-blur border text-xs cursor-pointer ${
             advancedOpen
               ? "bg-accent/15 border-accent/60 text-accent"
               : "bg-surface-raised/85 border-surface-border text-text-dim hover:text-text"

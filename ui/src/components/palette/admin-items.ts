@@ -61,6 +61,7 @@ export const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-apikeys", label: "API Keys", href: "/admin/api-keys", icon: Key, category: "Developer" },
   { id: "nav-webhooks", label: "Webhooks", href: "/admin/webhooks", icon: Webhook, category: "Developer" },
   { id: "nav-apidocs", label: "API Docs", href: "/admin/api-docs", icon: FileCode, category: "Developer" },
+  { id: "nav-terminal", label: "Terminal", href: "/admin/terminal", icon: Terminal, category: "Developer" },
   // -- Monitor --
   { id: "nav-usage", label: "Usage", href: "/admin/usage", icon: BarChart3, category: "Monitor" },
   { id: "nav-usage-overview", label: "Usage: Overview", hint: "Usage", href: "/admin/usage#Overview", icon: BarChart3, category: "Monitor" },
@@ -109,6 +110,8 @@ export const SETTINGS_ITEMS: PaletteItem[] = [
 ];
 
 export const CATEGORY_ORDER = [
+  "Canvas",
+  "On the map",
   "Recent",
   "This Channel",
   "Channels",

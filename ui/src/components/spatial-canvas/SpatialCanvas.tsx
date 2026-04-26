@@ -61,7 +61,6 @@ import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
-import { SpatialRadialMenu } from "./SpatialRadialMenu";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
@@ -81,7 +80,16 @@ import {
   buildChannelSessionRoute,
   type ChannelSessionSurface,
 } from "../../lib/channelSessionSurfaces";
+import { useUIStore } from "../../stores/ui";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
+import { usePaletteActions } from "../../stores/paletteActions";
+import {
+  LayoutDashboard,
+  Map as MapIcon,
+  Sparkles,
+  Target,
+  Users as UsersIcon,
+} from "lucide-react";
 import {
   buildChannelSurfaceRoute,
   getChannelLastSurface,
@@ -508,14 +516,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [botsReduced, setBotsReduced] = useState<boolean>(loadBotsReduced);
   const [trailsMode, setTrailsMode] = useState<TrailsMode>(loadTrailsMode);
   const [minimapVisible, setMinimapVisible] = useState<boolean>(loadMinimapVisible);
-  // Radial command menu (Q-key or long-press background). Single anchor in
-  // screen-space coords; null when closed. Top-of-document keyboard handler
-  // sets it; long-press timer in the touch path also sets it.
-  const [radialAnchor, setRadialAnchor] = useState<{ x: number; y: number } | null>(null);
-  // Last-known cursor position for the Q keybind — the keybind has no event
-  // location (keyboard, not pointer), so we keep a passive ref updated by
-  // pointermove on the viewport. Falls back to viewport center.
-  const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
   // Right-click context menu — single instance at a time. `worldXY` is set
   // when the user right-clicks on the empty background so "Add widget here"
   // can drop the new pin at the click position rather than camera center.
@@ -944,37 +944,16 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         zoomAroundPoint(0.83, rect.width / 2, rect.height / 2);
         return;
       }
-      if (e.key === "q" || e.key === "Q") {
-        if (e.repeat || e.shiftKey) return;
-        e.preventDefault();
-        const rect = viewportRectRef.current;
-        const fallback = {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-        };
-        setRadialAnchor((curr) => (curr ? null : cursorPosRef.current ?? fallback));
-        return;
-      }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [diving, draggingNodeId, fitAllNodes, zoomAroundPoint]);
 
-  // Passive cursor tracker for the Q keybind anchor. Lives outside the
-  // pointer-handling paths so it never interferes with pan/drag.
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      cursorPosRef.current = { x: e.clientX, y: e.clientY };
-    };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onMove);
-  }, []);
-
-  // Touch long-press on canvas background → radial menu. Only fires when
-  // the press lands on the viewport background (not on a tile / chrome) and
-  // doesn't move > 8px during the 350ms hold. Tile long-press is owned by
-  // dnd-kit's TouchSensor — separable because the events fire on different
-  // elements.
+  // Touch long-press on canvas background previously opened a radial menu.
+  // It now opens the global ⌘K palette instead — same canvas-aware menu the
+  // keyboard shortcut shows. Only fires on the viewport background (not on
+  // a tile / chrome) and only when the press doesn't drift > 8px during the
+  // 350ms hold. Tile long-press is owned by dnd-kit's TouchSensor.
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -995,7 +974,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       startY = e.clientY;
       cancel();
       timer = window.setTimeout(() => {
-        setRadialAnchor({ x: startX, y: startY });
+        useUIStore.getState().openPalette();
         timer = null;
       }, 350);
     };
@@ -1283,16 +1262,85 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [nodes, lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
-  // Register the channel-pick override on the palette. While the canvas is
-  // mounted, Cmd+K → channel selection flies the camera instead of routing
-  // away. Cleared on unmount, so navigating to a channel page restores
-  // default route behavior.
+  // Pan + scale the camera to a spatial node by id. Used for the widget-pick
+  // palette override and the contributed widget items.
+  const flyToNodeById = useCallback(
+    (nodeId: string): boolean => {
+      const node = (nodes ?? []).find((n) => n.id === nodeId);
+      const rect = viewportRectRef.current;
+      if (!node || !rect.width || !rect.height) return false;
+      const targetScale = Math.min(
+        1.0,
+        Math.max(rect.width / (node.world_w * 4), rect.height / (node.world_h * 4)),
+      );
+      const cx = node.world_x + node.world_w / 2;
+      const cy = node.world_y + node.world_h / 2;
+      const targetX = rect.width / 2 - cx * targetScale;
+      const targetY = rect.height / 2 - cy * targetScale;
+      if (lensEngaged) {
+        setLensEngaged(false);
+        triggerLensSettle();
+      }
+      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+      return true;
+    },
+    [nodes, lensEngaged, triggerLensSettle, scheduleCamera],
+  );
+
+  // Register the channel-pick + widget-pick overrides + the active surface
+  // on the palette. While the canvas is mounted, ⌘K renders in canvas mode
+  // (Canvas + On the map groups at top) and picking a tile flies the camera
+  // instead of routing away. Everything clears on unmount so default palette
+  // behavior is restored elsewhere in the app.
   useEffect(() => {
-    usePaletteOverrides.getState().setChannelPick(flyToChannel);
+    const o = usePaletteOverrides.getState();
+    o.setChannelPick(flyToChannel);
+    o.setWidgetPick(flyToNodeById);
+    o.setSurface("canvas");
     return () => {
-      usePaletteOverrides.getState().setChannelPick(null);
+      const c = usePaletteOverrides.getState();
+      c.setChannelPick(null);
+      c.setWidgetPick(null);
+      c.setSurface(null);
     };
-  }, [flyToChannel]);
+  }, [flyToChannel, flyToNodeById]);
+
+  // Publish channel ids that have a spatial node so the palette can re-badge
+  // them into the "On the map" group when the canvas is the active surface.
+  // Membership changes infrequently, so we cheap-derive via .map + Set on
+  // every nodes update.
+  useEffect(() => {
+    const ids = new Set<string>();
+    for (const n of nodes ?? []) {
+      if (n.channel_id) ids.add(n.channel_id);
+    }
+    usePaletteOverrides.getState().setOnMapChannelIds(ids);
+    return () => {
+      usePaletteOverrides.getState().setOnMapChannelIds(new Set());
+    };
+  }, [nodes]);
+
+  // Contribute one palette item per pinned widget node so widgets are
+  // searchable in ⌘K. Selecting a widget flies the camera to its tile
+  // (handled by the widgetPick override). Items have no `href`, so the
+  // secondary "Open page" affordance is naturally hidden — widgets have no
+  // standalone route.
+  useEffect(() => {
+    const items = (nodes ?? [])
+      .filter((n) => n.widget_pin_id && n.pin)
+      .map((n) => ({
+        id: `widget-${n.id}`,
+        label: `Widget: ${n.pin?.panel_title || n.pin?.display_label || n.pin?.tool_name || "Untitled"}`,
+        category: "On the map",
+        icon: LayoutDashboard,
+        routeKind: "spatial-widget",
+        hint: n.pin?.tool_name || undefined,
+      }));
+    usePaletteOverrides.getState().setExtraItems(items);
+    return () => {
+      usePaletteOverrides.getState().setExtraItems([]);
+    };
+  }, [nodes]);
 
   // Contextual-camera-on-open. When the overlay mounts the canvas with a
   // target channel id (because the user opened it from /channels/:id), fly
@@ -1348,6 +1396,85 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     const targetY = rect.height / 2 - WELL_Y * targetScale;
     scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
   }, [scheduleCamera]);
+
+  // Register the 8 canvas commands as palette items. They appear under the
+  // "Canvas" group at the top of ⌘K while the canvas is mounted, replacing
+  // the previous SVG radial wheel. Handler bindings mirror the radial action
+  // bundle the deleted menu used. Lives below `flyToWell` so the action
+  // closure can reference it.
+  useEffect(() => {
+    return usePaletteActions.getState().register("spatial-canvas", [
+      {
+        id: "canvas-recenter",
+        label: "Canvas: Recenter",
+        category: "Canvas",
+        icon: Home,
+        onSelect: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
+      },
+      {
+        id: "canvas-fit-all",
+        label: "Canvas: Fit all",
+        category: "Canvas",
+        icon: Maximize2,
+        onSelect: () => fitAllNodes(),
+      },
+      {
+        id: "canvas-fly-to-now",
+        label: "Canvas: Fly to Now",
+        category: "Canvas",
+        icon: Target,
+        onSelect: () => flyToWell(),
+      },
+      {
+        id: "canvas-cycle-activity",
+        label: "Canvas: Cycle activity",
+        hint: densityIntensity === "off" ? "off" : densityIntensity,
+        category: "Canvas",
+        icon: Sparkles,
+        onSelect: () => cycleDensityIntensity(),
+      },
+      {
+        id: "canvas-cycle-trails",
+        label: "Canvas: Cycle trails",
+        hint: trailsMode,
+        category: "Canvas",
+        icon: Footprints,
+        onSelect: () => cycleTrailsMode(),
+      },
+      {
+        id: "canvas-toggle-lines",
+        label: connectionsEnabled ? "Canvas: Hide connection lines" : "Canvas: Show connection lines",
+        category: "Canvas",
+        icon: Link2,
+        onSelect: () => setConnectionsEnabled((v) => !v),
+      },
+      {
+        id: "canvas-toggle-map",
+        label: minimapVisible ? "Canvas: Hide minimap" : "Canvas: Show minimap",
+        category: "Canvas",
+        icon: MapIcon,
+        onSelect: () => setMinimapVisible((v) => !v),
+      },
+      {
+        id: "canvas-toggle-bots",
+        label: botsVisible ? "Canvas: Hide bots" : "Canvas: Show bots",
+        category: "Canvas",
+        icon: UsersIcon,
+        onSelect: () => setBotsVisible((v) => !v),
+      },
+    ]);
+  }, [
+    scheduleCamera,
+    fitAllNodes,
+    flyToWell,
+    cycleDensityIntensity,
+    cycleTrailsMode,
+    densityIntensity,
+    trailsMode,
+    connectionsEnabled,
+    minimapVisible,
+    botsVisible,
+  ]);
 
   // Expose canvas actions on window for screenshot/video recording. The
   // radial menu is the in-product surface; recordings need a stable hook
@@ -2393,29 +2520,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         />
         <ShortcutChip />
       </div>
-      {radialAnchor && (
-        <SpatialRadialMenu
-          anchor={radialAnchor}
-          state={{
-            activity: densityIntensity,
-            trails: trailsMode,
-            lines: connectionsEnabled,
-            map: minimapVisible,
-            bots: botsVisible,
-          }}
-          actions={{
-            recenter: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
-            fitAll: () => fitAllNodes(),
-            flyToNow: () => flyToWell(),
-            cycleActivity: () => cycleDensityIntensity(),
-            cycleTrails: () => cycleTrailsMode(),
-            toggleLines: () => setConnectionsEnabled((v) => !v),
-            toggleMap: () => setMinimapVisible((v) => !v),
-            toggleBots: () => setBotsVisible((v) => !v),
-          }}
-          onClose={() => setRadialAnchor(null)}
-        />
-      )}
+      {/* Canvas commands now live in ⌘K via `usePaletteActions` registration
+          below. The previous `<SpatialRadialMenu>` was removed in favor of the
+          unified palette so canvas chrome matches the rest of the app. */}
       {minimapVisible && (
         <Minimap
           camera={camera}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { LayoutGrid } from "lucide-react";
 import { LENS_HINT_SEEN_KEY } from "./spatialGeometry";
+import { useUIStore } from "../../stores/ui";
 
 export function AddWidgetButton({ onClick }: { onClick: () => void }) {
   return (
@@ -130,28 +131,35 @@ export function ShortcutChip() {
     >
       <button
         type="button"
-        aria-label="Keyboard shortcuts"
-        className="flex flex-row items-center gap-1 px-2 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-text text-[11px] font-mono cursor-default"
+        aria-label="Keyboard shortcuts — ⌘K opens search & commands"
+        title="⌘K — search channels, widgets, canvas commands"
+        onClick={() => useUIStore.getState().openPalette()}
+        className="flex flex-row items-center gap-1 px-2 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-text text-[11px] font-mono"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <span>⌘</span>
-        <span>Q</span>
+        <span>K</span>
       </button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-[3] flex flex-col gap-1 px-3 py-2.5 rounded-md bg-surface-raised/95 backdrop-blur border border-surface-border text-[11px] text-text-dim min-w-[240px] shadow-lg">
+        <div className="absolute right-0 top-[calc(100%+6px)] z-[3] flex flex-col gap-1 px-3 py-2.5 rounded-md bg-surface-raised/95 backdrop-blur border border-surface-border text-[11px] text-text-dim min-w-[260px] shadow-lg">
           <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1">
             Keyboard
           </div>
-          <ShortcutRow keys={["Q"]} label="Open command menu" />
+          <ShortcutRow keys={["⌘", "K"]} label="Search · canvas commands" />
           <ShortcutRow keys={["Space"]} label="Focus lens (hold)" />
           <ShortcutRow keys={["F"]} label="Fit all to viewport" />
           <ShortcutRow keys={["+", "−"]} label="Zoom in / out" />
           <ShortcutRow keys={["Esc"]} label="Close overlay or menu" />
           <div className="text-[10px] uppercase tracking-wider text-text-muted mt-2 mb-1">
+            In ⌘K
+          </div>
+          <ShortcutRow keys={["↵"]} label="Fly to on map" />
+          <ShortcutRow keys={["⌘", "↵"]} label="Open the page directly" />
+          <div className="text-[10px] uppercase tracking-wider text-text-muted mt-2 mb-1">
             Pointer
           </div>
           <ShortcutRow keys={["Right-click"]} label="Context menu on tile" />
-          <ShortcutRow keys={["Long-press"]} label="Touch: command menu / drag tile" />
+          <ShortcutRow keys={["Long-press"]} label="Touch: open ⌘K / drag tile" />
         </div>
       )}
     </div>

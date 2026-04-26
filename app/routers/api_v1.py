@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from app.routers.api_v1_admin import router as admin_router
+from app.routers.api_v1_admin_terminal import router as admin_terminal_router
 from app.routers.api_v1_attachments import router as attachments_router
 from app.routers.api_v1_channels import router as channels_router
 from app.routers.api_v1_documents import router as documents_router
@@ -34,6 +35,7 @@ from app.routers.api_v1_slash_commands import router as slash_commands_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(admin_router)
+router.include_router(admin_terminal_router)
 router.include_router(approvals_router)
 router.include_router(attachments_router)
 router.include_router(channels_router)

@@ -15,6 +15,12 @@ export interface PaletteSearchOptions {
   searchLimit?: number;
   /** Whether admin-only recent targets should be shown. */
   isAdmin?: boolean;
+  /** Active surface owning this palette session. Drives canvas-aware grouping. */
+  surface?: "canvas" | null;
+  /** Channel ids that exist as spatial nodes on the canvas — only meaningful
+   *  when `surface === "canvas"`. Channels in this set are re-badged into
+   *  the "On the map" group and given a small ranking boost. */
+  onMapChannelIds?: Set<string>;
 }
 
 export interface PaletteSearchResult {
@@ -80,8 +86,33 @@ export function getCollapsiblePaletteBrowseSection(item: PaletteItem): Collapsib
 export function usePaletteSearch(
   allItems: PaletteItem[],
   query: string,
-  { currentHref, recentLimit = 20, searchLimit = 30, isAdmin = true }: PaletteSearchOptions,
+  {
+    currentHref,
+    recentLimit = 20,
+    searchLimit = 30,
+    isAdmin = true,
+    surface = null,
+    onMapChannelIds,
+  }: PaletteSearchOptions,
 ): PaletteSearchResult {
+  // When the spatial canvas owns the palette session, channel items whose id
+  // exists as a spatial node are re-badged into the "On the map" group so the
+  // user can see at-a-glance which tiles are reachable on the canvas. The
+  // re-badge is per-render only — we never mutate the input items.
+  const sourceItems = useMemo(() => {
+    if (surface !== "canvas" || !onMapChannelIds || onMapChannelIds.size === 0) {
+      return allItems;
+    }
+    return allItems.map((it) => {
+      if (it.category !== "Channels") return it;
+      if (typeof it.href !== "string") return it;
+      const tail = it.href.startsWith("/channels/") ? it.href.slice("/channels/".length) : "";
+      if (!tail || tail.includes("/")) return it;
+      if (!onMapChannelIds.has(tail)) return it;
+      return { ...it, category: "On the map" };
+    });
+  }, [allItems, surface, onMapChannelIds]);
+
   const recentPages = useUIStore((s) => s.recentPages);
   const channelNameById = useMemo(
     () => {
@@ -145,7 +176,7 @@ export function usePaletteSearch(
           recentHrefs.add(resolved.href);
         }
       }
-      const rest = allItems
+      const rest = sourceItems
         .filter((it) => {
           if (!shouldIncludePaletteBrowseItem(it)) return false;
           if (isSubPage(it)) return false;
@@ -157,7 +188,7 @@ export function usePaletteSearch(
     }
 
     const allItemsByHref = new Set(
-      allItems.map((it) => it.href).filter((href): href is string => typeof href === "string"),
+      sourceItems.map((it) => it.href).filter((href): href is string => typeof href === "string"),
     );
     const syntheticRecents: PaletteItem[] = [];
     for (const rp of recentPages) {
@@ -166,7 +197,7 @@ export function usePaletteSearch(
       const resolved = resolveRecent(rp);
       if (resolved?.href) syntheticRecents.push(resolved);
     }
-    const searchPool = [...allItems.filter(shouldIncludePaletteSearchItem), ...syntheticRecents];
+    const searchPool = [...sourceItems.filter(shouldIncludePaletteSearchItem), ...syntheticRecents];
 
     const recencyBonus = new Map<string, number>();
     let bonusSlot = 0;
@@ -178,7 +209,7 @@ export function usePaletteSearch(
     }
 
     return scorePaletteSearchItems(searchPool, query, recencyBonus, searchLimit);
-  }, [query, allItems, recentPages, currentHref, resolveRecent, isSubPage, recentLimit, searchLimit, isAdmin]);
+  }, [query, sourceItems, recentPages, currentHref, resolveRecent, isSubPage, recentLimit, searchLimit, isAdmin]);
 
   const isEmpty = !query.trim();
 

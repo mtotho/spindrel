@@ -45,9 +45,111 @@
     {
       "id": "hero_spatial",
       "kind": "video",
-      "duration": 9.0,
+      "duration": 11.0,
       "asset_url": "hero_spatial.mp4",
       "caption": "Your workspace, as a place \u2014 every channel, every widget, every scheduled job.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-spatial_explore",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Pan, zoom, dive"
+    },
+    {
+      "id": "spatial_pan_tour",
+      "kind": "video",
+      "duration": 13.0,
+      "asset_url": "spatial_pan_tour.mp4",
+      "caption": "Pan, zoom, fly anywhere \u2014 same canvas, different altitudes.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "spatial_widget_dive",
+      "kind": "video",
+      "duration": 9.0,
+      "asset_url": "spatial_widget_dive.mp4",
+      "caption": "Each channel pulls its widgets in close \u2014 pinned tool results live next to the conversation.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-scheduled_work",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Scheduled work, on a clock"
+    },
+    {
+      "id": "heartbeat_fire",
+      "kind": "video",
+      "duration": 11.0,
+      "asset_url": "heartbeat_fire.mp4",
+      "caption": "Heartbeats orbit the Now Well \u2014 when the clock arrives, they fire.",
       "ken_burns": {
         "start": [
           1.0,

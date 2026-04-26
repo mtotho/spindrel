@@ -97,6 +97,7 @@ const AdminSandboxes = lazy(() => import("@/app/(app)/admin/sandboxes"));
 const AdminSecretValues = lazy(() => import("@/app/(app)/admin/secret-values/index"));
 const AdminSessions = lazy(() => import("@/app/(app)/admin/sessions/index"));
 const AdminSkillsIndex = lazy(() => import("@/app/(app)/admin/skills/index"));
+const AdminTerminal = lazy(() => import("@/app/(app)/admin/terminal/index"));
 const AdminSkillDetail = lazy(() => import("@/app/(app)/admin/skills/[...skillId]/index"));
 const AdminTasksIndex = lazy(() => import("@/app/(app)/admin/tasks/index"));
 const AdminTaskDetail = lazy(() => import("@/app/(app)/admin/tasks/[taskId]/index"));
@@ -241,6 +242,7 @@ export const router = createBrowserRouter([
               { path: "automations/:taskId", element: <AdminTaskDetail /> },
               { path: "tasks", element: <Navigate to="/admin/automations" replace /> },
               { path: "tasks/:taskId", element: <RedirectToAutomation /> },
+              { path: "terminal", element: <AdminTerminal /> },
               { path: "tool-calls", element: <AdminToolCalls /> },
               { path: "tool-policies", element: <AdminToolPolicies /> },
               { path: "tool-policies/:ruleId", element: <AdminToolPolicyDetail /> },

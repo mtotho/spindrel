@@ -140,9 +140,10 @@ class ClaudeCodeRuntime:
             ok=False,
             detail=(
                 f"Credentials not found at {path}. "
-                f"Run `claude login` inside the Spindrel container, "
-                f"or bind-mount your host's $CLAUDE_CONFIG_DIR into the container."
+                f"Click 'Run claude login' below — a terminal opens inside the "
+                f"Spindrel container with the command pre-seeded."
             ),
+            suggested_command="claude login",
         )
 
 

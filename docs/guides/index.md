@@ -25,6 +25,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 
 | Guide | About |
 |---|---|
+| [Admin Terminal](admin-terminal.md) | Browser-based shell into the Spindrel container — admin-only |
 | [Agent Harnesses](agent-harnesses.md) | Run Claude Code (or future Codex) sessions inside a Spindrel chat thread |
 | [API](api.md) | Public REST API for external callers |
 | [BlueBubbles](bluebubbles.md) | iMessage integration specifics |

@@ -1,23 +1,38 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, RefreshCw, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Play, RefreshCw, Terminal } from "lucide-react";
 
 import { apiFetch } from "@/src/api/client";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { ActionButton } from "@/src/components/shared/SettingsControls";
+import { TerminalDrawer } from "@/src/components/terminal/TerminalDrawer";
+import { useTerminalDrawer } from "@/src/hooks/useTerminalDrawer";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 
 interface HarnessRuntime {
   name: string;
   ok: boolean;
   detail: string;
+  suggested_command: string | null;
+}
+
+interface WorkspaceRoot {
+  path: string;
+  exists: boolean;
+  writable: boolean;
+}
+
+interface HarnessesResponse {
+  runtimes: HarnessRuntime[];
+  workspace_root: WorkspaceRoot;
 }
 
 function useHarnesses() {
   return useQuery({
     queryKey: ["admin-harnesses"],
-    queryFn: () => apiFetch<{ runtimes: HarnessRuntime[] }>("/api/v1/admin/harnesses"),
+    queryFn: () => apiFetch<HarnessesResponse>("/api/v1/admin/harnesses"),
   });
 }
 
@@ -28,6 +43,7 @@ const RUNTIME_LABEL: Record<string, string> = {
 export default function HarnessesScreen() {
   const { data, isLoading, isError, error, refetch } = useHarnesses();
   const { refreshing, onRefresh } = usePageRefresh([["admin-harnesses"]]);
+  const { open, options, openTerminal, closeTerminal } = useTerminalDrawer();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
@@ -76,6 +92,15 @@ export default function HarnessesScreen() {
               See <code className="rounded bg-surface-overlay/50 px-1 py-0.5 text-[11px]">docs/guides/agent-harnesses.md</code>.
             </p>
 
+            <WorkspaceRootBanner
+              root={data.workspace_root}
+              onOpenTerminal={() => openTerminal({
+                title: "Workspace setup",
+                subtitle: data.workspace_root.path,
+                cwd: data.workspace_root.exists ? data.workspace_root.path : undefined,
+              })}
+            />
+
             {data.runtimes.length === 0 && (
               <div className="rounded-md border border-surface-overlay bg-surface-raised px-4 py-3 text-[13px] text-text-dim">
                 No harness runtimes registered.
@@ -83,16 +108,96 @@ export default function HarnessesScreen() {
             )}
 
             {data.runtimes.map((rt) => (
-              <RuntimeCard key={rt.name} runtime={rt} />
+              <RuntimeCard
+                key={rt.name}
+                runtime={rt}
+                onRunSuggested={(cmd) => openTerminal({
+                  title: `${RUNTIME_LABEL[rt.name] ?? rt.name} — auth`,
+                  subtitle: cmd,
+                  seedCommand: cmd,
+                })}
+              />
             ))}
           </div>
         )}
       </RefreshableScrollView>
+
+      <TerminalDrawer
+        open={open}
+        onClose={() => {
+          closeTerminal();
+          // Drawer close almost always means the user finished a setup step
+          // (claude login, mkdir, git clone) — refresh status so the page
+          // reflects the new state without a manual click.
+          void refetch();
+        }}
+        seedCommand={options.seedCommand}
+        cwd={options.cwd}
+        title={options.title}
+        subtitle={options.subtitle}
+        width={options.width}
+      />
     </div>
   );
 }
 
-function RuntimeCard({ runtime }: { runtime: HarnessRuntime }) {
+function WorkspaceRootBanner({
+  root,
+  onOpenTerminal,
+}: {
+  root: WorkspaceRoot;
+  onOpenTerminal: () => void;
+}) {
+  if (root.exists && root.writable) return null;
+
+  const composeSnippet = `services:
+  spindrel:
+    volumes:
+      - ${root.path}:${root.path}:rw`;
+
+  return (
+    <div className="rounded-md border border-warning-border bg-warning-subtle px-4 py-3">
+      <div className="flex items-start gap-2">
+        <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium text-warning">
+            {!root.exists
+              ? "Workspace root not mounted"
+              : "Workspace root not writable"}
+          </div>
+          <p className="mt-1 text-[12px] leading-relaxed text-text-dim">
+            Per-bot workspaces live under{" "}
+            <code className="rounded bg-surface-overlay/50 px-1 py-0.5 font-mono text-[11px]">
+              {root.path}
+            </code>
+            . Add this to <code className="rounded bg-surface-overlay/50 px-1 py-0.5 font-mono text-[11px]">docker-compose.yml</code>{" "}
+            and run <code className="rounded bg-surface-overlay/50 px-1 py-0.5 font-mono text-[11px]">docker compose up -d</code> once:
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded-md border border-surface-border bg-surface-overlay/40 p-2 font-mono text-[11px] leading-relaxed text-text">
+            {composeSnippet}
+          </pre>
+          <div className="mt-2 flex gap-2">
+            <ActionButton
+              label="Open shell"
+              variant="ghost"
+              size="small"
+              icon={<Terminal size={13} />}
+              onPress={onOpenTerminal}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RuntimeCard({
+  runtime,
+  onRunSuggested,
+}: {
+  runtime: HarnessRuntime;
+  onRunSuggested: (cmd: string) => void;
+}) {
   const label = RUNTIME_LABEL[runtime.name] ?? runtime.name;
   return (
     <div className="rounded-lg border border-surface-overlay bg-surface-raised px-4 py-3">
@@ -126,6 +231,17 @@ function RuntimeCard({ runtime }: { runtime: HarnessRuntime }) {
           <p className="mt-1 break-words font-mono text-[11px] leading-relaxed text-text-dim">
             {runtime.detail}
           </p>
+          {!runtime.ok && runtime.suggested_command && (
+            <div className="mt-2">
+              <ActionButton
+                label={`Run ${runtime.suggested_command}`}
+                variant="primary"
+                size="small"
+                icon={<Play size={13} />}
+                onPress={() => onRunSuggested(runtime.suggested_command!)}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -748,13 +748,24 @@ def _spatial_camera_init(camera: dict, *, density: str = "bold", connections: bo
     )
 
 
-# Wait predicate shared across all spatial specs: canvas mounted + at least
-# four channel tiles painted (channels render as ``<a href="/channels/UUID">``
-# both in the sidebar and as canvas tile labels). A higher floor than four
-# would race against phyllotaxis seeding on the first run.
+# Wait predicate shared across all spatial specs: canvas mounted AND at
+# least four canvas-tile elements painted. The earlier predicate counted
+# ``a[href^="/channels/"]`` which the sidebar already satisfies before
+# any canvas tile mounts — captures fired against an empty world. Gating
+# on ``[data-tile-kind="channel"]`` (set in ``ChannelTile.tsx:329``)
+# guarantees the canvas has actually rendered tiles in the seeded camera
+# viewport.
 _SPATIAL_READY = (
     '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
-    ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+    ' && document.querySelectorAll(\'[data-tile-kind="channel"]\').length >= 4'
+)
+# Well-focused shots pan the camera away from the channel constellation, so
+# channel tiles are out of viewport (and viewport-culled). Gate instead on
+# the upcoming-orbit diamond glyphs that render around the well — stage_spatial
+# seeds 8 heartbeats so this is reliably populated.
+_SPATIAL_WELL_READY = (
+    '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
+    ' && document.querySelectorAll(\'[data-tile-kind="upcoming"]\').length >= 2'
 )
 
 
@@ -827,7 +838,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
         route="/",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg=_SPATIAL_READY,
+        wait_arg=_SPATIAL_WELL_READY,
         output="spatial-blackhole.png",
         color_scheme="dark",
         extra_init_scripts=[
@@ -886,7 +897,7 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
         route="/",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg=_SPATIAL_READY,
+        wait_arg=_SPATIAL_WELL_READY,
         output="spatial-zoom-well-01.png",
         color_scheme="dark",
         extra_init_scripts=[

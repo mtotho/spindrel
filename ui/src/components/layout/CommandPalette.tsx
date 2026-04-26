@@ -100,6 +100,9 @@ export function CommandPaletteContent({
   }, []);
 
   const sharedItems = usePaletteItems();
+  const surface = usePaletteOverrides((s) => s.surface);
+  const onMapChannelIds = usePaletteOverrides((s) => s.onMapChannelIds);
+  const extraItems = usePaletteOverrides((s) => s.extraItems);
   const actionItems = useMemo<PaletteItem[]>(
     () =>
       registeredActions.map((action) => ({
@@ -131,8 +134,8 @@ export function CommandPaletteContent({
   }, [query]);
 
   const allItems = useMemo(
-    () => [...actionItems, ...sharedItems, ...(exactPathItem ? [exactPathItem] : [])],
-    [actionItems, exactPathItem, sharedItems],
+    () => [...actionItems, ...extraItems, ...sharedItems, ...(exactPathItem ? [exactPathItem] : [])],
+    [actionItems, extraItems, exactPathItem, sharedItems],
   );
 
   const { groups, scored, totalRecents } = usePaletteSearch(allItems, query, {
@@ -140,6 +143,8 @@ export function CommandPaletteContent({
     recentLimit: recentsExpanded ? 20 : 5,
     searchLimit: 30,
     isAdmin,
+    surface,
+    onMapChannelIds,
   });
 
   const isBrowseMode = !query.trim();
@@ -276,9 +281,53 @@ export function CommandPaletteContent({
           }
         }
       }
+      // Widget-pick override: same shape as channelPick. Items contributed by
+      // the canvas use `routeKind: "spatial-widget"` and encode the spatial
+      // node id in the item id (`widget-<nodeId>`).
+      if (item.routeKind === "spatial-widget") {
+        const nodeId = item.id.startsWith("widget-") ? item.id.slice("widget-".length) : null;
+        const handler = usePaletteOverrides.getState().widgetPick;
+        if (nodeId && handler && handler(nodeId)) {
+          onAfterSelect?.(item);
+          closeMobileSidebar();
+          return;
+        }
+      }
       if (item.href) go(item, item.href);
     },
     [closeMobileSidebar, go, onAfterSelect],
+  );
+
+  /** Secondary action — "Open the page" path. Bypasses the canvas fly-to
+   *  override so the user can always reach the standalone route from the
+   *  palette via Cmd/Ctrl+Enter. Pure commands without an `href` (canvas
+   *  toggles) fall back to their primary `onSelect`. */
+  const selectItemSecondary = useCallback(
+    (item: PaletteItem) => {
+      if (item.href) {
+        go(item, item.href);
+        return;
+      }
+      if (item.onSelect) {
+        onAfterSelect?.(item);
+        closeMobileSidebar();
+        item.onSelect();
+      }
+    },
+    [closeMobileSidebar, go, onAfterSelect],
+  );
+
+  const itemHasSecondary = useCallback(
+    (item: PaletteItem): boolean => {
+      if (surface !== "canvas") return false;
+      if (!item.href) return false;
+      if (item.href.startsWith("/channels/")) {
+        const tail = item.href.slice("/channels/".length);
+        return tail.length > 0 && !tail.includes("/");
+      }
+      return item.routeKind === "spatial-widget";
+    },
+    [surface],
   );
 
   const onKeyDown = useCallback(
@@ -315,10 +364,15 @@ export function CommandPaletteContent({
           toggleBrowseSection(entry.section);
           return;
         }
-        if (entry.kind === "item") selectItem(entry.scored.item);
+        if (entry.kind === "item") {
+          // Cmd/Ctrl+Enter forces the secondary action ("open page") even when
+          // the canvas's fly-to override would otherwise consume Enter.
+          if (e.metaKey || e.ctrlKey) selectItemSecondary(entry.scored.item);
+          else selectItem(entry.scored.item);
+        }
       }
     },
-    [groupedResults, onEscape, query, selectedIndex, selectItem, toggleBrowseSection, variant],
+    [groupedResults, onEscape, query, selectedIndex, selectItem, selectItemSecondary, toggleBrowseSection, variant],
   );
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -513,6 +567,31 @@ export function CommandPaletteContent({
                       }}
                     >
                       {item.hint}
+                    </span>
+                  )}
+                  {selected && itemHasSecondary(item) && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectItemSecondary(item);
+                      }}
+                      title="Open the page (Cmd/Ctrl+Enter)"
+                      style={{
+                        flexShrink: 0,
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        color: t.textDim,
+                        background: t.surface,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <kbd style={{ fontFamily: "inherit", fontSize: 10 }}>⌘↵</kbd>
+                      <span>Open</span>
                     </span>
                   )}
                   {selected && (

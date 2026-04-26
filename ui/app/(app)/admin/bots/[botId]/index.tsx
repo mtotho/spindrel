@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, Bot, Brain, FileText, MessageSquare, Save, Shield, Trash2, Wrench, Zap } from "lucide-react";
+import { AlertTriangle, Bot, Brain, FileText, FolderPlus, GitBranch, MessageSquare, Save, Shield, Terminal, Trash2, Wrench, Zap } from "lucide-react";
 
 import { ApiError } from "@/src/api/client";
 import { useBotEditorData, useCreateBot, useDeleteBot, useUpdateBot } from "@/src/api/hooks/useBots";
@@ -32,6 +32,9 @@ import { buildBotSavePayload } from "@/src/lib/botEditorPayload";
 import { buildRecentHref } from "@/src/lib/recentPages";
 import { useUIStore } from "@/src/stores/ui";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
+
+import { TerminalDrawer } from "@/src/components/terminal/TerminalDrawer";
+import { useTerminalDrawer } from "@/src/hooks/useTerminalDrawer";
 
 import { BotHooksSection } from "./BotHooksSection";
 import { BotPermissionsSection } from "./BotPermissionsSection";
@@ -162,6 +165,7 @@ function IdentitySection({ draft, editorData, isNew, update }: {
   isNew: boolean;
   update: (patch: Partial<BotConfig>) => void;
 }) {
+  const { open: termOpen, options: termOpts, openTerminal, closeTerminal } = useTerminalDrawer();
   return (
     <div className="flex flex-col gap-6">
       <SectionFrame title="Identity" description="Name, ownership, and the model chain used for this bot.">
@@ -233,9 +237,49 @@ function IdentitySection({ draft, editorData, isNew, update }: {
           </Col>
         </Row>
         {draft.harness_runtime && (
-          <InfoBanner variant="info">
-            This bot is a harness bot. Model, system prompt, skills, tools, memory, and capabilities settings are not used — the harness owns its own context. Auth comes from <code className="text-warning-muted">claude login</code> on the Spindrel host (see /admin/harnesses).
-          </InfoBanner>
+          <>
+            <InfoBanner variant="info">
+              This bot is a harness bot. Model, system prompt, skills, tools, memory, and capabilities settings are not used — the harness owns its own context. Auth comes from <code className="text-warning-muted">claude login</code> on the Spindrel host (see /admin/harnesses).
+            </InfoBanner>
+            <div className="flex flex-wrap gap-2">
+              <ActionButton
+                label="Open shell"
+                variant="ghost"
+                size="small"
+                icon={<Terminal size={13} />}
+                onPress={() => openTerminal({
+                  title: "Workspace shell",
+                  subtitle: draft.harness_workdir ?? "(workspace path not set)",
+                  cwd: draft.harness_workdir ?? undefined,
+                })}
+                disabled={!draft.harness_workdir}
+              />
+              <ActionButton
+                label="Create workspace dir"
+                variant="ghost"
+                size="small"
+                icon={<FolderPlus size={13} />}
+                onPress={() => openTerminal({
+                  title: "Create workspace directory",
+                  subtitle: `mkdir -p ${draft.harness_workdir}`,
+                  seedCommand: `mkdir -p ${draft.harness_workdir} && cd ${draft.harness_workdir} && pwd`,
+                })}
+                disabled={!draft.harness_workdir}
+              />
+              <ActionButton
+                label="Clone a repo"
+                variant="ghost"
+                size="small"
+                icon={<GitBranch size={13} />}
+                onPress={() => openTerminal({
+                  title: "Clone a repo into workspace",
+                  subtitle: `cd ${draft.harness_workdir} — type 'git clone <url> .'`,
+                  cwd: draft.harness_workdir ?? undefined,
+                })}
+                disabled={!draft.harness_workdir}
+              />
+            </div>
+          </>
         )}
         {draft.harness_runtime && draft.harness_session_state && typeof draft.harness_session_state === "object" && (draft.harness_session_state as any).session_id && (
           <div className="text-[12px] text-text-dim">
@@ -246,6 +290,15 @@ function IdentitySection({ draft, editorData, isNew, update }: {
           </div>
         )}
       </SectionFrame>
+      <TerminalDrawer
+        open={termOpen}
+        onClose={closeTerminal}
+        seedCommand={termOpts.seedCommand}
+        cwd={termOpts.cwd}
+        title={termOpts.title}
+        subtitle={termOpts.subtitle}
+        width={termOpts.width}
+      />
     </div>
   );
 }

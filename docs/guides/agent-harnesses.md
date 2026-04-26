@@ -8,29 +8,20 @@ The point: manage Claude Code sessions in your browser, alongside your Spindrel 
 
 1. **Enable the integration that owns the runtime.** Each harness ships as part of an integration, not as a baked-in dep. For Claude Code: open `/admin/integrations`, find Claude Code, click Enable. The integration's `requirements.txt` (which pins `claude-agent-sdk`) installs on enable; the SDK bundles the `claude` CLI alongside it. **No SDK or CLI lives in the base Docker image** — nothing related to a harness ships with Spindrel itself.
 
-2. **Authenticate the harness on the Spindrel host.** SSH into the container (or your bare-metal host) and run:
+2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. If it's not authenticated, click the **Run `claude login`** button — a terminal drawer opens inside the Spindrel container with the command already running. Complete the OAuth flow in your browser, paste the code back into the drawer, close it. The card auto-refreshes to ✓ "Logged in via …".
 
-    ```sh
-    claude login
-    ```
+    Under the hood the CLI writes credentials to `$CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`). The Claude Agent SDK that the integration installed inherits these credentials — no API key needed. See [Admin Terminal](admin-terminal.md) for the terminal mechanics.
 
-    The CLI writes credentials to `$CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`). The Claude Agent SDK that the integration installed inherits these credentials — no API key needed.
+    *Old SSH workflow* (still works if you prefer): `docker exec -it spindrel claude login`.
 
-3. **Confirm auth in the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up here, with ✓ "Logged in via …" or ✗ with instructions. Disabling the integration removes the runtime from this list and from the bot-editor dropdown.
+3. **Workspace root mount.** Per-bot workspaces live under one directory tree, by default `/data/harness/`. The harnesses page detects when this path isn't mounted and shows a banner with the docker-compose snippet to paste. Add it once and run `docker compose up -d`; the banner disappears.
 
-4. **Create a workspace directory** on the host:
-
-    ```sh
-    mkdir -p /data/harness/my-project
-    git clone git@github.com:me/my-project /data/harness/my-project
-    ```
-
-    Whatever you put in here, the harness sees as its working directory. Drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos — anything.
-
-5. **Create a harness bot.** `/admin/bots` → New bot. In the **Identity** group, set:
+4. **Create a harness bot and seed its workspace.** `/admin/bots` → New bot. In the **Identity** group, set:
 
     - **Runtime:** `Claude Code`
     - **Workspace path:** `/data/harness/my-project`
+
+    Then click **Create workspace dir** (mkdir from the in-app terminal) and **Clone a repo** (opens a terminal in the workspace; type `git clone <url> .`). The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there.
 
     Other fields (model, system prompt, skills, tools, memory) are inert when a runtime is set — the harness owns them.
 
