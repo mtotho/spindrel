@@ -4,12 +4,17 @@ import {
   buildObservatoryEventMarks,
   buildObservatoryLanes,
   memoryFileKey,
+  observatoryHorizonDays,
   temporalAgeFactor,
   temporalLaneScale,
 } from "./memoryObservatoryLayout.ts";
 
 test("memoryFileKey joins bot and file identities", () => {
   assert.equal(memoryFileKey("bot-a", "memory/a.md"), "bot-a:memory/a.md");
+});
+
+test("observatoryHorizonDays preserves the 48h window", () => {
+  assert.equal(observatoryHorizonDays(2), 2);
 });
 
 test("buildObservatoryLanes sizes hot file bodies by write count", () => {

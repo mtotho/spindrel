@@ -241,7 +241,7 @@ export function useLearningMemoryActivity(days = 30) {
   });
 }
 
-export function useMemoryObservatory(days = 30) {
+export function useMemoryObservatory(days = 2) {
   return useQuery({
     queryKey: ["learning-memory-observatory", days],
     queryFn: () =>

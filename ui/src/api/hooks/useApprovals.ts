@@ -169,6 +169,61 @@ export function useSetSessionApprovalMode() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Harness settings (Phase 4) — per-session model / effort / runtime knobs.
+// Mirrors the approval-mode hook pair above. Settings live on
+// Session.metadata.harness_settings; missing keys mean "no override".
+// ---------------------------------------------------------------------------
+
+export interface HarnessSettings {
+  model: string | null;
+  effort: string | null;
+  runtime_settings: Record<string, unknown>;
+}
+
+export interface HarnessSettingsPatch {
+  // Missing key = no change. Explicit `null` = clear that field.
+  model?: string | null;
+  effort?: string | null;
+  runtime_settings?: Record<string, unknown> | null;
+}
+
+export function useSessionHarnessSettings(
+  sessionId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: ["session-harness-settings", sessionId],
+    queryFn: () =>
+      apiFetch<HarnessSettings>(
+        `/api/v1/sessions/${sessionId}/harness-settings`,
+      ),
+    enabled: !!sessionId,
+  });
+}
+
+export function useSetSessionHarnessSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      patch,
+    }: {
+      sessionId: string;
+      patch: HarnessSettingsPatch;
+    }) =>
+      apiFetch<HarnessSettings>(
+        `/api/v1/sessions/${sessionId}/harness-settings`,
+        {
+          method: "POST",
+          body: JSON.stringify(patch),
+        },
+      ),
+    onSuccess: (data, variables) => {
+      qc.setQueryData(["session-harness-settings", variables.sessionId], data);
+    },
+  });
+}
+
 export function useChannelPendingApprovals(channelId: string | undefined) {
   // No polling: the channel SSE stream (``approval_requested`` /
   // ``approval_resolved``) invalidates this key — see

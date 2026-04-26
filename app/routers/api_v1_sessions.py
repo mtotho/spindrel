@@ -12,8 +12,16 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Session, Task, ToolCall
 from app.domain.errors import DomainError
-from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
+from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user, verify_user
 from app.services.api_keys import has_scope
+from app.services import presence
+from app.services.machine_control import (
+    DEFAULT_LEASE_TTL_SECONDS,
+    MAX_LEASE_TTL_SECONDS,
+    build_session_machine_target_payload,
+    clear_session_lease,
+    grant_session_lease,
+)
 from app.services.sessions import store_passive_message
 
 logger = logging.getLogger(__name__)
@@ -240,6 +248,40 @@ class PromoteScratchSessionResponse(BaseModel):
     demoted_session_id: uuid.UUID
 
 
+class SessionMachineTargetLeaseOut(BaseModel):
+    lease_id: str
+    provider_id: str
+    target_id: str
+    user_id: str
+    granted_at: str
+    expires_at: str
+    capabilities: list[str]
+    handle_id: str | None = None
+    connection_id: str | None = None
+    ready: bool = False
+    status: str | None = None
+    status_label: str | None = None
+    reason: str | None = None
+    checked_at: str | None = None
+    connected: bool
+    provider_label: str | None = None
+    target_label: str
+
+
+class SessionMachineTargetOut(BaseModel):
+    session_id: str
+    lease: SessionMachineTargetLeaseOut | None = None
+    targets: list[dict[str, Any]]
+    ready_target_count: int | None = None
+    connected_target_count: int | None = None
+
+
+class SessionMachineTargetLeaseRequest(BaseModel):
+    provider_id: str
+    target_id: str
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS
+
+
 def _auth_has_scope(auth, scope: str) -> bool:
     if isinstance(auth, ApiKeyAuth):
         return has_scope(auth.scopes, scope)
@@ -263,6 +305,11 @@ def _selector_title(session: Session, preview: str | None) -> str | None:
         return title
     preview = (preview or "").strip()
     return preview or None
+
+
+def _require_admin_user(user) -> None:
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 async def _authorize_session_read(
@@ -668,6 +715,67 @@ async def list_scratch_sessions(
     ]
 
 
+@router.get("/{session_id}/machine-target", response_model=SessionMachineTargetOut)
+async def get_session_machine_target(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    _require_admin_user(user)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    presence.mark_active(user.id)
+    payload = await build_session_machine_target_payload(db, session=session)
+    return SessionMachineTargetOut(**payload)
+
+
+@router.post("/{session_id}/machine-target/lease", response_model=SessionMachineTargetOut)
+async def grant_session_machine_target_lease(
+    session_id: uuid.UUID,
+    body: SessionMachineTargetLeaseRequest,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    _require_admin_user(user)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    presence.mark_active(user.id)
+    try:
+        await grant_session_lease(
+            db,
+            session=session,
+            user=user,
+            provider_id=body.provider_id,
+            target_id=body.target_id,
+            ttl_seconds=max(30, min(body.ttl_seconds, MAX_LEASE_TTL_SECONDS)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    payload = await build_session_machine_target_payload(db, session=session)
+    return SessionMachineTargetOut(**payload)
+
+
+@router.delete("/{session_id}/machine-target/lease", response_model=SessionMachineTargetOut)
+async def clear_session_machine_target_lease(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    _require_admin_user(user)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    clear_session_lease(session)
+    await db.commit()
+    await db.refresh(session)
+    payload = await build_session_machine_target_payload(db, session=session)
+    return SessionMachineTargetOut(**payload)
+
+
 @router.patch("/{session_id}", response_model=SessionOutDetail)
 async def update_session(
     session_id: uuid.UUID,
@@ -770,6 +878,85 @@ async def set_approval_mode(
     await _authorize_session_read(db, session, auth)
     await set_session_mode(db, session_id, body.mode)
     return ApprovalModeOut(mode=body.mode)
+
+
+class HarnessSettingsOut(BaseModel):
+    model: str | None = None
+    effort: str | None = None
+    runtime_settings: dict[str, Any] = {}
+
+
+class HarnessSettingsPatch(BaseModel):
+    """Partial update body. Missing key = no change. JSON ``null`` = clear field.
+
+    Decoded via ``body.dict(exclude_unset=True)`` so handlers can distinguish
+    "not provided" from "explicitly cleared".
+    """
+
+    model: str | None = None
+    effort: str | None = None
+    runtime_settings: dict[str, Any] | None = None
+
+
+@router.get("/{session_id}/harness-settings", response_model=HarnessSettingsOut)
+async def get_harness_settings(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("approvals:read")),
+):
+    """Return per-session harness settings (model / effort / runtime knobs).
+
+    Symmetric with ``/approval-mode``: same scope tier (``approvals:read``)
+    and same ``_authorize_session_read`` ownership boundary.
+    """
+    from app.services.agent_harnesses.settings import load_session_settings
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    settings = await load_session_settings(db, session_id)
+    return HarnessSettingsOut(
+        model=settings.model,
+        effort=settings.effort,
+        runtime_settings=dict(settings.runtime_settings),
+    )
+
+
+@router.post("/{session_id}/harness-settings", response_model=HarnessSettingsOut)
+async def set_harness_settings(
+    session_id: uuid.UUID,
+    body: HarnessSettingsPatch,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("approvals:write")),
+):
+    """Patch per-session harness settings.
+
+    Settings apply to the **next** turn — the in-flight turn captured its
+    model/effort in ``TurnContext`` at start.
+
+    NOTE: ``approvals:write`` here is intentional v1 expedience — these
+    settings change runtime behavior in a policy-adjacent way. A dedicated
+    ``harness:write`` (or ``sessions:write`` extension) scope may replace
+    this in a future phase; do not extend ``approvals:write`` to other
+    non-policy surfaces.
+    """
+    from app.services.agent_harnesses.settings import patch_session_settings
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    patch = body.model_dump(exclude_unset=True)
+    try:
+        settings = await patch_session_settings(db, session_id, patch=patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return HarnessSettingsOut(
+        model=settings.model,
+        effort=settings.effort,
+        runtime_settings=dict(settings.runtime_settings),
+    )
 
 
 @router.get("/{session_id}/summary", response_model=SessionSummaryOut)

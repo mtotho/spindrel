@@ -295,6 +295,8 @@ from app.services.agent_harnesses.base import (  # noqa: E402, F401
     AuthStatus,
     ChannelEventEmitter,
     HarnessRuntime,
+    HarnessSlashCommandPolicy,
+    RuntimeCapabilities,
     TurnContext,
     TurnResult,
 )
@@ -304,6 +306,12 @@ from app.services.agent_harnesses.approvals import (  # noqa: E402, F401
     grant_turn_bypass,
     request_harness_approval,
     revoke_turn_bypass,
+)
+from app.services.agent_harnesses.settings import (  # noqa: E402, F401
+    HARNESS_SETTINGS_KEY,
+    HarnessSettings,
+    load_session_settings,
+    patch_session_settings,
 )
 
 # ---------------------------------------------------------------------------

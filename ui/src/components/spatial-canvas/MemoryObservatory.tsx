@@ -37,6 +37,14 @@ const H = 920;
 const FAR_THRESHOLD = 0.28;
 const MID_THRESHOLD = 0.72;
 const DETAIL_THRESHOLD = 1.15;
+const DEFAULT_OBSERVATORY_DAYS = 2;
+const OBSERVATORY_WINDOWS = [
+  { days: 1, label: "24h" },
+  { days: 2, label: "48h" },
+  { days: 7, label: "7d" },
+  { days: 30, label: "30d" },
+  { days: 0, label: "All" },
+];
 
 function fmtRelative(value?: string | null) {
   if (!value) return "never";
@@ -270,7 +278,7 @@ export function MemoryObservationPanel({
 
 export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObservatoryProps) {
   const navigate = useNavigate();
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(DEFAULT_OBSERVATORY_DAYS);
   const [query, setQuery] = useState("");
   const [hoveredMarkKey, setHoveredMarkKey] = useState<string | null>(null);
   const [activeFindingId, setActiveFindingId] = useState<string | null>(null);
@@ -329,6 +337,7 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
   const maxLaneRy = Math.max(122, ...lanes.map((lane) => lane.ry));
   const temporalRings = [
     { days: 1, label: "24h" },
+    { days: 2, label: "48h" },
     { days: 7, label: "7d" },
     { days: 30, label: "30d" },
     { days: 90, label: "90d+" },
@@ -656,14 +665,14 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-1">
-              {[1, 7, 30, 0].map((value) => (
+              {OBSERVATORY_WINDOWS.map((windowOption) => (
                 <button
-                  key={value}
+                  key={windowOption.days}
                   type="button"
-                  onClick={() => setDays(value)}
-                  className={`rounded-md px-2 py-1 text-[11px] font-semibold ${days === value ? "bg-accent/[0.10] text-accent" : "text-text-dim hover:bg-surface-overlay/60 hover:text-text-muted"}`}
+                  onClick={() => setDays(windowOption.days)}
+                  className={`rounded-md px-2 py-1 text-[11px] font-semibold ${days === windowOption.days ? "bg-accent/[0.10] text-accent" : "text-text-dim hover:bg-surface-overlay/60 hover:text-text-muted"}`}
                 >
-                  {value === 0 ? "All" : value === 1 ? "24h" : `${value}d`}
+                  {windowOption.label}
                 </button>
               ))}
             </div>

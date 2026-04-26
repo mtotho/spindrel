@@ -889,7 +889,7 @@ async def learning_memory_activity(
 
 @router.get("/memory-observatory", response_model=MemoryObservatoryResponse)
 async def learning_memory_observatory(
-    days: int = Query(default=30, ge=0, le=365),
+    days: int = Query(default=2, ge=0, le=365),
     limit: int = Query(default=250, ge=1, le=500),
     lane_limit: int = Query(default=12, ge=1, le=24),
     db: AsyncSession = Depends(get_db),

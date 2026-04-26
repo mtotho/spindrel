@@ -31,6 +31,7 @@ from app.routers.api_v1_push import router as push_router, presence_router
 from app.routers.api_v1_favicon import router as favicon_router
 from app.routers.api_v1_internal_tools import router as internal_tools_router
 from app.routers.api_v1_messages import router as messages_router
+from app.routers.api_v1_runtimes import router as runtimes_router
 from app.routers.api_v1_slash_commands import router as slash_commands_router
 
 router = APIRouter(prefix="/api/v1")
@@ -65,4 +66,5 @@ router.include_router(presence_router)
 router.include_router(favicon_router)
 router.include_router(internal_tools_router)
 router.include_router(messages_router)
+router.include_router(runtimes_router)
 router.include_router(slash_commands_router)

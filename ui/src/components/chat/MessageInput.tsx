@@ -99,7 +99,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const isMobile = columns === "single";
   const t = useThemeTokens();
   const recorder = useAudioRecorder();
-  const slashCatalog = useSlashCommandList();
+  // Phase 4: scope slash catalog by bot id so harness sessions get the
+  // runtime-allowlisted set automatically (picker + /help share one source).
+  const slashCatalog = useSlashCommandList(currentBotId);
 
   // Persisted draft state (per-channel)
   const draft = useDraftsStore((s) => channelId ? s.getDraft(channelId) : null);

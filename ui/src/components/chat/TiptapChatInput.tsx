@@ -79,7 +79,9 @@ export interface TiptapChatInputHandle {
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
   function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default", onEscapeDraft, onEscapeEmpty, onArrowUpEmpty }, ref) {
-    const slashCatalog = useSlashCommandList();
+    // Phase 4: scope catalog by bot id so harness sessions get the
+    // runtime-allowlisted slash list automatically.
+    const slashCatalog = useSlashCommandList(currentBotId);
     const { data: modelGroups } = useModelGroups();
     const t = useThemeTokens();
     const { data: completions } = useCompletions();

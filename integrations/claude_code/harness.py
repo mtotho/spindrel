@@ -23,6 +23,8 @@ from integrations.sdk import (
     AllowDeny,
     AuthStatus,
     ChannelEventEmitter,
+    HarnessSlashCommandPolicy,
+    RuntimeCapabilities,
     TurnContext,
     TurnResult,
     request_harness_approval,
@@ -61,6 +63,21 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
     return list(_BYPASS_ALLOWED) if mode == "bypassPermissions" else list(_RESTRICTED_ALLOWED)
 
 
+# Conservative v1 slash-command allowlist for harness sessions on this runtime.
+# Excluded by intent (re-add only with documented harness behavior):
+#   compact  — Spindrel-loop transcript compaction; harness owns its context
+#   plan     — Spindrel chat-mode toggle; conflicts with Claude's native plan
+#   context  — Spindrel context summary; meaningless for harness
+#   find     — channel-scoped keyword search; Spindrel-only semantics
+#   effort   — Claude has no effort knob (typed /effort returns friendly no-op)
+#   model    — header pill is canonical surface; typed /model still works
+#   skills + any Spindrel-tool-control commands — runtime owns tools
+_CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
+    "help", "rename", "stop", "style", "theme", "clear",
+    "sessions", "scratch", "split", "focus",
+})
+
+
 def _credential_path() -> str:
     """Resolve the on-disk credential path the CLI writes after `claude login`.
 
@@ -97,6 +114,23 @@ class ClaudeCodeRuntime:
     def autoapprove_in_plan(self, tool_name: str) -> bool:
         return tool_name in self._PLAN_AUTOAPPROVE
 
+    def capabilities(self) -> RuntimeCapabilities:
+        return RuntimeCapabilities(
+            display_name="Claude Code",
+            # Freeform v1 — no baked model ids. The Claude Agent SDK accepts
+            # whatever the underlying CLI accepts; we let the runtime surface
+            # SDK errors rather than gatekeeping a curated list that'll drift.
+            supported_models=(),
+            model_is_freeform=True,
+            # Claude Code SDK has no effort knob today. Typed /effort still
+            # routes to the harness handler, which returns a friendly no-op.
+            effort_values=(),
+            approval_modes=("bypassPermissions", "acceptEdits", "default", "plan"),
+            slash_policy=HarnessSlashCommandPolicy(
+                allowed_command_ids=_CLAUDE_GENERIC_SLASH_ALLOWED,
+            ),
+        )
+
     async def start_turn(
         self,
         *,
@@ -129,6 +163,14 @@ class ClaudeCodeRuntime:
         }
         if ctx.harness_session_id:
             options_kwargs["resume"] = ctx.harness_session_id
+        if ctx.model:
+            # Phase 4: per-session harness model from harness_settings. SDK
+            # forwards to the underlying CLI/API; unknown ids surface as SDK
+            # errors during construction or first turn — adapter is the only
+            # layer that needs to know the kwarg name.
+            options_kwargs["model"] = ctx.model
+        # ctx.effort / ctx.runtime_settings intentionally unused — Claude Code
+        # SDK exposes no effort knob and no opaque runtime knobs in v1.
 
         opts = ClaudeAgentOptions(**options_kwargs)
 

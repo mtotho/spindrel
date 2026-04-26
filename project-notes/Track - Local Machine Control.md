@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-25 (guided companion recovery + reconnect install)
+updated: 2026-04-26 (api-v1 session lease route fix)
 ---
 # Track — Local Machine Control
 
@@ -167,12 +167,18 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Local Companion client now reconnects by default, supports `--once`, lazy-loads `websockets`, and can install itself as a Linux `systemd --user` service with its own venv.
 - Integration list/detail surfaces now render manifest descriptions so provider purpose is visible outside setup instructions.
 
+### Follow-up fix — API v1 session lease routes
+
+- Fixed the optional native widget / transcript grant path calling `/api/v1/sessions/{session_id}/machine-target/lease` and receiving 404 because the machine-target session endpoints only existed on the legacy `/sessions` router. `app/routers/api_v1_sessions.py` now exposes GET/POST/DELETE machine-target routes with the same admin-only lease behavior.
+- Added a focused route-table + direct async forwarding test for the API-v1 lease path. A full `TestClient` version hit the already-known local machine-router stall pattern, so the regression avoids that harness while still pinning the missing route.
+
 ## Current Architecture Shape
 
 - Core:
   - `app/services/machine_control.py`
   - `app/tools/local/machine_control.py`
   - `app/routers/api_v1_admin/machines.py`
+  - `app/routers/api_v1_sessions.py`
   - `app/routers/sessions.py`
   - `/admin/machines`
   - transcript-native machine result renderers
@@ -209,3 +215,5 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile integrations/local_companion/client.py`
 - `pytest tests/unit/test_local_machine_control_phase5a.py -q`
 - `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/tools/local/machine_control.py tests/unit/test_local_machine_control_phase5a.py`
+- `pytest tests/unit/test_api_v1_machine_target_routes.py -q`
+- `pytest tests/unit/test_machine_target_sessions.py tests/unit/test_api_v1_machine_target_routes.py -q`

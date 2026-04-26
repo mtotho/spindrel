@@ -443,7 +443,7 @@ function ChannelChatSession({
     [srcHandleSend],
   );
 
-  const channelSlashCatalog = useSlashCommandList();
+  const channelSlashCatalog = useSlashCommandList(src.bot_id);
   const { data: channelModelGroups } = useModelGroups();
   const channelSlashLocalHandlers = useMemo(
     () => ({
@@ -885,7 +885,7 @@ function FixedSessionChatSession({
     syncCancelledState();
   }, [botId, cancelChat, parentChannelId, sessionId, syncCancelledState]);
 
-  const slashCatalog = useSlashCommandList();
+  const slashCatalog = useSlashCommandList(botId || undefined);
   const availableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
       catalog: slashCatalog,
@@ -1297,7 +1297,7 @@ function EphemeralChatSession({
     useChatStore.getState().clearProcessing(sessionId);
     qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
   }, [qc, sessionId]);
-  const sessionSlashCatalog = useSlashCommandList();
+  const sessionSlashCatalog = useSlashCommandList(botId || undefined);
   const sessionAvailableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
       catalog: sessionSlashCatalog,
@@ -1887,7 +1887,7 @@ function ThreadChatSession({
     useChatStore.getState().clearProcessing(storeKey);
     qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
   }, [effectiveSessionId, qc, storeKey]);
-  const threadSlashCatalog = useSlashCommandList();
+  const threadSlashCatalog = useSlashCommandList(botId || undefined);
   const threadAvailableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
       catalog: threadSlashCatalog,

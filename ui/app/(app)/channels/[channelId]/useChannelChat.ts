@@ -588,7 +588,10 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
     setQueuedMessageText(null);
   }, [channelId]);
 
-  const slashCatalog = useSlashCommandList();
+  // Phase 4: pass bot_id so the catalog is intersected with the harness
+  // runtime's slash policy server-side. Non-harness bots return the full
+  // catalog unchanged.
+  const slashCatalog = useSlashCommandList(channel?.bot_id);
   const { data: modelGroups } = useModelGroups();
   const availableSlashCommandIds = useMemo(
     () => resolveAvailableSlashCommandIds({

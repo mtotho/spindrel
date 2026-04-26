@@ -115,7 +115,7 @@ class SlashCommandResult(BaseModel):
 
 
 class SideEffectPayload(BaseModel):
-    effect: Literal["stop", "compact", "plan", "effort", "rename", "style"]
+    effect: Literal["stop", "compact", "plan", "effort", "rename", "style", "model"]
     scope_kind: Literal["channel", "session"]
     scope_id: str
     title: str
@@ -222,6 +222,42 @@ COMMANDS: dict[str, SlashCommandSpec] = {}
 def _register(spec: SlashCommandSpec) -> SlashCommandSpec:
     COMMANDS[spec.id] = spec
     return spec
+
+
+# ============================================================================
+# Harness-aware filter helpers (Phase 4)
+# ============================================================================
+
+
+async def _resolve_harness_runtime_for_bot(
+    db: AsyncSession, bot_id: uuid.UUID | str | None,
+):
+    """Look up a bot's harness runtime, or ``None`` if non-harness/missing.
+
+    Returns the registered ``HarnessRuntime`` so callers can read its
+    ``capabilities()``. Used by ``/help`` filtering, the ``/model`` and
+    ``/effort`` harness branches, and ``list_supported_slash_commands``.
+    """
+    if bot_id is None:
+        return None
+    from app.services.agent_harnesses import HARNESS_REGISTRY
+
+    bot_row = await db.get(BotRow, bot_id)
+    if bot_row is None or not bot_row.harness_runtime:
+        return None
+    return HARNESS_REGISTRY.get(bot_row.harness_runtime)
+
+
+def _filter_specs_for_runtime(specs, runtime) -> list:
+    """Intersect a list of specs with a runtime's slash policy.
+
+    Non-harness (runtime is None): pass through unchanged.
+    Harness: keep only specs whose id is in the runtime's allowlist.
+    """
+    if runtime is None or not hasattr(runtime, "capabilities"):
+        return list(specs)
+    allowed = runtime.capabilities().slash_policy.allowed_command_ids
+    return [s for s in specs if s.id in allowed]
 
 
 # ============================================================================
@@ -750,12 +786,136 @@ async def _effort_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if ctx.surface != "channel":
         raise ValueError("/effort is a channel setting; not available on sessions")
     assert ctx.channel is not None and ctx.channel_id is not None
+
+    # Phase 4: harness branch. If the channel's bot is a harness, dispatch
+    # to the harness-aware path BEFORE touching channel.config — a runtime
+    # without an effort knob (e.g. Claude Code in v1) returns a friendly
+    # no-op and never mutates the channel-level effort_override that drives
+    # the normal Spindrel loop.
+    runtime = await _resolve_harness_runtime_for_bot(ctx.db, ctx.channel.bot_id)
+    if runtime is not None:
+        return await _harness_effort_handler(ctx=ctx, runtime=runtime)
+
     return await _set_channel_effort(
         channel=ctx.channel,
         channel_id=ctx.channel_id,
         args=ctx.args,
         db=ctx.db,
     )
+
+
+async def _harness_effort_handler(
+    *,
+    ctx: SlashCommandContext,
+    runtime,
+) -> SlashCommandResult:
+    """Apply ``/effort <level>`` to a harness session's per-session settings.
+
+    If the runtime declares no ``effort_values`` (Claude Code today),
+    return a friendly info result without touching anything. This is the
+    "discovered via typing" path; the picker/help filter hides ``/effort``
+    from harness sessions on this runtime, so users won't normally see it.
+    """
+    from app.services.agent_harnesses.settings import patch_session_settings
+
+    caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
+    display = caps.display_name if caps else "This harness"
+
+    if not caps or not caps.effort_values:
+        payload = SideEffectPayload(
+            effect="effort",
+            scope_kind="channel",
+            scope_id=str(ctx.channel_id),
+            title="Effort not supported",
+            detail=f"{display} does not expose a reasoning-effort knob.",
+        )
+        return _side_effect_result(payload, command_id="effort")
+
+    level = (ctx.args[0].strip().lower() if ctx.args else "").strip()
+    if not level:
+        raise ValueError(
+            f"/effort requires one argument: {'/'.join(caps.effort_values)}"
+        )
+    if level not in caps.effort_values:
+        raise ValueError(
+            f"Unknown effort level {level!r}. {display} accepts: "
+            f"{', '.join(caps.effort_values)}"
+        )
+
+    if ctx.session_id is None:
+        raise ValueError(
+            "/effort in a harness channel must target a specific session"
+        )
+    await patch_session_settings(ctx.db, ctx.session_id, patch={"effort": level})
+
+    payload = SideEffectPayload(
+        effect="effort",
+        scope_kind="session",
+        scope_id=str(ctx.session_id),
+        title=f"Effort: {level}",
+        detail=f"{display} effort set to {level} for this session.",
+    )
+    return _side_effect_result(payload, command_id="effort")
+
+
+async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    """Set the model for this chat. Phase 4: server-handled, harness-aware.
+
+    Harness bots → write per-session ``harness_settings.model`` (channel
+    override is meaningless for harness, which uses session resume).
+    Non-harness bots → write ``channel.model_override`` (was UI-only;
+    centralizing here lets terminal/API callers behave identically).
+    """
+    from app.services.agent_harnesses.settings import patch_session_settings
+
+    if not ctx.args:
+        raise ValueError("/model requires one argument: <model_id>")
+    raw = (ctx.args[0] or "").strip()
+    if not raw:
+        raise ValueError("/model requires a non-empty model id")
+
+    bot_id_uuid: uuid.UUID | None = None
+    if ctx.channel is not None and ctx.channel.bot_id:
+        bot_id_uuid = ctx.channel.bot_id
+    elif ctx.session is not None:
+        bot_id_uuid = ctx.session.bot_id
+
+    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_uuid)
+    if runtime is not None:
+        if ctx.session_id is None:
+            raise ValueError(
+                "/model in a harness channel must target a specific session"
+            )
+        try:
+            await patch_session_settings(ctx.db, ctx.session_id, patch={"model": raw})
+        except ValueError as exc:
+            raise ValueError(f"/model: {exc}")
+        caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
+        display = caps.display_name if caps else "harness"
+        payload = SideEffectPayload(
+            effect="model",
+            scope_kind="session",
+            scope_id=str(ctx.session_id),
+            title=f"Model: {raw}",
+            detail=f"{display} model set to {raw} for this session.",
+        )
+        return _side_effect_result(payload, command_id="model")
+
+    # Non-harness path: channel override.
+    if ctx.channel is None or ctx.channel_id is None:
+        raise ValueError("/model requires a channel context for non-harness bots")
+    if len(raw) > 256:
+        raise ValueError("/model: model id exceeds 256-character limit")
+    ctx.channel.model_override = raw
+    await ctx.db.commit()
+    payload = SideEffectPayload(
+        effect="model",
+        scope_kind="channel",
+        scope_id=str(ctx.channel_id),
+        title=f"Model: {raw}",
+        detail=f"Channel model override set to {raw}.",
+    )
+    return _side_effect_result(payload, command_id="model")
 
 
 # ============================================================================
@@ -770,6 +930,20 @@ async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     require a new frontend component — each command becomes a "category" row.
     """
     available = [s for s in COMMANDS.values() if ctx.surface in s.surfaces]
+    scope_id = str(ctx.channel_id if ctx.surface == "channel" else ctx.session_id)
+    bot_id = ""
+    bot_id_uuid: uuid.UUID | None = None
+    if ctx.channel is not None and ctx.channel.bot_id:
+        bot_id = str(ctx.channel.bot_id)
+        bot_id_uuid = ctx.channel.bot_id
+    elif ctx.session is not None:
+        bot_id = str(ctx.session.bot_id)
+        bot_id_uuid = ctx.session.bot_id
+
+    # Phase 4: harness sessions only see commands the runtime allowlists.
+    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_uuid)
+    available = _filter_specs_for_runtime(available, runtime)
+
     categories = [
         ContextSummaryCategory(
             key=s.id,
@@ -780,12 +954,6 @@ async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         )
         for s in available
     ]
-    scope_id = str(ctx.channel_id if ctx.surface == "channel" else ctx.session_id)
-    bot_id = ""
-    if ctx.channel is not None and ctx.channel.bot_id:
-        bot_id = str(ctx.channel.bot_id)
-    elif ctx.session is not None:
-        bot_id = str(ctx.session.bot_id)
     payload = ContextSummaryPayload(
         scope_kind=ctx.surface,
         scope_id=scope_id,
@@ -997,7 +1165,10 @@ _register(SlashCommandSpec(
     label="/model",
     description="Set the model for this chat",
     surfaces=("channel", "session"),
-    local_only=True,
+    # Phase 4: server-handled. Harness bots write per-session harness_settings;
+    # non-harness bots write channel.model_override. Header pills bypass the
+    # slash command and POST to /sessions/{id}/harness-settings directly.
+    handler=_model_handler,
     args=(SlashCommandArgSpec(name="model_id", source="model", required=True),),
 ))
 
@@ -1098,7 +1269,11 @@ _register(SlashCommandSpec(
 # ============================================================================
 
 
-def list_supported_slash_commands() -> list[dict]:
+async def list_supported_slash_commands(
+    *,
+    db: AsyncSession | None = None,
+    bot_id: uuid.UUID | None = None,
+) -> list[dict]:
     """Canonical slash-command registry.
 
     The frontend fetches this at load time via `GET /api/v1/slash-commands`
@@ -1110,7 +1285,16 @@ def list_supported_slash_commands() -> list[dict]:
             local_only: bool,
             args: [{ name, source, required, enum | null }, ...]
         }
+
+    When ``bot_id`` is given (and ``db`` is provided), the result is
+    intersected with the bot's runtime slash policy if the bot is a
+    harness — so harness sessions only see commands the runtime allowlists.
+    Non-harness bots / no ``bot_id`` / unknown runtime → full catalog.
     """
+    specs = list(COMMANDS.values())
+    if bot_id is not None and db is not None:
+        runtime = await _resolve_harness_runtime_for_bot(db, bot_id)
+        specs = _filter_specs_for_runtime(specs, runtime)
     return [
         {
             "id": s.id,
@@ -1128,7 +1312,7 @@ def list_supported_slash_commands() -> list[dict]:
                 for a in s.args
             ],
         }
-        for s in COMMANDS.values()
+        for s in specs
     ]
 
 

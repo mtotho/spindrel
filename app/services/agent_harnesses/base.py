@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Protocol, runtime_checkable
+from typing import Any, Awaitable, Callable, Mapping, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,6 +234,68 @@ class TurnContext:
     """One of ``bypassPermissions`` | ``acceptEdits`` | ``default`` | ``plan``."""
     db_session_factory: DbSessionFactory
     """Open a short DB scope: ``async with ctx.db_session_factory() as db: ...``."""
+    model: str | None = None
+    """Per-session harness model id, or ``None`` to let the runtime pick its
+    default. Runtime adapters translate to the SDK-native kwarg
+    (``ClaudeAgentOptions(model=...)`` for Claude). Stored on
+    ``Session.metadata['harness_settings']['model']``."""
+    effort: str | None = None
+    """Per-session reasoning-effort hint. Only meaningful when the runtime
+    declares non-empty ``effort_values`` in ``RuntimeCapabilities``. Claude
+    Code currently has no effort knob, so this is unused for that runtime."""
+    runtime_settings: Mapping[str, Any] = field(default_factory=dict)
+    """Opaque per-runtime settings bag for knobs that don't fit the generic
+    model/effort shape. Each runtime adapter owns the schema; the host stores
+    and threads the dict without inspection."""
+
+
+@dataclass(frozen=True)
+class HarnessSlashCommandPolicy:
+    """Per-runtime allowlist of generic Spindrel slash commands.
+
+    The slash-command catalog endpoint and ``/help`` intersect this with the
+    surface-filtered registry when a harness bot is in scope. Commands
+    outside this set are hidden from picker and ``/help``, but typed
+    invocations still reach their handlers (which can return a friendly
+    no-op for harness sessions).
+    """
+
+    allowed_command_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class RuntimeCapabilities:
+    """What a harness runtime exposes to the UI / slash dispatcher.
+
+    Static per process — capabilities are computed once and cached by the
+    UI for the runtime's lifetime. Bumping a runtime's capabilities
+    requires a process restart, which matches how runtimes register today.
+    """
+
+    display_name: str
+    """Human-readable name shown in the header runtime badge."""
+    supported_models: tuple[str, ...] = ()
+    """Curated suggestion list for the model pill. Empty = no curation."""
+    model_is_freeform: bool = True
+    """``True`` → the model pill renders a freeform text input (with
+    ``supported_models`` as suggestions if non-empty). ``False`` → strict
+    dropdown of ``supported_models`` only."""
+    effort_values: tuple[str, ...] = ()
+    """Allowed values for the effort pill. ``()`` hides the pill entirely
+    and gates the harness ``/effort`` branch to a friendly no-op."""
+    approval_modes: tuple[str, ...] = (
+        "bypassPermissions",
+        "acceptEdits",
+        "default",
+        "plan",
+    )
+    """Allowed values for the approval-mode pill."""
+    slash_policy: "HarnessSlashCommandPolicy" = field(
+        default_factory=lambda: HarnessSlashCommandPolicy(
+            allowed_command_ids=frozenset()
+        ),
+    )
+    """Generic-slash allowlist for harness sessions on this runtime."""
 
 
 @runtime_checkable
@@ -292,5 +354,15 @@ class HarnessRuntime(Protocol):
         For Claude this is ``ExitPlanMode`` — the SDK renders the plan
         natively and exiting plan mode is the natural end-of-step, not a
         write the user needs to gate on.
+        """
+        ...
+
+    def capabilities(self) -> "RuntimeCapabilities":
+        """Static control surface this runtime exposes.
+
+        Returns a frozen ``RuntimeCapabilities`` describing which model,
+        effort, approval-mode, and slash-command controls the UI should
+        render for sessions on this runtime. The host treats every field
+        opaquely — runtime-specific names live here, never in ``app/``.
         """
         ...

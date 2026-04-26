@@ -148,7 +148,10 @@ class TestSlashCommandCatalog:
         assert by_id["find"]["args"][0]["source"] == "free_text"
         assert by_id["find"]["args"][0]["required"] is True
 
-        assert by_id["model"]["local_only"] is True
+        # Phase 4: /model is server-handled (was local_only). Backend dispatches
+        # to harness_settings for harness bots and channel.model_override for
+        # non-harness bots, so terminal/API callers behave identically to UI.
+        assert by_id["model"]["local_only"] is False
         assert by_id["model"]["args"][0]["source"] == "model"
 
         assert by_id["theme"]["local_only"] is True

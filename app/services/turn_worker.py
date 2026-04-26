@@ -139,17 +139,20 @@ async def _run_harness_turn(
 
     prior_session_id = await _load_prior_harness_session_id(session_id)
 
-    # Per-session approval mode (default ``bypassPermissions``). Captured at
+    # Per-session approval mode (default ``bypassPermissions``) and per-session
+    # harness settings (model / effort / opaque runtime knobs). Captured at
     # turn start and immutable for this turn — pill changes apply to the next
-    # turn. Phase 3.
+    # turn. Phase 3 (mode) + Phase 4 (settings).
     from app.services.agent_harnesses.approvals import (
         load_session_mode,
         revoke_turn_bypass,
     )
     from app.services.agent_harnesses.base import TurnContext
+    from app.services.agent_harnesses.settings import load_session_settings
 
     async with async_session() as db:
         permission_mode = await load_session_mode(db, session_id)
+        harness_settings = await load_session_settings(db, session_id)
 
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
@@ -167,6 +170,9 @@ async def _run_harness_turn(
         harness_session_id=prior_session_id,
         permission_mode=permission_mode,
         db_session_factory=async_session,
+        model=harness_settings.model,
+        effort=harness_settings.effort,
+        runtime_settings=harness_settings.runtime_settings,
     )
 
     error_text: str | None = None

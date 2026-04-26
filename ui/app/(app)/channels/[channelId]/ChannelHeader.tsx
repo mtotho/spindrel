@@ -14,8 +14,11 @@ import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useChannel
 import {
   useSessionApprovalMode,
   useSetSessionApprovalMode,
+  useSessionHarnessSettings,
+  useSetSessionHarnessSettings,
   type HarnessApprovalMode,
 } from "@/src/api/hooks/useApprovals";
+import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
@@ -767,15 +770,8 @@ function HarnessHeaderChrome({
   sessionId: string | null;
   t: ReturnType<typeof useThemeTokens>;
 }) {
-  const { data, isLoading } = useSessionApprovalMode(sessionId);
-  const setMode = useSetSessionApprovalMode();
-  const mode: HarnessApprovalMode = (data?.mode as HarnessApprovalMode | undefined) ?? "bypassPermissions";
-  const handleCycle = () => {
-    if (!sessionId || setMode.isPending) return;
-    const idx = HARNESS_MODE_CYCLE.indexOf(mode);
-    const next = HARNESS_MODE_CYCLE[(idx + 1) % HARNESS_MODE_CYCLE.length];
-    setMode.mutate({ sessionId, mode: next });
-  };
+  const { data: caps } = useRuntimeCapabilities(runtime);
+  const displayName = caps?.display_name ?? runtime;
   return (
     <>
       <span
@@ -784,28 +780,205 @@ function HarnessHeaderChrome({
           backgroundColor: t.surfaceOverlay,
           color: t.textMuted,
         }}
-        title={`Harness runtime: ${runtime}`}
+        title={`Harness runtime: ${displayName}`}
       >
-        🤖 {runtime}
+        🤖 {displayName}
       </span>
-      {sessionId && (
-        <button
-          type="button"
-          onClick={handleCycle}
-          disabled={!sessionId || setMode.isPending || isLoading}
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider shrink-0"
-          style={{
-            backgroundColor: mode === "bypassPermissions" ? t.successSubtle : t.warningSubtle,
-            color: mode === "bypassPermissions" ? t.success : t.warningMuted,
-            border: "none",
-            cursor: setMode.isPending ? "default" : "pointer",
-            opacity: setMode.isPending ? 0.6 : 1,
-          }}
-          title={`${HARNESS_MODE_DESCRIPTION[mode]} Click to cycle.`}
-        >
-          🛡 {HARNESS_MODE_LABEL[mode]}
-        </button>
+      {sessionId && caps && (
+        <>
+          <HarnessModelPill
+            sessionId={sessionId}
+            caps={caps}
+            t={t}
+          />
+          {caps.effort_values.length > 0 && (
+            <HarnessEffortPill
+              sessionId={sessionId}
+              effortValues={caps.effort_values}
+              t={t}
+            />
+          )}
+          <HarnessApprovalModePill sessionId={sessionId} t={t} />
+        </>
+      )}
+      {sessionId && !caps && (
+        // Capabilities still loading — render the approval-mode pill alone
+        // so the header doesn't pop in/out as caps resolve.
+        <HarnessApprovalModePill sessionId={sessionId} t={t} />
       )}
     </>
+  );
+}
+
+function HarnessApprovalModePill({
+  sessionId,
+  t,
+}: {
+  sessionId: string;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data, isLoading } = useSessionApprovalMode(sessionId);
+  const setMode = useSetSessionApprovalMode();
+  const mode: HarnessApprovalMode =
+    (data?.mode as HarnessApprovalMode | undefined) ?? "bypassPermissions";
+  const handleCycle = () => {
+    if (setMode.isPending) return;
+    const idx = HARNESS_MODE_CYCLE.indexOf(mode);
+    const next = HARNESS_MODE_CYCLE[(idx + 1) % HARNESS_MODE_CYCLE.length];
+    setMode.mutate({ sessionId, mode: next });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCycle}
+      disabled={setMode.isPending || isLoading}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider shrink-0"
+      style={{
+        backgroundColor:
+          mode === "bypassPermissions" ? t.successSubtle : t.warningSubtle,
+        color: mode === "bypassPermissions" ? t.success : t.warningMuted,
+        border: "none",
+        cursor: setMode.isPending ? "default" : "pointer",
+        opacity: setMode.isPending ? 0.6 : 1,
+      }}
+      title={`${HARNESS_MODE_DESCRIPTION[mode]} Click to cycle.`}
+    >
+      🛡 {HARNESS_MODE_LABEL[mode]}
+    </button>
+  );
+}
+
+function HarnessModelPill({
+  sessionId,
+  caps,
+  t,
+}: {
+  sessionId: string;
+  caps: { supported_models: string[]; model_is_freeform: boolean; display_name: string };
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data, isLoading } = useSessionHarnessSettings(sessionId);
+  const setSettings = useSetSessionHarnessSettings();
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const current = data?.model ?? null;
+  const label = current ?? "model";
+
+  const commit = (raw: string | null) => {
+    setSettings.mutate(
+      { sessionId, patch: { model: raw } },
+      { onSettled: () => setEditing(false) },
+    );
+  };
+
+  if (editing && caps.model_is_freeform) {
+    return (
+      <span className="inline-flex items-center gap-1 shrink-0">
+        <input
+          autoFocus
+          value={draft}
+          placeholder="model id (blank = clear)"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            const trimmed = draft.trim();
+            commit(trimmed === "" ? null : trimmed);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const trimmed = draft.trim();
+              commit(trimmed === "" ? null : trimmed);
+            } else if (e.key === "Escape") {
+              setEditing(false);
+            }
+          }}
+          className="px-1.5 py-0.5 rounded text-[10px] outline-none shrink-0"
+          style={{
+            backgroundColor: t.surfaceOverlay,
+            color: t.text,
+            border: `1px solid ${t.surfaceBorder}`,
+            minWidth: "12rem",
+          }}
+        />
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (caps.model_is_freeform) {
+          setDraft(current ?? "");
+          setEditing(true);
+        } else if (caps.supported_models.length > 0) {
+          // Cycle through supported models + a "clear" slot at the end.
+          const idx = current ? caps.supported_models.indexOf(current) : -1;
+          const cycle = [...caps.supported_models, null];
+          const next = cycle[(idx + 1) % cycle.length];
+          commit(next);
+        }
+      }}
+      disabled={setSettings.isPending || isLoading}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] shrink-0 max-w-[14rem] truncate"
+      style={{
+        backgroundColor: t.surfaceOverlay,
+        color: current ? t.text : t.textMuted,
+        border: "none",
+        cursor: setSettings.isPending ? "default" : "pointer",
+        opacity: setSettings.isPending ? 0.6 : 1,
+        fontFamily: "'Menlo', monospace",
+      }}
+      title={
+        current
+          ? `${caps.display_name} model: ${current}. Click to change.`
+          : `${caps.display_name} default model. Click to override.`
+      }
+    >
+      🧠 {label}
+    </button>
+  );
+}
+
+function HarnessEffortPill({
+  sessionId,
+  effortValues,
+  t,
+}: {
+  sessionId: string;
+  effortValues: string[];
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data, isLoading } = useSessionHarnessSettings(sessionId);
+  const setSettings = useSetSessionHarnessSettings();
+  const current = data?.effort ?? null;
+  const handleCycle = () => {
+    if (setSettings.isPending) return;
+    // Cycle through declared effort values + a "clear" slot at the end.
+    const cycle = [...effortValues, null];
+    const idx = current ? effortValues.indexOf(current) : effortValues.length;
+    const next = cycle[(idx + 1) % cycle.length];
+    setSettings.mutate({ sessionId, patch: { effort: next } });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCycle}
+      disabled={setSettings.isPending || isLoading}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider shrink-0"
+      style={{
+        backgroundColor: current ? t.warningSubtle : t.surfaceOverlay,
+        color: current ? t.warningMuted : t.textMuted,
+        border: "none",
+        cursor: setSettings.isPending ? "default" : "pointer",
+        opacity: setSettings.isPending ? 0.6 : 1,
+      }}
+      title={
+        current
+          ? `Effort: ${current}. Click to cycle.`
+          : `Effort: default. Click to set.`
+      }
+    >
+      ⚡ {current ?? "effort"}
+    </button>
   );
 }
