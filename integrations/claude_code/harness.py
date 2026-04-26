@@ -25,6 +25,13 @@ from app.services.agent_harnesses.base import (
     TurnResult,
 )
 
+# Probe-import the SDK at module load. The actual SDK calls live inside
+# ``start_turn`` (deferred to keep cold-startup snappy), but having this
+# top-level import lets ``discover_and_load_harnesses`` see ImportError at
+# discover time and auto-run ``pip install -r requirements.txt`` instead of
+# silently registering a runtime that fails on first use.
+import claude_agent_sdk as _claude_agent_sdk_probe  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 

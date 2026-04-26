@@ -94,17 +94,65 @@ def discover_and_load_harnesses() -> None:
         try:
             _import_harness_module(harness_file, integration_id)
         except ImportError as exc:
-            # Most likely cause: integration's requirements.txt hasn't been
-            # installed yet (e.g. claude-agent-sdk missing). Log and move on
-            # — admin can install deps via /admin/integrations and reload.
+            # Integration's Python deps aren't installed (e.g. claude-agent-sdk
+            # missing). pip-install the requirements.txt now and retry — this
+            # is idempotent and survives container restarts because pip writes
+            # into the image's site-packages, which is part of the running
+            # container's writable layer (same lifetime as install_deps).
             logger.warning(
-                "Skipping harness for %s — import failed (deps not installed?): %s",
+                "Harness for %s failed to import (%s) — auto-installing deps and retrying",
                 integration_id, exc,
             )
+            installed = _auto_install_integration_deps(harness_file.parent, integration_id)
+            if not installed:
+                logger.error(
+                    "Could not install deps for %s; harness skipped. Click "
+                    "'Reinstall' on /admin/integrations once the cause is fixed.",
+                    integration_id,
+                )
+                continue
+            try:
+                _import_harness_module(harness_file, integration_id)
+            except Exception as exc2:
+                logger.exception(
+                    "Harness import retry for %s still failed after pip install: %s",
+                    integration_id, exc2,
+                )
         except Exception:
             logger.exception(
                 "Failed to load harness for integration %s", integration_id,
             )
+
+
+def _auto_install_integration_deps(integration_dir: Path, integration_id: str) -> bool:
+    """Run ``pip install -r requirements.txt`` for the integration synchronously.
+
+    Returns True on success. Called from startup discovery when a harness
+    module's import fails — keeps harness bots working out-of-the-box on
+    fresh container starts without forcing the admin to click Reinstall.
+    """
+    import subprocess
+    import sys
+
+    req_path = integration_dir / "requirements.txt"
+    if not req_path.is_file():
+        logger.error(
+            "Cannot auto-install deps for %s — no requirements.txt at %s",
+            integration_id, req_path,
+        )
+        return False
+    cmd = [sys.executable, "-m", "pip", "install", "-q", "-r", str(req_path)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+    except subprocess.TimeoutExpired:
+        logger.error("pip install timed out for %s", integration_id)
+        return False
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or b"").decode(errors="replace").strip()
+        logger.error("pip install failed for %s: %s", integration_id, err[:1000])
+        return False
+    logger.info("Auto-installed deps for %s from %s", integration_id, req_path)
+    return True
 
 
 def _import_harness_module(harness_file: Path, integration_id: str) -> None:

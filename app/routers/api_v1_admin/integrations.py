@@ -453,10 +453,35 @@ async def install_deps(integration_id: str, _auth=Depends(require_scopes("integr
             raise HTTPException(status_code=500, detail=f"pip install failed: {err[:500]}")
 
         logger.info("Installed dependencies for integration %s: %s", integration_id, packages or req_path)
+
+        # Reload the integration's harness module (if any) in-process so the
+        # admin doesn't have to restart the server to start using a freshly
+        # installed runtime. Tools are still restart-only — they're loaded
+        # via a separate scanner at startup.
+        harness_loaded = False
+        try:
+            from pathlib import Path as _P
+            from app.services.agent_harnesses import _import_harness_module
+            for candidate, iid, _is_external, _source in _iter_integration_candidates():
+                if iid != integration_id:
+                    continue
+                harness_file = _P(candidate) / "harness.py"
+                if harness_file.is_file():
+                    _import_harness_module(harness_file, integration_id)
+                    harness_loaded = True
+                break
+        except Exception:
+            logger.exception("post-install harness reload failed for %s", integration_id)
+
         return {
             "integration_id": integration_id,
             "installed": True,
-            "message": "Dependencies installed. Restart the server to activate new tools.",
+            "harness_reloaded": harness_loaded,
+            "message": (
+                "Dependencies installed. Harness reloaded — ready to use."
+                if harness_loaded
+                else "Dependencies installed. Restart the server to activate new tools."
+            ),
         }
 
     except asyncio.TimeoutError:
