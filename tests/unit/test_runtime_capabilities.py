@@ -64,9 +64,13 @@ def test_claude_capabilities_shape():
     )
 
     allowed = caps.slash_policy.allowed_command_ids
-    # Must allow safe generics:
-    for cmd in ("help", "rename", "stop", "clear", "sessions", "scratch", "split", "focus"):
+    # Must allow safe generics + /model (typed slash is a parallel write
+    # path alongside the canonical header model pill):
+    for cmd in (
+        "help", "rename", "stop", "clear", "sessions", "scratch",
+        "split", "focus", "model",
+    ):
         assert cmd in allowed, f"{cmd} should be in Claude allowlist"
     # Must NOT allow Spindrel-loop / runtime-conflicting commands:
-    for cmd in ("compact", "plan", "context", "find", "effort", "model", "skills"):
+    for cmd in ("compact", "plan", "context", "find", "effort", "skills"):
         assert cmd not in allowed, f"{cmd} must NOT be in Claude allowlist"

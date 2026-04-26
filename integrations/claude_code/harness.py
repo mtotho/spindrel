@@ -70,11 +70,14 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
 #   context  — Spindrel context summary; meaningless for harness
 #   find     — channel-scoped keyword search; Spindrel-only semantics
 #   effort   — Claude has no effort knob (typed /effort returns friendly no-op)
-#   model    — header pill is canonical surface; typed /model still works
 #   skills + any Spindrel-tool-control commands — runtime owns tools
+#
+# `model` IS in the allowlist so the picker shows it and typed `/model X`
+# discovers + executes. The header model pill is the canonical UI surface,
+# but the slash command is a parallel write path that must also work.
 _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
-    "sessions", "scratch", "split", "focus",
+    "sessions", "scratch", "split", "focus", "model",
 })
 
 

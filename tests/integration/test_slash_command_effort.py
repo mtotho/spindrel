@@ -103,13 +103,20 @@ class TestEffortCommand:
         assert resp.status_code == 400, resp.text
 
     async def test_registry_exposes_effort_as_arg_taking(self, client):
+        # Catalog moved from {accepts_args, arg_enum} to a richer
+        # {args: [{name, source, required, enum}, ...]} schema. This test
+        # was orphaned by that refactor; updated here to match the
+        # current shape so the gate keeps real meaning.
         resp = await client.get("/api/v1/slash-commands", headers=AUTH_HEADERS)
         assert resp.status_code == 200, resp.text
         commands = resp.json()["commands"]
         effort = next((c for c in commands if c["id"] == "effort"), None)
         assert effort is not None, "effort missing from canonical registry"
-        assert effort["accepts_args"] is True
-        assert effort["arg_enum"] == ["off", "low", "medium", "high"]
+        assert len(effort["args"]) == 1
+        arg = effort["args"][0]
+        assert arg["required"] is True
+        assert arg["source"] == "enum"
+        assert arg["enum"] == ["off", "low", "medium", "high"]
 
     async def test_registry_flags_local_only_commands(self, client):
         resp = await client.get("/api/v1/slash-commands", headers=AUTH_HEADERS)

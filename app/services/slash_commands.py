@@ -230,7 +230,7 @@ def _register(spec: SlashCommandSpec) -> SlashCommandSpec:
 
 
 async def _resolve_harness_runtime_for_bot(
-    db: AsyncSession, bot_id: uuid.UUID | str | None,
+    db: AsyncSession, bot_id: str | None,
 ):
     """Look up a bot's harness runtime, or ``None`` if non-harness/missing.
 
@@ -874,20 +874,28 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if not raw:
         raise ValueError("/model requires a non-empty model id")
 
-    bot_id_uuid: uuid.UUID | None = None
+    bot_id_str: str | None = None
     if ctx.channel is not None and ctx.channel.bot_id:
-        bot_id_uuid = ctx.channel.bot_id
+        bot_id_str = str(ctx.channel.bot_id)
     elif ctx.session is not None:
-        bot_id_uuid = ctx.session.bot_id
+        bot_id_str = str(ctx.session.bot_id)
 
-    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_uuid)
+    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_str)
     if runtime is not None:
-        if ctx.session_id is None:
+        # Resolve target session: explicit ctx.session_id wins, otherwise fall
+        # back to the channel's currently-active session. The composer fires
+        # /model from a channel surface (channel_id only) — without this
+        # fallback, harness /model is unreachable from typed slash usage.
+        target_session_id = ctx.session_id
+        if target_session_id is None and ctx.channel is not None:
+            target_session_id = ctx.channel.active_session_id
+        if target_session_id is None:
             raise ValueError(
-                "/model in a harness channel must target a specific session"
+                "/model in a harness channel needs an active session — "
+                "open or send a message to a session first, then retry"
             )
         try:
-            await patch_session_settings(ctx.db, ctx.session_id, patch={"model": raw})
+            await patch_session_settings(ctx.db, target_session_id, patch={"model": raw})
         except ValueError as exc:
             raise ValueError(f"/model: {exc}")
         caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
@@ -895,7 +903,7 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         payload = SideEffectPayload(
             effect="model",
             scope_kind="session",
-            scope_id=str(ctx.session_id),
+            scope_id=str(target_session_id),
             title=f"Model: {raw}",
             detail=f"{display} model set to {raw} for this session.",
         )
@@ -932,16 +940,13 @@ async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     available = [s for s in COMMANDS.values() if ctx.surface in s.surfaces]
     scope_id = str(ctx.channel_id if ctx.surface == "channel" else ctx.session_id)
     bot_id = ""
-    bot_id_uuid: uuid.UUID | None = None
     if ctx.channel is not None and ctx.channel.bot_id:
         bot_id = str(ctx.channel.bot_id)
-        bot_id_uuid = ctx.channel.bot_id
     elif ctx.session is not None:
         bot_id = str(ctx.session.bot_id)
-        bot_id_uuid = ctx.session.bot_id
 
     # Phase 4: harness sessions only see commands the runtime allowlists.
-    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_uuid)
+    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id or None)
     available = _filter_specs_for_runtime(available, runtime)
 
     categories = [
@@ -1272,7 +1277,7 @@ _register(SlashCommandSpec(
 async def list_supported_slash_commands(
     *,
     db: AsyncSession | None = None,
-    bot_id: uuid.UUID | None = None,
+    bot_id: str | None = None,
 ) -> list[dict]:
     """Canonical slash-command registry.
 

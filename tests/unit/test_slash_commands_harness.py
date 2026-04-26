@@ -58,7 +58,7 @@ class _StubRuntime:
             model_is_freeform=True,
             effort_values=(),  # No effort — friendly no-op path
             slash_policy=HarnessSlashCommandPolicy(
-                allowed_command_ids=frozenset({"help", "stop", "rename"}),
+                allowed_command_ids=frozenset({"help", "stop", "rename", "model"}),
             ),
         )
 
@@ -85,6 +85,8 @@ async def _make_harness_setup(db_session):
         last_active=datetime.now(timezone.utc),
     )
     db_session.add(session)
+    # Channel has an active session so channel-surface /model can resolve it.
+    channel.active_session_id = session.id
     await db_session.commit()
     return bot, channel, session
 
@@ -154,6 +156,29 @@ async def test_harness_model_writes_harness_settings(db_session):
     fresh = await load_session_settings(db_session, session.id)
     assert fresh.model == "claude-sonnet-4-6"
     # Channel override must NOT be touched for harness bots.
+    await db_session.refresh(channel)
+    assert channel.model_override is None
+
+
+async def test_harness_model_from_channel_surface_resolves_active_session(db_session):
+    """Composer fires /model with channel_id only — handler must fall back
+    to channel.active_session_id rather than rejecting. Without this, typed
+    /model in a harness channel is unreachable."""
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,    # surface = channel
+        session_id=None,           # NOT supplied — handler must resolve
+        db=db_session,
+        args=["claude-opus-4-7"],
+    )
+    assert result.command_id == "model"
+
+    # Settings landed on the channel's active session.
+    fresh = await load_session_settings(db_session, session.id)
+    assert fresh.model == "claude-opus-4-7"
+    # Channel override still untouched (harness path).
     await db_session.refresh(channel)
     assert channel.model_override is None
 

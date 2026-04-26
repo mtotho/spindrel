@@ -42,7 +42,7 @@ def _require_scope(auth, scope: str):
 
 @router.get("")
 async def list_slash_commands(
-    bot_id: uuid.UUID | None = None,
+    bot_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Slash-command catalog.
@@ -50,7 +50,8 @@ async def list_slash_commands(
     Optional ``?bot_id=`` intersects the catalog with the bot's runtime
     slash policy when the bot is a harness — so harness sessions get a
     pre-filtered list and the picker matches ``/help`` exactly. Non-harness
-    bots / omitted query → full catalog.
+    bots / omitted query → full catalog. ``bot_id`` is a STRING (e.g.
+    ``"claude-code-bot"``), not a UUID — Bot row PKs are text, not uuid.
     """
     return {
         "commands": await list_supported_slash_commands(db=db, bot_id=bot_id),
