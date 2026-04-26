@@ -22,16 +22,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "channel_heartbeats",
-        sa.Column(
-            "include_pinned_widgets",
-            sa.Boolean(),
-            nullable=False,
-            server_default=sa.text("false"),
-        ),
+    # Idempotent: a previous attempt of this migration with an over-long
+    # revision id added the column but failed to record the version bump
+    # (StringDataRightTruncation on alembic_version.version_num). Re-running
+    # would otherwise fail with "column already exists".
+    op.execute(
+        "ALTER TABLE channel_heartbeats "
+        "ADD COLUMN IF NOT EXISTS include_pinned_widgets BOOLEAN "
+        "NOT NULL DEFAULT FALSE"
     )
 
 
 def downgrade() -> None:
-    op.drop_column("channel_heartbeats", "include_pinned_widgets")
+    op.execute(
+        "ALTER TABLE channel_heartbeats DROP COLUMN IF EXISTS include_pinned_widgets"
+    )
