@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -151,3 +152,71 @@ async def test_heartbeat_put_enabled_schedules_when_missing(client, db_session):
     body = put_resp.json()
     assert body["enabled"] is True
     assert body["next_run_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_get_defaults_harness_channel_to_harness_runner(client, db_session):
+    channel_id = await _seed_channel(db_session)
+
+    with patch(
+        "app.routers.api_v1_admin.channels.get_bot",
+        return_value=type("BotCfg", (), {"harness_runtime": "claude_code"})(),
+    ):
+        resp = await client.get(
+            f"/api/v1/admin/channels/{channel_id}/heartbeat",
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 200, resp.text
+    config = resp.json()["config"]
+    assert config["runner_mode"] is None
+    assert config["effective_runner_mode"] == "harness"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_put_rejects_harness_spindrel_runner_without_model(client, db_session):
+    channel_id = await _seed_channel(db_session)
+
+    with patch(
+        "app.routers.api_v1_admin.channels.get_bot",
+        return_value=type("BotCfg", (), {"harness_runtime": "claude_code"})(),
+    ):
+        put_resp = await client.put(
+            f"/api/v1/admin/channels/{channel_id}/heartbeat",
+            headers=AUTH_HEADERS,
+            json={
+                "enabled": True,
+                "interval_minutes": 60,
+                "prompt": "enabled heartbeat",
+                "runner_mode": "spindrel",
+            },
+        )
+
+    assert put_resp.status_code == 400, put_resp.text
+    assert "require an explicit heartbeat model" in put_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_put_allows_harness_spindrel_runner_with_model(client, db_session):
+    channel_id = await _seed_channel(db_session)
+
+    with patch(
+        "app.routers.api_v1_admin.channels.get_bot",
+        return_value=type("BotCfg", (), {"harness_runtime": "claude_code"})(),
+    ):
+        put_resp = await client.put(
+            f"/api/v1/admin/channels/{channel_id}/heartbeat",
+            headers=AUTH_HEADERS,
+            json={
+                "enabled": True,
+                "interval_minutes": 60,
+                "prompt": "enabled heartbeat",
+                "runner_mode": "spindrel",
+                "model": "openai/gpt-5-mini",
+            },
+        )
+
+    assert put_resp.status_code == 200, put_resp.text
+    body = put_resp.json()
+    assert body["runner_mode"] == "spindrel"
+    assert body["effective_runner_mode"] == "spindrel"

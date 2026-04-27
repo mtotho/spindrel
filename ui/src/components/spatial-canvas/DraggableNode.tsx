@@ -15,8 +15,6 @@ import {
   LENS_SETTLE_MS,
   type LensTransform,
 } from "./spatialGeometry";
-import { SpatialAttentionBadgeStack } from "./SpatialAttentionLayer";
-import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 
 interface DraggableNodeProps {
   node: SpatialNode;
@@ -30,8 +28,6 @@ interface DraggableNodeProps {
   onScopedDragStart?: () => void;
   onScopedDragEnd?: () => void;
   dragEnabled: boolean;
-  attentionItems?: WorkspaceAttentionItem[];
-  onAttentionSelect?: (item: WorkspaceAttentionItem) => void;
   children: ReactNode;
 }
 
@@ -47,8 +43,6 @@ export function DraggableNode({
   onScopedDragStart,
   onScopedDragEnd,
   dragEnabled,
-  attentionItems,
-  onAttentionSelect,
   children,
 }: DraggableNodeProps) {
   const updateNode = useUpdateSpatialNode();
@@ -188,13 +182,6 @@ export function DraggableNode({
           children
         )}
       </DragActivatorContext.Provider>
-      {attentionItems && attentionItems.length > 0 && onAttentionSelect && (
-        <SpatialAttentionBadgeStack
-          items={attentionItems}
-          scale={scale * (lens?.sizeFactor ?? 1)}
-          onSelect={onAttentionSelect}
-        />
-      )}
     </div>
   );
 }

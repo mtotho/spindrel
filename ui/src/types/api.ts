@@ -1456,6 +1456,7 @@ export interface SpikeConfig {
   absolute_threshold_usd: number;
   cooldown_minutes: number;
   targets: SpikeTarget[];
+  target_ids: string[];
   last_alert_at: string | null;
   last_check_at: string | null;
   created_at: string | null;
@@ -1518,6 +1519,75 @@ export interface AvailableIntegration {
 export interface AvailableTargetsResponse {
   options: TargetOption[];
   integrations: AvailableIntegration[];
+}
+
+export type NotificationTargetKind = "user_push" | "channel" | "integration_binding" | "group";
+
+export interface NotificationTarget {
+  id: string;
+  slug: string;
+  label: string;
+  kind: NotificationTargetKind;
+  config: Record<string, any>;
+  enabled: boolean;
+  allowed_bot_ids: string[];
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface NotificationTargetCreate {
+  label: string;
+  kind: NotificationTargetKind;
+  slug?: string;
+  config?: Record<string, any>;
+  enabled?: boolean;
+  allowed_bot_ids?: string[];
+}
+
+export interface NotificationTargetUpdate {
+  label?: string;
+  kind?: NotificationTargetKind;
+  slug?: string;
+  config?: Record<string, any>;
+  enabled?: boolean;
+  allowed_bot_ids?: string[];
+}
+
+export interface NotificationDestination {
+  kind: NotificationTargetKind;
+  label: string;
+  config: Record<string, any>;
+  description?: string;
+}
+
+export interface NotificationTargetDestinations {
+  options: NotificationDestination[];
+  integrations: AvailableIntegration[];
+}
+
+export interface NotificationDelivery {
+  id: string;
+  target_id: string | null;
+  root_target_id: string | null;
+  sender_type: string;
+  sender_id: string | null;
+  title: string;
+  body_preview: string;
+  url: string | null;
+  severity: string;
+  tag: string | null;
+  attempts: number;
+  succeeded: number;
+  delivery_details: { target?: { id?: string; label?: string; kind?: string }; success: boolean; error?: string }[];
+  created_at: string | null;
+}
+
+export interface NotificationDeliveryList {
+  total: number;
+  page: number;
+  page_size: number;
+  deliveries: NotificationDelivery[];
 }
 
 // Storage / data retention types

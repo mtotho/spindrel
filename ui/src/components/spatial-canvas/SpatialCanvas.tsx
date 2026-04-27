@@ -83,6 +83,8 @@ import {
   MemoryObservatory,
   type MemoryObservationSelection,
 } from "./MemoryObservatory";
+import DailyHealthLandmark from "./DailyHealthLandmark";
+import SummaryPanel from "../system-health/SummaryPanel";
 import { buildWidgetOverviewClusters } from "./widgetOverviewClusters";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
@@ -525,6 +527,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   } | null>(null);
   const [selectedAttentionId, setSelectedAttentionId] = useState<string | null>(null);
   const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
+  const [healthSummaryOpen, setHealthSummaryOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
 
   // Mobile + reduced-motion gates. We disable the starfield + halo breathing
@@ -2477,6 +2480,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             zoom={ambientZoom}
             onOpen={openAttentionHub}
           />
+          <DailyHealthLandmark
+            zoom={ambientZoom}
+            onOpen={() => setHealthSummaryOpen(true)}
+          />
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
             const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
@@ -2622,8 +2629,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   lens={lens}
                   lensSettling={lensSettling}
                   dragEnabled={dragEnabled}
-                  attentionItems={attentionByNodeId.get(node.id)}
-                  onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                   onHoverChange={(hovered) =>
                     setHoveredNodeId((curr) => {
                       if (hovered) return node.id;
@@ -2657,15 +2662,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 <ManualBotNode
                   key={node.id}
                   node={node}
-                  scale={camera.scale}
                   isDragging={draggingNodeId === node.id}
                   diving={diving}
                   dragEnabled={dragEnabled}
                   lens={draggingNodeId === node.id ? null : lens}
                   lensSettling={lensSettling}
                   reduced={botsReduced}
-                  attentionItems={attentionByNodeId.get(node.id)}
-                  onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                   onPointerDown={(e) => handleBotPointerDown(node, e)}
                   onPointerMove={(e) => handleBotPointerMove(node, e)}
                   onPointerUp={(e) => handleBotPointerUp(node, e)}
@@ -2733,8 +2735,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 lens={lens}
                 lensSettling={lensSettling}
                 dragEnabled={dragEnabled}
-                attentionItems={attentionByNodeId.get(node.id)}
-                onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                 activatorMode={useScopedGrabber ? "scoped" : "full"}
                 onScopedDragStart={() => {
                   setDraggingNodeId(node.id);
@@ -2766,6 +2766,53 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               </DraggableNode>
             );
           })}
+          {(nodes ?? []).map((node) => {
+            const items = attentionByNodeId.get(node.id);
+            if (!items?.length) return null;
+            if (node.channel_id && clusteredChannelNodeIds.has(node.id)) return null;
+            if (channelClusterMode && node.bot_id) return null;
+            if (channelClusterMode && node.pin) return null;
+            if (draggingNodeId !== node.id && !nodeInForeground(node)) return null;
+            const lens =
+              lensEngaged && focalScreen
+                ? projectFisheye(
+                    node.world_x + node.world_w / 2,
+                    node.world_y + node.world_h / 2,
+                    camera,
+                    focalScreen,
+                    lensRadius,
+                  )
+                : null;
+            const botScale = node.bot_id && botsReduced ? 0.82 : 1;
+            const lensTransform = lens
+              ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
+              : "";
+            const reduceTransform = botScale !== 1 ? `scale(${botScale})` : "";
+            const transformStack = [lensTransform, reduceTransform].filter(Boolean).join(" ");
+            return (
+              <div
+                key={`attention-overlay-${node.id}`}
+                className="pointer-events-none absolute"
+                style={{
+                  left: node.world_x,
+                  top: node.world_y,
+                  width: node.world_w,
+                  height: node.world_h,
+                  zIndex: 5000,
+                  transform: transformStack || undefined,
+                  transformOrigin: "center center",
+                  transition: lensSettling ? `transform ${DIVE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)` : "transform 120ms",
+                  contain: "layout style",
+                }}
+              >
+                <SpatialAttentionBadgeStack
+                  items={items}
+                  scale={camera.scale * (lens?.sizeFactor ?? 1) * botScale}
+                  onSelect={(item) => setSelectedAttentionId(item.id)}
+                />
+              </div>
+            );
+          })}
         </div>
       </DndContext>
       <LensHint />
@@ -2784,6 +2831,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         onCloseHub={closeAttentionHub}
         onReply={handleAttentionReply}
       />
+      {healthSummaryOpen ? (
+        <div
+          className="absolute right-0 top-0 z-[5] flex h-full w-full max-w-md border-l border-surface-border/60 shadow-xl"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <SummaryPanel onClose={() => setHealthSummaryOpen(false)} />
+        </div>
+      ) : null}
       {landmarkBeaconsVisible && (
         <SpatialEdgeBeacons
           camera={camera}

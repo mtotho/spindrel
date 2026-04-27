@@ -76,6 +76,8 @@ ALL_SCOPES = [
     "docker_stacks:read", "docker_stacks:write",
     # Alerts
     "alerts:read", "alerts:write",
+    # Notifications
+    "notifications:read", "notifications:write", "notifications:send",
     # Approvals
     "approvals:read", "approvals:write",
     # Tool Policies
@@ -152,6 +154,9 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "docker_stacks:write": "Create, update, delete, and control Docker stacks",
     "alerts:read": "List and view spike alert configurations",
     "alerts:write": "Create, update, and delete spike alerts",
+    "notifications:read": "List notification targets, available destinations, and delivery history",
+    "notifications:write": "Create, update, and delete notification targets",
+    "notifications:send": "Send test notifications to configured targets",
     "approvals:read": "List pending and historical tool approvals",
     "approvals:write": "Approve or deny tool call requests",
     "tool_policies:read": "List and view tool policy configurations",
@@ -282,6 +287,10 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Alerts": {
         "description": "Spike alert configurations and notifications",
         "scopes": ["alerts:read", "alerts:write"],
+    },
+    "Notifications": {
+        "description": "Reusable notification targets and delivery history",
+        "scopes": ["notifications:read", "notifications:write", "notifications:send"],
     },
     "Approvals": {
         "description": "Tool call approval queue",

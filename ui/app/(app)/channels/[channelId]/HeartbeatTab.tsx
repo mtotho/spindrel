@@ -253,12 +253,14 @@ export function HeartbeatTab({
   channelId,
   workspaceId,
   botModel,
+  isHarnessChannel = false,
   onSaveStateChange,
   onActionsChange,
 }: {
   channelId: string;
   workspaceId?: string | null;
   botModel?: string;
+  isHarnessChannel?: boolean;
   onSaveStateChange?: (state: HeartbeatSaveState) => void;
   onActionsChange?: (actions: HeartbeatActions | null) => void;
 }) {
@@ -340,6 +342,8 @@ export function HeartbeatTab({
         append_spatial_prompt: data.config.append_spatial_prompt ?? false,
         append_spatial_map_overview: data.config.append_spatial_map_overview ?? false,
         include_pinned_widgets: data.config.include_pinned_widgets ?? false,
+        runner_mode: data.config.runner_mode ?? null,
+        effective_runner_mode: data.config.effective_runner_mode ?? (isHarnessChannel ? "harness" : "spindrel"),
         execution_policy: normalizeExecutionPolicy(
           data.config.execution_policy,
           data.default_execution_policy,
@@ -377,6 +381,8 @@ export function HeartbeatTab({
         append_spatial_prompt: false,
         append_spatial_map_overview: false,
         include_pinned_widgets: false,
+        runner_mode: null,
+        effective_runner_mode: isHarnessChannel ? "harness" : "spindrel",
         execution_policy: normalizeExecutionPolicy(
           null,
           data.default_execution_policy,
@@ -389,7 +395,7 @@ export function HeartbeatTab({
       hbDirtyRef.current = false;
       setHbDirty(false);
     }
-  }, [data, isFetching]);
+  }, [data, isFetching, isHarnessChannel]);
 
   const saveMutation = useMutation({
     mutationFn: (body: any) => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat`, {
@@ -464,6 +470,8 @@ export function HeartbeatTab({
       append_spatial_prompt: source.append_spatial_prompt ?? false,
       append_spatial_map_overview: source.append_spatial_map_overview ?? false,
       include_pinned_widgets: source.include_pinned_widgets ?? false,
+      runner_mode: source.runner_mode ?? null,
+      effective_runner_mode: source.effective_runner_mode ?? (isHarnessChannel ? "harness" : "spindrel"),
       execution_policy: normalizeExecutionPolicy(
         source.execution_policy,
         data.default_execution_policy,
@@ -494,6 +502,8 @@ export function HeartbeatTab({
       append_spatial_prompt: false,
       append_spatial_map_overview: false,
       include_pinned_widgets: false,
+      runner_mode: null,
+      effective_runner_mode: isHarnessChannel ? "harness" : "spindrel",
       execution_policy: normalizeExecutionPolicy(
         null,
         data.default_execution_policy,
@@ -508,7 +518,7 @@ export function HeartbeatTab({
     setCustomizedFromTemplateId(null);
     setTemplatePreviewExpanded(false);
     saveMutationRef.current.reset();
-  }, [data]);
+  }, [data, isHarnessChannel]);
 
   const updateExecutionPreset = useCallback((preset: string) => {
     updateHbForm((f: any) => {
@@ -615,7 +625,9 @@ export function HeartbeatTab({
   }
 
   const enabled = hbForm.enabled ?? false;
-  const isWorkflowMode = !!hbForm.workflow_id;
+  const runnerMode = hbForm.runner_mode ?? hbForm.effective_runner_mode ?? (isHarnessChannel ? "harness" : "spindrel");
+  const isHarnessRunner = isHarnessChannel && runnerMode === "harness";
+  const isWorkflowMode = !isHarnessRunner && !!hbForm.workflow_id;
   const hasAction = isWorkflowMode
     ? !!hbForm.workflow_id
     : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt || hbForm.append_spatial_map_overview);
@@ -672,6 +684,37 @@ export function HeartbeatTab({
       </Section>
 
       <div className="flex flex-col gap-5">
+        {isHarnessChannel && (
+          <Section
+            title="Runner"
+            description={isHarnessRunner
+              ? "Heartbeat runs queue one-shot host hints for the channel's primary harness session."
+              : "Heartbeat runs use the normal Spindrel agent loop for this harness channel."}
+          >
+            <SettingsSegmentedControl
+              value={isHarnessRunner ? "harness" : "spindrel"}
+              onChange={(mode) => updateHbForm((f: any) => ({
+                ...f,
+                runner_mode: mode,
+                effective_runner_mode: mode,
+                workflow_id: mode === "harness" ? null : f.workflow_id,
+                workflow_session_mode: mode === "harness" ? null : f.workflow_session_mode,
+                dispatch_results: mode === "harness" ? false : f.dispatch_results,
+                trigger_response: mode === "harness" ? false : f.trigger_response,
+              }))}
+              options={[
+                { value: "harness", label: "Run with harness" },
+                { value: "spindrel", label: "Use Spindrel agent" },
+              ]}
+            />
+            {!isHarnessRunner && !hbForm.model && (
+              <p className="mt-2 text-[11px] text-warning-muted">
+                Choose an explicit heartbeat model before enabling this Spindrel-agent runner.
+              </p>
+            )}
+          </Section>
+        )}
+
         {/* ---- Schedule Section ---- */}
         <Section title="Schedule">
           <Row stack={isMobile}>
@@ -688,7 +731,7 @@ export function HeartbeatTab({
         </Section>
 
         {/* ---- Model Section ---- */}
-        <Section title="Model">
+        {!isHarnessRunner && <Section title="Model">
           <Row stack={isMobile}>
             <Col minWidth={isMobile ? 0 : 200}>
               <LlmModelDropdown
@@ -711,7 +754,7 @@ export function HeartbeatTab({
               onChange={(v) => updateHbForm((f: any) => ({ ...f, fallback_models: v }))}
             />
           </FormRow>
-        </Section>
+        </Section>}
 
         {/* ---- Spatial Section ---- */}
         {!isWorkflowMode && (
@@ -758,7 +801,7 @@ export function HeartbeatTab({
         {/* ---- Action: Workflow or Prompt ---- */}
         <Section title="Action">
           {/* Mode toggle: Prompt (default) vs Workflow */}
-          <div className="mb-3">
+          {!isHarnessRunner && <div className="mb-3">
             <SettingsSegmentedControl
               value={isWorkflowMode ? "workflow" : "prompt"}
               onChange={(mode) => {
@@ -774,7 +817,7 @@ export function HeartbeatTab({
                 { value: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
               ]}
             />
-          </div>
+          </div>}
 
           {isWorkflowMode ? (
             /* ---- Workflow Selector ---- */
@@ -899,7 +942,7 @@ export function HeartbeatTab({
         </Section>
 
         {/* ---- Dispatch Section (only for prompt mode) ---- */}
-        {!isWorkflowMode && (
+        {!isWorkflowMode && !isHarnessRunner && (
           <Section title="Dispatch">
             <div className="flex flex-col gap-2">
               <Toggle
@@ -955,17 +998,17 @@ export function HeartbeatTab({
                 description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
               />
             </Section>
-            <Section title="Tool Policies">
+            {!isHarnessRunner && <Section title="Tool Policies">
               <Toggle
                 value={hbForm.skip_tool_approval ?? false}
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, skip_tool_approval: v }))}
                 label="Auto-approve tool calls"
                 description="Skip tool approval policies for heartbeat runs. Tools execute without waiting for manual approval."
               />
-            </Section>
+            </Section>}
             <Section title="Limits">
               <div className="flex flex-col gap-3">
-                <FormRow label="Max run time (seconds)">
+                {!isHarnessRunner && <FormRow label="Max run time (seconds)">
                   <TextInput
                     value={hbForm.max_run_seconds?.toString() ?? ""}
                     onChangeText={(v) => {
@@ -975,8 +1018,8 @@ export function HeartbeatTab({
                     placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
                     type="number"
                   />
-                </FormRow>
-                <FormRow label="Heartbeat execution budget" description="Controls autonomous LLM-call depth and tool exposure. Max run time remains the outer timeout.">
+                </FormRow>}
+                {!isHarnessRunner && <FormRow label="Heartbeat execution budget" description="Controls autonomous LLM-call depth and tool exposure. Max run time remains the outer timeout.">
                   <HeartbeatExecutionControls
                     policy={hbForm.execution_policy}
                     defaultPolicy={data?.default_execution_policy}
@@ -986,7 +1029,7 @@ export function HeartbeatTab({
                     onToolSurfaceChange={updateExecutionToolSurface}
                     onNumberChange={updateExecutionNumber}
                   />
-                </FormRow>
+                </FormRow>}
                 <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
                   <TextInput
                     value={hbForm.previous_result_max_chars?.toString() ?? ""}

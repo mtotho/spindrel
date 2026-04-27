@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Brain,
   Cpu,
   Database,
@@ -496,6 +497,7 @@ function OverviewPanel({ groups, settingsByKey }: { groups: SettingsGroup[]; set
     { label: "Providers", description: "Provider accounts, models, and credentials.", href: "/admin/providers", icon: <Server size={15} /> },
     { label: "Memory & Knowledge", description: "Inspect memory, knowledge, skills, and dreaming jobs.", href: "/admin/learning", icon: <Database size={15} /> },
     { label: "Usage", description: "Costs, token spikes, traces, and anomaly investigation.", href: "/admin/usage", icon: <Activity size={15} /> },
+    { label: "Notifications", description: "Reusable alert targets, bot grants, and delivery history.", href: "/admin/notifications", icon: <Bell size={15} /> },
     { label: "Machines", description: "Provider profiles, targets, readiness probes, and leases.", href: "/admin/machines", icon: <HardDrive size={15} /> },
     { label: "Integrations", description: "Integration activation, assets, and manifests.", href: "/admin/integrations", icon: <Wrench size={15} /> },
     { label: "Security", description: "Secrets, API keys, approvals, and tool policies.", href: "/admin/api-keys", icon: <Shield size={15} /> },

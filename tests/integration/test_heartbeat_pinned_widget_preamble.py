@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import ApiKey, Bot, Channel, ChannelHeartbeat
+from app.db.models import ApiKey, Bot, Channel, ChannelHeartbeat, Session
 
 
 @contextmanager
@@ -75,6 +75,55 @@ async def _seed(db_session) -> tuple[uuid.UUID, ChannelHeartbeat]:
     await db_session.commit()
     await db_session.refresh(hb)
     return channel_id, hb
+
+
+async def _seed_harness(db_session, *, runner_mode: str | None = None) -> tuple[uuid.UUID, uuid.UUID, ChannelHeartbeat]:
+    api_key = ApiKey(
+        id=uuid.uuid4(),
+        name="hb-harness-key",
+        key_hash="hash",
+        key_prefix="pfx",
+        scopes=["chat"],
+        is_active=True,
+    )
+    db_session.add(api_key)
+    await db_session.flush()
+    db_session.add(Bot(
+        id="hb-harness-bot",
+        name="Harness Bot",
+        display_name="Harness Bot",
+        model="test/model",
+        system_prompt="",
+        api_key_id=api_key.id,
+        harness_runtime="claude_code",
+    ))
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(
+        id=channel_id,
+        name="hb-harness-channel",
+        client_id=f"hb-harness-{channel_id}",
+        bot_id="hb-harness-bot",
+        active_session_id=session_id,
+    ))
+    db_session.add(Session(
+        id=session_id,
+        client_id=f"hb-harness-{channel_id}",
+        bot_id="hb-harness-bot",
+        channel_id=channel_id,
+    ))
+    hb = ChannelHeartbeat(
+        id=uuid.uuid4(),
+        channel_id=channel_id,
+        enabled=True,
+        interval_minutes=60,
+        prompt="check the workspace",
+        runner_mode=runner_mode,
+    )
+    db_session.add(hb)
+    await db_session.commit()
+    await db_session.refresh(hb)
+    return channel_id, session_id, hb
 
 
 async def _pin_notes_widget(engine, channel_id: uuid.UUID, body: str) -> None:
@@ -178,3 +227,41 @@ async def test_fire_heartbeat_appends_widget_block_when_flag_on(engine, db_sessi
     # opt-in routes through the system_preamble, not the heartbeat's prompt.
     user_prompt = captured.get("_prompt") or ""
     assert "Buy milk" not in user_prompt
+
+
+@pytest.mark.asyncio
+async def test_harness_heartbeat_defaults_to_context_hint(engine, db_session):
+    _channel_id, session_id, hb = await _seed_harness(db_session)
+
+    with _patch_engine(engine), \
+         patch("app.agent.loop.run", new=AsyncMock()) as run_mock, \
+         patch("app.agent.bots.get_bot", return_value=type("B", (), {"id": "hb-harness-bot", "harness_runtime": "claude_code"})()):
+        from app.services.heartbeat import fire_heartbeat
+        await fire_heartbeat(hb)
+
+    run_mock.assert_not_awaited()
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with factory() as db:
+        session = await db.get(Session, session_id)
+        hints = (session.metadata_ or {}).get("harness_context_hints") or []
+    assert len(hints) == 1
+    assert hints[0]["kind"] == "heartbeat"
+    assert "TASK PROMPT:" in hints[0]["text"]
+    assert "check the workspace" in hints[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_harness_heartbeat_spindrel_runner_uses_normal_loop(engine, db_session):
+    _channel_id, _session_id, hb = await _seed_harness(db_session, runner_mode="spindrel")
+
+    captured, fake_run = _captured_run_kwargs()
+    with _patch_engine(engine), \
+         patch("app.agent.loop.run", new=AsyncMock(side_effect=fake_run)), \
+         patch("app.agent.bots.get_bot", return_value=type("B", (), {"id": "hb-harness-bot", "memory": {}})()), \
+         patch("app.services.sessions.load_or_create", new=AsyncMock(return_value=(uuid.uuid4(), []))), \
+         patch("app.services.sessions.persist_turn", new=AsyncMock()):
+        from app.services.heartbeat import fire_heartbeat
+        await fire_heartbeat(hb)
+
+    assert captured.get("_prompt") == "check the workspace"
+    assert "SCHEDULED HEARTBEAT TASK" in (captured.get("system_preamble") or "")

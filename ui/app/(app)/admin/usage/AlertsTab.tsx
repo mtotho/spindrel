@@ -10,13 +10,13 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  useAvailableTargets,
   useSpikeAlertHistory,
   useSpikeConfig,
   useSpikeStatus,
   useTestSpikeAlert,
   useUpdateSpikeConfig,
 } from "@/src/api/hooks/useSpikeAlerts";
+import { useNotificationTargets } from "@/src/api/hooks/useNotificationTargets";
 import { FormRow, TextInput, Toggle } from "@/src/components/shared/FormControls";
 import { Spinner } from "@/src/components/shared/Spinner";
 import {
@@ -30,7 +30,7 @@ import {
   StatusBadge,
 } from "@/src/components/shared/SettingsControls";
 import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
-import type { AvailableIntegration, SpikeAlert, TargetOption } from "@/src/types/api";
+import type { SpikeAlert } from "@/src/types/api";
 
 function fmtCost(value: number | null | undefined): string {
   if (value == null) return "--";
@@ -148,10 +148,8 @@ function DebouncedNumberInput({
 function ConfigForm() {
   const { data: config, isLoading } = useSpikeConfig();
   const updateConfig = useUpdateSpikeConfig();
-  const { data: targetsData } = useAvailableTargets();
+  const { data: notificationTargets } = useNotificationTargets();
   const testAlert = useTestSpikeAlert();
-  const [addingIntegration, setAddingIntegration] = useState<AvailableIntegration | null>(null);
-  const [newClientId, setNewClientId] = useState("");
 
   if (isLoading || !config) {
     return (
@@ -161,63 +159,16 @@ function ConfigForm() {
     );
   }
 
-  const availableOptions = targetsData?.options ?? [];
-  const availableIntegrations = targetsData?.integrations ?? [];
-  const targets = config.targets || [];
+  const availableTargets = (notificationTargets ?? []).filter((target) => target.enabled);
+  const selectedTargetIds = config.target_ids || [];
   const handleUpdate = (field: string, value: any) => updateConfig.mutate({ [field]: value });
 
-  const isTargetSelected = (option: TargetOption) =>
-    targets.some((target) => {
-      if (option.type === "channel") return target.type === "channel" && target.channel_id === option.channel_id;
-      return target.type === "integration" && target.client_id === option.client_id;
-    });
-
-  const toggleTarget = (option: TargetOption) => {
-    if (isTargetSelected(option)) {
-      handleUpdate(
-        "targets",
-        targets.filter((target) => {
-          if (option.type === "channel") return !(target.type === "channel" && target.channel_id === option.channel_id);
-          return !(target.type === "integration" && target.client_id === option.client_id);
-        }),
-      );
+  const toggleTarget = (targetId: string) => {
+    if (selectedTargetIds.includes(targetId)) {
+      handleUpdate("target_ids", selectedTargetIds.filter((id) => id !== targetId));
       return;
     }
-
-    const nextTarget: Record<string, any> = { type: option.type, label: option.label };
-    if (option.type === "channel") nextTarget.channel_id = option.channel_id;
-    else {
-      nextTarget.integration_type = option.integration_type;
-      nextTarget.client_id = option.client_id;
-    }
-    handleUpdate("targets", [...targets, nextTarget]);
-  };
-
-  const removeTarget = (index: number) => {
-    handleUpdate("targets", targets.filter((_, i) => i !== index));
-  };
-
-  const addCustomTarget = () => {
-    if (!addingIntegration || !newClientId.trim()) return;
-    const clientId = newClientId.trim().startsWith(addingIntegration.client_id_prefix)
-      ? newClientId.trim()
-      : addingIntegration.client_id_prefix + newClientId.trim();
-    if (targets.some((target) => target.type === "integration" && target.client_id === clientId)) {
-      setAddingIntegration(null);
-      setNewClientId("");
-      return;
-    }
-    handleUpdate("targets", [
-      ...targets,
-      {
-        type: "integration",
-        integration_type: addingIntegration.integration_type,
-        client_id: clientId,
-        label: clientId,
-      },
-    ]);
-    setAddingIntegration(null);
-    setNewClientId("");
+    handleUpdate("target_ids", [...selectedTargetIds, targetId]);
   };
 
   return (
@@ -254,76 +205,40 @@ function ConfigForm() {
           </div>
 
           <div className="flex flex-col gap-2">
-            <SettingsGroupLabel label="Alert targets" count={targets.length} />
-            {targets.length > 0 && (
+            <SettingsGroupLabel label="Alert targets" count={selectedTargetIds.length} />
+            {selectedTargetIds.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {targets.map((target, index) => (
+                {selectedTargetIds.map((targetId) => {
+                  const target = availableTargets.find((item) => item.id === targetId);
+                  return (
                   <button
-                    key={index}
+                    key={targetId}
                     type="button"
-                    onClick={() => removeTarget(index)}
+                    onClick={() => toggleTarget(targetId)}
                     className="inline-flex min-h-[28px] items-center gap-1.5 rounded-full bg-accent/10 px-2.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/15"
                   >
-                    {target.label || target.channel_id || target.client_id || "unknown"}
+                    {target?.label || targetId}
                     <X size={11} />
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
-            {availableOptions.some((option) => !isTargetSelected(option)) && (
+            {availableTargets.some((target) => !selectedTargetIds.includes(target.id)) && (
               <div className="flex flex-wrap gap-1.5">
-                {availableOptions.filter((option) => !isTargetSelected(option)).map((option, index) => (
+                {availableTargets.filter((target) => !selectedTargetIds.includes(target.id)).map((target) => (
                   <ActionButton
-                    key={index}
-                    label={`Add ${option.label}`}
+                    key={target.id}
+                    label={`Add ${target.label}`}
                     size="small"
                     variant="secondary"
-                    onPress={() => toggleTarget(option)}
+                    onPress={() => toggleTarget(target.id)}
                   />
                 ))}
               </div>
             )}
-            {availableIntegrations.length > 0 && !addingIntegration && (
-              <div className="flex flex-wrap gap-1.5">
-                {availableIntegrations.map((integration) => (
-                  <ActionButton
-                    key={integration.integration_type}
-                    label={`Add ${integration.integration_type} target`}
-                    size="small"
-                    variant="ghost"
-                    onPress={() => {
-                      setAddingIntegration(integration);
-                      setNewClientId("");
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-            {addingIntegration && (
-              <div className="flex flex-wrap items-end gap-2 rounded-md bg-surface-overlay/30 px-3 py-2">
-                <div className="min-w-[260px] flex-1">
-                  <FormRow label={`${addingIntegration.integration_type} client id`}>
-                    <TextInput
-                      value={newClientId}
-                      onChangeText={setNewClientId}
-                      placeholder={`${addingIntegration.client_id_prefix}...`}
-                    />
-                  </FormRow>
-                </div>
-                <ActionButton label="Add" size="small" disabled={!newClientId.trim()} onPress={addCustomTarget} />
-                <ActionButton
-                  label="Cancel"
-                  size="small"
-                  variant="secondary"
-                  onPress={() => {
-                    setAddingIntegration(null);
-                    setNewClientId("");
-                  }}
-                />
-              </div>
-            )}
-            {availableOptions.length === 0 && availableIntegrations.length === 0 && targets.length === 0 && (
-              <EmptyState message="No integrations with dispatch support found. Set up Slack, Discord, or another integration first." />
+            {availableTargets.length === 0 && selectedTargetIds.length === 0 && (
+              <EmptyState message="No notification targets found. Create targets in Admin -> Notifications first." />
             )}
           </div>
 
@@ -332,10 +247,10 @@ function ConfigForm() {
               label={testAlert.isPending ? "Sending..." : "Send test alert"}
               variant="secondary"
               icon={<Send size={12} />}
-              disabled={testAlert.isPending || targets.length === 0}
+              disabled={testAlert.isPending || selectedTargetIds.length === 0}
               onPress={() => testAlert.mutate()}
             />
-            {targets.length === 0 && <span className="text-[11px] text-text-dim">Select at least one target first.</span>}
+            {selectedTargetIds.length === 0 && <span className="text-[11px] text-text-dim">Select at least one target first.</span>}
             {testAlert.data && (
               <span className={`text-[11px] ${testAlert.data.ok ? "text-success" : "text-danger"}`}>
                 {testAlert.data.ok

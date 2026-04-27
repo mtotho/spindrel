@@ -12,6 +12,14 @@ function shortModel(model: string): string {
   return parts[parts.length - 1];
 }
 
+function botRuntimeLabel(bot: BotConfig): string {
+  if (!bot.harness_runtime) return shortModel(bot.model);
+  if (bot.harness_runtime === "claude-code" || bot.harness_runtime === "claude_code") {
+    return "Claude Code harness";
+  }
+  return `${bot.harness_runtime} harness`;
+}
+
 function BotAvatar({ bot, size }: { bot: BotConfig; size: number }) {
   return (
     <span
@@ -47,11 +55,11 @@ export function BotPicker({ value, onChange, bots, allowNone, placeholder, disab
       return {
         value: bot.id,
         label: bot.name,
-        description: shortModel(bot.model),
+        description: botRuntimeLabel(bot),
         meta: toolCount > 0 || skillCount > 0
           ? `${toolCount > 0 ? `${toolCount} tools` : ""}${toolCount > 0 && skillCount > 0 ? " · " : ""}${skillCount > 0 ? `${skillCount} skills` : ""}`
           : undefined,
-        searchText: `${bot.name} ${bot.display_name ?? ""} ${bot.id} ${bot.model}`,
+        searchText: `${bot.name} ${bot.display_name ?? ""} ${bot.id} ${bot.model} ${bot.harness_runtime ?? ""}`,
         bot,
       };
     });
@@ -82,7 +90,7 @@ export function BotPicker({ value, onChange, bots, allowNone, placeholder, disab
             <span className={`min-w-0 flex-1 truncate text-text ${compact ? "font-medium" : ""}`}>{bot.name}</span>
             {!compact && (
               <span className="shrink-0 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-dim">
-                {shortModel(bot.model)}
+                {botRuntimeLabel(bot)}
               </span>
             )}
           </span>
@@ -99,7 +107,7 @@ export function BotPicker({ value, onChange, bots, allowNone, placeholder, disab
                 {bot.name}
               </span>
               <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] text-text-dim">
-                <span className="truncate">{shortModel(bot.model)}</span>
+                <span className="truncate">{botRuntimeLabel(bot)}</span>
                 {option.meta && <span className="shrink-0">{option.meta}</span>}
               </span>
             </span>

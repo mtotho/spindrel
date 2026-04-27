@@ -15,6 +15,7 @@ from app.dependencies import get_db, require_scopes
 from app.services.usage_spike import (
     load_spike_config, get_cached_config, check_for_spike, get_spike_status,
 )
+from app.services.notifications import ensure_legacy_spike_targets_migrated
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class SpikeConfigUpdate(BaseModel):
     absolute_threshold_usd: Optional[float] = None
     cooldown_minutes: Optional[int] = None
     targets: Optional[list[dict[str, Any]]] = None
+    target_ids: Optional[list[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +59,10 @@ async def get_config(db: AsyncSession = Depends(get_db), _auth=Depends(require_s
         await db.commit()
         await db.refresh(row)
         await load_spike_config()
+    else:
+        migrated = await ensure_legacy_spike_targets_migrated(db, row)
+        if migrated:
+            await db.refresh(row)
 
     return {
         "id": str(row.id),
@@ -67,6 +73,7 @@ async def get_config(db: AsyncSession = Depends(get_db), _auth=Depends(require_s
         "absolute_threshold_usd": row.absolute_threshold_usd,
         "cooldown_minutes": row.cooldown_minutes,
         "targets": row.targets or [],
+        "target_ids": row.target_ids or [],
         "last_alert_at": row.last_alert_at.isoformat() if row.last_alert_at else None,
         "last_check_at": row.last_check_at.isoformat() if row.last_check_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -107,6 +114,13 @@ async def update_config(body: SpikeConfigUpdate, db: AsyncSession = Depends(get_
         row.cooldown_minutes = body.cooldown_minutes
     if body.targets is not None:
         row.targets = body.targets
+    if body.target_ids is not None:
+        for target_id in body.target_ids:
+            try:
+                uuid.UUID(target_id)
+            except ValueError as exc:
+                raise HTTPException(400, "target_ids must contain UUID strings") from exc
+        row.target_ids = body.target_ids
 
     row.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -122,6 +136,7 @@ async def update_config(body: SpikeConfigUpdate, db: AsyncSession = Depends(get_
         "absolute_threshold_usd": row.absolute_threshold_usd,
         "cooldown_minutes": row.cooldown_minutes,
         "targets": row.targets or [],
+        "target_ids": row.target_ids or [],
         "last_alert_at": row.last_alert_at.isoformat() if row.last_alert_at else None,
         "last_check_at": row.last_check_at.isoformat() if row.last_check_at else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,

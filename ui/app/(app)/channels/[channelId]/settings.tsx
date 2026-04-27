@@ -501,6 +501,7 @@ export default function ChannelSettingsScreen() {
               channelId={channelId!}
               workspaceId={currentBot?.shared_workspace_id}
               botModel={currentBot?.model}
+              isHarnessChannel={isHarnessChannel}
               onSaveStateChange={setHeartbeatSaveState}
               onActionsChange={handleHeartbeatActionsChange}
             />

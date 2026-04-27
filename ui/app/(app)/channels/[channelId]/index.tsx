@@ -602,6 +602,15 @@ export default function ChatScreen() {
   const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
   const currentPlanSessionId = routeSessionId ?? channel?.active_session_id ?? undefined;
   const sessionPlan = useSessionPlanMode(currentPlanSessionId);
+  const pendingHarnessQuestion = useMemo(() => {
+    const targetSessionId = currentPlanSessionId ?? channel?.active_session_id;
+    return invertedData.find((m) => {
+      const meta = m.metadata as any;
+      return m.session_id === targetSessionId
+        && meta?.kind === "harness_question"
+        && meta?.harness_interaction?.status === "pending";
+    }) ?? null;
+  }, [channel?.active_session_id, currentPlanSessionId, invertedData]);
   const setApprovalMode = useSetSessionApprovalMode();
   const planBusy = sessionPlan.startPlan.isPending
     || sessionPlan.approvePlan.isPending
@@ -1491,7 +1500,7 @@ export default function ChatScreen() {
   const messageInputProps = {
     onSend: handleSend,
     onSendAudio: handleSendAudio,
-    disabled: isPaused,
+    disabled: isPaused || !!pendingHarnessQuestion,
     isStreaming: Object.keys(chatState.turns).length > 0 || chatState.isProcessing,
     onCancel: handleCancel,
     modelOverride: turnModelOverride,
@@ -1584,6 +1593,15 @@ export default function ChatScreen() {
     },
     onOpenSessions: openSessionsOverlay,
   });
+  const pendingHarnessQuestionLane = pendingHarnessQuestion ? (
+    <div className="px-3 pb-2">
+      <div className="mb-1 text-[11px] text-text-dim">
+        Answer the question above to continue.
+      </div>
+      {renderMessage({ item: pendingHarnessQuestion, index: -1 })}
+    </div>
+  ) : null;
+
   const terminalBottomSlot = chatMode === "terminal" ? (
     <>
       {chatState.error && (
@@ -1597,6 +1615,7 @@ export default function ChatScreen() {
           }))}
         />
       )}
+      {pendingHarnessQuestionLane}
       <ChatComposerShell chatMode={chatMode}>
         <MessageInput {...messageInputProps} />
       </ChatComposerShell>
@@ -1726,6 +1745,7 @@ export default function ChatScreen() {
               }))}
             />
           )}
+          {pendingHarnessQuestionLane}
           <ChatComposerShell chatMode={chatMode}>
             <MessageInput {...messageInputProps} />
           </ChatComposerShell>

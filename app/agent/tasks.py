@@ -1682,6 +1682,7 @@ async def task_worker() -> None:
     last_recovery_at = datetime.now(timezone.utc)
     last_workflow_sweep_at = datetime.now(timezone.utc)
     last_hygiene_check_at = datetime.now(timezone.utc)
+    last_daily_summary_check_at = datetime.now(timezone.utc) - timedelta(minutes=10)
 
     while True:
         try:
@@ -1730,6 +1731,15 @@ async def task_worker() -> None:
                     await check_memory_hygiene()
                 except Exception:
                     logger.exception("check_memory_hygiene failed")
+
+            # Daily system-health summary lane (cheap once-per-day gate inside)
+            if (now - last_daily_summary_check_at).total_seconds() >= 300:
+                last_daily_summary_check_at = now
+                try:
+                    from app.services.system_health_summary import maybe_run_daily_summary
+                    await maybe_run_daily_summary()
+                except Exception:
+                    logger.exception("maybe_run_daily_summary failed")
 
         except Exception:
             logger.exception("task_worker poll error")

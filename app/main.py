@@ -188,8 +188,11 @@ async def _index_filesystems_and_start_watchers() -> None:
 async def lifespan(application: FastAPI):
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
-    # Install in-memory ring buffer handler for /api/v1/admin/server-logs
+    # Durable JSONL log handler — survives container restarts so the
+    # daily health summary can sweep yesterday's evidence even after a redeploy.
     from app.services.log_buffer import install as _install_log_buffer
+    from app.services.log_file import install_jsonl_log_handler
+    install_jsonl_log_handler()
     _install_log_buffer(capacity=10_000)
     # Validate EMBEDDING_DIMENSIONS — DB columns and halfvec indexes are built for 1536
     if settings.EMBEDDING_DIMENSIONS != 1536:

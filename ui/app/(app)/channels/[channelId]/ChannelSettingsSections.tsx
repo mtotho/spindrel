@@ -704,7 +704,7 @@ export function AgentTabSections({
               {currentBot?.name || settings.bot_id || "Harness bot"} · {harnessRuntime}
             </div>
             <div className="leading-snug">
-              Model, approval mode, native resume, and compact state are bound to the current session, not the channel's primary pointer. Normal-loop prompt, model override, passive memory, RAG, and tool enrollment controls are hidden here until harness-native equivalents are implemented.
+              Model, approval mode, native resume, and compact state are bound to the current session, not the channel's primary pointer. Normal-loop prompt, model override, passive memory, RAG, knowledge, memory, and context controls stay hidden until harness-native behavior exists. Tool and skill enrollment remains available as the harness bridge source.
             </div>
           </div>
         </Section>

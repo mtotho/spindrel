@@ -117,6 +117,7 @@ class TestGetConfig:
         assert data["window_minutes"] == 30
         assert data["relative_threshold"] == 2.0
         assert data["targets"] == []
+        assert data["target_ids"] == []
 
     async def test_returns_existing(self, client, db_session):
         """GET /config should return existing config."""

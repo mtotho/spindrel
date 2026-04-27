@@ -27,6 +27,7 @@ services:
       - spindrel-home:/home/spindrel                   # npm-global, pip cache, playwright, HF/whisper caches, agent ~/.local
       - spindrel-apt-archives:/var/cache/apt/archives  # cached .deb downloads (feed for dpkg-x installs below)
       - spindrel-pkg:/opt/spindrel-pkg                 # dpkg-extracted package tree (chromium, gh, etc.) — binaries persist here
+      - spindrel-logs:/var/log/spindrel                # durable JSONL logs for daily health summary
       # Config state auto-export: uncomment after first run creates the file
       # (bind-mounting a non-existent file makes Docker create a directory)
       # - ./config-state.json:/app/config-state.json
@@ -58,3 +59,4 @@ volumes:
   spindrel-home:
   spindrel-apt-archives:
   spindrel-pkg:
+  spindrel-logs:

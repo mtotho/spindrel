@@ -275,6 +275,21 @@ def resolve_heartbeat_timeout(hb: ChannelHeartbeat) -> int:
     return settings.TASK_MAX_RUN_SECONDS
 
 
+def _is_harness_heartbeat_runner(hb: ChannelHeartbeat, channel: Channel) -> bool:
+    """Resolve heartbeat runner mode for a channel, including harness defaults."""
+    raw = getattr(hb, "runner_mode", None)
+    if raw == "spindrel":
+        return False
+    if raw == "harness":
+        return True
+    try:
+        from app.agent.bots import get_bot as _get_bot
+
+        return bool(getattr(_get_bot(channel.bot_id), "harness_runtime", None))
+    except Exception:
+        return False
+
+
 def _detect_repetition(
     recent_runs: list[HeartbeatRun],
     tool_calls_by_corr: dict[uuid.UUID, list[str]],
@@ -753,13 +768,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
     correlation_id = uuid.uuid4()
     result_text = None
     error_text = None
-    try:
-        from app.agent.bots import get_bot as _get_bot_for_harness
-
-        _hb_bot = _get_bot_for_harness(bot_id)
-    except Exception:
-        _hb_bot = None
-    if _hb_bot is not None and getattr(_hb_bot, "harness_runtime", None):
+    if _is_harness_heartbeat_runner(hb, channel):
         try:
             if session_id is None:
                 raise RuntimeError("Harness heartbeat has no primary session to receive context hint")

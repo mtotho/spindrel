@@ -374,11 +374,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const terminalPlaceholder = compactLayout
     ? "Type / or enter a message..."
     : "Type / for commands or enter a message...";
-  // Spindrel's plan mode is part of the RAG loop; harness bots have their
-  // own plan mode (Claude Code's ExitPlanMode tool) that the runtime owns.
-  // Surfacing the Spindrel pill on a harness bot just confuses things —
-  // pressing it would do nothing for the harness path.
-  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode && !hideModelOverride;
+  // The composer plan control is canonical for both normal and harness
+  // sessions; harness channels map it to the runtime's plan approval mode.
+  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;
   const planControlState = getComposerPlanControlState({
     planMode,
     hasPlan,

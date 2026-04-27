@@ -29,6 +29,7 @@ def _make_config(**overrides):
     config.absolute_threshold_usd = overrides.get("absolute_threshold_usd", 0)
     config.cooldown_minutes = overrides.get("cooldown_minutes", 60)
     config.targets = overrides.get("targets", [])
+    config.target_ids = overrides.get("target_ids", [])
     config.last_alert_at = overrides.get("last_alert_at", None)
     config.last_check_at = overrides.get("last_check_at", None)
     return config

@@ -151,6 +151,10 @@ export const MEMORY_OBSERVATORY_X = -2800;
 export const MEMORY_OBSERVATORY_Y = 100;
 export const ATTENTION_HUB_X = 0;
 export const ATTENTION_HUB_Y = -650;
+// Daily Health Summary landmark — sibling to the Attention Hub, offset to its
+// right so the two read as a paired admin/ops cluster on the canvas.
+export const HEALTH_SUMMARY_X = 1100;
+export const HEALTH_SUMMARY_Y = -650;
 export const WELL_RINGS: { minutes: number; label: string; major?: boolean }[] = [
   { minutes: 15, label: "15m" },
   { minutes: 60, label: "1h", major: true },

@@ -15,6 +15,11 @@ from sqlalchemy import select, func, update
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import TraceEvent, UsageSpikeConfig, UsageSpikeAlert, Channel
+from app.services.notifications import (
+    NotificationPayload,
+    ensure_legacy_spike_targets_migrated,
+    send_notification,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,8 @@ async def load_spike_config() -> None:
     global _config
     async with async_session() as db:
         row = (await db.execute(select(UsageSpikeConfig).limit(1))).scalars().first()
+        if row:
+            await ensure_legacy_spike_targets_migrated(db, row)
         if row:
             db.expunge(row)
         _config = row
@@ -194,6 +201,37 @@ async def _dispatch_alert(
     """Dispatch alert to all configured targets.
     Returns (attempted, succeeded, delivery_details).
     """
+    target_ids = [str(item) for item in (getattr(config, "target_ids", None) or []) if item]
+    if target_ids:
+        attempted = 0
+        succeeded = 0
+        details: list[dict] = []
+        payload = NotificationPayload(
+            title="Usage spike alert",
+            body=message,
+            severity="critical",
+            tag="usage-spike",
+        )
+        for target_id in target_ids:
+            try:
+                result = await send_notification(
+                    uuid.UUID(target_id),
+                    payload,
+                    sender_type="usage_spike",
+                    sender_id=str(config.id),
+                    actor_label="Spike Alert",
+                )
+                details.extend(result["details"])
+            except Exception as exc:  # noqa: BLE001
+                details.append({
+                    "target": {"id": target_id, "label": target_id, "kind": "unknown"},
+                    "success": False,
+                    "error": str(exc),
+                })
+        attempted = len(details)
+        succeeded = sum(1 for detail in details if detail.get("success"))
+        return attempted, succeeded, details
+
     from app.agent.hooks import get_integration_meta
 
     targets = config.targets or []

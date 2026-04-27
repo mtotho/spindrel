@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-26
+updated: 2026-04-27
 ---
 # Track - Harness SDK
 
@@ -104,8 +104,10 @@ What is landing:
 - Harness `/compact` no longer runs normal Spindrel compaction. It stores a compact summary, sets a resume-reset marker so the next turn starts a fresh native harness session, and injects that summary as a one-shot hint.
 - Harness `/context` reports native harness state: runtime, selected model, approval mode, resume id, pending host hints, last turn, compact reset, and usage metadata.
 - Bare harness `/model` and `/effort` render interactive picker cards; direct `/model <id>` and `/effort <level>` still mutate session settings.
-- Heartbeats on harness channels do not launch the normal Spindrel loop. They store the heartbeat prompt/preamble as a one-shot hint for the channel's primary session.
+- Heartbeats now have a `ChannelHeartbeat.runner_mode` switch. Harness channels default to harness hint mode, which stores the heartbeat prompt/preamble as a one-shot hint for the channel's primary session; opting into the Spindrel-agent runner exposes the normal heartbeat model/workflow/dispatch controls and requires an explicit heartbeat model.
 - Channel settings now hide normal-loop prompt/model/RAG/memory/context surfaces for harness bots and show runtime-oriented controls instead. Tool enrollment stays visible and is labeled as the Spindrel bridge source.
+- Harness composer plan control is the canonical visible plan affordance; header duplicate state stays out of the harness chrome.
+- Pending durable `core/harness_question` cards now get a sticky lane immediately above the composer in default and terminal chat modes, and freeform send is blocked until the pending interaction is answered.
 - Workspace-files memory on a harness bot injects a host hint pointing the runtime at durable memory files; reads/writes still require native filesystem access or selected bridged tools.
 - Claude Code gets a best-effort Spindrel tool bridge through SDK in-process MCP helpers. Tool definitions are resolved dynamically from the same effective channel/bot tool configuration as the normal loop, and invocation routes through `dispatch_tool_call` so policy, approval, trace rows, redaction, and result summarization stay centralized.
 - Claude Code `AskUserQuestion` now routes through a durable Spindrel native card (`core/harness_question`) instead of the SDK's transient prompt surface. The card is a persisted assistant message scoped to the current Spindrel session and renders in both default and terminal chat modes. Answering it writes a suppress-outbox user answer message, resolves the live SDK callback when present, or starts a fresh harness task in the same session if the callback disappeared after restart.

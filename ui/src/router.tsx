@@ -89,6 +89,7 @@ const AdminMachines = lazy(() => import("@/app/(app)/admin/machines/index"));
 const AdminMcpServers = lazy(() => import("@/app/(app)/admin/mcp-servers/index"));
 const AdminMcpServerDetail = lazy(() => import("@/app/(app)/admin/mcp-servers/[serverId]/index"));
 const AdminMemories = lazy(() => import("@/app/(app)/admin/memories"));
+const AdminNotifications = lazy(() => import("@/app/(app)/admin/notifications/index"));
 const AdminPromptTemplates = lazy(() => import("@/app/(app)/admin/prompt-templates/index"));
 const AdminPromptTemplateDetail = lazy(() => import("@/app/(app)/admin/prompt-templates/[templateId]/index"));
 const AdminProviders = lazy(() => import("@/app/(app)/admin/providers/index"));
@@ -229,6 +230,7 @@ export const router = createBrowserRouter([
               { path: "mcp-servers", element: <AdminMcpServers /> },
               { path: "mcp-servers/:serverId", element: <AdminMcpServerDetail /> },
               { path: "memories", element: <AdminMemories /> },
+              { path: "notifications", element: <AdminNotifications /> },
               { path: "prompt-templates", element: <AdminPromptTemplates /> },
               { path: "prompt-templates/:templateId", element: <AdminPromptTemplateDetail /> },
               { path: "providers", element: <AdminProviders /> },

@@ -158,10 +158,10 @@ one target collapse into one smart badge whose count is active items; repeated
 occurrences are shown in the Hub/detail evidence instead of as a second
 floating chip.
 
-Badges are nested in the rendered target node or cluster rather than projected
-from stale overlay coordinates. They keep a stable screen size through inverse
-scaling, but their position follows the bound tile during pan, zoom, drag, and
-semantic-zoom transitions.
+Node-bound badges render in a high-z canvas world overlay instead of inside
+individual node stacking contexts, so nearby widgets cannot clip or cover
+them. They keep a stable screen size through inverse scaling while their anchor
+follows the bound tile during pan, zoom, and semantic-zoom transitions.
 
 The canvas also has a fixed **Attention Hub** signal landmark above the seed center.
 Opening it shows the global attention lanes, create form, assignment controls,

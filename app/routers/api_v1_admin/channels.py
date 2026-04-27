@@ -57,6 +57,44 @@ def _resolve_workspace_id(bot_id: str) -> str | None:
         return None
 
 
+def _is_harness_bot(bot_id: str | None) -> bool:
+    if not bot_id:
+        return False
+    try:
+        return bool(getattr(get_bot(bot_id), "harness_runtime", None))
+    except Exception:
+        return False
+
+
+def _effective_heartbeat_runner_mode(
+    hb: ChannelHeartbeat | None,
+    *,
+    channel: Channel | None,
+) -> str:
+    raw = getattr(hb, "runner_mode", None) if hb is not None else None
+    if raw in {"harness", "spindrel"}:
+        return raw
+    return "harness" if _is_harness_bot(channel.bot_id if channel else None) else "spindrel"
+
+
+def _validate_heartbeat_runner_model(
+    hb: ChannelHeartbeat,
+    *,
+    channel: Channel | None,
+) -> None:
+    if (
+        channel is not None
+        and hb.enabled
+        and _is_harness_bot(channel.bot_id)
+        and _effective_heartbeat_runner_mode(hb, channel=channel) == "spindrel"
+        and not (hb.model or "").strip()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Harness channels that run heartbeats with the Spindrel agent require an explicit heartbeat model.",
+        )
+
+
 _PREVIEW_MAX_LEN = 80
 
 
@@ -312,6 +350,8 @@ class HeartbeatConfigOut(BaseModel):
     append_spatial_map_overview: bool = False
     include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
+    runner_mode: Optional[str] = None
+    effective_runner_mode: str = "spindrel"
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -339,8 +379,10 @@ class HeartbeatConfigOut(BaseModel):
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
             "append_spatial_prompt", "append_spatial_map_overview",
             "include_pinned_widgets", "execution_policy",
+            "runner_mode",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
+        data["effective_runner_mode"] = "spindrel"
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
         data["quiet_end"] = hb.quiet_end.strftime("%H:%M") if hb.quiet_end else None
         return cls(**data)
@@ -404,6 +446,7 @@ class HeartbeatUpdate(BaseModel):
     append_spatial_map_overview: bool = False
     include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
+    runner_mode: Optional[Literal["harness", "spindrel"]] = None
 
 
 class TaskOut(BaseModel):
@@ -1151,6 +1194,11 @@ async def admin_channel_heartbeat_get(
     )).scalar_one_or_none()
 
     config_out = HeartbeatConfigOut.from_orm_heartbeat(heartbeat) if heartbeat else None
+    if config_out is not None:
+        config_out.effective_runner_mode = _effective_heartbeat_runner_mode(
+            heartbeat,
+            channel=channel,
+        )
 
     # Read from heartbeat_runs table (new), fall back to legacy Task rows
     history_out: list[HeartbeatHistoryRunOut] = []
@@ -1358,6 +1406,8 @@ async def admin_channel_heartbeat_update(
     if "execution_policy" in updates:
         from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
         heartbeat.execution_policy = normalize_heartbeat_execution_policy(updates["execution_policy"])
+    if "runner_mode" in updates:
+        heartbeat.runner_mode = updates["runner_mode"]
     if "append_spatial_prompt" in updates:
         heartbeat.append_spatial_prompt = bool(updates["append_spatial_prompt"])
         if heartbeat.append_spatial_prompt:
@@ -1401,6 +1451,7 @@ async def admin_channel_heartbeat_update(
             cfg[SPATIAL_POLICY_KEY] = policies
             channel.config = cfg
             flag_modified(channel, "config")
+    _validate_heartbeat_runner_model(heartbeat, channel=channel)
     heartbeat.updated_at = now
 
     if heartbeat.enabled:
@@ -1412,7 +1463,9 @@ async def admin_channel_heartbeat_update(
 
     await db.commit()
     await db.refresh(heartbeat)
-    return HeartbeatConfigOut.model_validate(heartbeat)
+    out = HeartbeatConfigOut.from_orm_heartbeat(heartbeat)
+    out.effective_runner_mode = _effective_heartbeat_runner_mode(heartbeat, channel=channel)
+    return out
 
 
 @router.post("/channels/{channel_id}/heartbeat/toggle", response_model=HeartbeatConfigOut)
@@ -1449,9 +1502,13 @@ async def admin_channel_heartbeat_toggle(
     elif not heartbeat.enabled:
         heartbeat.next_run_at = None
 
+    _validate_heartbeat_runner_model(heartbeat, channel=channel)
+
     await db.commit()
     await db.refresh(heartbeat)
-    return HeartbeatConfigOut.model_validate(heartbeat)
+    out = HeartbeatConfigOut.from_orm_heartbeat(heartbeat)
+    out.effective_runner_mode = _effective_heartbeat_runner_mode(heartbeat, channel=channel)
+    return out
 
 
 @router.post("/channels/{channel_id}/heartbeat/fire", response_model=HeartbeatConfigOut)
@@ -1471,9 +1528,14 @@ async def admin_channel_heartbeat_fire(
     if not heartbeat:
         raise HTTPException(status_code=404, detail="No heartbeat configured")
 
+    channel = await db.get(Channel, channel_id)
+    _validate_heartbeat_runner_model(heartbeat, channel=channel)
+
     asyncio.create_task(_safe_fire_heartbeat(heartbeat))
 
-    return HeartbeatConfigOut.model_validate(heartbeat)
+    out = HeartbeatConfigOut.from_orm_heartbeat(heartbeat)
+    out.effective_runner_mode = _effective_heartbeat_runner_mode(heartbeat, channel=channel)
+    return out
 
 
 class InferHeartbeatOut(BaseModel):
