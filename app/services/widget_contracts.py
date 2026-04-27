@@ -722,6 +722,7 @@ def _resolve_library_widget_dir(
     source_bot_id: str | None,
 ) -> Path | None:
     from app.agent.bots import get_bot
+    from app.domain.errors import NotFoundError
     from app.services.shared_workspace import shared_workspace_service
     from app.services.workspace import workspace_service
 
@@ -731,7 +732,13 @@ def _resolve_library_widget_dir(
         return widget_dir if widget_dir.is_dir() else None
     if not source_bot_id:
         return None
-    bot = get_bot(source_bot_id)
+    try:
+        bot = get_bot(source_bot_id)
+    except NotFoundError:
+        # Pin references a bot that no longer exists (deleted between pin
+        # creation and dashboard read). Treat as "no live source" — the
+        # snapshot remains the canonical view and confidence is inferred.
+        return None
     if bot is None:
         return None
     if scope == "bot":

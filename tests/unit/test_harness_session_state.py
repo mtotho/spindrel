@@ -10,6 +10,7 @@ from app.services.agent_harnesses.session_state import (
     HARNESS_CONTEXT_HINTS_KEY,
     compact_harness_session,
     context_window_from_usage,
+    estimate_context_remaining_pct,
     estimate_native_compaction_remaining_pct,
     load_context_hints,
     load_latest_harness_metadata,
@@ -47,6 +48,21 @@ async def test_native_compaction_remaining_prefers_last_turn_usage():
     }
 
     assert estimate_native_compaction_remaining_pct(
+        usage,
+        context_window_tokens=121_600,
+    ) == 90.0
+
+
+async def test_context_remaining_prefers_codex_last_turn_over_cumulative_total():
+    usage = {
+        "input_tokens": 276_563,
+        "output_tokens": 6_529,
+        "cached_tokens": 225_664,
+        "total_tokens": 283_092,
+        "last_total_tokens": 12_160,
+    }
+
+    assert estimate_context_remaining_pct(
         usage,
         context_window_tokens=121_600,
     ) == 90.0

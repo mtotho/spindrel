@@ -32,6 +32,7 @@ Not every skill fits a cluster. These sit at the top level:
 - `programmatic_tool_use` — `run_script` for chaining tool calls in one pass.
 - `generate_image` — image generation with attachments.
 - `e2e_testing` — running the test harness, reading results.
+- `system_diagnostics` — investigate server failures: health summary, recent errors, structured traces, raw container logs. Cheapest-first procedure suitable for heartbeats and nightly reports.
 
 ## How skill IDs work
 

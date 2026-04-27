@@ -157,6 +157,78 @@ async def _save_profiles(db: AsyncSession, profiles: list[dict[str, Any]]) -> No
     await update_settings("ssh", {PROFILES_KEY: _dump_profiles(profiles)}, _PROFILES_SETUP_VARS, db)
 
 
+_SSH_PUBLIC_KEY_PREFIXES = (
+    "ssh-rsa ",
+    "ssh-ed25519 ",
+    "ssh-dss ",
+    "ecdsa-sha2-nistp256 ",
+    "ecdsa-sha2-nistp384 ",
+    "ecdsa-sha2-nistp521 ",
+    "sk-ssh-ed25519@openssh.com ",
+    "sk-ecdsa-sha2-nistp256@openssh.com ",
+)
+
+
+def _looks_like_public_key(value: str) -> bool:
+    head = value.strip().splitlines()[0] if value.strip() else ""
+    return any(head.startswith(prefix) for prefix in _SSH_PUBLIC_KEY_PREFIXES)
+
+
+def _validate_ssh_private_key(value: str) -> None:
+    """Reject pasted secrets that won't load. Raises ValueError with a friendly message."""
+    text = value.strip()
+    if not text:
+        raise ValueError("Paste the contents of your private key file (the file *without* the .pub extension).")
+
+    if _looks_like_public_key(text):
+        raise ValueError(
+            "This looks like a public key (the .pub file). "
+            "Spindrel needs the matching private key — open the same filename without the .pub extension."
+        )
+
+    if text.startswith("PuTTY-User-Key-File-"):
+        raise ValueError(
+            "PuTTY .ppk format isn't supported. Open the key in PuTTYgen and use "
+            "Conversions → Export OpenSSH key, then paste the resulting file here."
+        )
+
+    if "-----BEGIN" not in text or "-----END" not in text:
+        raise ValueError(
+            "The key doesn't look like an OpenSSH/PEM private key. "
+            "Make sure you copied the entire file including the `-----BEGIN…-----` and `-----END…-----` lines."
+        )
+
+    try:
+        from cryptography.hazmat.primitives.serialization import load_ssh_private_key, load_pem_private_key
+    except ImportError:  # pragma: no cover — cryptography is a hard dep elsewhere
+        return
+
+    data = text.encode()
+    last_error: Exception | None = None
+    for loader in (load_ssh_private_key, load_pem_private_key):
+        try:
+            loader(data, password=None)
+            return
+        except TypeError as exc:
+            # cryptography raises TypeError when a passphrase is required but None was given.
+            raise ValueError(
+                "This private key is passphrase-encrypted. SSH runs non-interactively here, "
+                "so the key must be unencrypted. Re-export it without a passphrase "
+                "(`ssh-keygen -p -f <key>` and set an empty passphrase) and paste again."
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 — try the next loader
+            last_error = exc
+            continue
+
+    detail = str(last_error) if last_error else "unknown parse error"
+    raise ValueError(
+        "Couldn't parse this as a private key. "
+        "Verify the file starts with `-----BEGIN OPENSSH PRIVATE KEY-----` "
+        "(or RSA/EC) and ends with the matching `-----END…-----` line. "
+        f"Parser said: {detail}"
+    )
+
+
 def _require_profile(profile_id: str) -> dict[str, Any]:
     for profile in _get_stored_profiles():
         if profile.get("profile_id") != profile_id:
@@ -421,10 +493,9 @@ class SSHMachineControlProvider:
         payload = config if isinstance(config, dict) else {}
         private_key = str(payload.get("private_key") or "")
         known_hosts = str(payload.get("known_hosts") or "")
-        if not private_key.strip():
-            raise ValueError("SSH profile creation requires a private_key.")
         if not known_hosts.strip():
             raise ValueError("SSH profile creation requires known_hosts.")
+        _validate_ssh_private_key(private_key)
         profiles = _get_stored_profiles()
         profile = {
             "profile_id": str(uuid.uuid4()),
@@ -468,10 +539,12 @@ class SSHMachineControlProvider:
                     continue
                 value = payload.get(key)
                 next_config[key] = "" if value is None else str(value)
-            if not str(next_config.get("private_key") or "").strip():
-                raise ValueError("SSH profile must keep a private_key.")
             if not str(next_config.get("known_hosts") or "").strip():
                 raise ValueError("SSH profile must keep known_hosts.")
+            if "private_key" in payload:
+                _validate_ssh_private_key(str(next_config.get("private_key") or ""))
+            elif not str(next_config.get("private_key") or "").strip():
+                raise ValueError("SSH profile must keep a private_key.")
             profile["config"] = next_config
             profile["updated_at"] = _utc_now_iso()
             updated = profile

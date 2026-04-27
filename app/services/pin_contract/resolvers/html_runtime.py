@@ -20,7 +20,13 @@ from app.services.pin_contract.resolvers.html_library import _materialize_html
 @register_resolver
 class HtmlRuntimeEmitResolver:
     definition_kind: ClassVar[str] = "html_widget"
-    instantiation_kinds: ClassVar[frozenset[str]] = frozenset({"runtime_emit"})
+    # Catch-all for every html_widget instantiation kind not handled by
+    # HtmlLibraryResolver. Mirrors legacy ``_pin_instantiation_kind``: tools
+    # named ``html_widget`` produce ``runtime_emit``; any other tool name
+    # without source signals produces ``direct_tool_call``.
+    instantiation_kinds: ClassVar[frozenset[str]] = frozenset(
+        {"runtime_emit", "direct_tool_call"}
+    )
     priority: ClassVar[int] = 100  # last-resort fallback
 
     def claim(self, ident, deps) -> WidgetOrigin | None:
@@ -32,8 +38,11 @@ class HtmlRuntimeEmitResolver:
             else None
         )
         if instantiation_kind is None:
+            # Match legacy ``_pin_instantiation_kind`` so an html_widget
+            # output from a non-``html_widget`` tool name lands on
+            # ``direct_tool_call``, not ``runtime_emit``.
             instantiation_kind = (
-                "runtime_emit" if ident.tool_name == "html_widget" else "runtime_emit"
+                "runtime_emit" if ident.tool_name == "html_widget" else "direct_tool_call"
             )
         origin: WidgetOrigin = {
             "definition_kind": "html_widget",

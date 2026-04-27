@@ -88,21 +88,50 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.ref }}
 
-      - name: Extract changelog section
-        id: changelog
+      - name: Compose release body
+        id: body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.ref }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          version="${{ steps.version.outputs.version }}"
+          set -euo pipefail
+
+          manual=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (in_section) exit
+              if (index($0, "[" ver "]")) { in_section = 1; next }
+            }
+            in_section && /^\[[^]]+\]:[[:space:]]/ { exit }
+            in_section { print }
+          ' CHANGELOG.md)
+
+          if [ -z "${manual// }" ]; then
+            manual="_No high-level summary provided in CHANGELOG.md for this release._"
+          fi
+
+          auto_notes=$(gh api -X POST \
+            "repos/$REPO/releases/generate-notes" \
+            -f tag_name="$TAG" \
+            --jq .body || echo "")
+
           {
-            echo "body<<RELEASE_NOTES_EOF"
-            awk -v ver="$version" '
-              /^## \[/ {
-                if (in_section) exit
-                if (index($0, "[" ver "]")) { in_section = 1; next }
-              }
-              in_section && /^\[[^]]+\]:[[:space:]]/ { exit }
-              in_section { print }
-            ' CHANGELOG.md
-            echo "RELEASE_NOTES_EOF"
+            echo "body<<RELEASE_BODY_EOF"
+            echo "$manual"
+            echo ""
+            if [ -n "$auto_notes" ]; then
+              echo "---"
+              echo ""
+              echo "<details><summary>Detailed changes (auto-generated from merged PRs)</summary>"
+              echo ""
+              echo "$auto_notes"
+              echo ""
+              echo "</details>"
+              echo ""
+            fi
+            echo "**Container image:** \`ghcr.io/mtotho/spindrel:$VERSION\`"
+            echo "RELEASE_BODY_EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
@@ -110,12 +139,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.ref }}
           name: ${{ steps.tag.outputs.ref }}
-          body: |
-            ${{ steps.changelog.outputs.body }}
-
-            ---
-
-            **Container image:** `ghcr.io/mtotho/spindrel:${{ steps.version.outputs.version }}`
+          body: ${{ steps.body.outputs.body }}
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.ref, '-') }}
           make_latest: ${{ !contains(steps.tag.outputs.ref, '-') && 'true' || 'false' }}

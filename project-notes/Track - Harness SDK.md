@@ -201,6 +201,7 @@ Approval mapping intent (final values from schema):
 - Stabilized the Codex/Claude finish-line review findings: Codex user-input now uses the app-server response schema; app-server EOF wakes consumers instead of hanging turns; Codex dynamic-tool inventory changes force a fresh native thread; compact usage reuses normalized token telemetry; generated-schema drift checks cover the fields Spindrel depends on; Claude gets the documented streaming `PreToolUse` continue hook when supported.
 - Fixed the shared harness turn worker regression where `build_turn_context(..., harness_metadata=harness_meta)` referenced an undefined local. The worker now loads latest persisted harness metadata before constructing `TurnContext`, so Claude Code turns no longer crash and Codex can still compare prior dynamic-tool signatures.
 - Fixed Codex native-compact context status: Codex compact telemetry can report cumulative thread totals, so latest completed compacts now prefer post-compact `last_total_tokens` when present and otherwise treat oversized totals as historical reset telemetry instead of showing `0% left`.
+- Fixed the related auto-compact loop: generic harness context pressure now prefers explicit current/context totals (`context_tokens`, `context_total_tokens`, `last_total_tokens`) before cumulative `total_tokens`, so Codex no longer retriggers native compaction after every response simply because the native thread's historical token counter exceeds the model window.
 
 ## Later - Skill Bridge
 

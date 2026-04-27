@@ -298,6 +298,8 @@ def _fold_with_snapshot(
     live: LiveFields,
     snapshot: ContractSnapshot | None,
 ) -> PinMetadataView:
+    from app.services.widget_contracts import _merge_presentation_with_defaults
+
     snapshot = snapshot or ContractSnapshot()
     widget_contract = (
         live.widget_contract
@@ -313,13 +315,31 @@ def _fold_with_snapshot(
         if snapshot.config_schema is not None
         else None
     )
-    widget_presentation = (
-        live.widget_presentation
-        if live.widget_presentation is not None
-        else copy.deepcopy(snapshot.widget_presentation)
-        if snapshot.widget_presentation is not None
-        else None
-    )
+    # Match legacy ``build_pin_contract_metadata``: when neither live nor
+    # snapshot supplies presentation, fall back to a defaults-merged dict
+    # rather than ``None`` so downstream renderers always see a populated
+    # ``presentation_family`` + ``layout_hints``. Fallback layout hints come
+    # from the contract snapshot's ``layout_hints`` key when present.
+    if live.widget_presentation is not None:
+        widget_presentation = live.widget_presentation
+    elif snapshot.widget_presentation is not None:
+        widget_presentation = _merge_presentation_with_defaults(
+            copy.deepcopy(snapshot.widget_presentation),
+            fallback_layout_hints=(
+                widget_contract.get("layout_hints")
+                if isinstance(widget_contract, dict)
+                else None
+            ),
+        )
+    else:
+        widget_presentation = _merge_presentation_with_defaults(
+            None,
+            fallback_layout_hints=(
+                widget_contract.get("layout_hints")
+                if isinstance(widget_contract, dict)
+                else None
+            ),
+        )
     return PinMetadataView(
         widget_origin=copy.deepcopy(origin) if origin else {},
         provenance_confidence=confidence,

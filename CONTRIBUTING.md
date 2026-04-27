@@ -65,14 +65,14 @@ Integrations live in `integrations/` and follow a standard structure. See `integ
 Spindrel uses a manual tag-driven release flow. Versions follow [SemVer](https://semver.org/); while we are in `0.x`, minor bumps may include breaking changes.
 
 1. Bump the version in **both** `pyproject.toml` and `ui/package.json` to `X.Y.Z` (these must stay in sync).
-2. Move the `## [Unreleased]` block in `CHANGELOG.md` into a new `## [X.Y.Z] - YYYY-MM-DD` section. Keep an empty `## [Unreleased]` skeleton at the top. Update the comparison links at the bottom of the file.
+2. In `CHANGELOG.md`, add a `## [X.Y.Z] - YYYY-MM-DD` section with a **high-level human summary** of the release (a few bullets is enough — AI-drafted is fine, just make sure it reads cleanly). Update the link refs at the bottom.
 3. Open a PR titled `Release vX.Y.Z`. Once it merges to `master`:
    ```bash
    git checkout master && git pull
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
-4. The `Release` workflow (`.github/workflows/release.yml`) builds and pushes `ghcr.io/mtotho/spindrel:X.Y.Z` (and `:latest`), then creates a GitHub Release whose body is the matching `CHANGELOG.md` section.
+4. The `Release` workflow (`.github/workflows/release.yml`) builds and pushes `ghcr.io/mtotho/spindrel:X.Y.Z` (and `:latest`), then creates a GitHub Release. The Release body is composed as: **your CHANGELOG section first**, then a collapsed `<details>` block with the auto-generated PR list, then the container image line.
 5. For pre-releases, tag `vX.Y.Z-rc1` (or similar) — the workflow auto-marks tags containing `-` as prereleases and skips `:latest`.
 
 ### Releasing a tag that already exists

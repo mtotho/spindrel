@@ -319,6 +319,14 @@ async def load_latest_harness_metadata(
 def _usage_total_tokens(usage: dict[str, Any] | None) -> int | None:
     if not isinstance(usage, dict):
         return None
+    for key in (
+        "context_tokens",
+        "context_total_tokens",
+        "last_total_tokens",
+    ):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
     total = 0
     found = False
     for key in (

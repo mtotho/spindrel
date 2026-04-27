@@ -293,26 +293,24 @@ export function MachineTargetRow({
           </div>
         ) : null}
       </div>
-      {target.ready ? (
-        isActive ? (
-          <button
-            type="button"
-            disabled={busy || !onRevoke}
-            onClick={() => void onRevoke?.()}
-            style={machineButtonStyle(t, "danger", busy || !onRevoke)}
-          >
-            Revoke
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={busy || !onUse}
-            onClick={() => void onUse?.(target)}
-            style={machineButtonStyle(t, "primary", busy || !onUse)}
-          >
-            Use
-          </button>
-        )
+      {isActive ? (
+        <button
+          type="button"
+          disabled={busy || !onRevoke}
+          onClick={() => void onRevoke?.()}
+          style={machineButtonStyle(t, "danger", busy || !onRevoke)}
+        >
+          Revoke
+        </button>
+      ) : onUse ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onUse(target)}
+          style={machineButtonStyle(t, "primary", busy)}
+        >
+          {target.ready ? "Use" : "Connect"}
+        </button>
       ) : null}
     </div>
   );

@@ -31,6 +31,7 @@ class PresetRegistry:
     """
 
     def get(self, preset_id: str) -> dict[str, Any]:
+        from app.domain.errors import NotFoundError
         from app.services.widget_presets import (
             WidgetPresetValidationError,
             get_widget_preset,
@@ -38,7 +39,7 @@ class PresetRegistry:
 
         try:
             preset = get_widget_preset(preset_id)
-        except (KeyError, WidgetPresetValidationError) as exc:
+        except (KeyError, NotFoundError, WidgetPresetValidationError) as exc:
             raise PresetNotFound(preset_id) from exc
         if preset is None:
             raise PresetNotFound(preset_id)
@@ -99,11 +100,19 @@ class HtmlManifestLocator:
         # (core/bot/workspace), integration paths, and channel paths. We just
         # need the *directory* not the manifest file, but the existing helper
         # returns ``widget.yaml``; flip to its parent.
+        from app.domain.errors import NotFoundError
         from app.services.widget_contracts import _resolve_html_widget_manifest_path
 
-        manifest_path = _resolve_html_widget_manifest_path(
-            envelope, source_bot_id=source_bot_id,
-        )
+        try:
+            manifest_path = _resolve_html_widget_manifest_path(
+                envelope, source_bot_id=source_bot_id,
+            )
+        except (NotFoundError, OSError, FileNotFoundError):
+            # Bundle scope reference points at a bot/path that doesn't exist
+            # any more (deleted bot, deleted bundle, hand-edited row). Treat
+            # as "no live source" — snapshot fallback in compute_pin_metadata
+            # serves the cached view and confidence stays inferred.
+            return None
         if manifest_path is None:
             return None
         return manifest_path.parent
