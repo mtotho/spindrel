@@ -398,9 +398,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   const terminalPlaceholder = compactLayout
     ? "Type / or enter a message..."
     : "Type / for commands or enter a message...";
-  // The composer plan control is canonical for both normal and harness
-  // sessions; harness channels map it to the runtime's plan approval mode.
-  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;
+  // Non-harness sessions use the composer plan action. Harness sessions use
+  // the approval-mode footer text as the single mode control.
+  const canShowPlanControl = !isHarness && canTogglePlanMode && !!onTogglePlanMode;
   const planControlState = getComposerPlanControlState({
     planMode,
     hasPlan,

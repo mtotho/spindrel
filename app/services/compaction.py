@@ -570,8 +570,10 @@ async def _run_memory_flush(
     provider_id = (
         channel.memory_flush_model_provider_id
         or settings.MEMORY_FLUSH_MODEL_PROVIDER_ID
-        or bot.model_provider_id
     )
+    if not provider_id:
+        from app.services.providers import resolve_provider_for_model
+        provider_id = resolve_provider_for_model(model) or bot.model_provider_id
 
     logger.info("Running memory flush for channel %s (session %s, model=%s)", channel.id, session_id, model)
 

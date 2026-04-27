@@ -984,6 +984,7 @@ async def get_harness_status(
         HARNESS_RESUME_RESET_AT_KEY,
         context_window_from_usage,
         estimate_context_remaining_pct,
+        estimate_native_compaction_remaining_pct,
         hint_preview,
         load_bridge_status,
         load_context_hints,
@@ -1050,7 +1051,7 @@ async def get_harness_status(
                 compact_is_latest = compact_created_at >= last_turn_at.replace(tzinfo=timezone.utc)
     if native_compaction and native_compaction.get("status") == "completed" and compact_is_latest:
         compact_usage = native_compaction.get("usage")
-        compact_remaining = estimate_context_remaining_pct(
+        compact_remaining = estimate_native_compaction_remaining_pct(
             compact_usage if isinstance(compact_usage, dict) else None,
             context_window_tokens=context_window_tokens,
         )

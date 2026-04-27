@@ -352,6 +352,41 @@ def estimate_context_remaining_pct(
     return round(remaining * 100.0, 1)
 
 
+def estimate_native_compaction_remaining_pct(
+    usage: dict[str, Any] | None,
+    *,
+    context_window_tokens: int | None,
+) -> float | None:
+    """Estimate remaining context immediately after a successful native compact.
+
+    Some runtimes report compact telemetry as cumulative thread totals rather
+    than the post-compact prompt footprint. Treat oversized totals as historical
+    and fall back to "freshly compacted" instead of showing 0% remaining.
+    """
+    if not context_window_tokens or context_window_tokens <= 0:
+        return None
+    if not isinstance(usage, dict) or not usage:
+        return 100.0
+
+    for key in ("context_remaining_pct", "context_remaining_percent", "remaining_pct"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)):
+            return round(max(0.0, min(100.0, float(value))), 1)
+
+    last_total = usage.get("last_total_tokens")
+    if isinstance(last_total, (int, float)) and last_total > 0:
+        remaining = max(0.0, 1.0 - (float(last_total) / float(context_window_tokens)))
+        return round(remaining * 100.0, 1)
+
+    total = _usage_total_tokens(usage)
+    if not total:
+        return 100.0
+    if total >= context_window_tokens:
+        return 100.0
+    remaining = max(0.0, 1.0 - (float(total) / float(context_window_tokens)))
+    return round(remaining * 100.0, 1)
+
+
 def context_window_from_usage(usage: dict[str, Any] | None) -> int | None:
     """Return provider-reported context window from normalized harness usage."""
     if not isinstance(usage, dict):

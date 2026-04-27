@@ -467,6 +467,35 @@ class TestRunMemoryFlushProviderId:
             )
 
     @pytest.mark.asyncio
+    async def test_resolves_provider_from_selected_model_when_no_explicit_override(self):
+        from app.services import compaction
+        bot = _make_bot(model_provider_id="mini-max", memory_scheme="workspace-files")
+        ch = _make_channel(memory_flush_enabled=True, memory_flush_model_provider_id=None)
+
+        with patch.object(compaction, "_get_memory_flush_model", return_value="gpt-5.3-codex-spark"), \
+             patch("app.services.compaction.settings") as mock_settings, \
+             patch("app.services.providers.resolve_provider_for_model", return_value="chatgpt-subscription") as mock_resolve, \
+             patch("app.services.compaction.async_session") as mock_session_factory, \
+             patch("app.agent.loop.run", new=AsyncMock()) as mock_run:
+            mock_settings.MEMORY_FLUSH_MODEL_PROVIDER_ID = ""
+            mock_settings.MEMORY_SCHEME_FLUSH_PROMPT = ""
+            mock_settings.PREVIOUS_SUMMARY_INJECT_CHARS = 500
+            self._stub_db_session(mock_session_factory, ch.id)
+            mock_run.return_value = MagicMock(response="ok")
+
+            await compaction._run_memory_flush(
+                channel=ch,
+                bot=bot,
+                session_id=uuid.uuid4(),
+                messages=[{"role": "user", "content": "hi"}],
+                correlation_id=uuid.uuid4(),
+            )
+
+            mock_resolve.assert_called_once_with("gpt-5.3-codex-spark")
+            kwargs = mock_run.await_args.kwargs
+            assert kwargs["provider_id_override"] == "chatgpt-subscription"
+
+    @pytest.mark.asyncio
     async def test_channel_override_wins_over_model_resolution(self):
         from app.services import compaction
         bot = _make_bot(model_provider_id="mini-max", memory_scheme="workspace-files")

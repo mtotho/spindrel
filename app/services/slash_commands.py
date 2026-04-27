@@ -791,6 +791,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             HARNESS_RESUME_RESET_AT_KEY,
             context_window_from_usage,
             estimate_context_remaining_pct,
+            estimate_native_compaction_remaining_pct,
             hint_preview,
             load_bridge_status,
             load_context_hints,
@@ -863,13 +864,14 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             usage,
             context_window_tokens=context_window_tokens,
         )
-        if (
-            remaining_pct is None
-            and native_compaction
-            and native_compaction.get("status") == "completed"
-            and not native_compaction.get("usage")
-        ):
-            remaining_pct = 100.0
+        if native_compaction and native_compaction.get("status") == "completed":
+            compact_usage = native_compaction.get("usage")
+            compact_remaining = estimate_native_compaction_remaining_pct(
+                compact_usage if isinstance(compact_usage, dict) else None,
+                context_window_tokens=context_window_tokens,
+            )
+            if compact_remaining is not None:
+                remaining_pct = compact_remaining
         if remaining_pct is not None:
             lines.append(f"Estimated context remaining: {remaining_pct}%")
         if native_compaction:

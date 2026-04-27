@@ -253,6 +253,16 @@ class TestBuildRequestBody:
         )
         assert body["max_output_tokens"] == 512
 
+    def test_temperature_is_not_forwarded(self):
+        body = _build_request_body(
+            model="gpt-5",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=None, tool_choice=None, stream=False,
+            extra={"temperature": 0.3, "top_p": 0.8},
+        )
+        assert "temperature" not in body
+        assert body["top_p"] == 0.8
+
     def test_tools_and_tool_choice_included(self):
         body = _build_request_body(
             model="gpt-5",

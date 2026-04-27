@@ -200,6 +200,7 @@ Approval mapping intent (final values from schema):
 - Local binary checks confirmed `account/read` and `model/list` shapes; focused Codex unit tests pass. DB-backed turn-worker harness tests skip under the local Python 3.14 harness as expected.
 - Stabilized the Codex/Claude finish-line review findings: Codex user-input now uses the app-server response schema; app-server EOF wakes consumers instead of hanging turns; Codex dynamic-tool inventory changes force a fresh native thread; compact usage reuses normalized token telemetry; generated-schema drift checks cover the fields Spindrel depends on; Claude gets the documented streaming `PreToolUse` continue hook when supported.
 - Fixed the shared harness turn worker regression where `build_turn_context(..., harness_metadata=harness_meta)` referenced an undefined local. The worker now loads latest persisted harness metadata before constructing `TurnContext`, so Claude Code turns no longer crash and Codex can still compare prior dynamic-tool signatures.
+- Fixed Codex native-compact context status: Codex compact telemetry can report cumulative thread totals, so latest completed compacts now prefer post-compact `last_total_tokens` when present and otherwise treat oversized totals as historical reset telemetry instead of showing `0% left`.
 
 ## Later - Skill Bridge
 

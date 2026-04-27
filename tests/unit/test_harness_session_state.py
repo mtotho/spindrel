@@ -10,6 +10,7 @@ from app.services.agent_harnesses.session_state import (
     HARNESS_CONTEXT_HINTS_KEY,
     compact_harness_session,
     context_window_from_usage,
+    estimate_native_compaction_remaining_pct,
     load_context_hints,
     load_latest_harness_metadata,
     set_resume_reset,
@@ -23,6 +24,32 @@ async def test_context_window_from_usage_only_reads_normalized_fields():
     assert context_window_from_usage({"context_window_tokens": 200_000}) == 200_000
     assert context_window_from_usage({"model_context_window": 100_000}) == 100_000
     assert context_window_from_usage({"modelContextWindow": 50_000}) is None
+
+
+async def test_native_compaction_remaining_treats_oversized_totals_as_reset():
+    usage = {
+        "input_tokens": 195_151,
+        "output_tokens": 5_273,
+        "cached_tokens": 168_064,
+        "total_tokens": 200_424,
+    }
+
+    assert estimate_native_compaction_remaining_pct(
+        usage,
+        context_window_tokens=121_600,
+    ) == 100.0
+
+
+async def test_native_compaction_remaining_prefers_last_turn_usage():
+    usage = {
+        "total_tokens": 200_424,
+        "last_total_tokens": 12_160,
+    }
+
+    assert estimate_native_compaction_remaining_pct(
+        usage,
+        context_window_tokens=121_600,
+    ) == 90.0
 
 
 @pytest.fixture

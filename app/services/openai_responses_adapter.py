@@ -424,7 +424,7 @@ def _build_request_body(
         if extra.get("parallel_tool_calls") is not None:
             body["parallel_tool_calls"] = extra["parallel_tool_calls"]
 
-    for passthrough in ("temperature", "top_p", "max_output_tokens", "reasoning"):
+    for passthrough in ("top_p", "max_output_tokens", "reasoning"):
         if passthrough in extra and extra[passthrough] is not None:
             body[passthrough] = extra[passthrough]
 

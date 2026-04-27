@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-27 (harness-question terminal stream polish)
+updated: 2026-04-27 (harness approval mode composer control)
 ---
 # Track — UI Polish
 
@@ -212,6 +212,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Idle session resume cards** — composer-bearing chat surfaces now show a UI-only session info card above the composer when the latest real visible user/assistant message is at least two hours old. The card is mounted through `ChatMessageArea.sessionResumeSlot`, uses lightweight session metadata, supports dismiss/hide local preferences, and stays out of persisted messages, model context, search, and compaction.
 - [x] **Idle session resume cards can open the unified picker** — the resume-card overflow menu now exposes `Open session picker` whenever the host chat can supply a picker callback. Channel pages, split/session surfaces, threads, and the Spatial Canvas mini chat route this to the existing `SessionPickerOverlay`; canvas selection closes the mini chat and navigates to the chosen channel session.
 - [x] **Harness-question prompts now render as transcript-owned cards** — terminal chat no longer wraps the card in an extra `assistant:<runtime>` header or duplicates it in the composer lane. Hidden answer transport rows are filtered out of live/page sync, and pending question cards suppress the generic streaming `(thinking...)` row for the blocked turn.
+- [x] **Harness approval mode moved to the composer footer** — the old header `edits`/`bypass`/`plan` pill is gone. Harness channels now render the same approval mode as colored footer text beside the plan control in terminal and default composers, and clicking it cycles through `session-approval-mode` with the existing backend mutation.
+- [x] **Harness composer mode control is no longer duplicated** — harness chats now suppress the separate `Start plan` composer affordance, leaving the approval-mode footer text as the only bottom-right harness mode control.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -221,6 +223,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after terminal dock chrome + mini-chat session-plan composer wiring
 - [x] `cd agent-server/ui && npx tsc --noEmit` after harness-question terminal stream polish
 - [x] `cd agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node --test .chat-test-dist/src/components/chat/harnessQuestionMessages.test.js`
+- [x] `cd agent-server/ui && npx tsc --noEmit` after moving harness approval mode into the composer footer
+- [x] `cd agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node --test .chat-test-dist/src/components/chat/harnessApprovalModeControl.test.js`
+- [x] `cd agent-server/ui && npx tsc --noEmit` after suppressing duplicate harness `Start plan`
 - [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
 - [x] `python -m py_compile app/services/slash_commands.py app/routers/api_v1_slash_commands.py tests/integration/test_slash_commands.py`
 - [x] `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` after summary/surface UI adoption
