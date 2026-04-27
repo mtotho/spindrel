@@ -1003,6 +1003,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     if (!viewport) return;
     function handler(e: WheelEvent) {
       if (diving) return;
+      if (e.target instanceof Element && e.target.closest("[data-starboard-panel='true']")) return;
       e.preventDefault();
       const rect = viewportRectRef.current;
       if (!rect.width || !rect.height) return;
@@ -1490,6 +1491,23 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
+  const flyToStarboardObject = useCallback(
+    (wx: number, wy: number) => {
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
+      const currentScale = cameraRef.current.scale;
+      const targetScale = Math.min(MAX_SCALE, Math.max(currentScale, 0.42));
+      const targetX = rect.width / 2 - wx * targetScale;
+      const targetY = rect.height / 2 - wy * targetScale;
+      if (lensEngaged) {
+        setLensEngaged(false);
+        triggerLensSettle();
+      }
+      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+    },
+    [lensEngaged, triggerLensSettle, scheduleCamera],
+  );
+
   const flyToWell = useCallback(() => {
     const rect = viewportRectRef.current;
     if (!rect.width || !rect.height) return;
@@ -1530,7 +1548,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldX: MEMORY_OBSERVATORY_X,
         worldY: MEMORY_OBSERVATORY_Y,
         distance: distanceFromFocus(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
-        onSelect: flyToMemoryObservatory,
+        onSelect: () => flyToStarboardObject(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
       },
       {
         id: "landmark-now-well",
@@ -1540,7 +1558,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldX: WELL_X,
         worldY: WELL_Y,
         distance: distanceFromFocus(WELL_X, WELL_Y),
-        onSelect: flyToWell,
+        onSelect: () => flyToStarboardObject(WELL_X, WELL_Y),
       },
       {
         id: "landmark-attention-hub",
@@ -1551,17 +1569,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldY: ATTENTION_HUB_Y,
         distance: distanceFromFocus(ATTENTION_HUB_X, ATTENTION_HUB_Y),
         onSelect: () => {
-          const rectNow = viewportRectRef.current;
-          if (!rectNow.width || !rectNow.height) {
-            openAttentionHub();
-            return;
-          }
-          const targetScale = Math.min(0.9, Math.max(0.55, cameraRef.current.scale));
-          scheduleCamera({
-            x: rectNow.width / 2 - ATTENTION_HUB_X * targetScale,
-            y: rectNow.height / 2 - ATTENTION_HUB_Y * targetScale,
-            scale: targetScale,
-          }, "immediate");
+          flyToStarboardObject(ATTENTION_HUB_X, ATTENTION_HUB_Y);
           openAttentionHub();
         },
       },
@@ -1579,7 +1587,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => flyToChannel(node.channel_id!),
+          onSelect: () => flyToStarboardObject(worldX, worldY),
         });
       } else if (node.pin) {
         items.push({
@@ -1590,7 +1598,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => flyToNodeById(node.id),
+          onSelect: () => flyToStarboardObject(worldX, worldY),
         });
       } else if (node.bot_id) {
         items.push({
@@ -1601,7 +1609,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => flyToNodeById(node.id),
+          onSelect: () => flyToStarboardObject(worldX, worldY),
         });
       }
     }
@@ -1611,12 +1619,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     channelsById,
     camera,
     activeAttentionCount,
-    flyToMemoryObservatory,
-    flyToWell,
-    flyToChannel,
-    flyToNodeById,
+    flyToStarboardObject,
     openAttentionHub,
-    scheduleCamera,
   ]);
 
   const edgeBeacons = useMemo(() => {

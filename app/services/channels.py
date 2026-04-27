@@ -336,6 +336,39 @@ async def reset_channel_session(
     return session_id
 
 
+async def create_detached_channel_session(
+    db: AsyncSession,
+    channel: Channel,
+) -> uuid.UUID:
+    """Create a channel-bound session without changing the channel primary.
+
+    Used by `/new` / `/clear` from any visible pane: old sessions are
+    preserved and the caller chooses which pane navigates to the new session.
+    """
+    has_integration = channel.integration is not None
+    if not has_integration:
+        result = await db.execute(
+            select(ChannelIntegration.id)
+            .where(ChannelIntegration.channel_id == channel.id)
+            .limit(1)
+        )
+        has_integration = result.scalar_one_or_none() is not None
+
+    session_id = uuid.uuid4()
+    session = Session(
+        id=session_id,
+        client_id=channel.client_id or f"channel:{channel.id}",
+        bot_id=channel.bot_id,
+        channel_id=channel.id,
+        locked=has_integration,
+    )
+    db.add(session)
+    channel.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
+    return session_id
+
+
 async def switch_channel_session(
     db: AsyncSession,
     channel: Channel,

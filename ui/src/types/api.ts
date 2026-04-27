@@ -360,6 +360,16 @@ export interface Channel {
     pinned_widget_context_enabled?: boolean;
     /** Channel-scoped HTML widget SDK theme override. */
     widget_theme_ref?: string | null;
+    harness_auto_compaction_enabled?: boolean;
+    harness_auto_compaction_soft_remaining_pct?: number;
+    harness_auto_compaction_hard_remaining_pct?: number;
+    harness_auto_compaction?: {
+      enabled?: boolean;
+      soft_remaining_pct?: number;
+      hard_remaining_pct?: number;
+      last_prompted_at?: string | null;
+      last_hard_compact_at?: string | null;
+    };
     /** Per-channel reasoning/effort override, set by the `/effort` slash
      *  command. Resolved at run_stream entry into a ContextVar that the
      *  agent loop merges into `bot.model_params`. */
@@ -712,6 +722,9 @@ export interface ChannelSettings {
   compaction_model?: string;
   compaction_model_provider_id?: string | null;
   trigger_heartbeat_before_compaction?: boolean | null;
+  harness_auto_compaction_enabled?: boolean;
+  harness_auto_compaction_soft_remaining_pct?: number;
+  harness_auto_compaction_hard_remaining_pct?: number;
   // Memory flush (dedicated pre-compaction memory save)
   memory_flush_enabled?: boolean | null;
   memory_flush_model?: string | null;
@@ -838,6 +851,7 @@ export type SlashCommandId =
   | "plan"
   | "effort"
   | "clear"
+  | "new"
   | "scratch"
   | "sessions"
   | "split"

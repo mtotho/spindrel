@@ -85,6 +85,18 @@ class TurnResult:
 
 
 @dataclass
+class HarnessCompactResult:
+    """Returned by runtimes that support native context compaction."""
+
+    ok: bool
+    session_id: str | None = None
+    detail: str = ""
+    usage: dict | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+
+
+@dataclass
 class HarnessToolTranscriptEntry:
     id: str
     name: str
@@ -391,6 +403,10 @@ class RuntimeCapabilities:
         ),
     )
     """Generic-slash allowlist for harness sessions on this runtime."""
+    native_compaction: bool = False
+    """True when the runtime can trigger or observe native context compaction."""
+    context_window_tokens: int | None = None
+    """Best-effort runtime context window for pressure estimates. None means unknown."""
 
 
 @runtime_checkable
@@ -420,6 +436,19 @@ class HarnessRuntime(Protocol):
         persisted by the caller.
         """
         ...
+
+    async def compact_session(
+        self,
+        *,
+        ctx: TurnContext,
+    ) -> HarnessCompactResult:
+        """Trigger native runtime compaction for an existing harness session.
+
+        Runtimes that do not support an explicit compact operation should
+        raise ``NotImplementedError``. The host treats that as "native compact
+        unavailable" and never falls back to a fake host summary.
+        """
+        raise NotImplementedError
 
     def auth_status(self) -> AuthStatus:
         """Report whether this harness is logged in / ready to run."""

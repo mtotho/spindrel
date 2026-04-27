@@ -101,7 +101,8 @@ What is landing:
 
 - `TurnContext.context_hints` plus `HarnessContextHint` for one-shot host context injection into runtime adapters.
 - `app/services/agent_harnesses/session_state.py` owns per-session hint queue, compact reset timestamp, latest harness metadata lookup, and compact continuity summary generation.
-- Harness `/compact` no longer runs normal Spindrel compaction. It stores a compact summary, sets a resume-reset marker so the next turn starts a fresh native harness session, and injects that summary as a one-shot hint.
+- Harness `/compact` now means native runtime compaction only. For Claude Code it dispatches SDK `/compact`, records native compact status/metadata, and does not queue a Spindrel continuity summary or fake a new native session.
+- `/new` and `/clear` open a fresh Spindrel session without deleting the old one. They are generic chat-session commands, not harness-only commands, and they do not mutate the channel primary/default pointer.
 - Harness `/context` reports native harness state: runtime, selected model, approval mode, resume id, pending host hints, last turn, compact reset, and usage metadata.
 - Bare harness `/model` and `/effort` render interactive picker cards; direct `/model <id>` and `/effort <level>` still mutate session settings.
 - Heartbeats now have a `ChannelHeartbeat.runner_mode` switch. Harness channels default to harness hint mode, which stores the heartbeat prompt/preamble as a one-shot hint for the channel's primary session; opting into the Spindrel-agent runner exposes the normal heartbeat model/workflow/dispatch controls and requires an explicit heartbeat model.
@@ -110,7 +111,8 @@ What is landing:
 - Pending durable `core/harness_question` cards now get a sticky lane immediately above the composer in default and terminal chat modes, and freeform send is blocked until the pending interaction is answered.
 - Workspace-files memory on a harness bot injects a host hint pointing the runtime at durable memory files; reads/writes still require native filesystem access or selected bridged tools.
 - Claude Code gets a best-effort Spindrel tool bridge through SDK in-process MCP helpers. Tool definitions are resolved dynamically from the same effective channel/bot tool configuration as the normal loop, and invocation routes through `dispatch_tool_call` so policy, approval, trace rows, redaction, and result summarization stay centralized.
-- Bridge visibility is no longer count-only: harness status and `/context` expose pending hint previews, bridge health, exported tools, ignored client tools, explicit one-turn tools, tagged skills, and last bridge error. The existing ctx header status opens these details instead of adding another chip.
+- Bridge/context visibility is no longer count-only: harness status and `/context` expose pending hint previews, bridge health, exported tools, ignored client tools, explicit one-turn tools, tagged skills, last bridge error, native compact status, and estimated native context remaining when usage/window telemetry exists. The existing ctx header status opens these details instead of adding another chip.
+- Harness channel settings include native auto-compaction prompts: default on, prompt below 60% remaining context, auto-run native compact below 10% remaining context when telemetry is available.
 - Composer `+ -> Tools` can insert `@tool:<name>` for one-turn bridge exposure. Harness bridge execution is constrained to the exported tool set through `dispatch_tool_call(allowed_tool_names=...)`.
 - Composer `+ -> Skills` / explicit `@skill:<id>` adds a tagged-skill index hint for the turn. Skill bodies remain progressive via bridged `get_skill` / `get_skill_list`; no native `.claude/skills` sync in Phase 5.
 - Harness `/compact` renders an inspectable transcript card with continuity summary preview while still queuing the summary as a one-shot host hint.
@@ -122,7 +124,7 @@ Open verification:
 - Smoke test the Claude SDK MCP helper names on the deployed harness image. The code degrades by disabling the bridge if the installed SDK lacks `create_sdk_mcp_server` / `tool`, but the exact helper signature needs runtime verification.
 - Exercise a mutating bridged tool in ask mode and verify the existing Spindrel approval card flow resolves back into the harness tool result.
 - Decide whether heartbeat hints should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
-- Add richer harness context telemetry if/when a runtime exposes native context-window usage; current status is resume/usage/hint metadata, not a full token budget.
+- Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
 - Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
 
 ## Later - Skill Bridge

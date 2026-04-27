@@ -25,6 +25,7 @@ import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import {
   useSessionHarnessSettings,
+  useSessionHarnessStatus,
   useSetSessionApprovalMode,
   useSetSessionHarnessSettings,
 } from "@/src/api/hooks/useApprovals";
@@ -603,6 +604,62 @@ export default function ChatScreen() {
   const currentPlanSessionId = routeSessionId ?? channel?.active_session_id ?? undefined;
   const queryClient = useQueryClient();
   const sessionPlan = useSessionPlanMode(currentPlanSessionId);
+  const { data: harnessStatus } = useSessionHarnessStatus(bot?.harness_runtime ? currentPlanSessionId : null);
+  const [dismissedAutoCompactSession, setDismissedAutoCompactSession] = useState<string | null>(null);
+  const [autoCompactRunning, setAutoCompactRunning] = useState(false);
+  const autoCompactConfig = (channel?.config as any)?.harness_auto_compaction ?? {};
+  const autoCompactEnabled = autoCompactConfig.enabled ?? channel?.config?.harness_auto_compaction_enabled ?? true;
+  const autoCompactSoft = autoCompactConfig.soft_remaining_pct ?? channel?.config?.harness_auto_compaction_soft_remaining_pct ?? 60;
+  const autoCompactHard = autoCompactConfig.hard_remaining_pct ?? channel?.config?.harness_auto_compaction_hard_remaining_pct ?? 10;
+  const remainingPct = harnessStatus?.context_remaining_pct;
+  const autoCompactPressure = bot?.harness_runtime
+    && autoCompactEnabled
+    && typeof remainingPct === "number"
+    && currentPlanSessionId
+    && dismissedAutoCompactSession !== currentPlanSessionId
+    ? (remainingPct < autoCompactHard ? "hard" : remainingPct < autoCompactSoft ? "soft" : null)
+    : null;
+  const triggerNativeCompact = useCallback(async () => {
+    if (!currentPlanSessionId) return;
+    setAutoCompactRunning(true);
+    try {
+      await apiFetch("/api/v1/slash-commands/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          command_id: "compact",
+          session_id: currentPlanSessionId,
+          surface: "session",
+          args: [],
+        }),
+      });
+      setDismissedAutoCompactSession(currentPlanSessionId);
+      void queryClient.invalidateQueries({ queryKey: ["session-messages", currentPlanSessionId] });
+      void queryClient.invalidateQueries({ queryKey: ["session-harness-status", currentPlanSessionId] });
+    } finally {
+      setAutoCompactRunning(false);
+    }
+  }, [currentPlanSessionId, queryClient]);
+  useEffect(() => {
+    if (autoCompactPressure !== "hard" || autoCompactRunning) return;
+    void triggerNativeCompact();
+  }, [autoCompactPressure, autoCompactRunning, triggerNativeCompact]);
+  const openNewVisibleSession = useCallback(async () => {
+    if (!channelId) return;
+    const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
+    setDismissedAutoCompactSession(result.new_session_id);
+    void queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+    navigate(`/channels/${channelId}/session/${result.new_session_id}`);
+  }, [channelId, navigate, queryClient]);
+  const disableAutoCompactionPrompts = useCallback(async () => {
+    if (!channelId) return;
+    await apiFetch(`/api/v1/admin/channels/${channelId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ harness_auto_compaction_enabled: false }),
+    });
+    setDismissedAutoCompactSession(currentPlanSessionId ?? null);
+    void queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+    void queryClient.invalidateQueries({ queryKey: ["channel-settings", channelId] });
+  }, [channelId, currentPlanSessionId, queryClient]);
   const [ignoredHarnessQuestionIds, setIgnoredHarnessQuestionIds] = useState<Set<string>>(() => new Set());
   const pendingHarnessQuestionIndex = useMemo(() => {
     const targetSessionId = currentPlanSessionId ?? channel?.active_session_id;
@@ -1520,7 +1577,11 @@ export default function ChatScreen() {
     onSend: handleSend,
     onSendAudio: handleSendAudio,
     disabled: isPaused,
-    sendDisabledReason: pendingHarnessQuestion ? "Answer or ignore the harness question above to continue." : null,
+    sendDisabledReason: pendingHarnessQuestion
+      ? "Answer or ignore the harness question above to continue."
+      : autoCompactPressure === "hard" && autoCompactRunning
+        ? "Native compaction is running. Send after it finishes."
+        : null,
     isStreaming: Object.keys(chatState.turns).length > 0 || chatState.isProcessing,
     onCancel: handleCancel,
     modelOverride: turnModelOverride,
@@ -1630,6 +1691,52 @@ export default function ChatScreen() {
       </div>
     </div>
   ) : null;
+  const harnessAutoCompactionLane = autoCompactPressure ? (
+    <div className="px-3 pb-2">
+      <div className="rounded-md border border-warning/25 bg-warning/8 p-3 text-xs text-text-muted">
+        <div className="mb-1 font-medium text-text">
+          {autoCompactPressure === "hard" ? "Compacting native context" : "Native context is getting full"}
+        </div>
+        <div className="mb-3 leading-snug">
+          {typeof remainingPct === "number" ? `${Math.round(remainingPct)}% context remains. ` : ""}
+          {autoCompactPressure === "hard"
+            ? "Spindrel is running Claude native /compact after this turn."
+            : "Compact now, open a fresh session, or dismiss this prompt for the current session."}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={triggerNativeCompact}
+            disabled={autoCompactRunning}
+            className="rounded bg-surface-overlay px-2.5 py-1 text-[11px] text-text hover:bg-surface-raised disabled:opacity-60"
+          >
+            {autoCompactRunning ? "Compacting..." : "Compact now"}
+          </button>
+          <button
+            type="button"
+            onClick={openNewVisibleSession}
+            className="rounded bg-surface-overlay px-2.5 py-1 text-[11px] text-text hover:bg-surface-raised"
+          >
+            New session
+          </button>
+          <button
+            type="button"
+            onClick={() => setDismissedAutoCompactSession(currentPlanSessionId ?? null)}
+            className="rounded px-2.5 py-1 text-[11px] text-text-dim hover:bg-surface-overlay hover:text-text"
+          >
+            Later
+          </button>
+          <button
+            type="button"
+            onClick={disableAutoCompactionPrompts}
+            className="rounded px-2.5 py-1 text-[11px] text-text-dim hover:bg-surface-overlay hover:text-text"
+          >
+            Disable prompts
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   const terminalBottomSlot = chatMode === "terminal" ? (
     <>
@@ -1645,6 +1752,7 @@ export default function ChatScreen() {
         />
       )}
       {pendingHarnessQuestionLane}
+      {harnessAutoCompactionLane}
       <ChatComposerShell chatMode={chatMode}>
         <MessageInput {...messageInputProps} />
       </ChatComposerShell>
@@ -1775,6 +1883,7 @@ export default function ChatScreen() {
             />
           )}
           {pendingHarnessQuestionLane}
+          {harnessAutoCompactionLane}
           <ChatComposerShell chatMode={chatMode}>
             <MessageInput {...messageInputProps} />
           </ChatComposerShell>

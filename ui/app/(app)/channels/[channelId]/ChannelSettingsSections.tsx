@@ -708,6 +708,41 @@ export function AgentTabSections({
             </div>
           </div>
         </Section>
+        <Section
+          title="Harness Context"
+          description="Native compaction stays inside the harness. Spindrel can prompt or trigger native compact when context pressure is visible."
+        >
+          <FormRow
+            label="Auto-compaction prompts"
+            description="Prompt when remaining native context drops below the soft threshold; hard threshold runs native compact after a turn."
+          >
+            <Toggle
+              value={form.harness_auto_compaction_enabled ?? true}
+              onChange={(v) => patch("harness_auto_compaction_enabled", v as ChannelSettings["harness_auto_compaction_enabled"])}
+            />
+          </FormRow>
+          <Row stack={false}>
+            <Col minWidth={160}>
+              <FormRow label="Prompt below remaining %" description="Default 60.">
+                <TextInput
+                  value={String(form.harness_auto_compaction_soft_remaining_pct ?? 60)}
+                  onChangeText={(v) => patch("harness_auto_compaction_soft_remaining_pct", Number(v || 60) as ChannelSettings["harness_auto_compaction_soft_remaining_pct"])}
+                />
+              </FormRow>
+            </Col>
+            <Col minWidth={160}>
+              <FormRow label="Auto-compact below remaining %" description="Default 10.">
+                <TextInput
+                  value={String(form.harness_auto_compaction_hard_remaining_pct ?? 10)}
+                  onChangeText={(v) => patch("harness_auto_compaction_hard_remaining_pct", Number(v || 10) as ChannelSettings["harness_auto_compaction_hard_remaining_pct"])}
+                />
+              </FormRow>
+            </Col>
+          </Row>
+          <div className="rounded-md bg-surface-overlay p-3 text-xs leading-snug text-text-muted">
+            `/compact` uses Claude native compaction when the SDK supports it. `/new` and `/clear` open a fresh session; they do not delete or rewrite the current one.
+          </div>
+        </Section>
         <MessageRoutingSection form={form} patch={patch} />
       </>
     );

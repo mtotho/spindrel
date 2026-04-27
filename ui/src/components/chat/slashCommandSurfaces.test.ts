@@ -8,7 +8,8 @@ const catalog: SlashCommandSpec[] = [
   { id: "context", label: "/context", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
   { id: "find", label: "/find", description: "", surfaces: ["channel"], local_only: false, args: [] },
   { id: "effort", label: "/effort", description: "", surfaces: ["channel"], local_only: false, args: [] },
-  { id: "clear", label: "/clear", description: "", surfaces: ["channel"], local_only: true, args: [] },
+  { id: "clear", label: "/clear", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
+  { id: "new", label: "/new", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
   { id: "scratch", label: "/scratch", description: "", surfaces: ["channel"], local_only: true, args: [] },
   { id: "model", label: "/model", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
   { id: "theme", label: "/theme", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
@@ -24,9 +25,9 @@ describe("resolveAvailableSlashCommandIds", () => {
         catalog,
         surface: "channel",
         enabled: true,
-        capabilities: ["clear", "scratch", "model", "theme", "sessions", "split", "focus"],
+        capabilities: ["clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
       }),
-      ["help", "context", "find", "effort", "clear", "scratch", "model", "theme", "sessions", "split", "focus"],
+      ["help", "context", "find", "effort", "clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
     );
   });
 
@@ -36,9 +37,9 @@ describe("resolveAvailableSlashCommandIds", () => {
         catalog,
         surface: "session",
         enabled: true,
-        capabilities: ["model", "theme", "sessions", "split", "focus"],
+        capabilities: ["clear", "new", "model", "theme", "sessions", "split", "focus"],
       }),
-      ["help", "context", "model", "theme", "sessions", "split", "focus"],
+      ["help", "context", "clear", "new", "model", "theme", "sessions", "split", "focus"],
     );
   });
 

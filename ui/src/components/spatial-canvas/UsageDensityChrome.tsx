@@ -53,6 +53,7 @@ const INTENSITY_HINT: Record<DensityIntensity, string> = {
 };
 
 type StarboardTab = "controls" | "objects";
+const STARBOARD_TAB_KEY = "spatial.starboard.activeTab";
 
 const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   channel: "Channel",
@@ -60,6 +61,15 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   bot: "Bot",
   landmark: "Landmark",
 };
+
+function loadStarboardTab(): StarboardTab {
+  try {
+    const stored = window.localStorage.getItem(STARBOARD_TAB_KEY);
+    return stored === "objects" || stored === "controls" ? stored : "controls";
+  } catch {
+    return "controls";
+  }
+}
 
 /** Three-dot intensity indicator inside the button — visualizes off/subtle/bold. */
 function IntensityPips({ intensity }: { intensity: DensityIntensity }) {
@@ -107,8 +117,12 @@ export function UsageDensityChrome({
   objects,
 }: UsageDensityChromeProps) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<StarboardTab>("controls");
+  const [activeTab, setActiveTab] = useState<StarboardTab>(loadStarboardTab);
   const [objectQuery, setObjectQuery] = useState("");
+  const selectTab = (tab: StarboardTab) => {
+    setActiveTab(tab);
+    persistStarboardTab(tab);
+  };
   const normalizedQuery = objectQuery.trim().toLowerCase();
   const visibleObjects = objects.filter((item) => {
     if (!normalizedQuery) return true;
@@ -137,9 +151,12 @@ export function UsageDensityChrome({
       </button>
       {panelOpen && (
         <aside
+          data-starboard-panel="true"
           className="fixed bottom-0 right-0 top-0 z-[65] flex w-[520px] max-w-[calc(100vw-1rem)] flex-col border-l border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
           onPointerDown={(event) => event.stopPropagation()}
-          onWheel={(event) => event.stopPropagation()}
+          onWheelCapture={(event) => {
+            event.stopPropagation();
+          }}
         >
           <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
             <div className="min-w-0">
@@ -161,7 +178,7 @@ export function UsageDensityChrome({
             <nav className="w-28 border-r border-surface-border/70 p-2">
               <button
                 type="button"
-                onClick={() => setActiveTab("controls")}
+                onClick={() => selectTab("controls")}
                 className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium ${
                   activeTab === "controls"
                     ? "sidebar-item-active text-accent"
@@ -173,7 +190,7 @@ export function UsageDensityChrome({
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab("objects")}
+                onClick={() => selectTab("objects")}
                 className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium ${
                   activeTab === "objects"
                     ? "sidebar-item-active text-accent"
@@ -356,6 +373,14 @@ export function UsageDensityChrome({
       )}
     </div>
   );
+}
+
+function persistStarboardTab(tab: StarboardTab) {
+  try {
+    window.localStorage.setItem(STARBOARD_TAB_KEY, tab);
+  } catch {
+    /* storage disabled */
+  }
 }
 
 function formatDistance(distance: number): string {

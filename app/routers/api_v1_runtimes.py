@@ -45,6 +45,8 @@ class RuntimeCapabilitiesOut(BaseModel):
     effort_values: list[str]
     approval_modes: list[str]
     slash_policy: HarnessSlashCommandPolicyOut
+    native_compaction: bool = False
+    context_window_tokens: int | None = None
 
 
 @router.get("/{name}/capabilities", response_model=RuntimeCapabilitiesOut)
@@ -103,4 +105,6 @@ async def get_runtime_capabilities(
         slash_policy=HarnessSlashCommandPolicyOut(
             allowed_command_ids=sorted(caps.slash_policy.allowed_command_ids),
         ),
+        native_compaction=bool(getattr(caps, "native_compaction", False)),
+        context_window_tokens=getattr(caps, "context_window_tokens", None),
     )

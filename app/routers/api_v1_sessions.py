@@ -934,6 +934,9 @@ class HarnessStatusOut(BaseModel):
     last_turn_at: str | None = None
     usage: dict[str, Any] | None = None
     cost_usd: float | None = None
+    context_window_tokens: int | None = None
+    context_remaining_pct: float | None = None
+    native_compaction: dict[str, Any] | None = None
     hints: list[dict[str, Any]] = Field(default_factory=list)
     bridge_status: dict[str, Any] = Field(default_factory=dict)
     context_note: str
@@ -971,12 +974,15 @@ async def get_harness_status(
     from app.services.agent_harnesses.approvals import load_session_mode
     from app.services.agent_harnesses.session_state import (
         HARNESS_RESUME_RESET_AT_KEY,
+        estimate_context_remaining_pct,
         hint_preview,
         load_bridge_status,
         load_context_hints,
         load_latest_harness_metadata,
+        load_native_compaction,
     )
     from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.agent_harnesses import HARNESS_REGISTRY
 
     session = await db.get(Session, session_id)
     if session is None:
@@ -987,9 +993,15 @@ async def get_harness_status(
     hints = await load_context_hints(db, session_id)
     bridge_status = await load_bridge_status(db, session_id)
     harness_meta, last_turn_at = await load_latest_harness_metadata(db, session_id)
+    runtime_name = (harness_meta or {}).get("runtime") if harness_meta else None
+    runtime = HARNESS_REGISTRY.get(runtime_name) if runtime_name else None
+    caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
+    context_window_tokens = getattr(caps, "context_window_tokens", None) if caps else None
+    usage = (harness_meta or {}).get("usage") if harness_meta else None
+    native_compaction = await load_native_compaction(db, session_id)
     meta = session.metadata_ or {}
     return HarnessStatusOut(
-        runtime=(harness_meta or {}).get("runtime") if harness_meta else None,
+        runtime=runtime_name,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
         model=settings.model,
         effort=settings.effort,
@@ -999,13 +1011,19 @@ async def get_harness_status(
         if isinstance(meta.get(HARNESS_RESUME_RESET_AT_KEY), str)
         else None,
         last_turn_at=last_turn_at.isoformat() if last_turn_at else None,
-        usage=(harness_meta or {}).get("usage") if harness_meta else None,
+        usage=usage,
         cost_usd=(harness_meta or {}).get("cost_usd") if harness_meta else None,
+        context_window_tokens=context_window_tokens,
+        context_remaining_pct=estimate_context_remaining_pct(
+            usage,
+            context_window_tokens=context_window_tokens,
+        ),
+        native_compaction=native_compaction,
         hints=[hint_preview(hint) for hint in hints],
         bridge_status=bridge_status,
         context_note=(
             "Native harness context is provider-managed; Spindrel tracks resume id, "
-            "compact resets, and pending host hints for this session."
+            "native compaction events, and pending host hints for this session."
         ),
     )
 

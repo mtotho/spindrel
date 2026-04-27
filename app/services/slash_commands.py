@@ -585,27 +585,31 @@ async def _compact_session(
 
     bot = get_bot(session.bot_id)
     if getattr(bot, "harness_runtime", None):
-        from app.services.agent_harnesses.session_state import compact_harness_session
+        from app.services.agent_harnesses.session_state import run_native_harness_compact
 
-        summary = await compact_harness_session(db, session_id)
-        detail = (
-            "Native resume will restart on the next turn; Spindrel queued a "
-            f"{len(summary):,}-character continuity summary as a one-shot hint."
-        )
+        payload = await run_native_harness_compact(db, session_id, source="/compact")
+        ok = payload.get("status") == "completed"
+        detail = str(payload.get("detail") or (
+            "Claude native compaction completed."
+            if ok
+            else "Claude native compaction failed."
+        ))
         return SlashCommandResult(
             command_id="compact",
-            result_type="harness_compact_summary",
+            result_type="harness_native_compaction",
             payload={
                 "session_id": str(session_id),
                 "scope_kind": scope_kind,
                 "scope_id": str(scope_id),
-                "title": "Harness session compacted",
+                "title": "Native compaction completed" if ok else "Native compaction failed",
                 "detail": detail,
-                "summary_preview": summary[:1400],
-                "summary_chars": len(summary),
-                "queued_hint_kind": "compact_summary",
+                "status": payload.get("status"),
+                "usage": payload.get("usage"),
+                "native_session_id": payload.get("session_id"),
+                "error": payload.get("error"),
+                "metadata": payload.get("metadata") or {},
             },
-            fallback_text=f"Harness session compacted\n\n{detail}",
+            fallback_text=f"{'Native compaction completed' if ok else 'Native compaction failed'}\n\n{detail}",
         )
 
     request = await request_manual_compaction(session_id, bot, db)
@@ -784,19 +788,26 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         from app.services.agent_harnesses.approvals import load_session_mode
         from app.services.agent_harnesses.session_state import (
             HARNESS_RESUME_RESET_AT_KEY,
+            estimate_context_remaining_pct,
             hint_preview,
             load_bridge_status,
             load_context_hints,
             load_latest_harness_metadata,
+            load_native_compaction,
         )
         from app.services.agent_harnesses.settings import load_session_settings
         from app.services.agent_harnesses.tools import list_harness_spindrel_tools_for
+        from app.services.agent_harnesses import HARNESS_REGISTRY
 
         settings = await load_session_settings(ctx.db, session.id)
         mode = await load_session_mode(ctx.db, session.id)
         hints = await load_context_hints(ctx.db, session.id)
         bridge_status = await load_bridge_status(ctx.db, session.id)
         harness_meta, last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
+        runtime = HARNESS_REGISTRY.get(bot.harness_runtime)
+        caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
+        context_window_tokens = getattr(caps, "context_window_tokens", None) if caps else None
+        native_compaction = await load_native_compaction(ctx.db, session.id)
         bridge_tools = await list_harness_spindrel_tools_for(
             ctx.db,
             bot_id=bot.id,
@@ -820,6 +831,14 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         usage = (harness_meta or {}).get("usage") if harness_meta else None
         if usage:
             lines.append(f"Last usage: {usage}")
+        remaining_pct = estimate_context_remaining_pct(
+            usage,
+            context_window_tokens=context_window_tokens,
+        )
+        if remaining_pct is not None:
+            lines.append(f"Estimated context remaining: {remaining_pct}%")
+        if native_compaction:
+            lines.append(f"Last native compact: {native_compaction.get('status')} at {native_compaction.get('created_at')}")
         return SlashCommandResult(
             command_id="context",
             result_type="harness_context_summary",
@@ -839,9 +858,13 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 ],
                 "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tools else "none_selected"),
                 "bridge_status_detail": bridge_status,
-                "native_token_budget_available": False,
+                "native_token_budget_available": remaining_pct is not None,
+                "native_compaction_available": bool(getattr(caps, "native_compaction", False)) if caps else False,
+                "context_window_tokens": context_window_tokens,
+                "context_remaining_pct": remaining_pct,
                 "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
                 "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
+                "native_compaction": native_compaction,
                 "usage": usage,
             },
             fallback_text="\n".join(lines),
@@ -1422,8 +1445,16 @@ _register(SlashCommandSpec(
 _register(SlashCommandSpec(
     id="clear",
     label="/clear",
-    description="Start fresh (local)",
-    surfaces=("channel",),
+    description="Open a new session (local)",
+    surfaces=("channel", "session"),
+    local_only=True,
+))
+
+_register(SlashCommandSpec(
+    id="new",
+    label="/new",
+    description="Open a new session (local)",
+    surfaces=("channel", "session"),
     local_only=True,
 ))
 

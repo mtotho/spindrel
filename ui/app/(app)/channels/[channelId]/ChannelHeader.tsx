@@ -835,6 +835,9 @@ function HarnessStatusPill({
     ? data.harness_session_id.slice(0, 8)
     : "new";
   const usageLabel = formatHarnessUsage(data.usage);
+  const remainingLabel = typeof data.context_remaining_pct === "number"
+    ? `${Math.round(data.context_remaining_pct)}% left`
+    : null;
   const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
   const bridge = (data.bridge_status ?? {}) as Record<string, unknown>;
   const exportedTools = Array.isArray(bridge.exported_tools) ? bridge.exported_tools.map(String) : [];
@@ -852,9 +855,9 @@ function HarnessStatusPill({
           color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
           fontFamily: "'Menlo', monospace",
         }}
-        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}.`}
+        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}.`}
       >
-        ctx {usageLabel ?? resume}{hints}
+        ctx {remainingLabel ?? usageLabel ?? resume}{hints}
       </button>
       {open && (
         <div
@@ -869,6 +872,8 @@ function HarnessStatusPill({
           </div>
           <div className="grid gap-1">
             <div><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
+            <div><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
+            <div><span className="text-text-dim">Native compact</span> {data.native_compaction ? `${String(data.native_compaction.status || "unknown")} · ${String(data.native_compaction.created_at || "")}` : "none observed"}</div>
             <div><span className="text-text-dim">Bridge</span> {String(bridge.status || "unknown")} · {exportedTools.length} tool{exportedTools.length === 1 ? "" : "s"}</div>
             {typeof bridge.error === "string" && bridge.error && <div className="text-warning-muted">{bridge.error}</div>}
             {explicitTools.length > 0 && <div><span className="text-text-dim">One-turn tools</span> {explicitTools.join(", ")}</div>}

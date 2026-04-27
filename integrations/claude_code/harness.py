@@ -25,6 +25,7 @@ from integrations.sdk import (
     AllowDeny,
     AuthStatus,
     ChannelEventEmitter,
+    HarnessCompactResult,
     HarnessModelOption,
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
@@ -74,7 +75,7 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
 
 # Conservative v1 slash-command allowlist for harness sessions on this runtime.
 # Excluded by intent (re-add only with documented harness behavior):
-#   compact  — harness-aware: resets native resume and injects summary
+#   compact  — harness-aware: triggers Claude native compaction
 #   plan     — Spindrel chat-mode toggle; conflicts with Claude's native plan
 #   context  — harness-aware: shows native resume/status summary
 #   find     — channel-scoped keyword search; Spindrel-only semantics
@@ -86,7 +87,7 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
 _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
     "sessions", "scratch", "split", "focus", "model", "effort",
-    "compact", "context",
+    "compact", "context", "new",
 })
 
 
@@ -197,6 +198,8 @@ class ClaudeCodeRuntime:
             slash_policy=HarnessSlashCommandPolicy(
                 allowed_command_ids=_CLAUDE_GENERIC_SLASH_ALLOWED,
             ),
+            native_compaction=True,
+            context_window_tokens=200_000,
         )
 
     async def list_models(self) -> tuple[str, ...]:
@@ -293,6 +296,91 @@ class ClaudeCodeRuntime:
             final_text="".join(final_text_parts),
             cost_usd=result_meta.get("total_cost_usd"),
             usage=result_meta.get("usage"),
+        )
+
+    async def compact_session(
+        self,
+        *,
+        ctx: TurnContext,
+    ) -> HarnessCompactResult:
+        from claude_agent_sdk import (  # type: ignore
+            ClaudeAgentOptions,
+            ClaudeSDKClient,
+        )
+
+        if not ctx.harness_session_id:
+            return HarnessCompactResult(
+                ok=False,
+                session_id=None,
+                detail="No native Claude session exists yet. Start a turn before compacting.",
+                error="missing_harness_session_id",
+            )
+        if not os.path.isdir(ctx.workdir):
+            return HarnessCompactResult(
+                ok=False,
+                session_id=ctx.harness_session_id,
+                detail=f"Harness workdir does not exist: {ctx.workdir!r}.",
+                error="missing_workdir",
+            )
+
+        options_kwargs: dict[str, Any] = {
+            "cwd": ctx.workdir,
+            "resume": ctx.harness_session_id,
+            "allowed_tools": _allowed_tools_for_mode(ctx.permission_mode),
+            "permission_mode": ctx.permission_mode,
+            "can_use_tool": _make_can_use_tool(ctx, runtime=self),
+        }
+        if ctx.model:
+            options_kwargs["model"] = ctx.model
+        _apply_effort_option(
+            options_cls=ClaudeAgentOptions,
+            options_kwargs=options_kwargs,
+            effort=ctx.effort,
+        )
+        opts = ClaudeAgentOptions(**options_kwargs)
+
+        result_meta: dict[str, Any] = {}
+        compact_events: list[dict[str, Any]] = []
+        try:
+            async with ClaudeSDKClient(options=opts) as client:
+                await client.query("/compact")
+                async for msg in client.receive_response():
+                    _bridge_compact_message(
+                        msg,
+                        result_meta=result_meta,
+                        compact_events=compact_events,
+                    )
+        except Exception as exc:
+            logger.exception("claude-code native compact failed for session %s", ctx.spindrel_session_id)
+            return HarnessCompactResult(
+                ok=False,
+                session_id=ctx.harness_session_id,
+                detail=f"Claude native compact failed: {exc}",
+                error=str(exc),
+                metadata={"compact_events": compact_events},
+            )
+
+        if result_meta.get("is_error"):
+            detail = str(result_meta.get("result") or "Claude native compact ended with an error.")
+            return HarnessCompactResult(
+                ok=False,
+                session_id=result_meta.get("session_id") or ctx.harness_session_id,
+                detail=detail,
+                usage=result_meta.get("usage"),
+                error=detail,
+                metadata={"compact_events": compact_events, "result": result_meta.get("result")},
+            )
+
+        return HarnessCompactResult(
+            ok=True,
+            session_id=result_meta.get("session_id") or ctx.harness_session_id,
+            detail="Claude native compaction completed.",
+            usage=result_meta.get("usage"),
+            metadata={
+                "compact_events": compact_events,
+                "result": result_meta.get("result"),
+                "total_cost_usd": result_meta.get("total_cost_usd"),
+            },
         )
 
     def auth_status(self) -> AuthStatus:
@@ -669,6 +757,39 @@ def _bridge_message(
     if isinstance(msg, SystemMessage):
         # System messages carry CLI metadata (init, task lifecycle, mirror
         # errors). None of them belong on the user-facing chat surface in v1.
+        return
+
+
+def _bridge_compact_message(
+    msg: Any,
+    *,
+    result_meta: dict[str, Any],
+    compact_events: list[dict[str, Any]],
+) -> None:
+    from claude_agent_sdk import ResultMessage, SystemMessage  # type: ignore
+
+    if isinstance(msg, ResultMessage):
+        result_meta["session_id"] = msg.session_id
+        result_meta["total_cost_usd"] = msg.total_cost_usd
+        result_meta["usage"] = msg.usage
+        result_meta["is_error"] = msg.is_error
+        result_meta["result"] = msg.result
+        return
+
+    if isinstance(msg, SystemMessage):
+        raw = {
+            "subtype": getattr(msg, "subtype", None),
+            "data": getattr(msg, "data", None),
+        }
+        subtype = str(raw.get("subtype") or "")
+        data = raw.get("data")
+        if subtype == "compact_boundary" or (
+            isinstance(data, dict) and data.get("subtype") == "compact_boundary"
+        ):
+            compact_events.append({
+                "subtype": "compact_boundary",
+                "data": data if isinstance(data, dict) else {},
+            })
         return
 
 

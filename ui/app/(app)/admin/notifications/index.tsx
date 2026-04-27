@@ -12,8 +12,7 @@ import {
 } from "@/src/api/hooks/useNotificationTargets";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { PageHeader } from "@/src/components/layout/PageHeader";
-import { FormRow, TextInput } from "@/src/components/shared/FormControls";
-import { Spinner } from "@/src/components/shared/Spinner";
+import { FormRow, SelectInput, TextInput } from "@/src/components/shared/FormControls";
 import {
   ActionButton,
   EmptyState,
@@ -22,7 +21,7 @@ import {
   SettingsGroupLabel,
   StatusBadge,
 } from "@/src/components/shared/SettingsControls";
-import type { NotificationDestination, NotificationTarget } from "@/src/types/api";
+import type { BotConfig, NotificationDestination, NotificationTarget, NotificationTargetKind } from "@/src/types/api";
 
 function fmtTime(iso: string | null | undefined) {
   if (!iso) return "--";
@@ -36,12 +35,29 @@ function targetSubtitle(target: NotificationTarget) {
   return `${(target.config.target_ids || []).length} targets`;
 }
 
-function TargetRow({ target, targets }: { target: NotificationTarget; targets: NotificationTarget[] }) {
+function destinationHelp(kind: NotificationTargetKind, count: number) {
+  if (count > 0) return null;
+  if (kind === "user_push") {
+    return "PWA push targets appear after a user enables push in Settings -> Account -> Preferences on this server.";
+  }
+  if (kind === "channel") {
+    return "Channel targets appear after channels exist.";
+  }
+  return "Integration binding targets appear after an integration binding exposes dispatch metadata.";
+}
+
+function TargetRow({
+  target,
+  targets,
+  bots,
+}: {
+  target: NotificationTarget;
+  targets: NotificationTarget[];
+  bots: BotConfig[];
+}) {
   const update = useUpdateNotificationTarget();
   const remove = useDeleteNotificationTarget();
   const test = useTestNotificationTarget();
-  const { data: bots } = useAdminBots();
-  const botList = bots ?? [];
   const childTargets = targets.filter((item) => item.id !== target.id);
 
   const toggleBot = (botId: string) => {
@@ -61,7 +77,7 @@ function TargetRow({ target, targets }: { target: NotificationTarget; targets: N
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-border-subtle bg-surface-raised/35 px-4 py-3">
+    <div className="flex flex-col gap-3 rounded-md bg-surface-raised/30 px-4 py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -120,11 +136,11 @@ function TargetRow({ target, targets }: { target: NotificationTarget; targets: N
 
       <div className="flex flex-col gap-1">
         <SettingsGroupLabel label="Bot grants" count={(target.allowed_bot_ids || []).length} />
-        {botList.length === 0 ? (
+        {bots.length === 0 ? (
           <div className="text-[11px] text-text-dim">No bots found.</div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {botList.map((bot) => {
+            {bots.map((bot) => {
               const selected = (target.allowed_bot_ids || []).includes(bot.id);
               return (
                 <button
@@ -148,8 +164,20 @@ function CreateTargetPanel({ targets }: { targets: NotificationTarget[] }) {
   const { data: destinations, isLoading } = useNotificationDestinations();
   const create = useCreateNotificationTarget();
   const [groupName, setGroupName] = useState("");
+  const [kind, setKind] = useState<NotificationTargetKind>("user_push");
+  const [selectedKey, setSelectedKey] = useState("");
   const options = destinations?.options ?? [];
   const existingKeys = useMemo(() => new Set(targets.map((t) => `${t.kind}:${JSON.stringify(t.config)}`)), [targets]);
+  const optionsForKind = options.filter((option) => option.kind === kind);
+  const destinationOptions = optionsForKind.map((option, index) => ({
+    label: `${option.label}${option.description ? ` - ${option.description}` : ""}`,
+    value: String(index),
+  }));
+  const selectedDestination = selectedKey ? optionsForKind[Number(selectedKey)] : null;
+  const selectedExists = selectedDestination
+    ? existingKeys.has(`${selectedDestination.kind}:${JSON.stringify(selectedDestination.config)}`)
+    : false;
+  const helpText = destinationHelp(kind, optionsForKind.length);
 
   const createFromDestination = (option: NotificationDestination) => {
     create.mutate({
@@ -159,6 +187,7 @@ function CreateTargetPanel({ targets }: { targets: NotificationTarget[] }) {
       allowed_bot_ids: [],
       enabled: true,
     });
+    setSelectedKey("");
   };
 
   const createGroup = () => {
@@ -174,38 +203,50 @@ function CreateTargetPanel({ targets }: { targets: NotificationTarget[] }) {
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-md bg-surface-raised/35 px-4 py-3">
-      <SettingsGroupLabel label="Create targets" />
-      {isLoading ? (
-        <Spinner />
-      ) : options.length === 0 ? (
+    <section className="flex flex-col gap-3 pb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SettingsGroupLabel label="Create targets" />
+        {isLoading && <span className="text-[11px] font-medium text-text-dim">Loading destinations...</span>}
+      </div>
+      {!isLoading && options.length === 0 ? (
         <EmptyState message="No push subscriptions, channels, or integration bindings are available yet." />
       ) : (
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {options.map((option, index) => {
-            const exists = existingKeys.has(`${option.kind}:${JSON.stringify(option.config)}`);
-            return (
-              <SettingsControlRow
-                key={`${option.kind}-${index}`}
-                compact
-                title={option.label}
-                description={`${option.kind.replace("_", " ")}${option.description ? ` · ${option.description}` : ""}`}
-                meta={
-                  <ActionButton
-                    size="small"
-                    variant="secondary"
-                    icon={<Plus size={12} />}
-                    label={exists ? "Exists" : "Add"}
-                    disabled={exists || create.isPending}
-                    onPress={() => createFromDestination(option)}
-                  />
-                }
-              />
-            );
-          })}
+        <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
+          <FormRow label="Kind">
+            <SelectInput
+              value={kind}
+              onChange={(next) => {
+                setKind(next as NotificationTargetKind);
+                setSelectedKey("");
+              }}
+              options={[
+                { label: "PWA push", value: "user_push" },
+                { label: "Channel", value: "channel" },
+                { label: "Integration binding", value: "integration_binding" },
+              ]}
+            />
+          </FormRow>
+          <FormRow label="Destination">
+            <SelectInput
+              value={selectedKey}
+              onChange={setSelectedKey}
+              options={destinationOptions.length > 0 ? destinationOptions : [{ label: "No destinations available", value: "" }]}
+            />
+          </FormRow>
+          <ActionButton
+            icon={<Plus size={12} />}
+            label={selectedExists ? "Exists" : "Add target"}
+            disabled={!selectedDestination || selectedExists || create.isPending}
+            onPress={() => selectedDestination && createFromDestination(selectedDestination)}
+          />
+          {helpText && (
+            <div className="text-[11px] leading-relaxed text-text-dim lg:col-start-2">
+              {helpText}
+            </div>
+          )}
         </div>
       )}
-      <div className="flex flex-wrap items-end gap-2 border-t border-border-subtle pt-3">
+      <div className="grid gap-3 pt-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div className="min-w-[260px] flex-1">
           <FormRow label="Group target">
             <TextInput value={groupName} onChangeText={setGroupName} placeholder="Ops alerts" />
@@ -213,13 +254,13 @@ function CreateTargetPanel({ targets }: { targets: NotificationTarget[] }) {
         </div>
         <ActionButton icon={<Plus size={12} />} label="Create group" disabled={!groupName.trim()} onPress={createGroup} />
       </div>
-    </div>
+    </section>
   );
 }
 
 function DeliveryHistory() {
   const { data, isLoading } = useNotificationDeliveries();
-  if (isLoading) return <Spinner />;
+  if (isLoading) return <div className="text-[12px] text-text-dim">Loading delivery history...</div>;
   if (!data || data.deliveries.length === 0) return <EmptyState message="No notification deliveries yet." />;
   return (
     <div className="flex flex-col gap-2">
@@ -239,27 +280,33 @@ function DeliveryHistory() {
 
 export default function AdminNotificationsPage() {
   const { data: targets, isLoading } = useNotificationTargets();
+  const { data: bots } = useAdminBots();
   const rows = targets ?? [];
+  const botRows = bots ?? [];
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
+    <div className="flex h-full min-h-0 flex-1 flex-col bg-surface">
       <PageHeader
         variant="list"
         title="Notifications"
         subtitle="Reusable targets for alerts, bots, and automations."
       />
-      <CreateTargetPanel targets={rows} />
-      <div className="flex flex-col gap-2">
-        <SettingsGroupLabel label="Targets" count={rows.length} />
-        {isLoading ? (
-          <Spinner />
-        ) : rows.length === 0 ? (
-          <EmptyState message="Create a notification target to grant it to bots or use it from usage alerts." />
-        ) : (
-          rows.map((target) => <TargetRow key={target.id} target={target} targets={rows} />)
-        )}
+      <div className="scroll-subtle min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-4 md:px-8 md:py-5">
+          <CreateTargetPanel targets={rows} />
+          <div className="flex flex-col gap-2">
+            <SettingsGroupLabel label="Targets" count={rows.length} />
+            {isLoading ? (
+              <div className="text-[12px] text-text-dim">Loading targets...</div>
+            ) : rows.length === 0 ? (
+              <EmptyState message="Create a notification target to grant it to bots or use it from usage alerts." />
+            ) : (
+              rows.map((target) => <TargetRow key={target.id} target={target} targets={rows} bots={botRows} />)
+            )}
+          </div>
+          <DeliveryHistory />
+        </div>
       </div>
-      <DeliveryHistory />
     </div>
   );
 }

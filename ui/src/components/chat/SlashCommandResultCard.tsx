@@ -62,7 +62,7 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <HarnessContextSummaryCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
-  if (resultType === "harness_compact_summary") {
+  if (resultType === "harness_compact_summary" || resultType === "harness_native_compaction") {
     return <HarnessCompactSummaryCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
@@ -88,13 +88,15 @@ function HarnessCompactSummaryCard({
       meta="harness"
     >
       <div className="grid gap-2 p-3 text-[12px] text-text-muted">
-        <div className="font-medium text-text">{String(payload.title || "Harness session compacted")}</div>
+        <div className="font-medium text-text">{String(payload.title || "Native compaction")}</div>
         <div>{String(payload.detail || "")}</div>
-        <div className="rounded bg-surface-overlay/50 p-2 font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
-          {String(payload.summary_preview || "")}
-        </div>
+        {payload.usage && (
+          <div className="rounded bg-surface-overlay/50 p-2 font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
+            {JSON.stringify(payload.usage, null, 2)}
+          </div>
+        )}
         <div className="text-[10px] text-text-dim">
-          Queued hint: {String(payload.queued_hint_kind || "compact_summary")} · {Number(payload.summary_chars || 0).toLocaleString()} chars
+          Native session: {String(payload.native_session_id || "unchanged")} · status: {String(payload.status || "unknown")}
         </div>
       </div>
     </SlashResultPanel>

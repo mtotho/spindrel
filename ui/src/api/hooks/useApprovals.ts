@@ -235,6 +235,9 @@ export interface HarnessStatus {
   last_turn_at: string | null;
   usage: Record<string, unknown> | null;
   cost_usd: number | null;
+  context_window_tokens: number | null;
+  context_remaining_pct: number | null;
+  native_compaction: Record<string, unknown> | null;
   hints: Array<Record<string, unknown>>;
   bridge_status: Record<string, unknown>;
   context_note: string;
@@ -250,6 +253,7 @@ export function useSessionHarnessStatus(
         `/api/v1/sessions/${sessionId}/harness-status`,
       ),
     enabled: !!sessionId,
+    refetchInterval: 10_000,
   });
 }
 

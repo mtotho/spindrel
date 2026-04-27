@@ -25,7 +25,7 @@ from app.dependencies import (
 )
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
-    reset_channel_session, switch_channel_session,
+    create_detached_channel_session, reset_channel_session, switch_channel_session,
     bind_integration, unbind_integration, adopt_integration,
 )
 from app.services import session_locks
@@ -249,6 +249,9 @@ class ChannelConfigOut(BaseModel):
     #   ``clear``   — plain shell; header-zone widgets sit directly on page
     header_backdrop_mode: str = "glass"
     widget_theme_ref: Optional[str] = None
+    harness_auto_compaction_enabled: bool = True
+    harness_auto_compaction_soft_remaining_pct: int = 60
+    harness_auto_compaction_hard_remaining_pct: int = 10
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
     heartbeat_interval_minutes: int = 60
@@ -319,6 +322,9 @@ class ChannelConfigUpdate(BaseModel):
     # for semantics). Accepted values: ``default | glass | clear``.
     header_backdrop_mode: Optional[str] = None
     widget_theme_ref: Optional[str] = None
+    harness_auto_compaction_enabled: Optional[bool] = None
+    harness_auto_compaction_soft_remaining_pct: Optional[int] = None
+    harness_auto_compaction_hard_remaining_pct: Optional[int] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
     heartbeat_interval_minutes: Optional[int] = None
@@ -717,6 +723,16 @@ async def update_channel_config(
     )
     has_widget_theme_ref_update = "widget_theme_ref" in ch_updates
     widget_theme_ref_update = ch_updates.pop("widget_theme_ref", None) if has_widget_theme_ref_update else None
+    harness_auto_keys = {
+        "harness_auto_compaction_enabled",
+        "harness_auto_compaction_soft_remaining_pct",
+        "harness_auto_compaction_hard_remaining_pct",
+    }
+    harness_auto_updates = {
+        key: ch_updates.pop(key)
+        for key in list(ch_updates)
+        if key in harness_auto_keys
+    }
 
     # Apply channel updates
     if ch_updates:
@@ -780,6 +796,24 @@ async def update_channel_config(
             cfg.pop("widget_theme_ref", None)
         else:
             cfg["widget_theme_ref"] = normalized
+        channel.config = cfg
+        flag_modified(channel, "config")
+        channel.updated_at = now
+
+    if harness_auto_updates:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        auto = dict(cfg.get("harness_auto_compaction") or {})
+        if "harness_auto_compaction_enabled" in harness_auto_updates:
+            auto["enabled"] = bool(harness_auto_updates["harness_auto_compaction_enabled"])
+        if "harness_auto_compaction_soft_remaining_pct" in harness_auto_updates:
+            value = harness_auto_updates["harness_auto_compaction_soft_remaining_pct"]
+            auto["soft_remaining_pct"] = max(1, min(99, int(value or 60)))
+        if "harness_auto_compaction_hard_remaining_pct" in harness_auto_updates:
+            value = harness_auto_updates["harness_auto_compaction_hard_remaining_pct"]
+            auto["hard_remaining_pct"] = max(1, min(99, int(value or 10)))
+        cfg["harness_auto_compaction"] = auto
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -876,6 +910,9 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "chat_mode": (channel.config or {}).get("chat_mode", "default"),
         "header_backdrop_mode": (channel.config or {}).get("header_backdrop_mode", "glass"),
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
+        "harness_auto_compaction_enabled": ((channel.config or {}).get("harness_auto_compaction") or {}).get("enabled", True),
+        "harness_auto_compaction_soft_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("soft_remaining_pct", 60),
+        "harness_auto_compaction_hard_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("hard_remaining_pct", 10),
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,
     }
@@ -1044,6 +1081,28 @@ async def reset_channel(
 
     previous = channel.active_session_id
     new_session_id = await reset_channel_session(db, channel)
+
+    return ResetResponse(
+        channel_id=channel_id,
+        new_session_id=new_session_id,
+        previous_session_id=previous,
+    )
+
+
+@router.post("/{channel_id}/sessions", response_model=ResetResponse)
+async def create_channel_session(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.messages:write")),
+):
+    """Create a fresh channel-bound session without changing the channel primary."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
+
+    previous = channel.active_session_id
+    new_session_id = await create_detached_channel_session(db, channel)
 
     return ResetResponse(
         channel_id=channel_id,

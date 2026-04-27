@@ -98,6 +98,10 @@ export function useSlashCommandExecutor({
           await onSideEffect?.(result);
           return;
         }
+        if (result.result_type === "harness_native_compaction") {
+          await onSideEffect?.(result);
+          return;
+        }
         // context_summary, find_results, or any future renderer-backed result
         // → surface as a synthetic assistant message the chat feed renders.
         const resolvedSessionId =

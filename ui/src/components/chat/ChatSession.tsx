@@ -448,10 +448,16 @@ function ChannelChatSession({
   const channelSlashLocalHandlers = useMemo(
     () => ({
       clear: async () => {
-        await apiFetch(`/channels/${source.channelId}/reset`, { method: "POST" });
-        useChatStore.getState().setMessages(source.channelId, []);
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${source.channelId}/sessions`, { method: "POST" });
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
+        navigate(`/channels/${source.channelId}/session/${result.new_session_id}`);
+      },
+      new: async () => {
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${source.channelId}/sessions`, { method: "POST" });
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
+        navigate(`/channels/${source.channelId}/session/${result.new_session_id}`);
       },
       scratch: async () => {
         if (!src.bot_id) return;
@@ -493,7 +499,7 @@ function ChannelChatSession({
       catalog: channelSlashCatalog,
       surface: "channel",
       enabled: !!source.channelId,
-      capabilities: ["clear", "scratch", "model", "theme", "sessions", "split", "focus"],
+      capabilities: ["clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
     }),
     [channelSlashCatalog, source.channelId],
   );
@@ -773,6 +779,7 @@ function FixedSessionChatSession({
   chatMode = "default",
 }: FixedSessionChatSessionProps) {
   const t = useThemeTokens();
+  const navigate = useNavigate();
   const composerInTranscriptFlow = isTranscriptFlowComposer(chatMode);
   const qc = useQueryClient();
   const { data: bots } = useBots();
@@ -892,13 +899,25 @@ function FixedSessionChatSession({
       surface: "session",
       enabled: !!sessionId,
       capabilities: onOpenSessions
-        ? ["model", "theme", "sessions", "split", "focus"]
-        : ["model", "theme"],
+        ? ["clear", "new", "model", "theme", "sessions", "split", "focus"]
+        : ["clear", "new", "model", "theme"],
     }),
     [onOpenSessions, sessionId, slashCatalog],
   );
   const localHandlers = useMemo(
     () => ({
+      clear: async () => {
+        if (!parentChannelId) return;
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        qc.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
+      },
+      new: async () => {
+        if (!parentChannelId) return;
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        qc.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
+      },
       model: (args: string[]) => {
         if (!args[0]) return;
         const providerId = resolveProviderForModel(args[0], sessionModelGroups);
@@ -917,7 +936,7 @@ function FixedSessionChatSession({
       split: () => onOpenSessionSplit?.(),
       focus: () => onToggleFocusLayout?.(),
     }),
-    [onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, sessionModelGroups, setModelOverride],
+    [navigate, onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, parentChannelId, qc, sessionModelGroups, setModelOverride],
   );
   const handleSlashCommand = useSlashCommandExecutor({
     availableCommands: availableSlashCommands,
@@ -1304,13 +1323,27 @@ function EphemeralChatSession({
       surface: "session",
       enabled: !!sessionId,
       capabilities: onOpenSessions
-        ? ["model", "theme", "sessions", "split", "focus"]
-        : ["model", "theme"],
+        ? ["clear", "new", "model", "theme", "sessions", "split", "focus"]
+        : ["clear", "new", "model", "theme"],
     }),
     [onOpenSessions, sessionId, sessionSlashCatalog],
   );
   const sessionSlashLocalHandlers = useMemo(
     () => ({
+      clear: async () => {
+        const channelForNew = scratchBoundChannelId ?? parentChannelId;
+        if (!channelForNew) return;
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelForNew}/sessions`, { method: "POST" });
+        qc.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(`/channels/${channelForNew}/session/${result.new_session_id}`);
+      },
+      new: async () => {
+        const channelForNew = scratchBoundChannelId ?? parentChannelId;
+        if (!channelForNew) return;
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelForNew}/sessions`, { method: "POST" });
+        qc.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(`/channels/${channelForNew}/session/${result.new_session_id}`);
+      },
       model: (args: string[]) => {
         if (!args[0]) return;
         const providerId = resolveProviderForModel(args[0], sessionModelGroups);
@@ -1329,7 +1362,7 @@ function EphemeralChatSession({
       split: () => onOpenSessionSplit?.(),
       focus: () => onToggleFocusLayout?.(),
     }),
-    [onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, sessionModelGroups, setModelOverride],
+    [navigate, onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, parentChannelId, qc, scratchBoundChannelId, sessionModelGroups, setModelOverride],
   );
   const handleSessionSlashCommand = useSlashCommandExecutor({
     availableCommands: sessionAvailableSlashCommands,
@@ -1894,13 +1927,23 @@ function ThreadChatSession({
       surface: "session",
       enabled: !!effectiveSessionId,
       capabilities: onOpenSessions
-        ? ["model", "theme", "sessions", "split", "focus"]
-        : ["model", "theme"],
+        ? ["clear", "new", "model", "theme", "sessions", "split", "focus"]
+        : ["clear", "new", "model", "theme"],
     }),
     [effectiveSessionId, onOpenSessions, threadSlashCatalog],
   );
   const threadSlashLocalHandlers = useMemo(
     () => ({
+      clear: async () => {
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        qc.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
+      },
+      new: async () => {
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        qc.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
+      },
       model: (args: string[]) => {
         if (!args[0]) return;
         const providerId = resolveProviderForModel(args[0], threadModelGroups);
@@ -1920,7 +1963,7 @@ function ThreadChatSession({
       split: () => onOpenSessionSplit?.(),
       focus: () => onToggleFocusLayout?.(),
     }),
-    [onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, threadModelGroups],
+    [navigate, onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, parentChannelId, qc, threadModelGroups],
   );
   const handleThreadSlashCommand = useSlashCommandExecutor({
     availableCommands: threadAvailableSlashCommands,

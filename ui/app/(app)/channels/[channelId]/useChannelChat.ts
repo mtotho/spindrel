@@ -598,7 +598,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
       catalog: slashCatalog,
       surface: "channel",
       enabled: !!channelId,
-      capabilities: ["clear", "scratch", "model", "theme", "sessions", "split", "focus"],
+      capabilities: ["clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
     }),
     [channelId, slashCatalog],
   );
@@ -608,13 +608,20 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
       clear: async () => {
         if (!channelId) return;
         try {
-          await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
-          setMessages(channelId, []);
+          const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+          navigate(`/channels/${channelId}/session/${result.new_session_id}`);
         } catch (err) {
-          console.error("Failed to reset session:", err);
+          console.error("Failed to create session:", err);
         }
+      },
+      new: async () => {
+        if (!channelId) return;
+        const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+        navigate(`/channels/${channelId}/session/${result.new_session_id}`);
       },
       scratch: async () => {
         if (!channelId || !channel?.bot_id) return;

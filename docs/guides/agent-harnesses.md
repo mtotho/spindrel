@@ -114,8 +114,8 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Model + effort picker | Supported | Runtime capability endpoint exposes model-scoped effort choices; selection is stored per Spindrel session. Bare `/model` and `/effort` render picker cards, while `/model <id>` and `/effort <level>` set values directly. |
 | Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
-| `/compact` and `/context` | Supported | Harness-aware compact resets native resume, queues a continuity hint, and renders an inspectable summary card; context reports host-visible native state, hints, and bridge health. |
-| Host context hints | Supported | Heartbeats and compact summaries queue one-shot hints for the next harness turn. |
+| `/compact`, `/new`, `/clear`, and `/context` | Supported | Harness `/compact` triggers native runtime compaction when supported. `/new` and `/clear` open a fresh Spindrel session without deleting the old one or changing the channel primary/default pointer. `/context` reports host-visible native state, hints, bridge health, and native compact status. |
+| Host context hints | Supported | Heartbeats and workspace-files memory queue host hints for harness turns. Native compaction does not use Spindrel continuity hints. |
 | Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed SDK smoke testing. |
 | Spindrel skills | Partial | `@skill:<id>` adds a tagged skill index hint for the turn and relies on bridged `get_skill` / `get_skill_list` for progressive skill fetching. No native `.claude/skills` sync yet. |
 | Memory system | Partial | Workspace-files memory injects a host hint telling the harness where memory files live. Reads/writes still require explicit bridged tools/policies. |
@@ -135,11 +135,13 @@ Harness sessions expose lightweight native state through `GET /api/v1/sessions/{
 - latest native harness resume id;
 - pending one-shot host hints with names and previews;
 - selected/exported Spindrel bridge tools, ignored client tools, bridge health, and explicit one-turn tags;
-- last turn timestamp, compact reset timestamp, and last usage/cost metadata when available.
+- last turn timestamp, native compact status, estimated native context remaining when available, and last usage/cost metadata.
 
 This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary unless a runtime later exposes token-window telemetry.
 
-`/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction. Instead it builds a continuity summary from recent session messages, stores a native resume reset marker on `Session.metadata`, queues the summary as a one-shot host hint, and renders a low-chrome transcript card with a preview. The next harness turn starts without the old native resume id and receives that summary at the top of the prompt.
+`/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction, reset the native resume id, or queue a host-generated continuity summary. For Claude Code, Spindrel sends SDK `/compact`, records the native compact result as a persisted low-chrome card, and keeps the same native session id unless the runtime reports a replacement.
+
+`/new` and `/clear` are generic chat-session commands. They create a new channel-bound Spindrel session and navigate the invoking pane to it. Old sessions remain in history, and the channel's primary/default pointer is not changed by these commands.
 
 Scheduled heartbeats on harness channels also use one-shot host hints. They do not launch the normal Spindrel loop. The heartbeat preamble and task prompt are queued onto the channel's primary session so the next user-driven harness turn can see the scheduled context. Scratch/split fanout is intentionally not automatic yet.
 

@@ -2,6 +2,7 @@ import type { SlashCommandId, SlashCommandSpec, SlashCommandSurface } from "@/sr
 
 export type SlashCommandCapability =
   | "clear"
+  | "new"
   | "scratch"
   | "model"
   | "theme"

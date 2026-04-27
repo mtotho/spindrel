@@ -294,6 +294,7 @@ from app.services.time_coercion import to_iso_z_or_none  # noqa: E402, F401
 from app.services.agent_harnesses.base import (  # noqa: E402, F401
     AuthStatus,
     ChannelEventEmitter,
+    HarnessCompactResult,
     HarnessContextHint,
     HarnessModelOption,
     HarnessRuntime,

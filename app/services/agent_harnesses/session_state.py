@@ -23,6 +23,7 @@ HARNESS_CONTEXT_HINTS_KEY = "harness_context_hints"
 HARNESS_RESUME_RESET_AT_KEY = "harness_resume_reset_at"
 HARNESS_LAST_COMPACT_SUMMARY_KEY = "harness_last_compact_summary"
 HARNESS_BRIDGE_STATUS_KEY = "harness_bridge_status"
+HARNESS_NATIVE_COMPACTION_KEY = "harness_native_compaction"
 
 MAX_HINTS = 8
 MAX_HINT_CHARS = 12_000
@@ -42,6 +43,9 @@ class HarnessStatus:
     last_turn_at: str | None = None
     usage: dict[str, Any] | None = None
     cost_usd: float | None = None
+    context_window_tokens: int | None = None
+    context_remaining_pct: float | None = None
+    native_compaction: dict[str, Any] | None = None
     context_note: str = "Native harness context is provider-managed; Spindrel tracks resume id, compact resets, and pending host hints."
 
 
@@ -308,3 +312,176 @@ async def load_latest_harness_metadata(
         if isinstance(meta, dict) and isinstance(meta.get("harness"), dict):
             return dict(meta["harness"]), created_at
     return None, None
+
+
+def _usage_total_tokens(usage: dict[str, Any] | None) -> int | None:
+    if not isinstance(usage, dict):
+        return None
+    total = 0
+    found = False
+    for key in (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+    ):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            if key == "total_tokens":
+                return int(value)
+            total += int(value)
+            found = True
+    return total if found else None
+
+
+def estimate_context_remaining_pct(
+    usage: dict[str, Any] | None,
+    *,
+    context_window_tokens: int | None,
+) -> float | None:
+    total = _usage_total_tokens(usage)
+    if not total or not context_window_tokens or context_window_tokens <= 0:
+        return None
+    remaining = max(0.0, 1.0 - (float(total) / float(context_window_tokens)))
+    return round(remaining * 100.0, 1)
+
+
+def harness_compaction_settings(config: dict[str, Any] | None) -> dict[str, Any]:
+    raw = (config or {}).get("harness_auto_compaction")
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "soft_remaining_pct": int(raw.get("soft_remaining_pct", 60) or 60),
+        "hard_remaining_pct": int(raw.get("hard_remaining_pct", 10) or 10),
+        "last_prompted_at": raw.get("last_prompted_at") if isinstance(raw.get("last_prompted_at"), str) else None,
+        "last_hard_compact_at": raw.get("last_hard_compact_at") if isinstance(raw.get("last_hard_compact_at"), str) else None,
+    }
+
+
+async def record_native_compaction(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    *,
+    runtime: str | None,
+    result: Any,
+    source: str,
+) -> dict[str, Any]:
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValueError(f"session not found: {session_id}")
+    status = "completed" if getattr(result, "ok", False) else "failed"
+    payload = {
+        "status": status,
+        "runtime": runtime,
+        "source": source,
+        "session_id": getattr(result, "session_id", None),
+        "detail": getattr(result, "detail", "") or "",
+        "usage": getattr(result, "usage", None),
+        "error": getattr(result, "error", None),
+        "metadata": getattr(result, "metadata", None) or {},
+        "created_at": _now_iso(),
+    }
+    meta = dict(session.metadata_ or {})
+    meta[HARNESS_NATIVE_COMPACTION_KEY] = payload
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+
+    row = Message(
+        session_id=session_id,
+        role="assistant",
+        content="Native compaction completed" if status == "completed" else "Native compaction failed",
+        metadata_={
+            "kind": "slash_command_result",
+            "suppress_outbox": True,
+            "slash_command": "compact",
+            "result_type": "harness_native_compaction",
+            "payload": {
+                "session_id": str(session_id),
+                "title": "Native compaction completed" if status == "completed" else "Native compaction failed",
+                "detail": payload["detail"],
+                "status": payload["status"],
+                "usage": payload["usage"],
+                "native_session_id": payload["session_id"],
+                "error": payload["error"],
+                "metadata": payload["metadata"],
+            },
+            "harness_compaction": payload,
+            "sender_type": "bot",
+            "sender_id": f"bot:{session.bot_id}",
+            "sender_display_name": runtime or "Harness",
+        },
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(row)
+    await db.commit()
+    return payload
+
+
+async def load_native_compaction(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+) -> dict[str, Any] | None:
+    session = await db.get(Session, session_id)
+    if session is None:
+        return None
+    raw = (session.metadata_ or {}).get(HARNESS_NATIVE_COMPACTION_KEY)
+    return dict(raw) if isinstance(raw, dict) else None
+
+
+async def run_native_harness_compact(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    *,
+    source: str = "/compact",
+) -> dict[str, Any]:
+    from app.agent.bots import get_bot
+    from app.db.engine import async_session
+    from app.services.agent_harnesses import get_runtime
+    from app.services.agent_harnesses.approvals import load_session_mode
+    from app.services.agent_harnesses.base import TurnContext
+    from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.workspace import workspace_service
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValueError(f"session not found: {session_id}")
+    bot = get_bot(session.bot_id)
+    runtime_name = getattr(bot, "harness_runtime", None)
+    if not runtime_name:
+        raise ValueError("session bot is not a harness bot")
+    runtime = get_runtime(runtime_name)
+    compact = getattr(runtime, "compact_session", None)
+    if compact is None:
+        raise NotImplementedError(f"runtime {runtime_name} does not support native compaction")
+
+    workdir = getattr(bot, "harness_workdir", None) or workspace_service.ensure_host_dir(bot.id, bot)
+    harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
+    prior_harness_session_id = (harness_meta or {}).get("session_id")
+    permission_mode = await load_session_mode(db, session_id)
+    settings = await load_session_settings(db, session_id)
+
+    ctx = TurnContext(
+        spindrel_session_id=session_id,
+        channel_id=session.channel_id or session.parent_channel_id,
+        bot_id=bot.id,
+        turn_id=uuid.uuid4(),
+        workdir=workdir,
+        harness_session_id=prior_harness_session_id,
+        permission_mode=permission_mode,
+        db_session_factory=async_session,
+        model=settings.model,
+        effort=settings.effort,
+        runtime_settings=settings.runtime_settings,
+    )
+    result = await compact(ctx=ctx)
+    return await record_native_compaction(
+        db,
+        session_id,
+        runtime=runtime_name,
+        result=result,
+        source=source,
+    )

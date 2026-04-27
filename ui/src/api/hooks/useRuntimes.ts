@@ -21,6 +21,8 @@ export interface RuntimeCapabilities {
   effort_values: string[];
   approval_modes: string[];
   slash_policy: HarnessSlashCommandPolicy;
+  native_compaction: boolean;
+  context_window_tokens?: number | null;
 }
 
 /**
