@@ -35,15 +35,8 @@ export function MobileHub() {
         }
       />
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
-        <div className="mx-auto box-border flex w-full max-w-[672px] flex-col gap-5 px-4 py-4">
-          <OnboardingSection />
-          <AttentionSection />
-          <DailyHealthSection />
-          <UpcomingSection />
-          <ChannelsSection />
-          <MemoryPulseSection />
-          <PinnedWidgetsSection />
-          <BloatSection />
+        <div className="mx-auto box-border w-full max-w-[672px] px-4 py-4">
+          <HubSections />
         </div>
       </RefreshableScrollView>
     </div>

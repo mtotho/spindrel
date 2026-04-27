@@ -173,6 +173,7 @@ async def _run_harness_turn(
     from app.services.agent_harnesses.session_state import (
         clear_consumed_context_hints,
         load_context_hints,
+        load_latest_harness_metadata,
     )
     from app.services.agent_harnesses.settings import load_session_settings
     from app.services.session_plan_mode import get_session_plan_mode
@@ -181,6 +182,7 @@ async def _run_harness_turn(
         permission_mode = await load_session_mode(db, session_id)
         harness_settings = await load_session_settings(db, session_id)
         context_hints = list(await load_context_hints(db, session_id))
+        harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
 

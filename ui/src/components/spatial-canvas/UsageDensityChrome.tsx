@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, Bot, Box, ChevronDown, Command, Eye, ExternalLink, Hash, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
+import { Activity, Bot, Box, ChevronDown, Command, Eye, ExternalLink, Hash, Home, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
 import { AttentionHubContent } from "./SpatialAttentionLayer";
 import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { BloatStationContent } from "./BloatSatellite";
+import { HubSections } from "../home/HubSections";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import SummaryPanel from "../system-health/SummaryPanel";
 
@@ -29,7 +30,7 @@ export interface StarboardObjectAction {
   disabled?: boolean;
 }
 
-export type StarboardStation = "attention" | "launch" | "health" | "smell" | "objects" | "controls";
+export type StarboardStation = "hub" | "attention" | "launch" | "health" | "smell" | "objects" | "controls";
 
 interface UsageDensityChromeProps {
   open: boolean;
@@ -87,6 +88,7 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
 };
 
 const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; icon: ReactNode }> = [
+  { id: "hub", label: "Hub", eyebrow: "Everything in one place", icon: <Home size={15} /> },
   { id: "attention", label: "Attention", eyebrow: "Issues and assignments", icon: <Radar size={15} /> },
   { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", icon: <Plus size={15} /> },
   { id: "health", label: "Daily Health", eyebrow: "Server rollup", icon: <Activity size={15} /> },
@@ -98,9 +100,9 @@ const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; ic
 export function loadStarboardStation(): StarboardStation {
   try {
     const stored = window.localStorage.getItem(STARBOARD_TAB_KEY);
-    return stored === "objects" || stored === "controls" || stored === "attention" || stored === "launch" || stored === "health" || stored === "smell" ? stored : "attention";
+    return stored === "objects" || stored === "controls" || stored === "attention" || stored === "launch" || stored === "health" || stored === "smell" || stored === "hub" ? stored : "hub";
   } catch {
-    return "attention";
+    return "hub";
   }
 }
 
@@ -321,7 +323,9 @@ export function UsageDensityChrome({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-              {station === "controls" ? (
+              {station === "hub" ? (
+                <HubSections />
+              ) : station === "controls" ? (
                 <>
                   <div className="mb-4">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Controls</div>
