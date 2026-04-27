@@ -2,6 +2,7 @@ import {
   useCallback,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -27,6 +28,7 @@ interface DraggableNodeProps {
   activatorMode?: "full" | "scoped";
   onScopedDragStart?: () => void;
   onScopedDragEnd?: () => void;
+  onDoubleClick?: () => void;
   dragEnabled: boolean;
   children: ReactNode;
 }
@@ -42,6 +44,7 @@ export function DraggableNode({
   activatorMode = "full",
   onScopedDragStart,
   onScopedDragEnd,
+  onDoubleClick,
   dragEnabled,
   children,
 }: DraggableNodeProps) {
@@ -124,6 +127,15 @@ export function DraggableNode({
       ? { role: "button", tabIndex: 0 }
       : attributes) as unknown as DragActivatorBundle["attributes"],
   };
+  const handleDoubleClickCapture = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      if (!onDoubleClick || diving) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onDoubleClick();
+    },
+    [diving, onDoubleClick],
+  );
   const dragTranslate = transform
     ? `translate(${transform.x / scale}px, ${transform.y / scale}px)`
     : scopedDrag
@@ -167,6 +179,7 @@ export function DraggableNode({
       style={style}
       onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
       onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
+      onDoubleClickCapture={handleDoubleClickCapture}
     >
       <DragActivatorContext.Provider value={activatorBundle}>
         {activatorMode === "full" ? (

@@ -550,6 +550,7 @@ async def _maybe_attach_spindrel_tool_bridge(
             )
             specs = inventory.specs
             ignored_client_tools = inventory.ignored_client_tools
+            inventory_errors = inventory.errors
     except Exception:
         logger.exception("claude-code: failed to list Spindrel bridge tools")
         await _record_bridge_status(
@@ -564,6 +565,8 @@ async def _maybe_attach_spindrel_tool_bridge(
             ctx,
             status="no_tools_selected",
             ignored_client_tools=ignored_client_tools,
+            inventory_errors=inventory_errors,
+            error="; ".join(inventory_errors) if inventory_errors else None,
         )
         return
 
@@ -579,6 +582,7 @@ async def _maybe_attach_spindrel_tool_bridge(
             status="sdk_helper_missing",
             exported_tools=[spec.name for spec in specs],
             ignored_client_tools=ignored_client_tools,
+            inventory_errors=inventory_errors,
             error="claude_agent_sdk create_sdk_mcp_server/tool helper missing",
         )
         return
@@ -607,6 +611,7 @@ async def _maybe_attach_spindrel_tool_bridge(
             status="error",
             exported_tools=[spec.name for spec in specs],
             ignored_client_tools=ignored_client_tools,
+            inventory_errors=inventory_errors,
             error="failed to wrap any Spindrel bridge tools",
         )
         return
@@ -624,6 +629,7 @@ async def _maybe_attach_spindrel_tool_bridge(
             status="error",
             exported_tools=[spec.name for spec in specs],
             ignored_client_tools=ignored_client_tools,
+            inventory_errors=inventory_errors,
             error="failed to create Spindrel MCP bridge",
         )
         return
@@ -638,6 +644,7 @@ async def _maybe_attach_spindrel_tool_bridge(
         status="enabled",
         exported_tools=[spec.name for spec in specs],
         ignored_client_tools=ignored_client_tools,
+        inventory_errors=inventory_errors,
     )
 
 
@@ -647,6 +654,7 @@ async def _record_bridge_status(
     status: str,
     exported_tools: list[str] | tuple[str, ...] = (),
     ignored_client_tools: list[str] | tuple[str, ...] = (),
+    inventory_errors: list[str] | tuple[str, ...] = (),
     error: str | None = None,
 ) -> None:
     try:
@@ -661,6 +669,7 @@ async def _record_bridge_status(
                 ignored_client_tools=ignored_client_tools,
                 explicit_tool_names=ctx.ephemeral_tool_names,
                 tagged_skill_ids=ctx.tagged_skill_ids,
+                inventory_errors=inventory_errors,
                 error=error,
             )
     except Exception:

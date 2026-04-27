@@ -288,3 +288,69 @@ class TestNotableLabels:
         text = summarize(inst.state)
         assert "Notable labeled blocks" in text
         assert '"doorframe"' in text
+
+
+# ── error_kind propagation through the router boundary ────────────────────
+
+
+class TestErrorKindPropagation:
+    """End-to-end check that a Blockyard ``ValidationError`` reaches the
+    bot-facing ``WidgetActionResponse`` tagged as ``error_kind="validation"``.
+
+    This is the seam that lets the workspace-attention detector tell a
+    benign 4xx-shaped collision ("Cell already occupied") from a real
+    system crash. Bots probing the grid must not page operators.
+    """
+
+    async def test_collision_propagates_validation_kind(self, db_session):
+        from app.routers.api_v1_widget_actions import (
+            WidgetActionRequest,
+            _dispatch_native_widget,
+        )
+
+        inst = await _make_instance(db_session)
+        await _start_with_participants(db_session, inst, "rolland", "zeus")
+        await _act(
+            db_session, inst, "place",
+            {"x": 5, "y": 5, "z": 0, "type": "stone"}, bot_id="rolland",
+        )
+        await _act(
+            db_session, inst, "place",
+            {"x": 1, "y": 1, "z": 0, "type": "wood"}, bot_id="zeus",
+        )
+
+        # Round 2 — rolland tries to place on zeus's cell. Validation rejects.
+        req = WidgetActionRequest(
+            dispatch="native_widget",
+            action="place",
+            args={"x": 1, "y": 1, "z": 0, "type": "stone"},
+            widget_instance_id=inst.id,
+            bot_id="rolland",
+        )
+        resp = await _dispatch_native_widget(req, db_session)
+
+        assert resp.ok is False
+        assert resp.error is not None
+        assert "already occupied" in resp.error
+        assert resp.error_kind == "validation"
+
+    async def test_unknown_action_propagates_not_found_kind(self, db_session):
+        from app.domain.errors import NotFoundError
+        from app.routers.api_v1_widget_actions import (
+            WidgetActionRequest,
+            _dispatch_native_widget,
+        )
+
+        inst = await _make_instance(db_session)
+        req = WidgetActionRequest(
+            dispatch="native_widget",
+            action="totally_made_up_action",
+            args={},
+            widget_instance_id=inst.id,
+        )
+        resp = await _dispatch_native_widget(req, db_session)
+
+        # The dispatcher raises NotFoundError for unknown actions; the router
+        # boundary must classify that as ``not_found``, not ``internal``.
+        assert resp.ok is False
+        assert resp.error_kind == "not_found"

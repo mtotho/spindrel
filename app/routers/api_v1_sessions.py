@@ -936,6 +936,7 @@ class HarnessStatusOut(BaseModel):
     cost_usd: float | None = None
     context_window_tokens: int | None = None
     context_remaining_pct: float | None = None
+    context_remaining_source: str | None = None
     native_compaction: dict[str, Any] | None = None
     hints: list[dict[str, Any]] = Field(default_factory=list)
     bridge_status: dict[str, Any] = Field(default_factory=dict)
@@ -1000,6 +1001,38 @@ async def get_harness_status(
     usage = (harness_meta or {}).get("usage") if harness_meta else None
     native_compaction = await load_native_compaction(db, session_id)
     meta = session.metadata_ or {}
+    remaining_pct = estimate_context_remaining_pct(
+        usage,
+        context_window_tokens=context_window_tokens,
+    )
+    remaining_source = "last_turn" if remaining_pct is not None else None
+    compact_created_at = None
+    if native_compaction and isinstance(native_compaction.get("created_at"), str):
+        try:
+            compact_created_at = datetime.fromisoformat(str(native_compaction.get("created_at")))
+        except ValueError:
+            compact_created_at = None
+    compact_is_latest = False
+    if compact_created_at is not None:
+        if last_turn_at is None:
+            compact_is_latest = True
+        else:
+            try:
+                compact_is_latest = compact_created_at >= last_turn_at
+            except TypeError:
+                compact_is_latest = compact_created_at >= last_turn_at.replace(tzinfo=timezone.utc)
+    if native_compaction and native_compaction.get("status") == "completed" and compact_is_latest:
+        compact_usage = native_compaction.get("usage")
+        compact_remaining = estimate_context_remaining_pct(
+            compact_usage if isinstance(compact_usage, dict) else None,
+            context_window_tokens=context_window_tokens,
+        )
+        if compact_remaining is not None:
+            remaining_pct = compact_remaining
+            remaining_source = "native_compaction"
+        elif context_window_tokens:
+            remaining_pct = 100.0
+            remaining_source = "native_compaction"
     return HarnessStatusOut(
         runtime=runtime_name,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
@@ -1014,10 +1047,8 @@ async def get_harness_status(
         usage=usage,
         cost_usd=(harness_meta or {}).get("cost_usd") if harness_meta else None,
         context_window_tokens=context_window_tokens,
-        context_remaining_pct=estimate_context_remaining_pct(
-            usage,
-            context_window_tokens=context_window_tokens,
-        ),
+        context_remaining_pct=remaining_pct,
+        context_remaining_source=remaining_source,
         native_compaction=native_compaction,
         hints=[hint_preview(hint) for hint in hints],
         bridge_status=bridge_status,

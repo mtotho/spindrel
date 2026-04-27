@@ -341,12 +341,14 @@ async def test_agent_smell_resolves_pinned_skill_names_via_skill_table(db_sessio
         name="My Friendly Skill Name",
         content="...",
     ))
+    # Bot.skills is a list[dict] with {"id": ...} entries — the legacy JSONB
+    # shape. Bloat fetcher must extract ids from the dict envelope.
     db_session.add(Bot(
         id="skill-bot",
         name="SkillBot",
         model="test/model",
         system_prompt="test",
-        skills=["my-skill-id"],
+        skills=[{"id": "my-skill-id"}],
     ))
     db_session.add(_usage_event(
         bot_id="skill-bot",

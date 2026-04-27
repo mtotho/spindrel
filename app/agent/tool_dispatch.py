@@ -1286,12 +1286,19 @@ async def dispatch_tool_call(
     )
     _tc_duration = result_obj.duration_ms
 
-    # Detect tool-reported errors so the row gets status='error' on UPDATE
+    # Detect tool-reported errors so the row gets status='error' on UPDATE.
+    # Tools can also tag their failure with ``error_kind`` (validation,
+    # not_found, conflict, forbidden, internal, ...) so downstream observers
+    # can tell a benign 4xx-shaped domain rejection from a real crash.
     _tc_error: str | None = None
+    _tc_error_kind: str | None = None
     try:
         _parsed_r = json.loads(result)
-        if isinstance(_parsed_r, dict) and "error" in _parsed_r:
-            _tc_error = str(_parsed_r["error"])
+        if isinstance(_parsed_r, dict):
+            if "error" in _parsed_r and _parsed_r["error"]:
+                _tc_error = str(_parsed_r["error"])
+            if "error_kind" in _parsed_r and _parsed_r["error_kind"]:
+                _tc_error_kind = str(_parsed_r["error_kind"])
     except Exception:
         pass
 
@@ -1381,6 +1388,7 @@ async def dispatch_tool_call(
         arguments=_tc_args_pre,
         result=result_obj.result,  # use redacted result
         error=_tc_error,
+        error_kind=_tc_error_kind,
         duration_ms=_tc_duration,
         status="error" if _tc_error else "done",
         store_full_result=_store_full,

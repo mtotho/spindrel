@@ -724,18 +724,42 @@ _SEVERE_TOOL_ERROR_RE = re.compile(
     r"write failed|delete|remove|move|overwrite|missing required|workspace root",
     re.IGNORECASE,
 )
+# 4xx-shaped domain failures: bot tried something the system rejected on
+# input/state grounds. Recoverable, not a system bug. The bot still gets
+# the error in its tool result; the operator surface should not page on it.
+_BENIGN_DOMAIN_ERROR_KINDS = frozenset({
+    "validation", "not_found", "conflict", "forbidden", "unprocessable",
+})
 
 
-def _tool_attention_classification(tool_name: str | None, error_text: str, repeated_count: int) -> tuple[bool, str]:
+def _tool_attention_classification(
+    tool_name: str | None,
+    error_text: str,
+    repeated_count: int,
+    *,
+    error_kind: str | None = None,
+) -> tuple[bool, str, str]:
+    """Decide whether to surface a failed tool call to attention, and at
+    what severity.
+
+    Returns ``(should_surface, classification, severity)``. Severity is one
+    of ``"info"``, ``"warning"``, ``"critical"`` matching the
+    ``workspace_attention_items.severity`` constraint.
+    """
     name = (tool_name or "").lower()
     text = error_text or ""
+    kind = (error_kind or "").lower() or None
     if _SEVERE_TOOL_ERROR_RE.search(text):
-        return True, "severe"
+        return True, "severe", "critical"
+    if kind in _BENIGN_DOMAIN_ERROR_KINDS:
+        if repeated_count >= 3:
+            return True, "repeated_domain", "warning"
+        return False, "benign_domain", "info"
     if repeated_count >= 3:
-        return True, "repeated"
+        return True, "repeated", "critical"
     if name in _NOISY_FILE_TOOL_NAMES or any(part in name for part in _NOISY_FILE_TOOL_PARTS):
-        return False, "suppressed_noisy_file_tool"
-    return True, "default"
+        return False, "suppressed_noisy_file_tool", "info"
+    return True, "default", "critical"
 
 
 async def _channel_for_session(db: AsyncSession, session_id: uuid.UUID | None) -> uuid.UUID | None:
@@ -768,10 +792,11 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
         target_id = str(channel_id) if channel_id else (call.bot_id or "structured-errors")
         text = call.error or call.result or "tool call failed"
         signature = tool_call_signatures[call.id]
-        should_surface, classification = _tool_attention_classification(
+        should_surface, classification, severity = _tool_attention_classification(
             call.tool_name,
             str(text),
             tool_signature_counts.get(signature, 1),
+            error_kind=call.error_kind,
         )
         if not should_surface:
             continue
@@ -784,7 +809,7 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             target_id=target_id,
             title=f"{call.tool_name} failed",
             message=str(text)[:1000],
-            severity="critical" if (call.error and "timeout" not in call.error.lower()) else "error",
+            severity=severity,
             requires_response=False,
             dedupe_key=signature,
             evidence={
@@ -792,6 +817,7 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
                 "tool_call_id": str(call.id),
                 "tool_name": call.tool_name,
                 "classification": classification,
+                "error_kind": call.error_kind,
                 "correlation_id": str(call.correlation_id) if call.correlation_id else None,
             },
             latest_correlation_id=call.correlation_id,

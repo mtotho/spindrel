@@ -262,6 +262,7 @@ async def _complete_tool_call(
     store_full_result: bool = False,
     envelope: dict | None = None,
     strict: bool = False,
+    error_kind: str | None = None,
 ) -> bool:
     """Fire-and-forget: UPDATE an existing ToolCall row on completion.
 
@@ -287,6 +288,7 @@ async def _complete_tool_call(
                     summary=summary,
                     result=stored_result,
                     error=error,
+                    error_kind=error_kind,
                     duration_ms=duration_ms,
                     status=status,
                     completed_at=datetime.now(timezone.utc),

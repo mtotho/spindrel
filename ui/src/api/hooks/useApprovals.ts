@@ -237,6 +237,7 @@ export interface HarnessStatus {
   cost_usd: number | null;
   context_window_tokens: number | null;
   context_remaining_pct: number | null;
+  context_remaining_source: string | null;
   native_compaction: Record<string, unknown> | null;
   hints: Array<Record<string, unknown>>;
   bridge_status: Record<string, unknown>;

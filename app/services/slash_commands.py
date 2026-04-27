@@ -11,6 +11,7 @@ hardcoded registries.
 """
 from __future__ import annotations
 
+import asyncio
 import copy as _copy
 import logging
 import uuid
@@ -590,9 +591,9 @@ async def _compact_session(
         payload = await run_native_harness_compact(db, session_id, source="/compact")
         ok = payload.get("status") == "completed"
         detail = str(payload.get("detail") or (
-            "Claude native compaction completed."
+            "Native harness compaction completed."
             if ok
-            else "Claude native compaction failed."
+            else "Native harness compaction failed."
         ))
         return SlashCommandResult(
             command_id="compact",
@@ -796,7 +797,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             load_native_compaction,
         )
         from app.services.agent_harnesses.settings import load_session_settings
-        from app.services.agent_harnesses.tools import list_harness_spindrel_tools_for
+        from app.services.agent_harnesses.tools import resolve_harness_bridge_inventory
         from app.services.agent_harnesses import HARNESS_REGISTRY
 
         settings = await load_session_settings(ctx.db, session.id)
@@ -808,11 +809,34 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
         context_window_tokens = getattr(caps, "context_window_tokens", None) if caps else None
         native_compaction = await load_native_compaction(ctx.db, session.id)
-        bridge_tools = await list_harness_spindrel_tools_for(
-            ctx.db,
-            bot_id=bot.id,
-            channel_id=session.channel_id or session.parent_channel_id,
-        )
+        inventory_error: str | None = None
+        bridge_tool_items: list[dict[str, str]] = []
+        try:
+            bridge_inventory = await asyncio.wait_for(
+                resolve_harness_bridge_inventory(
+                    ctx.db,
+                    bot_id=bot.id,
+                    channel_id=session.channel_id or session.parent_channel_id,
+                ),
+                timeout=3.0,
+            )
+            bridge_tool_items = [
+                {"name": spec.name, "description": spec.description}
+                for spec in bridge_inventory.specs
+            ]
+            if bridge_inventory.errors:
+                inventory_error = "; ".join(bridge_inventory.errors)
+        except asyncio.TimeoutError:
+            exported = bridge_status.get("exported_tools")
+            if isinstance(exported, list):
+                bridge_tool_items = [
+                    {"name": str(name), "description": ""}
+                    for name in exported
+                    if isinstance(name, str) and name
+                ]
+            inventory_error = "live bridge inventory timed out; showing last recorded bridge status"
+        except Exception as exc:
+            inventory_error = f"failed to list Spindrel bridge tools: {exc}"
         reset_at = (session.metadata_ or {}).get(HARNESS_RESUME_RESET_AT_KEY)
         lines = [
             f"Harness: {bot.harness_runtime}",
@@ -821,8 +845,8 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             f"Approval mode: {mode}",
             f"Native resume id: {(harness_meta or {}).get('session_id') or 'none'}",
             f"Pending host hints: {len(hints)}",
-            f"Spindrel bridge tools: {len(bridge_tools)}",
-            f"Bridge status: {bridge_status.get('status') or ('enabled' if bridge_tools else 'none_selected')}",
+            f"Spindrel bridge tools: {len(bridge_tool_items)}",
+            f"Bridge status: {bridge_status.get('status') or ('enabled' if bridge_tool_items else 'none_selected')}",
         ]
         if last_turn_at:
             lines.append(f"Last harness turn: {last_turn_at.isoformat()}")
@@ -835,6 +859,13 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             usage,
             context_window_tokens=context_window_tokens,
         )
+        if (
+            remaining_pct is None
+            and native_compaction
+            and native_compaction.get("status") == "completed"
+            and not native_compaction.get("usage")
+        ):
+            remaining_pct = 100.0
         if remaining_pct is not None:
             lines.append(f"Estimated context remaining: {remaining_pct}%")
         if native_compaction:
@@ -852,12 +883,12 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
                 "pending_hint_count": len(hints),
                 "hints": [hint_preview(hint) for hint in hints],
-                "bridge_tools": [
-                    {"name": spec.name, "description": spec.description}
-                    for spec in bridge_tools
-                ],
-                "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tools else "none_selected"),
-                "bridge_status_detail": bridge_status,
+                "bridge_tools": bridge_tool_items,
+                "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tool_items else "none_selected"),
+                "bridge_status_detail": {
+                    **bridge_status,
+                    **({"inventory_errors": [inventory_error]} if inventory_error else {}),
+                },
                 "native_token_budget_available": remaining_pct is not None,
                 "native_compaction_available": bool(getattr(caps, "native_compaction", False)) if caps else False,
                 "context_window_tokens": context_window_tokens,

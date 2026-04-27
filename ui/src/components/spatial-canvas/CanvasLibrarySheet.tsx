@@ -20,6 +20,13 @@ interface CanvasLibrarySheetProps {
   worldCenter: { x: number; y: number } | null;
 }
 
+interface CanvasLibraryContentProps {
+  onClose: () => void;
+  /** World-coordinate target for newly-pinned widgets (camera center). */
+  worldCenter: { x: number; y: number } | null;
+  embedded?: boolean;
+}
+
 const PIN_W = 320;
 const PIN_H = 220;
 
@@ -39,10 +46,6 @@ type Tab = "presets" | "library";
  *   instantiated through their preset wrapper instead.
  */
 export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrarySheetProps) {
-  const pin = usePinWidgetToCanvas();
-  const pinPreset = usePinPresetToCanvas();
-  const [tab, setTab] = useState<Tab>("presets");
-
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -53,6 +56,29 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
   }, [open, onClose]);
 
   if (!open) return null;
+
+  return (
+    <>
+      <div
+        className="absolute inset-0 z-[5] bg-bg/30 backdrop-blur-[2px]"
+        onClick={onClose}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+      <div
+        className="absolute top-0 right-0 bottom-0 z-[6] w-[420px] max-w-[92%] bg-surface-raised border-l border-surface-border shadow-2xl flex flex-col overflow-hidden"
+        onPointerDown={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+      >
+        <CanvasLibraryContent onClose={onClose} worldCenter={worldCenter} />
+      </div>
+    </>
+  );
+}
+
+export function CanvasLibraryContent({ onClose, worldCenter, embedded = false }: CanvasLibraryContentProps) {
+  const pin = usePinWidgetToCanvas();
+  const pinPreset = usePinPresetToCanvas();
+  const [tab, setTab] = useState<Tab>("presets");
 
   const x = (worldCenter?.x ?? 0) - PIN_W / 2;
   const y = (worldCenter?.y ?? 0) - PIN_H / 2;
@@ -128,18 +154,9 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
   }
 
   return (
-    <>
-      <div
-        className="absolute inset-0 z-[5] bg-bg/30 backdrop-blur-[2px]"
-        onClick={onClose}
-        onPointerDown={(e) => e.stopPropagation()}
-      />
-      <div
-        className="absolute top-0 right-0 bottom-0 z-[6] w-[420px] max-w-[92%] bg-surface-raised border-l border-surface-border shadow-2xl flex flex-col overflow-hidden"
-        onPointerDown={(e) => e.stopPropagation()}
-        onWheel={(e) => e.stopPropagation()}
-      >
-        <div className="flex flex-row items-center gap-2 px-4 py-3 border-b border-surface-border">
+    <div className={`flex min-h-0 flex-1 flex-col ${embedded ? "" : "bg-surface-raised"}`}>
+        {!embedded && (
+          <div className="flex flex-row items-center gap-2 px-4 py-3 border-b border-surface-border">
           <span className="text-sm font-semibold text-text">Add to canvas</span>
           <span className="text-[11px] text-text-dim">drops at camera center</span>
           <div className="flex-1" />
@@ -152,8 +169,14 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
           >
             <X size={16} />
           </button>
-        </div>
-        <div className="flex flex-row items-center gap-1 px-3 pt-2 pb-1 border-b border-surface-border/50">
+          </div>
+        )}
+        {embedded && (
+          <div className="px-2 pb-2 text-xs text-text-muted">
+            Drops at the current camera center unless opened from a map position.
+          </div>
+        )}
+        <div className="flex flex-row items-center gap-1 px-2 pb-2">
           <CanvasTab label="Presets" active={tab === "presets"} onClick={() => setTab("presets")} />
           <CanvasTab label="Library" active={tab === "library"} onClick={() => setTab("library")} />
         </div>
@@ -178,12 +201,11 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
           )}
         </div>
         {(pin.isPending || pinPreset.isPending) && (
-          <div className="px-4 py-2 text-[11px] text-text-dim border-t border-surface-border">
-            pinning…
+          <div className="px-4 py-2 text-[11px] text-text-dim">
+            pinning...
           </div>
         )}
       </div>
-    </>
   );
 }
 

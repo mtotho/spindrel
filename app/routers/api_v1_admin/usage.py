@@ -885,8 +885,18 @@ async def _fetch_agent_bloat_data(
     pin_tools_by_bot: dict[str, list[str]] = {}
     pin_skills_by_bot: dict[str, list[str]] = {}
     for row in bot_rows:
-        pin_tools_by_bot[row.id] = list(row.pinned_tools or [])
-        pin_skills_by_bot[row.id] = list(row.skills or [])
+        pin_tools_by_bot[row.id] = [t for t in (row.pinned_tools or []) if isinstance(t, str)]
+        # Bot.skills is a list of {"id": ..., ...} dicts (legacy JSONB shape).
+        # Extract the id; tolerate plain-string lists for forward-compat.
+        pinned_skill_ids: list[str] = []
+        for entry in (row.skills or []):
+            if isinstance(entry, dict):
+                sid = entry.get("id")
+                if isinstance(sid, str) and sid:
+                    pinned_skill_ids.append(sid)
+            elif isinstance(entry, str) and entry:
+                pinned_skill_ids.append(entry)
+        pin_skills_by_bot[row.id] = pinned_skill_ids
 
     skill_ids_referenced: set[str] = set()
     for row in skill_rows:

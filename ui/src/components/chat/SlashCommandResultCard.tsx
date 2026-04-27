@@ -58,6 +58,10 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <HelpCard payload={rawPayload as ContextSummaryPayload} chatMode={chatMode} />;
   }
 
+  if (resultType === "slash_command_pending") {
+    return <SlashPendingCard payload={rawPayload as Record<string, any>} slashCommand={slashCommand} chatMode={chatMode} />;
+  }
+
   if (resultType === "harness_context_summary") {
     return <HarnessContextSummaryCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
@@ -72,6 +76,29 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
 
   // Default: context_summary (used by /context)
   return <ContextSummaryCard message={message} chatMode={chatMode} />;
+}
+
+function SlashPendingCard({
+  payload,
+  slashCommand,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  slashCommand: string;
+  chatMode: "default" | "terminal";
+}) {
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel={`/${slashCommand || "command"}`}
+      meta="pending"
+    >
+      <div className="grid gap-1 p-3 text-[12px] text-text-muted">
+        <div className="font-medium text-text">{String(payload.title || "Running command")}</div>
+        <div>{String(payload.detail || "Waiting for the server response.")}</div>
+      </div>
+    </SlashResultPanel>
+  );
 }
 
 function HarnessCompactSummaryCard({
@@ -91,9 +118,18 @@ function HarnessCompactSummaryCard({
         <div className="font-medium text-text">{String(payload.title || "Native compaction")}</div>
         <div>{String(payload.detail || "")}</div>
         {payload.usage && (
-          <div className="rounded bg-surface-overlay/50 p-2 font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
-            {JSON.stringify(payload.usage, null, 2)}
-          </div>
+          <details className="rounded bg-surface-overlay/50 px-2 py-1">
+            <summary className="cursor-pointer text-[11px] text-text-dim">
+              Usage: {Object.entries(payload.usage as Record<string, any>)
+                .filter(([, value]) => typeof value === "number" || typeof value === "string")
+                .slice(0, 4)
+                .map(([key, value]) => `${key} ${String(value)}`)
+                .join(" · ") || "reported by runtime"}
+            </summary>
+            <div className="mt-2 font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
+              {JSON.stringify(payload.usage, null, 2)}
+            </div>
+          </details>
         )}
         <div className="text-[10px] text-text-dim">
           Native session: {String(payload.native_session_id || "unchanged")} · status: {String(payload.status || "unknown")}

@@ -11,7 +11,7 @@ import type {
   SlashCommandSurface,
 } from "@/src/types/api";
 
-import { buildSlashCommandResultMessage } from "./slashCommands";
+import { buildSlashCommandPendingMessage, buildSlashCommandResultMessage } from "./slashCommands";
 import { buildSlashCommandExecuteBody } from "./slashCommandRequest";
 
 /** Local handler for a client-only slash command (local_only=true in the spec).
@@ -82,6 +82,16 @@ export function useSlashCommandExecutor({
         args,
       });
       if (!body) return;
+      const pendingSessionId = sessionId ?? "";
+      if (id === "compact" && pendingSessionId) {
+        onSyntheticMessage?.(
+          buildSlashCommandPendingMessage(id, pendingSessionId, channelId),
+        );
+      }
+      toast({
+        kind: "info",
+        message: id === "compact" ? "Running /compact..." : `Running /${id}...`,
+      });
       try {
         const result = await apiFetch<SlashCommandResult>(
           "/api/v1/slash-commands/execute",
@@ -99,6 +109,13 @@ export function useSlashCommandExecutor({
           return;
         }
         if (result.result_type === "harness_native_compaction") {
+          const resolvedSessionId =
+            sessionId ?? (result.payload.session_id as string | undefined) ?? "";
+          if (resolvedSessionId) {
+            onSyntheticMessage?.(
+              buildSlashCommandResultMessage(result, resolvedSessionId, channelId),
+            );
+          }
           await onSideEffect?.(result);
           return;
         }
@@ -106,7 +123,10 @@ export function useSlashCommandExecutor({
         // → surface as a synthetic assistant message the chat feed renders.
         const resolvedSessionId =
           sessionId ?? (result.payload.session_id as string | undefined) ?? "";
-        if (!resolvedSessionId) return;
+        if (!resolvedSessionId) {
+          toast({ kind: "error", message: `/${id} completed but no session was available to render it.` });
+          return;
+        }
         onSyntheticMessage?.(
           buildSlashCommandResultMessage(result, resolvedSessionId, channelId),
         );

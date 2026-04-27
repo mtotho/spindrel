@@ -9,6 +9,7 @@ centralized.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,8 @@ from app.services.agent_harnesses.base import TurnContext
 from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class HarnessToolSpec:
@@ -40,6 +43,7 @@ class HarnessToolSpec:
 class HarnessBridgeInventory:
     specs: tuple[HarnessToolSpec, ...]
     ignored_client_tools: tuple[str, ...]
+    errors: tuple[str, ...] = ()
 
 
 def _spec_from_schema(schema: dict[str, Any]) -> HarnessToolSpec | None:
@@ -82,7 +86,7 @@ async def resolve_harness_bridge_inventory(
     channel_id: uuid.UUID | None,
     explicit_tool_names: tuple[str, ...] | list[str] = (),
 ) -> HarnessBridgeInventory:
-    specs = await list_harness_spindrel_tools_for(
+    specs, errors = await _collect_harness_spindrel_tools_for(
         db,
         bot_id=bot_id,
         channel_id=channel_id,
@@ -96,6 +100,7 @@ async def resolve_harness_bridge_inventory(
     return HarnessBridgeInventory(
         specs=specs,
         ignored_client_tools=tuple(eff.client_tools),
+        errors=errors,
     )
 
 
@@ -107,15 +112,42 @@ async def list_harness_spindrel_tools_for(
     explicit_tool_names: tuple[str, ...] | list[str] = (),
 ) -> tuple[HarnessToolSpec, ...]:
     """Return effective server-executable Spindrel bridge tools."""
+    specs, _errors = await _collect_harness_spindrel_tools_for(
+        db,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        explicit_tool_names=explicit_tool_names,
+    )
+    return specs
+
+
+async def _collect_harness_spindrel_tools_for(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+    explicit_tool_names: tuple[str, ...] | list[str] = (),
+) -> tuple[tuple[HarnessToolSpec, ...], tuple[str, ...]]:
+    """Return bridgeable tools plus non-fatal inventory errors."""
     bot = get_bot(bot_id)
     channel = await db.get(Channel, channel_id) if channel_id else None
     if channel is not None:
         await _attach_channel_skill_ids(db, channel)
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
     schemas: list[dict[str, Any]] = []
+    errors: list[str] = []
     local_names = list(dict.fromkeys(list(eff.local_tools) + list(explicit_tool_names or ())))
-    schemas.extend(get_local_tool_schemas(local_names))
-    schemas.extend(await fetch_mcp_tools(list(eff.mcp_servers)))
+    try:
+        schemas.extend(get_local_tool_schemas(local_names))
+    except Exception as exc:
+        logger.exception("harness bridge: failed to resolve local tool schemas")
+        errors.append(f"local tools: {exc}")
+    for server_name in eff.mcp_servers:
+        try:
+            schemas.extend(await fetch_mcp_tools([server_name]))
+        except Exception as exc:
+            logger.exception("harness bridge: failed to resolve MCP tools from %s", server_name)
+            errors.append(f"MCP {server_name}: {exc}")
 
     seen: set[str] = set()
     specs: list[HarnessToolSpec] = []
@@ -125,7 +157,7 @@ async def list_harness_spindrel_tools_for(
             continue
         seen.add(spec.name)
         specs.append(spec)
-    return tuple(specs)
+    return tuple(specs), tuple(errors)
 
 
 async def _attach_channel_skill_ids(db: AsyncSession, channel: Channel) -> None:

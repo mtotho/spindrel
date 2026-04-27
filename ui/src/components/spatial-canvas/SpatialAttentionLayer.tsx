@@ -184,6 +184,36 @@ function AttentionHubDrawer({
   onClose: () => void;
   onReply?: (item: WorkspaceAttentionItem) => void;
 }) {
+  if (!open) return null;
+  return (
+    <aside
+      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[460px] max-w-[calc(100vw-2rem)] flex-col rounded-md border border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <AttentionHubContent
+        items={items}
+        selectedId={selectedId}
+        onSelect={onSelect}
+        onClose={onClose}
+        onReply={onReply}
+      />
+    </aside>
+  );
+}
+
+export function AttentionHubContent({
+  items,
+  selectedId,
+  onSelect,
+  onClose,
+  onReply,
+}: {
+  items: WorkspaceAttentionItem[];
+  selectedId: string | null;
+  onSelect: (item: WorkspaceAttentionItem | null) => void;
+  onClose?: () => void;
+  onReply?: (item: WorkspaceAttentionItem) => void;
+}) {
   const [creating, setCreating] = useState(false);
   const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const selected = items.find((item) => item.id === selectedId) ?? null;
@@ -202,7 +232,6 @@ function AttentionHubDrawer({
     for (const lane of Object.values(lanes)) lane.sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
     return lanes;
   }, [items]);
-  if (!open) return null;
   const acknowledgeAllActive = () => {
     if (!active.length) return;
     const ok = window.confirm(`Acknowledge all ${active.length} active Attention Items you can see?`);
@@ -210,10 +239,7 @@ function AttentionHubDrawer({
     bulkAcknowledge.mutate({ scope: "workspace_visible" }, { onSuccess: () => onSelect(null) });
   };
   return (
-    <aside
-      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[460px] max-w-[calc(100vw-2rem)] flex-col rounded-md border border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
-      onPointerDown={(event) => event.stopPropagation()}
-    >
+    <>
       <div className="flex items-center justify-between px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-text-dim">
@@ -237,9 +263,11 @@ function AttentionHubDrawer({
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">
             <Plus size={16} />
           </button>
-          <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={onClose} title="Close">
-            <X size={16} />
-          </button>
+          {onClose && (
+            <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={onClose} title="Close">
+              <X size={16} />
+            </button>
+          )}
         </div>
       </div>
       {creating ? (
@@ -260,7 +288,7 @@ function AttentionHubDrawer({
           <AttentionLane title="Recent / Reported" items={grouped.recent} onSelect={onSelect} />
         </div>
       )}
-    </aside>
+    </>
   );
 }
 

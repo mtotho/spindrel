@@ -61,10 +61,10 @@ import { UpcomingFirePulse } from "./UpcomingFirePulse";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
-import { UsageDensityChrome, type StarboardObjectItem } from "./UsageDensityChrome";
+import { UsageDensityChrome, loadStarboardStation, type StarboardObjectItem, type StarboardStation } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
 import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
-import { SpatialAttentionSignal, SpatialAttentionLayer, shouldSurfaceAttentionOnMap } from "./SpatialAttentionLayer";
+import { SpatialAttentionSignal, shouldSurfaceAttentionOnMap } from "./SpatialAttentionLayer";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
@@ -225,7 +225,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const { data: nodes } = useSpatialNodes();
   const { data: attentionItems } = useWorkspaceAttention();
   const markAttentionResponded = useMarkAttentionResponded();
-  const openAttentionHub = useUIStore((s) => s.openAttentionHub);
   const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
   const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
   const [interactionMode, setInteractionMode] = useState<SpatialInteractionMode>("browse");
@@ -345,6 +344,27 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     (botId: string): Channel | null => channelByBotId.get(botId) ?? null,
     [channelByBotId],
   );
+
+  const openStarboard = useCallback((station: StarboardStation) => {
+    setStarboardStation(station);
+    try {
+      localStorage.setItem("spatial.starboard.activeTab", station);
+    } catch {
+      /* storage disabled */
+    }
+    setStarboardOpen(true);
+  }, []);
+
+  const openStarboardAttention = useCallback((item?: WorkspaceAttentionItem | null) => {
+    if (item) setSelectedAttentionId(item.id);
+    openStarboard("attention");
+    closeAttentionHub();
+  }, [closeAttentionHub, openStarboard]);
+
+  useEffect(() => {
+    if (!attentionHubOpen) return;
+    openStarboardAttention();
+  }, [attentionHubOpen, openStarboardAttention]);
 
   const botAvatarById = useMemo(() => {
     const m = new Map<string, string>();
@@ -532,6 +552,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     channelName: string;
   } | null>(null);
   const [selectedAttentionId, setSelectedAttentionId] = useState<string | null>(null);
+  const [starboardOpen, setStarboardOpen] = useState(false);
+  const [starboardStation, setStarboardStation] = useState<StarboardStation>(loadStarboardStation);
   const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
   const [healthSummaryOpen, setHealthSummaryOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);

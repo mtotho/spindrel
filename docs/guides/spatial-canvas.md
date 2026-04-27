@@ -99,16 +99,28 @@ Toggle the layer from **Starboard → Controls → Connection lines**. The setti
 
 ## Starboard
 
-The **Starboard** panel is the right-side canvas command surface. It is tabbed
-so future map workflows can live in one place instead of scattering small
-popovers across the viewport.
+The **Starboard** panel is the right-side canvas command surface. It is a
+docked full-height surface with a header station switcher so future map
+workflows can live in one place instead of scattering small popovers across the
+viewport. The last station choice persists in `localStorage`.
 
-- **Controls** owns canvas behavior toggles: command palette, Attention
-  signals, connection lines, Activity halos, bot visibility, and edge beacons.
+- **Attention** embeds the Attention Hub lanes/detail/create/assignment flow
+  inside the canvas command surface. Canvas Attention signals, the hub
+  landmark, the hub edge beacon, and the command palette route here when the
+  canvas is mounted.
+- **Launch Bay** hosts the add-to-canvas flow. The top-right `+ Add` button and
+  the background context menu both open this station; background placement keeps
+  the clicked map position as the drop target.
+- **Daily Health** embeds the deterministic 24h server-error rollup so the
+  canvas does not open a competing side panel.
 - **Objects** lists positioned canvas entities ordered by distance from the
   current viewport center. It includes channel, widget, bot, and landmark
   positions. The list has client-side search, and clicking a row flies the
-  camera to that object.
+  camera to that object without changing the user's current zoom unless they
+  are far out. Right-clicking a row opens Starboard-local actions such as open
+  channel, open bot chat/settings, activate widget, or open source channel.
+- **Controls** owns canvas behavior toggles: command palette, Attention
+  signals, connection lines, Activity halos, bot visibility, and edge beacons.
 
 ## Density halos
 
@@ -186,11 +198,11 @@ acknowledge all active items on that target; the global Hub header can
 acknowledge all active items visible to the current user after confirmation.
 
 The canvas also has a fixed **Attention Hub** signal landmark above the seed center.
-Opening it shows the global attention lanes, create form, assignment controls,
-and bot findings without leaving the canvas. The same hub can be opened from an
-edge beacon, the channel header count, or the command palette. When mapped
-items exist and Attention signals are visible, the Hub's edge beacon remains
-available whenever the Hub is offscreen.
+Opening it switches Starboard to the Attention station, showing global lanes,
+the create form, assignment controls, and bot findings without leaving the
+canvas. The same station can be opened from an edge beacon, the channel header
+count, or the command palette. When mapped items exist and Attention signals are
+visible, the Hub's edge beacon remains available whenever the Hub is offscreen.
 
 ## Reserved dashboard slug
 

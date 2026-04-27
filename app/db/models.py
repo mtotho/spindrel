@@ -531,6 +531,11 @@ class ToolCall(Base):
     summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Structural classification of an error so the attention/observability
+    # surfaces can tell a benign 4xx-shaped domain rejection (validation,
+    # not_found, conflict, forbidden) from a real system crash ("internal").
+    # NULL when the call succeeded or the tool didn't tag its result.
+    error_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -550,6 +555,11 @@ class ToolCall(Base):
         Index("ix_tool_calls_correlation_id", "correlation_id"),
         Index("ix_tool_calls_bot_id_created_at", "bot_id", "created_at"),
         Index("ix_tool_calls_bot_id_status", "bot_id", "status"),
+        Index(
+            "ix_tool_calls_error_kind",
+            "error_kind",
+            postgresql_where=text("error_kind IS NOT NULL"),
+        ),
     )
 
 

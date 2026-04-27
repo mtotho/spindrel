@@ -144,7 +144,7 @@ export function SpatialContextMenu({
                 item.disabled
                   ? "text-text-dim/50 cursor-not-allowed"
                   : item.danger
-                  ? "text-status-error hover:bg-status-error/10"
+                  ? "text-danger hover:bg-danger/10"
                   : "text-text hover:bg-surface-overlay"
               }`}
             >
@@ -162,4 +162,3 @@ export function SpatialContextMenu({
     document.body,
   );
 }
-

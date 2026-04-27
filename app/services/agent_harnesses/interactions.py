@@ -164,7 +164,7 @@ def _envelope_state(
     created_at: str | None = None,
     answered_at: str | None = None,
 ) -> dict[str, Any]:
-    title = tool_input.get("prompt") or tool_input.get("title") or "Claude has a question"
+    title = tool_input.get("prompt") or tool_input.get("title") or "Harness has a question"
     return {
         "interaction_id": interaction_id,
         "runtime": runtime,

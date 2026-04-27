@@ -1548,6 +1548,7 @@ async def invoke_widget_action(
     if not pin_id and not widget_instance_id:
         return json.dumps({
             "error": "invoke_widget_action requires pin_id or widget_instance_id",
+            "error_kind": "validation",
         })
 
     async with async_session() as db:
@@ -1557,12 +1558,15 @@ async def invoke_widget_action(
             try:
                 pin = await get_pin(db, uuid.UUID(pin_id))
             except Exception as exc:
-                return json.dumps({"error": f"pin lookup failed: {exc}"})
+                return json.dumps({"error": f"pin lookup failed: {exc}", "error_kind": "not_found"})
         if widget_instance_id:
             try:
                 instance = await get_widget_instance(db, widget_instance_id)
             except Exception as exc:
-                return json.dumps({"error": f"widget instance lookup failed: {exc}"})
+                return json.dumps({
+                    "error": f"widget instance lookup failed: {exc}",
+                    "error_kind": "not_found",
+                })
         if pin is not None and instance is None:
             instance = await get_native_widget_instance_for_pin(db, pin)
 
@@ -1587,13 +1591,14 @@ async def invoke_widget_action(
                 "widget_instance_id": instance_id_text,
                 "result": resp.result,
                 "error": resp.error,
+                "error_kind": resp.error_kind,
             }
             if resp.ok and pin_id_text is not None and resp.envelope is not None:
                 payload["llm"] = f"Invoked native widget action {action!r} on pin {pin_id_text}."
             return json.dumps(payload)
 
         if pin is None:
-            return json.dumps({"error": "widget instance not found"})
+            return json.dumps({"error": "widget instance not found", "error_kind": "not_found"})
 
         bot_id = current_bot_id.get()
         channel_id = current_channel_id.get()
@@ -1622,16 +1627,21 @@ async def invoke_widget_action(
                     f"pin {pin.id} does not expose action {action!r}. "
                     "Call describe_dashboard first and inspect available_actions."
                 ),
+                "error_kind": "not_found",
             })
         validation_error = _validate_action_args(schema, args or {})
         if validation_error:
-            return json.dumps({"error": validation_error})
+            return json.dumps({"error": validation_error, "error_kind": "validation"})
 
         try:
             result = await invoke_widget_handler(pin, action, args or {})
         except Exception as exc:
             logger.exception("invoke_widget_action html handler failed")
-            return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+            from app.routers.api_v1_widget_actions import _classify_domain_error
+            return json.dumps({
+                "error": f"{type(exc).__name__}: {exc}",
+                "error_kind": _classify_domain_error(exc),
+            })
 
     return json.dumps({
         "ok": True,

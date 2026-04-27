@@ -100,6 +100,7 @@ async def set_bridge_status(
     ignored_client_tools: list[str] | tuple[str, ...] = (),
     explicit_tool_names: list[str] | tuple[str, ...] = (),
     tagged_skill_ids: list[str] | tuple[str, ...] = (),
+    inventory_errors: list[str] | tuple[str, ...] = (),
     error: str | None = None,
 ) -> dict[str, Any]:
     session = await db.get(Session, session_id)
@@ -113,6 +114,7 @@ async def set_bridge_status(
         "ignored_client_tool_count": len(ignored_client_tools),
         "explicit_tool_names": list(explicit_tool_names),
         "tagged_skill_ids": list(tagged_skill_ids),
+        "inventory_errors": list(inventory_errors),
         "error": error,
         "updated_at": _now_iso(),
     }

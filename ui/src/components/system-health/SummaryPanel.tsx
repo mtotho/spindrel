@@ -8,7 +8,8 @@ import {
 } from "../../api/hooks/useSystemHealth";
 
 interface Props {
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }
 
 function formatDateTime(value: string | null): string {
@@ -38,7 +39,7 @@ function severityClass(severity: SystemHealthFinding["severity"]): string {
 function HealthFindingRow({ finding }: { finding: SystemHealthFinding }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border-b border-surface-border/40 px-4 py-3 last:border-b-0">
+    <div className="rounded-md bg-surface-raised/40 px-3 py-2.5">
       <button
         type="button"
         className="flex w-full items-start gap-3 text-left"
@@ -58,7 +59,7 @@ function HealthFindingRow({ finding }: { finding: SystemHealthFinding }) {
             <span className={`truncate text-sm font-medium ${severityClass(finding.severity)}`}>
               {finding.title || finding.signature || "Error"}
             </span>
-            <span className="shrink-0 text-xs text-text-muted">×{finding.count}</span>
+            <span className="shrink-0 text-xs text-text-muted">x{finding.count}</span>
           </div>
           <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-muted">
             <span>{finding.service}</span>
@@ -68,7 +69,7 @@ function HealthFindingRow({ finding }: { finding: SystemHealthFinding }) {
         </div>
       </button>
       {open ? (
-        <pre className="mt-2 max-h-72 overflow-auto rounded bg-surface-deep/40 px-3 py-2 text-xs text-text-muted">
+        <pre className="mt-2 max-h-72 overflow-auto rounded bg-surface-overlay/30 px-3 py-2 text-xs text-text-muted">
           {finding.sample}
         </pre>
       ) : null}
@@ -87,7 +88,7 @@ function SummaryHeader({ summary }: { summary: SystemHealthSummary | null }) {
   const services = Object.keys(summary.source_counts || {}).length;
   const isClean = summary.error_count === 0 && summary.critical_count === 0;
   return (
-    <div className="border-b border-surface-border/50 px-4 py-3">
+    <div className="px-3 py-2">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-text">
           {isClean ? "Clean" : `${summary.error_count} errors`}
@@ -106,7 +107,7 @@ function SummaryHeader({ summary }: { summary: SystemHealthSummary | null }) {
   );
 }
 
-export default function SummaryPanel({ onClose }: Props) {
+export default function SummaryPanel({ onClose, embedded = false }: Props) {
   const latestQuery = useLatestHealthSummary();
   const listQuery = useHealthSummaries(14);
   const summary = latestQuery.data?.summary ?? null;
@@ -119,28 +120,32 @@ export default function SummaryPanel({ onClose }: Props) {
   }, [listQuery.data, summary]);
 
   return (
-    <div className="flex h-full w-full flex-col bg-surface-raised text-text">
-      <header className="flex items-center justify-between border-b border-surface-border/60 px-4 py-3">
-        <div>
-          <div className="text-sm font-semibold">Daily Health Summary</div>
-          <div className="text-xs text-text-muted">Deterministic 24h server-error rollup</div>
-        </div>
-        <button
-          type="button"
-          className="rounded px-2 py-1 text-xs text-text-muted hover:bg-surface-hover hover:text-text"
-          onClick={onClose}
-        >
-          Close
-        </button>
-      </header>
+    <div className={`flex h-full w-full flex-col text-text ${embedded ? "" : "bg-surface-raised"}`}>
+      {!embedded ? (
+        <header className="flex items-center justify-between px-4 py-3">
+          <div>
+            <div className="text-sm font-semibold">Daily Health Summary</div>
+            <div className="text-xs text-text-muted">Deterministic 24h server-error rollup</div>
+          </div>
+          {onClose ? (
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          ) : null}
+        </header>
+      ) : null}
 
       <SummaryHeader summary={summary} />
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 space-y-2 overflow-auto px-3 pb-3">
         {latestQuery.isLoading ? (
-          <div className="px-4 py-3 text-sm text-text-muted">Loading…</div>
+          <div className="px-3 py-2 text-sm text-text-muted">Loading...</div>
         ) : findings.length === 0 ? (
-          <div className="px-4 py-3 text-sm text-text-muted">
+          <div className="px-3 py-2 text-sm text-text-muted">
             {summary ? "No findings in the last window." : ""}
           </div>
         ) : (
@@ -149,7 +154,7 @@ export default function SummaryPanel({ onClose }: Props) {
       </div>
 
       {previousSummaries.length > 0 ? (
-        <details className="border-t border-surface-border/60 px-4 py-2 text-xs text-text-muted">
+        <details className="px-3 py-2 text-xs text-text-muted">
           <summary className="cursor-pointer select-none">
             Previous summaries ({previousSummaries.length})
           </summary>

@@ -28,7 +28,14 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.domain.errors import DomainError
+from app.domain.errors import (
+    ConflictError,
+    DomainError,
+    ForbiddenError,
+    NotFoundError,
+    UnprocessableError,
+    ValidationError,
+)
 from app.dependencies import verify_auth_or_user, get_db
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
 from app.tools.registry import call_local_tool, is_local_tool
@@ -94,6 +101,31 @@ def _resolve_tool_name(name: str) -> str:
 
     return resolve_tool_name(name)
 
+
+def _classify_domain_error(exc: BaseException) -> str:
+    """Map a raised exception to the structural ``error_kind`` slot.
+
+    Recoverable, 4xx-shaped domain errors (input rejection, missing thing,
+    state conflict) are surfaced to the caller as benign. Generic exceptions
+    fall through to ``"internal"`` so the attention surface still pages on
+    them.
+    """
+    if isinstance(exc, ValidationError):
+        return "validation"
+    if isinstance(exc, NotFoundError):
+        return "not_found"
+    if isinstance(exc, ConflictError):
+        return "conflict"
+    if isinstance(exc, ForbiddenError):
+        return "forbidden"
+    if isinstance(exc, UnprocessableError):
+        return "unprocessable"
+    if isinstance(exc, DomainError):
+        return "domain"
+    if isinstance(exc, HTTPException):
+        return f"http_{exc.status_code}"
+    return "internal"
+
 # ── Allowlisted internal API path prefixes for dispatch:"api" ──
 _API_ALLOWLIST = [
     "/api/v1/admin/tasks",
@@ -144,6 +176,11 @@ class WidgetActionResponse(BaseModel):
     ok: bool
     envelope: dict | None = None
     error: str | None = None
+    # Structural classification of an error so downstream observers can tell
+    # a benign 4xx-shaped domain rejection (validation, not_found, conflict,
+    # forbidden, unprocessable, domain, http_<status>) from a real system
+    # crash (``"internal"``). ``None`` on success.
+    error_kind: str | None = None
     api_response: dict | None = None
     db_result: dict | None = None
     # widget_handler dispatch: handler's return value (JSON-able).
@@ -521,29 +558,31 @@ async def _dispatch_widget_handler(
     try:
         pin = await get_pin(db, req.dashboard_pin_id)
     except (HTTPException, DomainError) as exc:
-        return WidgetActionResponse(ok=False, error=str(exc.detail))
+        return WidgetActionResponse(
+            ok=False, error=str(exc.detail), error_kind=_classify_domain_error(exc),
+        )
     except Exception as exc:
         logger.warning("widget_handler pin lookup failed: %s", exc, exc_info=True)
-        return WidgetActionResponse(ok=False, error="Pin not found")
+        return WidgetActionResponse(ok=False, error="Pin not found", error_kind="not_found")
 
     try:
         result = await invoke_action(pin, req.handler, req.args or {})
     except FileNotFoundError as exc:
-        return WidgetActionResponse(ok=False, error=str(exc))
+        return WidgetActionResponse(ok=False, error=str(exc), error_kind="not_found")
     except KeyError as exc:
-        return WidgetActionResponse(ok=False, error=str(exc).strip("'\""))
+        return WidgetActionResponse(ok=False, error=str(exc).strip("'\""), error_kind="validation")
     except PermissionError as exc:
-        return WidgetActionResponse(ok=False, error=str(exc))
+        return WidgetActionResponse(ok=False, error=str(exc), error_kind="forbidden")
     except ValueError as exc:
-        return WidgetActionResponse(ok=False, error=str(exc))
+        return WidgetActionResponse(ok=False, error=str(exc), error_kind="validation")
     except asyncio.TimeoutError:
         return WidgetActionResponse(
-            ok=False, error=f"handler {req.handler!r} timed out",
+            ok=False, error=f"handler {req.handler!r} timed out", error_kind="timeout",
         )
     except Exception as exc:
         logger.exception("widget_handler %s failed", req.handler)
         return WidgetActionResponse(
-            ok=False, error=f"{type(exc).__name__}: {exc}",
+            ok=False, error=f"{type(exc).__name__}: {exc}", error_kind="internal",
         )
 
     logger.info(
@@ -573,7 +612,11 @@ async def _dispatch_native_widget(
         try:
             pin = await get_pin(db, req.dashboard_pin_id)
         except (HTTPException, DomainError) as exc:
-            return WidgetActionResponse(ok=False, error=str(exc.detail))
+            return WidgetActionResponse(
+                ok=False,
+                error=str(exc.detail),
+                error_kind=_classify_domain_error(exc),
+            )
         instance = await get_native_widget_instance_for_pin(db, pin)
     else:
         return WidgetActionResponse(
@@ -582,7 +625,9 @@ async def _dispatch_native_widget(
         )
 
     if instance is None:
-        return WidgetActionResponse(ok=False, error="Native widget instance not found")
+        return WidgetActionResponse(
+            ok=False, error="Native widget instance not found", error_kind="not_found",
+        )
 
     try:
         result = await dispatch_native_widget_action(
@@ -596,11 +641,19 @@ async def _dispatch_native_widget(
         await db.refresh(instance)
     except (HTTPException, DomainError) as exc:
         await db.rollback()
-        return WidgetActionResponse(ok=False, error=str(exc.detail))
+        return WidgetActionResponse(
+            ok=False,
+            error=str(exc.detail),
+            error_kind=_classify_domain_error(exc),
+        )
     except Exception as exc:
         await db.rollback()
         logger.exception("native_widget %s failed", req.action)
-        return WidgetActionResponse(ok=False, error=f"{type(exc).__name__}: {exc}")
+        return WidgetActionResponse(
+            ok=False,
+            error=f"{type(exc).__name__}: {exc}",
+            error_kind="internal",
+        )
 
     envelope = build_envelope_for_native_instance(
         instance,
@@ -901,9 +954,15 @@ async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionRespo
                 db, req.dashboard_pin_id, req.config, merge=True,
             )
     except (HTTPException, DomainError) as exc:
-        return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc.detail}")
+        return WidgetActionResponse(
+            ok=False,
+            error=f"Pin patch failed: {exc.detail}",
+            error_kind=_classify_domain_error(exc),
+        )
     except Exception as exc:
-        return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc}")
+        return WidgetActionResponse(
+            ok=False, error=f"Pin patch failed: {exc}", error_kind="internal",
+        )
 
     merged_config = patched_pin.get("widget_config") or {}
     tool_name = patched_pin.get("tool_name", "")

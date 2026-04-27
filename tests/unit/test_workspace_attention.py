@@ -5,6 +5,7 @@ import pytest
 
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
 from app.services.workspace_attention import (
+    _tool_attention_classification,
     acknowledge_attention_item,
     acknowledge_attention_items_bulk,
     assign_attention_item,
@@ -600,3 +601,146 @@ async def test_structured_detector_surfaces_repeated_noisy_file_tool_error(db_se
     assert created == 1
     assert [item.title for item in admin_visible] == ["read_file failed"]
     assert admin_visible[0].occurrence_count == 3
+
+
+# ── _tool_attention_classification matrix ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "tool_name,error_text,repeated,error_kind,expected",
+    [
+        # Benign 4xx-shaped domain rejection — suppressed when one-off.
+        ("invoke_widget_action", "Cell already occupied", 1, "validation",
+         (False, "benign_domain", "info")),
+        ("invoke_widget_action", "row not found", 1, "not_found",
+         (False, "benign_domain", "info")),
+        ("invoke_widget_action", "state conflict", 2, "conflict",
+         (False, "benign_domain", "info")),
+        # Benign domain repeated ≥ 3 times — surface as warning, not critical.
+        ("invoke_widget_action", "Cell already occupied", 3, "validation",
+         (True, "repeated_domain", "warning")),
+        ("invoke_widget_action", "Cell already occupied", 10, "validation",
+         (True, "repeated_domain", "warning")),
+        # Severe regex match wins over kind — real crashes still page.
+        ("anything", "Traceback (most recent call last)", 1, "validation",
+         (True, "severe", "critical")),
+        ("anything", "permission denied", 1, "internal",
+         (True, "severe", "critical")),
+        # Repeated non-domain failures — critical.
+        ("custom_tool", "weird state", 3, None,
+         (True, "repeated", "critical")),
+        # Noisy file-tool single failure — suppressed.
+        ("read_file", "No such file", 1, None,
+         (False, "suppressed_noisy_file_tool", "info")),
+        # Default — system error pages.
+        ("custom_tool", "weird state", 1, "internal",
+         (True, "default", "critical")),
+        ("custom_tool", "weird state", 1, None,
+         (True, "default", "critical")),
+        # Unknown error_kind falls through to default branch.
+        ("custom_tool", "weird state", 1, "made_up_kind",
+         (True, "default", "critical")),
+    ],
+)
+def test_tool_attention_classification_matrix(
+    tool_name, error_text, repeated, error_kind, expected,
+):
+    assert _tool_attention_classification(
+        tool_name, error_text, repeated, error_kind=error_kind,
+    ) == expected
+
+
+# ── detect_structured_attention_once with error_kind ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_structured_detector_suppresses_single_benign_domain_error(db_session):
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
+    db_session.add(ToolCall(
+        session_id=session_id,
+        bot_id="bot-a",
+        tool_name="invoke_widget_action",
+        tool_type="local",
+        status="error",
+        error="Cell (15,7,7) is already occupied.",
+        error_kind="validation",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    created = await detect_structured_attention_once(db_session)
+    admin_visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+
+    assert created == 0
+    assert admin_visible == []
+
+
+@pytest.mark.asyncio
+async def test_structured_detector_surfaces_repeated_benign_domain_as_warning(db_session):
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
+    for _ in range(3):
+        db_session.add(ToolCall(
+            session_id=session_id,
+            bot_id="bot-a",
+            tool_name="invoke_widget_action",
+            tool_type="local",
+            status="error",
+            error="Cell (15,7,7) is already occupied.",
+            error_kind="validation",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await db_session.commit()
+
+    created = await detect_structured_attention_once(db_session)
+    admin_visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+
+    assert created == 1
+    assert len(admin_visible) == 1
+    item = admin_visible[0]
+    assert item.title == "invoke_widget_action failed"
+    assert item.severity == "warning"
+    assert item.evidence.get("classification") == "repeated_domain"
+    assert item.evidence.get("error_kind") == "validation"
+
+
+@pytest.mark.asyncio
+async def test_structured_detector_keeps_internal_errors_critical(db_session):
+    """Regression guard: real system errors must still page as critical even
+    when other benign-domain failures are flowing through."""
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
+    db_session.add(ToolCall(
+        session_id=session_id,
+        bot_id="bot-a",
+        tool_name="invoke_widget_action",
+        tool_type="local",
+        status="error",
+        error="RuntimeError: state corrupted",
+        error_kind="internal",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    created = await detect_structured_attention_once(db_session)
+    admin_visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+
+    assert created == 1
+    assert admin_visible[0].severity == "critical"
+    assert admin_visible[0].evidence.get("classification") == "default"
