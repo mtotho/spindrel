@@ -13,6 +13,11 @@ import { createPortal } from "react-dom";
 import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
 import { ComposerAddMenu } from "./ComposerAddMenu";
 import { getComposerPlanControlState, type ComposerPlanTone } from "./planControl";
+import {
+  getHarnessApprovalModeControlState,
+  type HarnessApprovalMode,
+  type HarnessApprovalModeTone,
+} from "./harnessApprovalModeControl";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -87,11 +92,16 @@ interface Props {
   /** Current per-session harness model (or null = runtime default). */
   harnessCurrentModel?: string | null;
   harnessCurrentEffort?: string | null;
+  /** Current per-session harness approval mode. Rendered in the composer
+   *  footer so it stays visually tied to the harness state/action surface. */
+  harnessApprovalMode?: HarnessApprovalMode | string | null;
   /** Persist the user's pick to ``harness_settings.model``. ``null`` clears. */
   onHarnessModelChange?: (model: string | null) => void;
   onHarnessEffortChange?: (effort: string | null) => void;
+  onHarnessApprovalModeCycle?: () => void;
   /** Whether harness-side model writes are in flight (disables the picker). */
   harnessModelMutating?: boolean;
+  harnessApprovalModeMutating?: boolean;
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -112,7 +122,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, onHarnessModelChange, onHarnessEffortChange, harnessModelMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -397,6 +407,46 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
     canApprovePlan: !!onApprovePlan && planMode === "planning",
   });
   const planColors = planToneColors(t, planControlState.tone);
+  const approvalModeControlState = getHarnessApprovalModeControlState(harnessApprovalMode);
+  const approvalModeColors = harnessApprovalModeToneColors(t, approvalModeControlState.tone);
+  const approvalModeControl = isHarness && onHarnessApprovalModeCycle ? (
+    <button
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onHarnessApprovalModeCycle();
+      }}
+      disabled={disabled || harnessApprovalModeMutating}
+      title={approvalModeControlState.title}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: isTerminalMode ? 22 : 24,
+        padding: isTerminalMode ? "0 2px" : "4px 4px",
+        border: "none",
+        borderRadius: 0,
+        background: "transparent",
+        color: approvalModeColors.text,
+        cursor: disabled || harnessApprovalModeMutating ? "default" : "pointer",
+        fontSize: isTerminalMode ? 11.5 : 11,
+        lineHeight: 1.2,
+        whiteSpace: "nowrap",
+        fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+        fontWeight: isTerminalMode ? 500 : 600,
+        textTransform: "lowercase",
+        opacity: disabled || harnessApprovalModeMutating ? 0.55 : 1,
+        flexShrink: 0,
+      }}
+    >
+      {approvalModeControlState.label}
+    </button>
+  ) : null;
 
   useEffect(() => {
     if (!showPlanMenu || !planControlState.showMenu) return;
@@ -941,6 +991,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                 />
               )}
 
+              {!isTerminalMode && approvalModeControl}
               {!isTerminalMode && planControl}
 
               {/* Inline model pill — desktop only. Always visible showing the current
@@ -1266,7 +1317,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   );
                 })()}
               </div>
-              {planControl}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                {approvalModeControl}
+                {planControl}
+              </div>
             </div>
           )}
         </div>
@@ -1335,6 +1389,23 @@ function planToneColors(t: ReturnType<typeof useThemeTokens>, tone: ComposerPlan
         text: t.textMuted,
         icon: t.textDim,
       };
+  }
+}
+
+function harnessApprovalModeToneColors(
+  t: ReturnType<typeof useThemeTokens>,
+  tone: HarnessApprovalModeTone,
+) {
+  switch (tone) {
+    case "success":
+      return { text: t.success };
+    case "warning":
+      return { text: t.warningMuted };
+    case "plan":
+      return { text: t.accent };
+    case "neutral":
+    default:
+      return { text: t.textDim };
   }
 }
 

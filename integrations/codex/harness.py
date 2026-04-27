@@ -23,6 +23,7 @@ from integrations.codex.app_server import (
     ServerRequest,
 )
 from integrations.codex.approvals import (
+    CodexServerRequestFatal,
     handle_server_request,
     mode_to_codex_policy,
     mode_to_codex_turn_policy,
@@ -217,14 +218,36 @@ class CodexRuntime:
 
             notifications_task = asyncio.create_task(_consume_notifications())
             requests_task = asyncio.create_task(_consume_server_requests())
+            active_tasks: set[asyncio.Task[None]] = {notifications_task, requests_task}
             try:
-                await notifications_task
+                while active_tasks:
+                    done, _pending = await asyncio.wait(
+                        active_tasks,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    for task in done:
+                        active_tasks.discard(task)
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            raise
+                        except CodexServerRequestFatal as exc:
+                            result_meta["is_error"] = True
+                            result_meta["error"] = str(exc)
+                        except Exception as exc:
+                            logger.exception("codex: turn stream consumer failed")
+                            result_meta["is_error"] = True
+                            result_meta["error"] = str(exc)
+                    if result_meta.get("completed") or result_meta.get("is_error"):
+                        break
             finally:
-                requests_task.cancel()
-                try:
-                    await requests_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+                for task in active_tasks:
+                    task.cancel()
+                for task in active_tasks:
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
             if result_meta.get("is_error"):
                 if turn_id:

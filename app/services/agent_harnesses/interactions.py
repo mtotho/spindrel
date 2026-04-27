@@ -337,6 +337,7 @@ async def answer_harness_question(
         metadata_={
             "source": "harness_question",
             "harness_question_id": interaction_id,
+            "hidden": True,
             "suppress_outbox": True,
         },
         created_at=datetime.now(timezone.utc),

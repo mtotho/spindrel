@@ -264,6 +264,7 @@ interface Props {
     error?: string;
   } | null;
   chatMode?: "default" | "terminal";
+  waitingForUserInput?: boolean;
 }
 
 /** Badge showing LLM retry/fallback status during streaming */
@@ -320,6 +321,7 @@ export function StreamingIndicator({
   thinkingContent,
   llmStatus,
   chatMode = "default",
+  waitingForUserInput = false,
 }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
@@ -340,7 +342,11 @@ export function StreamingIndicator({
     (autoInjectedSkills?.length ?? 0) > 0 ||
     toolCalls.length > 0 ||
     !!llmStatus;
-  const showFooterCursor = !displayContent && hasVisibleActivity;
+  const showFooterCursor = !waitingForUserInput && !displayContent && hasVisibleActivity;
+
+  if (waitingForUserInput && !displayContent && !hasVisibleActivity) {
+    return null;
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
@@ -386,7 +392,7 @@ export function StreamingIndicator({
           <div style={{ contain: "content" }}>
             <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
           </div>
-        ) : !hasVisibleActivity ? (
+        ) : !waitingForUserInput && !hasVisibleActivity ? (
           /* Typing indicator dots — with optional LLM status badge */
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
             {llmStatus ? (

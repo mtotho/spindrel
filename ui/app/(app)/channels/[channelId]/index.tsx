@@ -13,6 +13,7 @@ import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
+import { useHarnessComposerProps } from "@/src/components/chat/useHarnessComposerProps";
 import { ChatComposerShell } from "@/src/components/chat/ChatComposerShell";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore, defaultChannelPanelPrefs, type OmniPanelTab } from "@/src/stores/ui";
@@ -23,11 +24,13 @@ import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import {
+  useSessionApprovalMode,
   useSessionHarnessSettings,
   useSessionHarnessStatus,
   useSetSessionApprovalMode,
   useSetSessionHarnessSettings,
 } from "@/src/api/hooks/useApprovals";
+import { getNextHarnessApprovalMode } from "@/src/components/chat/harnessApprovalModeControl";
 import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
@@ -73,6 +76,7 @@ import { SessionPickerOverlay } from "@/src/components/chat/SessionPickerOverlay
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
 import { useSessionResumeCard } from "@/src/components/chat/useSessionResumeCard";
 import { buildThreadParentPreviewRow } from "@/src/components/chat/threadPreview";
+import { isPendingHarnessQuestionMessage } from "@/src/components/chat/harnessQuestionMessages";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { apiFetch } from "@/src/api/client";
 import { selectIsStreaming } from "@/src/stores/chat";
@@ -682,11 +686,10 @@ export default function ChatScreen() {
   const pendingHarnessQuestionIndex = useMemo(() => {
     const targetSessionId = currentPlanSessionId ?? channel?.active_session_id;
     return invertedData.findIndex((m) => {
-      const meta = m.metadata as any;
-      return m.session_id === targetSessionId
-        && !ignoredHarnessQuestionIds.has(m.id)
-        && meta?.kind === "harness_question"
-        && meta?.harness_interaction?.status === "pending";
+      return isPendingHarnessQuestionMessage(m, {
+        sessionId: targetSessionId,
+        ignoredIds: ignoredHarnessQuestionIds,
+      });
     });
   }, [channel?.active_session_id, currentPlanSessionId, ignoredHarnessQuestionIds, invertedData]);
   const pendingHarnessQuestion = pendingHarnessQuestionIndex >= 0
@@ -884,6 +887,22 @@ export default function ChatScreen() {
   const { data: harnessSettings } = useSessionHarnessSettings(
     bot?.harness_runtime ? headerPaneSessionId : null,
   );
+  const { data: sessionApprovalMode } = useSessionApprovalMode(
+    bot?.harness_runtime ? headerPaneSessionId : null,
+  );
+  const handleCycleHarnessApprovalMode = useCallback(() => {
+    if (!bot?.harness_runtime || !headerPaneSessionId || setApprovalMode.isPending) return;
+    const nextMode = getNextHarnessApprovalMode(sessionApprovalMode?.mode);
+    setApprovalMode.mutate({
+      sessionId: headerPaneSessionId,
+      mode: nextMode,
+    });
+  }, [
+    bot?.harness_runtime,
+    headerPaneSessionId,
+    sessionApprovalMode?.mode,
+    setApprovalMode,
+  ]);
   const headerPaneCatalogRow = headerPaneSessionId
     ? channelSessionCatalog?.find((item) => item.session_id === headerPaneSessionId) ?? null
     : null;
@@ -1654,6 +1673,9 @@ export default function ChatScreen() {
     ),
     harnessCurrentModel: harnessSettings?.model ?? null,
     harnessCurrentEffort: harnessSettings?.effort ?? null,
+    harnessApprovalMode: bot?.harness_runtime
+      ? sessionApprovalMode?.mode ?? "bypassPermissions"
+      : null,
     onHarnessModelChange: (model: string | null) => {
       const sid = headerPaneSessionId;
       if (!sid) return;
@@ -1664,7 +1686,9 @@ export default function ChatScreen() {
       if (!sid) return;
       setHarnessSettings.mutate({ sessionId: sid, patch: { effort } });
     },
+    onHarnessApprovalModeCycle: bot?.harness_runtime ? handleCycleHarnessApprovalMode : undefined,
     harnessModelMutating: setHarnessSettings.isPending,
+    harnessApprovalModeMutating: setApprovalMode.isPending,
     harnessCostTotal: bot?.harness_runtime
       ? invertedData.reduce((sum, m) => {
           const c = (m.metadata as { harness?: { cost_usd?: number } } | undefined)?.harness?.cost_usd;
@@ -1732,7 +1756,9 @@ export default function ChatScreen() {
       <div className="mb-1 text-[11px] text-text-dim">
         Answer the question above to continue, or ignore it if it expired.
       </div>
-      {renderMessage({ item: pendingHarnessQuestion, index: pendingHarnessQuestionIndex })}
+      {chatMode !== "terminal"
+        ? renderMessage({ item: pendingHarnessQuestion, index: pendingHarnessQuestionIndex })
+        : null}
       <div className="mt-1 flex justify-end">
         <button
           type="button"
@@ -2714,6 +2740,7 @@ function ThreadFullScreenBody({
   const [modelOverride, setModelOverride] = useState<string | undefined>(undefined);
   const [modelProviderId, setModelProviderId] = useState<string | null>(null);
   const { data: threadBot } = useBot(botId);
+  const harnessComposerProps = useHarnessComposerProps(threadBot, threadSessionId);
   const syntheticMessages = useMemo(
     () => [buildThreadParentPreviewRow(threadSessionId, parentMessage)],
     [threadSessionId, parentMessage],
@@ -2785,6 +2812,7 @@ function ThreadFullScreenBody({
                 setModelProviderId(providerId ?? null);
               }}
               hideModelOverride={!!threadBot?.harness_runtime}
+              {...harnessComposerProps}
               chatMode={chatMode}
             />
           </ChatComposerShell>

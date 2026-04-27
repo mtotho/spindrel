@@ -4,6 +4,10 @@ import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useChatStore } from "../../stores/chat";
 import { useBots } from "./useBots";
 import type { Message } from "../../types/api";
+import {
+  isHarnessQuestionMessage,
+  isHarnessQuestionTransportMessage,
+} from "../../components/chat/harnessQuestionMessages";
 
 /** Timeout (ms) for in-flight turn observation — if no SSE event arrives
  *  for a given turn in this window, force-finish. Resets on every event
@@ -394,6 +398,11 @@ export function useChannelEvents(
           const msg = payload?.message;
           const normalizedMessage = msg ? normalizeEventMessage(msg) : null;
 
+          if (normalizedMessage && isHarnessQuestionTransportMessage(normalizedMessage)) {
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+            return;
+          }
+
           // User messages are always added directly to the store.
           // The refetch path (invalidateQueries) is racy for user messages:
           // NEW_MESSAGE(user) arrives before TURN_STARTED, so turnActive is
@@ -441,10 +450,7 @@ export function useChannelEvents(
 
           if (
             normalizedMessage
-            && (
-              normalizedMessage.metadata?.kind === "harness_question"
-              || normalizedMessage.metadata?.source === "harness_question"
-            )
+            && isHarnessQuestionMessage(normalizedMessage)
           ) {
             store.upsertMessage(storeKey, normalizedMessage);
             queryClient.invalidateQueries({ queryKey: ["session-messages"] });
@@ -470,10 +476,7 @@ export function useChannelEvents(
             }
           } else if (msg) {
             const normalizedMessage = normalizeEventMessage(msg);
-            if (
-              normalizedMessage.metadata?.kind === "harness_question"
-              || normalizedMessage.metadata?.source === "harness_question"
-            ) {
+            if (isHarnessQuestionMessage(normalizedMessage)) {
               store.upsertMessage(storeKey, normalizedMessage);
             }
           }

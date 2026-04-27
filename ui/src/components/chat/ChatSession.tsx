@@ -31,6 +31,7 @@ import { SessionChatView } from "./SessionChatView";
 import { useSessionResumeCard } from "./useSessionResumeCard";
 import { ChatComposerShell } from "./ChatComposerShell";
 import { MessageInput, type PendingFile } from "./MessageInput";
+import { useHarnessComposerProps } from "./useHarnessComposerProps";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { MessageBubble } from "./MessageBubble";
 import { TaskRunEnvelope } from "./TaskRunEnvelope";
@@ -292,6 +293,7 @@ function ChannelChatSession({
   const src = useChannelChatSource(source.channelId);
   const addMessage = useChatStore((s) => s.addMessage);
   const { data: bot } = useBot(src.bot_id);
+  const harnessComposerProps = useHarnessComposerProps(bot, src.sessionId);
   const { data: overheadData } = useChannelConfigOverhead(source.channelId);
   const overheadPct = overheadData?.overhead_pct ?? null;
   const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(src.sessionId);
@@ -638,6 +640,7 @@ function ChannelChatSession({
                     onModelOverrideChange={src.setModelOverride}
                     defaultModel={bot?.model}
                     hideModelOverride={!!bot?.harness_runtime}
+                    {...harnessComposerProps}
                     configOverhead={overheadPct}
                     compact
                     chatMode={chatMode}
@@ -700,6 +703,7 @@ function ChannelChatSession({
                 onModelOverrideChange={src.setModelOverride}
                 defaultModel={bot?.model}
                 hideModelOverride={!!bot?.harness_runtime}
+                {...harnessComposerProps}
                 configOverhead={overheadPct}
                 compact
                 chatMode={chatMode}
@@ -789,6 +793,8 @@ function FixedSessionChatSession({
   const sessionId = source.sessionId;
   const parentChannelId = source.parentChannelId;
   const botId = source.botId ?? bots?.[0]?.id ?? "";
+  const sessionBot = useMemo(() => bots?.find((b) => b.id === botId), [bots, botId]);
+  const harnessComposerProps = useHarnessComposerProps(sessionBot, sessionId);
   const chatState = useChatStore((s) => s.getChannel(sessionId));
   const turnActive = selectIsStreaming(chatState);
   const isSending = submitChat.isPending || turnActive;
@@ -974,8 +980,9 @@ function FixedSessionChatSession({
           modelOverride={modelOverride}
           modelProviderIdOverride={modelProviderId}
           onModelOverrideChange={setModelOverride}
-          defaultModel={bots?.find((b) => b.id === botId)?.model}
-          hideModelOverride={!!bots?.find((b) => b.id === botId)?.harness_runtime}
+          defaultModel={sessionBot?.model}
+          hideModelOverride={!!sessionBot?.harness_runtime}
+          {...harnessComposerProps}
           configOverhead={overheadPct}
           compact
           chatMode={chatMode}
@@ -1148,6 +1155,8 @@ function EphemeralChatSession({
   const botId = scratchBoundChannelId
     ? (serverBotId ?? stored?.botId ?? resolvedDefault)
     : (stored?.botId ?? resolvedDefault);
+  const sessionBot = useMemo(() => bots?.find((b) => b.id === botId), [bots, botId]);
+  const harnessComposerProps = useHarnessComposerProps(sessionBot, sessionId);
   const modelOverride = stored?.modelOverride ?? undefined;
   const modelProviderId = stored?.modelProviderId ?? null;
 
@@ -1656,8 +1665,9 @@ function EphemeralChatSession({
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
                     onModelOverrideChange={setModelOverride}
-                    defaultModel={bots?.find((b) => b.id === botId)?.model}
-                    hideModelOverride={!!bots?.find((b) => b.id === botId)?.harness_runtime}
+                    defaultModel={sessionBot?.model}
+                    hideModelOverride={!!sessionBot?.harness_runtime}
+                    {...harnessComposerProps}
                     configOverhead={overheadPct}
                     compact
                     chatMode={chatMode}
@@ -1712,8 +1722,9 @@ function EphemeralChatSession({
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
                     onModelOverrideChange={setModelOverride}
-                    defaultModel={bots?.find((b) => b.id === botId)?.model}
-                    hideModelOverride={!!bots?.find((b) => b.id === botId)?.harness_runtime}
+                    defaultModel={sessionBot?.model}
+                    hideModelOverride={!!sessionBot?.harness_runtime}
+                    {...harnessComposerProps}
                     configOverhead={overheadPct}
                     compact
                     chatMode={chatMode}
@@ -1752,7 +1763,9 @@ function EphemeralChatSession({
                 modelOverride={modelOverride}
                 modelProviderIdOverride={modelProviderId}
                 onModelOverrideChange={setModelOverride}
-                defaultModel={bots?.find((b) => b.id === botId)?.model}
+                defaultModel={sessionBot?.model}
+                hideModelOverride={!!sessionBot?.harness_runtime}
+                {...harnessComposerProps}
                 configOverhead={overheadPct}
                 compact
                 chatMode={chatMode}
@@ -1865,6 +1878,7 @@ function ThreadChatSession({
   const [lazySpawnedId, setLazySpawnedId] = useState<string | null>(null);
   const effectiveSessionId = source.threadSessionId ?? lazySpawnedId;
   const hasSession = !!effectiveSessionId;
+  const harnessComposerProps = useHarnessComposerProps(bot, effectiveSessionId);
 
   const [mode, setMode] = useState<"dock" | "modal" | "fullpage">(shape);
   const [dockExpanded, setDockExpanded] = useState(
@@ -2167,6 +2181,7 @@ function ThreadChatSession({
                     availableSlashCommands={threadAvailableSlashCommands}
                     defaultModel={bot?.model}
                     hideModelOverride={!!bot?.harness_runtime}
+                    {...harnessComposerProps}
                     configOverhead={overheadPct}
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
@@ -2221,6 +2236,7 @@ function ThreadChatSession({
                     channelId={storeKey}
                     defaultModel={bot?.model}
                     hideModelOverride={!!bot?.harness_runtime}
+                    {...harnessComposerProps}
                     configOverhead={overheadPct}
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
@@ -2261,6 +2277,7 @@ function ThreadChatSession({
                 availableSlashCommands={threadAvailableSlashCommands}
                 defaultModel={bot?.model}
                 hideModelOverride={!!bot?.harness_runtime}
+                {...harnessComposerProps}
                 configOverhead={overheadPct}
                 modelOverride={modelOverride}
                 modelProviderIdOverride={modelProviderId}

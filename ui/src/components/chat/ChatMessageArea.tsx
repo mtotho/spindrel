@@ -5,6 +5,7 @@ import { SpindrelLogo } from "@/src/components/layout/SpindrelLogo";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
 import type { TurnState } from "@/src/stores/chat";
+import { pendingHarnessQuestionTurnIds } from "./harnessQuestionMessages";
 import {
   SCROLL_TO_MESSAGE_EVENT,
   notifyScrollMiss,
@@ -273,6 +274,10 @@ export function ChatMessageArea({
     if (b[1].isPrimary && !a[1].isPrimary) return 1;
     return 0;
   });
+  const harnessQuestionBlockedTurnIds = useMemo(
+    () => pendingHarnessQuestionTurnIds(invertedData),
+    [invertedData],
+  );
   const turnIndicators = turnEntries.map(([turnId, turn]) => (
     <StreamingIndicator
       key={turnId}
@@ -285,6 +290,7 @@ export function ChatMessageArea({
       thinkingContent={turn.thinkingContent}
       llmStatus={turn.llmStatus}
       chatMode={chatMode}
+      waitingForUserInput={harnessQuestionBlockedTurnIds.has(turnId)}
     />
   ));
 

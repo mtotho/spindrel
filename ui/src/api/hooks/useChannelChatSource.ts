@@ -10,6 +10,7 @@ import { MessagePage, PAGE_SIZE } from "@/app/(app)/channels/[channelId]/chatUti
 import { extractDisplayText } from "@/src/components/chat/messageUtils";
 import type { ChatRequest, Message } from "../../types/api";
 import { mergePersistedAndSyntheticMessages } from "@/src/components/chat/sessionMessageSync";
+import { isHarnessQuestionTransportMessage } from "@/src/components/chat/harnessQuestionMessages";
 
 function makeClientLocalId(): string {
   const cryptoObj = globalThis.crypto as Crypto | undefined;
@@ -109,6 +110,7 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
           if (meta.passive && !meta.delegated_by) return false;
           if (m.role === "user" && meta.is_heartbeat) return false;
           if (meta.hidden) return false;
+          if (isHarnessQuestionTransportMessage(m)) return false;
           if (
             m.role === "assistant" &&
             !extractDisplayText(m.content) &&

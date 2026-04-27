@@ -83,6 +83,7 @@ export interface MachineProfileSetupGuideCommand {
 
 export interface MachineProfileSetupGuideStep {
   title: string;
+  run_on?: string | null;
   description?: string | null;
   commands?: MachineProfileSetupGuideCommand[] | null;
 }

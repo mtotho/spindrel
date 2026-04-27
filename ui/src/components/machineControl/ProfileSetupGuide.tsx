@@ -20,7 +20,7 @@ export function ProfileSetupGuide({ guide }: { guide: MachineProfileSetupGuide }
   const stepCount = guide.steps.length;
 
   return (
-    <div className="rounded-md border border-border-subtle bg-surface-base/40">
+    <div className="rounded-md border border-surface-border/60 bg-surface-overlay/30">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -36,16 +36,23 @@ export function ProfileSetupGuide({ guide }: { guide: MachineProfileSetupGuide }
         </span>
       </button>
       {open && (
-        <div className="flex flex-col gap-3 border-t border-border-subtle px-3 py-3">
+        <div className="flex flex-col gap-3 border-t border-surface-border/60 px-3 py-3">
           {guide.summary && (
-            <p className="text-[11px] leading-snug text-text-dim">{guide.summary}</p>
+            <p className="text-[11px] leading-snug text-text-dim whitespace-pre-line">
+              {guide.summary}
+            </p>
           )}
-          <ol className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-3.5">
             {guide.steps.map((step, index) => (
               <li key={index} className="flex flex-col gap-1.5">
-                <div className="flex items-baseline gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-[11px] font-mono text-text-dim">{index + 1}.</span>
                   <span className="text-[12px] font-semibold text-text">{step.title}</span>
+                  {step.run_on && (
+                    <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                      Run on: {step.run_on}
+                    </span>
+                  )}
                 </div>
                 {step.description && (
                   <p className="pl-5 text-[11px] leading-snug text-text-dim whitespace-pre-line">
@@ -60,7 +67,7 @@ export function ProfileSetupGuide({ guide }: { guide: MachineProfileSetupGuide }
                       return (
                         <div
                           key={key}
-                          className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface-overlay/50 px-2.5 py-1.5"
+                          className="flex items-center gap-2 rounded-md bg-surface-overlay/60 px-2.5 py-1.5"
                         >
                           <code className="flex-1 overflow-x-auto whitespace-nowrap font-mono text-[11px] text-text">
                             {command.value}

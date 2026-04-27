@@ -18,6 +18,7 @@ import { resolveAvailableSlashCommandIds } from "@/src/components/chat/slashComm
 import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message } from "@/src/types/api";
 import { useSlashCommandExecutor } from "@/src/components/chat/useSlashCommandExecutor";
 import { useThemeStore } from "@/src/stores/theme";
+import { isHarnessQuestionTransportMessage } from "@/src/components/chat/harnessQuestionMessages";
 import { type MessagePage, PAGE_SIZE } from "./chatUtils";
 
 export interface UseChannelChatOptions {
@@ -206,6 +207,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
           if (meta.passive && !meta.delegated_by) return false;
           if (m.role === "user" && meta.is_heartbeat) return false;
           if (meta.hidden) return false;
+          if (isHarnessQuestionTransportMessage(m)) return false;
           if (
             m.role === "assistant"
             && !extractDisplayText(m.content)

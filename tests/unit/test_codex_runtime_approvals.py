@@ -6,6 +6,7 @@ https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,7 @@ import pytest
 
 from integrations.codex import schema
 from integrations.codex.approvals import (
+    CodexServerRequestFatal,
     format_user_input_response_for_codex,
     handle_server_request,
     mode_to_codex_policy,
@@ -250,6 +252,28 @@ async def test_user_input_request_routes_to_question_card(monkeypatch, fake_ctx)
     )
     await handle_server_request(fake_ctx, _FakeRuntime(), req, allowed_tool_names=set())
     assert req.response == {"answers": {"q1": {"answers": ["yes"]}}}
+
+
+async def test_user_input_timeout_responds_error_and_ends_turn(monkeypatch, fake_ctx):
+    async def _fake_request_question(*, ctx, runtime_name, tool_input):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(
+        "integrations.codex.approvals.request_harness_question",
+        _fake_request_question,
+    )
+
+    req = _FakeServerRequest(
+        method=schema.SERVER_REQUEST_USER_INPUT,
+        params={"questions": [{"id": "q1", "question": "ok?"}]},
+    )
+    with pytest.raises(CodexServerRequestFatal, match="expired"):
+        await handle_server_request(fake_ctx, _FakeRuntime(), req, allowed_tool_names=set())
+    assert req.error == {
+        "code": "expired",
+        "message": "user question expired without an answer",
+        "data": None,
+    }
 
 
 async def test_user_input_response_schema_supports_selection_and_text():

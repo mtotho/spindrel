@@ -219,6 +219,9 @@ def _provider_profile_setup_guide(provider_id: str) -> dict[str, Any] | None:
         if not isinstance(title, str) or not title.strip():
             continue
         step: dict[str, Any] = {"title": title.strip()}
+        run_on = raw_step.get("run_on")
+        if isinstance(run_on, str) and run_on.strip():
+            step["run_on"] = run_on.strip()
         description = raw_step.get("description")
         if isinstance(description, str) and description.strip():
             step["description"] = description.strip()

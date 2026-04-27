@@ -31,6 +31,10 @@ from integrations.sdk import (
 logger = logging.getLogger(__name__)
 
 
+class CodexServerRequestFatal(RuntimeError):
+    """Raised when a Codex server request must end the active turn."""
+
+
 def mode_to_codex_policy(mode: str) -> dict[str, Any]:
     """Translate a Spindrel approval mode into Codex thread/start kwargs.
 
@@ -150,13 +154,13 @@ async def _route_user_input(
             runtime_name=getattr(runtime, "name", "codex"),
             tool_input=request.params or {},
         )
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as exc:
         await request.respond_error("expired", "user question expired without an answer")
-        return
+        raise CodexServerRequestFatal("user question expired without an answer") from exc
     except Exception as exc:
         logger.exception("codex: user-input routing failed")
         await request.respond_error("error", str(exc))
-        return
+        raise CodexServerRequestFatal(f"user-input routing failed: {exc}") from exc
     await request.respond(format_user_input_response_for_codex(result))
 
 

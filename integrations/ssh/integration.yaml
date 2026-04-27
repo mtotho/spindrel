@@ -45,27 +45,34 @@ machine_control:
       secret: true
       multiline: true
   profile_setup_guide:
-    summary: Generate a dedicated SSH key, authorize it on the target machine, then paste the credentials below.
+    summary: |
+      "Target machine" means the machine you're enrolling — the one Spindrel will SSH into. None of the commands below run on the target. Run them on your local machine (your laptop is fine); steps 2 and 3 reach the target over the network.
     steps:
       - title: Generate a dedicated keypair
-        description: Run this on your workstation to create a fresh Ed25519 key for Spindrel to use. The `-N ""` flag creates the key without a passphrase, which Spindrel needs in order to use it unattended.
+        run_on: Your local machine
+        description: Creates a fresh Ed25519 key just for Spindrel. The `-N ""` flag creates it without a passphrase, which Spindrel needs to use it unattended. If `~/.ssh/spindrel_ed25519` already exists, pick a different filename.
         commands:
           - label: Generate keypair
             value: ssh-keygen -t ed25519 -C "spindrel-ssh" -f ~/.ssh/spindrel_ed25519 -N ""
       - title: Authorize the public key on the target machine
+        run_on: Your local machine (reaches target over SSH)
         description: |
-          Replace `user@host` with the SSH login for the machine you're enrolling. This appends the public key to `~/.ssh/authorized_keys` on the target so Spindrel can log in.
+          Replace `user@target-host` with the SSH login for the machine you're enrolling (e.g. `deploy@server-xyz`). This connects to the target and appends the public key to its `~/.ssh/authorized_keys` — you'll be prompted for the target user's password once.
+
+          No SSH access from your local machine? Instead, copy the contents of `~/.ssh/spindrel_ed25519.pub` and append it as a single line to `~/.ssh/authorized_keys` on the target machine yourself.
         commands:
-          - label: Copy public key to target
-            value: ssh-copy-id -i ~/.ssh/spindrel_ed25519.pub user@host
-      - title: Capture the host fingerprint
-        description: Spindrel pins host keys via known_hosts to prevent man-in-the-middle attacks. Replace `host` with the same hostname or IP you'll enroll below, then copy the entire output line.
+          - label: Push public key to target
+            value: ssh-copy-id -i ~/.ssh/spindrel_ed25519.pub user@target-host
+      - title: Capture the target's host fingerprint
+        run_on: Your local machine (reaches target over SSH)
+        description: Spindrel pins target host keys via known_hosts to prevent man-in-the-middle attacks. Replace `target-host` with the hostname or IP you'll enter in the Host field below. Copy the entire output — it goes in the known_hosts field.
         commands:
-          - label: Fetch host keys
-            value: ssh-keyscan -t ed25519,rsa host
+          - label: Fetch target host keys
+            value: ssh-keyscan -t ed25519,rsa target-host
       - title: Paste credentials into the form below
+        run_on: Your local machine
         description: |
-          Print the private key and paste it into the **Private Key** field. Paste the `ssh-keyscan` output from step 3 into the **known_hosts** field. Both values are stored encrypted; Spindrel never echoes them back.
+          Print the private key, copy the whole output (including the `-----BEGIN…-----` / `-----END…-----` lines), and paste it into the **Private Key** field. Then paste the `ssh-keyscan` output from step 3 into the **known_hosts** field. Both values are stored encrypted; Spindrel never echoes them back.
         commands:
           - label: Print private key
             value: cat ~/.ssh/spindrel_ed25519

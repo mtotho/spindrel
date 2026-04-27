@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-27 (scheduled harness turns + read-state follow-up)
+updated: 2026-04-27 (harness question stream polish)
 ---
 # Track - Harness SDK
 
@@ -120,6 +120,7 @@ What is landing:
 - Composer `+ -> Skills` / explicit `@skill:<id>` adds a tagged-skill index hint for the turn. Skill bodies remain progressive via bridged `get_skill` / `get_skill_list`; no native `.claude/skills` sync in Phase 5.
 - Harness `/compact` renders an inspectable transcript card with continuity summary preview while still queuing the summary as a one-shot host hint.
 - Claude Code `AskUserQuestion` now routes through a durable Spindrel native card (`core/harness_question`) instead of the SDK's transient prompt surface. The card is a persisted assistant message scoped to the current Spindrel session and renders in both default and terminal chat modes. Answering it writes a suppress-outbox user answer message, resolves the live SDK callback when present, or starts a fresh harness task in the same session if the callback disappeared after restart.
+- 2026-04-27 follow-up: harness question answer rows are now hidden transport/audit rows, not transcript messages. The original question card is the durable read-only answer record, and Codex user-input expiry/cancel now ends the active turn instead of leaving the app-server notification wait stuck.
 - Harness live tool breadcrumbs are now persisted on the synthetic assistant message as canonical `tool_calls` plus `assistant_turn_body`, so refresh keeps the native tool transcript instead of collapsing to final text only.
 - 2026-04-27 follow-up: scheduled tasks targeting harness bots now run through `_run_harness_turn` instead of the normal Spindrel LLM loop. Task `model_override` and `harness_effort` live in `execution_config` as per-run overrides, with channel-targeted tasks resolving the channel's current primary session before execution.
 

@@ -22,6 +22,7 @@ import {
   type OrderedTurnBodyItem,
 } from "./toolTranscriptModel";
 import { OrderedTranscript } from "./OrderedTranscript";
+import { isHarnessQuestionMessage } from "./harnessQuestionMessages";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -411,6 +412,28 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     />
   ) : null;
   const terminalUserBlock = isTerminalMode && isUser;
+  const isHarnessQuestion = isHarnessQuestionMessage(message);
+
+  if (isHarnessQuestion) {
+    return (
+      <>
+        <div
+          className="msg-hover"
+          style={{
+            paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 20,
+            paddingRight: isTerminalMode ? 12 : narrow ? 12 : 20,
+            paddingTop: isTerminalMode ? 9 : 14,
+            paddingBottom: isTerminalMode ? 9 : 8,
+            borderRadius: 4,
+            fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+          }}
+        >
+          {messageContent}
+        </div>
+        {threadAnchorEl}
+      </>
+    );
+  }
 
   // Grouped message -- compact, no avatar or name header.
   // Mobile: no left indent (flush-left like non-grouped).
