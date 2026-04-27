@@ -29,6 +29,7 @@ interface DraggableNodeProps {
   activatorMode?: "full" | "scoped";
   onScopedDragStart?: () => void;
   onScopedDragEnd?: () => void;
+  dragEnabled: boolean;
   attentionItems?: WorkspaceAttentionItem[];
   onAttentionSelect?: (item: WorkspaceAttentionItem) => void;
   children: ReactNode;
@@ -45,6 +46,7 @@ export function DraggableNode({
   activatorMode = "full",
   onScopedDragStart,
   onScopedDragEnd,
+  dragEnabled,
   attentionItems,
   onAttentionSelect,
   children,
@@ -59,11 +61,11 @@ export function DraggableNode({
   } | null>(null);
   const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform } = useDraggable({
     id: node.id,
-    disabled: diving || activatorMode === "scoped",
+    disabled: diving || !dragEnabled || activatorMode === "scoped",
   });
   const handleScopedPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
-      if (activatorMode !== "scoped" || diving || e.button !== 0) return;
+      if (activatorMode !== "scoped" || diving || !dragEnabled || e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
       setScopedDrag({
@@ -76,7 +78,7 @@ export function DraggableNode({
       onScopedDragStart?.();
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [activatorMode, diving, onScopedDragStart],
+    [activatorMode, diving, dragEnabled, onScopedDragStart],
   );
   const handleScopedPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLElement>) => {
@@ -123,7 +125,7 @@ export function DraggableNode({
           onPointerUp: finishScopedDrag,
           onPointerCancel: finishScopedDrag,
         }
-      : listeners) as unknown as DragActivatorBundle["listeners"],
+      : dragEnabled ? listeners : undefined) as unknown as DragActivatorBundle["listeners"],
     attributes: (activatorMode === "scoped"
       ? { role: "button", tabIndex: 0 }
       : attributes) as unknown as DragActivatorBundle["attributes"],

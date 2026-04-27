@@ -1,10 +1,4 @@
-"""Coverage for RuntimeCapabilities + the harness slash-policy intersection.
-
-The Claude runtime pins display name, effort_values=() (no effort knob),
-freeform model input, and a conservative slash allowlist. The intersection
-helper used by /help and the catalog endpoint preserves order and drops
-non-allowlisted commands.
-"""
+"""Coverage for RuntimeCapabilities + the harness slash-policy intersection."""
 from __future__ import annotations
 
 import pytest
@@ -49,16 +43,16 @@ def test_filter_preserves_registry_order():
 
 
 def test_claude_capabilities_shape():
-    """Pin the Phase 4 contract: freeform model, no effort knob,
-    conservative allowlist that excludes Spindrel-loop commands."""
+    """Pin the harness contract: runtime-owned models, effort, and slash policy."""
     pytest.importorskip("claude_agent_sdk")
     from integrations.claude_code.harness import ClaudeCodeRuntime
 
     caps = ClaudeCodeRuntime().capabilities()
     assert caps.display_name == "Claude Code"
     assert caps.model_is_freeform is True
-    assert caps.supported_models == ()  # freeform v1 — no baked ids
-    assert caps.effort_values == ()  # SDK has no effort knob
+    assert caps.supported_models
+    assert caps.model_options
+    assert caps.effort_values == ("low", "medium", "high", "xhigh", "max")
     assert caps.approval_modes == (
         "bypassPermissions", "acceptEdits", "default", "plan",
     )
@@ -68,9 +62,9 @@ def test_claude_capabilities_shape():
     # path alongside the canonical header model pill):
     for cmd in (
         "help", "rename", "stop", "clear", "sessions", "scratch",
-        "split", "focus", "model",
+        "split", "focus", "model", "effort", "compact", "context",
     ):
         assert cmd in allowed, f"{cmd} should be in Claude allowlist"
     # Must NOT allow Spindrel-loop / runtime-conflicting commands:
-    for cmd in ("compact", "plan", "context", "find", "effort", "skills"):
+    for cmd in ("plan", "find", "skills"):
         assert cmd not in allowed, f"{cmd} must NOT be in Claude allowlist"

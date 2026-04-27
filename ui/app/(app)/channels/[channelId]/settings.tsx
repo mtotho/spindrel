@@ -466,9 +466,7 @@ export default function ChannelSettingsScreen() {
               channelId={channelId!}
               currentBot={currentBot}
             />
-            {!isHarnessChannel && (
-              <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />
-            )}
+            <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} isHarness={isHarnessChannel} />
           </>
         )}
         {tab === "presentation" && (

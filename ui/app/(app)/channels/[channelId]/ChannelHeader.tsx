@@ -808,10 +808,10 @@ function HarnessHeaderChrome({
             caps={caps}
             t={t}
           />
-          {caps.effort_values.length > 0 && (
+          {(caps.effort_values.length > 0 || caps.model_options.some((m) => m.effort_values.length > 0)) && (
             <HarnessEffortPill
               sessionId={sessionId}
-              effortValues={caps.effort_values}
+              caps={caps}
               t={t}
             />
           )}
@@ -922,7 +922,7 @@ function HarnessModelPill({
   t,
 }: {
   sessionId: string;
-  caps: { supported_models: string[]; model_is_freeform: boolean; display_name: string };
+  caps: { supported_models: string[]; available_models?: string[]; model_options?: Array<{ id: string; label?: string | null }>; model_is_freeform: boolean; display_name: string };
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const { data, isLoading } = useSessionHarnessSettings(sessionId);
@@ -978,10 +978,11 @@ function HarnessModelPill({
         if (caps.model_is_freeform) {
           setDraft(current ?? "");
           setEditing(true);
-        } else if (caps.supported_models.length > 0) {
+        } else if ((caps.model_options?.length ?? 0) > 0 || caps.supported_models.length > 0) {
           // Cycle through supported models + a "clear" slot at the end.
-          const idx = current ? caps.supported_models.indexOf(current) : -1;
-          const cycle = [...caps.supported_models, null];
+          const models = (caps.model_options?.length ? caps.model_options.map((m) => m.id) : caps.supported_models);
+          const idx = current ? models.indexOf(current) : -1;
+          const cycle = [...models, null];
           const next = cycle[(idx + 1) % cycle.length];
           commit(next);
         }
@@ -1009,16 +1010,21 @@ function HarnessModelPill({
 
 function HarnessEffortPill({
   sessionId,
-  effortValues,
+  caps,
   t,
 }: {
   sessionId: string;
-  effortValues: string[];
+  caps: { effort_values: string[]; model_options: Array<{ id: string; effort_values: string[] }> };
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const { data, isLoading } = useSessionHarnessSettings(sessionId);
   const setSettings = useSetSessionHarnessSettings();
   const current = data?.effort ?? null;
+  const selectedModel = data?.model ?? null;
+  const effortValues = (
+    caps.model_options.find((m) => m.id === selectedModel)?.effort_values
+    ?? caps.effort_values
+  );
   const handleCycle = () => {
     if (setSettings.isPending) return;
     // Cycle through declared effort values + a "clear" slot at the end.

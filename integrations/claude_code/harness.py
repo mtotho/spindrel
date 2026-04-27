@@ -16,6 +16,7 @@ construction and we surface that as a turn error.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from typing import Any
@@ -24,6 +25,7 @@ from integrations.sdk import (
     AllowDeny,
     AuthStatus,
     ChannelEventEmitter,
+    HarnessModelOption,
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
     TurnContext,
@@ -76,7 +78,6 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
 #   plan     — Spindrel chat-mode toggle; conflicts with Claude's native plan
 #   context  — harness-aware: shows native resume/status summary
 #   find     — channel-scoped keyword search; Spindrel-only semantics
-#   effort   — Claude has no effort knob (typed /effort returns friendly no-op)
 #   skills + any Spindrel-tool-control commands — runtime owns tools
 #
 # `model` IS in the allowlist so the picker shows it and typed `/model X`
@@ -84,7 +85,8 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
 # but the slash command is a parallel write path that must also work.
 _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
-    "sessions", "scratch", "split", "focus", "model", "compact", "context",
+    "sessions", "scratch", "split", "focus", "model", "effort",
+    "compact", "context",
 })
 
 
@@ -99,6 +101,7 @@ _CLAUDE_KNOWN_MODELS: tuple[str, ...] = (
     "claude-sonnet-4-5",
     "claude-haiku-4-5",
 )
+_CLAUDE_EFFORT_VALUES: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
 
 def _credential_path() -> str:
@@ -110,6 +113,41 @@ def _credential_path() -> str:
     """
     config_dir = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
     return os.path.join(config_dir, ".credentials.json")
+
+
+def _apply_effort_option(
+    *,
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    effort: str | None,
+) -> None:
+    """Map Spindrel's harness effort setting to the installed SDK shape.
+
+    Claude Code's CLI exposes a reasoning-effort control. The Python SDK
+    option shape has changed across releases, so the adapter inspects the
+    installed ``ClaudeAgentOptions`` and chooses the narrowest supported
+    kwarg instead of leaking SDK-specific names into app/.
+    """
+    if not effort:
+        return
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "effort" in names:
+        options_kwargs["effort"] = effort
+    elif "thinking" in names:
+        options_kwargs["thinking"] = {"effort": effort}
+    elif "extra_args" in names:
+        options_kwargs.setdefault("extra_args", [])
+        options_kwargs["extra_args"].extend(["--effort", effort])
+    else:
+        logger.warning(
+            "claude-code: installed ClaudeAgentOptions exposes no effort/thinking kwarg; "
+            "ignoring harness effort=%s for this turn",
+            effort,
+        )
 
 
 class ClaudeCodeRuntime:
@@ -144,10 +182,17 @@ class ClaudeCodeRuntime:
             # accepts), but list_models() returns the curated set the UI
             # picker shows by default.
             supported_models=_CLAUDE_KNOWN_MODELS,
+            model_options=tuple(
+                HarnessModelOption(
+                    id=model,
+                    label=model,
+                    effort_values=_CLAUDE_EFFORT_VALUES,
+                    default_effort="high",
+                )
+                for model in _CLAUDE_KNOWN_MODELS
+            ),
             model_is_freeform=True,
-            # Claude Code SDK has no effort knob today. Typed /effort still
-            # routes to the harness handler, which returns a friendly no-op.
-            effort_values=(),
+            effort_values=_CLAUDE_EFFORT_VALUES,
             approval_modes=("bypassPermissions", "acceptEdits", "default", "plan"),
             slash_policy=HarnessSlashCommandPolicy(
                 allowed_command_ids=_CLAUDE_GENERIC_SLASH_ALLOWED,
@@ -199,8 +244,12 @@ class ClaudeCodeRuntime:
             # errors during construction or first turn — adapter is the only
             # layer that needs to know the kwarg name.
             options_kwargs["model"] = ctx.model
-        # ctx.effort / ctx.runtime_settings intentionally unused — Claude Code
-        # SDK exposes no effort knob and no opaque runtime knobs in v1.
+        _apply_effort_option(
+            options_cls=ClaudeAgentOptions,
+            options_kwargs=options_kwargs,
+            effort=ctx.effort,
+        )
+        # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
         await _maybe_attach_spindrel_tool_bridge(ctx, options_kwargs)
 
         opts = ClaudeAgentOptions(**options_kwargs)

@@ -2,9 +2,15 @@
 
 *Your entire RAG loop, silk-wrapped.*
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Status: Early Access](https://img.shields.io/badge/status-early%20access-orange.svg)](docs/guides/feature-status.md)
+[![Docs](https://img.shields.io/badge/docs-docs.spindrel.dev-informational.svg)](https://docs.spindrel.dev)
+
 Self-hosted AI agent server with persistent channels, composable expertise, workspace-driven memory, task pipelines, interactive widgets, and a pluggable integration framework.
 
 > **Early Access** — Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.
+
+📺 **[Watch the 90-second tour](docs/videos/quickstart.mp4)** — spatial canvas, scheduled work, channels, dashboards, pipelines.
 
 ## Why Spindrel
 
@@ -144,6 +150,12 @@ cd ui && npx tsc --noEmit            # UI typecheck (required after UI changes)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture details, key files, and development guidelines.
+
+## Community
+
+- **Contributing** — see [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Code of Conduct** — see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Security** — see [SECURITY.md](SECURITY.md) for vulnerability reporting
 
 ## License
 

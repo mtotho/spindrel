@@ -72,7 +72,17 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         route="/channels/{chat_main}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg="window.__spindrel_pin_count() >= 2",
+        # Pin count alone fires before messages paint — chat area then
+        # captures with `bg-skeleton/[0.04] animate-pulse` placeholders.
+        # Gate on (a) pins mounted, (b) at least one real message bubble
+        # rendered (≥40 chars of non-whitespace text in the chat surface,
+        # which the skeleton placeholder bars never satisfy), and (c)
+        # chat skeleton has finished animating away.
+        wait_arg=(
+            'window.__spindrel_pin_count() >= 2 '
+            '&& document.querySelectorAll(\'[class*="bg-skeleton"]\').length === 0 '
+            '&& document.body.innerText.length > 800'
+        ),
         output="chat-main.png",
     ),
     ScreenshotSpec(

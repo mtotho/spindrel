@@ -59,8 +59,22 @@ async def list_harness_spindrel_tools(
     Client/browser-only tools are intentionally excluded: the harness SDK runs
     in the server process and cannot satisfy browser callbacks.
     """
-    bot = get_bot(ctx.bot_id)
-    channel = await db.get(Channel, ctx.channel_id) if ctx.channel_id else None
+    return await list_harness_spindrel_tools_for(
+        db,
+        bot_id=ctx.bot_id,
+        channel_id=ctx.channel_id,
+    )
+
+
+async def list_harness_spindrel_tools_for(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+) -> tuple[HarnessToolSpec, ...]:
+    """Return effective server-executable Spindrel bridge tools."""
+    bot = get_bot(bot_id)
+    channel = await db.get(Channel, channel_id) if channel_id else None
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
     schemas: list[dict[str, Any]] = []
     schemas.extend(get_local_tool_schemas(list(eff.local_tools)))

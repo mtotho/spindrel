@@ -97,7 +97,15 @@ async def bots(
     for b in all_bots:
         if visible_ids is not None and b.id not in visible_ids:
             continue
-        entry: dict = {"id": b.id, "name": b.name, "model": b.model}
+        entry: dict = {
+            "id": b.id,
+            "name": b.name,
+            "model": b.model,
+            "harness_runtime": getattr(b, "harness_runtime", None),
+            "shared_workspace_id": getattr(b, "shared_workspace_id", None),
+            "memory_scheme": getattr(b, "memory_scheme", None),
+            "history_mode": getattr(b, "history_mode", None),
+        }
         if b.audio_input != "transcribe":
             entry["audio_input"] = b.audio_input
         result.append(entry)

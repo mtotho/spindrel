@@ -6,6 +6,7 @@ import {
   useCreateAttentionItem,
   useResolveAttentionItem,
   useWorkspaceAttention,
+  isActiveAttentionItem,
   type AttentionAssignmentMode,
   type AttentionSeverity,
   type WorkspaceAttentionItem,
@@ -36,7 +37,7 @@ function statusLabel(item: WorkspaceAttentionItem): string {
 }
 
 function activeItems(items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
-  return items.filter((item) => item.status !== "resolved" && item.status !== "acknowledged");
+  return items.filter(isActiveAttentionItem);
 }
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
@@ -50,44 +51,40 @@ interface BadgeStackProps {
 }
 
 export function SpatialAttentionBadgeStack({ items, scale, onSelect }: BadgeStackProps) {
-  const visible = activeItems(items).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]).slice(0, 3);
-  if (!visible.length) return null;
+  const active = activeItems(items).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
+  if (!active.length) return null;
+  const primary = active[0];
+  const count = active.length;
+  const occurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
+  const system = active.some((item) => item.source_type === "system");
   const inv = 1 / Math.max(scale, 0.05);
-  const size = 28;
+  const compact = scale < 0.55;
   return (
     <div
       className="pointer-events-none absolute -right-3 -top-3 z-[50] flex items-center"
       style={{ transform: `scale(${inv})`, transformOrigin: "top right" }}
     >
-      {visible.map((item, idx) => {
-        const system = item.source_type === "system";
-        return (
-          <button
-            key={item.id}
-            type="button"
-            className={`pointer-events-auto -ml-1 flex items-center justify-center rounded-full border shadow-sm transition-transform duration-100 hover:scale-110 ${markerClass(item)}`}
-            style={{ width: size, height: size, zIndex: 20 - idx }}
-            title={`${item.title} - ${statusLabel(item)}`}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onSelect(item);
-            }}
-          >
-            {system ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
-            {item.occurrence_count > 1 && idx === 0 && (
-              <span className="absolute -right-1 -top-1 rounded-full bg-surface-overlay px-1 text-[10px] leading-4 text-text">
-                {item.occurrence_count}
-              </span>
-            )}
-          </button>
-        );
-      })}
-      {activeItems(items).length > visible.length && (
-        <span className="pointer-events-auto -ml-1 rounded-full border border-surface-border bg-surface-raised px-1.5 text-[10px] leading-5 text-text-muted">
-          +{activeItems(items).length - visible.length}
+      <button
+        type="button"
+        className={`pointer-events-auto flex min-w-8 items-center justify-center gap-1 rounded-full border px-2 shadow-sm transition-transform duration-100 hover:scale-105 ${markerClass(primary)}`}
+        style={{ height: 30 }}
+        title={
+          count === 1
+            ? `${primary.title} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
+            : `${plural(count, "active alert")} on this target (${occurrenceCount} occurrences)`
+        }
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect(primary);
+        }}
+      >
+        {system ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
+        <span className="text-[11px] font-semibold leading-none">
+          {count === 1 ? (occurrenceCount > 1 ? "1" : "") : compact ? count : `${count}`}
         </span>
-      )}
+        {!compact && count > 1 && <span className="text-[10px] font-medium leading-none opacity-80">alerts</span>}
+      </button>
     </div>
   );
 }
@@ -359,7 +356,12 @@ function AttentionDetail({ item, onBack, onReply }: { item: WorkspaceAttentionIt
             Reply
           </button>
         )}
-        <button type="button" className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay hover:text-text" disabled={acknowledge.isPending} onClick={() => acknowledge.mutate(item.id)}>
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay hover:text-text"
+          disabled={acknowledge.isPending}
+          onClick={() => acknowledge.mutate(item.id, { onSuccess: onBack })}
+        >
           <Check size={15} />
           Acknowledge
         </button>

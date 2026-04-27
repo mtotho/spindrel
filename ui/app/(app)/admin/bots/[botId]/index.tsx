@@ -244,7 +244,7 @@ function IdentitySection({ draft, editorData, isNew, update }: {
         {draft.harness_runtime && (
           <>
             <InfoBanner variant="info">
-              This bot is a harness bot. Model, system prompt, skills, tools, memory, and capabilities settings are not used — the harness owns its own context. Auth comes from <code className="text-warning-muted">claude login</code> on the Spindrel host (see /admin/harnesses).
+              This bot is a harness bot. The harness owns the agent loop and native context; Spindrel still owns session controls, approvals, workspace hints, and selected local/MCP tools exposed through the bridge. Auth comes from <code className="text-warning-muted">claude login</code> on the Spindrel host (see /admin/harnesses).
             </InfoBanner>
             <div className="flex flex-wrap gap-2">
               <ActionButton
@@ -400,12 +400,25 @@ function AdvancedSection({ draft, isNew, deleteMutation, showDeleteConfirm, setS
   update: (patch: Partial<BotConfig>) => void;
   onDeleted: () => void;
 }) {
+  const isHarness = !!draft.harness_runtime;
   return (
     <div className="flex flex-col gap-6">
-      <SectionFrame title="Runtime defaults" description="Memory scheme, audio input, and history mode.">
-        <FormRow label="Workspace-files memory" description="Required for dreaming and workspace-backed memory files."><Toggle value={draft.memory_scheme === "workspace-files"} onChange={(v) => update({ memory_scheme: v ? "workspace-files" : null })} /></FormRow>
-        <FormRow label="Audio input"><SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })} options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]} /></FormRow>
-        <HistoryModeSection draft={draft} update={update} />
+      <SectionFrame
+        title={isHarness ? "Harness defaults" : "Runtime defaults"}
+        description={isHarness ? "Host hints and bridge behavior for external harness runtimes." : "Memory scheme, audio input, and history mode."}
+      >
+        <FormRow
+          label={isHarness ? "Workspace-files memory hints" : "Workspace-files memory"}
+          description={isHarness ? "Injects a host hint telling the harness where Spindrel workspace memory files live. File reads/writes still require bridged tools." : "Required for dreaming and workspace-backed memory files."}
+        >
+          <Toggle value={draft.memory_scheme === "workspace-files"} onChange={(v) => update({ memory_scheme: v ? "workspace-files" : null })} />
+        </FormRow>
+        {!isHarness && (
+          <>
+            <FormRow label="Audio input"><SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })} options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]} /></FormRow>
+            <HistoryModeSection draft={draft} update={update} />
+          </>
+        )}
       </SectionFrame>
       {!isNew && draft.source_type !== "system" && (
         <SectionFrame title="Danger zone" description="Permanent destructive actions for this bot.">

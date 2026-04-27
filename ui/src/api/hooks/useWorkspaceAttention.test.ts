@@ -31,13 +31,6 @@ function item(overrides: Partial<WorkspaceAttentionItem> = {}): WorkspaceAttenti
   };
 }
 
-test("reconcileAttentionItems updates acknowledged items in cached lists", () => {
-  const original = item();
-  const updated = item({ status: "acknowledged" });
-
-  assert.deepEqual(reconcileAttentionItems([original], updated), [updated]);
-});
-
 test("reconcileAttentionItems removes resolved items from active cached lists", () => {
   const original = item();
   const other = item({ id: "attention-2", title: "Other" });

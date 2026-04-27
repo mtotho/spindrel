@@ -295,6 +295,7 @@ from app.services.agent_harnesses.base import (  # noqa: E402, F401
     AuthStatus,
     ChannelEventEmitter,
     HarnessContextHint,
+    HarnessModelOption,
     HarnessRuntime,
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
@@ -331,6 +332,7 @@ from app.services.agent_harnesses.tools import (  # noqa: E402, F401
     HarnessToolSpec,
     execute_harness_spindrel_tool,
     list_harness_spindrel_tools,
+    list_harness_spindrel_tools_for,
 )
 
 # ---------------------------------------------------------------------------

@@ -147,7 +147,7 @@ async def _run_harness_turn(
         load_session_mode,
         revoke_turn_bypass,
     )
-    from app.services.agent_harnesses.base import TurnContext
+    from app.services.agent_harnesses.base import HarnessContextHint, TurnContext
     from app.services.agent_harnesses.session_state import (
         clear_consumed_context_hints,
         load_context_hints,
@@ -157,7 +157,24 @@ async def _run_harness_turn(
     async with async_session() as db:
         permission_mode = await load_session_mode(db, session_id)
         harness_settings = await load_session_settings(db, session_id)
-        context_hints = await load_context_hints(db, session_id)
+        context_hints = list(await load_context_hints(db, session_id))
+
+    if getattr(bot, "memory_scheme", None) == "workspace-files":
+        context_hints.append(
+            HarnessContextHint(
+                kind="workspace_files_memory",
+                source="spindrel",
+                created_at=datetime.now(timezone.utc).isoformat(),
+                consume_after_next_turn=False,
+                text=(
+                    "Spindrel workspace-files memory is enabled for this harness bot. "
+                    f"The bot workspace is {workdir}. Treat memory files in this workspace "
+                    "as durable host-provided context when they exist. Use bridged Spindrel "
+                    "file or memory tools to inspect or update them; if no bridge tool is "
+                    "available, ask before assuming current memory contents."
+                ),
+            )
+        )
 
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
@@ -178,7 +195,7 @@ async def _run_harness_turn(
         model=harness_settings.model,
         effort=harness_settings.effort,
         runtime_settings=harness_settings.runtime_settings,
-        context_hints=context_hints,
+        context_hints=tuple(context_hints),
     )
 
     error_text: str | None = None

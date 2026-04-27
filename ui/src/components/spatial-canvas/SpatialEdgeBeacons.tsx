@@ -12,6 +12,7 @@ interface SpatialEdgeBeacon {
   colorClass: string;
   icon: ComponentType<LucideProps>;
   onClick: () => void;
+  persistent?: boolean;
 }
 
 interface SpatialEdgeBeaconsProps {
@@ -34,7 +35,13 @@ export function SpatialEdgeBeacons({
         x: beacon.worldX * camera.scale + camera.x,
         y: beacon.worldY * camera.scale + camera.y,
       };
-      const pos = computeEdgeBeaconPosition(screen, viewport);
+      const pos = computeEdgeBeaconPosition(
+        screen,
+        viewport,
+        42,
+        48,
+        beacon.persistent ? Number.POSITIVE_INFINITY : 280,
+      );
       return pos ? { beacon, pos } : null;
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -71,7 +78,7 @@ export function SpatialEdgeBeacons({
             onPointerDown={(e) => e.stopPropagation()}
             title={`Fly to ${beacon.label}`}
             aria-label={`Fly to ${beacon.label}`}
-            className={`group absolute pointer-events-auto w-9 h-9 -translate-x-1/2 -translate-y-1/2 rounded-full border bg-surface-raised/35 backdrop-blur text-xs font-semibold shadow-lg opacity-45 hover:opacity-95 focus-visible:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 transition-opacity ${beacon.colorClass}`}
+            className={`group absolute pointer-events-auto ${beacon.persistent ? "h-11 w-11 opacity-85" : "h-9 w-9 opacity-45"} -translate-x-1/2 -translate-y-1/2 rounded-full border bg-surface-raised/35 backdrop-blur text-xs font-semibold shadow-lg hover:opacity-95 focus-visible:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 transition-opacity ${beacon.colorClass}`}
             style={{ left: pos.x, top: pos.y }}
           >
             <span

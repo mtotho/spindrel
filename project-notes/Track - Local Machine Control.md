@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-26 (api-v1 session lease route fix)
+updated: 2026-04-26 (command output restored to LLM-visible result)
 ---
 # Track — Local Machine Control
 
@@ -172,6 +172,12 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Fixed the optional native widget / transcript grant path calling `/api/v1/sessions/{session_id}/machine-target/lease` and receiving 404 because the machine-target session endpoints only existed on the legacy `/sessions` router. `app/routers/api_v1_sessions.py` now exposes GET/POST/DELETE machine-target routes with the same admin-only lease behavior.
 - Added a focused route-table + direct async forwarding test for the API-v1 lease path. A full `TestClient` version hit the already-known local machine-router stall pattern, so the regression avoids that harness while still pinning the missing route.
 
+### Follow-up fix — LLM-visible command output
+
+- `machine_inspect_command` and `machine_exec_command` now include bounded stdout/stderr in their `llm` field, along with target, command, working directory, exit code, duration, and provider truncation status.
+- Root cause: `_extract_embedded_payloads()` intentionally hands the assistant only the `llm` field for tools that return `_envelope`; the full stdout/stderr were persisted in trace/UI JSON but omitted from the model-visible tool message.
+- Regression coverage pins the `dmesg | tail -100` shape where a shell pipeline can report exit code 0 while stderr contains the real permission failure.
+
 ## Current Architecture Shape
 
 - Core:
@@ -217,3 +223,4 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/tools/local/machine_control.py tests/unit/test_local_machine_control_phase5a.py`
 - `pytest tests/unit/test_api_v1_machine_target_routes.py -q`
 - `pytest tests/unit/test_machine_target_sessions.py tests/unit/test_api_v1_machine_target_routes.py -q`
+- `pytest tests/unit/test_local_machine_control_phase5a.py -q` (LLM-visible stdout/stderr regression)

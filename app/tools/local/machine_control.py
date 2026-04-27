@@ -15,6 +15,31 @@ from app.services.machine_control import (
 )
 from app.tools.registry import register
 
+_LLM_STREAM_CAP_CHARS = 12_000
+
+
+def _cap_stream_for_llm(label: str, text: str, *, cap: int = _LLM_STREAM_CAP_CHARS) -> str:
+    if not text:
+        return f"{label}: <empty>"
+    if len(text) <= cap:
+        return f"{label}:\n{text}"
+    omitted = len(text) - cap
+    return f"{label}:\n{text[:cap]}\n\n[{omitted} char(s) omitted from {label.lower()}]"
+
+
+def _command_llm_summary(payload: dict) -> str:
+    parts = [
+        f"Command on {payload['target_label']}: {payload['command']}",
+        f"Working directory: {payload['working_dir'] or '<default>'}",
+        f"Exit code: {payload['exit_code']}",
+        f"Duration: {payload['duration_ms']} ms",
+    ]
+    if payload.get("truncated"):
+        parts.append("Provider marked output as truncated.")
+    parts.append(_cap_stream_for_llm("stdout", str(payload.get("stdout") or "")))
+    parts.append(_cap_stream_for_llm("stderr", str(payload.get("stderr") or "")))
+    return "\n".join(parts)
+
 
 def _components_envelope(
     *,
@@ -201,10 +226,7 @@ async def machine_inspect_command(command: str) -> str:
     return json.dumps(
         {
             "_envelope": envelope.compact_dict(),
-            "llm": (
-                f"Ran readonly machine inspection command on {payload['target_label']} "
-                f"with exit code {payload['exit_code']}."
-            ),
+            "llm": _command_llm_summary(payload),
             **payload,
         },
         ensure_ascii=False,
@@ -271,10 +293,7 @@ async def machine_exec_command(command: str, working_dir: str = "") -> str:
     return json.dumps(
         {
             "_envelope": envelope.compact_dict(),
-            "llm": (
-                f"Ran machine command on {payload['target_label']} "
-                f"with exit code {payload['exit_code']}."
-            ),
+            "llm": _command_llm_summary(payload),
             **payload,
         },
         ensure_ascii=False,

@@ -40,6 +40,7 @@ _HERO_OPTIONAL = frozenset({
     "plan-mode.md",
     "programmatic-tool-calling.md",
     "workflows.md",  # deprecated guide, intentionally hero-less
+    "templates-and-activation.md",  # configuration concept; no single hero shot
 })
 
 

@@ -1,5 +1,7 @@
 # Home Assistant
 
+![Home Assistant integration in Spindrel](../images/integration-homeassistant.png)
+
 The `homeassistant` integration turns Home Assistant into a first-class target for Spindrel bots: entity control, area queries, live state polling, and rich inline widgets with toggles and sliders. It ships as an in-tree Spindrel integration, carrying tools, skills, and widget templates — but talks to HA over the **Model Context Protocol (MCP)**, not over the HA REST API.
 
 This guide covers the MCP server options, how to connect, how the bot targets entities, and how the widget templates render HA state live in chat.

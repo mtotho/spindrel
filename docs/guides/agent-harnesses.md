@@ -25,7 +25,7 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
     Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there alongside the repo.
 
-    System prompt, skills, tools, and memory fields are inert when a runtime is set — the harness owns them. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override.
+    System prompt and normal prompt/RAG context fields are inert when a runtime is set — the harness owns its native context. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override. Spindrel tool enrollment still matters: selected local/MCP tools are the source for the harness bridge.
 
 6. **Open a channel with the bot and chat.** Each turn opens a `ClaudeSDKClient` against your workspace dir, streams the assistant's text + tool calls into the channel, and persists the assistant message + the harness's session id for resume on the next turn.
 
@@ -66,7 +66,7 @@ This writes credentials inside the container's filesystem only. They're lost on 
 
 These are deliberate v1 boundaries, not oversights:
 
-- **No Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged. Later skill bridge work should expose selected Spindrel skills through export or search/get tools instead of direct runtime imports.
+- **No full Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not fully bridged. Selected local/MCP Spindrel tools can be exposed through the bridge, and workspace-files memory can inject host hints, but normal context assembly is still bypassed.
 - **No arbitrary harness widgets / tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. The one exception is host-owned interaction cards such as `AskUserQuestion`, which Spindrel renders as durable native cards so the user can answer inside the current session.
 - **Native harness tools are not Spindrel tools.** Harness approval modes can route native SDK permission prompts into Spindrel approval cards, but approved native calls still execute in the harness, not through Spindrel's `ToolCall` dispatcher.
 - **No `/admin/usage` integration.** Cost and token usage are persisted on the assistant message under `metadata.harness.cost_usd`/`usage`, but not aggregated in the global cost dashboard yet.
@@ -89,8 +89,8 @@ Harness settings are Spindrel-session scoped. In the web UI, a slash command or 
 
 Each runtime exposes a `RuntimeCapabilities` contract through `GET /api/v1/runtimes/{name}/capabilities`. The host uses it to render harness controls and filter slash commands:
 
-- `supported_models` / `available_models` plus `model_is_freeform` drive the harness model picker.
-- `effort_values` controls whether an effort pill or `/effort` value is available. Claude Code currently exposes no effort knob.
+- `model_options[]` drive the harness model picker and model-scoped effort choices. Compatibility fields `supported_models` / `available_models` still exist for older clients.
+- `effort_values` is the compatibility projection of available effort levels. Claude Code exposes `low`, `medium`, `high`, `xhigh`, and `max`; the adapter maps those to the installed SDK's supported `effort`/`thinking` option shape.
 - `approval_modes` powers the per-session approval-mode pill.
 - `slash_policy.allowed_command_ids` filters `/api/v1/slash-commands?bot_id=...` and `/help`.
 
@@ -101,14 +101,14 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Surface | Current level | Notes |
 |---|---|---|
 | Native runtime tools | Supported | Claude Code owns Bash, file edits, native web/MCP, and plan-mode tools. Spindrel approval modes can gate SDK permission prompts, but execution stays native. |
-| Model picker | Supported | Runtime capability endpoint exposes curated/freeform model choices; selection is stored per Spindrel session. Claude exposes no effort knob today. |
+| Model + effort picker | Supported | Runtime capability endpoint exposes model-scoped effort choices; selection is stored per Spindrel session. Bare `/model` and `/effort` render picker cards, while `/model <id>` and `/effort <level>` set values directly. |
 | Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
 | `/compact` and `/context` | Supported | Harness-aware compact resets native resume and injects a continuity hint; context reports host-visible native state. |
 | Host context hints | Supported | Heartbeats and compact summaries queue one-shot hints for the next harness turn. |
-| Spindrel tool bridge | Experimental | Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. Calls route through Spindrel dispatch. Needs deployed SDK smoke testing. |
+| Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. Calls route through Spindrel dispatch. Needs deployed SDK smoke testing. |
 | Spindrel skills | Planned | Export/sync simple skills or expose skill lookup through bridged tools/resources. No automatic sync yet. |
-| Memory system | Planned | Read-only hints first; writes should go through explicit bridged tools/policies later. |
+| Memory system | Partial | Workspace-files memory injects a host hint telling the harness where memory files live. Reads/writes still require explicit bridged tools/policies. |
 | Usage aggregation | Planned | Per-message cost/usage exists; `/admin/usage` aggregation is not wired yet. |
 
 ## Harness questions
@@ -124,6 +124,7 @@ Harness sessions now expose lightweight native state through `GET /api/v1/sessio
 - selected harness model/effort and approval mode;
 - latest native harness resume id;
 - pending one-shot host hints;
+- selected Spindrel bridge tools;
 - last turn timestamp, compact reset timestamp, and last usage/cost metadata when available.
 
 This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary unless a runtime later exposes token-window telemetry.
@@ -132,11 +133,15 @@ This is not a full Spindrel context budget. The native provider owns its own con
 
 Scheduled heartbeats on harness channels also use one-shot host hints. They do not launch the normal Spindrel loop. The heartbeat preamble and task prompt are queued onto the channel's primary session so the next user-driven harness turn can see the scheduled context. Scratch/split fanout is intentionally not automatic yet.
 
+When workspace-files memory is enabled on a harness bot, Spindrel injects a non-consuming host hint on each turn that points the runtime at the bot workspace and explains that durable memory files may exist there. The hint does not read or mutate memory by itself; the harness must use native filesystem tools or selected bridged Spindrel tools to inspect or update files.
+
 ## Spindrel tool bridge
 
 Claude Code can receive selected Spindrel tools through a best-effort in-process MCP bridge when the installed Claude Agent SDK exposes the required helpers. The bridge is dynamic: it resolves the effective bot/channel tool set the same way the normal loop does, excludes browser-client tools, and converts local/MCP schemas into harness-visible tool definitions.
 
 Calls route back through `dispatch_tool_call`, not directly into Python functions. That means existing Spindrel policy, approval rows, audit/trace records, secret redaction, and result summarization remain in force. If the installed SDK does not provide the in-process MCP helper surface, the adapter disables the bridge for that turn and native Claude tools continue to work.
+
+The normal bot and channel tool pickers are intentionally still visible for harness bots. For harnesses they mean "make these Spindrel tools bridgeable to the runtime," not "inject these tools into Spindrel's normal LLM loop."
 
 The bridge is still early. Smoke-test SDK helper names on the deployed harness image before relying on it for production mutating tools.
 

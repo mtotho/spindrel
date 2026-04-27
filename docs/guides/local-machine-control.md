@@ -1,5 +1,7 @@
 # Local Machine Control
 
+![Local Companion paired machine](../images/machine_control-local_companion.png)
+
 This is the canonical document for Spindrel's "operate on a real machine" architecture.
 
 If the provider contract, lease rules, tool names, admin surfaces, or local companion role change, update this file first and then update the shorter summaries that point at it.

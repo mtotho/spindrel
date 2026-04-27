@@ -87,11 +87,12 @@ and actions.
 Reply uses the existing channel chat path with attention metadata. A reply
 marks the item `responded`; it does not resolve the item.
 
-Acknowledgement consumes one counted occurrence of an item. If an item has
-`occurrence_count > 1`, acknowledge decrements the count and leaves the item
-open. If the count is `1`, acknowledge marks the item `acknowledged` and it
-drops out of active lists. This is not suppression: a fresh occurrence with
-the same dedupe key reopens the item.
+Acknowledgement hides the item from active attention immediately, regardless
+of `occurrence_count`. Occurrence count is evidence/history, not a number of
+required clicks. Structured detectors record source-event fingerprints, so
+rescanning the same persisted `ToolCall`, `TraceEvent`, or `HeartbeatRun` does
+not reopen an acknowledged item. A genuinely new matching source event can
+reopen the item.
 
 Resolution is explicit. Humans can resolve items. A source bot can resolve
 its own items through `resolve_attention_beacon`.

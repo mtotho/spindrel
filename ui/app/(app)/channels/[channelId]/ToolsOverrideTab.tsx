@@ -84,7 +84,7 @@ function mutationErrorMessage(error: unknown): string | null {
   return "Skill enrollment failed.";
 }
 
-export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botId?: string }) {
+export function ToolsOverrideTab({ channelId, botId, isHarness = false }: { channelId: string; botId?: string; isHarness?: boolean }) {
   const { data: effective } = useChannelEffectiveTools(channelId);
   const { data: editorData, isLoading: editorLoading } = useBotEditorData(botId);
   const { data: enrolled = [] } = useChannelEnrolledSkills(channelId);
@@ -134,6 +134,12 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
   return (
     <div className="flex flex-col gap-5">
       <ActivationsSection channelId={channelId} />
+
+      {isHarness && (
+        <InfoBanner variant="info" icon={<Wrench size={14} />}>
+          These are Spindrel bridge tools for the harness. Local and MCP tools selected here are exposed to the runtime through the harness adapter; browser/client callback tools are not bridgeable yet.
+        </InfoBanner>
+      )}
 
       <SectionLabel icon={<BookOpen size={12} className="text-accent" />} label="Channel Skills" count={enrolled.length} />
       <p className="mb-2 text-[11px] text-text-dim leading-snug">

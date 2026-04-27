@@ -341,6 +341,16 @@ class HarnessSlashCommandPolicy:
 
 
 @dataclass(frozen=True)
+class HarnessModelOption:
+    """One runtime-native model choice plus its reasoning-effort values."""
+
+    id: str
+    label: str | None = None
+    effort_values: tuple[str, ...] = ()
+    default_effort: str | None = None
+
+
+@dataclass(frozen=True)
 class RuntimeCapabilities:
     """What a harness runtime exposes to the UI / slash dispatcher.
 
@@ -353,13 +363,17 @@ class RuntimeCapabilities:
     """Human-readable name shown in the header runtime badge."""
     supported_models: tuple[str, ...] = ()
     """Curated suggestion list for the model pill. Empty = no curation."""
+    model_options: tuple[HarnessModelOption, ...] = ()
+    """Preferred model picker contract. Each runtime owns model ids and the
+    effort values valid for that model. ``supported_models`` remains a
+    compatibility projection for older clients."""
     model_is_freeform: bool = True
     """``True`` → the model pill renders a freeform text input (with
     ``supported_models`` as suggestions if non-empty). ``False`` → strict
     dropdown of ``supported_models`` only."""
     effort_values: tuple[str, ...] = ()
-    """Allowed values for the effort pill. ``()`` hides the pill entirely
-    and gates the harness ``/effort`` branch to a friendly no-op."""
+    """Compatibility projection: union/default effort values for older
+    clients. New UI should read ``model_options[*].effort_values`` first."""
     approval_modes: tuple[str, ...] = (
         "bypassPermissions",
         "acceptEdits",

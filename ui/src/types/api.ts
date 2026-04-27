@@ -877,7 +877,7 @@ export interface SlashCommandResult {
 }
 
 export interface SlashCommandSideEffectPayload {
-  effect: "stop" | "compact" | "plan" | "effort" | "rename" | "style";
+  effect: "stop" | "compact" | "plan" | "effort" | "model" | "rename" | "style";
   scope_kind: "channel" | "session";
   scope_id: string;
   title: string;

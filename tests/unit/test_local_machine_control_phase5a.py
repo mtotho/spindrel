@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.tool_dispatch import dispatch_tool_call
+from app.agent.tool_dispatch import _extract_embedded_payloads, dispatch_tool_call
 from app.tools.local.machine_control import machine_exec_command, machine_status
 
 
@@ -209,3 +209,50 @@ class TestCoreMachineControlToolEnvelopes:
         assert envelope["view_key"] == "core.command_result"
         assert envelope["display_label"] == "Desk"
         assert parsed["target_label"] == "Desk"
+        assert "Exit code: 0" in parsed["llm"]
+        assert "stdout:\nPASS\n" in parsed["llm"]
+        assert "stderr: <empty>" in parsed["llm"]
+
+    @pytest.mark.asyncio
+    async def test_machine_exec_command_llm_summary_includes_stderr_even_when_pipeline_succeeds(self):
+        fake_provider = SimpleNamespace(
+            label="Local Companion",
+            exec_command=AsyncMock(return_value={
+                "stdout": "",
+                "stderr": "dmesg: read kernel buffer failed: Operation not permitted\n",
+                "exit_code": 0,
+                "duration_ms": 4,
+                "truncated": False,
+            }),
+        )
+        lease = {
+            "provider_id": "local_companion",
+            "target_id": "target-1",
+        }
+
+        with (
+            patch(
+                "app.tools.local.machine_control.validate_current_execution_policy",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(allowed=True, lease=lease),
+            ),
+            patch("app.tools.local.machine_control.get_provider", return_value=fake_provider),
+            patch(
+                "app.tools.local.machine_control.get_target_by_id",
+                return_value={
+                    "label": "Desk",
+                    "hostname": "workstation",
+                    "platform": "linux",
+                },
+            ),
+        ):
+            raw = await machine_exec_command("dmesg | tail -100", "")
+
+        parsed = json.loads(raw)
+        result_for_llm, envelope, _client_action, _images = _extract_embedded_payloads(raw)
+        assert parsed["exit_code"] == 0
+        assert envelope is not None
+        assert "Exit code: 0" in parsed["llm"]
+        assert "stdout: <empty>" in parsed["llm"]
+        assert "dmesg: read kernel buffer failed: Operation not permitted" in parsed["llm"]
+        assert "dmesg: read kernel buffer failed: Operation not permitted" in result_for_llm

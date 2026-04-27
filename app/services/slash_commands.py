@@ -782,18 +782,26 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             load_latest_harness_metadata,
         )
         from app.services.agent_harnesses.settings import load_session_settings
+        from app.services.agent_harnesses.tools import list_harness_spindrel_tools_for
 
         settings = await load_session_settings(ctx.db, session.id)
         mode = await load_session_mode(ctx.db, session.id)
         hints = await load_context_hints(ctx.db, session.id)
         harness_meta, last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
+        bridge_tools = await list_harness_spindrel_tools_for(
+            ctx.db,
+            bot_id=bot.id,
+            channel_id=session.channel_id or session.parent_channel_id,
+        )
         reset_at = (session.metadata_ or {}).get(HARNESS_RESUME_RESET_AT_KEY)
         lines = [
             f"Harness: {bot.harness_runtime}",
             f"Model: {settings.model or 'runtime default'}",
+            f"Effort: {settings.effort or 'default'}",
             f"Approval mode: {mode}",
             f"Native resume id: {(harness_meta or {}).get('session_id') or 'none'}",
             f"Pending host hints: {len(hints)}",
+            f"Spindrel bridge tools: {len(bridge_tools)}",
         ]
         if last_turn_at:
             lines.append(f"Last harness turn: {last_turn_at.isoformat()}")
@@ -814,6 +822,12 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 "permission_mode": mode,
                 "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
                 "pending_hint_count": len(hints),
+                "bridge_tools": [
+                    {"name": spec.name, "description": spec.description}
+                    for spec in bridge_tools
+                ],
+                "bridge_status": "enabled" if bridge_tools else "none_selected",
+                "native_token_budget_available": False,
                 "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
                 "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
                 "usage": usage,
@@ -909,6 +923,53 @@ async def _effort_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     )
 
 
+def _harness_picker_result(
+    *,
+    command_id: str,
+    runtime,
+    session_id: uuid.UUID,
+    selected_model: str | None,
+    selected_effort: str | None,
+) -> SlashCommandResult:
+    caps = runtime.capabilities()
+    model_options = [
+        {
+            "id": opt.id,
+            "label": opt.label or opt.id,
+            "effort_values": list(opt.effort_values),
+            "default_effort": opt.default_effort,
+        }
+        for opt in getattr(caps, "model_options", ())
+    ]
+    if not model_options:
+        model_options = [
+            {
+                "id": model,
+                "label": model,
+                "effort_values": list(caps.effort_values),
+                "default_effort": None,
+            }
+            for model in caps.supported_models
+        ]
+    return SlashCommandResult(
+        command_id=command_id,
+        result_type="harness_model_effort_picker",
+        payload={
+            "session_id": str(session_id),
+            "runtime": getattr(runtime, "name", None),
+            "display_name": caps.display_name,
+            "model_is_freeform": caps.model_is_freeform,
+            "model_options": model_options,
+            "selected_model": selected_model,
+            "selected_effort": selected_effort,
+        },
+        fallback_text=(
+            f"{caps.display_name} model: {selected_model or 'runtime default'}; "
+            f"effort: {selected_effort or 'default'}"
+        ),
+    )
+
+
 async def _harness_effort_handler(
     *,
     ctx: SlashCommandContext,
@@ -922,6 +983,7 @@ async def _harness_effort_handler(
     from harness sessions on this runtime, so users won't normally see it.
     """
     from app.services.agent_harnesses.settings import patch_session_settings
+    from app.services.agent_harnesses.settings import load_session_settings
 
     caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
     display = caps.display_name if caps else "This harness"
@@ -938,8 +1000,14 @@ async def _harness_effort_handler(
 
     level = (ctx.args[0].strip().lower() if ctx.args else "").strip()
     if not level:
-        raise ValueError(
-            f"/effort requires one argument: {'/'.join(caps.effort_values)}"
+        session = await _resolve_current_session(ctx)
+        settings = await load_session_settings(ctx.db, session.id)
+        return _harness_picker_result(
+            command_id="effort",
+            runtime=runtime,
+            session_id=session.id,
+            selected_model=settings.model,
+            selected_effort=settings.effort,
         )
     if level not in caps.effort_values:
         raise ValueError(
@@ -968,13 +1036,10 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     Non-harness bots → write ``channel.model_override`` (was UI-only;
     centralizing here lets terminal/API callers behave identically).
     """
-    from app.services.agent_harnesses.settings import patch_session_settings
-
-    if not ctx.args:
-        raise ValueError("/model requires one argument: <model_id>")
-    raw = (ctx.args[0] or "").strip()
-    if not raw:
-        raise ValueError("/model requires a non-empty model id")
+    from app.services.agent_harnesses.settings import (
+        load_session_settings,
+        patch_session_settings,
+    )
 
     bot_id_str: str | None = None
     if ctx.channel is not None and ctx.channel.bot_id:
@@ -991,6 +1056,16 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 "/model in a harness channel needs an active session — "
                 "open or send a message to a session first, then retry"
             )
+        if not ctx.args or not (ctx.args[0] or "").strip():
+            settings = await load_session_settings(ctx.db, session.id)
+            return _harness_picker_result(
+                command_id="model",
+                runtime=runtime,
+                session_id=session.id,
+                selected_model=settings.model,
+                selected_effort=settings.effort,
+            )
+        raw = (ctx.args[0] or "").strip()
         try:
             await patch_session_settings(ctx.db, session.id, patch={"model": raw})
         except ValueError as exc:
@@ -1007,6 +1082,9 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         return _side_effect_result(payload, command_id="model")
 
     # Non-harness path: channel override.
+    if not ctx.args or not (ctx.args[0] or "").strip():
+        raise ValueError("/model requires one argument: <model_id>")
+    raw = (ctx.args[0] or "").strip()
     if ctx.channel is None or ctx.channel_id is None:
         raise ValueError("/model requires a channel context for non-harness bots")
     if len(raw) > 256:
@@ -1275,7 +1353,7 @@ _register(SlashCommandSpec(
     # non-harness bots write channel.model_override. Header pills bypass the
     # slash command and POST to /sessions/{id}/harness-settings directly.
     handler=_model_handler,
-    args=(SlashCommandArgSpec(name="model_id", source="model", required=True),),
+    args=(SlashCommandArgSpec(name="model_id", source="model", required=False),),
 ))
 
 _register(SlashCommandSpec(
@@ -1323,10 +1401,10 @@ _register(SlashCommandSpec(
 _register(SlashCommandSpec(
     id="effort",
     label="/effort",
-    description="Set reasoning effort (off / low / medium / high)",
+    description="Set reasoning effort",
     surfaces=("channel",),
     handler=_effort_handler,
-    args=(SlashCommandArgSpec(name="level", source="enum", required=True, enum=EFFORT_LEVELS),),
+    args=(SlashCommandArgSpec(name="level", source="enum", required=False, enum=("off", "low", "medium", "high", "xhigh", "max")),),
 ))
 
 _register(SlashCommandSpec(

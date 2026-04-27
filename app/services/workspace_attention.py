@@ -38,7 +38,7 @@ from app.domain.errors import NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_STATUSES = ("open", "acknowledged", "responded")
+DEDUPE_STATUSES = ("open", "acknowledged", "responded")
 VISIBLE_STATUSES = ("open", "responded")
 VALID_SEVERITIES = {"info", "warning", "error", "critical"}
 VALID_TARGET_KINDS = {"channel", "bot", "widget", "system"}
@@ -91,6 +91,25 @@ def _merge_evidence(old: dict | None, new: dict | None) -> dict:
     return merged
 
 
+def _source_event_seen(evidence: dict | None, source_event_key: str | None) -> bool:
+    if not source_event_key:
+        return False
+    keys = (evidence or {}).get("source_event_keys") or []
+    return str(source_event_key) in {str(key) for key in keys}
+
+
+def _record_source_event(evidence: dict | None, source_event_key: str | None) -> dict:
+    if not source_event_key:
+        return dict(evidence or {})
+    merged = dict(evidence or {})
+    keys = [str(key) for key in (merged.get("source_event_keys") or [])]
+    key = str(source_event_key)
+    if key not in keys:
+        keys.append(key)
+    merged["source_event_keys"] = keys[-25:]
+    return merged
+
+
 async def _resolve_target_channel(
     db: AsyncSession,
     *,
@@ -129,6 +148,7 @@ async def place_attention_item(
     dedupe_key: str | None = None,
     evidence: dict | None = None,
     latest_correlation_id: uuid.UUID | None = None,
+    source_event_key: str | None = None,
 ) -> WorkspaceAttentionItem:
     if source_type not in {"bot", "system", "user"}:
         raise ValidationError("source_type must be 'bot', 'system', or 'user'")
@@ -158,19 +178,21 @@ async def place_attention_item(
             WorkspaceAttentionItem.target_kind == target_kind,
             WorkspaceAttentionItem.target_id == target_id,
             WorkspaceAttentionItem.dedupe_key == key,
-            WorkspaceAttentionItem.status.in_(ACTIVE_STATUSES),
+            WorkspaceAttentionItem.status.in_(DEDUPE_STATUSES),
         )
     )).scalar_one_or_none()
     if existing is not None:
+        if _source_event_seen(existing.evidence, source_event_key):
+            return existing
         existing.title = title
         existing.message = message or ""
         existing.severity = severity
         existing.requires_response = bool(requires_response)
         existing.next_steps = list(next_steps or [])
-        existing.evidence = _merge_evidence(existing.evidence, evidence)
+        existing.evidence = _record_source_event(_merge_evidence(existing.evidence, evidence), source_event_key)
         existing.latest_correlation_id = latest_correlation_id or existing.latest_correlation_id
         existing.occurrence_count = int(existing.occurrence_count or 0) + 1
-        if existing.status == "acknowledged":
+        if existing.status in {"acknowledged", "responded"}:
             existing.status = "open"
         existing.last_seen_at = now
         existing.updated_at = now
@@ -193,7 +215,7 @@ async def place_attention_item(
         next_steps=list(next_steps or []),
         requires_response=bool(requires_response),
         status="open",
-        evidence=evidence or {},
+        evidence=_record_source_event(evidence or {}, source_event_key),
         latest_correlation_id=latest_correlation_id,
         first_seen_at=now,
         last_seen_at=now,
@@ -217,13 +239,8 @@ async def acknowledge_attention_item(db: AsyncSession, item_id: uuid.UUID) -> Wo
     item = await get_attention_item(db, item_id)
     if item.status != "resolved":
         now = _now()
-        if int(item.occurrence_count or 1) > 1:
-            item.occurrence_count = int(item.occurrence_count or 1) - 1
-            if item.status == "acknowledged":
-                item.status = "open"
-        else:
-            item.status = "acknowledged"
-            item.occurrence_count = 1
+        item.status = "acknowledged"
+        item.occurrence_count = max(1, int(item.occurrence_count or 1))
         item.updated_at = now
         await db.commit()
         await db.refresh(item)
@@ -476,7 +493,7 @@ async def resolve_attention_item_by_bot_key(
             WorkspaceAttentionItem.source_id == bot_id,
             WorkspaceAttentionItem.channel_id == channel_id,
             WorkspaceAttentionItem.dedupe_key == normalize_dedupe_key(dedupe_key),
-            WorkspaceAttentionItem.status.in_(ACTIVE_STATUSES),
+            WorkspaceAttentionItem.status.in_(DEDUPE_STATUSES),
         ).order_by(desc(WorkspaceAttentionItem.last_seen_at))
     )).scalar_one_or_none()
     if item is None:
@@ -651,6 +668,37 @@ def _error_signature(text: str) -> str:
     return normalize_dedupe_key(cleaned[:180])
 
 
+_NOISY_FILE_TOOL_PARTS = (
+    "file",
+    "workspace",
+)
+_NOISY_FILE_TOOL_NAMES = {
+    "read_file",
+    "list_files",
+    "glob_files",
+    "grep_files",
+    "search_files",
+    "get_memory_file",
+}
+_SEVERE_TOOL_ERROR_RE = re.compile(
+    r"permission|denied|timeout|timed out|traceback|exception|crash|failed to write|"
+    r"write failed|delete|remove|move|overwrite|missing required|workspace root",
+    re.IGNORECASE,
+)
+
+
+def _tool_attention_classification(tool_name: str | None, error_text: str, repeated_count: int) -> tuple[bool, str]:
+    name = (tool_name or "").lower()
+    text = error_text or ""
+    if _SEVERE_TOOL_ERROR_RE.search(text):
+        return True, "severe"
+    if repeated_count >= 3:
+        return True, "repeated"
+    if name in _NOISY_FILE_TOOL_NAMES or any(part in name for part in _NOISY_FILE_TOOL_PARTS):
+        return False, "suppressed_noisy_file_tool"
+    return True, "default"
+
+
 async def _channel_for_session(db: AsyncSession, session_id: uuid.UUID | None) -> uuid.UUID | None:
     if not session_id:
         return None
@@ -667,12 +715,27 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             or_(ToolCall.status == "error", ToolCall.error.isnot(None)),
         ).order_by(ToolCall.created_at.desc()).limit(50)
     )).scalars().all()
+    tool_signature_counts: dict[str, int] = {}
+    tool_call_signatures: dict[uuid.UUID, str] = {}
+    for call in tool_calls:
+        channel_id = await _channel_for_session(db, call.session_id)
+        text = str(call.error or call.result or "tool call failed")
+        signature = derive_dedupe_key("tool", str(channel_id), call.bot_id, call.tool_name, _error_signature(text))
+        tool_call_signatures[call.id] = signature
+        tool_signature_counts[signature] = tool_signature_counts.get(signature, 0) + 1
     for call in tool_calls:
         channel_id = await _channel_for_session(db, call.session_id)
         target_kind = "channel" if channel_id else ("bot" if call.bot_id else "system")
         target_id = str(channel_id) if channel_id else (call.bot_id or "structured-errors")
         text = call.error or call.result or "tool call failed"
-        signature = derive_dedupe_key("tool", str(channel_id), call.bot_id, call.tool_name, _error_signature(text))
+        signature = tool_call_signatures[call.id]
+        should_surface, classification = _tool_attention_classification(
+            call.tool_name,
+            str(text),
+            tool_signature_counts.get(signature, 1),
+        )
+        if not should_surface:
+            continue
         item = await place_attention_item(
             db,
             source_type="system",
@@ -689,9 +752,11 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
                 "kind": "tool_call",
                 "tool_call_id": str(call.id),
                 "tool_name": call.tool_name,
+                "classification": classification,
                 "correlation_id": str(call.correlation_id) if call.correlation_id else None,
             },
             latest_correlation_id=call.correlation_id,
+            source_event_key=f"tool_call:{call.id}",
         )
         if item.occurrence_count == 1:
             created += 1
@@ -728,6 +793,7 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
                 "correlation_id": str(event.correlation_id) if event.correlation_id else None,
             },
             latest_correlation_id=event.correlation_id,
+            source_event_key=f"trace_event:{event.id}",
         )
         if item.occurrence_count == 1:
             created += 1
@@ -761,6 +827,7 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
                 "correlation_id": str(run.correlation_id) if run.correlation_id else None,
             },
             latest_correlation_id=run.correlation_id,
+            source_event_key=f"heartbeat_run:{run.id}",
         )
         if item.occurrence_count == 1:
             created += 1

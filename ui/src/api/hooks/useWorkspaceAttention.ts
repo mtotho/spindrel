@@ -72,7 +72,7 @@ export interface AssignAttentionInput {
 
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 
-function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
+export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
   return item.status !== "resolved" && item.status !== "acknowledged";
 }
 

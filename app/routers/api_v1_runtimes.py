@@ -26,10 +26,18 @@ class HarnessSlashCommandPolicyOut(BaseModel):
     allowed_command_ids: list[str]
 
 
+class HarnessModelOptionOut(BaseModel):
+    id: str
+    label: str | None = None
+    effort_values: list[str]
+    default_effort: str | None = None
+
+
 class RuntimeCapabilitiesOut(BaseModel):
     name: str
     display_name: str
     supported_models: list[str]
+    model_options: list[HarnessModelOptionOut]
     # Live list from runtime.list_models(). Distinct from supported_models
     # (curated UI hint) — this is the authoritative set the picker shows.
     available_models: list[str]
@@ -64,10 +72,30 @@ async def get_runtime_capabilities(
             # raises (e.g. SDK call fails). Fall back to the curated
             # supported_models hint and let the UI render that.
             available_models = list(caps.supported_models)
+    model_options = [
+        HarnessModelOptionOut(
+            id=opt.id,
+            label=opt.label,
+            effort_values=list(opt.effort_values),
+            default_effort=opt.default_effort,
+        )
+        for opt in getattr(caps, "model_options", ())
+    ]
+    if not model_options:
+        model_options = [
+            HarnessModelOptionOut(
+                id=model,
+                label=None,
+                effort_values=list(caps.effort_values),
+                default_effort=None,
+            )
+            for model in (available_models or list(caps.supported_models))
+        ]
     return RuntimeCapabilitiesOut(
         name=name,
         display_name=caps.display_name,
         supported_models=list(caps.supported_models),
+        model_options=model_options,
         available_models=available_models,
         model_is_freeform=caps.model_is_freeform,
         effort_values=list(caps.effort_values),

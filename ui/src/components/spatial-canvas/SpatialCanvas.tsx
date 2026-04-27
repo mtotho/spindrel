@@ -43,7 +43,7 @@ import {
   useDeleteSpatialNode,
   type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
-import { useWorkspaceAttention, useMarkAttentionResponded, type WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import { useWorkspaceAttention, useMarkAttentionResponded, isActiveAttentionItem, type WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useUsageBreakdown } from "../../api/hooks/useUsage";
 import { useBots } from "../../api/hooks/useBots";
@@ -77,6 +77,7 @@ import {
   ShortcutChip,
 } from "./SpatialCanvasChrome";
 import { MovementTraceLayer } from "./MovementTraceLayer";
+import { canMoveSpatialNode, type SpatialInteractionMode } from "./spatialInteraction";
 import {
   MemoryObservationPanel,
   MemoryObservatory,
@@ -223,6 +224,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const openAttentionHub = useUIStore((s) => s.openAttentionHub);
   const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
   const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
+  const [interactionMode, setInteractionMode] = useState<SpatialInteractionMode>("browse");
+  const [shiftDragActive, setShiftDragActive] = useState(false);
+  const dragEnabled = canMoveSpatialNode(interactionMode, shiftDragActive);
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
@@ -289,7 +293,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     const byNode = new Map<string, WorkspaceAttentionItem[]>();
     const list = attentionItems ?? [];
     for (const item of list) {
-      if (item.status === "resolved") continue;
+      if (!isActiveAttentionItem(item)) continue;
       const node = (nodes ?? []).find((candidate) => {
         if (item.target_node_id) return candidate.id === item.target_node_id;
         if (item.target_kind === "channel") return candidate.channel_id === item.target_id;
@@ -304,6 +308,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }
     return byNode;
   }, [attentionItems, nodes]);
+  const activeAttentionCount = useMemo(
+    () => (attentionItems ?? []).filter(isActiveAttentionItem).length,
+    [attentionItems],
+  );
 
   const channelByBotId = useMemo(() => {
     const m = new Map<string, Channel>();
@@ -777,6 +785,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     };
   }, [lensEngaged, draggingNodeId, triggerLensSettle]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShiftDragActive(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShiftDragActive(false);
+    };
+    const onBlur = () => setShiftDragActive(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
   // If a drag starts while the lens is held, drop the lens (drag math at the
   // lens edge would be non-linear — release first, drag second).
   useEffect(() => {
@@ -796,14 +822,17 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const onBgPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0 || diving) return;
-      // Pan starts on any click that DIDN'T land on a tile. The world div
+      // Pan starts on any click that DIDN'T land on a tile, or on ordinary
+      // tile drags while the canvas is in Browse mode. Shift and Arrange mode
+      // hand the gesture back to the tile movement paths.
       // covers the entire viewport (absolute inset-0), so a strict
       // `target === currentTarget` check would only allow pan on the
       // viewport's literal edges — the gap area between tiles wouldn't
       // pan. Tile drag is owned by dnd-kit on the tile's listeners; this
       // handler stays out of its way.
       const target = e.target as HTMLElement;
-      if (target.closest("[data-tile-kind]")) return;
+      if (target.closest("button,a,input,textarea,select")) return;
+      if (target.closest("[data-tile-kind]") && canMoveSpatialNode(interactionMode, e.shiftKey)) return;
       // Background click — release any activated widget tile.
       if (activatedTileId) setActivatedTileId(null);
       // Pan supersedes lens — drop the lens if it's engaged.
@@ -820,7 +849,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [diving, activatedTileId, lensEngaged, triggerLensSettle],
+    [diving, activatedTileId, lensEngaged, interactionMode, triggerLensSettle],
   );
 
   const onBgPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -1499,13 +1528,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       },
       {
         id: "attention-hub",
-        label: "Attention Hub",
+        label: activeAttentionCount > 0 ? `Attention Hub (${activeAttentionCount} active)` : "Attention Hub",
         shortLabel: "Attention",
         worldX: ATTENTION_HUB_X,
         worldY: ATTENTION_HUB_Y,
-        colorClass: "border-rose-300/40 text-rose-100 hover:border-rose-200/70",
+        colorClass: "border-warning/55 text-warning hover:border-warning/85",
         icon: Radar,
         onClick: openAttentionHub,
+        persistent: activeAttentionCount > 0,
       },
     ];
 
@@ -1554,6 +1584,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     nodes,
     channelsById,
     botsVisible,
+    activeAttentionCount,
     flyToMemoryObservatory,
     flyToWell,
     openAttentionHub,
@@ -1603,6 +1634,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         category: "Canvas",
         icon: Radar,
         onSelect: () => openAttentionHub(),
+      },
+      {
+        id: "canvas-toggle-arrange",
+        label: interactionMode === "arrange" ? "Canvas: Browse mode" : "Canvas: Arrange mode",
+        hint: interactionMode,
+        category: "Canvas",
+        icon: Move,
+        onSelect: () => setInteractionMode((mode) => (mode === "arrange" ? "browse" : "arrange")),
       },
       {
         id: "canvas-cycle-activity",
@@ -1655,6 +1694,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     flyToWell,
     flyToMemoryObservatory,
     openAttentionHub,
+    interactionMode,
     cycleDensityIntensity,
     cycleTrailsMode,
     densityIntensity,
@@ -1800,6 +1840,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const handleBotPointerDown = useCallback(
     (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0 || diving) return;
+      if (!canMoveSpatialNode(interactionMode, e.shiftKey)) return;
       const world = pointerToWorld(e.clientX, e.clientY);
       if (!world) return;
       e.preventDefault();
@@ -1816,7 +1857,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [diving, pointerToWorld],
+    [diving, interactionMode, pointerToWorld],
   );
 
   const handleBotPointerMove = useCallback(
@@ -2432,7 +2473,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             />
           </div>
           <AttentionHubLandmark
-            activeCount={(attentionItems ?? []).filter((item) => item.status !== "resolved").length}
+            activeCount={activeAttentionCount}
             zoom={ambientZoom}
             onOpen={openAttentionHub}
           />
@@ -2580,6 +2621,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   diving={diving}
                   lens={lens}
                   lensSettling={lensSettling}
+                  dragEnabled={dragEnabled}
                   attentionItems={attentionByNodeId.get(node.id)}
                   onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                   onHoverChange={(hovered) =>
@@ -2618,6 +2660,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   scale={camera.scale}
                   isDragging={draggingNodeId === node.id}
                   diving={diving}
+                  dragEnabled={dragEnabled}
                   lens={draggingNodeId === node.id ? null : lens}
                   lensSettling={lensSettling}
                   reduced={botsReduced}
@@ -2689,6 +2732,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 diving={diving}
                 lens={lens}
                 lensSettling={lensSettling}
+                dragEnabled={dragEnabled}
                 attentionItems={attentionByNodeId.get(node.id)}
                 onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                 activatorMode={useScopedGrabber ? "scoped" : "full"}
@@ -2753,6 +2797,20 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         onPointerDown={(e) => e.stopPropagation()}
       >
         <AddWidgetButton onClick={() => setLibraryOpen(true)} />
+        <button
+          type="button"
+          title={interactionMode === "arrange" ? "Arrange mode on. Click to return to Browse. Hold Shift + drag also moves items." : "Arrange items. You can also hold Shift + drag any item."}
+          aria-pressed={interactionMode === "arrange"}
+          onClick={() => setInteractionMode((mode) => (mode === "arrange" ? "browse" : "arrange"))}
+          className={`inline-flex h-10 items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-colors ${
+            interactionMode === "arrange"
+              ? "border-accent/50 bg-accent/10 text-accent"
+              : "border-surface-border/70 bg-surface-raised/80 text-text-muted hover:bg-surface-overlay hover:text-text"
+          }`}
+        >
+          <Move size={16} />
+          {interactionMode === "arrange" && <span className="hidden sm:inline">Arrange</span>}
+        </button>
         <UsageDensityChrome
           intensity={densityIntensity}
           onCycleIntensity={cycleDensityIntensity}
@@ -2877,15 +2935,16 @@ function OriginMarker() {
 
 function AttentionHubLandmark({ activeCount, zoom, onOpen }: { activeCount: number; zoom: number; onOpen: () => void }) {
   const compact = zoom < 0.45;
+  const size = compact ? 156 : 180;
   return (
     <button
       type="button"
-      className="absolute flex flex-col items-center justify-center rounded-full border border-warning/35 bg-surface-raised/80 text-text shadow-[0_0_40px_rgb(var(--color-warning)/0.16)] backdrop-blur hover:border-warning/70"
+      className="absolute flex flex-col items-center justify-center rounded-full border border-warning/45 bg-surface-raised/85 text-text shadow-[0_0_58px_rgb(var(--color-warning)/0.24)] backdrop-blur transition-transform hover:scale-105 hover:border-warning/80"
       style={{
-        left: ATTENTION_HUB_X - 74,
-        top: ATTENTION_HUB_Y - 74,
-        width: 148,
-        height: 148,
+        left: ATTENTION_HUB_X - size / 2,
+        top: ATTENTION_HUB_Y - size / 2,
+        width: size,
+        height: size,
         zIndex: 4,
       }}
       onPointerDown={(event) => event.stopPropagation()}
@@ -2895,9 +2954,12 @@ function AttentionHubLandmark({ activeCount, zoom, onOpen }: { activeCount: numb
       }}
       title="Open Attention Hub"
     >
-      <Radar className="mb-2 text-warning" size={compact ? 34 : 42} />
+      <span className="absolute inset-3 rounded-full border border-warning/15" aria-hidden="true" />
+      <span className="absolute inset-8 rounded-full border border-warning/20" aria-hidden="true" />
+      <span className="absolute bottom-8 h-12 w-px bg-warning/45" aria-hidden="true" />
+      <Radar className="mb-2 text-warning drop-shadow-[0_0_12px_rgb(var(--color-warning)/0.45)]" size={compact ? 42 : 52} />
       {!compact && <span className="text-sm font-semibold">Attention Hub</span>}
-      <span className="mt-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] text-warning">{activeCount} active</span>
+      <span className="mt-1 rounded-full bg-warning/15 px-2.5 py-0.5 text-[11px] font-semibold text-warning">{activeCount} active</span>
     </button>
   );
 }

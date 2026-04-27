@@ -25,6 +25,7 @@ import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import {
   useSessionHarnessSettings,
+  useSetSessionApprovalMode,
   useSetSessionHarnessSettings,
 } from "@/src/api/hooks/useApprovals";
 import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
@@ -599,25 +600,31 @@ export default function ChatScreen() {
   const layoutMode = (channel?.config?.layout_mode ?? "full") as
     | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
   const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
-  const sessionPlan = useSessionPlanMode(channel?.active_session_id ?? undefined);
+  const currentPlanSessionId = routeSessionId ?? channel?.active_session_id ?? undefined;
+  const sessionPlan = useSessionPlanMode(currentPlanSessionId);
+  const setApprovalMode = useSetSessionApprovalMode();
   const planBusy = sessionPlan.startPlan.isPending
     || sessionPlan.approvePlan.isPending
     || sessionPlan.exitPlan.isPending
     || sessionPlan.resumePlan.isPending
+    || setApprovalMode.isPending
     || sessionPlan.updateStepStatus.isPending;
 
   const handleTogglePlanMode = useCallback(() => {
-    if (!channel?.active_session_id) return;
+    if (!currentPlanSessionId) return;
     if (sessionPlan.mode !== "chat") {
       sessionPlan.exitPlan.mutate();
       return;
+    }
+    if (bot?.harness_runtime) {
+      setApprovalMode.mutate({ sessionId: currentPlanSessionId, mode: "plan" });
     }
     if (sessionPlan.hasPlan) {
       sessionPlan.resumePlan.mutate();
       return;
     }
     sessionPlan.startPlan.mutate();
-  }, [channel?.active_session_id, sessionPlan]);
+  }, [bot?.harness_runtime, currentPlanSessionId, sessionPlan, setApprovalMode]);
 
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
@@ -1525,8 +1532,8 @@ export default function ChatScreen() {
     planMode: sessionPlan.mode,
     hasPlan: sessionPlan.hasPlan,
     planBusy,
-    canTogglePlanMode: !!channel?.active_session_id,
-    onTogglePlanMode: channel?.active_session_id ? handleTogglePlanMode : undefined,
+    canTogglePlanMode: !!currentPlanSessionId,
+    onTogglePlanMode: currentPlanSessionId ? handleTogglePlanMode : undefined,
     onApprovePlan: sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined,
   };
 

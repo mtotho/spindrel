@@ -20,6 +20,7 @@ interface ManualBotNodeProps {
   scale: number;
   isDragging: boolean;
   diving: boolean;
+  dragEnabled: boolean;
   lens: LensTransform | null;
   lensSettling: boolean;
   reduced: boolean;
@@ -39,6 +40,7 @@ export function ManualBotNode({
   scale,
   isDragging,
   diving,
+  dragEnabled,
   lens,
   lensSettling,
   reduced,
@@ -86,7 +88,7 @@ export function ManualBotNode({
     transformOrigin: "center center",
     transition,
     touchAction: "none",
-    cursor: diving ? "default" : isDragging ? "grabbing" : "grab",
+    cursor: diving ? "default" : isDragging ? "grabbing" : dragEnabled ? "grab" : "default",
     opacity: reduced ? 0.68 : 1,
     contain: "layout paint style",
   };

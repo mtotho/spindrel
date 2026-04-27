@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task, ToolCall, TraceEvent
+from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
 from app.services.workspace_attention import (
     acknowledge_attention_item,
     assign_attention_item,
@@ -54,7 +54,7 @@ async def test_place_attention_item_dedupes_active_items(db_session):
 
 
 @pytest.mark.asyncio
-async def test_acknowledge_attention_item_consumes_one_occurrence(db_session):
+async def test_acknowledge_attention_item_hides_grouped_occurrences(db_session):
     channel_id = uuid.uuid4()
     db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
     await db_session.commit()
@@ -82,8 +82,13 @@ async def test_acknowledge_attention_item_consumes_one_occurrence(db_session):
 
     acknowledged = await acknowledge_attention_item(db_session, item.id)
 
-    assert acknowledged.status == "open"
-    assert acknowledged.occurrence_count == 1
+    assert acknowledged.status == "acknowledged"
+    assert acknowledged.occurrence_count == 2
+    visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+    assert visible == []
 
 
 @pytest.mark.asyncio
@@ -120,6 +125,77 @@ async def test_acknowledge_attention_item_hides_last_occurrence_until_new_one(db
         target_id=str(channel_id),
         title="Tool failed",
         dedupe_key="tool-x",
+    )
+
+    assert reopened.id == item.id
+    assert reopened.status == "open"
+    assert reopened.occurrence_count == 2
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_structured_item_does_not_reopen_for_same_source_event(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+        source_event_key="tool_call:one",
+    )
+    acknowledged = await acknowledge_attention_item(db_session, item.id)
+    reopened = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+        source_event_key="tool_call:one",
+    )
+
+    assert acknowledged.status == "acknowledged"
+    assert reopened.id == item.id
+    assert reopened.status == "acknowledged"
+    assert reopened.occurrence_count == 1
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_structured_item_reopens_for_new_source_event(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+        source_event_key="tool_call:one",
+    )
+    await acknowledge_attention_item(db_session, item.id)
+    reopened = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+        source_event_key="tool_call:two",
     )
 
     assert reopened.id == item.id
@@ -334,14 +410,12 @@ async def test_structured_detector_groups_tool_trace_and_heartbeat_failures(db_s
     session_id = uuid.uuid4()
     heartbeat_id = uuid.uuid4()
     db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
-    from app.db.models import Session
-
     db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
     db_session.add(ChannelHeartbeat(id=heartbeat_id, channel_id=channel_id))
     db_session.add(ToolCall(
         session_id=session_id,
         bot_id="bot-a",
-        tool_name="read_logs",
+        tool_name="run_script",
         tool_type="local",
         status="error",
         error="boom 123",
@@ -369,4 +443,60 @@ async def test_structured_detector_groups_tool_trace_and_heartbeat_failures(db_s
         db_session,
         auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
     )
-    assert {item.title for item in admin_visible} == {"read_logs failed", "Trace error", "Heartbeat failed"}
+    assert {item.title for item in admin_visible} == {"run_script failed", "Trace error", "Heartbeat failed"}
+
+
+@pytest.mark.asyncio
+async def test_structured_detector_suppresses_single_noisy_file_tool_error(db_session):
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
+    db_session.add(ToolCall(
+        session_id=session_id,
+        bot_id="bot-a",
+        tool_name="read_file",
+        tool_type="local",
+        status="error",
+        error="No such file or directory: notes.txt",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    created = await detect_structured_attention_once(db_session)
+    admin_visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+
+    assert created == 0
+    assert admin_visible == []
+
+
+@pytest.mark.asyncio
+async def test_structured_detector_surfaces_repeated_noisy_file_tool_error(db_session):
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
+    for _ in range(3):
+        db_session.add(ToolCall(
+            session_id=session_id,
+            bot_id="bot-a",
+            tool_name="read_file",
+            tool_type="local",
+            status="error",
+            error="No such file or directory: notes.txt",
+            created_at=datetime.now(timezone.utc),
+        ))
+    await db_session.commit()
+
+    created = await detect_structured_attention_once(db_session)
+    admin_visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+
+    assert created == 1
+    assert [item.title for item in admin_visible] == ["read_file failed"]
+    assert admin_visible[0].occurrence_count == 3

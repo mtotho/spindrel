@@ -4,6 +4,7 @@ import type {
   SlashCommandFindResultsPayload,
 } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
+import { useSetSessionHarnessSettings } from "../../api/hooks/useApprovals";
 import { FindResultsRenderer } from "./renderers/FindResultsRenderer";
 import { SlashResultPanel } from "./renderers/SlashResultPanel";
 
@@ -57,8 +58,128 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <HelpCard payload={rawPayload as ContextSummaryPayload} chatMode={chatMode} />;
   }
 
+  if (resultType === "harness_context_summary") {
+    return <HarnessContextSummaryCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
+  }
+
+  if (resultType === "harness_model_effort_picker") {
+    return <HarnessModelEffortPickerCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
+  }
+
   // Default: context_summary (used by /context)
   return <ContextSummaryCard message={message} chatMode={chatMode} />;
+}
+
+function HarnessModelEffortPickerCard({
+  payload,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  chatMode: "default" | "terminal";
+}) {
+  const setSettings = useSetSessionHarnessSettings();
+  const sessionId = String(payload.session_id || "");
+  const selectedModel = payload.selected_model as string | null | undefined;
+  const selectedEffort = payload.selected_effort as string | null | undefined;
+  const modelOptions = Array.isArray(payload.model_options) ? payload.model_options : [];
+  const selectedOption =
+    modelOptions.find((opt: any) => opt.id === selectedModel) ?? modelOptions[0] ?? null;
+  const effortValues = Array.isArray(selectedOption?.effort_values)
+    ? selectedOption.effort_values
+    : [];
+  const choose = (patch: { model?: string | null; effort?: string | null }) => {
+    if (!sessionId) return;
+    setSettings.mutate({ sessionId, patch });
+  };
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/model"
+      meta={String(payload.display_name || payload.runtime || "harness")}
+    >
+      <div className="grid gap-3 p-3">
+        <div className="text-[13px] font-semibold text-text">Harness model and effort</div>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => choose({ model: null })}
+            className={`rounded px-2 py-1 text-[11px] ${!selectedModel ? "bg-accent/15 text-accent" : "bg-surface-overlay text-text-muted"}`}
+          >
+            runtime default
+          </button>
+          {modelOptions.map((opt: any) => (
+            <button
+              type="button"
+              key={opt.id}
+              onClick={() => choose({ model: opt.id, effort: opt.default_effort ?? selectedEffort ?? null })}
+              className={`rounded px-2 py-1 text-[11px] ${selectedModel === opt.id ? "bg-accent/15 text-accent" : "bg-surface-overlay text-text-muted"}`}
+            >
+              {opt.label || opt.id}
+            </button>
+          ))}
+        </div>
+        {effortValues.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-text-dim">Effort</span>
+            <button
+              type="button"
+              onClick={() => choose({ effort: null })}
+              className={`rounded px-2 py-1 text-[11px] ${!selectedEffort ? "bg-accent/15 text-accent" : "bg-surface-overlay text-text-muted"}`}
+            >
+              default
+            </button>
+            {effortValues.map((level: string) => (
+              <button
+                type="button"
+                key={level}
+                onClick={() => choose({ effort: level })}
+                className={`rounded px-2 py-1 text-[11px] ${selectedEffort === level ? "bg-accent/15 text-accent" : "bg-surface-overlay text-text-muted"}`}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </SlashResultPanel>
+  );
+}
+
+function HarnessContextSummaryCard({
+  payload,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  chatMode: "default" | "terminal";
+}) {
+  const tools = Array.isArray(payload.bridge_tools) ? payload.bridge_tools : [];
+  const usage = payload.usage && typeof payload.usage === "object"
+    ? Object.entries(payload.usage).slice(0, 4).map(([k, v]) => `${k}: ${String(v)}`).join(" · ")
+    : null;
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/context"
+      meta={String(payload.runtime || "harness")}
+    >
+      <div className="grid gap-2 p-3 text-[12px] text-text-muted">
+        <div className="grid gap-1 sm:grid-cols-2">
+          <div><span className="text-text-dim">Model</span> {payload.model || "runtime default"}</div>
+          <div><span className="text-text-dim">Effort</span> {payload.effort || "default"}</div>
+          <div><span className="text-text-dim">Approval</span> {payload.permission_mode || "default"}</div>
+          <div><span className="text-text-dim">Resume</span> {payload.harness_session_id || "new"}</div>
+          <div><span className="text-text-dim">Hints</span> {payload.pending_hint_count ?? 0}</div>
+          <div><span className="text-text-dim">Token budget</span> {payload.native_token_budget_available ? "available" : "native unavailable"}</div>
+        </div>
+        <div>
+          <span className="text-text-dim">Spindrel bridge tools</span>{" "}
+          {tools.length ? tools.map((t: any) => t.name).join(", ") : "none selected"}
+        </div>
+        {payload.last_compacted_at && <div><span className="text-text-dim">Last compact reset</span> {payload.last_compacted_at}</div>}
+        {usage && <div><span className="text-text-dim">Last usage</span> {usage}</div>}
+      </div>
+    </SlashResultPanel>
+  );
 }
 
 function HelpCard({

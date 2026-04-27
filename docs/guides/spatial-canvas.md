@@ -23,6 +23,9 @@ The route underneath the overlay **stays mounted**. SSE streams, in-flight bot r
 ![Mid-zoom view — channel cluster with density halos visible](../images/spatial-zoom-out-01.png)
 
 - **Pan** — click-and-drag on the background.
+- **Move items** — the canvas defaults to Browse mode, so dragging over tiles
+  pans the map. Turn on Arrange in the canvas chrome, or hold `Shift` while
+  dragging an item, to move channels, widgets, or bots.
 - **Zoom** — wheel anywhere on the canvas. Holding the cursor over a widget tile zooms the canvas, not the widget (until the tile is "activated"; see [Widget tiles](#widget-tiles)).
 - **Recenter** — the `Recenter` button in the bottom-right chrome flies the camera back to the seeded center.
 - **Fly to a channel** — `Cmd+K` and pick a channel. When the canvas is mounted, channel-pick navigates by flying the camera to that tile instead of route-changing.
@@ -150,19 +153,22 @@ on the canvas. They attach to existing channel, bot, widget, or system
 targets and do not create or move `workspace_spatial_nodes` rows.
 
 Bot-authored items render as warning badges on their target. Structured
-system failures render as asteroid-style markers and are admin-only. Clicking
-a Beacon opens the Attention drawer with the message, next steps, status
-actions, reply handoff, and trace evidence when available.
+system failures render as admin-only system badges. Multiple active items on
+one target collapse into one smart badge whose count is active items; repeated
+occurrences are shown in the Hub/detail evidence instead of as a second
+floating chip.
 
 Badges are nested in the rendered target node or cluster rather than projected
 from stale overlay coordinates. They keep a stable screen size through inverse
 scaling, but their position follows the bound tile during pan, zoom, drag, and
 semantic-zoom transitions.
 
-The canvas also has a fixed **Attention Hub** landmark above the seed center.
+The canvas also has a fixed **Attention Hub** signal landmark above the seed center.
 Opening it shows the global attention lanes, create form, assignment controls,
 and bot findings without leaving the canvas. The same hub can be opened from an
-edge beacon, the channel header count, or the command palette.
+edge beacon, the channel header count, or the command palette. When active
+items exist, the Hub's edge beacon remains available whenever the Hub is
+offscreen.
 
 ## Reserved dashboard slug
 
