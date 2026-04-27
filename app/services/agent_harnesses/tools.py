@@ -249,8 +249,10 @@ async def _collect_harness_spindrel_tools_for(
     enrolled_names: list[str] = []
     if bot_id:
         try:
-            from app.services.tool_enrollment import get_enrolled_tool_names
+            from app.services.tool_enrollment import enroll_many, get_enrolled_tool_names
 
+            if explicit_tool_names:
+                await enroll_many(bot_id, explicit_tool_names, source="manual", db=db)
             enrolled_names = await get_enrolled_tool_names(bot_id)
         except Exception:
             logger.warning("harness bridge: failed to load enrolled tools for %s", bot_id, exc_info=True)

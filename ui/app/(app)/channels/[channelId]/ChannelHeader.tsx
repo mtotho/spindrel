@@ -821,6 +821,13 @@ function HarnessStatusPill({
       : null;
   const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
   const bridge = (data.bridge_status ?? {}) as Record<string, unknown>;
+  const nativeCompact = (data.native_compaction ?? null) as Record<string, unknown> | null;
+  const compactBefore = (nativeCompact?.context_before ?? null) as Record<string, unknown> | null;
+  const compactAfter = (nativeCompact?.context_after ?? null) as Record<string, unknown> | null;
+  const compactTraceId = typeof nativeCompact?.trace_correlation_id === "string" ? nativeCompact.trace_correlation_id : null;
+  const compactSource = typeof nativeCompact?.source === "string" ? nativeCompact.source : null;
+  const compactBeforePct = typeof compactBefore?.remaining_pct === "number" ? `${Math.round(compactBefore.remaining_pct)}%` : null;
+  const compactAfterPct = typeof compactAfter?.remaining_pct === "number" ? `${Math.round(compactAfter.remaining_pct)}%` : null;
   const exportedTools = Array.isArray(bridge.exported_tools) ? bridge.exported_tools.map(String) : [];
   const ignoredClientTools = Array.isArray(bridge.ignored_client_tools) ? bridge.ignored_client_tools.map(String) : [];
   const explicitTools = Array.isArray(bridge.explicit_tool_names) ? bridge.explicit_tool_names.map(String) : [];
@@ -840,9 +847,9 @@ function HarnessStatusPill({
           color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
           fontFamily: "'Menlo', monospace",
         }}
-        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}.`}
+        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}.`}
       >
-        ctx {remainingLabel ?? usageLabel ?? resume}{hints}
+        ctx {remainingLabel ?? usageLabel ?? resume}{remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}{hints}
       </button>
       {open && (
         <div
@@ -858,7 +865,29 @@ function HarnessStatusPill({
           <div className="grid gap-1">
             <div><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
             <div><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{remainingSource ? ` · ${remainingSource}` : ""}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
-            <div><span className="text-text-dim">Native compact</span> {data.native_compaction ? `${String(data.native_compaction.status || "unknown")} · ${String(data.native_compaction.created_at || "")}` : "none observed"}</div>
+            <div>
+              <span className="text-text-dim">Native compact</span>{" "}
+              {nativeCompact
+                ? `${String(nativeCompact.status || "unknown")} · ${String(nativeCompact.created_at || "")}${compactSource ? ` · ${compactSource}` : ""}`
+                : "none observed"}
+            </div>
+            {nativeCompact && (compactBeforePct || compactAfterPct) && (
+              <div>
+                <span className="text-text-dim">Compact estimate</span>{" "}
+                {compactBeforePct || "unknown"} → {compactAfterPct || "unknown"}
+              </div>
+            )}
+            {compactTraceId && (
+              <div>
+                <span className="text-text-dim">Compact trace</span>{" "}
+                <a
+                  href={`/admin/logs/${compactTraceId}`}
+                  className="font-mono text-[10px] text-accent hover:underline"
+                >
+                  {compactTraceId.slice(0, 8)}
+                </a>
+              </div>
+            )}
             <div><span className="text-text-dim">CWD</span> <span className="font-mono text-[10px]">{data.effective_cwd || "unknown"}</span>{data.effective_cwd_source ? ` · ${data.effective_cwd_source}` : ""}</div>
             {projectPathLabel && <div><span className="text-text-dim">Project</span> <span className="font-mono text-[10px]">/{projectPathLabel}</span></div>}
             {data.bot_workspace_dir && <div><span className="text-text-dim">Bot memory root</span> <span className="font-mono text-[10px]">{data.bot_workspace_dir}</span></div>}

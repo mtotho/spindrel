@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-27 (harness stop cancellation)
+updated: 2026-04-27 (Claude bridge tool results)
 ---
 # Track - Harness SDK
 
@@ -117,6 +117,8 @@ What is landing:
 - Slash-command UX has an immediate pending path: remote commands toast as soon as submitted, harness `/compact` inserts a pending transcript card, and native compaction result cards summarize usage with raw JSON hidden behind a details disclosure. Harness status also marks latest native compaction as the context-remaining source when it is newer than the last harness turn.
 - Harness channel settings include native auto-compaction prompts: default on, prompt below 60% remaining context, auto-run native compact below 10% remaining context when telemetry is available.
 - Composer `+ -> Tools` can insert `@tool:<name>` for one-turn bridge exposure. Harness bridge execution is constrained to the exported tool set through `dispatch_tool_call(allowed_tool_names=...)`.
+- Claude Code bridge tools return SDK-native MCP result dicts, not raw strings, and bridge inventory includes pinned plus fetched/enrolled local tools. After a harness discovers a local tool through `get_tool_info` or one-turn `@tool:` exposure, subsequent turns should see it through the same persistent working set normal chat uses.
+- Native compaction has first-class diagnostics: start/completion trace events, before/after context estimates, source, native session id, usage, error payloads, and a ctx-popover trace link. This is the fallback source of truth when the visible compact transcript card is absent or hidden by a rendering bug.
 - Composer `+ -> Skills` / explicit `@skill:<id>` adds a tagged-skill index hint for the turn. Skill bodies remain progressive via bridged `get_skill` / `get_skill_list`; no native `.claude/skills` sync in Phase 5.
 - Harness `/compact` renders an inspectable transcript card with continuity summary preview while still queuing the summary as a one-shot host hint.
 - Claude Code `AskUserQuestion` now routes through a durable Spindrel native card (`core/harness_question`) instead of the SDK's transient prompt surface. The card is a persisted assistant message scoped to the current Spindrel session and renders in both default and terminal chat modes. Answering it writes a suppress-outbox user answer message, resolves the live SDK callback when present, or starts a fresh harness task in the same session if the callback disappeared after restart.

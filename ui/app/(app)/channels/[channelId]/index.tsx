@@ -664,10 +664,6 @@ export default function ChatScreen() {
       setAutoCompactRunning(false);
     }
   }, [currentPlanSessionId, queryClient]);
-  useEffect(() => {
-    if (autoCompactPressure !== "hard" || autoCompactRunning) return;
-    void triggerNativeCompact();
-  }, [autoCompactPressure, autoCompactRunning, triggerNativeCompact]);
   const openNewVisibleSession = useCallback(async () => {
     if (!channelId) return;
     const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
@@ -1777,12 +1773,12 @@ export default function ChatScreen() {
     <div className="px-3 pb-2">
       <div className="rounded-md border border-warning/25 bg-warning/8 p-3 text-xs text-text-muted">
         <div className="mb-1 font-medium text-text">
-          {autoCompactPressure === "hard" ? "Compacting native context" : "Native context is getting full"}
+          {autoCompactPressure === "hard" ? "Native context is critically low" : "Native context is getting full"}
         </div>
         <div className="mb-3 leading-snug">
           {typeof remainingPct === "number" ? `${Math.round(remainingPct)}% context remains. ` : ""}
           {autoCompactPressure === "hard"
-            ? "Spindrel is running Claude native /compact after this turn."
+            ? "Compact now, open a fresh session, or keep going. Spindrel will not compact unless you choose it."
             : "Compact now, open a fresh session, or dismiss this prompt for the current session."}
         </div>
         <div className="flex flex-wrap gap-2">

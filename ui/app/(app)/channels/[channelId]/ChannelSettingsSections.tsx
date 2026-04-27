@@ -776,7 +776,7 @@ export function AgentTabSections({
         >
           <FormRow
             label="Auto-compaction prompts"
-            description="Prompt when remaining native context drops below the soft threshold; hard threshold runs native compact after a turn."
+            description="Prompt when remaining native context drops below the soft threshold; hard threshold makes the prompt urgent but still requires an explicit compact action."
           >
             <Toggle
               value={form.harness_auto_compaction_enabled ?? true}
@@ -802,7 +802,7 @@ export function AgentTabSections({
             </Col>
           </Row>
           <div className="rounded-md bg-surface-overlay p-3 text-xs leading-snug text-text-muted">
-            `/compact` uses Claude native compaction when the SDK supports it. `/new` and `/clear` open a fresh session; they do not delete or rewrite the current one.
+            `/compact` uses native harness compaction when the SDK supports it. Each run records a harness trace with source, native session id, before/after context estimates, usage, and error details. The ctx badge shows the latest compact trace; `/new` and `/clear` open a fresh session without deleting or rewriting the current one.
           </div>
         </Section>
         <MessageRoutingSection form={form} patch={patch} />

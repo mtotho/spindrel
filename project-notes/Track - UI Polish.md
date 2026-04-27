@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-27 (harness stop + terminal approval cards)
+updated: 2026-04-27 (harness context prompt clarity)
 ---
 # Track — UI Polish
 
@@ -215,6 +215,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Harness approval mode moved to the composer footer** — the old header `edits`/`bypass`/`plan` pill is gone. Harness channels now render the same approval mode as colored footer text beside the plan control in terminal and default composers, and clicking it cycles through `session-approval-mode` with the existing backend mutation.
 - [x] **Harness composer mode control is no longer duplicated** — harness chats now suppress the separate `Start plan` composer affordance, leaving the approval-mode footer text as the only bottom-right harness mode control.
 - [x] **Harness approval cards are terminal-aware** — live and orphan harness approval prompts now render with transcript-style inline chrome in terminal mode while default mode keeps the full card treatment.
+- [x] **Harness context-pressure prompts are explicit-only** — hard native-context pressure no longer auto-runs `/compact` from a React effect. The banner stays an urgent prompt, and the ctx badge labels whether remaining context comes from latest-turn telemetry or latest native compaction.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`

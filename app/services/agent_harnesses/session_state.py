@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import Message, Session
+from app.db.models import Message, Session, TraceEvent
 from app.services.agent_harnesses.base import HarnessContextHint
 
 HARNESS_CONTEXT_HINTS_KEY = "harness_context_hints"
@@ -406,6 +406,40 @@ def context_window_from_usage(usage: dict[str, Any] | None) -> int | None:
     return None
 
 
+def _context_snapshot(
+    usage: dict[str, Any] | None,
+    *,
+    context_window_tokens: int | None,
+    source: str,
+) -> dict[str, Any]:
+    return {
+        "source": source,
+        "remaining_pct": estimate_context_remaining_pct(
+            usage,
+            context_window_tokens=context_window_tokens,
+        ),
+        "context_window_tokens": context_window_tokens,
+        "usage": usage if isinstance(usage, dict) else None,
+    }
+
+
+def _native_compaction_snapshot(
+    usage: dict[str, Any] | None,
+    *,
+    context_window_tokens: int | None,
+    source: str,
+) -> dict[str, Any]:
+    return {
+        "source": source,
+        "remaining_pct": estimate_native_compaction_remaining_pct(
+            usage,
+            context_window_tokens=context_window_tokens,
+        ),
+        "context_window_tokens": context_window_tokens,
+        "usage": usage if isinstance(usage, dict) else None,
+    }
+
+
 def harness_compaction_settings(config: dict[str, Any] | None) -> dict[str, Any]:
     raw = (config or {}).get("harness_auto_compaction")
     if not isinstance(raw, dict):
@@ -431,6 +465,14 @@ async def record_native_compaction(
     if session is None:
         raise ValueError(f"session not found: {session_id}")
     status = "completed" if getattr(result, "ok", False) else "failed"
+    result_metadata = getattr(result, "metadata", None) or {}
+    after_context = result_metadata.get("context_after")
+    if not isinstance(after_context, dict):
+        after_context = _native_compaction_snapshot(
+            getattr(result, "usage", None),
+            context_window_tokens=context_window_from_usage(getattr(result, "usage", None)),
+            source="native_compaction",
+        )
     payload = {
         "status": status,
         "runtime": runtime,
@@ -439,7 +481,10 @@ async def record_native_compaction(
         "detail": getattr(result, "detail", "") or "",
         "usage": getattr(result, "usage", None),
         "error": getattr(result, "error", None),
-        "metadata": getattr(result, "metadata", None) or {},
+        "metadata": result_metadata,
+        "context_before": result_metadata.get("context_before") if isinstance(result_metadata.get("context_before"), dict) else None,
+        "context_after": after_context,
+        "trace_correlation_id": result_metadata.get("trace_correlation_id") if isinstance(result_metadata.get("trace_correlation_id"), str) else None,
         "created_at": _now_iso(),
     }
     meta = dict(session.metadata_ or {})
@@ -465,6 +510,9 @@ async def record_native_compaction(
                 "native_session_id": payload["session_id"],
                 "error": payload["error"],
                 "metadata": payload["metadata"],
+                "context_before": payload["context_before"],
+                "context_after": payload["context_after"],
+                "trace_correlation_id": payload["trace_correlation_id"],
             },
             "harness_compaction": payload,
             "sender_type": "bot",
@@ -474,6 +522,24 @@ async def record_native_compaction(
         created_at=datetime.now(timezone.utc),
     )
     db.add(row)
+    db.add(TraceEvent(
+        correlation_id=uuid.UUID(payload["trace_correlation_id"]) if payload.get("trace_correlation_id") else None,
+        session_id=session_id,
+        bot_id=session.bot_id,
+        client_id=session.client_id,
+        event_type="harness_native_compaction",
+        event_name=status,
+        data={
+            "runtime": runtime,
+            "source": source,
+            "native_session_id": payload["session_id"],
+            "context_before": payload["context_before"],
+            "context_after": payload["context_after"],
+            "usage": payload["usage"],
+            "error": payload["error"],
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
     await db.commit()
     return payload
 
@@ -522,14 +588,38 @@ async def run_native_harness_compact(
     )
     harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
     prior_harness_session_id = (harness_meta or {}).get("session_id")
+    prior_usage = (harness_meta or {}).get("usage") if isinstance(harness_meta, dict) else None
+    prior_window = context_window_from_usage(prior_usage)
+    context_before = _context_snapshot(
+        prior_usage if isinstance(prior_usage, dict) else None,
+        context_window_tokens=prior_window,
+        source="last_turn",
+    )
     permission_mode = await load_session_mode(db, session_id)
     settings = await load_session_settings(db, session_id)
+    trace_correlation_id = uuid.uuid4()
+    db.add(TraceEvent(
+        correlation_id=trace_correlation_id,
+        session_id=session_id,
+        bot_id=bot.id,
+        client_id=session.client_id,
+        event_type="harness_native_compaction",
+        event_name="started",
+        data={
+            "runtime": runtime_name,
+            "source": source,
+            "native_session_id": prior_harness_session_id,
+            "context_before": context_before,
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.flush()
 
     ctx = build_turn_context(
         spindrel_session_id=session_id,
         channel_id=session.channel_id or session.parent_channel_id,
         bot_id=bot.id,
-        turn_id=uuid.uuid4(),
+        turn_id=trace_correlation_id,
         workdir=harness_paths.workdir,
         harness_session_id=prior_harness_session_id,
         permission_mode=permission_mode,
@@ -539,6 +629,21 @@ async def run_native_harness_compact(
         runtime_settings=settings.runtime_settings,
     )
     result = await compact(ctx=ctx)
+    result_metadata = dict(getattr(result, "metadata", None) or {})
+    result_metadata.setdefault("trace_correlation_id", str(trace_correlation_id))
+    result_metadata.setdefault("context_before", context_before)
+    result_metadata.setdefault(
+        "context_after",
+        _native_compaction_snapshot(
+            getattr(result, "usage", None),
+            context_window_tokens=context_window_from_usage(getattr(result, "usage", None)) or prior_window,
+            source="native_compaction",
+        ),
+    )
+    try:
+        result.metadata = result_metadata
+    except Exception:
+        pass
     return await record_native_compaction(
         db,
         session_id,

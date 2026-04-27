@@ -158,3 +158,49 @@ def test_bridge_inventory_includes_pinned_and_enrolled_tools():
         "fetched_tool",
     ]
     assert inventory.errors == ()
+
+
+def test_bridge_inventory_enrolls_explicit_tool_tags():
+    bot = BotConfig(
+        id="harness-bot",
+        name="Harness Bot",
+        model="claude-sonnet-4-6",
+        system_prompt="",
+    )
+    enroll = AsyncMock(return_value=1)
+
+    with (
+        patch("app.services.agent_harnesses.tools.get_bot", return_value=bot),
+        patch(
+            "app.services.agent_harnesses.tools.resolve_effective_tools",
+            return_value=EffectiveTools(),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.apply_auto_injections",
+            side_effect=lambda eff, _bot: eff,
+        ),
+        patch("app.services.tool_enrollment.enroll_many", new=enroll),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=["create_excalidraw"]),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.get_local_tool_schemas",
+            return_value=[_schema("create_excalidraw")],
+        ) as schemas,
+        patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
+    ):
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+                explicit_tool_names=("create_excalidraw",),
+            )
+        )
+
+    enroll.assert_awaited_once()
+    assert enroll.call_args.args[:2] == ("harness-bot", ("create_excalidraw",))
+    assert enroll.call_args.kwargs["source"] == "manual"
+    assert schemas.call_args.args[0] == ["create_excalidraw"]
+    assert [spec.name for spec in inventory.specs] == ["create_excalidraw"]
