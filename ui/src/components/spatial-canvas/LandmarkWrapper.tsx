@@ -6,10 +6,14 @@ import {
   type ReactNode,
 } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import {
+  NODES_KEY,
   useLandmarkNode,
   useUpdateSpatialNode,
   type LandmarkKind,
+  type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
 import { canMoveSpatialNode, type SpatialInteractionMode } from "./spatialInteraction";
 
@@ -56,6 +60,7 @@ export function LandmarkWrapper({
 }: LandmarkWrapperProps) {
   const node = useLandmarkNode(kind);
   const updateNode = useUpdateSpatialNode();
+  const qc = useQueryClient();
   const x = node?.world_x ?? fallbackX;
   const y = node?.world_y ?? fallbackY;
 
@@ -120,17 +125,30 @@ export function LandmarkWrapper({
         /* already released */
       }
       const { dx, dy } = drag;
+      if (dx === 0 && dy === 0) {
+        setDrag(null);
+        return;
+      }
+      const newX = node.world_x + dx / scale;
+      const newY = node.world_y + dy / scale;
+      // Write the new coords into the React Query cache SYNCHRONOUSLY before
+      // clearing drag state. Without this, the wrapper re-renders with
+      // `drag=null` and the still-old `node.world_x/y` for one frame —
+      // visible as a snap back to the original position — because
+      // `useUpdateSpatialNode.onMutate` defers its optimistic update behind
+      // an `await cancelQueries(...)`.
+      qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
+        (old ?? []).map((n) =>
+          n.id === node.id ? { ...n, world_x: newX, world_y: newY } : n,
+        ),
+      );
       setDrag(null);
-      if (dx === 0 && dy === 0) return;
       updateNode.mutate({
         nodeId: node.id,
-        body: {
-          world_x: node.world_x + dx / scale,
-          world_y: node.world_y + dy / scale,
-        },
+        body: { world_x: newX, world_y: newY },
       });
     },
-    [drag, node, scale, updateNode],
+    [drag, node, scale, qc, updateNode],
   );
 
   const draggingTransform = drag

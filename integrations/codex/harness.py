@@ -303,7 +303,7 @@ class CodexRuntime:
             status = AuthStatus(
                 ok=False,
                 detail="Auth check skipped (running inside an event loop).",
-                suggested_command="codex login",
+                suggested_command="codex login --device-auth",
             )
         _AUTH_STATUS_CACHE[self.name] = (time.monotonic(), status)
         return status
@@ -383,12 +383,12 @@ async def _check_auth_status() -> AuthStatus:
                     return AuthStatus(
                         ok=False,
                         detail="Run `codex login` to authenticate.",
-                        suggested_command="codex login",
+                        suggested_command="codex login --device-auth",
                     )
                 return AuthStatus(
                     ok=False,
                     detail=f"codex account/read failed: {exc.message}",
-                    suggested_command="codex login",
+                    suggested_command="codex login --device-auth",
                 )
     except CodexBinaryNotFound as exc:
         return AuthStatus(
@@ -400,14 +400,14 @@ async def _check_auth_status() -> AuthStatus:
         return AuthStatus(
             ok=False,
             detail=f"codex auth probe failed: {exc}",
-            suggested_command="codex login",
+            suggested_command="codex login --device-auth",
         )
     if isinstance(result, dict):
         if not result.get("account") and result.get("requiresOpenaiAuth"):
             return AuthStatus(
                 ok=False,
                 detail="Run `codex login` to authenticate.",
-                suggested_command="codex login",
+                suggested_command="codex login --device-auth",
             )
         account = result.get("account") or {}
     else:

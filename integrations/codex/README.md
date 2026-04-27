@@ -11,11 +11,14 @@ prerequisite, and this integration spawns it as a subprocess.
    `integration.yaml`'s `dependencies.npm`) into
    `~/.local/bin/codex`. Set `CODEX_BIN=/path/to/codex` only if the
    binary lives somewhere else.
-2. **Authenticate** by running `codex login` once inside the Spindrel
-   container. From the Spindrel host:
+2. **Authenticate** by running `codex login --device-auth` inside the
+   Spindrel container. The default `codex login` opens a localhost
+   redirect URL that a browser running on the host can't reach into the
+   container — `--device-auth` prints a code you paste into
+   https://chatgpt.com/codex/auth from any browser instead.
 
    ```sh
-   docker exec -it spindrel codex login
+   docker exec -it spindrel codex login --device-auth
    ```
 
    The binary persists credentials at the standard path it controls
