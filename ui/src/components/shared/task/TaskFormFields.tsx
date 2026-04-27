@@ -10,7 +10,7 @@ import type { StepDef } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
 import { PromptTemplateLink } from "../PromptTemplateLink";
 import { WorkspaceFilePrompt } from "../WorkspaceFilePrompt";
-import { FormRow, Toggle } from "../FormControls";
+import { FormRow, SelectInput, Toggle } from "../FormControls";
 import { LlmModelDropdown } from "../LlmModelDropdown";
 import { FallbackModelList } from "../FallbackModelList";
 import { TriggerSection, type TriggerConfig } from "../TriggerSection";
@@ -206,6 +206,7 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     selectedSkillIds, setSelectedSkillIds,
     selectedToolKeys, setSelectedToolKeys,
     modelOverride, setModelOverride,
+    harnessEffort, setHarnessEffort,
     fallbackModels, setFallbackModels,
     bots, channels, skillOptions, allTools,
     isCreate,
@@ -314,6 +315,20 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
             allowClear
           />
         </FormRow>
+        {form.selectedBot?.harness_runtime && (
+          <FormRow label="Harness Effort">
+            <SelectInput
+              value={harnessEffort || ""}
+              onChange={(value) => setHarnessEffort(value || "")}
+              options={[
+                { label: "inherit", value: "" },
+                { label: "low", value: "low" },
+                { label: "medium", value: "medium" },
+                { label: "high", value: "high" },
+              ]}
+            />
+          </FormRow>
+        )}
         <FormRow label="Fallback Models">
           <FallbackModelList
             value={fallbackModels}

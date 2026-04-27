@@ -93,6 +93,7 @@ export interface TaskDetail {
   step_states?: StepState[] | null;
   model_override?: string | null;
   model_provider_id_override?: string | null;
+  harness_effort?: string | null;
   fallback_models?: { model: string; provider_id?: string | null }[] | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
@@ -129,6 +130,7 @@ export interface TaskCreatePayload {
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
+  harness_effort?: string | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
   trigger_config?: Record<string, any> | null;
@@ -157,6 +159,7 @@ export interface TaskUpdatePayload {
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
+  harness_effort?: string | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
   trigger_config?: Record<string, any> | null;

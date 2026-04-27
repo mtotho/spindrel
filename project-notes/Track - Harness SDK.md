@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-27 (Phase 6 stabilization — harness metadata context regression fixed)
+updated: 2026-04-27 (scheduled harness turns + read-state follow-up)
 ---
 # Track - Harness SDK
 
@@ -17,7 +17,7 @@ This track covers the stable host contract used by Claude Code and Codex today, 
 - Claude Code and Codex are both implemented harness runtimes. They live in `integrations/claude_code/harness.py` and `integrations/codex/harness.py`.
 - Harness discovery/registration lives under `app/services/agent_harnesses`; active integration harness modules register runtime instances on import.
 - Harness bots reuse standard Spindrel bot workspaces. The bot workspace directory is the harness cwd.
-- A harness turn bypasses normal Spindrel context assembly, model selection, prompt injection, skills, knowledge bases, memory, and fanout. Host hints, manual compact continuity summaries, and selected Spindrel tools now have narrow bridge paths back into the runtime.
+- A harness turn bypasses normal Spindrel context assembly, prompt injection, skills, knowledge bases, memory, and fanout. Host hints, manual compact continuity summaries, selected Spindrel tools, and per-run model/effort overrides now have narrow bridge paths back into the runtime.
 - Spindrel currently streams assistant text and live tool breadcrumbs into the channel, persists the final assistant message with tool breadcrumbs, and stores harness resume/cost metadata on assistant-message metadata for the Spindrel session.
 - Phase 2 shipped the in-app terminal and per-session resume keying, plus a broad auto-approve `can_use_tool` shim so Claude Code does not stall on SDK permission prompts.
 - Known-secret and common-pattern redaction now applies at the host boundary for harness streams and persisted final assistant text. Native harness tools still execute outside Spindrel's tool dispatcher, so a token printed by the harness should be treated as compromised even if the UI/transcript redacts it afterward.
@@ -29,6 +29,7 @@ This track covers the stable host contract used by Claude Code and Codex today, 
 - Runtime implementations live in `integrations/<id>/`; shared host contracts live in `app/services/agent_harnesses` and are re-exported through `integrations.sdk`.
 - No Claude-only tool names or permission assumptions belong in core `app/` abstractions. Runtime adapters own tool classification and SDK-specific translation.
 - Harness settings are session-scoped first. Multi-pane, scratch-session, and concurrent-session views must not accidentally mutate the channel primary. `channel.active_session_id` means primary/mirrored integration session only; web UI commands and harness controls must target the current component/querystring session id when one is present, falling back to `active_session_id` only when no explicit session is supplied.
+- Scheduled harness runs inherit the target session's model/effort settings unless the heartbeat/task explicitly supplies per-run overrides. Per-run overrides must not mutate `Session.metadata_['harness_settings']`.
 - Normal bot/channel tool pickers remain visible for harness bots. For harnesses they define the Spindrel bridge tool set, not normal-loop context injection.
 - Existing Spindrel model/provider controls are not automatically valid for harnesses. Each runtime exposes its own supported controls and value hints.
 - Harness-native tools remain native. If Spindrel tools are later exposed to a harness, they must execute through the existing Spindrel dispatch, policy, approval, trace, and widget-result paths.
@@ -105,7 +106,7 @@ What is landing:
 - `/new` and `/clear` open a fresh Spindrel session without deleting the old one. They are generic chat-session commands, not harness-only commands, and they do not mutate the channel primary/default pointer.
 - Harness `/context` reports native harness state: runtime, selected model, approval mode, resume id, pending host hints, last turn, compact reset, and usage metadata.
 - Bare harness `/model` and `/effort` render interactive picker cards; direct `/model <id>` and `/effort <level>` still mutate session settings.
-- Heartbeats now have a `ChannelHeartbeat.runner_mode` switch. Harness channels default to harness hint mode, which stores the heartbeat prompt/preamble as a one-shot hint for the channel's primary session; opting into the Spindrel-agent runner exposes the normal heartbeat model/workflow/dispatch controls and requires an explicit heartbeat model.
+- Heartbeats now have a `ChannelHeartbeat.runner_mode` switch. Harness channels default to harness-runner mode, which executes a real harness turn in the channel's primary session; opting into the Spindrel-agent runner exposes the normal heartbeat workflow/dispatch controls and requires an explicit heartbeat model. Harness heartbeat model/effort are per-run overrides and blank means inherit session/runtime defaults.
 - Channel settings now hide normal-loop prompt/model/RAG/memory/context surfaces for harness bots and show runtime-oriented controls instead. Tool enrollment stays visible and is labeled as the Spindrel bridge source.
 - Harness composer plan control is the canonical visible plan affordance; header duplicate state stays out of the harness chrome.
 - Pending durable `core/harness_question` cards now get a sticky lane immediately above the composer in default and terminal chat modes, and freeform send is blocked until the pending interaction is answered.
@@ -120,12 +121,13 @@ What is landing:
 - Harness `/compact` renders an inspectable transcript card with continuity summary preview while still queuing the summary as a one-shot host hint.
 - Claude Code `AskUserQuestion` now routes through a durable Spindrel native card (`core/harness_question`) instead of the SDK's transient prompt surface. The card is a persisted assistant message scoped to the current Spindrel session and renders in both default and terminal chat modes. Answering it writes a suppress-outbox user answer message, resolves the live SDK callback when present, or starts a fresh harness task in the same session if the callback disappeared after restart.
 - Harness live tool breadcrumbs are now persisted on the synthetic assistant message as canonical `tool_calls` plus `assistant_turn_body`, so refresh keeps the native tool transcript instead of collapsing to final text only.
+- 2026-04-27 follow-up: scheduled tasks targeting harness bots now run through `_run_harness_turn` instead of the normal Spindrel LLM loop. Task `model_override` and `harness_effort` live in `execution_config` as per-run overrides, with channel-targeted tasks resolving the channel's current primary session before execution.
 
 Open verification:
 
 - Smoke test the Claude SDK MCP helper names on the deployed harness image. The code degrades by disabling the bridge if the installed SDK lacks `create_sdk_mcp_server` / `tool`, but the exact helper signature needs runtime verification.
 - Exercise a mutating bridged tool in ask mode and verify the existing Spindrel approval card flow resolves back into the harness tool result.
-- Decide whether heartbeat hints should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
+- Decide whether scheduled harness turns should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
 - Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
 - Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
 

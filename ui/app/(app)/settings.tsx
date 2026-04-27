@@ -22,6 +22,7 @@ import { PageHeader } from "@/src/components/layout/PageHeader";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { type FallbackModelEntry } from "@/src/components/shared/FallbackModelList";
 import { Section } from "@/src/components/shared/FormControls";
+import { useUnreadRules, useUpdateUnreadRule } from "@/src/api/hooks/useUnread";
 import {
   useSettings,
   useUpdateSettings,
@@ -607,6 +608,124 @@ function NotificationsSection() {
   );
 }
 
+function UnreadNotificationsSection() {
+  const t = useThemeTokens();
+  const rulesQuery = useUnreadRules();
+  const updateRule = useUpdateUnreadRule();
+  const globalRule = rulesQuery.data?.rules.find((rule) => rule.channel_id === null);
+  const targetIds = globalRule?.target_ids ?? [];
+  const enabled = globalRule?.enabled ?? true;
+  const immediateEnabled = globalRule?.immediate_enabled ?? true;
+  const reminderEnabled = globalRule?.reminder_enabled ?? true;
+  const reminderDelay = globalRule?.reminder_delay_minutes ?? 5;
+  const targets = rulesQuery.data?.targets ?? [];
+
+  const saveRule = (patch: Partial<{
+    enabled: boolean;
+    target_ids: string[];
+    immediate_enabled: boolean;
+    reminder_enabled: boolean;
+    reminder_delay_minutes: number;
+  }>) => {
+    updateRule.mutate({
+      channel_id: null,
+      enabled,
+      target_mode: "inherit",
+      target_ids: targetIds,
+      immediate_enabled: immediateEnabled,
+      reminder_enabled: reminderEnabled,
+      reminder_delay_minutes: reminderDelay,
+      preview_policy: globalRule?.preview_policy ?? "short",
+      ...patch,
+    });
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 0" }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Bell size={16} color={enabled ? t.accent : t.textMuted} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>Unread agent replies</span>
+          </div>
+          <span style={{ fontSize: 11, color: t.textDim, paddingLeft: 26 }}>
+            Notify when an agent replies in a session you do not have open.
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => saveRule({ enabled: !enabled })}
+          disabled={updateRule.isPending}
+          style={{
+            background: enabled ? t.accent : "transparent",
+            border: enabled ? "none" : `1px solid ${t.surfaceBorder}`,
+            borderRadius: 6,
+            padding: "6px 14px",
+            color: enabled ? "#fff" : t.text,
+            fontSize: 13,
+            fontWeight: 500,
+            opacity: updateRule.isPending ? 0.5 : 1,
+          }}
+        >
+          {enabled ? "Enabled" : "Disabled"}
+        </button>
+      </div>
+      {targets.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 26 }}>
+          <span style={{ fontSize: 11, color: t.textDim }}>Targets</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {targets.map((target) => {
+              const selected = targetIds.includes(target.id);
+              return (
+                <button
+                  key={target.id}
+                  type="button"
+                  onClick={() => saveRule({
+                    target_ids: selected
+                      ? targetIds.filter((id) => id !== target.id)
+                      : [...targetIds, target.id],
+                  })}
+                  style={{
+                    border: `1px solid ${selected ? t.accent : t.surfaceBorder}`,
+                    borderRadius: 6,
+                    background: selected ? t.accentSubtle : "transparent",
+                    color: selected ? t.accent : t.textMuted,
+                    padding: "4px 8px",
+                    fontSize: 11,
+                  }}
+                >
+                  {target.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, paddingLeft: 26 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: t.textMuted }}>
+          <input type="checkbox" checked={immediateEnabled} onChange={(e) => saveRule({ immediate_enabled: e.target.checked })} />
+          Immediate
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: t.textMuted }}>
+          <input type="checkbox" checked={reminderEnabled} onChange={(e) => saveRule({ reminder_enabled: e.target.checked })} />
+          Reminder
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: t.textMuted }}>
+          Delay
+          <input
+            type="number"
+            min={1}
+            value={reminderDelay}
+            onChange={(e) => saveRule({ reminder_delay_minutes: Math.max(1, Number(e.target.value) || 5) })}
+            style={{ width: 54, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5, background: "transparent", color: t.text, padding: "3px 5px" }}
+          />
+          min
+        </label>
+      </div>
+    </div>
+  );
+}
+
 /** Install-as-app affordance. Only renders when the browser has fired
  *  `beforeinstallprompt` — Chrome/Edge on desktop and Android. Silent on
  *  iOS Safari (users install via Share → Add to Home Screen) and when the
@@ -821,6 +940,7 @@ export default function SettingsScreen() {
           {isGlobal && <AppearanceSection />}
           {isGlobal && <InstallAppSection />}
           {isGlobal && <NotificationsSection />}
+          {isGlobal && <UnreadNotificationsSection />}
           {isGlobal && (
             <>
               <GlobalSection fbModels={fbModels} onFbChange={handleFbChange} onFbSave={handleFbSave} fbDirty={fbDirty} fbSaving={fbUpdateMut.isPending} fbSaved={fbSaved} fbError={fbUpdateMut.isError} fbLoading={fbQuery.isLoading} />

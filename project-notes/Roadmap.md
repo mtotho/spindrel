@@ -42,8 +42,8 @@ Full detail in [[Completed Tracks]].
 | Area | Latest | One-line | Track |
 |---|---|---|---|
 | System Health Visibility | shipped 2026-04-26 | Rotating JSONL log handler + `read_container_logs` / `get_recent_server_errors` tools + deterministic daily summary + `DailyHealthLandmark` canvas marker | (in [[Architecture Decisions]]) |
-| Harness SDK | 2026-04-27 | External agent harnesses as a real runtime lane. Phases 3–6 v1 (Codex via `codex app-server`) shipped; verification + telemetry + skill bridge remain | [[Track - Harness SDK]] |
-| Notifications | 2026-04-26 | Reusable targets (`user_push`/`channel`/`integration_binding`/`group`), audit history, admin UI, bot-callable tools, Usage Alerts migrated | [[Track - Notifications]] |
+| Harness SDK | 2026-04-27 | External agent harnesses as a real runtime lane. Phases 3–6 v1 shipped; scheduled harness heartbeats/tasks now run real harness turns with per-run model/effort | [[Track - Harness SDK]] |
+| Notifications | 2026-04-27 | Reusable targets plus durable per-user/session unread read-state, cross-session UI badges/toasts, and unread reminder plumbing | [[Track - Notifications]] |
 | Spatial Canvas | 2026-04-26 | Workspace-scope infinite plane replacing `HomeGrid`. Channels as draggable tiles, bots as actors, Attention Beacons, zoom-dive to dashboards. `Ctrl+Shift+Space` toggles overlay | [[Track - Spatial Canvas]] |
 | Integration Contract | 2026-04-23 | Canonical guide at `docs/guides/integrations.md`; `chat_hud` retired in favor of dashboard widgets; `integration_id == "x"` boundary fixes via hook registry; pytest drift gate | [[Track - Integration Contract]] |
 | Integration Rich Results | 2026-04-24 | Slack-led v1: `rich_tool_results` capability, `tool_result_rendering` matrix, SDK portable-card boundary, Slack Block Kit + approval split + depth contract tests | [[Track - Integration Rich Results]] |

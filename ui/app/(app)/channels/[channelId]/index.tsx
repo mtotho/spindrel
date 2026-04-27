@@ -16,7 +16,6 @@ import { MessageInput } from "@/src/components/chat/MessageInput";
 import { ChatComposerShell } from "@/src/components/chat/ChatComposerShell";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore, defaultChannelPanelPrefs, type OmniPanelTab } from "@/src/stores/ui";
-import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -111,6 +110,7 @@ import {
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
 import { channelSessionCatalogKey, useChannelSessionCatalog, usePromoteScratchSession } from "@/src/api/hooks/useChannelSessions";
+import { useMarkRead, useMarkSessionVisible } from "@/src/api/hooks/useUnread";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
 
@@ -242,12 +242,8 @@ export default function ChatScreen() {
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
 
-  const markRead = useChannelReadStore((s) => s.markRead);
-
-  // Mark channel as read on mount / channel switch
-  useEffect(() => {
-    if (channelId) markRead(channelId);
-  }, [channelId]);
+  const markChannelRead = useMarkRead();
+  const markSessionVisible = useMarkSessionVisible();
 
   // Auto-collapse the global sidebar to its rail whenever the user enters a
   // chat. Maximises horizontal room for the centered chat column; the rail's
@@ -454,6 +450,24 @@ export default function ChatScreen() {
     scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
   );
   const currentBudgetSessionId = routeSessionId ?? channel?.active_session_id ?? null;
+  useEffect(() => {
+    const visibleSessionId = routeSessionId ?? channel?.active_session_id ?? null;
+    if (visibleSessionId) {
+      markSessionVisible.mutate({
+        session_id: visibleSessionId,
+        surface: routeSessionId ? "session_route" : "channel_primary",
+        mark_read: true,
+      });
+      return;
+    }
+    if (channelId) {
+      markChannelRead.mutate({
+        channel_id: channelId,
+        source: "web_channel_open",
+        surface: "channel",
+      });
+    }
+  }, [channelId, channel?.active_session_id, routeSessionId]);
   const { data: savedBudget } = useChannelContextBudget(channelId, currentBudgetSessionId);
   const { data: sessionHeaderStats } = useSessionHeaderStats(channelId, currentBudgetSessionId);
   const handleExitSessionRoute = useCallback(() => {

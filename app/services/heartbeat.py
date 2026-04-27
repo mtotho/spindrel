@@ -769,12 +769,34 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
     result_text = None
     error_text = None
     if _is_harness_heartbeat_runner(hb, channel):
+        lock_acquired = False
         try:
             if session_id is None:
-                raise RuntimeError("Harness heartbeat has no primary session to receive context hint")
-            from app.services.agent_harnesses.session_state import add_context_hint
+                raise RuntimeError("Harness heartbeat has no primary session to run")
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.payloads import TurnEndedPayload, TurnStartedPayload
+            from app.services import session_locks
+            from app.services.channel_events import publish_typed
+            from app.services.turn_worker import _run_harness_turn
+            from app.agent.bots import get_bot
 
-            hint_text = "\n\n".join(
+            if not session_locks.acquire(session_id):
+                async with async_session() as db:
+                    heartbeat = await db.get(ChannelHeartbeat, hb.id)
+                    if heartbeat:
+                        heartbeat.next_run_at = now + timedelta(minutes=1)
+                        heartbeat.updated_at = datetime.now(timezone.utc)
+                    run_rec = await db.get(HeartbeatRun, run_id)
+                    if run_rec:
+                        run_rec.completed_at = datetime.now(timezone.utc)
+                        run_rec.result = "Harness heartbeat deferred because the primary session is busy."
+                        run_rec.correlation_id = correlation_id
+                        run_rec.status = "deferred"
+                    await db.commit()
+                return
+            lock_acquired = True
+
+            harness_prompt = "\n\n".join(
                 part
                 for part in [
                     heartbeat_preamble,
@@ -782,22 +804,60 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 ]
                 if part and part.strip()
             )
-            async with async_session() as db:
-                await add_context_hint(
-                    db,
-                    session_id,
-                    kind="heartbeat",
-                    text=hint_text,
-                    source=f"heartbeat:{hb.id}",
-                    consume_after_next_turn=True,
-                )
-            result_text = (
-                "Stored scheduled heartbeat context as a one-shot harness hint "
-                "for the next user-driven turn."
+            bot = get_bot(bot_id)
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.TURN_STARTED,
+                    payload=TurnStartedPayload(
+                        bot_id=bot.id,
+                        turn_id=correlation_id,
+                        reason="heartbeat",
+                        session_id=session_id,
+                    ),
+                ),
+            )
+            result_text, error_text = await _run_harness_turn(
+                channel_id=channel_id,
+                bus_key=channel_id,
+                session_id=session_id,
+                turn_id=correlation_id,
+                bot=bot,
+                user_message=harness_prompt,
+                correlation_id=correlation_id,
+                msg_metadata={
+                    "source": "heartbeat",
+                    "heartbeat_id": str(hb.id),
+                    "heartbeat_run_id": str(run_id),
+                    "is_heartbeat": True,
+                },
+                pre_user_msg_id=None,
+                suppress_outbox=not bool(hb.dispatch_results),
+                harness_model_override=(hb.model or None),
+                harness_effort_override=(getattr(hb, "harness_effort", None) or None),
+            )
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.TURN_ENDED,
+                    payload=TurnEndedPayload(
+                        bot_id=bot.id,
+                        turn_id=correlation_id,
+                        result=result_text,
+                        error=error_text,
+                        kind_hint="heartbeat",
+                        session_id=session_id,
+                    ),
+                ),
             )
         except Exception as exc:
-            logger.exception("Heartbeat %s harness hint injection failed", hb.id)
+            logger.exception("Heartbeat %s harness run failed", hb.id)
             error_text = str(exc)[:4000]
+        finally:
+            if lock_acquired and session_id is not None:
+                session_locks.release(session_id)
 
         async with async_session() as db:
             run_rec = await db.get(HeartbeatRun, run_id)

@@ -343,6 +343,7 @@ export function HeartbeatTab({
         append_spatial_map_overview: data.config.append_spatial_map_overview ?? false,
         include_pinned_widgets: data.config.include_pinned_widgets ?? false,
         runner_mode: data.config.runner_mode ?? null,
+        harness_effort: data.config.harness_effort ?? "",
         effective_runner_mode: data.config.effective_runner_mode ?? (isHarnessChannel ? "harness" : "spindrel"),
         execution_policy: normalizeExecutionPolicy(
           data.config.execution_policy,
@@ -382,6 +383,7 @@ export function HeartbeatTab({
         append_spatial_map_overview: false,
         include_pinned_widgets: false,
         runner_mode: null,
+        harness_effort: "",
         effective_runner_mode: isHarnessChannel ? "harness" : "spindrel",
         execution_policy: normalizeExecutionPolicy(
           null,
@@ -471,6 +473,7 @@ export function HeartbeatTab({
       append_spatial_map_overview: source.append_spatial_map_overview ?? false,
       include_pinned_widgets: source.include_pinned_widgets ?? false,
       runner_mode: source.runner_mode ?? null,
+      harness_effort: source.harness_effort ?? "",
       effective_runner_mode: source.effective_runner_mode ?? (isHarnessChannel ? "harness" : "spindrel"),
       execution_policy: normalizeExecutionPolicy(
         source.execution_policy,
@@ -503,6 +506,7 @@ export function HeartbeatTab({
       append_spatial_map_overview: false,
       include_pinned_widgets: false,
       runner_mode: null,
+      harness_effort: "",
       effective_runner_mode: isHarnessChannel ? "harness" : "spindrel",
       execution_policy: normalizeExecutionPolicy(
         null,
@@ -731,7 +735,40 @@ export function HeartbeatTab({
         </Section>
 
         {/* ---- Model Section ---- */}
-        {!isHarnessRunner && <Section title="Model">
+        {isHarnessRunner ? (
+          <Section title="Harness Model">
+            <Row stack={isMobile}>
+              <Col minWidth={isMobile ? 0 : 220}>
+                <LlmModelDropdown
+                  label="Submodel"
+                  value={hbForm.model ?? ""}
+                  selectedProviderId={hbForm.model_provider_id ?? null}
+                  onChange={(v, providerId) => updateHbForm((f: any) => ({
+                    ...f,
+                    model: v,
+                    model_provider_id: v ? (providerId ?? null) : null,
+                  }))}
+                  placeholder="inherit from harness session"
+                  allowClear
+                />
+              </Col>
+              <Col minWidth={isMobile ? 0 : 180}>
+                <FormRow label="Effort">
+                  <SelectInput
+                    value={hbForm.harness_effort || ""}
+                    onChange={(v) => updateHbForm((f: any) => ({ ...f, harness_effort: v || "" }))}
+                    options={[
+                      { label: "inherit", value: "" },
+                      { label: "low", value: "low" },
+                      { label: "medium", value: "medium" },
+                      { label: "high", value: "high" },
+                    ]}
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+          </Section>
+        ) : <Section title="Model">
           <Row stack={isMobile}>
             <Col minWidth={isMobile ? 0 : 200}>
               <LlmModelDropdown

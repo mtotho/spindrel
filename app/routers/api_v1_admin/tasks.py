@@ -70,6 +70,7 @@ class TaskDetailOut(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
+    harness_effort: Optional[str] = None
     trigger_rag_loop: bool = False
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
@@ -96,6 +97,8 @@ class TaskDetailOut(BaseModel):
             self.model_provider_id_override = ec.get("model_provider_id_override") or cb.get("model_provider_id_override") or None
         if self.fallback_models is None:
             self.fallback_models = ec.get("fallback_models") or cb.get("fallback_models") or None
+        if self.harness_effort is None:
+            self.harness_effort = ec.get("harness_effort") or None
         if not self.trigger_rag_loop:
             self.trigger_rag_loop = cb.get("trigger_rag_loop", False)
         return self
@@ -123,6 +126,7 @@ class TaskCreateIn(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
+    harness_effort: Optional[str] = None
     max_run_seconds: Optional[int] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
@@ -178,6 +182,7 @@ class TaskUpdateIn(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
+    harness_effort: Optional[str] = None
     max_run_seconds: Optional[int] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
@@ -388,6 +393,7 @@ async def admin_list_tasks(
             "correlation_id": str(cid) if cid else None,
             "model_override": ec.get("model_override") or cb.get("model_override"),
             "model_provider_id_override": ec.get("model_provider_id_override") or cb.get("model_provider_id_override"),
+            "harness_effort": ec.get("harness_effort"),
             "trigger_rag_loop": cb.get("trigger_rag_loop", False),
             "workflow_run_id": cb.get("workflow_run_id"),
             "workflow_step_index": cb.get("workflow_step_index"),
@@ -608,6 +614,8 @@ async def admin_create_task(
         ec_extras["model_provider_id_override"] = body.model_provider_id_override
     if body.fallback_models:
         ec_extras["fallback_models"] = body.fallback_models
+    if body.harness_effort:
+        ec_extras["harness_effort"] = body.harness_effort
     if body.skills:
         ec_extras["skills"] = body.skills
     if body.tools:
@@ -736,7 +744,7 @@ async def admin_update_task(
         sa_attributes.flag_modified(task, "callback_config")
 
     ec_fields = {
-        "model_override", "model_provider_id_override", "fallback_models",
+        "model_override", "model_provider_id_override", "fallback_models", "harness_effort",
         "skills", "tools",
         "post_final_to_channel", "history_mode", "history_recent_count",
     }
@@ -748,6 +756,8 @@ async def admin_update_task(
             ec["model_provider_id_override"] = updates["model_provider_id_override"] or None
         if "fallback_models" in updates:
             ec["fallback_models"] = updates["fallback_models"] or None
+        if "harness_effort" in updates:
+            ec["harness_effort"] = updates["harness_effort"] or None
         if "skills" in updates:
             ec["skills"] = updates["skills"] or None
         if "tools" in updates:

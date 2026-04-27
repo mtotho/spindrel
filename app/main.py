@@ -742,6 +742,8 @@ async def lifespan(application: FastAPI):
     _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
     from app.services.workspace_attention import structured_attention_worker
     _workers.append(safe_create_task(structured_attention_worker(), name="workspace_attention"))
+    from app.services.unread import unread_reminder_worker
+    _workers.append(safe_create_task(unread_reminder_worker(), name="unread_reminders"))
 
     # Heartbeat startup recovery — same crash-gap shape as outbox: a
     # HeartbeatRun row flipped to ``status='running'`` that never reached
@@ -783,6 +785,8 @@ async def lifespan(application: FastAPI):
         # this ensures clean subscriber cleanup for any stragglers.
         from app.services.channel_events import signal_shutdown
         signal_shutdown()
+        from app.services.user_events import signal_shutdown as signal_user_events_shutdown
+        signal_user_events_shutdown()
 
         # Stop renderer dispatchers cleanly so per-channel state is dropped.
         for _disp in _renderer_dispatchers:

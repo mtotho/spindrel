@@ -857,6 +857,18 @@ async def persist_turn(
         bus_channel = await resolve_bus_channel_id(db, session_id)
     if bus_channel and staged.records:
         await _publish_persisted_messages_to_bus(db, bus_channel=bus_channel, persisted_records=staged.records)
+    if staged.records:
+        try:
+            from app.services.unread import process_persisted_messages
+
+            await process_persisted_messages(
+                db,
+                session_id=session_id,
+                bus_channel_id=bus_channel,
+                records=staged.records,
+            )
+        except Exception:
+            logger.exception("persist_turn: unread processing failed for session %s", session_id)
 
     return staged.first_user_msg_id
 

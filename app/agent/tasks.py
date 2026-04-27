@@ -1151,6 +1151,66 @@ async def run_task(task: Task) -> None:
 
         _task_timeout = resolve_task_timeout(task, _task_channel)
 
+        if bot.harness_runtime:
+            from app.services.turn_worker import _run_harness_turn
+
+            _harness_model_override = _ecfg_pre.get("model_override") or None
+            _harness_effort_override = _ecfg_pre.get("harness_effort") or None
+            result_text, harness_error = await asyncio.wait_for(
+                _run_harness_turn(
+                    channel_id=task.channel_id,
+                    bus_key=task.channel_id or session_id,
+                    session_id=session_id,
+                    turn_id=_turn_id,
+                    bot=bot,
+                    user_message=task_prompt,
+                    correlation_id=correlation_id,
+                    msg_metadata={
+                        "source": "task",
+                        "task_id": str(task.id),
+                        "task_type": task.task_type,
+                    },
+                    pre_user_msg_id=None,
+                    suppress_outbox=bool(_ecfg_pre.get("session_scoped")) or task.channel_id is None,
+                    harness_model_override=_harness_model_override,
+                    harness_effort_override=_harness_effort_override,
+                ),
+                timeout=_task_timeout,
+            )
+            if harness_error:
+                async with async_session() as db:
+                    t = await db.get(Task, task.id)
+                    if t:
+                        t.status = "failed"
+                        t.error = harness_error[:4000]
+                        t.result = result_text
+                        t.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
+                await _fire_task_complete(task, "failed")
+                await _publish_turn_ended(
+                    task,
+                    turn_id=_turn_id,
+                    result=result_text,
+                    error=harness_error,
+                    kind_hint="task",
+                )
+                return
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t:
+                    t.status = "complete"
+                    t.result = result_text
+                    t.completed_at = datetime.now(timezone.utc)
+                    await db.commit()
+            await _fire_task_complete(task, "complete")
+            await _publish_turn_ended(
+                task,
+                turn_id=_turn_id,
+                result=result_text,
+                kind_hint="task",
+            )
+            return
+
         # Suppress skill auto-inject for hygiene tasks — the review prompt
         # text would match enrolled skills semantically, polluting inject metrics.
         _skip_skill_inject = task.task_type in ("memory_hygiene", "skill_review")

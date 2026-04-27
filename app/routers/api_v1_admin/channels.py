@@ -358,6 +358,7 @@ class HeartbeatConfigOut(BaseModel):
     include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
     runner_mode: Optional[str] = None
+    harness_effort: Optional[str] = None
     effective_runner_mode: str = "spindrel"
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
@@ -386,7 +387,7 @@ class HeartbeatConfigOut(BaseModel):
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
             "append_spatial_prompt", "append_spatial_map_overview",
             "include_pinned_widgets", "execution_policy",
-            "runner_mode",
+            "runner_mode", "harness_effort",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["effective_runner_mode"] = "spindrel"
@@ -454,6 +455,7 @@ class HeartbeatUpdate(BaseModel):
     include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
     runner_mode: Optional[Literal["harness", "spindrel"]] = None
+    harness_effort: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -1474,6 +1476,9 @@ async def admin_channel_heartbeat_update(
         heartbeat.execution_policy = normalize_heartbeat_execution_policy(updates["execution_policy"])
     if "runner_mode" in updates:
         heartbeat.runner_mode = updates["runner_mode"]
+    if "harness_effort" in updates:
+        value = updates["harness_effort"]
+        heartbeat.harness_effort = value.strip() if isinstance(value, str) and value.strip() else None
     if "append_spatial_prompt" in updates:
         heartbeat.append_spatial_prompt = bool(updates["append_spatial_prompt"])
         if heartbeat.append_spatial_prompt:

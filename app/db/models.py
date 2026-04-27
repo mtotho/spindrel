@@ -1194,6 +1194,7 @@ class ChannelHeartbeat(Base):
     include_pinned_widgets: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     execution_policy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     runner_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    harness_effort: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")
 
@@ -1817,6 +1818,65 @@ class NotificationDelivery(Base):
         Index("ix_notification_deliveries_created_at", "created_at"),
         Index("ix_notification_deliveries_target", "target_id"),
         Index("ix_notification_deliveries_root_target", "root_target_id"),
+    )
+
+
+class SessionReadState(Base):
+    """Per-user read high-watermark and unread aggregate for a session."""
+    __tablename__ = "session_read_states"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True)
+    last_read_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    last_read_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    last_read_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_read_surface: Mapped[str | None] = mapped_column(Text, nullable=True)
+    first_unread_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    latest_unread_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    latest_unread_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    latest_unread_correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    unread_agent_reply_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    initial_notified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    reminder_due_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "session_id", name="uq_session_read_states_user_session"),
+        Index("ix_session_read_states_user", "user_id"),
+        Index("ix_session_read_states_session", "session_id"),
+        Index("ix_session_read_states_channel", "channel_id"),
+        Index("ix_session_read_states_user_unread", "user_id", "unread_agent_reply_count"),
+        Index("ix_session_read_states_reminder_due", "reminder_due_at"),
+    )
+
+
+class UnreadNotificationRule(Base):
+    """Global/per-channel user preferences for unread message notifications."""
+    __tablename__ = "unread_notification_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    target_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'inherit'"))
+    target_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    immediate_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    reminder_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    reminder_delay_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("5"))
+    preview_policy: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'short'"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "channel_id", name="uq_unread_notification_rules_user_channel"),
+        CheckConstraint("target_mode IN ('inherit', 'replace')", name="ck_unread_notification_rules_target_mode"),
+        CheckConstraint("preview_policy IN ('none', 'short', 'full')", name="ck_unread_notification_rules_preview_policy"),
+        Index("ix_unread_notification_rules_user", "user_id"),
+        Index("ix_unread_notification_rules_channel", "channel_id"),
     )
 
 

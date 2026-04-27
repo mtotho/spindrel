@@ -11,6 +11,7 @@ import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
+import { useUnreadEvents, useUnreadState } from "../../api/hooks/useUnread";
 import { usePresenceHeartbeat } from "../../hooks/usePresenceHeartbeat";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 import { KIOSK_PARAM } from "../../hooks/useKioskMode";
@@ -36,6 +37,8 @@ export function AppShell() {
   useCommandPaletteShortcut();
   useSpatialOverlayShortcut();
   usePresenceHeartbeat();
+  useUnreadState();
+  useUnreadEvents();
   const { data: status } = useSystemStatus();
   const anyStreaming = useChatStore(
     (s) => Object.values(s.channels).some((ch) => Object.keys(ch.turns).length > 0),

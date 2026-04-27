@@ -54,6 +54,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [recurrence, setRecurrence] = useState("");
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
   const [modelOverride, setModelOverride] = useState("");
+  const [harnessEffort, setHarnessEffort] = useState("");
   const [fallbackModels, setFallbackModels] = useState<Array<{ model: string; provider_id?: string | null }>>([]);
   const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [workflowId, setWorkflowId] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setRecurrence(existingTask.recurrence || "");
       setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
       setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+      setHarnessEffort(existingTask.harness_effort ?? existingTask.execution_config?.harness_effort ?? "");
       setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
       setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
       setWorkflowId(existingTask.workflow_id ?? null);
@@ -123,6 +125,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setRecurrence(existingTask.recurrence || "");
       setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
       setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+      setHarnessEffort(existingTask.harness_effort ?? existingTask.execution_config?.harness_effort ?? "");
       setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
       setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
       setWorkflowId(existingTask.workflow_id ?? null);
@@ -194,6 +197,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           task_type: effectiveTaskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          harness_effort: harnessEffort || null,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
           workflow_id: workflowId || null,
@@ -222,6 +226,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           task_type: effectiveTaskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          harness_effort: harnessEffort || null,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
           workflow_id: workflowId || null,
@@ -239,7 +244,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -286,6 +291,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     recurrence, setRecurrence,
     triggerRagLoop, setTriggerRagLoop,
     modelOverride, setModelOverride,
+    harnessEffort, setHarnessEffort,
     fallbackModels, setFallbackModels,
     maxRunSeconds, setMaxRunSeconds,
     workflowId, setWorkflowId,

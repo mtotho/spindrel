@@ -113,6 +113,8 @@ async def _run_harness_turn(
     msg_metadata: dict | None,
     pre_user_msg_id: uuid.UUID | None,
     suppress_outbox: bool,
+    harness_model_override: str | None = None,
+    harness_effort_override: str | None = None,
 ) -> tuple[str, str | None]:
     """Drive a turn against an external agent harness (Claude Code, Codex, ...).
 
@@ -179,6 +181,8 @@ async def _run_harness_turn(
         workdir = harness_paths.workdir
         permission_mode = await load_session_mode(db, session_id)
         harness_settings = await load_session_settings(db, session_id)
+        harness_model = harness_model_override if harness_model_override is not None else harness_settings.model
+        harness_effort = harness_effort_override if harness_effort_override is not None else harness_settings.effort
         context_hints = list(await load_context_hints(db, session_id))
         harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
         session_row = await db.get(SessionRow, session_id)
@@ -238,8 +242,8 @@ async def _run_harness_turn(
         harness_session_id=prior_session_id,
         permission_mode=permission_mode,
         db_session_factory=async_session,
-        model=harness_settings.model,
-        effort=harness_settings.effort,
+        model=harness_model,
+        effort=harness_effort,
         runtime_settings=harness_settings.runtime_settings,
         context_hints=tuple(context_hints),
         ephemeral_tool_names=explicit_tool_names,
@@ -570,6 +574,27 @@ async def run_turn(
             pre_allocated_id=uuid.UUID(_pre_id_str) if _pre_id_str else None,
             suppress_outbox=session_scoped or not has_channel,
         )
+        if getattr(user, "id", None) is not None:
+            try:
+                from app.services.unread import mark_session_read
+
+                async with async_session() as db:
+                    await mark_session_read(
+                        db,
+                        user_id=user.id,
+                        session_id=session_id,
+                        source="web_send",
+                        surface="chat",
+                        message_id=pre_user_msg_id,
+                    )
+                    await db.commit()
+            except Exception:
+                logger.warning(
+                    "turn_worker: failed to mark session %s read for user %s after send",
+                    session_id,
+                    getattr(user, "id", None),
+                    exc_info=True,
+                )
 
         # 2. Publish TURN_STARTED so renderers can post a "thinking..."
         #    placeholder. Tag every lifecycle event with session_id so
