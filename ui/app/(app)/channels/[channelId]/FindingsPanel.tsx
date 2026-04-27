@@ -157,7 +157,7 @@ function FindingCard({ finding }: { finding: Finding }) {
   };
 
   return (
-    <article className="rounded-md bg-surface border border-surface-border p-3 flex flex-col gap-2">
+    <article className="rounded-md bg-surface-raised/40 hover:bg-surface-overlay/45 transition-colors p-3 flex flex-col gap-2">
       <header className="flex flex-row items-start justify-between gap-2">
         <div className="flex flex-col min-w-0 flex-1">
           <h4 className="text-sm font-medium text-text truncate">{headerTitle}</h4>
@@ -191,7 +191,7 @@ function FindingCard({ finding }: { finding: Finding }) {
           {menuOpen && (
             <div
               className="absolute right-0 top-6 z-10 w-40 rounded-md border border-surface-border
-                         bg-surface-raised shadow-[0_8px_24px_rgba(0,0,0,0.3)] py-1"
+                         bg-surface-raised py-1"
             >
               <button
                 onClick={handleSkip}
@@ -210,8 +210,8 @@ function FindingCard({ finding }: { finding: Finding }) {
               <button
                 onClick={() => setConfirmDelete(true)}
                 disabled={deleteMut.isPending}
-                className="w-full px-3 py-1.5 text-left text-[11px] text-red-400/90
-                           hover:bg-red-500/10 flex items-center gap-2
+                className="w-full px-3 py-1.5 text-left text-[11px] text-danger
+                           hover:bg-danger/10 flex items-center gap-2
                            disabled:opacity-50"
               >
                 <Trash2 size={11} />
@@ -223,23 +223,23 @@ function FindingCard({ finding }: { finding: Finding }) {
       </header>
 
       {confirmDelete && (
-        <div className="rounded-md bg-red-500/5 border border-red-500/30 p-2 flex flex-col gap-1.5">
-          <span className="text-[11px] text-red-300">
+        <div className="rounded-md bg-danger/10 p-2 flex flex-col gap-1.5">
+          <span className="text-[11px] text-danger">
             Delete the pipeline run? This removes it from admin history too.
           </span>
           <div className="flex flex-row gap-1.5">
             <button
               onClick={handleDelete}
               disabled={deleteMut.isPending}
-              className="flex-1 px-2 py-1 rounded bg-red-500/20 text-red-300 text-[11px]
-                         hover:bg-red-500/30 disabled:opacity-50"
+              className="flex-1 px-2 py-1 rounded bg-danger/20 text-danger text-[11px]
+                         hover:bg-danger/30 disabled:opacity-50"
             >
               {deleteMut.isPending ? "Deleting..." : "Delete"}
             </button>
             <button
               onClick={() => setConfirmDelete(false)}
-              className="flex-1 px-2 py-1 rounded border border-surface-border text-[11px]
-                         text-text-dim hover:text-text"
+              className="flex-1 px-2 py-1 rounded text-[11px]
+                         text-text-dim hover:bg-surface-overlay hover:text-text"
             >
               Cancel
             </button>
@@ -309,14 +309,13 @@ export function FindingsPanel({
   const { findings } = useFindings(channelId);
 
   return (
-    <aside className="hidden md:flex w-80 shrink-0 flex-col
-                      bg-surface-raised border-l border-surface-border">
-      <header className="h-12 px-4 flex flex-row items-center justify-between
-                         border-b border-surface-border shrink-0">
+    <aside className="hidden md:flex w-[22rem] shrink-0 flex-col
+                      bg-surface-raised">
+      <header className="h-12 px-4 flex flex-row items-center justify-between shrink-0">
         <div className="flex flex-row items-center gap-2">
           <span className="text-sm font-semibold text-text">Findings</span>
           {findings.length > 0 && (
-            <span className="text-[10px] text-accent bg-accent/10 border border-accent/30
+            <span className="text-[10px] text-accent bg-accent/10
                              rounded-full px-1.5 py-0.5 font-medium">
               {findings.length}
             </span>
@@ -353,15 +352,14 @@ export function FindingsSheet({
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 h-[85vh] bg-surface-raised",
-          "border-t border-surface-border rounded-t-xl flex flex-col",
+          "rounded-t-lg flex flex-col",
         )}
       >
-        <header className="h-12 px-4 flex flex-row items-center justify-between
-                           border-b border-surface-border shrink-0">
+        <header className="h-12 px-4 flex flex-row items-center justify-between shrink-0">
           <div className="flex flex-row items-center gap-2">
             <span className="text-sm font-semibold text-text">Findings</span>
             {findings.length > 0 && (
-              <span className="text-[10px] text-accent bg-accent/10 border border-accent/30
+              <span className="text-[10px] text-accent bg-accent/10
                                rounded-full px-1.5 py-0.5 font-medium">
                 {findings.length}
               </span>

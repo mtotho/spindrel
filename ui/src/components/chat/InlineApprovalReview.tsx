@@ -51,13 +51,14 @@ type Decision = "approve" | "reject" | undefined;
 function scopeChipClasses(kind: string | undefined): string {
   switch (kind) {
     case "skills":
-      return "bg-teal-500/10 text-teal-400 border-teal-500/30";
+      // Purple is the canonical skills/learning-center token (ui-design.md §1).
+      return "bg-purple/10 text-purple";
     case "tools":
-      return "bg-purple-500/10 text-purple-400 border-purple-500/30";
+      return "bg-accent/10 text-accent";
     case "bots":
-      return "bg-amber-500/10 text-amber-400 border-amber-500/30";
+      return "bg-warning/10 text-warning-muted";
     default:
-      return "bg-surface-overlay text-text-dim border-surface-border";
+      return "bg-surface-overlay text-text-dim";
   }
 }
 
@@ -110,89 +111,52 @@ function ProposalRow({
   return (
     <div
       className={cn(
-        "rounded-md border p-2.5 flex flex-col gap-2 transition-colors",
-        decision === "approve" && "border-emerald-500/50 bg-emerald-500/5",
-        decision === "reject" && "border-red-500/50 bg-red-500/5",
-        !decision && "border-surface-border bg-surface",
+        "rounded-md p-2.5 flex flex-col gap-2 transition-colors",
+        decision === "approve" && "bg-success/10",
+        decision === "reject" && "bg-danger/10",
+        !decision && "bg-surface-raised/40",
       )}
     >
-      {/* Row 1: scope chip + target + actions */}
-      <div className="flex flex-row items-start gap-2">
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex flex-row items-center gap-1.5 min-w-0 flex-wrap">
-            {kind && (
-              <span
-                className={cn(
-                  "inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wider shrink-0",
-                  scopeChipClasses(kind),
-                )}
-              >
-                {scopeLabel(kind)}
-              </span>
-            )}
-            <span className="text-xs font-semibold text-text truncate">{label}</span>
-            {isAdvisory && (
-              <span
-                title="No writable description endpoint for this target. Suggestion is logged but cannot be applied."
-                className="inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wider shrink-0 bg-amber-500/10 text-amber-400 border-amber-500/30"
-              >
-                Advisory
-              </span>
-            )}
-          </div>
-          {item.target_path && (
-            <span className="text-[10px] text-text-dim/80 font-mono truncate">
-              {item.target_method || "PATCH"} {item.target_path}
+      {/* Row 1: scope chip + label + advisory tag — full-width, no buttons
+          competing for horizontal space. Actions move to their own row below
+          so the body and patch path don't get squeezed into a 14-char column. */}
+      <div className="flex flex-col gap-1 min-w-0">
+        <div className="flex flex-row items-center gap-1.5 min-w-0 flex-wrap">
+          {kind && (
+            <span
+              className={cn(
+                "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider shrink-0",
+                scopeChipClasses(kind),
+              )}
+            >
+              {scopeLabel(kind)}
             </span>
           )}
-          {summary && (
-            <p className="text-[11px] text-text-dim leading-snug">
-              {summary}
-            </p>
-          )}
+          <span className="text-xs font-semibold text-text truncate">{label}</span>
           {isAdvisory && (
-            <p className="text-[10.5px] text-amber-400/80 leading-snug italic">
-              System/MCP tool — applying isn't wired up. Review the suggestion and reject to clear.
-            </p>
+            <span
+              title="No writable description endpoint for this target. Suggestion is logged but cannot be applied."
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider shrink-0 bg-warning/10 text-warning-muted"
+            >
+              Advisory
+            </span>
           )}
         </div>
-        <div className="flex flex-row gap-1 shrink-0">
-          {/* Approve / Reject are explicit labels — the reject icon alone was
-              getting mistaken for a "dismiss this card" close button. The X
-              means "don't apply this patch"; to clear the whole review, use
-              the card's overflow menu (Skip review / Delete run). */}
-          <button
-            onClick={() => !isAdvisory && onDecide("approve")}
-            disabled={isAdvisory}
-            aria-label="Approve"
-            title={isAdvisory ? "Advisory only — no writable endpoint for this target" : "Apply this patch on Submit"}
-            className={cn(
-              "inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
-              isAdvisory
-                ? "bg-surface-raised text-text-dim/50 border border-surface-border/60 cursor-not-allowed"
-                : decision === "approve"
-                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
-                : "bg-surface-raised text-text-dim border border-surface-border hover:bg-emerald-500/10 hover:text-emerald-400",
-            )}
-          >
-            <Check size={11} />
-            <span>Approve</span>
-          </button>
-          <button
-            onClick={() => onDecide("reject")}
-            aria-label="Reject"
-            title="Don't apply this patch"
-            className={cn(
-              "inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
-              decision === "reject"
-                ? "bg-red-500/20 text-red-400 border border-red-500/50"
-                : "bg-surface-raised text-text-dim border border-surface-border hover:bg-red-500/10 hover:text-red-400",
-            )}
-          >
-            <XCircle size={11} />
-            <span>Reject</span>
-          </button>
-        </div>
+        {item.target_path && (
+          <span className="text-[10px] text-text-dim/80 font-mono break-all">
+            {item.target_method || "PATCH"} {item.target_path}
+          </span>
+        )}
+        {summary && (
+          <p className="text-[11px] text-text-dim leading-snug">
+            {summary}
+          </p>
+        )}
+        {isAdvisory && (
+          <p className="text-[10.5px] text-warning-muted leading-snug italic">
+            System/MCP tool — applying isn't wired up. Review the suggestion and reject to clear.
+          </p>
+        )}
       </div>
 
       {/* Row 2: evidence chips (trace-id links + untraced signals) */}
@@ -230,7 +194,45 @@ function ProposalRow({
         </div>
       )}
 
-      {/* Row 3: diff + patch body expander. diff_preview is the LLM's
+      {/* Row 3: actions. Approve / Reject are explicit labels — the reject
+          icon alone was getting mistaken for a "dismiss this card" close
+          button. The X means "don't apply this patch"; to clear the whole
+          review, use the card's overflow menu (Skip review / Delete run). */}
+      <div className="flex flex-row gap-1.5">
+        <button
+          onClick={() => !isAdvisory && onDecide("approve")}
+          disabled={isAdvisory}
+          aria-label="Approve"
+          title={isAdvisory ? "Advisory only — no writable endpoint for this target" : "Apply this patch on Submit"}
+          className={cn(
+            "flex-1 inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
+            isAdvisory
+              ? "bg-surface-raised text-text-dim/50 cursor-not-allowed"
+              : decision === "approve"
+              ? "bg-success/20 text-success"
+              : "bg-surface-raised text-text-dim hover:bg-success/10 hover:text-success",
+          )}
+        >
+          <Check size={11} />
+          <span>Approve</span>
+        </button>
+        <button
+          onClick={() => onDecide("reject")}
+          aria-label="Reject"
+          title="Don't apply this patch"
+          className={cn(
+            "flex-1 inline-flex items-center justify-center gap-1 h-7 px-2 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors",
+            decision === "reject"
+              ? "bg-danger/20 text-danger"
+              : "bg-surface-raised text-text-dim hover:bg-danger/10 hover:text-danger",
+          )}
+        >
+          <XCircle size={11} />
+          <span>Reject</span>
+        </button>
+      </div>
+
+      {/* Row 4: diff + patch body expander. diff_preview is the LLM's
           human-readable "before: ... / after: ..." blurb; patch_body is the
           literal JSON that will be PATCH'd on approve. Show both when we
           have them — the raw patch is the source of truth and old runs
@@ -346,14 +348,14 @@ export function InlineApprovalReview({
           <div className="text-xs font-semibold text-text">{headline}</div>
         )}
         <div className="text-[11px] text-text-dim italic flex items-center gap-1.5">
-          <AlertTriangle size={11} className="text-amber-500" />
+          <AlertTriangle size={11} className="text-warning-muted" />
           No proposals — the agent step returned an empty list.
         </div>
         <button
           onClick={handleSkip}
           disabled={resolveMut.isPending}
-          className="px-2.5 py-1 text-[11px] rounded-md bg-surface-raised border border-surface-border
-                     text-text-dim hover:text-text self-start disabled:opacity-50"
+          className="px-2.5 py-1 text-[11px] rounded-md bg-surface-raised
+                     text-text-dim hover:bg-surface-overlay hover:text-text self-start disabled:opacity-50"
         >
           {resolveMut.isPending ? "Resolving..." : "Dismiss"}
         </button>
@@ -372,10 +374,10 @@ export function InlineApprovalReview({
           <button
             onClick={() => setBinaryDecision("approve")}
             className={cn(
-              "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium",
+              "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium transition-colors",
               binaryDecision === "approve"
-                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
-                : "bg-surface-raised text-text-dim border border-surface-border hover:text-text",
+                ? "bg-success/20 text-success"
+                : "bg-surface-raised text-text-dim hover:bg-success/10 hover:text-success",
             )}
           >
             <Check size={12} /> Approve
@@ -383,10 +385,10 @@ export function InlineApprovalReview({
           <button
             onClick={() => setBinaryDecision("reject")}
             className={cn(
-              "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium",
+              "flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded text-xs font-medium transition-colors",
               binaryDecision === "reject"
-                ? "bg-red-500/20 text-red-400 border border-red-500/50"
-                : "bg-surface-raised text-text-dim border border-surface-border hover:text-text",
+                ? "bg-danger/20 text-danger"
+                : "bg-surface-raised text-text-dim hover:bg-danger/10 hover:text-danger",
             )}
           >
             <XCircle size={12} /> Reject
@@ -407,7 +409,7 @@ export function InlineApprovalReview({
       )}
 
       {resolveMut.isError && (
-        <div className="text-[11px] text-red-400">
+        <div className="text-[11px] text-danger">
           {(resolveMut.error as Error)?.message ?? "Resolve failed"}
         </div>
       )}
@@ -418,8 +420,9 @@ export function InlineApprovalReview({
           resolveMut.isPending ||
           (schemaType === "binary" ? !binaryDecision : false)
         }
-        className="mt-1 px-3 py-1.5 rounded-md bg-accent text-white text-xs font-semibold
-                   hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed
+        className="mt-1 self-end px-3 py-1.5 rounded-md text-xs font-medium
+                   bg-transparent text-accent hover:bg-accent/[0.08]
+                   disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent
                    inline-flex items-center justify-center gap-1.5"
       >
         {resolveMut.isPending && <Loader2 size={12} className="animate-spin" />}

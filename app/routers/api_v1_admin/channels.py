@@ -911,7 +911,6 @@ async def admin_channel_settings_update(
         else:
             cfg["pipeline_mode"] = mode
         channel.config = cfg
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
     # Handle layout_mode — shallow-merge into channel.config JSONB (same
@@ -931,7 +930,6 @@ async def admin_channel_settings_update(
         else:
             cfg["layout_mode"] = lm
         channel.config = cfg
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
     if "chat_mode" in updates:
@@ -948,7 +946,6 @@ async def admin_channel_settings_update(
         else:
             cfg["chat_mode"] = cm
         channel.config = cfg
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
     if "header_backdrop_mode" in updates:
@@ -965,7 +962,6 @@ async def admin_channel_settings_update(
         else:
             cfg["header_backdrop_mode"] = hbm
         channel.config = cfg
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
     if "widget_theme_ref" in updates:
@@ -984,7 +980,6 @@ async def admin_channel_settings_update(
         else:
             cfg["widget_theme_ref"] = normalized
         channel.config = cfg
-        from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
     # Validate model tier override names

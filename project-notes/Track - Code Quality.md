@@ -581,7 +581,7 @@ Plan: `~/.claude/plans/nifty-hatching-book.md`. Follows the same workflow as Clu
   | Phase | Scope | Status |
   |---|---|---|
   | 1 | Additive: new `app/services/pin_contract/` package (5 OriginResolvers, 4 public functions, `compute_pin_source_stamp` helper); migration 264 adds `widget_dashboard_pins.source_stamp TEXT NULL`; write paths populate stamps; `list_pins` unchanged | ✅ shipped 2026-04-27 (session log `Sessions/agent-server/2026-04-27-P-pin-contract-deepening-phase-1.md`) |
-  | 2 | Backfill script: walk all pins, run `reconcile_pin_metadata`, populate stamps | pending |
+  | 2 | Backfill script `scripts/backfill_pin_source_stamps.py`: stamp NULL rows + `--verify` parity dry-run between new resolver chain and legacy `build_pin_contract_metadata` (Phase 3 readiness gate) | ✅ shipped 2026-04-27 (session log `Sessions/agent-server/2026-04-27-Q-pin-contract-deepening-phase-2.md`) |
   | 3 | `list_pins` flip — gate `render_pin_metadata` on `source_stamp + widget_origin + provenance_confidence + widget_contract_snapshot + widget_presentation_snapshot all NOT NULL`; `reconcile_pin_metadata` fallback for stragglers; collapse legacy `build_pin_contract_metadata` / `infer_pin_origin` / `build_public_fields_from_origin` into thin wrappers | pending |
   | 4 | Background reconciler scanning for stamp drift (low frequency) | pending |
   
