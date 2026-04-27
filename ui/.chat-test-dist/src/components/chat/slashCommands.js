@@ -91,11 +91,14 @@ export function findSpec(catalog, id) {
 }
 export function buildSlashCommandResultMessage(result, sessionId, channelId) {
     const now = new Date().toISOString();
+    const content = result.result_type === "harness_native_compaction"
+        ? String(result.payload?.title || "Native compaction completed")
+        : `${result.command_id} snapshot`;
     return {
         id: `msg-slash-${result.command_id}-${Date.now()}`,
         session_id: sessionId,
         role: "assistant",
-        content: `${result.command_id} snapshot`,
+        content,
         created_at: now,
         metadata: {
             kind: "slash_command_result",
@@ -103,6 +106,31 @@ export function buildSlashCommandResultMessage(result, sessionId, channelId) {
             result_type: result.result_type,
             payload: result.payload,
             fallback_text: result.fallback_text,
+            ui_only: true,
+            source: "slash_command",
+            channel_id: channelId,
+        },
+    };
+}
+export function buildSlashCommandPendingMessage(commandId, sessionId, channelId) {
+    const now = new Date().toISOString();
+    return {
+        id: `msg-slash-${commandId}-pending-${Date.now()}`,
+        session_id: sessionId,
+        role: "assistant",
+        content: `Running /${commandId}`,
+        created_at: now,
+        metadata: {
+            kind: "slash_command_result",
+            slash_command: commandId,
+            result_type: "slash_command_pending",
+            payload: {
+                title: `Running /${commandId}`,
+                detail: commandId === "compact"
+                    ? "Native compaction is running. The result will appear here when the harness returns."
+                    : "Fetching command result.",
+            },
+            fallback_text: `Running /${commandId}`,
             ui_only: true,
             source: "slash_command",
             channel_id: channelId,

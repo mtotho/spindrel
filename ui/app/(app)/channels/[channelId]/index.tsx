@@ -745,6 +745,14 @@ export default function ChatScreen() {
 
   // ---- Workspace / file explorer state ----
   const workspaceId = channel?.resolved_workspace_id;
+  const projectPath = typeof channel?.config?.project_path === "string"
+    ? channel.config.project_path.replace(/^\/+|\/+$/g, "")
+    : "";
+  const projectWorkspaceId = typeof channel?.config?.project_workspace_id === "string"
+    ? channel.config.project_workspace_id
+    : undefined;
+  const fileWorkspaceId = projectWorkspaceId || workspaceId;
+  const fileRootPath = projectPath ? `/${projectPath}` : undefined;
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
   const setRememberedChannelPath = useFileBrowserStore((s) => s.setChannelExplorerPath);
   const legacyExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
@@ -1276,7 +1284,7 @@ export default function ChatScreen() {
         onSelect: () => openLeftPanelTab("widgets"),
       },
     ];
-    if (workspaceId) {
+    if (fileWorkspaceId) {
       actions.push({
         id: "files",
         label: "Files",
@@ -1291,7 +1299,7 @@ export default function ChatScreen() {
       onSelect: () => openLeftPanelTab("jump"),
     });
     return actions;
-  }, [openLeftPanelTab, railPins.length, workspaceId]);
+  }, [fileWorkspaceId, openLeftPanelTab, railPins.length]);
   const rightSpineActions = useMemo<PanelSpineAction[]>(() => [
     {
       id: "dock",
@@ -1402,7 +1410,7 @@ export default function ChatScreen() {
     const channelLabel = displayName ? `#${displayName}` : undefined;
     const actions: PaletteAction[] = [];
 
-    if (workspaceId && !isSystemChannel) {
+    if (fileWorkspaceId && !isSystemChannel) {
       actions.push({
         id: `channel:${channelId}:browse-files`,
         label: "Browse files in this channel",
@@ -1446,7 +1454,7 @@ export default function ChatScreen() {
         category: "This Channel",
         onSelect: () => openLeftPanelTab("widgets"),
       });
-      if (workspaceId) {
+      if (fileWorkspaceId) {
         actions.push({
           id: `channel:${channelId}:open-files`,
           label: "Open panel: Files",
@@ -1548,7 +1556,7 @@ export default function ChatScreen() {
   }, [
     channelId,
     displayName,
-    workspaceId,
+    fileWorkspaceId,
     isSystemChannel,
     findingsCount,
     channel?.bot_id,
@@ -1905,7 +1913,7 @@ export default function ChatScreen() {
           channelModelOverride={channel?.model_override ?? undefined}
           columns={columns}
           goBack={goBack}
-          workspaceId={workspaceId}
+          workspaceId={fileWorkspaceId}
           explorerOpen={showExplorer}
           toggleExplorer={toggleExplorer}
           onBrowseWorkspace={openBrowseFiles}
@@ -2019,7 +2027,9 @@ export default function ChatScreen() {
               onClose={handleCloseExplorer}
               channelId={channelId}
               dashboardHref={channelDashboardHref}
-              workspaceId={workspaceId ?? undefined}
+              workspaceId={fileWorkspaceId ?? undefined}
+              fileRootPath={fileRootPath}
+              fileRootLabel="Project"
               botId={channel?.bot_id}
               channelDisplayName={channel?.display_name || channel?.name}
               activeFile={activeFile}
@@ -2034,7 +2044,7 @@ export default function ChatScreen() {
           <MobileFileViewerSlide
             open={showFileViewer}
             channelId={channelId!}
-            workspaceId={workspaceId ?? undefined}
+            workspaceId={fileWorkspaceId ?? undefined}
             filePath={activeFile}
             channelName={channel?.display_name || channel?.name || null}
             channelPrivate={!!channel?.private}
@@ -2095,7 +2105,9 @@ export default function ChatScreen() {
               <OmniPanel
                 channelId={channelId}
                 dashboardHref={channelDashboardHref}
-                workspaceId={workspaceId ?? undefined}
+                workspaceId={fileWorkspaceId ?? undefined}
+                fileRootPath={fileRootPath}
+                fileRootLabel="Project"
                 botId={channel?.bot_id}
                 channelDisplayName={channel?.display_name || channel?.name}
                 activeFile={activeFile}
@@ -2228,7 +2240,7 @@ export default function ChatScreen() {
               }}>
                 <ChannelFileViewer
                   channelId={channelId}
-                  workspaceId={workspaceId ?? undefined}
+                  workspaceId={fileWorkspaceId ?? undefined}
                   filePath={activeFile!}
                   onBack={handleCloseFile}
                   splitMode={splitMode}

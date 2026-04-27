@@ -939,6 +939,13 @@ class HarnessStatusOut(BaseModel):
     context_remaining_source: str | None = None
     native_compaction: dict[str, Any] | None = None
     hints: list[dict[str, Any]] = Field(default_factory=list)
+    next_turn_computed_hints: list[dict[str, Any]] = Field(default_factory=list)
+    next_turn_hints: list[dict[str, Any]] = Field(default_factory=list)
+    last_hints_sent: list[dict[str, Any]] = Field(default_factory=list)
+    effective_cwd: str | None = None
+    effective_cwd_source: str | None = None
+    bot_workspace_dir: str | None = None
+    project_dir: dict[str, Any] | None = None
     bridge_status: dict[str, Any] = Field(default_factory=dict)
     context_note: str
 
@@ -984,7 +991,13 @@ async def get_harness_status(
         load_native_compaction,
     )
     from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.agent_harnesses.project import (
+        build_workspace_files_memory_hint,
+        project_directory_payload,
+        resolve_harness_paths,
+    )
     from app.services.agent_harnesses import HARNESS_REGISTRY
+    from app.agent.bots import get_bot
 
     session = await db.get(Session, session_id)
     if session is None:
@@ -995,6 +1008,16 @@ async def get_harness_status(
     hints = await load_context_hints(db, session_id)
     bridge_status = await load_bridge_status(db, session_id)
     harness_meta, last_turn_at = await load_latest_harness_metadata(db, session_id)
+    bot = get_bot(session.bot_id)
+    harness_paths = await resolve_harness_paths(
+        db,
+        channel_id=session.channel_id or session.parent_channel_id,
+        bot=bot,
+    )
+    computed_hints = []
+    memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)
+    if memory_hint is not None:
+        computed_hints.append(memory_hint)
     runtime_name = (harness_meta or {}).get("runtime") if harness_meta else None
     runtime = HARNESS_REGISTRY.get(runtime_name) if runtime_name else None
     usage = (harness_meta or {}).get("usage") if harness_meta else None
@@ -1055,6 +1078,13 @@ async def get_harness_status(
         context_remaining_source=remaining_source,
         native_compaction=native_compaction,
         hints=[hint_preview(hint) for hint in hints],
+        next_turn_computed_hints=[hint_preview(hint) for hint in computed_hints],
+        next_turn_hints=[hint_preview(hint) for hint in [*hints, *computed_hints]],
+        last_hints_sent=(harness_meta or {}).get("last_hints_sent") or [],
+        effective_cwd=(harness_meta or {}).get("effective_cwd") or harness_paths.workdir,
+        effective_cwd_source=(harness_meta or {}).get("effective_cwd_source") or harness_paths.source,
+        bot_workspace_dir=(harness_meta or {}).get("bot_workspace_dir") or harness_paths.bot_workspace_dir,
+        project_dir=(harness_meta or {}).get("project_dir") or project_directory_payload(harness_paths.project_dir),
         bridge_status=bridge_status,
         context_note=(
             "Native harness context is provider-managed; Spindrel tracks resume id, "

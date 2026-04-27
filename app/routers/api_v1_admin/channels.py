@@ -36,6 +36,13 @@ from app.config import settings
 from app.dependencies import get_db, require_scopes
 from app.services.channels import apply_channel_visibility
 from app.services.heartbeat_policy import DEFAULT_HEARTBEAT_EXECUTION_POLICY, HEARTBEAT_EXECUTION_PRESETS
+from app.services.agent_harnesses.project import (
+    PROJECT_PATH_KEY,
+    PROJECT_WORKSPACE_ID_KEY,
+    normalize_project_path,
+    resolve_channel_project_directory,
+    resolve_project_workspace_id,
+)
 from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
 
 from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
@@ -535,6 +542,10 @@ class ChannelSettingsOut(BaseModel):
     workspace_id: Optional[uuid.UUID] = None
     # Resolved workspace ID from bot config (computed, not stored)
     resolved_workspace_id: Optional[str] = None
+    # Harness/project file scope. project_path is workspace-relative.
+    project_workspace_id: Optional[str] = None
+    project_path: Optional[str] = None
+    resolved_project_workspace_id: Optional[str] = None
     category: Optional[str] = None
     tags: list[str] = []
     # Phase 5: pipeline_mode controls launchpad/findings visibility for the
@@ -608,6 +619,9 @@ class ChannelSettingsUpdate(BaseModel):
     model_tier_overrides: Optional[dict] = None
     # Workspace scope
     workspace_id: Optional[str] = None
+    # Harness/project file scope. project_path is workspace-relative.
+    project_workspace_id: Optional[str] = None
+    project_path: Optional[str] = None
     category: Optional[str] = None
     tags: Optional[list[str]] = None
     # Phase 5: pipeline_mode override. "auto" (default) | "on" | "off".
@@ -766,6 +780,24 @@ async def admin_channel_detail(
 # Channel settings
 # ---------------------------------------------------------------------------
 
+def _fill_channel_project_settings(out: ChannelSettingsOut, channel: Channel) -> None:
+    cfg = channel.config or {}
+    out.project_workspace_id = (
+        str(cfg.get(PROJECT_WORKSPACE_ID_KEY))
+        if cfg.get(PROJECT_WORKSPACE_ID_KEY)
+        else None
+    )
+    try:
+        out.project_path = normalize_project_path(cfg.get(PROJECT_PATH_KEY))
+    except ValueError:
+        out.project_path = None
+    try:
+        bot = get_bot(channel.bot_id)
+    except Exception:
+        bot = None
+    out.resolved_project_workspace_id = resolve_project_workspace_id(channel, bot)
+
+
 @router.get("/channels/{channel_id}/settings", response_model=ChannelSettingsOut)
 async def admin_channel_settings(
     channel_id: uuid.UUID,
@@ -787,6 +819,7 @@ async def admin_channel_settings(
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
+    _fill_channel_project_settings(out, channel)
     return out
 
 
@@ -829,6 +862,38 @@ async def admin_channel_settings_update(
     if "workspace_id" in updates:
         ws_val = updates.pop("workspace_id")
         channel.workspace_id = uuid.UUID(ws_val) if ws_val else None
+
+    if "project_workspace_id" in updates or "project_path" in updates:
+        cfg = dict(channel.config or {})
+        if "project_workspace_id" in updates:
+            raw_ws = updates.pop("project_workspace_id")
+            if raw_ws:
+                try:
+                    cfg[PROJECT_WORKSPACE_ID_KEY] = str(uuid.UUID(str(raw_ws)))
+                except ValueError:
+                    raise HTTPException(status_code=422, detail="project_workspace_id must be a UUID")
+            else:
+                cfg.pop(PROJECT_WORKSPACE_ID_KEY, None)
+        if "project_path" in updates:
+            raw_path = updates.pop("project_path")
+            try:
+                project_path = normalize_project_path(raw_path)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            if project_path:
+                cfg[PROJECT_PATH_KEY] = project_path
+            else:
+                cfg.pop(PROJECT_PATH_KEY, None)
+        channel.config = cfg
+        flag_modified(channel, "config")
+        if cfg.get(PROJECT_PATH_KEY):
+            try:
+                bot = get_bot(updates.get("bot_id") or channel.bot_id)
+                resolve_channel_project_directory(channel, bot)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            except Exception as exc:
+                raise HTTPException(status_code=422, detail=f"could not resolve project directory: {exc}")
 
     # Handle pipeline_mode — shallow-merge into channel.config JSONB.
     if "pipeline_mode" in updates:
@@ -960,6 +1025,7 @@ async def admin_channel_settings_update(
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
+    _fill_channel_project_settings(out, channel)
     return out
 
 

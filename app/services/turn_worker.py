@@ -145,19 +145,6 @@ async def _run_harness_turn(
             suppress_outbox=suppress_outbox, error_text=msg,
             prior_session_id=None,
         )
-    # Default to the bot's existing workspace dir when an explicit harness
-    # workdir isn't set. Spindrel already provisions a per-bot workspace
-    # mounted at WORKSPACE_HOST_DIR and ensures the host dir exists; harness
-    # bots reuse that instead of inventing a parallel mount.
-    workdir = bot.harness_workdir
-    if not workdir:
-        from app.services.workspace import workspace_service
-
-        try:
-            workdir = workspace_service.ensure_host_dir(bot.id, bot)
-        except Exception as exc:
-            return "", f"could not resolve workspace for bot: {exc}"
-
     prior_session_id = await _load_prior_harness_session_id(session_id)
 
     # Per-session approval mode (default ``bypassPermissions``) and per-session
@@ -172,13 +159,24 @@ async def _run_harness_turn(
     from app.services.agent_harnesses.context import build_turn_context
     from app.services.agent_harnesses.session_state import (
         clear_consumed_context_hints,
+        hint_preview,
         load_context_hints,
         load_latest_harness_metadata,
+    )
+    from app.services.agent_harnesses.project import (
+        build_workspace_files_memory_hint,
+        project_directory_payload,
+        resolve_harness_paths,
     )
     from app.services.agent_harnesses.settings import load_session_settings
     from app.services.session_plan_mode import get_session_plan_mode
 
     async with async_session() as db:
+        try:
+            harness_paths = await resolve_harness_paths(db, channel_id=channel_id, bot=bot)
+        except Exception as exc:
+            return "", f"could not resolve harness workspace for bot: {exc}"
+        workdir = harness_paths.workdir
         permission_mode = await load_session_mode(db, session_id)
         harness_settings = await load_session_settings(db, session_id)
         context_hints = list(await load_context_hints(db, session_id))
@@ -220,22 +218,9 @@ async def _run_harness_turn(
             )
         )
 
-    if getattr(bot, "memory_scheme", None) == "workspace-files":
-        context_hints.append(
-            HarnessContextHint(
-                kind="workspace_files_memory",
-                source="spindrel",
-                created_at=datetime.now(timezone.utc).isoformat(),
-                consume_after_next_turn=False,
-                text=(
-                    "Spindrel workspace-files memory is enabled for this harness bot. "
-                    f"The bot workspace is {workdir}. Treat memory files in this workspace "
-                    "as durable host-provided context when they exist. Use bridged Spindrel "
-                    "file or memory tools to inspect or update them; if no bridge tool is "
-                    "available, ask before assuming current memory contents."
-                ),
-            )
-        )
+    memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)
+    if memory_hint is not None:
+        context_hints.append(memory_hint)
 
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
@@ -300,6 +285,11 @@ async def _run_harness_turn(
                 "runtime": bot.harness_runtime,
                 "session_id": prior_session_id,
                 "error": error_text,
+                "effective_cwd": workdir,
+                "effective_cwd_source": harness_paths.source,
+                "bot_workspace_dir": harness_paths.bot_workspace_dir,
+                "project_dir": project_directory_payload(harness_paths.project_dir),
+                "last_hints_sent": [hint_preview(hint) for hint in context_hints],
             },
         }
         if persisted_tool_calls:
@@ -351,6 +341,11 @@ async def _run_harness_turn(
             "session_id": result.session_id,
             "cost_usd": result.cost_usd,
             "usage": result.usage,
+            "effective_cwd": workdir,
+            "effective_cwd_source": harness_paths.source,
+            "bot_workspace_dir": harness_paths.bot_workspace_dir,
+            "project_dir": project_directory_payload(harness_paths.project_dir),
+            "last_hints_sent": [hint_preview(hint) for hint in context_hints],
             **(result.metadata or {}),
         },
     }

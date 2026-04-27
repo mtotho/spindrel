@@ -564,3 +564,77 @@ test("legacy adapter falls back to message text followed by tool rows when no tr
         ],
     });
 });
+test("step_output rows promote rich-inline envelope to root_rich_result instead of dumping JSON text", () => {
+    // Mirrors the sub-session step_output shape: content == envelope.body, no
+    // tool_calls, envelope is rich-inline (display=inline, JSON content type).
+    const jsonBody = '[{"correlation_id":"abc","event_type":"discovery_summary"}]';
+    const body = buildLegacyAssistantTurnBody({
+        displayContent: jsonBody,
+        rootEnvelope: {
+            content_type: "application/json",
+            display: "inline",
+            body: jsonBody,
+            plain_body: jsonBody,
+            truncated: false,
+            byte_size: jsonBody.length,
+            record_id: "step-output-result",
+        },
+    });
+    // Skip the duplicate text item — materialize will render the envelope.
+    assert.deepEqual(body, { version: 1, items: [] });
+    const items = buildAssistantTurnBodyItems({
+        assistantTurnBody: body,
+        toolCalls: [],
+        rootEnvelope: {
+            content_type: "application/json",
+            display: "inline",
+            body: jsonBody,
+            plain_body: jsonBody,
+            truncated: false,
+            byte_size: jsonBody.length,
+            record_id: "step-output-result",
+        },
+    });
+    assert.equal(items.length, 1);
+    assert.equal(items[0]?.kind, "root_rich_result");
+});
+test("rich-inline envelope still attaches to its tool when tool_calls are present", () => {
+    // Regression guard: the step_output promotion is gated on orderedTools.size === 0.
+    // When a tool_call is present, the envelope should bind to it (rich_result),
+    // not double-render at the root.
+    const jsonBody = '{"ok":true}';
+    const items = buildAssistantTurnBodyItems({
+        assistantTurnBody: {
+            version: 1,
+            items: [
+                { id: "tool-1", kind: "tool_call", toolCallId: "call-1" },
+            ],
+        },
+        toolCalls: [
+            { id: "call-1", name: "get_trace", arguments: "{}" },
+        ],
+        rootEnvelope: {
+            content_type: "application/json",
+            display: "inline",
+            body: jsonBody,
+            plain_body: jsonBody,
+            truncated: false,
+            byte_size: jsonBody.length,
+            record_id: "root-env",
+        },
+        toolResults: [
+            {
+                tool_call_id: "call-1",
+                content_type: "application/json",
+                display: "inline",
+                body: jsonBody,
+                plain_body: jsonBody,
+                truncated: false,
+                byte_size: jsonBody.length,
+                record_id: "tool-env",
+            },
+        ],
+    });
+    // No root_rich_result item — envelope stays attached to its tool row.
+    assert.equal(items.filter((i) => i.kind === "root_rich_result").length, 0);
+});

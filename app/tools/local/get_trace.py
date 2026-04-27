@@ -164,12 +164,14 @@ _TIMELINE_ITEM_SCHEMA = {
     "function": {
         "name": "get_trace",
         "description": (
-            "Read trace data from conversation turns. Two modes: "
-            "(1) Pass correlation_id/trace_id/id (or omit for current turn) to read the full timeline of ONE turn — "
-            "RAG retrieval events, tool calls, token usage, errors. "
-            "(2) Pass event_type + limit to list RECENT trace events of that type across all turns (newest first), "
-            "returned as a JSON array of {correlation_id, bot_id, created_at, data} — useful for pipelines "
-            "analyzing patterns across many turns (e.g. discovery_summary audits). "
+            "Read trace data from conversation turns. Two top-level modes: "
+            "(1) Detail (correlation_id given or omitted for current turn). "
+            "Sub-modes via `mode`: `summary` (default) returns turn metadata + a phase index "
+            "(phase_name → item_count); `phase` returns just the items in one phase, paginated "
+            "via `cursor`/`limit`; `full` returns the entire merged timeline (legacy). "
+            "Use summary first to see what's there, then drill into a named phase. "
+            "(2) List (event_type given): scan recent TraceEvent rows of that type across "
+            "all turns, returned as a JSON array of {correlation_id, bot_id, created_at, data}. "
             "Use list_session_traces to find correlation_ids with errors."
         ),
         "parameters": {
@@ -189,6 +191,32 @@ _TIMELINE_ITEM_SCHEMA = {
                     "type": "string",
                     "description": "Alias for correlation_id.",
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["summary", "phase", "full"],
+                    "description": (
+                        "Detail-mode behavior. `summary` (default): metadata + phase index, "
+                        "no inner data — cheap to read. `phase`: items in one named phase, "
+                        "paginated by cursor/limit. `full`: entire merged timeline (legacy)."
+                    ),
+                },
+                "phase": {
+                    "type": "string",
+                    "description": (
+                        "Detail mode + mode=phase: name of the phase to read (matches a "
+                        "phase from the summary's phase index). Phase names are either "
+                        "`tool_calls` (the bucket of all LLM tool invocations on this turn) "
+                        "or a TraceEvent.event_type (e.g. `discovery_summary`, `skill_index`, "
+                        "`tool_retrieval`, `token_usage`, `error`)."
+                    ),
+                },
+                "cursor": {
+                    "type": "integer",
+                    "description": (
+                        "Detail mode + mode=phase: zero-based offset into the phase's items "
+                        "(default 0). Paginate by passing the previous response's `next_cursor`."
+                    ),
+                },
                 "event_type": {
                     "type": "string",
                     "description": (
@@ -200,7 +228,7 @@ _TIMELINE_ITEM_SCHEMA = {
                     "type": "integer",
                     "description": (
                         "List mode: maximum number of events to return (default 50, max 500). "
-                        "Only used when event_type is provided."
+                        "Detail mode + mode=phase: page size (default 50, max 200)."
                     ),
                 },
                 "bot_id": {
@@ -242,7 +270,47 @@ _TIMELINE_ITEM_SCHEMA = {
             },
         },
         {
-            "description": "Detail mode — full timeline for one turn",
+            "description": "Detail mode + mode=summary — turn metadata + phase index",
+            "type": "object",
+            "properties": {
+                "correlation_id": {"type": "string"},
+                "started_at": {"type": ["string", "null"]},
+                "ended_at": {"type": ["string", "null"]},
+                "tool_call_count": {"type": "integer"},
+                "event_count": {"type": "integer"},
+                "error_count": {"type": "integer"},
+                "phases": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "kind": {"type": "string", "enum": ["tool_call", "trace_event"]},
+                            "item_count": {"type": "integer"},
+                            "first_at": {"type": ["string", "null"]},
+                            "last_at": {"type": ["string", "null"]},
+                        },
+                        "required": ["name", "kind", "item_count"],
+                    },
+                },
+            },
+            "required": ["correlation_id", "phases"],
+        },
+        {
+            "description": "Detail mode + mode=phase — paginated items in one phase",
+            "type": "object",
+            "properties": {
+                "correlation_id": {"type": "string"},
+                "phase": {"type": "string"},
+                "total_in_phase": {"type": "integer"},
+                "cursor": {"type": "integer"},
+                "next_cursor": {"type": ["integer", "null"]},
+                "items": {"type": "array", "items": _TIMELINE_ITEM_SCHEMA},
+            },
+            "required": ["correlation_id", "phase", "items"],
+        },
+        {
+            "description": "Detail mode + mode=full — full timeline for one turn",
             "type": "object",
             "properties": {
                 "correlation_id": {"type": "string"},
@@ -268,6 +336,9 @@ async def get_trace(
     limit: int | None = None,
     bot_id: str | None = None,
     include_user_message: bool = False,
+    mode: str = "summary",
+    phase: str | None = None,
+    cursor: int = 0,
 ) -> str:
     # ------------------------------------------------------------------
     # List mode — event_type given: return recent events of that type as
@@ -353,7 +424,7 @@ async def get_trace(
     if not tool_calls and not trace_events:
         return json.dumps({"error": f"No trace data found for correlation_id={corr_id}."}, ensure_ascii=False)
 
-    # Merge by created_at
+    # Merge by created_at — same ordering all three sub-modes share.
     merged: list[tuple[str, object, object]] = []
     for tc in tool_calls:
         merged.append(("tool_call", tc.created_at, tc))
@@ -396,9 +467,106 @@ async def get_trace(
                 "data": data if not data_str or len(data_str) <= 2000 else {"_truncated": data_str[:2000] + "…"},
             })
 
+    requested_mode = (mode or "summary").lower()
+    if requested_mode not in ("summary", "phase", "full"):
+        return json.dumps(
+            {"error": f"Invalid mode {mode!r}; expected summary | phase | full."},
+            ensure_ascii=False,
+        )
+
+    # ------------------------------------------------------------------
+    # Full mode — legacy behavior, kept for callers that need the whole
+    # timeline at once.
+    # ------------------------------------------------------------------
+    if requested_mode == "full":
+        return json.dumps({
+            "correlation_id": str(corr_id),
+            "tool_call_count": len(tool_calls),
+            "event_count": len(trace_events),
+            "timeline": timeline,
+        }, ensure_ascii=False, default=str)
+
+    # Phase grouping rule: every tool_call falls in the "tool_calls" bucket;
+    # every trace_event is bucketed by its event_type. This keeps the phase
+    # list short and useful (~5–8 named phases per turn) without exposing
+    # implementation detail like LLM iteration index.
+    def _phase_for(item: dict) -> str:
+        if item["type"] == "tool_call":
+            return "tool_calls"
+        return item.get("event_type") or "unknown"
+
+    # ------------------------------------------------------------------
+    # Summary mode — turn metadata + phase index, no inner data.
+    # ------------------------------------------------------------------
+    if requested_mode == "summary":
+        # Preserve insertion order of first appearance so the index reads
+        # in chronological phase order.
+        phase_index: dict[str, dict] = {}
+        for item in timeline:
+            name = _phase_for(item)
+            entry = phase_index.get(name)
+            ts_str = item.get("timestamp")
+            if entry is None:
+                phase_index[name] = {
+                    "name": name,
+                    "kind": item["type"],
+                    "item_count": 1,
+                    "first_at": ts_str,
+                    "last_at": ts_str,
+                }
+            else:
+                entry["item_count"] += 1
+                if ts_str:
+                    entry["last_at"] = ts_str
+
+        error_count = sum(
+            1 for it in timeline
+            if it["type"] == "tool_call" and isinstance(it.get("status"), str) and it["status"].startswith("ERROR")
+        ) + sum(
+            1 for it in timeline
+            if it["type"] == "trace_event" and it.get("event_type") == "error"
+        )
+
+        started_at = timeline[0]["timestamp"] if timeline else None
+        ended_at = timeline[-1]["timestamp"] if timeline else None
+
+        return json.dumps({
+            "correlation_id": str(corr_id),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "tool_call_count": len(tool_calls),
+            "event_count": len(trace_events),
+            "error_count": error_count,
+            "phases": list(phase_index.values()),
+        }, ensure_ascii=False, default=str)
+
+    # ------------------------------------------------------------------
+    # Phase mode — one phase, paginated.
+    # ------------------------------------------------------------------
+    if not phase:
+        return json.dumps(
+            {"error": "phase=<name> is required when mode=phase. Call mode=summary first to discover phase names."},
+            ensure_ascii=False,
+        )
+
+    phase_items = [it for it in timeline if _phase_for(it) == phase]
+    if not phase_items:
+        return json.dumps(
+            {"error": f"Phase {phase!r} not present in correlation_id={corr_id}. Call mode=summary to see available phases."},
+            ensure_ascii=False,
+        )
+
+    page_limit = max(1, min(int(limit) if limit is not None else 50, 200))
+    start = max(0, int(cursor or 0))
+    end = start + page_limit
+    sliced = phase_items[start:end]
+    next_cursor: int | None = end if end < len(phase_items) else None
+
     return json.dumps({
         "correlation_id": str(corr_id),
-        "tool_call_count": len(tool_calls),
-        "event_count": len(trace_events),
-        "timeline": timeline,
+        "phase": phase,
+        "total_in_phase": len(phase_items),
+        "cursor": start,
+        "next_cursor": next_cursor,
+        "items": sliced,
     }, ensure_ascii=False, default=str)

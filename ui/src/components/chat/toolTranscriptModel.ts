@@ -727,8 +727,16 @@ function materializeAssistantTurnBodyItems({
 }): OrderedTurnBodyItem[] {
   const items: OrderedTurnBodyItem[] = [];
 
+  // Rich-inline envelopes normally bind to a tool_call. When there's no
+  // tool_call to attach to (e.g. step_output sub-session messages from the
+  // pipeline runtime), render the envelope at the message root through the
+  // same RichToolResult path the per-tool surface uses. Without this branch
+  // the envelope is silently dropped and the legacy text fallback dumps the
+  // raw body as plain markdown.
   const rootSurface = inferEnvelopeSurface(rootEnvelope);
-  if (rootSurface === "root_rich_result" && rootEnvelope) {
+  const promoteRichToRoot =
+    rootSurface === "rich_result" && orderedTools.size === 0 && rootEnvelope;
+  if ((rootSurface === "root_rich_result" || promoteRichToRoot) && rootEnvelope) {
     items.push({
       kind: "root_rich_result",
       key: `root-rich:${rootEnvelope.record_id ?? rootEnvelope.display_label ?? "result"}`,
@@ -837,10 +845,12 @@ export function buildLegacyAssistantTurnBody({
   displayContent,
   transcriptEntries,
   toolCalls,
+  rootEnvelope,
 }: {
   displayContent?: string;
   transcriptEntries?: AssistantTurnBody["items"];
   toolCalls?: ToolCall[];
+  rootEnvelope?: ToolResultEnvelope;
 }): AssistantTurnBody {
   if (transcriptEntries?.length) {
     return {
@@ -849,8 +859,23 @@ export function buildLegacyAssistantTurnBody({
     };
   }
 
+  // When a rich-inline envelope is present and the row has no tool_calls,
+  // the envelope IS the content (e.g. sub-session step_output rows persist
+  // the JSON body as both `content` and `metadata.envelope.body`). Skip
+  // the duplicate legacy text item so materialize can promote the envelope
+  // to a root_rich_result and render through RichToolResult instead of
+  // dumping the raw body via MarkdownContent.
+  const skipText =
+    !!rootEnvelope &&
+    isRichInlineEnvelope(rootEnvelope) &&
+    !toolCalls?.length &&
+    !!displayContent &&
+    (rootEnvelope.body === displayContent
+      || rootEnvelope.plain_body === displayContent
+      || rootEnvelope.truncated === true);
+
   const items: AssistantTurnBody["items"] = [];
-  if (displayContent) {
+  if (displayContent && !skipText) {
     items.push({ id: "legacy:text", kind: "text", text: displayContent });
   }
   for (let index = 0; index < (toolCalls?.length ?? 0); index += 1) {

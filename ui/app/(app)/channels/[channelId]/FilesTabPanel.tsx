@@ -74,6 +74,11 @@ function dirForApi(p: string): string {
   return p.startsWith("/") ? p : `/${p}`;
 }
 
+function normalizeRootPath(path: string | null | undefined): string {
+  const stripped = stripSlashes(path ?? "");
+  return stripped ? `/${stripped}` : "/";
+}
+
 function getMemoryPath(botId: string, sharedWorkspace: boolean): string {
   return sharedWorkspace ? `/bots/${botId}/memory` : "/memory";
 }
@@ -81,9 +86,16 @@ function getMemoryPath(botId: string, sharedWorkspace: boolean): string {
 function pickInitialPath(opts: {
   channelId: string;
   remembered: string | undefined;
+  rootPath?: string | null;
 }): string {
-  if (opts.remembered) return opts.remembered;
-  return `/channels/${opts.channelId}`;
+  const rootPath = normalizeRootPath(opts.rootPath ?? `/channels/${opts.channelId}`);
+  if (opts.remembered) {
+    const remembered = dirForApi(opts.remembered);
+    if (remembered === rootPath || remembered.startsWith(`${rootPath.replace(/\/$/, "")}/`)) {
+      return remembered;
+    }
+  }
+  return rootPath;
 }
 
 interface FilesTabPanelProps {
@@ -98,6 +110,9 @@ interface FilesTabPanelProps {
   /** When true the search filter opens focused on mount — wired to the
    *  Cmd+Shift+B global shortcut so "browse files" lands on search-ready. */
   focusSearchOnMount?: boolean;
+  /** Workspace-relative root for this channel's file browser, e.g. /common/project. */
+  rootPath?: string | null;
+  rootLabel?: string;
 }
 
 export function FilesTabPanel({
@@ -108,6 +123,8 @@ export function FilesTabPanel({
   activeFile,
   onSelectFile,
   focusSearchOnMount = false,
+  rootPath,
+  rootLabel = "Project",
 }: FilesTabPanelProps) {
   const t = useThemeTokens();
   const queryClient = useQueryClient();
@@ -132,6 +149,11 @@ export function FilesTabPanel({
   }, [allChannels]);
 
   const memoryTarget = botId ? getMemoryPath(botId, sharedWorkspace) : null;
+  const normalizedRootPath = useMemo(
+    () => (stripSlashes(rootPath ?? "") ? normalizeRootPath(rootPath) : `/channels/${channelId}`),
+    [channelId, rootPath],
+  );
+  const hasProjectRoot = stripSlashes(rootPath ?? "") !== "";
   const channelTarget = `/channels/${channelId}`;
 
   const setRemembered = useFileBrowserStore((s) => s.setChannelExplorerPath);
@@ -140,6 +162,7 @@ export function FilesTabPanel({
     pickInitialPath({
       channelId,
       remembered: useFileBrowserStore.getState().channelExplorerPaths[channelId],
+      rootPath: normalizedRootPath,
     }),
   );
 
@@ -147,8 +170,9 @@ export function FilesTabPanel({
   // mount so the auto-indexed convention is visible without an extra click.
   // Idempotent — `expandDir` no-ops when already expanded.
   useEffect(() => {
-    expandDir(`channels/${channelId}/knowledge-base`);
-  }, [channelId, expandDir]);
+    expandDir(stripSlashes(normalizedRootPath));
+    if (!hasProjectRoot) expandDir(`channels/${channelId}/knowledge-base`);
+  }, [channelId, expandDir, hasProjectRoot, normalizedRootPath]);
   const setCurrentPath = useCallback(
     (p: string) => {
       setCurrentPathRaw(p);
@@ -164,9 +188,10 @@ export function FilesTabPanel({
       pickInitialPath({
         channelId,
         remembered: useFileBrowserStore.getState().channelExplorerPaths[channelId],
+        rootPath: normalizedRootPath,
       }),
     );
-  }, [channelId]);
+  }, [channelId, normalizedRootPath]);
 
   const [showFilter, setShowFilter] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -780,7 +805,8 @@ export function FilesTabPanel({
         <ScopeStrip
           currentPath={currentPath}
           scopeTargets={[
-            ...(channelTarget ? [{ label: "Channel", path: channelTarget }] : []),
+            ...(hasProjectRoot ? [{ label: rootLabel, path: normalizedRootPath }] : []),
+            ...(!hasProjectRoot ? [{ label: "Channel", path: channelTarget }] : []),
             { label: "Workspace", path: "/" },
             ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
           ]}

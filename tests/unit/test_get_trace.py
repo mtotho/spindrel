@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 
-from app.db.models import Message, Session, TraceEvent
+from app.db.models import Message, Session, ToolCall, TraceEvent
 from app.tools.local.get_trace import get_trace
 
 
@@ -138,3 +138,178 @@ class TestGetTraceListMode:
             await get_trace(event_type="discovery_summary", include_user_message=True)
         )
         assert out[0]["user_message"] == "line1 line2 line3"
+
+
+async def _seed_full_turn(
+    db_session,
+    correlation_id: uuid.UUID,
+    *,
+    bot_id: str = "qa-bot",
+    tool_calls: int = 2,
+    discovery: bool = True,
+    skill_index: bool = True,
+    error_event: bool = False,
+) -> None:
+    """Seed a turn with a mix of TraceEvent rows and ToolCall rows so detail-mode
+    sub-modes (summary / phase / full) can be exercised end-to-end."""
+    session_id = uuid.uuid4()
+    db_session.add(Session(id=session_id, client_id="test-client", bot_id=bot_id))
+    if discovery:
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot_id,
+            event_type="discovery_summary",
+            data={"tools": {"threshold": 0.35, "retrieved": ["foo"]}, "skills": {"enrolled_count": 3}},
+        ))
+    if skill_index:
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot_id,
+            event_type="skill_index",
+            data={"unretrieved_count": 4},
+        ))
+    if error_event:
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot_id,
+            event_type="error",
+            data={"message": "boom"},
+        ))
+    for i in range(tool_calls):
+        db_session.add(ToolCall(
+            session_id=session_id,
+            bot_id=bot_id,
+            tool_name=f"tool_{i}",
+            tool_type="local",
+            iteration=i + 1,
+            arguments={"i": i},
+            result=f"ok-{i}",
+            correlation_id=correlation_id,
+            status="done",
+        ))
+
+
+class TestGetTraceDetailModes:
+    """Detail-mode sub-modes: summary (default), phase (paginated), full (legacy)."""
+
+    @pytest.mark.asyncio
+    async def test_summary_default_returns_phase_index(
+        self, db_session, patched_async_sessions
+    ):
+        corr = uuid.uuid4()
+        await _seed_full_turn(db_session, corr, tool_calls=3)
+        await db_session.commit()
+
+        out = json.loads(await get_trace(correlation_id=str(corr)))
+        # Summary has no `timeline` key — phases instead.
+        assert "timeline" not in out
+        assert out["correlation_id"] == str(corr)
+        assert out["tool_call_count"] == 3
+        assert out["event_count"] == 2  # discovery_summary + skill_index
+        names = {p["name"] for p in out["phases"]}
+        assert names == {"discovery_summary", "skill_index", "tool_calls"}
+        tool_phase = next(p for p in out["phases"] if p["name"] == "tool_calls")
+        assert tool_phase["item_count"] == 3
+        assert tool_phase["kind"] == "tool_call"
+
+    @pytest.mark.asyncio
+    async def test_summary_counts_errors_from_both_sources(
+        self, db_session, patched_async_sessions
+    ):
+        # error_event seeds a TraceEvent with event_type="error". Tool-call
+        # errors (status starting with "ERROR") are also counted. We seed one
+        # of each below.
+        corr = uuid.uuid4()
+        session_id = uuid.uuid4()
+        db_session.add(Session(id=session_id, client_id="t", bot_id="qa-bot"))
+        db_session.add(TraceEvent(
+            correlation_id=corr, session_id=session_id, bot_id="qa-bot",
+            event_type="error", data={"x": 1},
+        ))
+        db_session.add(ToolCall(
+            session_id=session_id, bot_id="qa-bot",
+            tool_name="t", tool_type="local", iteration=1,
+            arguments={}, result=None, error="boom", correlation_id=corr,
+            status="error",
+        ))
+        await db_session.commit()
+
+        out = json.loads(await get_trace(correlation_id=str(corr)))
+        assert out["error_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_phase_mode_paginates_and_filters_to_one_phase(
+        self, db_session, patched_async_sessions
+    ):
+        corr = uuid.uuid4()
+        await _seed_full_turn(db_session, corr, tool_calls=5)
+        await db_session.commit()
+
+        page1 = json.loads(await get_trace(
+            correlation_id=str(corr), mode="phase", phase="tool_calls", limit=2,
+        ))
+        assert page1["phase"] == "tool_calls"
+        assert page1["total_in_phase"] == 5
+        assert page1["cursor"] == 0
+        assert page1["next_cursor"] == 2
+        assert len(page1["items"]) == 2
+        # Only tool_calls — no trace_events.
+        assert all(it["type"] == "tool_call" for it in page1["items"])
+
+        page2 = json.loads(await get_trace(
+            correlation_id=str(corr), mode="phase", phase="tool_calls",
+            cursor=page1["next_cursor"], limit=2,
+        ))
+        assert page2["cursor"] == 2
+        assert page2["next_cursor"] == 4
+        assert len(page2["items"]) == 2
+
+        tail = json.loads(await get_trace(
+            correlation_id=str(corr), mode="phase", phase="tool_calls",
+            cursor=page2["next_cursor"], limit=2,
+        ))
+        assert tail["next_cursor"] is None
+        assert len(tail["items"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_phase_mode_unknown_phase_errors(
+        self, db_session, patched_async_sessions
+    ):
+        corr = uuid.uuid4()
+        await _seed_full_turn(db_session, corr)
+        await db_session.commit()
+
+        out = json.loads(await get_trace(
+            correlation_id=str(corr), mode="phase", phase="not_a_phase",
+        ))
+        assert "error" in out
+
+    @pytest.mark.asyncio
+    async def test_full_mode_returns_legacy_timeline_shape(
+        self, db_session, patched_async_sessions
+    ):
+        corr = uuid.uuid4()
+        await _seed_full_turn(db_session, corr, tool_calls=2)
+        await db_session.commit()
+
+        out = json.loads(await get_trace(correlation_id=str(corr), mode="full"))
+        # Legacy shape: timeline + counts.
+        assert "timeline" in out
+        assert out["tool_call_count"] == 2
+        assert out["event_count"] == 2
+        # Mix of tool_call + trace_event entries, four total.
+        assert len(out["timeline"]) == 4
+
+    @pytest.mark.asyncio
+    async def test_invalid_mode_returns_error(
+        self, db_session, patched_async_sessions
+    ):
+        corr = uuid.uuid4()
+        await _seed_full_turn(db_session, corr)
+        await db_session.commit()
+
+        out = json.loads(await get_trace(correlation_id=str(corr), mode="bogus"))
+        assert "error" in out

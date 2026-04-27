@@ -856,6 +856,10 @@ function HarnessStatusPill({
   const explicitTools = Array.isArray(bridge.explicit_tool_names) ? bridge.explicit_tool_names.map(String) : [];
   const taggedSkills = Array.isArray(bridge.tagged_skill_ids) ? bridge.tagged_skill_ids.map(String) : [];
   const hintRows = Array.isArray(data.hints) ? data.hints : [];
+  const computedHintRows = Array.isArray(data.next_turn_computed_hints) ? data.next_turn_computed_hints : [];
+  const lastHintRows = Array.isArray(data.last_hints_sent) ? data.last_hints_sent : [];
+  const projectDir = (data.project_dir ?? {}) as Record<string, unknown>;
+  const projectPathLabel = typeof projectDir.path === "string" ? projectDir.path : null;
   return (
     <span className="relative inline-flex shrink-0">
       <button
@@ -885,6 +889,9 @@ function HarnessStatusPill({
             <div><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
             <div><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{remainingSource ? ` · ${remainingSource}` : ""}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
             <div><span className="text-text-dim">Native compact</span> {data.native_compaction ? `${String(data.native_compaction.status || "unknown")} · ${String(data.native_compaction.created_at || "")}` : "none observed"}</div>
+            <div><span className="text-text-dim">CWD</span> <span className="font-mono text-[10px]">{data.effective_cwd || "unknown"}</span>{data.effective_cwd_source ? ` · ${data.effective_cwd_source}` : ""}</div>
+            {projectPathLabel && <div><span className="text-text-dim">Project</span> <span className="font-mono text-[10px]">/{projectPathLabel}</span></div>}
+            {data.bot_workspace_dir && <div><span className="text-text-dim">Bot memory root</span> <span className="font-mono text-[10px]">{data.bot_workspace_dir}</span></div>}
             <div><span className="text-text-dim">Bridge</span> {String(bridge.status || "unknown")} · {exportedTools.length} tool{exportedTools.length === 1 ? "" : "s"}</div>
             {typeof bridge.error === "string" && bridge.error && <div className="text-warning-muted">{bridge.error}</div>}
             {Array.isArray(bridge.inventory_errors) && bridge.inventory_errors.length > 0 && (
@@ -905,6 +912,30 @@ function HarnessStatusPill({
               </div>
             ))}
           </div>
+          <div className="mt-3 border-t border-surface-border pt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Computed next-turn hints</div>
+            {computedHintRows.length === 0 ? (
+              <div className="text-text-dim">None</div>
+            ) : computedHintRows.map((hint, idx) => (
+              <div key={idx} className="mb-2 last:mb-0">
+                <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
+                <div className="line-clamp-3 text-[11px] leading-snug">{String(hint.preview || "")}</div>
+              </div>
+            ))}
+          </div>
+          {lastHintRows.length > 0 && (
+            <div className="mt-3 border-t border-surface-border pt-2">
+              <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Last hints sent</div>
+              <div className="max-h-24 overflow-auto">
+                {lastHintRows.map((hint, idx) => (
+                  <div key={idx} className="mb-2 last:mb-0">
+                    <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
+                    <div className="line-clamp-3 text-[11px] leading-snug">{String(hint.preview || "")}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {exportedTools.length > 0 && (
             <div className="mt-3 border-t border-surface-border pt-2">
               <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Exported tools</div>

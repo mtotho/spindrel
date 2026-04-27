@@ -77,11 +77,13 @@ function BotKnowledgeBaseSection({
   workspaceId,
   autoRetrieval,
   onToggle,
+  isHarness = false,
 }: {
   botId: string;
   workspaceId?: string | null;
   autoRetrieval: boolean;
   onToggle: (value: boolean) => void;
+  isHarness?: boolean;
 }) {
   const navigate = useNavigate();
   const rootPath = ensureLeadingSlash(workspaceId ? `bots/${botId}/knowledge-base` : "knowledge-base");
@@ -105,7 +107,9 @@ function BotKnowledgeBaseSection({
         <div className="min-w-0">
           <SettingsGroupLabel label="Bot knowledge base" icon={<FolderTree size={12} className="text-text-dim" />} />
           <p className="mt-1 max-w-[70ch] text-[12px] leading-relaxed text-text-dim">
-            Curated reference docs that travel with this bot across channels. Files stay indexed either way; auto-retrieve controls whether matching excerpts are admitted before broad workspace search.
+            {isHarness
+              ? "Curated files that stay with this bot. Harness turns do not currently run the normal bot-knowledge auto-RAG path; use bridge tools or the channel project directory when the harness needs these files."
+              : "Curated reference docs that travel with this bot across channels. Files stay indexed either way; auto-retrieve controls whether matching excerpts are admitted before broad workspace search."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -129,7 +133,9 @@ function BotKnowledgeBaseSection({
         value={autoRetrieval}
         onChange={onToggle}
         label="Auto-retrieve bot knowledge"
-        description="Turn this off to keep the bot knowledge base search-only."
+        description={isHarness
+          ? "Applies to normal-loop bots. Harness visibility is via filesystem/bridge tools and explicit hints."
+          : "Turn this off to keep the bot knowledge base search-only."}
       />
 
       {!workspaceId ? (
@@ -250,10 +256,12 @@ export function WorkspaceSection({
   editorData,
   draft,
   update,
+  isHarness = false,
 }: {
   editorData: BotEditorData;
   draft: BotConfig;
   update: (patch: Partial<BotConfig>) => void;
+  isHarness?: boolean;
 }) {
   const ws = draft.workspace || { enabled: false };
   const docker = ws.docker || {};
@@ -493,7 +501,15 @@ export function WorkspaceSection({
 
           {draft.memory_scheme === "workspace-files" && (
             <InfoBanner icon={<Box size={14} />}>
-              Memory files under <span className="font-mono">memory/**/*.md</span> are indexed automatically and do not need a manual segment.
+              {isHarness ? (
+                <>
+                  Harness turns receive a workspace-files memory hint pointing at this bot workspace. The channel project directory, if set, only changes execution CWD.
+                </>
+              ) : (
+                <>
+                  Memory files under <span className="font-mono">memory/**/*.md</span> are indexed automatically and do not need a manual segment.
+                </>
+              )}
             </InfoBanner>
           )}
 
@@ -503,6 +519,7 @@ export function WorkspaceSection({
               workspaceId={draft.shared_workspace_id}
               autoRetrieval={ws.bot_knowledge_auto_retrieval !== false}
               onToggle={(value) => setWs({ bot_knowledge_auto_retrieval: value })}
+              isHarness={isHarness}
             />
           ) : (
             <EmptyState message="Save the bot once to create its knowledge-base folder and retrieval settings." />

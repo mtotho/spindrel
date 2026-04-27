@@ -280,10 +280,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
               displayContent,
               transcriptEntries: legacyTranscriptEntries,
               toolCalls: msgToolCalls,
+              rootEnvelope: richEnvelope,
             })
           )
         : null,
-    [displayContent, legacyTranscriptEntries, message.role, msgToolCalls, persistedAssistantTurnBody],
+    [displayContent, legacyTranscriptEntries, message.role, msgToolCalls, persistedAssistantTurnBody, richEnvelope],
   );
   const orderedTurnBodyItems = useMemo(
     () =>

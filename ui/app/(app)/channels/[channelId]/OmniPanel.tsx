@@ -42,6 +42,8 @@ interface OmniPanelProps {
   channelId: string;
   dashboardHref?: string;
   workspaceId: string | undefined;
+  fileRootPath?: string | null;
+  fileRootLabel?: string;
   /** Channel's bot id — threaded into FilesTabPanel so the Memory scope
    *  target resolves to the right bot's memory directory. */
   botId: string | undefined;
@@ -77,6 +79,8 @@ export function OmniPanel({
   channelId,
   dashboardHref,
   workspaceId,
+  fileRootPath,
+  fileRootLabel,
   botId,
   channelDisplayName,
   activeFile,
@@ -181,6 +185,8 @@ export function OmniPanel({
       channelId={channelId}
       botId={botId}
       workspaceId={workspaceId}
+      rootPath={fileRootPath}
+      rootLabel={fileRootLabel}
       channelDisplayName={channelDisplayName}
       activeFile={activeFile}
       onSelectFile={onSelectFile}

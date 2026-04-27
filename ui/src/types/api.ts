@@ -360,6 +360,9 @@ export interface Channel {
     pinned_widget_context_enabled?: boolean;
     /** Channel-scoped HTML widget SDK theme override. */
     widget_theme_ref?: string | null;
+    /** Workspace-relative project directory used as the channel file root and harness CWD. */
+    project_path?: string | null;
+    project_workspace_id?: string | null;
     harness_auto_compaction_enabled?: boolean;
     harness_auto_compaction_soft_remaining_pct?: number;
     harness_auto_compaction_hard_remaining_pct?: number;
@@ -755,6 +758,9 @@ export interface ChannelSettings {
   } | null;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
+  project_workspace_id?: string | null;
+  project_path?: string | null;
+  resolved_project_workspace_id?: string | null;
   category?: string | null;
   tags?: string[];
   /** Pipeline-mode override on this channel. "auto" (default) shows the

@@ -309,6 +309,7 @@ function PromptPersonaSection({ draft, editorData, botId, update }: {
   botId: string | undefined;
   update: (patch: Partial<BotConfig>) => void;
 }) {
+  const isHarness = !!draft.harness_runtime;
   return (
     <div className="flex flex-col gap-6">
       <SectionFrame title="System prompt" description="Primary instructions injected into every agent turn." action={!draft.system_prompt_workspace_file ? <GenerateButton fieldType="system_prompt" botId={botId} value={draft.system_prompt || ""} onChange={(v) => update({ system_prompt: v })} /> : undefined}>
@@ -357,7 +358,7 @@ function ToolsSkillsSection({ editorData, draft, update, setGroup }: {
         </InfoBanner>
       )}
       <SectionFrame title={isHarness ? "Bridge Tools" : "Tools"} description={isHarness ? "Pinned tools, local tools, and MCP servers that can be exposed through the harness bridge." : "Pinned tools, retrieval, MCP, client tools, and result behavior."}>
-        <ToolsSection editorData={editorData} draft={draft} update={update} />
+        <ToolsSection editorData={editorData} draft={draft} update={update} isHarness={isHarness} />
       </SectionFrame>
       <SectionFrame title={isHarness ? "Bridge Skills" : "Skills"} description={isHarness ? "Structured skill enrollments available to bridged get_skill and get_skill_list." : "Structured skill enrollments for this bot."}>
         <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={isHarness ? undefined : () => setGroup("memory")} />
@@ -393,10 +394,11 @@ function WorkspaceFilesSection({ draft, editorData, globalAttach, update }: {
   globalAttach: { enabled: boolean; model: string; maxChars: string; concurrency: string };
   update: (patch: Partial<BotConfig>) => void;
 }) {
+  const isHarness = !!draft.harness_runtime;
   return (
     <div className="flex flex-col gap-6">
       <SectionFrame title="Workspace" description="Shared workspace, sandbox, filesystem index, and bot knowledge files.">
-        <WorkspaceSection editorData={editorData} draft={draft} update={update} />
+        <WorkspaceSection editorData={editorData} draft={draft} update={update} isHarness={isHarness} />
       </SectionFrame>
       <SectionFrame title="Attachment summarization" description="Bot-level overrides for incoming attachment preprocessing.">
         <SelectInput value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""} onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })} options={[{ label: `Inherit (${globalAttach.enabled ? "Enabled" : "Disabled"})`, value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]} style={{ maxWidth: 300 }} />

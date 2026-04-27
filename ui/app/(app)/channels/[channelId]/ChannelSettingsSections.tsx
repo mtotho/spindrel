@@ -673,6 +673,56 @@ export function ChannelTabSections({
   );
 }
 
+function HarnessProjectDirectorySection({
+  form,
+  patch,
+  workspaceId,
+}: {
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
+  workspaceId?: string | null;
+}) {
+  const projectPath = (form.project_path ?? "").replace(/^\/+/, "");
+  const effectiveWorkspaceId = form.project_workspace_id ?? workspaceId ?? null;
+  return (
+    <Section
+      title="Project Directory"
+      description="Optional workspace-relative directory used by this channel's file browser and harness CWD."
+    >
+      <FormRow
+        label="Project path"
+        description="Leave blank to use the normal channel workspace. Use a workspace-relative path such as common/projects/spindrel."
+      >
+        <TextInput
+          value={projectPath}
+          onChangeText={(value) => patch("project_path", (value.trim() || null) as ChannelSettings["project_path"])}
+          placeholder="common/projects/spindrel"
+        />
+      </FormRow>
+      <InfoBanner>
+        {projectPath ? (
+          <>
+            File explorer opens at <span className="font-mono">/{projectPath}</span>; harness turns start there.
+            Workspace-files memory hints still point at the bot workspace.{" "}
+            {effectiveWorkspaceId && (
+              <Link
+                to={`/admin/workspaces/${effectiveWorkspaceId}/files?path=${encodeURIComponent(`/${projectPath}`)}`}
+                className="font-semibold text-accent hover:underline"
+              >
+                Open location
+              </Link>
+            )}
+          </>
+        ) : (
+          <>
+            No project directory is set. Harness CWD falls back to the bot harness workdir, then the bot workspace.
+          </>
+        )}
+      </InfoBanner>
+    </Section>
+  );
+}
+
 export function AgentTabSections({
   form,
   patch,
@@ -708,6 +758,7 @@ export function AgentTabSections({
             </div>
           </div>
         </Section>
+        <HarnessProjectDirectorySection form={form} patch={patch} workspaceId={workspaceId} />
         <Section
           title="Harness Context"
           description="Native compaction stays inside the harness. Spindrel can prompt or trigger native compact when context pressure is visible."

@@ -457,8 +457,8 @@ async def run_native_harness_compact(
     from app.services.agent_harnesses import get_runtime
     from app.services.agent_harnesses.approvals import load_session_mode
     from app.services.agent_harnesses.context import build_turn_context
+    from app.services.agent_harnesses.project import resolve_harness_paths
     from app.services.agent_harnesses.settings import load_session_settings
-    from app.services.workspace import workspace_service
 
     session = await db.get(Session, session_id)
     if session is None:
@@ -472,7 +472,11 @@ async def run_native_harness_compact(
     if compact is None:
         raise NotImplementedError(f"runtime {runtime_name} does not support native compaction")
 
-    workdir = getattr(bot, "harness_workdir", None) or workspace_service.ensure_host_dir(bot.id, bot)
+    harness_paths = await resolve_harness_paths(
+        db,
+        channel_id=session.channel_id or session.parent_channel_id,
+        bot=bot,
+    )
     harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
     prior_harness_session_id = (harness_meta or {}).get("session_id")
     permission_mode = await load_session_mode(db, session_id)
@@ -483,7 +487,7 @@ async def run_native_harness_compact(
         channel_id=session.channel_id or session.parent_channel_id,
         bot_id=bot.id,
         turn_id=uuid.uuid4(),
-        workdir=workdir,
+        workdir=harness_paths.workdir,
         harness_session_id=prior_harness_session_id,
         permission_mode=permission_mode,
         db_session_factory=async_session,

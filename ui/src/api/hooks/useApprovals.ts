@@ -240,6 +240,13 @@ export interface HarnessStatus {
   context_remaining_source: string | null;
   native_compaction: Record<string, unknown> | null;
   hints: Array<Record<string, unknown>>;
+  next_turn_computed_hints: Array<Record<string, unknown>>;
+  next_turn_hints: Array<Record<string, unknown>>;
+  last_hints_sent: Array<Record<string, unknown>>;
+  effective_cwd: string | null;
+  effective_cwd_source: string | null;
+  bot_workspace_dir: string | null;
+  project_dir: Record<string, unknown> | null;
   bridge_status: Record<string, unknown>;
   context_note: string;
 }

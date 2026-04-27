@@ -48,6 +48,8 @@ interface MobileChannelDrawerProps {
   channelId: string;
   dashboardHref?: string;
   workspaceId: string | undefined;
+  fileRootPath?: string | null;
+  fileRootLabel?: string;
   botId: string | undefined;
   channelDisplayName?: string | null;
   activeFile: string | null;
@@ -84,6 +86,8 @@ export function MobileChannelDrawer({
   channelId,
   dashboardHref,
   workspaceId,
+  fileRootPath,
+  fileRootLabel,
   botId,
   channelDisplayName,
   activeFile,
@@ -257,6 +261,8 @@ export function MobileChannelDrawer({
             channelId={channelId}
             botId={botId}
             workspaceId={workspaceId}
+            rootPath={fileRootPath}
+            rootLabel={fileRootLabel}
             channelDisplayName={channelDisplayName}
             activeFile={activeFile}
             onSelectFile={handleSelectFile}

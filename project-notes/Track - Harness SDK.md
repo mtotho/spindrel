@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-27 (Phase 6 v1 shipped — codex runtime + host seam cleanup)
+updated: 2026-04-27 (Phase 6 stabilization — harness metadata context regression fixed)
 ---
 # Track - Harness SDK
 
@@ -196,6 +196,7 @@ Approval mapping intent (final values from schema):
 - Treated Codex native plan items as plan text, not fake tool results, preserving the plan fallback without polluting the tool transcript.
 - Local binary checks confirmed `account/read` and `model/list` shapes; focused Codex unit tests pass. DB-backed turn-worker harness tests skip under the local Python 3.14 harness as expected.
 - Stabilized the Codex/Claude finish-line review findings: Codex user-input now uses the app-server response schema; app-server EOF wakes consumers instead of hanging turns; Codex dynamic-tool inventory changes force a fresh native thread; compact usage reuses normalized token telemetry; generated-schema drift checks cover the fields Spindrel depends on; Claude gets the documented streaming `PreToolUse` continue hook when supported.
+- Fixed the shared harness turn worker regression where `build_turn_context(..., harness_metadata=harness_meta)` referenced an undefined local. The worker now loads latest persisted harness metadata before constructing `TurnContext`, so Claude Code turns no longer crash and Codex can still compare prior dynamic-tool signatures.
 
 ## Later - Skill Bridge
 

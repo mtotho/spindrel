@@ -811,10 +811,12 @@ export function ToolsSection({
   editorData,
   draft,
   update,
+  isHarness = false,
 }: {
   editorData: BotEditorData;
   draft: BotConfig;
   update: (patch: Partial<BotConfig>) => void;
+  isHarness?: boolean;
 }) {
   const t = useThemeTokens();
 
@@ -848,7 +850,9 @@ export function ToolsSection({
             value={retrieval}
             onChange={(v) => update({ tool_retrieval: v })}
             label="Tool Retrieval"
-            description="Semantic search selects the most relevant tools per turn."
+            description={isHarness
+              ? "Controls helper-tool injection for the bridge; harness turns receive resolved/exported tools, not semantic per-turn selection."
+              : "Semantic search selects the most relevant tools per turn."}
           />
           {retrieval && (
             <div style={{ paddingLeft: 24, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -856,7 +860,9 @@ export function ToolsSection({
                 value={discovery}
                 onChange={(v) => update({ tool_discovery: v })}
                 label="Auto-Discovery"
-                description="Discover tools beyond this bot's configured set from the full pool."
+                description={isHarness
+                  ? "Normal-loop discovery setting. The current harness bridge does not RAG tools from the full pool per turn."
+                  : "Discover tools beyond this bot's configured set from the full pool."}
               />
               <div style={{ maxWidth: 180 }}>
                 <FormRow label="Similarity Threshold">
@@ -871,7 +877,9 @@ export function ToolsSection({
           )}
         </div>
         <div style={{ fontSize: 10, color: t.textDim, lineHeight: "14px", borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 8 }}>
-          Skills and capabilities also use semantic search per turn. Memory scheme and channel overrides can add or remove tools at runtime.
+          {isHarness
+            ? "Harness bridge inventory is resolved from pinned/configured tools, MCP servers, channel overrides, and system-injected helpers. The chat header shows what was actually exported."
+            : "Skills and capabilities also use semantic search per turn. Memory scheme and channel overrides can add or remove tools at runtime."}
         </div>
       </div>
 
@@ -879,7 +887,11 @@ export function ToolsSection({
       <ResolvedSummary editorData={editorData} draft={draft} />
 
       {/* Mode explanation banner */}
-      {discovery ? (
+      {isHarness ? (
+        <InfoBanner variant="info">
+          <strong>Harness bridge inventory.</strong> Resolved local tools and MCP servers can be exported to the runtime when the SDK supports them. Client/browser tools are listed for configuration visibility but are not bridgeable yet.
+        </InfoBanner>
+      ) : discovery ? (
         <InfoBanner variant="info">
           <strong>All tools are discoverable.</strong> This bot can find and use any tool via semantic search.
           Pin tools that must be available every turn. Include tools to give them priority in search results.
@@ -900,7 +912,7 @@ export function ToolsSection({
       <PinnedToolsPicker editorData={editorData} draft={draft} update={update} discovery={discovery} />
 
       {/* Enrolled Tools (persistent working set) */}
-      {discovery && draft.id && <EnrolledToolsPanel botId={draft.id} />}
+      {discovery && draft.id && !isHarness && <EnrolledToolsPanel botId={draft.id} />}
 
       {/* MCP Servers */}
       <McpServersSection editorData={editorData} draft={draft} update={update} filter="" />
@@ -913,7 +925,9 @@ export function ToolsSection({
         <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 8 }}>
           <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4, lineHeight: "16px" }}>
             {discovery
-              ? "All tools below are available via auto-discovery. Click a tool\u2019s status badge to cycle its state: discoverable (found at stricter threshold) \u2192 included (priority in search) \u2192 pinned (always in context). Auto-injected tools are managed by the system."
+              ? isHarness
+                ? "Use this list to configure bridge inventory. Pinned/configured local tools and MCP servers are export candidates; auto-injected tools are managed by the system."
+                : "All tools below are available via auto-discovery. Click a tool\u2019s status badge to cycle its state: discoverable (found at stricter threshold) \u2192 included (priority in search) \u2192 pinned (always in context). Auto-injected tools are managed by the system."
               : "Check tools to make them available to this bot. With retrieval on, the most relevant enabled tools are selected each turn. Pinned tools are always included regardless of relevance."}
           </div>
           <FullToolList editorData={editorData} draft={draft} update={update} discovery={discovery} />

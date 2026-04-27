@@ -483,13 +483,23 @@ export function buildChannelSessionPickerGroups(entries, query) {
     }
     const current = entries.filter((entry) => entry.selected);
     const primary = entries.filter((entry) => entry.kind === "primary" && !entry.selected);
-    const previous = entries.filter((entry) => entry.kind === "channel" && !entry.selected);
-    const scratch = entries.filter((entry) => entry.kind === "scratch" && !entry.selected);
+    const recent = entries
+        .filter((entry) => (entry.kind === "channel" || entry.kind === "scratch") && !entry.selected)
+        .sort((a, b) => recentEntryTimestamp(b) - recentEntryTimestamp(a));
     const groups = [
         { id: "current", label: "This chat", entries: current },
         { id: "primary", label: "Primary", entries: primary },
-        { id: "previous", label: "Previous chats", entries: previous },
-        { id: "scratch", label: "Scratch", entries: scratch },
+        { id: "recent", label: "Recent sessions", entries: recent },
     ];
     return groups.filter((group) => group.entries.length > 0);
+}
+function recentEntryTimestamp(entry) {
+    if (entry.kind === "primary")
+        return 0;
+    const row = entry.row;
+    const iso = row.last_active || row.created_at;
+    if (!iso)
+        return 0;
+    const ms = new Date(iso).getTime();
+    return Number.isFinite(ms) ? ms : 0;
 }

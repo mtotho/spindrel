@@ -15,6 +15,7 @@ import type { StepState } from "@/src/api/hooks/useTasks";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
+import { ChatComposerShell } from "@/src/components/chat/ChatComposerShell";
 import { useChatStore } from "@/src/stores/chat";
 import { cn } from "@/src/lib/cn";
 
@@ -175,32 +176,39 @@ export function PipelineRunLive({
       </div>
 
       {/* Footer — composer is live once the run reaches a terminal state.
-          Mid-run push-back requires step pause/resume (Phase E, parked). */}
+          Mid-run push-back requires step pause/resume (Phase E, parked).
+          Geometry mirrors channel chat: ChatComposerShell centers the card
+          (max-w 820, horizontal padding) and no top divider — the composer
+          card's own outline is the only chrome. */}
       {isTerminal ? (
-        <div className="border-t border-surface-border shrink-0">
+        <div className="shrink-0 pb-2">
           {sendError && (
             <div className="px-5 py-1.5 text-[11px] text-danger bg-danger/10">
               {sendError}
             </div>
           )}
-          <MessageInput
-            onSend={handleSend}
-            disabled={!runSessionId}
-            isStreaming={isSending}
-            currentBotId={task?.bot_id}
-            channelId={runSessionId ?? undefined}
-          />
+          <ChatComposerShell>
+            <MessageInput
+              onSend={handleSend}
+              disabled={!runSessionId}
+              isStreaming={isSending}
+              currentBotId={task?.bot_id}
+              channelId={runSessionId ?? undefined}
+            />
+          </ChatComposerShell>
         </div>
       ) : (
-        <div className="border-t border-surface-border shrink-0 px-5 py-2.5">
-          <div
-            className="flex items-center gap-2 px-3 py-2 rounded-md
-                       bg-surface-raised/40 text-[11px] text-text-dim/80"
-            title="Mid-run push-back lands in a future phase."
-          >
-            <PauseCircle size={12} className="text-text-dim/60" />
-            Composer unlocks once the run finishes — follow up with {task?.bot_id ?? "the bot"} from here.
-          </div>
+        <div className="shrink-0 py-2.5">
+          <ChatComposerShell>
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-md
+                         bg-surface-raised/40 text-[11px] text-text-dim/80"
+              title="Mid-run push-back lands in a future phase."
+            >
+              <PauseCircle size={12} className="text-text-dim/60" />
+              Composer unlocks once the run finishes — follow up with {task?.bot_id ?? "the bot"} from here.
+            </div>
+          </ChatComposerShell>
         </div>
       )}
     </div>

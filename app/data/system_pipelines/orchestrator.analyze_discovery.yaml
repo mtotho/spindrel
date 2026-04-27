@@ -43,16 +43,35 @@ steps:
       Audit discovery behavior for bot `{{params.bot_id}}`.
 
       Prior step `fetch_traces` is a JSON array of `discovery_summary`
-      events — one per turn. Each entry's `data` shows:
+      events — one per turn. Each entry's `data` has TWO branches —
+      `data.tools` (tool retrieval) and `data.skills` (skill
+      enrollment + auto-injection). Both matter for proposals.
+
+      `data.tools` shape:
         - `threshold` — the tool_similarity_threshold frozen for that turn
         - `top_candidates[:5]` — tool candidates with their similarity scores
         - `retrieved` — tools that cleared the threshold and were loaded
         - `pinned`, `included`, `enrolled_working_set` — always-on tools
         - `best_similarity`, `pool_total`, `unretrieved_count`
+        - `tool_retrieval_enabled`, `tool_discovery_enabled` — feature gates;
+          if either is false on a turn, that turn carries no tool signal
+
+      `data.skills` shape:
+        - `enrolled_count`, `enrolled_in_context` — how many enrolled
+          skills were active vs admitted to context this turn
+        - `relevant_count` — enrolled skills judged relevant by the ranker
+        - `auto_injected[]` — `[{"skill_id", "similarity"}]` for skills the
+          ranker injected without explicit user request
+        - `discoverable_unenrolled_count` — unenrolled skills that *could*
+          have helped this turn
+        - `auto_inject_threshold`, `auto_inject_max`, `ranking_enabled` —
+          current skill ranker config
+        - `history_fetched[]` — skill_ids whose history was loaded
+
       Each entry also carries a `user_message` field — the first user
       message on that turn, truncated to ~400 chars. Use it to judge
-      whether a missed tool was actually relevant to user intent or
-      whether a retrieved tool fired for an unrelated reason.
+      whether a missed tool/skill was actually relevant to user intent
+      or whether a retrieved item fired for an unrelated reason.
       Prior step `fetch_bot` gives you the bot's current skills,
       pinned_tools, and tool_similarity_threshold so you can read the
       *current* values before proposing a change.
@@ -63,10 +82,11 @@ steps:
       ─────────────────────────────────────────────────────────────────
       Pattern 1: CALIBRATION DRIFT (bot-level threshold)
       ─────────────────────────────────────────────────────────────────
-      Signal: across ≥5 diverse turns, relevant-looking `top_candidates`
-      consistently score in a band 0.02–0.10 BELOW the turn's `threshold`
-      and are not retrieved. The ranker is working; the cutoff is too
-      tight for this bot's tool pool size.
+      Signal: across ≥5 diverse turns, relevant-looking
+      `data.tools.top_candidates` consistently score in a band 0.02–0.10
+      BELOW the turn's `data.tools.threshold` and are not retrieved. The
+      ranker is working; the cutoff is too tight for this bot's tool pool
+      size.
 
       Proposal shape:
         target_kind: "bots"
@@ -78,9 +98,10 @@ steps:
       ─────────────────────────────────────────────────────────────────
       Pattern 2: PIN-WORTHY TOOL (bot-level pinned_tools append)
       ─────────────────────────────────────────────────────────────────
-      Signal: a tool appears in `retrieved` in ≥70% of turns where it
-      was in the candidate pool, and is not already in `pinned`. Pinning
-      saves the ranker cost and guarantees availability.
+      Signal: a tool appears in `data.tools.retrieved` in ≥70% of turns
+      where it was in the candidate pool, and is not already in
+      `data.tools.pinned`. Pinning saves the ranker cost and guarantees
+      availability.
 
       Proposal shape:
         target_kind: "bots"
@@ -92,11 +113,19 @@ steps:
       ─────────────────────────────────────────────────────────────────
       Pattern 3: ITEM DESCRIPTION / TRIGGER REWRITE (skill-level)
       ─────────────────────────────────────────────────────────────────
-      Signal: a specific skill is ranked above threshold repeatedly but
-      rarely fetched (triggers/description too generic), or ranked BELOW
-      threshold despite obvious user intent in the trace (triggers
-      missing keywords), or fetched for turns unrelated to its purpose
-      (triggers too aggressive).
+      Read `data.skills` for these. Signals (any one is enough):
+        - A skill present in `data.skills.auto_injected` on ≥70% of turns
+          where it was eligible — pin-worthy, or its triggers are firing
+          everywhere and need scoping down.
+        - A skill in the bot's enrolled set (`fetch_bot.skills`) whose id
+          NEVER appears in `data.skills.auto_injected` despite obvious
+          intent in `user_message` — triggers/description too narrow.
+        - High `data.skills.discoverable_unenrolled_count` across turns
+          where `user_message` clearly maps to a known unenrolled skill —
+          its triggers are too narrow to surface it as discoverable.
+        - A skill whose `auto_injected[].similarity` consistently sits
+          0.02–0.10 below `data.skills.auto_inject_threshold` despite
+          relevant user intent — its description/triggers are weak.
 
       Proposal shape:
         target_kind: "skills"
@@ -107,9 +136,10 @@ steps:
       ─────────────────────────────────────────────────────────────────
       Pattern 4: TOOL DESCRIPTION DRIFT (advisory)
       ─────────────────────────────────────────────────────────────────
-      Signal: same as Pattern 3 but for a tool. Tool descriptions live in
-      integration packages / code — there's no writable endpoint, so these
-      are advisory-only in the review UI.
+      Signal: same as Pattern 3 but for a tool — read against
+      `data.tools.top_candidates` / `data.tools.retrieved`. Tool
+      descriptions live in integration packages / code — there's no
+      writable endpoint, so these are advisory-only in the review UI.
 
       Proposal shape:
         target_kind: "tools"
