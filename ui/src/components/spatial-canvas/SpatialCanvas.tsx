@@ -1646,6 +1646,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldY,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => flyToStarboardObject(worldX, worldY),
+          onDoubleClick: () =>
+            diveToChannel(node.channel_id!, {
+              x: node.world_x,
+              y: node.world_y,
+              w: node.world_w,
+              h: node.world_h,
+            }),
           actions: [
             jumpAction(worldX, worldY),
             { label: "Open channel", icon: "open", onSelect: () => navigate(`/channels/${node.channel_id}`) },
@@ -1735,6 +1742,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     flyToWell,
     openStarboardAttention,
     channelForBot,
+    diveToChannel,
     navigate,
     location.pathname,
     location.search,

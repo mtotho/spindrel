@@ -84,21 +84,22 @@ SPATIAL_PINS: list[tuple[str, "callable", str, tuple[float, float, float, float]
 ]
 
 
-# Per-channel widget state seeds — keyed by ``(widget_ref, channel_slug)``.
-# Native widgets render from ``WidgetInstance.state`` which is keyed on
-# (widget_ref, scope='channel', scope_ref=<channel_id>), so each spatial
-# pin gets its own content even though several pins share the same
-# widget_ref. Without this, the canvas reads as "a constellation of empty
-# notes" — every pin renders the placeholder copy instead of real text.
-_SPATIAL_WIDGET_STATES: dict[tuple[str, str], dict] = {
-    ("core/notes_native", "qa"): {
+# Spatial canvas widget states — keyed by the pin's ``display_label``
+# (matches SPATIAL_PINS labels above). Each spatial pin owns its own
+# WidgetInstance (synthetic per-pin scope_ref via
+# ``create_unique_native_widget_instance``), so we can give each one its
+# own content even when the underlying widget_ref is shared. Without these
+# seeds the canvas reads as "a constellation of empty notes" — every
+# native pin renders the placeholder copy instead of real content.
+_SPATIAL_WIDGET_STATES: dict[str, dict] = {
+    "Notes": {
         "body": (
             "# QA standup\n\n"
             "**Test runs since last beat:** 14 / 14 green\n"
             "\n"
             "## Triage\n\n"
-            "- Flake watch: `tests/integration/test_widget_auth.py::test_concurrent_mint`\n"
-            "- New: drift gate added for SSRF horizontal pins (Q-SEC-2)\n"
+            "- Flake watch: `test_widget_auth::test_concurrent_mint`\n"
+            "- New: drift gate added for SSRF horizontal pins\n"
             "- Owner: @qa-lead\n"
             "\n"
             "## Up next\n\n"
@@ -107,32 +108,18 @@ _SPATIAL_WIDGET_STATES: dict[tuple[str, str], dict] = {
         ),
         "updated_at": "2026-04-26T15:00:00Z",
     },
-    ("core/notes_native", "gardening"): {
-        "body": (
-            "# Garden log — week of 4/22\n\n"
-            "## Beds\n\n"
-            "- **Bed A (tomatoes)** — staked 3 indeterminates, mulched\n"
-            "- **Bed B (peppers)** — first flowers on the cayennes 🌶️\n"
-            "- **Bed C (greens)** — second succession sown Tuesday\n"
-            "\n"
-            "## Watch\n\n"
-            "- Aphids forming on the brassicas — neem on Friday if still active\n"
-            "- Forecast: rain Thursday → skip irrigation\n"
-        ),
-        "updated_at": "2026-04-26T11:30:00Z",
-    },
-    ("core/todo_native", "qa"): {
+    "Todos": {
         "items": [
             {"id": "qa1", "text": "Add SSRF drift pin: hostname rebinding", "done": True},
             {"id": "qa2", "text": "Pin webhook replay contract — outbound", "done": True},
             {"id": "qa3", "text": "Cover loop_dispatch isolation (Q-CONC)", "done": False},
-            {"id": "qa4", "text": "Capture flake on test_widget_auth concurrent_mint", "done": False},
-            {"id": "qa5", "text": "Audit binding_suggestions endpoint coverage", "done": False},
+            {"id": "qa4", "text": "Capture flake on widget_auth concurrent_mint", "done": False},
+            {"id": "qa5", "text": "Audit binding_suggestions coverage", "done": False},
         ],
         "updated_at": "2026-04-26T15:00:00Z",
     },
-    ("core/standing_order_native", "widget-building"): {
-        "goal": "Watch widget-canvas rebuilds for stale pins",
+    "Standing order": {
+        "goal": "Watch canvas rebuilds for stale pins",
         "status": "running",
         "strategy": "poll_url",
         "strategy_args": {
@@ -147,8 +134,8 @@ _SPATIAL_WIDGET_STATES: dict[tuple[str, str], dict] = {
         "log": [
             {"at": "2026-04-26T08:00:00Z", "level": "info", "text": "Tick — 0 stale pins"},
             {"at": "2026-04-26T11:00:00Z", "level": "info", "text": "Tick — 0 stale pins"},
-            {"at": "2026-04-26T14:00:00Z", "level": "warn", "text": "Tick — 2 stale pins on workspace:spatial"},
-            {"at": "2026-04-26T15:30:00Z", "level": "info", "text": "Reconciled stale pins via patch_pins_layout"},
+            {"at": "2026-04-26T14:00:00Z", "level": "warn", "text": "Tick — 2 stale pins"},
+            {"at": "2026-04-26T15:30:00Z", "level": "info", "text": "Reconciled stale pins"},
         ],
         "message_on_complete": "All canvas pins reconciled.",
         "owning_bot_id": "",
@@ -157,6 +144,20 @@ _SPATIAL_WIDGET_STATES: dict[tuple[str, str], dict] = {
         "last_tick_at": "2026-04-26T15:30:00Z",
         "terminal_reason": None,
         "updated_at": "2026-04-26T15:30:00Z",
+    },
+    "Notes · garden": {
+        "body": (
+            "# Garden log — week of 4/22\n\n"
+            "## Beds\n\n"
+            "- **Bed A (tomatoes)** — staked indeterminates, mulched\n"
+            "- **Bed B (peppers)** — first flowers on cayennes 🌶️\n"
+            "- **Bed C (greens)** — second succession sown Tuesday\n"
+            "\n"
+            "## Watch\n\n"
+            "- Aphids on the brassicas — neem Friday if active\n"
+            "- Forecast: rain Thursday → skip irrigation\n"
+        ),
+        "updated_at": "2026-04-26T11:30:00Z",
     },
 }
 
@@ -302,26 +303,34 @@ def stage_spatial(
             dry_run=dry_run,
         )
 
-    # 7. Native widget state seeds — the spatial canvas pins each render from
-    # ``WidgetInstance.state`` keyed on the source channel, so without this
-    # every pin shows the empty-state "No notes yet" placeholder.
+    # 7. Native widget state seeds — each spatial pin owns its own
+    # ``WidgetInstance`` (synthetic per-pin scope_ref, see
+    # ``create_unique_native_widget_instance``). We seed each instance
+    # directly by its UUID so different pins of the same widget_ref can
+    # carry different content (e.g. the QA Notes vs the gardening Notes).
     import subprocess
-    for (widget_ref, channel_slug), widget_state in _SPATIAL_WIDGET_STATES.items():
-        channel_id = channel_id_by_slug.get(channel_slug)
-        if not channel_id:
+    pins_by_label = {
+        p.get("display_label"): p
+        for p in client.list_pins(dashboard_key="workspace:spatial")
+    }
+    for label, widget_state in _SPATIAL_WIDGET_STATES.items():
+        pin = pins_by_label.get(label)
+        if not pin or not pin.get("widget_instance_id"):
             continue
         try:
             run_server_helper(
                 ssh_alias=ssh_alias,
                 container=ssh_container,
                 helper_name="seed_widget_instance_state",
-                args=[channel_id, widget_ref, json.dumps(widget_state)],
+                args=[
+                    str(pin["widget_instance_id"]),
+                    "_",  # widget_ref placeholder, ignored in instance mode
+                    json.dumps(widget_state),
+                    "instance",
+                ],
                 dry_run=dry_run,
             )
         except (RuntimeError, subprocess.CalledProcessError):
-            # Pin might not have been created on this channel yet — that's
-            # fine, just skip the seed. Reruns will succeed once the pin
-            # lands. Don't crash the whole stage on a missing instance.
             continue
 
     # 7. Surface a stable hero-channel UUID for capture specs to reference.

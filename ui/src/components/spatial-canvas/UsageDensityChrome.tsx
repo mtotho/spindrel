@@ -17,6 +17,7 @@ export interface StarboardObjectItem {
   worldY: number;
   distance: number;
   onSelect: () => void;
+  onDoubleClick?: () => void;
   actions: StarboardObjectAction[];
 }
 
@@ -425,6 +426,7 @@ export function UsageDensityChrome({
                         key={item.id}
                         type="button"
                         onClick={item.onSelect}
+                        onDoubleClick={item.onDoubleClick}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           event.stopPropagation();

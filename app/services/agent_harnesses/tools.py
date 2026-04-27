@@ -15,6 +15,7 @@ from typing import Any, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot
 from app.agent.channel_overrides import apply_auto_injections, resolve_effective_tools
@@ -202,7 +203,7 @@ async def resolve_harness_bridge_inventory(
         explicit_tool_names=explicit_tool_names,
     )
     bot = get_bot(bot_id)
-    channel = await db.get(Channel, channel_id) if channel_id else None
+    channel = await _load_channel_for_effective_tools(db, channel_id)
     if channel is not None:
         await _attach_channel_skill_ids(db, channel)
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
@@ -239,7 +240,7 @@ async def _collect_harness_spindrel_tools_for(
 ) -> tuple[tuple[HarnessToolSpec, ...], tuple[str, ...]]:
     """Return bridgeable tools plus non-fatal inventory errors."""
     bot = get_bot(bot_id)
-    channel = await db.get(Channel, channel_id) if channel_id else None
+    channel = await _load_channel_for_effective_tools(db, channel_id)
     if channel is not None:
         await _attach_channel_skill_ids(db, channel)
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
@@ -285,6 +286,19 @@ async def _collect_harness_spindrel_tools_for(
     return tuple(specs), tuple(errors)
 
 
+async def _load_channel_for_effective_tools(
+    db: AsyncSession,
+    channel_id: uuid.UUID | None,
+) -> Channel | None:
+    if channel_id is None:
+        return None
+    return (await db.execute(
+        select(Channel)
+        .where(Channel.id == channel_id)
+        .options(selectinload(Channel.integrations))
+    )).scalar_one_or_none()
+
+
 async def _attach_channel_skill_ids(db: AsyncSession, channel: Channel) -> None:
     rows = (await db.execute(
         select(ChannelSkillEnrollment.skill_id).where(
@@ -301,7 +315,7 @@ async def resolved_skill_ids_for(
     channel_id: uuid.UUID | None,
 ) -> set[str]:
     bot = get_bot(bot_id)
-    channel = await db.get(Channel, channel_id) if channel_id else None
+    channel = await _load_channel_for_effective_tools(db, channel_id)
     if channel is not None:
         await _attach_channel_skill_ids(db, channel)
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
