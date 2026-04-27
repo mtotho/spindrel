@@ -14,13 +14,13 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 
 ## Why Spindrel
 
+- **Bring your own agent — Claude Code today, Codex SDK next** — Swap any bot for the real Claude Code SDK and run it from the Spindrel web UI as a persistent, scheduled, channel-bound coding agent. Native planning, native tool calling, native bash and file edits — Claude owns the agent loop. Spindrel owns everything around it: per-channel workspaces, persistent sessions across browser reloads, scheduled runs and recurring tasks, heartbeat hints injected as extra context, your Spindrel skills and tools handed to the SDK, an in-browser terminal for `claude login` / workspace setup, and resume state so a long-running task survives a refresh. Codex SDK support is planned on the same runtime boundary — same scheduling, same channel model, same skill/tool injection. See [Agent Harnesses](docs/guides/agent-harnesses.md).
 - **Any LLM provider, mix and match** — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM, or any OpenAI-compatible endpoint. Assign different providers per bot. Automatic retry with exponential backoff and fallback models.
 - **ChatGPT Subscription provider** — Sign in with ChatGPT OAuth device-code flow instead of an API key. Mix plan-billing providers with API-key providers across bots.
 - **Skill-based expertise (auto-discovered)** — Skills are markdown documents that bots discover and pull in at runtime via RAG. Drop a `.md` into `skills/` (or a foldered skill pack with `index.md` + child docs) and any bot can ground itself in that knowledge — no manual wiring per bot. Bots can also author their own skills with `manage_bot_skill`, so they get smarter over time.
 - **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
 - **Channel workspaces** — Per-channel file stores on disk. Optional workspace schema templates can give the bot a starting structure, but the core model is file-backed memory, not template lock-in.
 - **Conversation continuity** — Conversations are automatically archived into titled, searchable sections. Chat state rehydrates on reconnect, and task runs render as dedicated sub-sessions with their own transcripts.
-- **External agent harnesses** — Run Claude Code from Spindrel's web UI as a persistent remote coding session. Spindrel manages the channel, workspace, auth setup, terminal access, and resume state; Claude Code owns the actual agent loop, tools, bash, and file edits. Codex support is planned on the same runtime boundary.
 - **Task pipelines** — Reusable multi-step automations with `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps, plus conditions, approval gates, parameters, and cross-bot delegation. Pipelines replace the older workflow system.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Widget dashboards + HTML widgets** — Tool results render as live widgets. Pin them to channel dashboards or named dashboards, or have bots author interactive HTML widgets with bot-scoped auth.
@@ -62,6 +62,10 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, f
 | Workspace-scope spatial canvas — every channel as a draggable tile, Now Well below | Zoomed-in view: live widget tiles around the channel they belong to |
 | ![HTML widget hero](docs/images/html-widget-hero.png) | ![Usage and forecast](docs/images/usage-and-forecast.png) |
 | Bot-authored interactive HTML widget with bot-scoped auth | Token usage, daily spend, and budget forecast |
+| ![Agent harnesses](docs/images/harness-overview.png) | ![Bot editor — agent harness](docs/images/harness-bot-editor.png) |
+| Run Claude Code (and soon Codex SDK) end-to-end from Spindrel — auth status, one-click `claude login` | Bind any bot to a harness runtime — Spindrel keeps the channel, schedule, workspace; the SDK runs the loop |
+| ![Harness chat — Claude Code in a Spindrel channel](docs/images/harness-chat-result.png) | ![Admin terminal](docs/images/terminal-rest.png) |
+| A real Claude Code turn inside a Spindrel channel — native thinking, native tool calls (Read, Grep), final reply | Browser PTY into the Spindrel container — used for `claude login`, `git clone`, and other harness setup |
 
 ## Architecture
 

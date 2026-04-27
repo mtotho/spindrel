@@ -82,10 +82,13 @@ interface Props {
   /** Curated list of harness model ids to show in the picker. Comes from
    *  the runtime adapter via ``GET /runtimes/{name}/capabilities``. */
   harnessAvailableModels?: string[];
+  harnessEffortValues?: string[];
   /** Current per-session harness model (or null = runtime default). */
   harnessCurrentModel?: string | null;
+  harnessCurrentEffort?: string | null;
   /** Persist the user's pick to ``harness_settings.model``. ``null`` clears. */
   onHarnessModelChange?: (model: string | null) => void;
+  onHarnessEffortChange?: (effort: string | null) => void;
   /** Whether harness-side model writes are in flight (disables the picker). */
   harnessModelMutating?: boolean;
 }
@@ -108,7 +111,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessCurrentModel = null, onHarnessModelChange, harnessModelMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, onHarnessModelChange, onHarnessEffortChange, harnessModelMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -351,7 +354,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   // composer pill is the muscle-memory surface for typed `/model` users).
   // Non-harness pill respects the existing hideModelOverride opt-out.
   const modelPillVisible = isHarness
-    ? true
+    ? !isTerminalMode
     : (onModelOverrideChange && !isTerminalMode && !hideModelOverride);
   const terminalHint = text.trim().startsWith("/") ? "command" : "message";
   const hasOverride = isHarness ? !!harnessCurrentModel : !!modelOverride;
@@ -361,6 +364,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         ? modelOverride.split("/").pop()
         : defaultModel?.split("/").pop());
   const canRenderModelLabel = !!effectiveName;
+  const cycleHarnessEffort = useCallback(() => {
+    if (!onHarnessEffortChange || harnessModelMutating) return;
+    const cycle = [...harnessEffortValues, null];
+    if (cycle.length === 1) return;
+    const idx = harnessCurrentEffort ? harnessEffortValues.indexOf(harnessCurrentEffort) : harnessEffortValues.length;
+    onHarnessEffortChange(cycle[(idx + 1) % cycle.length]);
+  }, [harnessCurrentEffort, harnessEffortValues, harnessModelMutating, onHarnessEffortChange]);
   const terminalPlaceholder = compactLayout
     ? "Type / or enter a message..."
     : "Type / for commands or enter a message...";
@@ -918,7 +928,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               {modelPillVisible && (() => {
                 const canRenderPill = !!effectiveName;
                 return (
-                  <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center" }}>
+                  <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                     {canRenderPill ? (
                       <button
                         type="button"
@@ -1030,6 +1040,30 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                         document.body
                       );
                     })()}
+                    {isHarness && harnessEffortValues.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={cycleHarnessEffort}
+                        disabled={harnessModelMutating}
+                        title={harnessCurrentEffort ? `Harness effort: ${harnessCurrentEffort}. Click to cycle.` : "Harness effort: default. Click to set."}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          background: harnessCurrentEffort ? t.warningSubtle : "transparent",
+                          border: `1px solid ${harnessCurrentEffort ? t.warningBorder : "transparent"}`,
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: 11,
+                          color: harnessCurrentEffort ? t.warningMuted : t.textMuted,
+                          cursor: harnessModelMutating ? "default" : "pointer",
+                          opacity: harnessModelMutating ? 0.6 : 1,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        effort {harnessCurrentEffort ?? "default"}
+                      </button>
+                    )}
                   </div>
                 );
               })()}
@@ -1073,7 +1107,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               </button>
             </div>
           </div>
-          {isTerminalMode && onModelOverrideChange && (
+          {isTerminalMode && (isHarness || onModelOverrideChange) && (
             <div
               style={{
                 padding: "8px 0 0 8px",
@@ -1088,12 +1122,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             >
               <div
                 ref={modelPickerRef}
-                style={{ minWidth: 0, display: "flex", alignItems: "center", flex: 1 }}
+                style={{ minWidth: 0, display: "flex", alignItems: "center", flex: 1, gap: 12 }}
               >
                 <button
                   type="button"
                   onClick={() => setShowModelPicker(true)}
-                  title={hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`}
+                  title={isHarness
+                    ? (hasOverride ? `Harness model: ${harnessCurrentModel}` : `Harness model: ${defaultModel ?? effectiveName ?? "runtime default"}`)
+                    : (hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`)}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -1112,6 +1148,28 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 >
                   {canRenderModelLabel ? effectiveName : "select model"}
                 </button>
+                {isHarness && harnessEffortValues.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={cycleHarnessEffort}
+                    disabled={harnessModelMutating}
+                    title={harnessCurrentEffort ? `Harness effort: ${harnessCurrentEffort}. Click to cycle.` : "Harness effort: default. Click to set."}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      color: harnessCurrentEffort ? t.warningMuted : t.textDim,
+                      fontFamily: TERMINAL_FONT_STACK,
+                      fontSize: 11.5,
+                      lineHeight: 1.2,
+                      cursor: harnessModelMutating ? "default" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    effort {harnessCurrentEffort ?? "default"}
+                  </button>
+                )}
                 {showModelPicker && (() => {
                   const rect = modelPickerRef.current?.getBoundingClientRect();
                   const dropdownWidth = Math.min(320, Math.max(220, window.innerWidth - 24));
@@ -1124,36 +1182,51 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                         style={{ position: "fixed", inset: 0, zIndex: 50000 }}
                       />
                       <div style={{ position: "fixed", bottom: dropdownBottom, left: dropdownLeft, zIndex: 50001, width: dropdownWidth }}>
-                        <LlmModelDropdownContent
-                          value={modelOverride ?? ""}
-                          selectedProviderId={modelProviderIdOverride}
-                          onSelect={(m, pid) => {
-                            onModelOverrideChange(m || undefined, pid);
-                            setShowModelPicker(false);
-                          }}
-                        />
-                        {hasOverride && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onModelOverrideChange(undefined, null);
+                        {isHarness ? (
+                          <HarnessModelPickerContent
+                            t={t}
+                            models={harnessAvailableModels ?? []}
+                            current={harnessCurrentModel ?? null}
+                            disabled={harnessModelMutating}
+                            onSelect={(m) => {
+                              onHarnessModelChange?.(m);
                               setShowModelPicker(false);
                             }}
-                            style={{
-                              marginTop: 6,
-                              width: "100%",
-                              background: t.surfaceRaised,
-                              border: `1px solid ${t.surfaceBorder}`,
-                              borderRadius: 8,
-                              padding: "8px 12px",
-                              color: t.textMuted,
-                              fontSize: 12,
-                              cursor: "pointer",
-                              textAlign: "left",
-                            }}
-                          >
-                            Clear override - inherit {defaultModel ?? "default"}
-                          </button>
+                          />
+                        ) : (
+                          <>
+                            <LlmModelDropdownContent
+                              value={modelOverride ?? ""}
+                              selectedProviderId={modelProviderIdOverride}
+                              onSelect={(m, pid) => {
+                                onModelOverrideChange?.(m || undefined, pid);
+                                setShowModelPicker(false);
+                              }}
+                            />
+                            {hasOverride && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onModelOverrideChange?.(undefined, null);
+                                  setShowModelPicker(false);
+                                }}
+                                style={{
+                                  marginTop: 6,
+                                  width: "100%",
+                                  background: t.surfaceRaised,
+                                  border: `1px solid ${t.surfaceBorder}`,
+                                  borderRadius: 8,
+                                  padding: "8px 12px",
+                                  color: t.textMuted,
+                                  fontSize: 12,
+                                  cursor: "pointer",
+                                  textAlign: "left",
+                                }}
+                              >
+                                Clear override - inherit {defaultModel ?? "default"}
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </>,

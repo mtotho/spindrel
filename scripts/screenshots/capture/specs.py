@@ -987,6 +987,89 @@ INTEGRATION_CHAT_SPECS: list[ScreenshotSpec] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Harness captures — admin pages around the agent harness flow:
+#   - /admin/harnesses  (runtime card list, login state)
+#   - /admin/bots/<id>  (bot editor with the Agent harness section bound)
+#   - /admin/terminal   (in-browser shell used for `claude login`, etc.)
+#
+# These feed `docs/guides/agent-harnesses.md` and `docs/guides/admin-terminal.md`.
+# ---------------------------------------------------------------------------
+HARNESS_SPECS: list[ScreenshotSpec] = [
+    # /admin/harnesses — list of registered runtimes and their auth status.
+    # Predicate gates on either the Claude Code label rendering OR the
+    # empty-state copy when no runtimes are registered (still photogenic).
+    ScreenshotSpec(
+        name="harness-overview",
+        route="/admin/harnesses",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Claude Code|No harness runtimes|harness_runtime/.test(document.body.innerText)'
+        ),
+        output="harness-overview.png",
+    ),
+    # /admin/bots/<id> — the editor lands on the Identity group by default,
+    # which contains both the Identity card and the Agent harness card.
+    # Predicate waits for the harness section's stable copy + the runtime
+    # dropdown's value being the staged `claude-code` runtime, then scrolls
+    # the harness section into view before capture.
+    ScreenshotSpec(
+        name="harness-bot-editor",
+        # `#identity` puts the editor on the Identity group, which contains
+        # both the Identity card and the Agent harness card. Default landing
+        # is the Overview group which does not show the harness section.
+        route="/admin/bots/{harness_claude}#identity",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Agent harness|Delegate this bot/i.test(document.body.innerText)'
+        ),
+        pre_capture_js=(
+            "const h = Array.from(document.querySelectorAll('h2,h3'))"
+            "  .find(el => /Agent harness/i.test(el.textContent || ''));"
+            " if (h) { h.scrollIntoView({block:'start'}); }"
+            " await new Promise(r => setTimeout(r, 400));"
+        ),
+        output="harness-bot-editor.png",
+    ),
+    # /admin/terminal — in-browser PTY at rest (prompt visible, cursor blinking).
+    # The TerminalPanel is lazy-loaded; predicate waits for the xterm root to
+    # mount and for the page header to land.
+    ScreenshotSpec(
+        name="terminal-rest",
+        route="/admin/terminal",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(".xterm, .xterm-viewport, [class*=\\"xterm\\"]")'
+            ' && /Terminal/.test(document.body.innerText)'
+        ),
+        # Let the terminal echo its prompt before we shoot.
+        pre_capture_js="await new Promise(r => setTimeout(r, 800));",
+        output="terminal-rest.png",
+    ),
+    # /channels/{harness_chat} — a real harness turn rendered in a Spindrel
+    # channel. The demo replay runtime drives the same TurnEvent bus the real
+    # claude-code runtime does, so the capture shows native thinking blocks +
+    # tool-call cards + the final reply, not a synthetic mock. Predicate
+    # gates on a tool-call badge from the fixture (Read or Grep), the
+    # delivered final answer text, and zero in-flight skeleton placeholders.
+    ScreenshotSpec(
+        name="harness-chat-result",
+        route="/channels/{harness_chat}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/READ|GREP/i.test(document.body.innerText)'
+            ' && /app\\/main\\.py/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'[class*="bg-skeleton"]\').length === 0'
+        ),
+        output="harness-chat-result.png",
+    ),
+]
+
+
 def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[ScreenshotSpec]:
     """Return new specs with ``route`` placeholders substituted from ``staged``.
 

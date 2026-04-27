@@ -35,6 +35,10 @@ sections:
     title: "Scheduled work, on a clock"
     scenes: [heartbeat_fire]
 
+  - id: bring_your_model
+    title: "Bring your own agent"
+    scenes: [harness_overview_still, harness_bot_editor_still, harness_chat_still]
+
   - id: first_channel
     title: "One channel, one bot"
     scenes: [channel_chat]
@@ -194,6 +198,37 @@ scenes:
       # navigation rather than a static camera.
       - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 1050, y: 700, scale: 1.5 }, 1600)"
       - wait_ms: 1600
+
+  # Bring-your-own-agent triptych — three stills make the case that any bot
+  # can be swapped for the real Claude Code SDK (Codex SDK next), with
+  # Spindrel keeping the channel, schedule, workspace, and skill/tool wiring
+  # while the SDK runs the loop.
+  - id: harness_overview_still
+    kind: still
+    asset: docs/images/harness-overview.png
+    duration: 7
+    ken_burns:
+      start: [1.05, 0.50, 0.30]
+      end:   [1.00, 0.50, 0.55]
+    caption: "Bring your own agent — Claude Code today, Codex SDK next."
+
+  - id: harness_bot_editor_still
+    kind: still
+    asset: docs/images/harness-bot-editor.png
+    duration: 7
+    ken_burns:
+      start: [1.04, 0.50, 0.55]
+      end:   [1.00, 0.50, 0.50]
+    caption: "Bind any bot to a harness — Spindrel keeps the channel, workspace, schedule."
+
+  - id: harness_chat_still
+    kind: still
+    asset: docs/images/harness-chat-result.png
+    duration: 9
+    ken_burns:
+      start: [1.05, 0.50, 0.65]
+      end:   [1.00, 0.50, 0.50]
+    caption: "Native loop, native tools — your channel runs Claude end to end."
 
   - id: channel_chat
     kind: still

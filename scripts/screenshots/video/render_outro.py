@@ -24,6 +24,7 @@ _W, _H = 1920, 1080
 _TITLE = "Spindrel"
 _TAGLINE = "Channels · Widgets · Pipelines · Skills"
 _RECAP = "A workspace, as a place — your bots, dashboards, and scheduled jobs in one canvas."
+_SUBLINE = "Bring your own agent — Claude Code · Codex SDK soon"
 _LINKS = [
     ("Code", "github.com/mtotho/spindrel"),
     ("Docs", "spindrel.dev"),
@@ -55,6 +56,11 @@ def render() -> Image.Image:
     recap_w = _text_width(_RECAP, recap_font)
     recap_y = tagline_y + 44 + 80
     draw.text(((_W - recap_w) // 2, recap_y), _RECAP, font=recap_font, fill=(200, 205, 220))
+
+    subline_font = _font(32)
+    subline_w = _text_width(_SUBLINE, subline_font)
+    subline_y = recap_y + 36 + 24
+    draw.text(((_W - subline_w) // 2, subline_y), _SUBLINE, font=subline_font, fill=(140, 200, 255))
 
     # Two-column links centered as a unit.
     link_y = cy + int(_H * 0.18)

@@ -1,5 +1,7 @@
 # External Agent Harnesses
 
+![Agent Harnesses admin page — registered runtimes, auth status, one-click claude login](../images/harness-overview.png)
+
 An **external agent harness** lets you run a coding-agent session from Spindrel's web UI without routing the turn through Spindrel's RAG loop. Claude Code is supported today; Codex is planned on the same runtime boundary.
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
@@ -26,6 +28,8 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
     Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there alongside the repo.
 
     System prompt and normal prompt/RAG context fields are inert when a runtime is set — the harness owns its native context. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override. Spindrel tool enrollment still matters: selected local/MCP tools are the source for the harness bridge.
+
+    ![Bot editor with the Agent harness section bound to Claude Code](../images/harness-bot-editor.png)
 
 6. **Open a channel with the bot and chat.** Each turn opens a `ClaudeSDKClient` against your workspace dir, streams the assistant's text + tool calls into the channel, and persists the assistant message + the harness's session id for resume on the next turn.
 
@@ -76,6 +80,12 @@ These are deliberate v1 boundaries, not oversights:
 If you need any of those, you want a normal Spindrel bot, not an external harness session.
 
 Spindrel still applies its secret redactor at the harness host boundary, covering both registered secret values and common token/key patterns. Streamed assistant text, thinking blocks, tool arguments, tool-result summaries, and the persisted final assistant message are scrubbed before they enter the channel bus or transcript. This is defense-in-depth, not a substitute for rotating any token that a native harness command already printed.
+
+## What it looks like in chat
+
+![A Claude Code turn rendered in a Spindrel channel — native thinking, native tool cards, final reply](../images/harness-chat-result.png)
+
+The chat surface is the same surface every other Spindrel bot uses. The harness header pill (`DEMO (REPLAY)` above; `CLAUDE-CODE` in production) tells you which runtime owns the loop. Tool-call breadcrumbs (Read, Grep, Bash, Edit, …) appear inline as the harness fires them — these are the harness's *own* tools, not Spindrel `ToolCall` rows. The final assistant text persists on a single `Message` row so the transcript rehydrates after a refresh.
 
 ## How session resume works
 

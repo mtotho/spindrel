@@ -1,5 +1,7 @@
 # Admin Terminal
 
+![Admin Terminal — in-browser shell into the Spindrel container](../images/terminal-rest.png)
+
 A browser-based shell into the Spindrel container. Admin-only. Same effective access as `docker exec -it spindrel bash` — exposed through the same web session you're already authenticated to, so you don't have to context-switch to a terminal application.
 
 It exists to kill the SSH-to-fiddle-with-things workflow that used to be the only way to set up an external-agent harness session, install a system package, peek at logs, or run a one-off `git clone`. Open it from the admin nav, or trigger a pre-seeded shell from the harnesses page or a harness-backed bot's edit page.

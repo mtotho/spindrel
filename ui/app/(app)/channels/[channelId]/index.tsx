@@ -1504,11 +1504,22 @@ export default function ChatScreen() {
     hideModelOverride: false,
     harnessRuntime: bot?.harness_runtime ?? null,
     harnessAvailableModels: harnessCaps?.available_models ?? [],
+    harnessEffortValues: (
+      harnessCaps?.model_options?.find((m) => m.id === harnessSettings?.model)?.effort_values
+      ?? harnessCaps?.effort_values
+      ?? []
+    ),
     harnessCurrentModel: harnessSettings?.model ?? null,
+    harnessCurrentEffort: harnessSettings?.effort ?? null,
     onHarnessModelChange: (model: string | null) => {
       const sid = headerPaneSessionId;
       if (!sid) return;
       setHarnessSettings.mutate({ sessionId: sid, patch: { model } });
+    },
+    onHarnessEffortChange: (effort: string | null) => {
+      const sid = headerPaneSessionId;
+      if (!sid) return;
+      setHarnessSettings.mutate({ sessionId: sid, patch: { effort } });
     },
     harnessModelMutating: setHarnessSettings.isPending,
     harnessCostTotal: bot?.harness_runtime

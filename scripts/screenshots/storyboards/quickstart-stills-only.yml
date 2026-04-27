@@ -23,6 +23,10 @@ sections:
     title: "What is Spindrel?"
     scenes: [hero_home]
 
+  - id: bring_your_model
+    title: "Bring your own agent"
+    scenes: [harness_chat_still]
+
   - id: first_channel
     title: "One channel, one bot"
     scenes: [channel_chat]
@@ -44,6 +48,15 @@ scenes:
       start: [1.00, 0.50, 0.50]
       end:   [1.08, 0.50, 0.55]
     caption: "Spindrel organizes AI around channels — one bot, one chat, one workspace."
+
+  - id: harness_chat_still
+    kind: still
+    asset: docs/images/harness-chat-result.png
+    duration: 7
+    ken_burns:
+      start: [1.05, 0.50, 0.65]
+      end:   [1.00, 0.50, 0.50]
+    caption: "Bring your own agent — Claude Code (Codex SDK next) running end-to-end in a Spindrel channel."
 
   - id: channel_chat
     kind: still

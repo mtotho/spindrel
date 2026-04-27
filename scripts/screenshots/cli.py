@@ -24,6 +24,7 @@ from scripts.screenshots.capture.specs import (
     CORE_FEATURE_SPECS,
     DOCS_REPAIR_SPECS,
     FLAGSHIP_SPECS,
+    HARNESS_SPECS,
     INTEGRATION_CHAT_SPECS,
     INTEGRATIONS_SPECS,
     SPATIAL_SPECS,
@@ -40,6 +41,12 @@ from scripts.screenshots.stage.scenarios.docs_repair import (
     teardown_docs_repair,
 )
 from scripts.screenshots.stage.scenarios.flagship import stage_flagship, teardown_flagship
+from scripts.screenshots.stage.scenarios.harness import (
+    HARNESS_BOT_ID,
+    HARNESS_CHAT_CHANNEL_CLIENT_ID,
+    stage_harness,
+    teardown_harness,
+)
 from scripts.screenshots.stage.scenarios.integrations import (
     stage_integrations,
     teardown_integrations,
@@ -61,7 +68,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat", "harness"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -126,6 +133,18 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
                 dry_run=dry_run,
             )
         print("staged (integration-chat):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "harness":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_harness(
+                client,
+                ssh_alias=cfg.ssh_alias,
+                ssh_container=cfg.ssh_container,
+                dry_run=dry_run,
+            )
+        print(f"staged (harness):")
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
@@ -205,7 +224,22 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
 
         placeholders: dict[str, str] = {}
 
-        if only == "spatial":
+        if only == "harness":
+            harness_bot = client.get_bot(HARNESS_BOT_ID)
+            if not harness_bot:
+                raise SystemExit(
+                    f"Harness bot {HARNESS_BOT_ID!r} not found. Run `stage --only harness` first."
+                )
+            placeholders["harness_claude"] = str(harness_bot["id"])
+            # Optional — only present when the demo runtime is registered on
+            # the host (SPINDREL_DEMO_HARNESS=true). The chat capture spec
+            # will fail with a clear "channel missing" if the placeholder
+            # didn't resolve, but admin captures still pass.
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            chat_ch = all_channels.get(HARNESS_CHAT_CHANNEL_CLIENT_ID)
+            placeholders["harness_chat"] = str(chat_ch["id"]) if chat_ch else "missing"
+            spec_list = HARNESS_SPECS
+        elif only == "spatial":
             # Spatial canvas captures key off ``/`` only — the canvas mounts
             # there and reads camera / chrome state from localStorage that
             # each spec seeds via ``extra_init_scripts``. No route
@@ -371,6 +405,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_integration_chat(client)
         print("teardown (integration-chat): removed seeded integration-demo channels")
+        return
+    if only == "harness":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_harness(client)
+        print("teardown (harness): removed harness scenario bot")
         return
     if only == "spatial":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:

@@ -808,13 +808,6 @@ function HarnessHeaderChrome({
             caps={caps}
             t={t}
           />
-          {(caps.effort_values.length > 0 || caps.model_options.some((m) => m.effort_values.length > 0)) && (
-            <HarnessEffortPill
-              sessionId={sessionId}
-              caps={caps}
-              t={t}
-            />
-          )}
           <HarnessApprovalModePill sessionId={sessionId} t={t} />
           <HarnessStatusPill sessionId={sessionId} t={t} />
         </>

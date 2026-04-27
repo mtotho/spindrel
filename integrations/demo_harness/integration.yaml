@@ -1,0 +1,15 @@
+id: demo_harness
+name: Demo Harness (replay)
+icon: PlayCircle
+description: >-
+  Scripted replay runtime for screenshots and demos. Drives the same
+  TurnEvent bus as the real Claude Code harness from a JSONL fixture, so
+  captures of harness-driven channels are reproducible without touching real
+  Anthropic OAuth credentials. Disabled by default; gated behind the
+  SPINDREL_DEMO_HARNESS env var so it never registers in normal deployments.
+version: "1.0"
+
+settings: []
+
+provides:
+  - harness
