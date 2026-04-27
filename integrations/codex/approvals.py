@@ -59,6 +59,39 @@ def mode_to_codex_policy(mode: str) -> dict[str, Any]:
     }
 
 
+def mode_to_codex_turn_policy(
+    mode: str,
+    *,
+    session_plan_mode: str = "chat",
+) -> dict[str, Any]:
+    """Translate Spindrel mode into current ``turn/start`` policy fields.
+
+    ``thread/start`` still accepts a legacy flat ``sandbox`` enum. Resumed
+    native threads do not run ``thread/start``, so every turn also sends the
+    current schema's ``sandboxPolicy`` object. When Spindrel session plan mode
+    is active, read-only Codex sandboxing wins over the approval-mode pill.
+    """
+    if session_plan_mode == "planning":
+        return {
+            "approvalPolicy": schema.APPROVAL_POLICY_NEVER,
+            "sandboxPolicy": {"type": schema.SANDBOX_POLICY_READ_ONLY},
+        }
+    if mode == "bypassPermissions":
+        return {
+            "approvalPolicy": schema.APPROVAL_POLICY_NEVER,
+            "sandboxPolicy": {"type": schema.SANDBOX_POLICY_DANGER_FULL_ACCESS},
+        }
+    if mode == "plan":
+        return {
+            "approvalPolicy": schema.APPROVAL_POLICY_NEVER,
+            "sandboxPolicy": {"type": schema.SANDBOX_POLICY_READ_ONLY},
+        }
+    return {
+        "approvalPolicy": schema.APPROVAL_POLICY_UNLESS_TRUSTED,
+        "sandboxPolicy": {"type": schema.SANDBOX_POLICY_WORKSPACE_WRITE},
+    }
+
+
 def _approval_tool_name(method: str, params: dict[str, Any]) -> str:
     """Best-effort label for the Spindrel approval card."""
     item = params.get("item") if isinstance(params.get("item"), dict) else None

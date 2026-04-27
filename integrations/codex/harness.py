@@ -20,12 +20,17 @@ from integrations.codex.app_server import (
     Notification,
     ServerRequest,
 )
-from integrations.codex.approvals import handle_server_request, mode_to_codex_policy
+from integrations.codex.approvals import (
+    handle_server_request,
+    mode_to_codex_policy,
+    mode_to_codex_turn_policy,
+)
 from integrations.codex.events import translate_notification
 from integrations.sdk import (
     AuthStatus,
     ChannelEventEmitter,
     HarnessCompactResult,
+    HarnessModelOption,
     HarnessSlashCommandPolicy,
     HarnessToolSpec,
     RuntimeCapabilities,
@@ -38,9 +43,9 @@ logger = logging.getLogger(__name__)
 
 
 _CODEX_FALLBACK_MODELS: tuple[str, ...] = (
-    "gpt-5-codex",
-    "gpt-5",
-    "gpt-5-mini",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
 )
 _CODEX_FALLBACK_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 
@@ -76,15 +81,21 @@ class CodexRuntime:
         return tool_name in self._PLAN_AUTOAPPROVE
 
     def capabilities(self) -> RuntimeCapabilities:
-        # supported_models / model_options stay empty so the capabilities
-        # endpoint's `available_models` from list_models() — sourced from the
-        # actual codex binary — drives the picker. model_is_freeform=True
-        # keeps the bot edit field accepting any string the user's account
-        # supports.
+        # The capabilities endpoint asks list_model_options() for live
+        # per-model effort metadata. These fallback values keep the surface
+        # usable when the binary is missing or model/list fails.
         return RuntimeCapabilities(
             display_name="Codex",
-            supported_models=(),
-            model_options=(),
+            supported_models=_CODEX_FALLBACK_MODELS,
+            model_options=tuple(
+                HarnessModelOption(
+                    id=model,
+                    label=model,
+                    effort_values=_CODEX_FALLBACK_EFFORTS,
+                    default_effort="medium",
+                )
+                for model in _CODEX_FALLBACK_MODELS
+            ),
             model_is_freeform=True,
             effort_values=_CODEX_FALLBACK_EFFORTS,
             approval_modes=("bypassPermissions", "acceptEdits", "default", "plan"),
@@ -96,6 +107,9 @@ class CodexRuntime:
         )
 
     async def list_models(self) -> tuple[str, ...]:
+        return tuple(option.id for option in await self.list_model_options())
+
+    async def list_model_options(self) -> tuple[HarnessModelOption, ...]:
         try:
             async with CodexAppServer.spawn() as client:
                 await client.initialize()
@@ -104,26 +118,11 @@ class CodexRuntime:
                     {"includeHidden": False, "limit": 100},
                 )
         except CodexBinaryNotFound:
-            return _CODEX_FALLBACK_MODELS
+            return self.capabilities().model_options
         except Exception:
             logger.warning("codex: model/list failed; using fallback list", exc_info=True)
-            return _CODEX_FALLBACK_MODELS
-        # ModelListResponse: {data: [Model], nextCursor}; Model has an `id`
-        # discriminator and a `model` string passed through to OpenAI.
-        data = result.get("data") if isinstance(result, dict) else None
-        if isinstance(data, list):
-            ids: list[str] = []
-            for entry in data:
-                if not isinstance(entry, dict):
-                    continue
-                if entry.get("hidden"):
-                    continue
-                ident = entry.get("id") or entry.get("model")
-                if isinstance(ident, str) and ident:
-                    ids.append(ident)
-            if ids:
-                return tuple(ids)
-        return _CODEX_FALLBACK_MODELS
+            return self.capabilities().model_options
+        return _parse_model_options(result) or self.capabilities().model_options
 
     async def start_turn(
         self,
@@ -135,12 +134,7 @@ class CodexRuntime:
         async with CodexAppServer.spawn() as client:
             await client.initialize()
 
-            params: dict[str, Any] = {
-                "cwd": ctx.workdir,
-            }
-            if ctx.model:
-                params["model"] = ctx.model
-            params.update(mode_to_codex_policy(ctx.permission_mode))
+            params = _build_thread_start_params(ctx)
             if ctx.runtime_settings:
                 # Opaque per-runtime overrides (caller-owned shape).
                 params.update(dict(ctx.runtime_settings))
@@ -171,12 +165,11 @@ class CodexRuntime:
                 start = await client.request(schema.METHOD_THREAD_START, params)
                 thread_id = _extract_thread_id(start) or ""
 
-            turn_params: dict[str, Any] = {
-                "threadId": thread_id,
-                "input": _build_turn_input(prompt, ctx),
-            }
-            if ctx.effort:
-                turn_params["effort"] = ctx.effort
+            turn_params = _build_turn_start_params(
+                thread_id=thread_id,
+                prompt=prompt,
+                ctx=ctx,
+            )
             turn_resp = await client.request(schema.METHOD_TURN_START, turn_params)
             turn_id = _extract_turn_id(turn_resp) or ""
 
@@ -339,6 +332,81 @@ def _build_turn_input(prompt: str, ctx: TurnContext) -> list[dict[str, Any]]:
     parts.append("</spindrel_context_hints>")
     parts.append(prompt)
     return [schema.text_input_item("\n\n".join(parts))]
+
+
+def _build_thread_start_params(ctx: TurnContext) -> dict[str, Any]:
+    """Build ``thread/start`` params for a new Codex thread."""
+    params: dict[str, Any] = {"cwd": ctx.workdir}
+    if ctx.model:
+        params["model"] = ctx.model
+    params.update(mode_to_codex_policy(ctx.permission_mode))
+    return params
+
+
+def _build_turn_start_params(
+    *,
+    thread_id: str,
+    prompt: str,
+    ctx: TurnContext,
+) -> dict[str, Any]:
+    """Build current-schema ``turn/start`` params for every Codex turn."""
+    params: dict[str, Any] = {
+        "threadId": thread_id,
+        "input": _build_turn_input(prompt, ctx),
+        "cwd": ctx.workdir,
+    }
+    if ctx.model:
+        params["model"] = ctx.model
+    if ctx.effort:
+        params["effort"] = ctx.effort
+    params.update(
+        mode_to_codex_turn_policy(
+            ctx.permission_mode,
+            session_plan_mode=ctx.session_plan_mode,
+        )
+    )
+    if ctx.session_plan_mode == "planning":
+        params["collaborationMode"] = {
+            "mode": schema.COLLABORATION_MODE_PLAN,
+            "settings": {
+                "model": ctx.model or _CODEX_FALLBACK_MODELS[0],
+                "reasoning_effort": ctx.effort or "medium",
+                "developer_instructions": None,
+            },
+        }
+    return params
+
+
+def _parse_model_options(result: dict[str, Any] | None) -> tuple[HarnessModelOption, ...]:
+    """Parse Codex ``model/list`` into Spindrel runtime model options."""
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, list):
+        return ()
+    options: list[HarnessModelOption] = []
+    for entry in data:
+        if not isinstance(entry, dict) or entry.get("hidden"):
+            continue
+        ident = entry.get("id") or entry.get("model")
+        if not isinstance(ident, str) or not ident:
+            continue
+        efforts: list[str] = []
+        for effort in entry.get("supportedReasoningEfforts") or ():
+            if isinstance(effort, dict):
+                value = effort.get("reasoningEffort")
+            else:
+                value = effort
+            if isinstance(value, str) and value:
+                efforts.append(value)
+        default_effort = entry.get("defaultReasoningEffort")
+        options.append(
+            HarnessModelOption(
+                id=ident,
+                label=entry.get("displayName") if isinstance(entry.get("displayName"), str) else ident,
+                effort_values=tuple(efforts) or _CODEX_FALLBACK_EFFORTS,
+                default_effort=default_effort if isinstance(default_effort, str) else None,
+            )
+        )
+    return tuple(options)
 
 
 def _extract_thread_id(result: dict[str, Any] | None) -> str | None:

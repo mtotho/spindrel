@@ -4,7 +4,7 @@
 
 An **external agent harness** lets you run a coding-agent session from Spindrel's web UI without routing the turn through Spindrel's RAG loop. Claude Code and Codex are both supported today on the same runtime boundary.
 
-> **Codex prerequisite.** The Codex runtime spawns the user-installed `codex` binary as `codex app-server` and speaks the official OpenAI app-server JSON-RPC protocol over stdio. No third-party Python SDK is bundled. Install the `codex` binary on the Spindrel host (or set `CODEX_BIN` to its path) and run `codex login` once. `auth_status()` distinguishes "binary not installed" from "not logged in" so the admin card surfaces a useful error before login is attempted. Spindrel's effective tool set bridges into Codex via `dynamicTools` when the installed binary supports it; otherwise the bridge status records `"unsupported"` and the harness still runs with native Codex tools.
+> **Codex prerequisite.** The Codex runtime spawns the user-installed `codex` binary as `codex app-server` and speaks the official OpenAI app-server JSON-RPC protocol over stdio. No third-party Python SDK is bundled. Install the `codex` binary on the Spindrel host (or set `CODEX_BIN` to its path) and run `codex login` once. `auth_status()` distinguishes "binary not installed" from "not logged in" so the admin card surfaces a useful error before login is attempted. Spindrel's effective tool set bridges into Codex via `dynamicTools` when the installed binary supports it; otherwise the bridge status records `"unsupported"` and the harness still runs with native Codex tools. Spindrel session planning maps to Codex `collaborationMode: plan` on every turn, including resumed native threads.
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
 
@@ -116,6 +116,7 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Model + effort picker | Supported | Runtime capability endpoint exposes model-scoped effort choices; selection is stored per Spindrel session. Bare `/model` and `/effort` render picker cards, while `/model <id>` and `/effort <level>` set values directly. |
 | Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
+| Plan mode | Supported | Spindrel plan mode remains the session source of truth. Codex sessions receive native `collaborationMode: plan` plus read-only sandbox policy while Spindrel is `planning`; Spindrel plan artifacts are not auto-created from Codex native plan items. |
 | `/compact`, `/new`, `/clear`, and `/context` | Supported | Harness `/compact` triggers native runtime compaction when supported. `/new` and `/clear` open a fresh Spindrel session without deleting the old one or changing the channel primary/default pointer. `/context` reports host-visible native state, hints, bridge health, and native compact status. |
 | Host context hints | Supported | Heartbeats and workspace-files memory queue host hints for harness turns. Native compaction does not use Spindrel continuity hints. |
 | Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through runtime-native bridge hooks when available: Claude via the SDK MCP helper surface, Codex via `dynamicTools` when the installed binary advertises support. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed-runtime smoke testing. |
@@ -139,7 +140,7 @@ Harness sessions expose lightweight native state through `GET /api/v1/sessions/{
 - selected/exported Spindrel bridge tools, ignored client tools, bridge health, and explicit one-turn tags;
 - last turn timestamp, native compact status, estimated native context remaining when available, and last usage/cost metadata.
 
-This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary unless a runtime later exposes token-window telemetry.
+This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary. Codex `thread/tokenUsage/updated` includes `modelContextWindow`, so Codex-backed sessions can show estimated remaining native context when that event has been observed.
 
 `/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction, reset the native resume id, or queue a host-generated continuity summary. For Claude Code, Spindrel sends SDK `/compact`, records the native compact result as a persisted low-chrome card, and keeps the same native session id unless the runtime reports a replacement.
 
@@ -198,7 +199,7 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 
 ## What's coming
 
-- **Codex live validation:** The Codex runtime is in tree now, but still needs real-binary verification for `model/list`, auth shape, `dynamicTools` support, approval routing, and native compaction before it graduates from fresh beta/untested status.
-- **Richer native context telemetry:** If a runtime exposes token-window status, surface it in the chat chrome and `/context`.
+- **Codex live validation:** `model/list`, account shape, plan collaboration mode, and token-window telemetry have been verified against a local `codex-cli 0.125.0` binary. Remaining live checks: real `dynamicTools` calls, approval routing under a mutating command, and native compaction on a non-empty thread.
+- **Richer native context telemetry:** Keep expanding runtime-specific telemetry where the native harness exposes it.
 - **Skill bridge:** Expose selected Spindrel skills through export/sync or searchable bridged tools/resources.
 - **Heartbeat/memory integration:** Add a harness heartbeat path that can inject optional context hints, then layer read-only memory hints before allowing explicit writes through bridged tools.

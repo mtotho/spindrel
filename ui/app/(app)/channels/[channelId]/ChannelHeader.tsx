@@ -924,6 +924,8 @@ function formatHarnessUsage(usage: Record<string, unknown> | null): string | nul
     "output_tokens",
     "cache_creation_input_tokens",
     "cache_read_input_tokens",
+    "cached_tokens",
+    "reasoning_output_tokens",
   ];
   let total = 0;
   for (const key of keys) {

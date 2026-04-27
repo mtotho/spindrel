@@ -359,6 +359,12 @@ class TurnContext:
     """Explicit ``@tool:<name>`` selections for this single user send."""
     tagged_skill_ids: tuple[str, ...] = ()
     """Explicit ``@skill:<id>`` selections for this single user send."""
+    session_plan_mode: str = "chat"
+    """Spindrel session plan-mode state (``chat`` / ``planning`` /
+    ``executing`` / ``blocked`` / ``done``). Distinct from
+    ``permission_mode == 'plan'``: permission mode controls approval/sandbox
+    posture, while session plan mode controls the planning workflow contract.
+    Runtime adapters may translate this into native collaboration modes."""
 
 
 @dataclass(frozen=True)

@@ -789,6 +789,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         from app.services.agent_harnesses.approvals import load_session_mode
         from app.services.agent_harnesses.session_state import (
             HARNESS_RESUME_RESET_AT_KEY,
+            context_window_from_usage,
             estimate_context_remaining_pct,
             hint_preview,
             load_bridge_status,
@@ -807,7 +808,6 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         harness_meta, last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
         runtime = HARNESS_REGISTRY.get(bot.harness_runtime)
         caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
-        context_window_tokens = getattr(caps, "context_window_tokens", None) if caps else None
         native_compaction = await load_native_compaction(ctx.db, session.id)
         inventory_error: str | None = None
         bridge_tool_items: list[dict[str, str]] = []
@@ -853,6 +853,10 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         if isinstance(reset_at, str):
             lines.append(f"Last compact reset: {reset_at}")
         usage = (harness_meta or {}).get("usage") if harness_meta else None
+        context_window_tokens = (
+            context_window_from_usage(usage)
+            or (getattr(caps, "context_window_tokens", None) if caps else None)
+        )
         if usage:
             lines.append(f"Last usage: {usage}")
         remaining_pct = estimate_context_remaining_pct(

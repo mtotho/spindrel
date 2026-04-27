@@ -66,14 +66,23 @@ async def get_runtime_capabilities(
         )
     caps = runtime.capabilities()
     available_models: list[str] = []
+    live_model_options = []
+    if hasattr(runtime, "list_model_options"):
+        try:
+            live_model_options = list(await runtime.list_model_options())
+            available_models = [opt.id for opt in live_model_options]
+        except Exception:
+            live_model_options = []
     if hasattr(runtime, "list_models"):
         try:
-            available_models = list(await runtime.list_models())
+            if not available_models:
+                available_models = list(await runtime.list_models())
         except Exception:
             # Don't 500 the endpoint if a runtime adapter's list_models
             # raises (e.g. SDK call fails). Fall back to the curated
             # supported_models hint and let the UI render that.
             available_models = list(caps.supported_models)
+    source_model_options = live_model_options or list(getattr(caps, "model_options", ()))
     model_options = [
         HarnessModelOptionOut(
             id=opt.id,
@@ -81,7 +90,7 @@ async def get_runtime_capabilities(
             effort_values=list(opt.effort_values),
             default_effort=opt.default_effort,
         )
-        for opt in getattr(caps, "model_options", ())
+        for opt in source_model_options
     ]
     if not model_options:
         model_options = [

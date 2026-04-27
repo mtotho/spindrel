@@ -975,6 +975,7 @@ async def get_harness_status(
     from app.services.agent_harnesses.approvals import load_session_mode
     from app.services.agent_harnesses.session_state import (
         HARNESS_RESUME_RESET_AT_KEY,
+        context_window_from_usage,
         estimate_context_remaining_pct,
         hint_preview,
         load_bridge_status,
@@ -996,9 +997,12 @@ async def get_harness_status(
     harness_meta, last_turn_at = await load_latest_harness_metadata(db, session_id)
     runtime_name = (harness_meta or {}).get("runtime") if harness_meta else None
     runtime = HARNESS_REGISTRY.get(runtime_name) if runtime_name else None
-    caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
-    context_window_tokens = getattr(caps, "context_window_tokens", None) if caps else None
     usage = (harness_meta or {}).get("usage") if harness_meta else None
+    caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
+    context_window_tokens = (
+        context_window_from_usage(usage)
+        or (getattr(caps, "context_window_tokens", None) if caps else None)
+    )
     native_compaction = await load_native_compaction(db, session_id)
     meta = session.metadata_ or {}
     remaining_pct = estimate_context_remaining_pct(

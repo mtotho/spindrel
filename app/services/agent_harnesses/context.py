@@ -34,6 +34,7 @@ def build_turn_context(
     context_hints: tuple[HarnessContextHint, ...] = (),
     ephemeral_tool_names: tuple[str, ...] = (),
     tagged_skill_ids: tuple[str, ...] = (),
+    session_plan_mode: str = "chat",
     db_session_factory: DbSessionFactory | None = None,
 ) -> TurnContext:
     """Construct a ``TurnContext`` from already-resolved per-turn inputs.
@@ -57,4 +58,5 @@ def build_turn_context(
         context_hints=context_hints,
         ephemeral_tool_names=ephemeral_tool_names,
         tagged_skill_ids=tagged_skill_ids,
+        session_plan_mode=session_plan_mode,
     )

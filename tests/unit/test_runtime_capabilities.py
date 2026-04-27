@@ -77,10 +77,11 @@ def test_codex_capabilities_shape():
     caps = CodexRuntime().capabilities()
     assert caps.display_name == "Codex"
     assert caps.model_is_freeform is True
-    # supported_models / model_options stay empty so the live model/list
-    # call drives the picker — see CodexRuntime.list_models().
-    assert caps.supported_models == ()
-    assert caps.model_options == ()
+    # Fallbacks keep the UI useful when the binary/model-list probe is not
+    # available; the capabilities endpoint replaces model_options with live
+    # Codex model/list metadata when possible.
+    assert caps.supported_models == ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini")
+    assert [opt.id for opt in caps.model_options] == ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
     assert caps.effort_values == ("minimal", "low", "medium", "high", "xhigh")
     assert caps.approval_modes == (
         "bypassPermissions", "acceptEdits", "default", "plan",

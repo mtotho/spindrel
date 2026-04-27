@@ -61,6 +61,16 @@ def translate_notification(
 
     if method == schema.ITEM_COMPLETED:
         item = params.get("item") or params
+        kind = str(item.get("kind") or item.get("type") or "")
+        if kind == "plan":
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                result_meta["native_plan_text"] = text.strip()
+                if not final_text_parts:
+                    final_text_parts.append(text.strip())
+            return
+        if kind and kind not in {"commandExecution", "fileChange", "mcpToolCall", "dynamicTool", "toolCall"}:
+            return
         tool_id = str(item.get("id") or item.get("itemId") or "")
         tool_name = tool_name_by_id.get(tool_id, str(item.get("name") or item.get("kind") or "tool"))
         result_summary = _summarize_item_result(item)
@@ -78,12 +88,18 @@ def translate_notification(
         # callers may extend tool transcripts in a follow-up.
         return
 
+    if method == schema.ITEM_PLAN_DELTA:
+        delta = _extract_text_delta(params)
+        if delta:
+            result_meta.setdefault("native_plan_delta_parts", []).append(delta)
+        return
+
     if method == schema.NOTIFICATION_PLAN_UPDATED:
         result_meta["plan"] = params.get("plan") or params
         return
 
     if method == schema.NOTIFICATION_TOKEN_USAGE_UPDATED:
-        result_meta["usage"] = params.get("usage") or params
+        result_meta["usage"] = _normalize_token_usage(params)
         return
 
     if method == schema.NOTIFICATION_TURN_COMPLETED:
@@ -137,3 +153,44 @@ def _summarize_item_result(item: dict[str, Any]) -> str:
     if isinstance(output, str):
         return output.strip()
     return ""
+
+
+def _normalize_token_usage(params: dict[str, Any]) -> dict[str, Any]:
+    """Normalize Codex camelCase token usage into Spindrel's usage shape."""
+    raw = params.get("tokenUsage") or params.get("usage") or params
+    if not isinstance(raw, dict):
+        return {}
+    total = raw.get("total")
+    last = raw.get("last")
+    if not isinstance(total, dict):
+        normalized = dict(raw)
+        window = normalized.get("modelContextWindow") or normalized.get("model_context_window")
+        if isinstance(window, (int, float)):
+            normalized["context_window_tokens"] = int(window)
+        return normalized
+
+    def _num(source: dict[str, Any], key: str) -> int | None:
+        value = source.get(key)
+        if isinstance(value, (int, float)) and value >= 0:
+            return int(value)
+        return None
+
+    normalized = {
+        "input_tokens": _num(total, "inputTokens"),
+        "output_tokens": _num(total, "outputTokens"),
+        "reasoning_output_tokens": _num(total, "reasoningOutputTokens"),
+        "cached_tokens": _num(total, "cachedInputTokens"),
+        "total_tokens": _num(total, "totalTokens"),
+    }
+    window = raw.get("modelContextWindow")
+    if isinstance(window, (int, float)):
+        normalized["context_window_tokens"] = int(window)
+    if isinstance(last, dict):
+        normalized.update({
+            "last_input_tokens": _num(last, "inputTokens"),
+            "last_output_tokens": _num(last, "outputTokens"),
+            "last_reasoning_output_tokens": _num(last, "reasoningOutputTokens"),
+            "last_cached_tokens": _num(last, "cachedInputTokens"),
+            "last_total_tokens": _num(last, "totalTokens"),
+        })
+    return {key: value for key, value in normalized.items() if value is not None}

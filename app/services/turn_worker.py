@@ -34,7 +34,7 @@ from app.agent.context import (
 from app.agent.loop import run_stream
 from app.agent.recording import _record_trace_event
 from app.db.engine import async_session
-from app.db.models import Message as MessageModel
+from app.db.models import Message as MessageModel, Session as SessionRow
 from app.domain.actor import ActorRef
 from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.message import Message as DomainMessage
@@ -175,11 +175,14 @@ async def _run_harness_turn(
         load_context_hints,
     )
     from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.session_plan_mode import get_session_plan_mode
 
     async with async_session() as db:
         permission_mode = await load_session_mode(db, session_id)
         harness_settings = await load_session_settings(db, session_id)
         context_hints = list(await load_context_hints(db, session_id))
+        session_row = await db.get(SessionRow, session_id)
+        session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
 
     explicit_tool_names, tagged_skill_ids = _parse_harness_explicit_tags(user_message)
     if tagged_skill_ids:
@@ -254,6 +257,7 @@ async def _run_harness_turn(
         context_hints=tuple(context_hints),
         ephemeral_tool_names=explicit_tool_names,
         tagged_skill_ids=tagged_skill_ids,
+        session_plan_mode=session_plan_mode,
     )
 
     error_text: str | None = None

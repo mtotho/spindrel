@@ -191,6 +191,7 @@ class _FakeRuntime:
             "session_id": ctx.harness_session_id,
             "emit": emit,
             "permission_mode": ctx.permission_mode,
+            "session_plan_mode": ctx.session_plan_mode,
         }
         if self._raises is not None:
             raise self._raises
@@ -358,6 +359,21 @@ class TestHarnessDispatch:
         assert ChannelEventKind.TURN_ENDED in kinds
         # TURN_STARTED must come before TURN_ENDED.
         assert kinds.index(ChannelEventKind.TURN_STARTED) < kinds.index(ChannelEventKind.TURN_ENDED)
+
+    async def test_turn_context_carries_session_plan_mode(
+        self, db_session, harness_setup,
+    ):
+        from app.services.session_plan_mode import enter_session_plan_mode
+
+        handle = harness_setup
+        session = await db_session.get(SessionRow, handle.session_id)
+        enter_session_plan_mode(session)
+        await db_session.commit()
+
+        runtime = _FakeRuntime()
+        await _drive_harness_turn(handle, fake_runtime=runtime)
+
+        assert runtime.captured["session_plan_mode"] == "planning"
 
     async def test_lock_released_after_harness_turn(
         self, db_session, harness_setup,

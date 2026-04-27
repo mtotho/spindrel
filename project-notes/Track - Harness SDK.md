@@ -44,7 +44,7 @@ This track covers the stable host contract used by Claude Code and Codex today, 
 | 3 | Harness approvals | shipped | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. Phase 3a (backend) and Phase 3b (UI) both shipped 2026-04-26. |
 | 4 | Harness control surface | shipped | `RuntimeCapabilities` Protocol; per-session `harness_settings` (model/effort/runtime_settings); `GET /runtimes/{name}/capabilities`; `GET/POST /sessions/{id}/harness-settings`; header model + effort pills (per-session, alongside Phase 3 approval-mode pill); harness-aware `/model` and `/effort`; `?bot_id=` filter on `/api/v1/slash-commands` and `/help`. Follow-up fixed channel-surface slash requests to carry `current_session_id` so scratch/split/thread panes target their own session, with `active_session_id` only as the default primary fallback. Shipped 2026-04-26. |
 | 5 | Native-feel foundation | shipped (follow-up verification open) | Session-bound harness context hints, harness-aware `/compact` / `/context` / `/new` / `/clear`, heartbeat/workspace-files hints, channel/admin settings cleanup, normal tool pickers as bridge source, first Spindrel tool bridge, durable harness question cards, persisted harness tool breadcrumbs, and model-scoped effort controls all landed on 2026-04-26. Remaining work is runtime smoke-testing and polish, not missing core plumbing. |
-| 6 | Codex runtime | shipped 2026-04-27 (v1) | Codex via the official `codex app-server` JSON-RPC protocol over stdio (no third-party Python SDK). Spawns the user-installed `codex` binary; same `TurnContext`/approval/settings/capabilities/tool-bridge contracts as Claude. Includes Phase A host-seam cleanup (single `build_turn_context`, shared `apply_tool_bridge`, public `resolve_approval_verdict`, `format_question_answer_for_runtime`, `HarnessToolSpec`/`HarnessBridgeInventory` on `base.py`). UI literals dropped from `BotPicker`/`ToolSelector`/`format.ts`. Plan: `~/.claude/plans/partitioned-conjuring-finch.md`. See [[#Phase 6 - Codex App-Server Harness V1]]. Verify on host with `codex` binary: live `model/list`, dynamicTools-supported vs unsupported paths, server-issued approval routing, native compaction. |
+| 6 | Codex runtime | shipped 2026-04-27 (v1 + finish-line pass) | Codex via the official `codex app-server` JSON-RPC protocol over stdio (no third-party Python SDK). Spawns the user-installed `codex` binary; same `TurnContext`/approval/settings/capabilities/tool-bridge contracts as Claude. Includes Phase A host-seam cleanup (single `build_turn_context`, shared `apply_tool_bridge`, public `resolve_approval_verdict`, `format_question_answer_for_runtime`, `HarnessToolSpec`/`HarnessBridgeInventory` on `base.py`). Follow-up wired Spindrel session plan mode into Codex `collaborationMode: plan`, per-turn `sandboxPolicy`, live model/effort options, and Codex token-window telemetry. Plan: `~/.claude/plans/partitioned-conjuring-finch.md`. See [[#Phase 6 - Codex App-Server Harness V1]]. Remaining live checks: dynamicTools call path, approval routing under a mutating command, native compaction on a non-empty thread. |
 | 7 | Skill bridge | planned | Export simple skills to harness-native skill folders and/or expose searchable Spindrel skills as bridged tools/resources. |
 | 8 | Usage + observability | planned | Aggregate harness usage/cost into admin usage, expose runtime version/auth/health, and improve post-refresh tool-call rehydration. |
 
@@ -182,10 +182,19 @@ Approval mapping intent (final values from schema):
 
 ### Open verification questions (resolve from installed binary, not docs)
 
-- Confirm `account/read` response shape against a real binary (`account.email` / `requiresOpenaiAuth` are current expectations).
-- Confirm `model/list` response shape against a real binary (current adapter accepts `models: [{id}]` or strings).
-- Confirm the `dynamicTools` capability discovery key returned by `initialize`.
+- Confirm real `dynamicTools` tool-call path against the deployed runtime. `initialize` on local `codex-cli 0.125.0` does not advertise a capability map, so the adapter remains optimistic and records unsupported only when attach fails.
+- Confirm Codex approval routing under a native mutating command in `default` mode.
+- Confirm native compaction on a non-empty Codex thread.
 - Confirm whether `turn/diff/updated` should become a user-visible breadcrumb/state update.
+
+### Finish-line pass — 2026-04-27
+
+- Fixed Spindrel planning not reaching Codex: `TurnContext` now carries the Spindrel session plan mode, and Codex sends `turn/start.collaborationMode = plan` plus read-only `sandboxPolicy` while the Spindrel session is `planning`, including resumed native threads.
+- Updated Codex runtime controls to parse live `model/list` from `codex-cli 0.125.0`; model pickers now get `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini` with per-model effort values and defaults.
+- Normalized Codex `thread/tokenUsage/updated` inside the Codex adapter, mapping `modelContextWindow` to Spindrel's generic `context_window_tokens`, so the ctx pill and `/context` can show estimated native context remaining instead of "unknown" once usage telemetry exists.
+- Rechecked provider boundaries after review: core harness state reads normalized usage only and has no Codex raw-token branch.
+- Treated Codex native plan items as plan text, not fake tool results, preserving the plan fallback without polluting the tool transcript.
+- Local binary checks confirmed `account/read` and `model/list` shapes; focused Codex unit tests pass. DB-backed turn-worker harness tests skip under the local Python 3.14 harness as expected.
 
 ## Later - Skill Bridge
 

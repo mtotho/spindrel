@@ -326,6 +326,7 @@ def _usage_total_tokens(usage: dict[str, Any] | None) -> int | None:
         "output_tokens",
         "cache_creation_input_tokens",
         "cache_read_input_tokens",
+        "cached_tokens",
         "prompt_tokens",
         "completion_tokens",
         "total_tokens",
@@ -349,6 +350,17 @@ def estimate_context_remaining_pct(
         return None
     remaining = max(0.0, 1.0 - (float(total) / float(context_window_tokens)))
     return round(remaining * 100.0, 1)
+
+
+def context_window_from_usage(usage: dict[str, Any] | None) -> int | None:
+    """Return provider-reported context window from normalized harness usage."""
+    if not isinstance(usage, dict):
+        return None
+    for key in ("context_window_tokens", "model_context_window"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return int(value)
+    return None
 
 
 def harness_compaction_settings(config: dict[str, Any] | None) -> dict[str, Any]:

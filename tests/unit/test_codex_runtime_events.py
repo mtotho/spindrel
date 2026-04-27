@@ -126,14 +126,39 @@ def test_token_usage_updated_records_meta():
     translate_notification(
         Notification(
             method=schema.NOTIFICATION_TOKEN_USAGE_UPDATED,
-            params={"usage": {"input_tokens": 12, "output_tokens": 34}},
+            params={
+                "tokenUsage": {
+                    "modelContextWindow": 4000,
+                    "total": {
+                        "inputTokens": 120,
+                        "outputTokens": 30,
+                        "reasoningOutputTokens": 10,
+                        "cachedInputTokens": 20,
+                        "totalTokens": 160,
+                    },
+                    "last": {
+                        "inputTokens": 12,
+                        "outputTokens": 3,
+                        "reasoningOutputTokens": 1,
+                        "cachedInputTokens": 2,
+                        "totalTokens": 16,
+                    },
+                }
+            },
         ),
         emit=emitter,
         tool_name_by_id=ids,
         final_text_parts=parts,
         result_meta=meta,
     )
-    assert meta["usage"] == {"input_tokens": 12, "output_tokens": 34}
+    assert meta["usage"]["total_tokens"] == 160
+    assert meta["usage"]["input_tokens"] == 120
+    assert meta["usage"]["output_tokens"] == 30
+    assert meta["usage"]["reasoning_output_tokens"] == 10
+    assert meta["usage"]["cached_tokens"] == 20
+    assert meta["usage"]["context_window_tokens"] == 4000
+    assert meta["usage"]["last_total_tokens"] == 16
+    assert "codex_token_usage" not in meta["usage"]
 
 
 def test_turn_completed_with_turn_object_finalizes_meta():
@@ -163,6 +188,34 @@ def test_turn_completed_with_turn_object_finalizes_meta():
     assert meta["total_cost_usd"] == 0.04
     assert meta["usage"] == {"input_tokens": 10, "output_tokens": 20}
     assert "is_error" not in meta
+
+
+def test_plan_delta_and_completed_plan_item_are_not_fake_tool_results():
+    emitter, ids, parts, meta = _harness()
+    translate_notification(
+        Notification(
+            method=schema.ITEM_PLAN_DELTA,
+            params={"itemId": "plan-1", "delta": "1. Inspect"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "plan-1", "type": "plan", "text": "1. Inspect\n2. Fix"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emitter.calls == []
+    assert "1. Inspect" in meta["native_plan_text"]
+    assert "2. Fix" in parts[-1]
 
 
 def test_turn_completed_with_turn_error_records_failure():

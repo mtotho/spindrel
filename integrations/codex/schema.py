@@ -38,6 +38,7 @@ METHOD_TURN_START = "turn/start"
 METHOD_TURN_INTERRUPT = "turn/interrupt"
 METHOD_ACCOUNT_READ = "account/read"
 METHOD_MODEL_LIST = "model/list"
+METHOD_COLLABORATION_MODE_LIST = "collaborationMode/list"
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ ITEM_REASONING_SUMMARY_TEXT_DELTA = "item/reasoning/summaryTextDelta"
 ITEM_REASONING_DELTA = ITEM_REASONING_TEXT_DELTA
 ITEM_COMMAND_OUTPUT_DELTA = "item/commandExecution/outputDelta"
 ITEM_FILE_CHANGE_OUTPUT_DELTA = "item/fileChange/outputDelta"
+ITEM_PLAN_DELTA = "item/plan/delta"
 
 NOTIFICATION_THREAD_STARTED = "thread/started"
 NOTIFICATION_PLAN_UPDATED = "turn/plan/updated"
@@ -100,6 +102,16 @@ APPROVAL_POLICY_ON_FAILURE = "on-failure"
 SANDBOX_DANGER_FULL_ACCESS = "danger-full-access"
 SANDBOX_WORKSPACE_WRITE = "workspace-write"
 SANDBOX_READ_ONLY = "read-only"
+
+# Current ``turn/start.sandboxPolicy`` object discriminators. ``thread/start``
+# still accepts the legacy flat ``sandbox`` enum above; resumed threads need
+# these per-turn policy objects so mode changes take effect immediately.
+SANDBOX_POLICY_DANGER_FULL_ACCESS = "dangerFullAccess"
+SANDBOX_POLICY_WORKSPACE_WRITE = "workspaceWrite"
+SANDBOX_POLICY_READ_ONLY = "readOnly"
+
+COLLABORATION_MODE_PLAN = "plan"
+COLLABORATION_MODE_DEFAULT = "default"
 
 
 # ---------------------------------------------------------------------------

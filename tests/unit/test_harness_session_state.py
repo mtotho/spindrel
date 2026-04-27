@@ -9,6 +9,7 @@ from app.db.models import Message, Session as SessionRow
 from app.services.agent_harnesses.session_state import (
     HARNESS_CONTEXT_HINTS_KEY,
     compact_harness_session,
+    context_window_from_usage,
     load_context_hints,
     load_latest_harness_metadata,
     set_resume_reset,
@@ -16,6 +17,12 @@ from app.services.agent_harnesses.session_state import (
 from tests.factories import build_bot, build_channel
 
 pytestmark = pytest.mark.asyncio
+
+
+async def test_context_window_from_usage_only_reads_normalized_fields():
+    assert context_window_from_usage({"context_window_tokens": 200_000}) == 200_000
+    assert context_window_from_usage({"model_context_window": 100_000}) == 100_000
+    assert context_window_from_usage({"modelContextWindow": 50_000}) is None
 
 
 @pytest.fixture
