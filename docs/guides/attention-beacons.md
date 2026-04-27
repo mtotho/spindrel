@@ -87,6 +87,12 @@ and actions.
 Reply uses the existing channel chat path with attention metadata. A reply
 marks the item `responded`; it does not resolve the item.
 
+Acknowledgement consumes one counted occurrence of an item. If an item has
+`occurrence_count > 1`, acknowledge decrements the count and leaves the item
+open. If the count is `1`, acknowledge marks the item `acknowledged` and it
+drops out of active lists. This is not suppression: a fresh occurrence with
+the same dedupe key reopens the item.
+
 Resolution is explicit. Humans can resolve items. A source bot can resolve
 its own items through `resolve_attention_beacon`.
 

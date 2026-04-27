@@ -322,6 +322,11 @@ from app.services.agent_harnesses.session_state import (  # noqa: E402, F401
     load_context_hints,
     load_latest_harness_metadata,
 )
+from app.services.agent_harnesses.interactions import (  # noqa: E402, F401
+    HarnessQuestionAnswer,
+    HarnessQuestionResult,
+    request_harness_question,
+)
 from app.services.agent_harnesses.tools import (  # noqa: E402, F401
     HarnessToolSpec,
     execute_harness_spindrel_tool,

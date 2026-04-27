@@ -36,7 +36,11 @@ function statusLabel(item: WorkspaceAttentionItem): string {
 }
 
 function activeItems(items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
-  return items.filter((item) => item.status !== "resolved");
+  return items.filter((item) => item.status !== "resolved" && item.status !== "acknowledged");
+}
+
+function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralLabel}`;
 }
 
 interface BadgeStackProps {
@@ -133,7 +137,7 @@ export function AttentionHubDrawerRoot() {
 }
 
 function laneFor(item: WorkspaceAttentionItem): "needs" | "assigned" | "system" | "recent" {
-  if (item.status === "resolved" || item.assignment_status === "reported") return "recent";
+  if (item.status === "resolved" || item.status === "acknowledged" || item.assignment_status === "reported") return "recent";
   if (item.source_type === "system") return "system";
   if (item.assigned_bot_id) return "assigned";
   return "needs";
@@ -156,6 +160,8 @@ function AttentionHubDrawer({
 }) {
   const [creating, setCreating] = useState(false);
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const active = activeItems(items);
+  const activeOccurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
   const grouped = useMemo(() => {
     const lanes = { needs: [] as WorkspaceAttentionItem[], assigned: [] as WorkspaceAttentionItem[], system: [] as WorkspaceAttentionItem[], recent: [] as WorkspaceAttentionItem[] };
     for (const item of items) lanes[laneFor(item)].push(item);
@@ -174,7 +180,9 @@ function AttentionHubDrawer({
             <Radar size={14} />
             Attention Hub
           </div>
-          <div className="mt-1 text-xs text-text-muted">{activeItems(items).length} active items</div>
+          <div className="mt-1 text-xs text-text-muted">
+            {plural(active.length, "active item")} · {plural(activeOccurrenceCount, "occurrence")}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">

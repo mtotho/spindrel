@@ -545,6 +545,16 @@ async def _stop_session(
             "stop-session: failed to cancel pending harness approvals for %s",
             session_id,
         )
+    from app.services.agent_harnesses.interactions import (
+        cancel_pending_harness_questions_for_session,
+    )
+    try:
+        await cancel_pending_harness_questions_for_session(session_id)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "stop-session: failed to cancel pending harness questions for %s",
+            session_id,
+        )
     payload = SideEffectPayload(
         effect="stop",
         scope_kind=scope_kind,

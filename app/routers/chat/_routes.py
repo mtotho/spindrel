@@ -704,6 +704,16 @@ async def chat_cancel(
             "chat/cancel: failed to cancel pending harness approvals for %s",
             session_id,
         )
+    from app.services.agent_harnesses.interactions import (
+        cancel_pending_harness_questions_for_session,
+    )
+    try:
+        await cancel_pending_harness_questions_for_session(session_id)
+    except Exception:
+        logger.exception(
+            "chat/cancel: failed to cancel pending harness questions for %s",
+            session_id,
+        )
 
     logger.info(
         "POST /chat/cancel  client=%s  bot=%s  session=%s  active_cancelled=%s  queued=%d",

@@ -15,6 +15,7 @@ construction and we surface that as a turn error.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -30,6 +31,7 @@ from integrations.sdk import (
     execute_harness_spindrel_tool,
     list_harness_spindrel_tools,
     request_harness_approval,
+    request_harness_question,
 )
 
 # Probe-import the SDK at module load. The actual SDK calls live inside
@@ -54,6 +56,9 @@ logger = logging.getLogger(__name__)
 # Edit/Write are NOT in the restricted set — the SDK's ``acceptEdits``
 # permission_mode auto-approves them through a separate gate (verified
 # against SDK 0.1.68 source).
+# AskUserQuestion is intentionally NOT in either allowlist: it must route
+# through can_use_tool so Spindrel can render a durable native question card
+# instead of letting the SDK's transient prompt surface handle it.
 _BYPASS_ALLOWED: tuple[str, ...] = (
     "Read", "Glob", "Grep", "Bash", "Edit", "Write",
     "Task", "WebFetch", "WebSearch", "ExitPlanMode",
@@ -279,6 +284,26 @@ def _make_can_use_tool(ctx: TurnContext, *, runtime: ClaudeCodeRuntime) -> Any:
             PermissionResultDeny,
         )
 
+        if tool_name == "AskUserQuestion":
+            try:
+                result = await request_harness_question(
+                    ctx=ctx,
+                    runtime_name=runtime.name,
+                    tool_input=tool_input or {},
+                )
+            except asyncio.TimeoutError:
+                return PermissionResultDeny(
+                    message="User question expired without an answer.",
+                    interrupt=False,
+                )
+            except Exception as exc:
+                logger.exception("claude-code: AskUserQuestion bridge failed")
+                return PermissionResultDeny(message=str(exc), interrupt=False)
+            return _permission_allow_with_updated_input(
+                PermissionResultAllow,
+                _build_ask_user_question_updated_input(tool_input or {}, result),
+            )
+
         decision: AllowDeny = await request_harness_approval(
             ctx=ctx, runtime=runtime, tool_name=tool_name, tool_input=tool_input,
         )
@@ -289,6 +314,63 @@ def _make_can_use_tool(ctx: TurnContext, *, runtime: ClaudeCodeRuntime) -> Any:
         )
 
     return _can_use_tool
+
+
+def _permission_allow_with_updated_input(
+    permission_result_allow: Any,
+    updated_input: dict[str, Any],
+) -> Any:
+    try:
+        return permission_result_allow(updated_input=updated_input)
+    except TypeError:
+        allowed = permission_result_allow()
+        try:
+            setattr(allowed, "updated_input", updated_input)
+        except Exception:
+            logger.warning(
+                "claude-code: PermissionResultAllow does not accept updated_input; "
+                "falling back to plain allow"
+            )
+        return allowed
+
+
+def _build_ask_user_question_updated_input(
+    original_input: dict[str, Any],
+    result: Any,
+) -> dict[str, Any]:
+    question_by_id = {str(q.get("id")): q for q in result.questions}
+    answers_by_question: dict[str, str] = {}
+    structured_answers: list[dict[str, Any]] = []
+    for answer in result.answers:
+        qid = str(answer.get("question_id") or "")
+        question = question_by_id.get(qid, {})
+        label = str(question.get("question") or qid or "Question")
+        selected = answer.get("selected_options")
+        parts: list[str] = []
+        if isinstance(selected, list):
+            parts.extend(str(item) for item in selected if str(item).strip())
+        text = str(answer.get("answer") or "").strip()
+        if text:
+            parts.append(text)
+        rendered = "; ".join(parts)
+        answers_by_question[label] = rendered
+        structured_answers.append(
+            {
+                "question_id": qid,
+                "question": label,
+                "answer": rendered,
+                "selected_options": selected if isinstance(selected, list) else [],
+            }
+        )
+    if result.notes:
+        answers_by_question["Additional notes"] = result.notes
+    return {
+        **original_input,
+        "questions": result.questions,
+        "answers": answers_by_question,
+        "spindrel_answers": structured_answers,
+        "spindrel_notes": result.notes or "",
+    }
 
 
 def _prompt_with_context_hints(prompt: str, ctx: TurnContext) -> str:

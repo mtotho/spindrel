@@ -201,12 +201,15 @@ async def _run_harness_turn(
             bot.harness_runtime, turn_id, bot.id,
         )
         error_text = _format_turn_exception(exc)
+        persisted_tool_calls = emitter.persisted_tool_calls()
+        assistant_turn_body = emitter.assistant_turn_body(text="")
         # Persist the failure as the assistant message so the chat shows
         # what went wrong instead of a silent empty turn.
-        synthetic_messages: list[dict] = [{
+        assistant_msg: dict = {
             "role": "user",
             "content": user_message,
-        }, {
+        }
+        error_assistant_msg: dict = {
             "role": "assistant",
             "content": _build_turn_failure_message(error_text, ""),
             "_turn_error": True,
@@ -216,7 +219,15 @@ async def _run_harness_turn(
                 "session_id": prior_session_id,
                 "error": error_text,
             },
-        }]
+        }
+        if persisted_tool_calls:
+            error_assistant_msg["tool_calls"] = persisted_tool_calls
+            error_assistant_msg["_tools_used"] = [
+                call["function"]["name"] for call in persisted_tool_calls
+            ]
+        if assistant_turn_body:
+            error_assistant_msg["_assistant_turn_body"] = assistant_turn_body
+        synthetic_messages: list[dict] = [assistant_msg, error_assistant_msg]
         try:
             async with async_session() as db:
                 await persist_turn(
@@ -238,6 +249,8 @@ async def _run_harness_turn(
     from app.services.secret_registry import redact as _redact_secrets
 
     final_text = _redact_secrets(result.final_text)
+    persisted_tool_calls = emitter.persisted_tool_calls()
+    assistant_turn_body = emitter.assistant_turn_body(text=final_text)
     if runtime_accepted_turn and context_hints:
         try:
             async with async_session() as db:
@@ -248,10 +261,7 @@ async def _run_harness_turn(
                 bot.harness_runtime,
                 session_id,
             )
-    synthetic_messages = [{
-        "role": "user",
-        "content": user_message,
-    }, {
+    assistant_msg: dict = {
         "role": "assistant",
         "content": final_text,
         "_harness": {
@@ -260,7 +270,18 @@ async def _run_harness_turn(
             "cost_usd": result.cost_usd,
             "usage": result.usage,
         },
-    }]
+    }
+    if persisted_tool_calls:
+        assistant_msg["tool_calls"] = persisted_tool_calls
+        assistant_msg["_tools_used"] = [
+            call["function"]["name"] for call in persisted_tool_calls
+        ]
+    if assistant_turn_body:
+        assistant_msg["_assistant_turn_body"] = assistant_turn_body
+    synthetic_messages = [{
+        "role": "user",
+        "content": user_message,
+    }, assistant_msg]
     try:
         async with async_session() as db:
             await persist_turn(

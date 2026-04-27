@@ -72,12 +72,16 @@ export interface AssignAttentionInput {
 
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 
+function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
+  return item.status !== "resolved" && item.status !== "acknowledged";
+}
+
 export function reconcileAttentionItems(
   items: WorkspaceAttentionItem[] | undefined,
   updated: WorkspaceAttentionItem,
 ): WorkspaceAttentionItem[] | undefined {
   if (!items) return items;
-  if (updated.status === "resolved") {
+  if (!isActiveAttentionItem(updated)) {
     return items.filter((item) => item.id !== updated.id);
   }
   let found = false;

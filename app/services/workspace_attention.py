@@ -39,6 +39,7 @@ from app.domain.errors import NotFoundError, ValidationError
 logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = ("open", "acknowledged", "responded")
+VISIBLE_STATUSES = ("open", "responded")
 VALID_SEVERITIES = {"info", "warning", "error", "critical"}
 VALID_TARGET_KINDS = {"channel", "bot", "widget", "system"}
 VALID_ASSIGNMENT_MODES = {"next_heartbeat", "run_now"}
@@ -169,6 +170,8 @@ async def place_attention_item(
         existing.evidence = _merge_evidence(existing.evidence, evidence)
         existing.latest_correlation_id = latest_correlation_id or existing.latest_correlation_id
         existing.occurrence_count = int(existing.occurrence_count or 0) + 1
+        if existing.status == "acknowledged":
+            existing.status = "open"
         existing.last_seen_at = now
         existing.updated_at = now
         flag_modified(existing, "next_steps")
@@ -212,9 +215,16 @@ async def get_attention_item(db: AsyncSession, item_id: uuid.UUID) -> WorkspaceA
 
 async def acknowledge_attention_item(db: AsyncSession, item_id: uuid.UUID) -> WorkspaceAttentionItem:
     item = await get_attention_item(db, item_id)
-    if item.status == "open":
-        item.status = "acknowledged"
-        item.updated_at = _now()
+    if item.status != "resolved":
+        now = _now()
+        if int(item.occurrence_count or 1) > 1:
+            item.occurrence_count = int(item.occurrence_count or 1) - 1
+            if item.status == "acknowledged":
+                item.status = "open"
+        else:
+            item.status = "acknowledged"
+            item.occurrence_count = 1
+        item.updated_at = now
         await db.commit()
         await db.refresh(item)
     return item
@@ -486,7 +496,7 @@ async def list_attention_items(
     if status:
         clauses.append(WorkspaceAttentionItem.status == status)
     elif not include_resolved:
-        clauses.append(WorkspaceAttentionItem.status.in_(ACTIVE_STATUSES))
+        clauses.append(WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES))
     if channel_id:
         clauses.append(WorkspaceAttentionItem.channel_id == channel_id)
     if not _is_admin_auth(auth):
@@ -575,7 +585,7 @@ async def list_bot_neighborhood_attention(
     items = (await db.execute(
         select(WorkspaceAttentionItem).where(
             WorkspaceAttentionItem.source_type == "bot",
-            WorkspaceAttentionItem.status.in_(ACTIVE_STATUSES),
+            WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES),
             or_(
                 WorkspaceAttentionItem.channel_id == channel_id,
                 WorkspaceAttentionItem.source_id == bot_id,
@@ -612,7 +622,7 @@ async def build_attention_assignment_block(
             WorkspaceAttentionItem.assigned_bot_id == bot_id,
             WorkspaceAttentionItem.assignment_mode == "next_heartbeat",
             WorkspaceAttentionItem.assignment_status.in_(("assigned", "running")),
-            WorkspaceAttentionItem.status.in_(ACTIVE_STATUSES),
+            WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES),
         ).order_by(desc(WorkspaceAttentionItem.assigned_at)).limit(5)
     )).scalars().all()
     if not items:

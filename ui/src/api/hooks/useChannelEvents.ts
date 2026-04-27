@@ -439,6 +439,18 @@ export function useChannelEvents(
             return;
           }
 
+          if (
+            normalizedMessage
+            && (
+              normalizedMessage.metadata?.kind === "harness_question"
+              || normalizedMessage.metadata?.source === "harness_question"
+            )
+          ) {
+            store.upsertMessage(storeKey, normalizedMessage);
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+            return;
+          }
+
           // During a turn, suppress assistant new_message events to avoid
           // clobbering the synthetic streaming-content message in the store.
           if (turnActive) return;
@@ -455,6 +467,14 @@ export function useChannelEvents(
             store.upsertMessage(storeKey, normalizeEventMessage(msg));
             if (subscribePathRef.current === "channels") {
               invalidateCompactionDerivedQueries(queryClient, chId);
+            }
+          } else if (msg) {
+            const normalizedMessage = normalizeEventMessage(msg);
+            if (
+              normalizedMessage.metadata?.kind === "harness_question"
+              || normalizedMessage.metadata?.source === "harness_question"
+            ) {
+              store.upsertMessage(storeKey, normalizedMessage);
             }
           }
           // Workflow lifecycle / step progress in-place edits.

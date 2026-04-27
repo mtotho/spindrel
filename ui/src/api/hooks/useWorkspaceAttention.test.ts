@@ -45,3 +45,10 @@ test("reconcileAttentionItems removes resolved items from active cached lists", 
 
   assert.deepEqual(reconcileAttentionItems([original, other], resolved), [other]);
 });
+
+test("reconcileAttentionItems removes acknowledged items from active cached lists", () => {
+  const original = item();
+  const acknowledged = item({ status: "acknowledged" });
+
+  assert.deepEqual(reconcileAttentionItems([original], acknowledged), []);
+});

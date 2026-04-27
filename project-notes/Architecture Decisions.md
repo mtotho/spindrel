@@ -867,3 +867,16 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 **Why.**
 - Direct runtime calls would bypass the security and observability properties users expect from Spindrel tools.
 - A transport-specific adapter keeps Claude/Codex details out of core tool dispatch while still allowing harnesses to feel normal over time.
+
+### Harness-native questions are persisted session messages
+**Decided 2026-04-26.** When a runtime asks the human for input mid-turn, Spindrel represents that as a persisted native-app assistant message scoped to the current `Session.id`, not as an ephemeral modal or channel-global prompt.
+
+**What this means.**
+- Claude Code `AskUserQuestion` routes through the harness `can_use_tool` callback and creates a `core/harness_question` native card.
+- The card stores state on `Message.metadata.harness_interaction` and answers create suppress-outbox user messages in the same session.
+- If the live SDK callback still exists, answering resolves it and the same harness turn continues. If not, answering queues a fresh harness task in the same session.
+- Stop/cancel paths expire pending harness questions alongside pending harness approvals.
+
+**Why.**
+- The user must be able to answer runtime-native questions from the same chat transcript, after refresh, and from scratch/split panes without accidentally targeting `channel.active_session_id`.
+- A message-backed card gives the web UI one interaction model and preserves an audit trail without adding a separate harness-interactions table yet.

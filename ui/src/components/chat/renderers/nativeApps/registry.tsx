@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { ContextTrackerWidget } from "./ContextTrackerWidget";
 import { EcosystemSimWidget } from "./EcosystemSimWidget";
 import { MachineControlWidget } from "./MachineControlWidget";
+import { HarnessQuestionWidget } from "./HarnessQuestionWidget";
 import { NotesWidget } from "./NotesWidget";
 import { PlanQuestionsWidget } from "./PlanQuestionsWidget";
 import { PinnedFilesWidget } from "./PinnedFilesWidget";
@@ -23,6 +24,7 @@ const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
   "core/context_tracker": ContextTrackerWidget,
   "core/game_blockyard": BlockyardWidget,
   "core/game_ecosystem": EcosystemSimWidget,
+  "core/harness_question": HarnessQuestionWidget,
   "core/machine_control_native": MachineControlWidget,
   "core/notes_native": NotesWidget,
   "core/pinned_files_native": PinnedFilesWidget,

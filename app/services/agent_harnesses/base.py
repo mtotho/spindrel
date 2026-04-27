@@ -84,6 +84,15 @@ class TurnResult:
     usage: dict | None = None
 
 
+@dataclass
+class HarnessToolTranscriptEntry:
+    id: str
+    name: str
+    arguments: dict
+    result_summary: str | None = None
+    is_error: bool = False
+
+
 class ChannelEventEmitter:
     """Thin scoped wrapper around ``publish_typed``.
 
@@ -104,6 +113,7 @@ class ChannelEventEmitter:
         self._turn_id = turn_id
         self._bot_id = bot_id
         self._session_id = session_id
+        self._tool_entries: list[HarnessToolTranscriptEntry] = []
 
     def token(self, delta: str) -> None:
         if not delta:
@@ -148,6 +158,15 @@ class ChannelEventEmitter:
         arguments: dict | None = None,
         tool_call_id: str | None = None,
     ) -> None:
+        call_id = tool_call_id or f"harness:{len(self._tool_entries) + 1}"
+        redacted_args = _redact_value(arguments or {})
+        self._tool_entries.append(
+            HarnessToolTranscriptEntry(
+                id=call_id,
+                name=tool_name,
+                arguments=redacted_args if isinstance(redacted_args, dict) else {},
+            )
+        )
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -157,8 +176,8 @@ class ChannelEventEmitter:
                     bot_id=self._bot_id,
                     turn_id=self._turn_id,
                     tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    arguments=_redact_value(arguments or {}),
+                    tool_call_id=call_id,
+                    arguments=redacted_args if isinstance(redacted_args, dict) else {},
                     surface="harness",
                     session_id=self._session_id,
                 ),
@@ -174,6 +193,12 @@ class ChannelEventEmitter:
         tool_call_id: str | None = None,
     ) -> None:
         result_summary = _redact_text(result_summary)
+        if tool_call_id:
+            for entry in reversed(self._tool_entries):
+                if entry.id == tool_call_id:
+                    entry.result_summary = result_summary
+                    entry.is_error = is_error
+                    break
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -191,6 +216,37 @@ class ChannelEventEmitter:
                 ),
             ),
         )
+
+    def persisted_tool_calls(self) -> list[dict[str, Any]]:
+        """Return live harness tools in the existing persisted ToolCall shape."""
+        calls: list[dict[str, Any]] = []
+        for entry in self._tool_entries:
+            calls.append(
+                {
+                    "id": entry.id,
+                    "type": "function",
+                    "function": {
+                        "name": entry.name,
+                        "arguments": entry.arguments,
+                    },
+                    "surface": "transcript",
+                    "summary": {
+                        "kind": "error" if entry.is_error else "result",
+                        "subject_type": "tool",
+                        "label": entry.name,
+                        "preview_text": entry.result_summary,
+                    },
+                }
+            )
+        return calls
+
+    def assistant_turn_body(self, *, text: str) -> dict[str, Any] | None:
+        items: list[dict[str, Any]] = []
+        if text.strip():
+            items.append({"id": "text:final", "kind": "text", "text": text})
+        for entry in self._tool_entries:
+            items.append({"id": f"tool:{entry.id}", "kind": "tool_call", "toolCallId": entry.id})
+        return {"version": 1, "items": items} if items else None
 
 
 # Type alias for callers that hand the emitter into a driver — keeps the

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -937,6 +937,23 @@ class HarnessStatusOut(BaseModel):
     context_note: str
 
 
+class HarnessQuestionAnswerIn(BaseModel):
+    question_id: str
+    answer: str | None = None
+    selected_options: list[str] = Field(default_factory=list)
+
+
+class HarnessQuestionAnswerRequest(BaseModel):
+    answers: list[HarnessQuestionAnswerIn]
+    notes: str | None = None
+
+
+class HarnessQuestionAnswerOut(BaseModel):
+    interaction_id: uuid.UUID
+    live_resolved: bool
+    task_id: uuid.UUID | None = None
+
+
 @router.get("/{session_id}/harness-status", response_model=HarnessStatusOut)
 async def get_harness_status(
     session_id: uuid.UUID,
@@ -978,6 +995,86 @@ async def get_harness_status(
             "Native harness context is provider-managed; Spindrel tracks resume id, "
             "compact resets, and pending host hints for this session."
         ),
+    )
+
+
+@router.post(
+    "/{session_id}/harness-interactions/{interaction_id}/answer",
+    response_model=HarnessQuestionAnswerOut,
+)
+async def answer_harness_interaction(
+    session_id: uuid.UUID,
+    interaction_id: uuid.UUID,
+    body: HarnessQuestionAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("sessions:write")),
+):
+    """Answer a harness-native question card for the current session.
+
+    If the SDK callback is still alive, resolving it continues the same
+    harness turn. If the process restarted and no callback exists, the stored
+    answer starts a fresh harness task against the same Spindrel session.
+    """
+    from app.services.agent_harnesses.interactions import (
+        HarnessQuestionAnswer,
+        answer_harness_question,
+    )
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    try:
+        result, live_resolved = await answer_harness_question(
+            db=db,
+            session_id=session_id,
+            interaction_id=str(interaction_id),
+            answers=[
+                HarnessQuestionAnswer(
+                    question_id=item.question_id,
+                    answer=item.answer,
+                    selected_options=item.selected_options,
+                )
+                for item in body.answers
+            ],
+            notes=body.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    task_id: uuid.UUID | None = None
+    if not live_resolved:
+        answer_text = ""
+        if result.answer_message_id is not None:
+            answer_row = await db.get(Message, result.answer_message_id)
+            answer_text = answer_row.content if answer_row and answer_row.content else ""
+        task = Task(
+            bot_id=session.bot_id,
+            client_id=session.client_id,
+            session_id=session_id,
+            channel_id=session.channel_id,
+            prompt=answer_text or "Continue from the harness question answer.",
+            status="pending",
+            task_type="api",
+            dispatch_type=(session.dispatch_config or {}).get("type") or "none",
+            dispatch_config=session.dispatch_config or {},
+            execution_config={
+                **({"pre_user_msg_id": str(result.answer_message_id)} if result.answer_message_id else {}),
+                "harness_question_id": str(interaction_id),
+            },
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(task)
+        await db.commit()
+        await db.refresh(task)
+        task_id = task.id
+
+    return HarnessQuestionAnswerOut(
+        interaction_id=interaction_id,
+        live_resolved=live_resolved,
+        task_id=task_id,
     )
 
 

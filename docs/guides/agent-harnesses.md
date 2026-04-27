@@ -67,10 +67,10 @@ This writes credentials inside the container's filesystem only. They're lost on 
 These are deliberate v1 boundaries, not oversights:
 
 - **No Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged. Later skill bridge work should expose selected Spindrel skills through export or search/get tools instead of direct runtime imports.
-- **No widgets / no tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. No `emit_html_widget`, no standing orders, no dashboard pins.
+- **No arbitrary harness widgets / tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. The one exception is host-owned interaction cards such as `AskUserQuestion`, which Spindrel renders as durable native cards so the user can answer inside the current session.
 - **Native harness tools are not Spindrel tools.** Harness approval modes can route native SDK permission prompts into Spindrel approval cards, but approved native calls still execute in the harness, not through Spindrel's `ToolCall` dispatcher.
 - **No `/admin/usage` integration.** Cost and token usage are persisted on the assistant message under `metadata.harness.cost_usd`/`usage`, but not aggregated in the global cost dashboard yet.
-- **No tool-call rehydration after page refresh.** The live stream shows tool calls; on reload, only the final assistant text comes back from the `Message` row.
+- **Limited tool-call rehydration.** Live harness tool breadcrumbs are persisted on the synthetic assistant `Message` row and rehydrate after refresh. Native harness tool bodies still do not become Spindrel `ToolCall` rows unless the call came through an explicit Spindrel bridge.
 - **No @-mention fanout.** A harness session owns its turn end-to-end; it doesn't trigger member-bot replies, supervisors, or context compaction.
 
 If you need any of those, you want a normal Spindrel bot, not an external harness session.
@@ -95,6 +95,12 @@ Each runtime exposes a `RuntimeCapabilities` contract through `GET /api/v1/runti
 - `slash_policy.allowed_command_ids` filters `/api/v1/slash-commands?bot_id=...` and `/help`.
 
 Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harness-settings`. Missing patch keys mean no change; JSON `null` clears a value.
+
+## Harness questions
+
+When a runtime asks the user for structured input (Claude Code: `AskUserQuestion`), Spindrel intercepts the SDK callback and renders a native `core/harness_question` card in the chat transcript. The card is a normal persisted assistant `Message` scoped to the current Spindrel `Session.id`; it is not tied to `channel.active_session_id` except when the current view has no explicit session and falls back to the primary session.
+
+Answering the card writes a suppress-outbox user message with the answers. If the original SDK callback is still alive, the answer resolves that callback and the same harness turn continues. If the process restarted and the callback is gone, the answer starts a fresh pending harness task in the same session using the persisted answer as the prompt. Stop-turn paths mark pending harness questions cancelled so stale cards do not wait for their timeout.
 
 ## Native status, compact, and host hints
 

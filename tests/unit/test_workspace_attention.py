@@ -5,6 +5,7 @@ import pytest
 
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task, ToolCall, TraceEvent
 from app.services.workspace_attention import (
+    acknowledge_attention_item,
     assign_attention_item,
     build_attention_assignment_block,
     create_user_attention_item,
@@ -50,6 +51,80 @@ async def test_place_attention_item_dedupes_active_items(db_session):
     assert second.id == first.id
     assert second.message == "updated"
     assert second.occurrence_count == 2
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_attention_item_consumes_one_occurrence(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+    )
+    await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+    )
+
+    acknowledged = await acknowledge_attention_item(db_session, item.id)
+
+    assert acknowledged.status == "open"
+    assert acknowledged.occurrence_count == 1
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_attention_item_hides_last_occurrence_until_new_one(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+    )
+    acknowledged = await acknowledge_attention_item(db_session, item.id)
+
+    assert acknowledged.status == "acknowledged"
+    visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+    assert visible == []
+
+    reopened = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+    )
+
+    assert reopened.id == item.id
+    assert reopened.status == "open"
+    assert reopened.occurrence_count == 2
 
 
 @pytest.mark.asyncio

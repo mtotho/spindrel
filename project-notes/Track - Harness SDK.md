@@ -18,7 +18,7 @@ This track covers the stable host contract used by Claude Code today and Codex l
 - Harness discovery/registration lives under `app/services/agent_harnesses`; active integration harness modules register runtime instances on import.
 - Harness bots reuse standard Spindrel bot workspaces. The bot workspace directory is the harness cwd.
 - A harness turn bypasses normal Spindrel context assembly, model selection, prompt injection, skills, knowledge bases, memory, and fanout. Host hints, manual compact continuity summaries, and selected Spindrel tools now have narrow bridge paths back into the runtime.
-- Spindrel currently streams assistant text and live tool breadcrumbs into the channel, persists the final assistant message, and stores harness resume/cost metadata on assistant-message metadata for the Spindrel session.
+- Spindrel currently streams assistant text and live tool breadcrumbs into the channel, persists the final assistant message with tool breadcrumbs, and stores harness resume/cost metadata on assistant-message metadata for the Spindrel session.
 - Phase 2 shipped the in-app terminal and per-session resume keying, plus a broad auto-approve `can_use_tool` shim so Claude Code does not stall on SDK permission prompts.
 - Known-secret and common-pattern redaction now applies at the host boundary for harness streams and persisted final assistant text. Native harness tools still execute outside Spindrel's tool dispatcher, so a token printed by the harness should be treated as compromised even if the UI/transcript redacts it afterward.
 - Phase 3 planning is converging on per-session approval modes that reuse `ToolApproval` rows and approval cards without creating linked `ToolCall` rows for native harness tools.
@@ -42,7 +42,7 @@ This track covers the stable host contract used by Claude Code today and Codex l
 | 2 | Resume + broad auto-approval cleanup | shipped | Per-session resume keying and auto-approve `can_use_tool` shim to avoid SDK permission stalls. |
 | 3 | Harness approvals | shipped | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. Phase 3a (backend) and Phase 3b (UI) both shipped 2026-04-26. |
 | 4 | Harness control surface | shipped | `RuntimeCapabilities` Protocol; per-session `harness_settings` (model/effort/runtime_settings); `GET /runtimes/{name}/capabilities`; `GET/POST /sessions/{id}/harness-settings`; header model + effort pills (per-session, alongside Phase 3 approval-mode pill); harness-aware `/model` and `/effort`; `?bot_id=` filter on `/api/v1/slash-commands` and `/help`. Follow-up fixed channel-surface slash requests to carry `current_session_id` so scratch/split/thread panes target their own session, with `active_session_id` only as the default primary fallback. Shipped 2026-04-26. |
-| 5 | Native-feel foundation | in progress | Session-bound harness context hints, `/compact` resume reset + continuity summary, `/context`/status endpoint, heartbeat hint injection, channel settings cleanup, and first Spindrel tool bridge via Claude SDK in-process MCP. Landed locally 2026-04-26; needs SDK smoke test on the harness image. |
+| 5 | Native-feel foundation | in progress | Session-bound harness context hints, `/compact` resume reset + continuity summary, `/context`/status endpoint, heartbeat hint injection, channel settings cleanup, first Spindrel tool bridge via Claude SDK in-process MCP, durable harness question cards, and persisted harness tool breadcrumbs. Landed locally 2026-04-26; needs SDK smoke test on the harness image. |
 | 6 | Codex runtime | planned | Implement Codex against the same `TurnContext`, approval, settings, status, tool-bridge, and runtime-capability contracts. |
 | 7 | Skill bridge | planned | Export simple skills to harness-native skill folders and/or expose searchable Spindrel skills as bridged tools/resources. |
 | 8 | Usage + observability | planned | Aggregate harness usage/cost into admin usage, expose runtime version/auth/health, and improve post-refresh tool-call rehydration. |
@@ -105,6 +105,8 @@ What is landing:
 - Heartbeats on harness channels do not launch the normal Spindrel loop. They store the heartbeat prompt/preamble as a one-shot hint for the channel's primary session.
 - Channel settings now hide normal-loop prompt/model/RAG/memory/tool-enrollment surfaces for harness bots and show a runtime summary instead. The hidden surfaces should come back only when they have harness-native semantics.
 - Claude Code gets a best-effort Spindrel tool bridge through SDK in-process MCP helpers. Tool definitions are resolved dynamically from the same effective channel/bot tool configuration as the normal loop, and invocation routes through `dispatch_tool_call` so policy, approval, trace rows, redaction, and result summarization stay centralized.
+- Claude Code `AskUserQuestion` now routes through a durable Spindrel native card (`core/harness_question`) instead of the SDK's transient prompt surface. The card is a persisted assistant message scoped to the current Spindrel session. Answering it writes a suppress-outbox user answer message, resolves the live SDK callback when present, or starts a fresh harness task in the same session if the callback disappeared after restart.
+- Harness live tool breadcrumbs are now persisted on the synthetic assistant message as canonical `tool_calls` plus `assistant_turn_body`, so refresh keeps the native tool transcript instead of collapsing to final text only.
 
 Open verification:
 
@@ -112,6 +114,7 @@ Open verification:
 - Exercise a mutating bridged tool in ask mode and verify the existing Spindrel approval card flow resolves back into the harness tool result.
 - Decide whether heartbeat hints should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
 - Add richer harness context telemetry if/when a runtime exposes native context-window usage; current status is resume/usage/hint metadata, not a full token budget.
+- Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
 
 ## Later - Skill Bridge
 
