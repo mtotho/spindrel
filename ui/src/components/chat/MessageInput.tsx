@@ -367,8 +367,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
     : (onModelOverrideChange && !isTerminalMode && !hideModelOverride);
   const terminalHint = text.trim().startsWith("/") ? "command" : "message";
   const hasOverride = isHarness ? !!harnessCurrentModel : !!modelOverride;
+  // Harness channels run a separate runtime; the bot's LLM `model` field
+  // (gpt-4o, gemma, etc) is irrelevant to a Codex/Claude Code session, so
+  // never leak it into the harness footer. When the user hasn't picked a
+  // harness model the runtime picks its own default — show "default" rather
+  // than the bot's unrelated provider model.
   const effectiveName = isHarness
-    ? (harnessCurrentModel ?? defaultModel?.split("/").pop() ?? null)
+    ? harnessCurrentModel
     : (modelOverride
         ? modelOverride.split("/").pop()
         : defaultModel?.split("/").pop());
@@ -942,14 +947,25 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   effective model; clicking opens the LlmModelDropdown portal. Purple
                   accent only when a channel-level override is set. */}
               {modelPillVisible && (() => {
-                const canRenderPill = !!effectiveName;
+                // Harness channels always show a pill — runtime picks a default
+                // when no explicit selection. Non-harness channels only render
+                // when there's a name to show.
+                const pillLabel = effectiveName ?? (isHarness ? "default" : null);
+                const canRenderPill = !!pillLabel;
+                const pillTitle = isHarness
+                  ? (hasOverride
+                      ? `Harness model: ${harnessCurrentModel}`
+                      : "Harness model: runtime default")
+                  : (hasOverride
+                      ? `Channel model override: ${modelOverride}`
+                      : `Model: ${defaultModel ?? effectiveName}`);
                 return (
                   <div ref={modelPickerRef} style={{ position: "relative", display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                     {canRenderPill ? (
                       <button
                         type="button"
                         onClick={() => setShowModelPicker(true)}
-                        title={hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName}`}
+                        title={pillTitle}
                         style={{
                           display: "flex", flexDirection: "row",
                           alignItems: "center",
@@ -966,7 +982,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                         }}
                       >
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {effectiveName}
+                          {pillLabel}
                         </span>
                         {hasOverride && (
                           <span
@@ -1144,7 +1160,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   type="button"
                   onClick={() => setShowModelPicker(true)}
                   title={isHarness
-                    ? (hasOverride ? `Harness model: ${harnessCurrentModel}` : `Harness model: ${defaultModel ?? effectiveName ?? "runtime default"}`)
+                    ? (hasOverride ? `Harness model: ${harnessCurrentModel}` : "Harness model: runtime default")
                     : (hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`)}
                   style={{
                     background: "transparent",
@@ -1162,7 +1178,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {canRenderModelLabel ? effectiveName : "select model"}
+                  {effectiveName ?? (isHarness ? "default" : "select model")}
                 </button>
                 {isHarness && harnessEffortValues.length > 0 && (
                   <button

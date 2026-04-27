@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Wind, X } from "lucide-react";
 import { useAgentSmell, type AgentSmellBot } from "../../api/hooks/useUsage";
 
 const SATELLITE_OFFSET_X = 110;
 const SATELLITE_OFFSET_Y = -60;
+
+const DRAWER_WIDTH = 480;
+const DRAWER_HEIGHT = 560;
+const DRAWER_GAP = 16;
 
 function fmtTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
@@ -27,7 +31,8 @@ interface BloatSatelliteProps {
 }
 
 export function BloatSatellite({ hubX, hubY }: BloatSatelliteProps) {
-  const [open, setOpen] = useState(false);
+  const [drawerAnchor, setDrawerAnchor] = useState<{ x: number; y: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const { data } = useAgentSmell({ hours: 24, baseline_days: 7, limit: 25 });
   const summary = data?.summary;
   const bloatedBotCount = summary?.bloated_bot_count ?? 0;
@@ -37,9 +42,33 @@ export function BloatSatellite({ hubX, hubY }: BloatSatelliteProps) {
     b.reasons.some((r) => r.key === "context_bloat"),
   );
 
+  const handleOpen = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      setDrawerAnchor({ x: 80, y: 80 });
+      return;
+    }
+    // Place the drawer to the right of the satellite by default, then
+    // clamp inside the viewport so it stays fully visible. Falls back to
+    // the left side if there isn't room on the right.
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let x = rect.right + DRAWER_GAP;
+    if (x + DRAWER_WIDTH + DRAWER_GAP > vw) {
+      x = Math.max(DRAWER_GAP, rect.left - DRAWER_WIDTH - DRAWER_GAP);
+    }
+    let y = rect.top;
+    if (y + DRAWER_HEIGHT + DRAWER_GAP > vh) {
+      y = Math.max(DRAWER_GAP, vh - DRAWER_HEIGHT - DRAWER_GAP);
+    }
+    setDrawerAnchor({ x, y });
+  };
+
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         className={`absolute flex flex-col items-center justify-center rounded-full border-2 shadow-md backdrop-blur transition-transform hover:scale-110 ${severityClass(summary?.max_severity ?? "watch")}`}
         style={{
@@ -50,16 +79,21 @@ export function BloatSatellite({ hubX, hubY }: BloatSatelliteProps) {
           zIndex: 5,
         }}
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen(true);
-        }}
+        onClick={handleOpen}
         title={`Context bloat: ${bloatedBotCount} bot${bloatedBotCount === 1 ? "" : "s"} carrying unused tools/skills`}
       >
         <Wind size={22} />
         <span className="mt-0.5 text-[11px] font-semibold leading-none">{bloatedBotCount}</span>
       </button>
-      {open ? <BloatDrawer offenders={offenders} summary={summary} onClose={() => setOpen(false)} /> : null}
+      {drawerAnchor ? (
+        <BloatDrawer
+          offenders={offenders}
+          summary={summary}
+          initialX={drawerAnchor.x}
+          initialY={drawerAnchor.y}
+          onClose={() => setDrawerAnchor(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -67,18 +101,90 @@ export function BloatSatellite({ hubX, hubY }: BloatSatelliteProps) {
 function BloatDrawer({
   offenders,
   summary,
+  initialX,
+  initialY,
   onClose,
 }: {
   offenders: AgentSmellBot[];
   summary: { total_unused_tools: number; total_pinned_unused_tools: number; total_unused_skills: number; total_estimated_bloat_tokens: number } | undefined;
+  initialX: number;
+  initialY: number;
   onClose: () => void;
 }) {
+  const [pos, setPos] = useState({ x: initialX, y: initialY });
+  const dragRef = useRef<{ pointerId: number; offsetX: number; offsetY: number } | null>(null);
+
+  // Re-clamp on viewport resize so the panel never gets stranded offscreen.
+  useEffect(() => {
+    const onResize = () => {
+      setPos((p) => ({
+        x: Math.min(Math.max(DRAWER_GAP, p.x), window.innerWidth - DRAWER_WIDTH - DRAWER_GAP),
+        y: Math.min(Math.max(DRAWER_GAP, p.y), window.innerHeight - DRAWER_HEIGHT - DRAWER_GAP),
+      }));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const onHeaderPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      dragRef.current = {
+        pointerId: e.pointerId,
+        offsetX: e.clientX - pos.x,
+        offsetY: e.clientY - pos.y,
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [pos.x, pos.y],
+  );
+
+  const onHeaderPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const x = Math.min(
+      Math.max(DRAWER_GAP, e.clientX - d.offsetX),
+      window.innerWidth - DRAWER_WIDTH - DRAWER_GAP,
+    );
+    const y = Math.min(
+      Math.max(DRAWER_GAP, e.clientY - d.offsetY),
+      window.innerHeight - DRAWER_HEIGHT - DRAWER_GAP,
+    );
+    setPos({ x, y });
+  }, []);
+
+  const onHeaderPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    dragRef.current = null;
+  }, []);
+
   return (
     <aside
-      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[480px] max-w-[calc(100vw-2rem)] flex-col rounded-md bg-surface-raised/95 text-sm text-text shadow-xl ring-1 ring-surface-border backdrop-blur"
+      className="fixed z-[70] flex flex-col rounded-md bg-surface-raised/95 text-sm text-text shadow-xl ring-1 ring-surface-border backdrop-blur"
+      style={{
+        left: pos.x,
+        top: pos.y,
+        width: DRAWER_WIDTH,
+        height: DRAWER_HEIGHT,
+      }}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
+      <div
+        className="flex cursor-move items-center justify-between border-b border-surface-border px-4 py-3 select-none"
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+        onPointerCancel={onHeaderPointerUp}
+      >
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-text-dim">
             <Wind size={14} />
@@ -93,6 +199,7 @@ function BloatDrawer({
         <button
           type="button"
           className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={onClose}
           title="Close"
         >

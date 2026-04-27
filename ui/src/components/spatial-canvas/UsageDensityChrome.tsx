@@ -164,6 +164,7 @@ export function UsageDensityChrome({
   } | null>(null);
   const [stationMenuOpen, setStationMenuOpen] = useState(false);
   const stationMenuRef = useRef<HTMLDivElement | null>(null);
+  const objectClickTimerRef = useRef<number | null>(null);
   const activeStation = STATIONS.find((item) => item.id === station) ?? STATIONS[0];
   const selectStation = (nextStation: StarboardStation) => {
     onStationChange(nextStation);
@@ -193,6 +194,37 @@ export function UsageDensityChrome({
       document.removeEventListener("keydown", onKey, true);
     };
   }, [stationMenuOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (objectClickTimerRef.current !== null) {
+        window.clearTimeout(objectClickTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleObjectClick = (item: StarboardObjectItem) => {
+    if (!item.onDoubleClick) {
+      item.onSelect();
+      return;
+    }
+    if (objectClickTimerRef.current !== null) {
+      window.clearTimeout(objectClickTimerRef.current);
+    }
+    objectClickTimerRef.current = window.setTimeout(() => {
+      item.onSelect();
+      objectClickTimerRef.current = null;
+    }, 220);
+  };
+
+  const handleObjectDoubleClick = (item: StarboardObjectItem) => {
+    if (!item.onDoubleClick) return;
+    if (objectClickTimerRef.current !== null) {
+      window.clearTimeout(objectClickTimerRef.current);
+      objectClickTimerRef.current = null;
+    }
+    item.onDoubleClick();
+  };
 
   return (
     <div
@@ -425,8 +457,8 @@ export function UsageDensityChrome({
                       <button
                         key={item.id}
                         type="button"
-                        onClick={item.onSelect}
-                        onDoubleClick={item.onDoubleClick}
+                        onClick={() => handleObjectClick(item)}
+                        onDoubleClick={() => handleObjectDoubleClick(item)}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           event.stopPropagation();

@@ -26,7 +26,6 @@ from integrations.sdk import (
     AuthStatus,
     ChannelEventEmitter,
     HarnessCompactResult,
-    HarnessModelOption,
     HarnessSlashCommandPolicy,
     HarnessToolSpec,
     RuntimeCapabilities,
@@ -43,7 +42,7 @@ _CODEX_FALLBACK_MODELS: tuple[str, ...] = (
     "gpt-5",
     "gpt-5-mini",
 )
-_CODEX_FALLBACK_EFFORTS: tuple[str, ...] = ("low", "medium", "high")
+_CODEX_FALLBACK_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 
 
 _CODEX_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset(
@@ -77,18 +76,15 @@ class CodexRuntime:
         return tool_name in self._PLAN_AUTOAPPROVE
 
     def capabilities(self) -> RuntimeCapabilities:
+        # supported_models / model_options stay empty so the capabilities
+        # endpoint's `available_models` from list_models() — sourced from the
+        # actual codex binary — drives the picker. model_is_freeform=True
+        # keeps the bot edit field accepting any string the user's account
+        # supports.
         return RuntimeCapabilities(
             display_name="Codex",
-            supported_models=_CODEX_FALLBACK_MODELS,
-            model_options=tuple(
-                HarnessModelOption(
-                    id=model,
-                    label=model,
-                    effort_values=_CODEX_FALLBACK_EFFORTS,
-                    default_effort="medium",
-                )
-                for model in _CODEX_FALLBACK_MODELS
-            ),
+            supported_models=(),
+            model_options=(),
             model_is_freeform=True,
             effort_values=_CODEX_FALLBACK_EFFORTS,
             approval_modes=("bypassPermissions", "acceptEdits", "default", "plan"),
@@ -103,17 +99,30 @@ class CodexRuntime:
         try:
             async with CodexAppServer.spawn() as client:
                 await client.initialize()
-                result = await client.request(schema.METHOD_MODEL_LIST, {})
+                result = await client.request(
+                    schema.METHOD_MODEL_LIST,
+                    {"includeHidden": False, "limit": 100},
+                )
         except CodexBinaryNotFound:
             return _CODEX_FALLBACK_MODELS
         except Exception:
             logger.warning("codex: model/list failed; using fallback list", exc_info=True)
             return _CODEX_FALLBACK_MODELS
-        models = result.get("models") if isinstance(result, dict) else None
-        if isinstance(models, list):
-            ids = tuple(str(m.get("id") or m) for m in models if m)
+        # ModelListResponse: {data: [Model], nextCursor}; Model has an `id`
+        # discriminator and a `model` string passed through to OpenAI.
+        data = result.get("data") if isinstance(result, dict) else None
+        if isinstance(data, list):
+            ids: list[str] = []
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("hidden"):
+                    continue
+                ident = entry.get("id") or entry.get("model")
+                if isinstance(ident, str) and ident:
+                    ids.append(ident)
             if ids:
-                return ids
+                return tuple(ids)
         return _CODEX_FALLBACK_MODELS
 
     async def start_turn(

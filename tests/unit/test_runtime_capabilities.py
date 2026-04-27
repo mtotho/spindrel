@@ -77,9 +77,11 @@ def test_codex_capabilities_shape():
     caps = CodexRuntime().capabilities()
     assert caps.display_name == "Codex"
     assert caps.model_is_freeform is True
-    assert caps.supported_models
-    assert caps.model_options
-    assert caps.effort_values == ("low", "medium", "high")
+    # supported_models / model_options stay empty so the live model/list
+    # call drives the picker — see CodexRuntime.list_models().
+    assert caps.supported_models == ()
+    assert caps.model_options == ()
+    assert caps.effort_values == ("minimal", "low", "medium", "high", "xhigh")
     assert caps.approval_modes == (
         "bypassPermissions", "acceptEdits", "default", "plan",
     )

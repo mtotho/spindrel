@@ -47,7 +47,11 @@ METHOD_MODEL_LIST = "model/list"
 ITEM_STARTED = "item/started"
 ITEM_COMPLETED = "item/completed"
 ITEM_AGENT_MESSAGE_DELTA = "item/agentMessage/delta"
-ITEM_REASONING_DELTA = "item/reasoning/delta"
+ITEM_REASONING_TEXT_DELTA = "item/reasoning/textDelta"
+ITEM_REASONING_SUMMARY_TEXT_DELTA = "item/reasoning/summaryTextDelta"
+# Backwards-compat alias for older callers; reasoning streams arrive on the
+# textDelta channel by default.
+ITEM_REASONING_DELTA = ITEM_REASONING_TEXT_DELTA
 ITEM_COMMAND_OUTPUT_DELTA = "item/commandExecution/outputDelta"
 ITEM_FILE_CHANGE_OUTPUT_DELTA = "item/fileChange/outputDelta"
 
@@ -66,7 +70,7 @@ NOTIFICATION_ERROR = "error"
 SERVER_REQUEST_COMMAND_APPROVAL = "item/commandExecution/requestApproval"
 SERVER_REQUEST_FILE_CHANGE_APPROVAL = "item/fileChange/requestApproval"
 SERVER_REQUEST_PERMISSIONS = "item/permissions/requestApproval"
-SERVER_REQUEST_USER_INPUT = "tool/requestUserInput"
+SERVER_REQUEST_USER_INPUT = "item/tool/requestUserInput"
 SERVER_REQUEST_TOOL_CALL = "item/tool/call"
 
 # All approval-shaped server requests share a `decision` reply enum.
