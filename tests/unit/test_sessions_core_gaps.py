@@ -755,6 +755,20 @@ class TestStageTurnMessagesMalformedDelegations:
         )
         db.add.assert_called_once()
 
+    def test_cancelled_turn_metadata_lands_on_persisted_row(self):
+        from app.services.session_writes import stage_turn_messages
+
+        db = MagicMock()
+        ctx = self._ctx()
+        staged = stage_turn_messages(
+            db,
+            ctx,
+            [{"role": "assistant", "content": "", "_turn_cancelled": True}],
+        )
+
+        assert staged.records[0].metadata_["turn_cancelled"] is True
+        db.add.assert_called_once()
+
     def test_partial_failure_preserves_other_delegations(self, caplog):
         """One malformed call in a list does not erase the well-formed sibling."""
         import json as _json

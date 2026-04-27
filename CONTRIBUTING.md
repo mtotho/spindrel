@@ -62,18 +62,23 @@ Integrations live in `integrations/` and follow a standard structure. See `integ
 
 ## Release Process (maintainer)
 
-Spindrel uses a manual tag-driven release flow. Versions follow [SemVer](https://semver.org/); while we are in `0.x`, minor bumps may include breaking changes.
+Spindrel ships releases via a single helper script: `scripts/release.sh`. Versions follow [SemVer](https://semver.org/); while we are in `0.x`, minor bumps may include breaking changes.
 
-1. Bump the version in **both** `pyproject.toml` and `ui/package.json` to `X.Y.Z` (these must stay in sync).
-2. In `CHANGELOG.md`, add a `## [X.Y.Z] - YYYY-MM-DD` section with a **high-level human summary** of the release (a few bullets is enough — AI-drafted is fine, just make sure it reads cleanly). Update the link refs at the bottom.
-3. Open a PR titled `Release vX.Y.Z`. Once it merges to `master`:
-   ```bash
-   git checkout master && git pull
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
-4. The `Release` workflow (`.github/workflows/release.yml`) builds and pushes `ghcr.io/mtotho/spindrel:X.Y.Z` (and `:latest`), then creates a GitHub Release. The Release body is composed as: **your CHANGELOG section first**, then a collapsed `<details>` block with the auto-generated PR list, then the container image line.
-5. For pre-releases, tag `vX.Y.Z-rc1` (or similar) — the workflow auto-marks tags containing `-` as prereleases and skips `:latest`.
+```bash
+# 1. Prepare the release: bumps pyproject.toml + ui/package.json,
+#    adds a CHANGELOG.md stub, commits on `development`, opens a PR to `master`.
+scripts/release.sh 0.3.0
+
+# 2. Edit CHANGELOG.md in the PR to write the high-level release notes
+#    (this text becomes the GitHub Release body). Then merge the PR.
+
+# 3. Tag master and trigger the release workflow.
+scripts/release.sh 0.3.0 --tag
+```
+
+The release workflow (`.github/workflows/release.yml`) then builds and pushes `ghcr.io/mtotho/spindrel:0.3.0` (and `:latest`) and creates a GitHub Release. The Release body is composed as: **your CHANGELOG section first**, then a collapsed `<details>` block with the auto-generated PR list since the previous tag, then the container image line.
+
+For pre-releases, use a suffixed version like `0.3.0-rc1` — the workflow auto-marks tags containing `-` as prereleases and skips `:latest`.
 
 ### Releasing a tag that already exists
 

@@ -1727,7 +1727,7 @@ export default function ChatScreen() {
     botId: channel?.bot_id,
     pendingApprovalsSlot: channelId
       ? (liveApprovalIds: Set<string>) => (
-          <ChannelPendingApprovals channelId={channelId} liveApprovalIds={liveApprovalIds} />
+          <ChannelPendingApprovals channelId={channelId} liveApprovalIds={liveApprovalIds} chatMode={chatMode} />
         )
       : undefined,
     isLoading,

@@ -104,6 +104,22 @@ export function MachineControlWidget({
   async function handleUse(target: MachineTarget) {
     setActionError(null);
     try {
+      if (!target.ready) {
+        const result = await probeTarget.mutateAsync({
+          providerId: target.provider_id,
+          targetId: target.target_id,
+        });
+        const probed = result.target;
+        if (!probed?.ready) {
+          setActionError(
+            probed?.reason ||
+              probed?.status_label ||
+              "Target is not reachable. Check the profile credentials and host details.",
+          );
+          await refreshState();
+          return;
+        }
+      }
       await grantLease.mutateAsync({ provider_id: target.provider_id, target_id: target.target_id });
       await refreshState();
     } catch (error) {

@@ -198,6 +198,8 @@ def _metadata_for_row(
         meta = {**meta, "turn_error": True}
         if msg.get("_turn_error_message"):
             meta = {**meta, "turn_error_message": str(msg["_turn_error_message"])}
+    if msg.get("_turn_cancelled"):
+        meta = {**meta, "turn_cancelled": True}
     if msg.get("_suppress_outbox"):
         meta = {**meta, "suppress_outbox": True}
     if msg.get("_internal_kind"):

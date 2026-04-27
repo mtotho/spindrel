@@ -40,6 +40,8 @@
     "src/components/chat/slashCommands.test.ts",
     "src/components/chat/slashCommandSurfaces.ts",
     "src/components/chat/slashCommandSurfaces.test.ts",
+    "src/components/chat/chatCancelRequest.ts",
+    "src/components/chat/chatCancelRequest.test.ts",
     "src/components/chat/planControl.ts",
     "src/components/chat/planControl.test.ts",
     "src/components/chat/harnessApprovalModeControl.ts",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -40,6 +41,21 @@ class _RuntimeCapturingContext:
             final_text="done",
             metadata={"codex_dynamic_tools_signature": "next-signature"},
         )
+
+
+class _RuntimeNeverCompletes:
+    name = "claude-code"
+
+    def __init__(self) -> None:
+        self.cancelled = False
+
+    async def start_turn(self, *, ctx, prompt, emit):
+        emit.tool_start(tool_name="Bash", arguments={"cmd": "ls"})
+        try:
+            await _sleep_forever()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
 
 
 async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch):
@@ -98,6 +114,17 @@ async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch)
         "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
         _load_latest_harness_metadata,
     )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
 
     text, error = await _run_harness_turn(
         channel_id=uuid.uuid4(),
@@ -123,5 +150,99 @@ async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch)
     assert runtime.ctx.harness_metadata == latest_meta
 
 
+async def test_harness_turn_cancel_persists_interrupted_tool_transcript(monkeypatch):
+    runtime = _RuntimeNeverCompletes()
+    persisted: list[list[dict]] = []
+
+    async def _persist_turn(db, session_id, bot, messages, *args, **kwargs):
+        persisted.append(messages)
+        return None
+
+    monkeypatch.setattr(
+        "app.services.turn_worker.async_session",
+        _FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.get_runtime",
+        lambda runtime_name: runtime,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker._load_prior_harness_session_id",
+        lambda session_id: _async_value("native-before-turn"),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.persist_turn",
+        _persist_turn,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.session_locks.is_cancel_requested",
+        lambda session_id: True,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.load_session_mode",
+        lambda db, session_id: _async_value("default"),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.revoke_turn_bypass",
+        lambda turn_id: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.settings.load_session_settings",
+        lambda db, session_id: _async_value(
+            SimpleNamespace(model=None, effort=None, runtime_settings={})
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_context_hints",
+        lambda db, session_id: _async_value(()),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
+        lambda db, session_id: _async_value(({}, None)),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
+
+    text, error = await _run_harness_turn(
+        channel_id=uuid.uuid4(),
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot=SimpleNamespace(
+            id="claude-bot",
+            harness_runtime="claude-code",
+            harness_workdir="/tmp",
+            memory_scheme=None,
+        ),
+        user_message="stop this",
+        correlation_id=uuid.uuid4(),
+        msg_metadata=None,
+        pre_user_msg_id=None,
+        suppress_outbox=True,
+    )
+
+    assert text == ""
+    assert error == "cancelled"
+    assert runtime.cancelled is True
+    assert len(persisted) == 1
+    assistant = persisted[0][1]
+    assert assistant["_turn_cancelled"] is True
+    assert assistant["_harness"]["interrupted"] is True
+    assert assistant["tool_calls"][0]["function"]["name"] == "Bash"
+
+
 async def _async_value(value):
     return value
+
+
+async def _sleep_forever():
+    await asyncio.Event().wait()

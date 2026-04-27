@@ -16,11 +16,14 @@ import { useThemeTokens } from "@/src/theme/tokens";
 export function ChannelPendingApprovals({
   channelId,
   liveApprovalIds,
+  chatMode = "default",
 }: {
   channelId: string;
   liveApprovalIds: ReadonlySet<string>;
+  chatMode?: "default" | "terminal";
 }) {
   const t = useThemeTokens();
+  const isTerminalMode = chatMode === "terminal";
   const { data } = useChannelPendingApprovals(channelId);
 
   const orphans = useMemo(
@@ -31,9 +34,15 @@ export function ChannelPendingApprovals({
   if (orphans.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2 px-5 py-2">
+    <div
+      className="flex flex-col"
+      style={{
+        gap: isTerminalMode ? 6 : 8,
+        padding: isTerminalMode ? "4px 0 6px 0" : "8px 20px",
+      }}
+    >
       {orphans.map((a) => (
-        <OrphanApprovalCard key={a.id} approval={a} t={t} />
+        <OrphanApprovalCard key={a.id} approval={a} t={t} chatMode={chatMode} />
       ))}
     </div>
   );
@@ -42,12 +51,16 @@ export function ChannelPendingApprovals({
 function OrphanApprovalCard({
   approval,
   t,
+  chatMode = "default",
 }: {
   approval: ToolApproval;
   t: ReturnType<typeof useThemeTokens>;
+  chatMode?: "default" | "terminal";
 }) {
   const decide = useDecideApproval();
   const isHarness = approval.tool_type === "harness";
+  const isTerminalMode = chatMode === "terminal";
+  const terminalFont = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
   const handle = (approved: boolean, bypassRestOfTurn = false) => {
     decide.mutate({
@@ -66,20 +79,29 @@ function OrphanApprovalCard({
 
   return (
     <div
-      className="self-start max-w-full overflow-hidden rounded-md"
+      className={isTerminalMode ? "self-start max-w-full overflow-hidden" : "self-start max-w-full overflow-hidden rounded-md"}
       style={{
-        backgroundColor: t.overlayLight,
-        border: `1px solid ${t.warningBorder}`,
+        backgroundColor: isTerminalMode ? "transparent" : t.overlayLight,
+        border: isTerminalMode ? "none" : `1px solid ${t.warningBorder}`,
+        fontFamily: isTerminalMode ? terminalFont : undefined,
+        marginLeft: isTerminalMode ? 18 : undefined,
       }}
     >
-      <div className="flex flex-row items-center gap-2 px-2.5 py-1.5">
-        <ShieldAlert size={12} color={t.warning} />
+      <div
+        className="flex flex-row items-center gap-2"
+        style={{ padding: isTerminalMode ? "0 0 2px 0" : "6px 10px" }}
+      >
+        {isTerminalMode ? (
+          <span style={{ color: t.warning, fontSize: 11 }}>?</span>
+        ) : (
+          <ShieldAlert size={12} color={t.warning} />
+        )}
         <span
           className="text-xs"
           style={{
             color: t.textMuted,
             fontWeight: 400,
-            fontFamily: "'Menlo', monospace",
+            fontFamily: isTerminalMode ? terminalFont : "'Menlo', monospace",
           }}
         >
           {label}
@@ -90,23 +112,30 @@ function OrphanApprovalCard({
       </div>
       {description && (
         <div
-          className="px-2.5 pb-1.5 text-[11px] leading-[1.3]"
-          style={{ color: t.textMuted }}
+          className="text-[11px] leading-[1.3]"
+          style={{ color: t.textMuted, padding: isTerminalMode ? "0 0 2px 18px" : "0 10px 6px" }}
         >
           {description}
         </div>
       )}
       {argsPreview && (
         <pre
-          className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words px-2.5 pb-2 text-[11px]"
-          style={{ fontFamily: "'Menlo', monospace", color: t.text }}
+          className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px]"
+          style={{
+            fontFamily: isTerminalMode ? terminalFont : "'Menlo', monospace",
+            color: t.text,
+            padding: isTerminalMode ? "0 0 4px 18px" : "0 10px 8px",
+          }}
         >
           {argsPreview}
         </pre>
       )}
       <div
-        className="flex flex-row flex-wrap items-center gap-2 px-2.5 py-2"
-        style={{ borderTop: `1px solid ${t.warningBorder}` }}
+        className="flex flex-row flex-wrap items-center gap-2"
+        style={{
+          borderTop: isTerminalMode ? "none" : `1px solid ${t.warningBorder}`,
+          padding: isTerminalMode ? "0 0 0 18px" : "8px 10px",
+        }}
       >
         <span
           className="flex-1 min-w-[100px] text-[11px]"
@@ -117,12 +146,14 @@ function OrphanApprovalCard({
         <button
           disabled={decide.isPending}
           onClick={() => handle(true)}
-          className="rounded text-xs font-semibold px-3 py-1 border-0"
+          className={isTerminalMode ? "text-[11px] font-semibold px-1 py-0" : "rounded text-xs font-semibold px-3 py-1 border-0"}
           style={{
-            backgroundColor: t.success,
-            color: "#fff",
+            backgroundColor: isTerminalMode ? "transparent" : t.success,
+            color: isTerminalMode ? t.success : "#fff",
+            border: isTerminalMode ? `1px solid ${t.successBorder}` : "none",
             opacity: decide.isPending ? 0.6 : 1,
             cursor: decide.isPending ? "default" : "pointer",
+            fontFamily: isTerminalMode ? terminalFont : undefined,
           }}
         >
           Approve
@@ -131,31 +162,34 @@ function OrphanApprovalCard({
           <button
             disabled={decide.isPending}
             onClick={() => handle(true, true)}
-            className="rounded text-xs font-semibold px-3 py-1 inline-flex items-center gap-1"
+            className={isTerminalMode ? "text-[11px] font-semibold px-1 py-0 inline-flex items-center gap-1" : "rounded text-xs font-semibold px-3 py-1 inline-flex items-center gap-1"}
             style={{
               backgroundColor: "transparent",
               color: t.success,
               border: `1px solid ${t.successBorder}`,
               opacity: decide.isPending ? 0.6 : 1,
               cursor: decide.isPending ? "default" : "pointer",
+              fontFamily: isTerminalMode ? terminalFont : undefined,
             }}
             title="Approve this call AND auto-approve every remaining tool call in this turn."
           >
-            Approve all this turn
+            {isTerminalMode ? "Approve turn" : "Approve all this turn"}
           </button>
         )}
         <button
           disabled={decide.isPending}
           onClick={() => handle(false)}
-          className="rounded text-xs font-semibold px-3 py-1 border-0 inline-flex items-center gap-1"
+          className={isTerminalMode ? "text-[11px] font-semibold px-1 py-0 border-0 inline-flex items-center gap-1" : "rounded text-xs font-semibold px-3 py-1 border-0 inline-flex items-center gap-1"}
           style={{
-            backgroundColor: t.danger,
-            color: "#fff",
+            backgroundColor: isTerminalMode ? "transparent" : t.danger,
+            color: isTerminalMode ? t.danger : "#fff",
+            border: isTerminalMode ? `1px solid ${t.dangerBorder}` : "none",
             opacity: decide.isPending ? 0.6 : 1,
             cursor: decide.isPending ? "default" : "pointer",
+            fontFamily: isTerminalMode ? terminalFont : undefined,
           }}
         >
-          <XCircle size={11} />
+          {!isTerminalMode && <XCircle size={11} />}
           Deny
         </button>
       </div>

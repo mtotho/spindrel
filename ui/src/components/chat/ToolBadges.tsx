@@ -387,6 +387,7 @@ export function DefaultToolRows({
                 onApproval={onApproval}
                 decidingIds={decidingIds}
                 t={t}
+                chatMode={chatMode}
               />
             )}
 
@@ -525,20 +526,26 @@ function HarnessAwareApprovalRow({
   onApproval,
   decidingIds,
   t,
+  chatMode = "default",
 }: {
   approval: NonNullable<SharedToolTranscriptEntry["approval"]>;
   onApproval: (approvalId: string, approved: boolean, options?: { bypassRestOfTurn?: boolean }) => void;
   decidingIds?: Set<string>;
   t: ThemeTokens;
+  chatMode?: "default" | "terminal";
 }) {
   const isHarness = approval.toolType === "harness";
+  const isTerminalMode = chatMode === "terminal";
   const busy = !!decidingIds?.has(approval.approvalId);
   return (
     <div
-      className="rounded-b-lg border border-t-0 overflow-hidden"
+      className={isTerminalMode ? "overflow-hidden" : "rounded-b-lg border border-t-0 overflow-hidden"}
       style={{
-        borderColor: t.surfaceBorder,
-        backgroundColor: t.surfaceRaised,
+        borderColor: isTerminalMode ? "transparent" : t.surfaceBorder,
+        backgroundColor: isTerminalMode ? "transparent" : t.surfaceRaised,
+        marginLeft: isTerminalMode ? 18 : undefined,
+        marginTop: isTerminalMode ? 2 : undefined,
+        fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
       }}
     >
       {isHarness && approval.toolName && (
@@ -546,9 +553,15 @@ function HarnessAwareApprovalRow({
           toolName={approval.toolName}
           args={approval.arguments ?? {}}
           t={t}
+          chatMode={chatMode}
         />
       )}
-      <div className="px-3 py-2 flex items-center gap-2 flex-wrap">
+      <div
+        className="flex items-center gap-2 flex-wrap"
+        style={{
+          padding: isTerminalMode ? "2px 0 0 0" : "8px 12px",
+        }}
+      >
         <span className="text-[11px]" style={{ color: t.textMuted, flex: 1, minWidth: 120 }}>
           {approval.reason || "Tool policy requires approval before execution"}
         </span>
@@ -556,13 +569,14 @@ function HarnessAwareApprovalRow({
           type="button"
           disabled={busy}
           onClick={() => onApproval(approval.approvalId, true)}
-          className="text-[12px] font-semibold px-3 py-1 rounded"
+          className={isTerminalMode ? "text-[11px] font-semibold px-1 py-0" : "text-[12px] font-semibold px-3 py-1 rounded"}
           style={{
-            border: "none",
+            border: isTerminalMode ? `1px solid ${t.successBorder}` : "none",
             cursor: busy ? "default" : "pointer",
-            backgroundColor: t.success,
-            color: "#fff",
+            backgroundColor: isTerminalMode ? "transparent" : t.success,
+            color: isTerminalMode ? t.success : "#fff",
             opacity: busy ? 0.6 : 1,
+            fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
           }}
         >
           Approve
@@ -572,30 +586,32 @@ function HarnessAwareApprovalRow({
             type="button"
             disabled={busy}
             onClick={() => onApproval(approval.approvalId, true, { bypassRestOfTurn: true })}
-            className="text-[12px] font-semibold px-3 py-1 rounded"
+            className={isTerminalMode ? "text-[11px] font-semibold px-1 py-0" : "text-[12px] font-semibold px-3 py-1 rounded"}
             style={{
               border: `1px solid ${t.successBorder}`,
               cursor: busy ? "default" : "pointer",
               backgroundColor: "transparent",
               color: t.success,
               opacity: busy ? 0.6 : 1,
+              fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
             }}
             title="Approve this call AND auto-approve every remaining tool call in this turn. Reverts at end of turn."
           >
-            Approve all this turn
+            {isTerminalMode ? "Approve turn" : "Approve all this turn"}
           </button>
         )}
         <button
           type="button"
           disabled={busy}
           onClick={() => onApproval(approval.approvalId, false)}
-          className="text-[12px] font-semibold px-3 py-1 rounded"
+          className={isTerminalMode ? "text-[11px] font-semibold px-1 py-0" : "text-[12px] font-semibold px-3 py-1 rounded"}
           style={{
-            border: "none",
+            border: isTerminalMode ? `1px solid ${t.dangerBorder}` : "none",
             cursor: busy ? "default" : "pointer",
-            backgroundColor: t.danger,
-            color: "#fff",
+            backgroundColor: isTerminalMode ? "transparent" : t.danger,
+            color: isTerminalMode ? t.danger : "#fff",
             opacity: busy ? 0.6 : 1,
+            fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
           }}
         >
           Deny
@@ -609,11 +625,15 @@ function HarnessToolPreview({
   toolName,
   args,
   t,
+  chatMode = "default",
 }: {
   toolName: string;
   args: Record<string, unknown>;
   t: ThemeTokens;
+  chatMode?: "default" | "terminal";
 }) {
+  const isTerminalMode = chatMode === "terminal";
+  const codeFont = isTerminalMode ? TERMINAL_FONT_STACK : CODE_FONT_STACK;
   const stringArg = (key: string): string | null => {
     const v = args[key];
     return typeof v === "string" && v.trim() ? v : null;
@@ -632,7 +652,7 @@ function HarnessToolPreview({
         {cmd && (
           <pre
             className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
-            style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+            style={{ fontFamily: codeFont, color: t.text }}
           >
             {cmd.length > 800 ? `${cmd.slice(0, 800)}…` : cmd}
           </pre>
@@ -652,7 +672,7 @@ function HarnessToolPreview({
         )}
         <pre
           className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
-          style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+          style={{ fontFamily: codeFont, color: t.text }}
         >
           {oldS && (
             <span style={{ color: t.danger }}>{`- ${oldS.replace(/\n/g, "\n- ")}\n`}</span>
@@ -678,7 +698,7 @@ function HarnessToolPreview({
         )}
         <pre
           className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
-          style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+          style={{ fontFamily: codeFont, color: t.text }}
         >
           {previewLines.join("\n")}
           {truncated && <span style={{ color: t.textDim }}>{`\n… (${lines.length - 40} more lines)`}</span>}
@@ -690,7 +710,7 @@ function HarnessToolPreview({
     body = (
       <pre
         className="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
-        style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+        style={{ fontFamily: codeFont, color: t.text }}
       >
         {plan}
       </pre>
@@ -699,7 +719,7 @@ function HarnessToolPreview({
     body = (
       <pre
         className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10.5px]"
-        style={{ fontFamily: CODE_FONT_STACK, color: t.textMuted }}
+        style={{ fontFamily: codeFont, color: t.textMuted }}
       >
         {JSON.stringify(args, null, 2)}
       </pre>
@@ -707,10 +727,21 @@ function HarnessToolPreview({
   }
   return (
     <div
-      className="border-b px-3 py-2"
-      style={{ borderColor: t.surfaceBorder, backgroundColor: t.overlayLight }}
+      className={isTerminalMode ? "" : "border-b px-3 py-2"}
+      style={{
+        borderColor: isTerminalMode ? "transparent" : t.surfaceBorder,
+        backgroundColor: isTerminalMode ? "transparent" : t.overlayLight,
+        padding: isTerminalMode ? "0 0 4px 0" : undefined,
+      }}
     >
-      <div className="text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: t.textDim }}>
+      <div
+        className="text-[10px] font-medium uppercase mb-1"
+        style={{
+          color: t.textDim,
+          letterSpacing: isTerminalMode ? "normal" : undefined,
+          fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+        }}
+      >
         {toolName}
       </div>
       {body}

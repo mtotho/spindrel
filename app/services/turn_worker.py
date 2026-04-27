@@ -24,6 +24,7 @@ import copy
 import logging
 import re
 import uuid
+from contextlib import suppress
 from datetime import datetime, timezone
 
 from app.agent.bots import BotConfig, get_bot
@@ -82,6 +83,10 @@ def _build_turn_failure_message(error_text: str, partial_text: str = "") -> str:
     if partial_text.strip():
         return f"{partial_text.rstrip()}\n\n{marker}"
     return f"The turn failed before producing a response.\n\n{marker}"
+
+
+class _HarnessTurnCancelled(Exception):
+    """Raised when a harness turn sees the session cancellation flag."""
 
 
 def _parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -256,16 +261,63 @@ async def _run_harness_turn(
     runtime_accepted_turn = False
     try:
         try:
-            result = await runtime.start_turn(
+            result = await _start_harness_turn_with_cancel(
+                runtime=runtime,
                 ctx=ctx,
                 prompt=user_message,
                 emit=emitter,
+                session_id=session_id,
             )
             runtime_accepted_turn = True
         finally:
             # Per-turn bypass grants ("Approve all this turn") are scoped to
             # this turn ONLY. Always revoke — covers success, error, cancel.
             revoke_turn_bypass(turn_id)
+    except _HarnessTurnCancelled:
+        persisted_tool_calls = emitter.persisted_tool_calls()
+        assistant_turn_body = emitter.assistant_turn_body(text="")
+        cancelled_assistant_msg: dict = {
+            "role": "assistant",
+            "content": "",
+            "_turn_cancelled": True,
+            "_harness": {
+                "runtime": bot.harness_runtime,
+                "session_id": prior_session_id,
+                "interrupted": True,
+                "effective_cwd": workdir,
+                "effective_cwd_source": harness_paths.source,
+                "bot_workspace_dir": harness_paths.bot_workspace_dir,
+                "project_dir": project_directory_payload(harness_paths.project_dir),
+                "last_hints_sent": [hint_preview(hint) for hint in context_hints],
+            },
+        }
+        if persisted_tool_calls:
+            cancelled_assistant_msg["tool_calls"] = persisted_tool_calls
+            cancelled_assistant_msg["_tools_used"] = [
+                call["function"]["name"] for call in persisted_tool_calls
+            ]
+        if assistant_turn_body:
+            cancelled_assistant_msg["_assistant_turn_body"] = assistant_turn_body
+        synthetic_messages: list[dict] = [
+            {"role": "user", "content": user_message},
+            cancelled_assistant_msg,
+        ]
+        try:
+            async with async_session() as db:
+                await persist_turn(
+                    db, session_id, bot, synthetic_messages, from_index=0,
+                    correlation_id=correlation_id,
+                    msg_metadata=msg_metadata,
+                    channel_id=channel_id,
+                    pre_user_msg_id=pre_user_msg_id,
+                    suppress_outbox=suppress_outbox,
+                )
+        except Exception:
+            logger.exception(
+                "harness '%s': failed to persist cancelled row for session %s",
+                bot.harness_runtime, session_id,
+            )
+        return "", "cancelled"
     except Exception as exc:
         logger.exception(
             "harness '%s' turn %s failed for bot %s",
@@ -389,6 +441,36 @@ async def _run_harness_turn(
     # channels. See `_load_prior_harness_session_id`.
 
     return final_text, None
+
+
+async def _start_harness_turn_with_cancel(
+    *,
+    runtime,
+    ctx,
+    prompt: str,
+    emit: ChannelEventEmitter,
+    session_id: uuid.UUID,
+):
+    """Run a harness turn while honoring the shared session cancel flag."""
+    task = asyncio.create_task(
+        runtime.start_turn(ctx=ctx, prompt=prompt, emit=emit),
+        name=f"harness-turn:{session_id}",
+    )
+    try:
+        while True:
+            done, _pending = await asyncio.wait({task}, timeout=0.2)
+            if task in done:
+                return task.result()
+            if session_locks.is_cancel_requested(session_id):
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+                raise _HarnessTurnCancelled()
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 async def _load_prior_harness_session_id(session_id: uuid.UUID) -> str | None:

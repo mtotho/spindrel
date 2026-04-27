@@ -1,6 +1,11 @@
 import { useState } from "react";
 
-import { useClearSessionMachineTargetLease, useGrantSessionMachineTargetLease, useSessionMachineTarget } from "@/src/api/hooks/useMachineTargets";
+import {
+  useClearSessionMachineTargetLease,
+  useGrantSessionMachineTargetLease,
+  useProbeAnyMachineTarget,
+  useSessionMachineTarget,
+} from "@/src/api/hooks/useMachineTargets";
 
 import type { RichResultViewProps } from "../../RichToolResult";
 import {
@@ -26,14 +31,31 @@ export function MachineTargetStatusRenderer({
   const lease = state.lease ?? null;
   const grantLease = useGrantSessionMachineTargetLease(sessionId ?? "");
   const clearLease = useClearSessionMachineTargetLease(sessionId ?? "");
+  const probeTarget = useProbeAnyMachineTarget();
   const [actionError, setActionError] = useState<string | null>(null);
   const canMutate = Boolean(sessionId);
-  const busy = grantLease.isPending || clearLease.isPending;
+  const busy = grantLease.isPending || clearLease.isPending || probeTarget.isPending;
 
   async function handleUse(target: (typeof targets)[number]) {
     if (!sessionId) return;
     setActionError(null);
     try {
+      if (!target.ready) {
+        const result = await probeTarget.mutateAsync({
+          providerId: target.provider_id,
+          targetId: target.target_id,
+        });
+        const probed = result.target;
+        if (!probed?.ready) {
+          setActionError(
+            probed?.reason ||
+              probed?.status_label ||
+              "Target is not reachable. Check the profile credentials and host details.",
+          );
+          await live.refetch();
+          return;
+        }
+      }
       await grantLease.mutateAsync({ provider_id: target.provider_id, target_id: target.target_id });
       await live.refetch();
     } catch (error) {
@@ -96,11 +118,6 @@ export function MachineTargetStatusRenderer({
                 t={t}
               />
             ))}
-            {readyTargets.length > 0 && !lease ? (
-              <div style={{ marginTop: 10 }}>
-                <MachineStarterPromptButton targetLabel={readyTargets[0]?.label || readyTargets[0]?.target_id} t={t} />
-              </div>
-            ) : null}
           </div>
         )}
         {actionError ? (

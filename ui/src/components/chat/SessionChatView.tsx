@@ -122,7 +122,8 @@ export function SessionChatView({
         !meta.tool_results &&
         (!m.tool_calls || m.tool_calls.length === 0) &&
         !meta.assistant_turn_body &&
-        !meta.transcript_entries
+        !meta.transcript_entries &&
+        meta.turn_cancelled !== true
       )
         return false;
       return true;

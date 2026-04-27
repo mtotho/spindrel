@@ -89,6 +89,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [profileLabelDraft, setProfileLabelDraft] = useState("");
   const [profileConfigDraft, setProfileConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.profile_fields));
+  const [testFlash, setTestFlash] = useState<{ targetId: string; ok: boolean } | null>(null);
 
   const profiles = provider.profiles ?? [];
   const effectiveEnrollFields = useMemo<MachineControlEnrollField[]>(() => {
@@ -450,8 +451,31 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                           </>
                         )}
                         <ActionButton
-                          label="Probe"
-                          onPress={() => probe.mutate(target.target_id)}
+                          label={
+                            probe.isPending && probe.variables === target.target_id
+                              ? "Testing..."
+                              : testFlash?.targetId === target.target_id && testFlash.ok
+                                ? "✓ Connected"
+                                : "Test connection"
+                          }
+                          onPress={() =>
+                            probe
+                              .mutateAsync(target.target_id)
+                              .then((result) => {
+                                const ok = Boolean(result.target?.ready);
+                                setTestFlash({ targetId: target.target_id, ok });
+                                window.setTimeout(
+                                  () =>
+                                    setTestFlash((current) =>
+                                      current && current.targetId === target.target_id ? null : current,
+                                    ),
+                                  3000,
+                                );
+                              })
+                              .catch(() => {
+                                setTestFlash({ targetId: target.target_id, ok: false });
+                              })
+                          }
                           variant="secondary"
                           size="small"
                           disabled={pending || !provider.config_ready}

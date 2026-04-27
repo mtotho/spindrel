@@ -19,6 +19,7 @@ import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message } from "@/s
 import { useSlashCommandExecutor } from "@/src/components/chat/useSlashCommandExecutor";
 import { useThemeStore } from "@/src/stores/theme";
 import { isHarnessQuestionTransportMessage } from "@/src/components/chat/harnessQuestionMessages";
+import { buildChatCancelRequest } from "@/src/components/chat/chatCancelRequest";
 import { type MessagePage, PAGE_SIZE } from "./chatUtils";
 
 export interface UseChannelChatOptions {
@@ -371,10 +372,12 @@ export function useChannelChat({
     // Server-side cancel — releases the session lock and the turn worker
     // publishes TURN_ENDED(error="cancelled"), which useChannelEvents
     // catches and runs finishTurn for us.
-    cancelChat.mutate({
-      client_id: channel.client_id ?? "",
-      bot_id: channel.bot_id,
-    });
+    cancelChat.mutate(buildChatCancelRequest({
+      clientId: channel.client_id,
+      botId: channel.bot_id,
+      channelId,
+      sessionId: channel.active_session_id,
+    }));
     // Local fast-path cleanup so the UI flips back to idle immediately
     // even before the bus event arrives.
     syncCancelledState();
