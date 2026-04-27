@@ -8,6 +8,7 @@ import {
 import {
   formatTimeUntil,
   type UpcomingOrbitSpread,
+  type WellCenter,
   upcomingHref,
   upcomingOrbit,
   upcomingTileColor,
@@ -41,6 +42,9 @@ interface UpcomingTileProps {
   extraScale?: number;
   /** Deterministic visual fan-out for items sharing a coarse orbit cell. */
   spread?: UpcomingOrbitSpread;
+  /** Live world center of the Now Well landmark; orbits resolve relative
+   *  to this so dragging the well carries the upcoming tiles with it. */
+  well?: WellCenter;
   /** Shared spatial projection from the canvas lens pass. */
   lens?: LensTransform | null;
 }
@@ -80,17 +84,18 @@ export function UpcomingTile({
   tickedNow,
   extraScale = 1,
   spread = { index: 0, count: 1 },
+  well,
   lens = null,
 }: UpcomingTileProps) {
   const navigate = useNavigate();
 
   const { x, y, color, minutesUntil } = useMemo(() => {
-    const orbit = upcomingOrbit(item, tickedNow, spread);
+    const orbit = upcomingOrbit(item, tickedNow, spread, well);
     return {
       ...orbit,
       color: upcomingTileColor(item),
     };
-  }, [item, spread, tickedNow]);
+  }, [item, spread, tickedNow, well?.x, well?.y]);
 
   const handleClick = () => {
     const href = upcomingHref(item);

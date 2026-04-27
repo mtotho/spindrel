@@ -2776,6 +2776,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 zoom={interactiveZoom}
                 tickedNow={tickedNow}
                 spread={spread}
+                well={wellPos}
                 extraScale={lens?.sizeFactor ?? 1}
                 lens={lens}
               />
