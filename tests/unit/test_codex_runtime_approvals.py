@@ -12,7 +12,11 @@ from typing import Any
 import pytest
 
 from integrations.codex import schema
-from integrations.codex.approvals import handle_server_request, mode_to_codex_policy
+from integrations.codex.approvals import (
+    format_user_input_response_for_codex,
+    handle_server_request,
+    mode_to_codex_policy,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -245,5 +249,25 @@ async def test_user_input_request_routes_to_question_card(monkeypatch, fake_ctx)
         params={"questions": [{"id": "q1", "question": "ok?"}]},
     )
     await handle_server_request(fake_ctx, _FakeRuntime(), req, allowed_tool_names=set())
-    assert req.response is not None
-    assert "answers" in req.response
+    assert req.response == {"answers": {"q1": {"answers": ["yes"]}}}
+
+
+async def test_user_input_response_schema_supports_selection_and_text():
+    from integrations.sdk import HarnessQuestionResult
+
+    result = HarnessQuestionResult(
+        interaction_id="iid",
+        questions=[{"id": "q1", "question": "Choose"}, {"id": "q2", "question": "Why"}],
+        answers=[
+            {"question_id": "q1", "answer": "", "selected_options": ["A", "B"]},
+            {"question_id": "q2", "answer": "because", "selected_options": []},
+        ],
+        notes=None,
+    )
+
+    assert format_user_input_response_for_codex(result) == {
+        "answers": {
+            "q1": {"answers": ["A", "B"]},
+            "q2": {"answers": ["because"]},
+        }
+    }

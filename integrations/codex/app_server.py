@@ -100,8 +100,8 @@ class CodexAppServer:
         self._proc: asyncio.subprocess.Process | None = None
         self._next_id = 1
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
-        self._notifications: asyncio.Queue[Notification] = asyncio.Queue()
-        self._server_requests: asyncio.Queue[ServerRequest] = asyncio.Queue()
+        self._notifications: asyncio.Queue[Notification | None] = asyncio.Queue()
+        self._server_requests: asyncio.Queue[ServerRequest | None] = asyncio.Queue()
         self._reader_task: asyncio.Task | None = None
         self._stderr_task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
@@ -188,23 +188,27 @@ class CodexAppServer:
         await self._send({"jsonrpc": "2.0", "method": method, "params": params or {}})
 
     async def notifications(self) -> AsyncIterator[Notification]:
-        while not self._closed:
+        while True:
             try:
                 note = await self._notifications.get()
             except asyncio.CancelledError:
                 raise
+            if note is None:
+                return
             yield note
 
     async def server_requests(self) -> AsyncIterator[ServerRequest]:
-        while not self._closed:
+        while True:
             try:
                 req = await self._server_requests.get()
             except asyncio.CancelledError:
                 raise
+            if req is None:
+                return
             yield req
 
     async def _send(self, payload: dict[str, Any]) -> None:
-        if self._proc is None or self._proc.stdin is None:
+        if self._closed or self._proc is None or self._proc.stdin is None:
             raise RuntimeError("codex app-server stdin is unavailable")
         line = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
         async with self._send_lock:
@@ -230,10 +234,18 @@ class CodexAppServer:
         except Exception:
             logger.exception("codex app-server reader crashed")
         finally:
-            for future in self._pending.values():
-                if not future.done():
-                    future.set_exception(RuntimeError("codex app-server stream closed"))
-            self._pending.clear()
+            self._mark_stream_closed(RuntimeError("codex app-server stream closed"))
+
+    def _mark_stream_closed(self, exc: Exception) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(exc)
+        self._pending.clear()
+        self._notifications.put_nowait(None)
+        self._server_requests.put_nowait(None)
 
     def _dispatch(self, payload: dict[str, Any]) -> None:
         if "id" in payload and ("result" in payload or "error" in payload):
@@ -292,9 +304,15 @@ class CodexAppServer:
             raise
 
     async def close(self) -> None:
-        if self._closed:
-            return
+        already_closed = self._closed
         self._closed = True
+        if not already_closed:
+            self._notifications.put_nowait(None)
+            self._server_requests.put_nowait(None)
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(RuntimeError("codex app-server client closed"))
+        self._pending.clear()
         if self._reader_task:
             self._reader_task.cancel()
         if self._stderr_task:

@@ -397,6 +397,19 @@ Don't publish the same logical event on both the outbox and the ephemeral bus an
 
 Declaring `Capability.REACTIONS` in YAML without a `render()` branch for reaction events means those events silently disappear. A renderer unit test asserting every declared capability has a rendered case catches this.
 
+### 7. Same private helper in two integrations
+
+Copy-pasting a helper into a second `integrations/<id>/` instead of lifting it to `integrations/sdk.py`. The SDK is *the* shared boundary for cross-cutting helpers; growing a parallel `_resolve_chrome` in two integration trees is the same drift as importing `app.*` directly.
+
+**Workflow when you reach for a helper inside an integration:**
+
+1. Grep `integrations/sdk.py` first.
+2. If it's there, use it.
+3. If it isn't and the helper is plausibly cross-cutting (system binaries, URL safety, time coercion, attachment plumbing, …), add it to `integrations/sdk.py` instead of inside the integration.
+4. If it's genuinely integration-private (e.g. parsing one platform's webhook payload), keep it local.
+
+`tests/unit/test_integration_no_duplicate_helpers.py` is the gate: any private function name appearing in two distinct `integrations/<id>/` trees fails CI unless it's in the test's `ALLOWED_DUPLICATES` allowlist (with a one-line rationale). The allowlist also self-prunes — stale entries fail the companion `test_allowlist_does_not_rot`.
+
 ## System dependencies (apt packages)
 
 Integrations that need a system binary (chromium, gh, jq, ripgrep, …) declare it in their manifest:

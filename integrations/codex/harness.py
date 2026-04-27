@@ -1,13 +1,15 @@
 """Codex harness runtime.
 
 Drives the OpenAI Codex CLI via its ``codex app-server`` JSON-RPC protocol
-over stdio. Spawned per-turn — no long-lived process — because each turn
-is its own thread/turn pair on the codex side.
+over stdio. Spawned per-turn — no long-lived process — while preserving the
+Codex-native thread id for resume across Spindrel turns.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from typing import Any
@@ -25,7 +27,7 @@ from integrations.codex.approvals import (
     mode_to_codex_policy,
     mode_to_codex_turn_policy,
 )
-from integrations.codex.events import translate_notification
+from integrations.codex.events import normalize_token_usage, translate_notification
 from integrations.sdk import (
     AuthStatus,
     ChannelEventEmitter,
@@ -139,10 +141,13 @@ class CodexRuntime:
                 # Opaque per-runtime overrides (caller-owned shape).
                 params.update(dict(ctx.runtime_settings))
 
+            dynamic_tools_signature: str | None = None
+
             async def _attach(specs: tuple[HarnessToolSpec, ...]) -> list[str]:
+                nonlocal dynamic_tools_signature
                 if not _server_supports_dynamic_tools(client):
                     return []
-                params["dynamicTools"] = [
+                entries = [
                     {
                         "name": spec.name,
                         "description": spec.description or spec.name,
@@ -150,12 +155,22 @@ class CodexRuntime:
                     }
                     for spec in specs
                 ]
+                params["dynamicTools"] = entries
+                dynamic_tools_signature = _dynamic_tools_signature(entries)
                 return [spec.name for spec in specs]
 
             exported, _ignored = await apply_tool_bridge(ctx, self, attach=_attach)
             allowed_tool_names = frozenset(exported)
+            prior_dynamic_tools_signature = str(
+                ctx.harness_metadata.get("codex_dynamic_tools_signature") or ""
+            )
+            dynamic_tools_changed = (
+                bool(ctx.harness_session_id)
+                and bool(dynamic_tools_signature)
+                and dynamic_tools_signature != prior_dynamic_tools_signature
+            )
 
-            if ctx.harness_session_id:
+            if ctx.harness_session_id and not dynamic_tools_changed:
                 resume_params = {"threadId": ctx.harness_session_id}
                 if ctx.model:
                     resume_params["model"] = ctx.model
@@ -188,6 +203,9 @@ class CodexRuntime:
                     )
                     if result_meta.get("completed") or result_meta.get("is_error"):
                         return
+                if not result_meta.get("completed") and not result_meta.get("is_error"):
+                    result_meta["is_error"] = True
+                    result_meta["error"] = "codex app-server stream closed before turn completed"
 
             async def _consume_server_requests() -> None:
                 async for req in client.server_requests():
@@ -226,6 +244,12 @@ class CodexRuntime:
                 final_text=result_meta.get("final_text") or "".join(final_text_parts),
                 cost_usd=result_meta.get("total_cost_usd"),
                 usage=result_meta.get("usage"),
+                metadata={
+                    "codex_dynamic_tools_signature": dynamic_tools_signature,
+                    "codex_dynamic_tools": list(exported),
+                }
+                if dynamic_tools_signature
+                else {},
             )
 
     async def compact_session(
@@ -254,7 +278,7 @@ class CodexRuntime:
                 result_meta: dict[str, Any] = {}
                 async for note in client.notifications():
                     if note.method == schema.NOTIFICATION_TOKEN_USAGE_UPDATED:
-                        result_meta["usage"] = note.params.get("usage") or note.params
+                        result_meta["usage"] = normalize_token_usage(note.params)
                     if note.method == schema.NOTIFICATION_TURN_COMPLETED:
                         break
                     if note.method == schema.NOTIFICATION_ERROR:
@@ -341,6 +365,13 @@ def _build_thread_start_params(ctx: TurnContext) -> dict[str, Any]:
         params["model"] = ctx.model
     params.update(mode_to_codex_policy(ctx.permission_mode))
     return params
+
+
+def _dynamic_tools_signature(entries: list[dict[str, Any]]) -> str:
+    """Stable signature for Codex thread-start-scoped dynamic tools."""
+    ordered = sorted(entries, key=lambda item: str(item.get("name") or ""))
+    payload = json.dumps(ordered, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _build_turn_start_params(

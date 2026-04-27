@@ -99,7 +99,7 @@ def translate_notification(
         return
 
     if method == schema.NOTIFICATION_TOKEN_USAGE_UPDATED:
-        result_meta["usage"] = _normalize_token_usage(params)
+        result_meta["usage"] = normalize_token_usage(params)
         return
 
     if method == schema.NOTIFICATION_TURN_COMPLETED:
@@ -155,7 +155,7 @@ def _summarize_item_result(item: dict[str, Any]) -> str:
     return ""
 
 
-def _normalize_token_usage(params: dict[str, Any]) -> dict[str, Any]:
+def normalize_token_usage(params: dict[str, Any]) -> dict[str, Any]:
     """Normalize Codex camelCase token usage into Spindrel's usage shape."""
     raw = params.get("tokenUsage") or params.get("usage") or params
     if not isinstance(raw, dict):

@@ -410,10 +410,9 @@ def format_question_answer_for_runtime(
 ) -> dict[str, Any]:
     """Shape a ``HarnessQuestionResult`` into the dict a runtime feeds back.
 
-    Runtimes that issue an ``AskUserQuestion``-style request need a payload
-    that mirrors their original tool_input but with the user's answers spliced
-    in. Both Claude and Codex re-use this shape — keeping it here means the
-    runtime adapter does not own generic answer shaping.
+    Claude's ``AskUserQuestion`` path needs a payload that mirrors the
+    original tool_input with the user's answers spliced in. Runtimes with
+    different wire schemas should own their formatter in the adapter.
     """
     question_by_id = {str(q.get("id")): q for q in result.questions}
     answers_by_question: dict[str, str] = {}

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from integrations.codex import schema
 from integrations.codex.harness import (
+    _dynamic_tools_signature,
     _extract_thread_id,
     _extract_turn_id,
     _server_supports_dynamic_tools,
@@ -60,6 +61,45 @@ def test_thread_start_dynamic_tools_entry_uses_input_schema():
     assert "inputSchema" in entry
     assert "parameters" not in entry
     assert "query" in entry["inputSchema"]["properties"]
+
+
+def test_dynamic_tools_signature_changes_when_schema_changes():
+    first = _dynamic_tools_signature([
+        {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}},
+        }
+    ])
+    second = _dynamic_tools_signature([
+        {
+            "name": "search",
+            "description": "Search",
+            "inputSchema": {"type": "object", "properties": {"q": {"type": "number"}}},
+        }
+    ])
+
+    assert first != second
+    assert first == _dynamic_tools_signature([
+        {
+            "inputSchema": {"properties": {"q": {"type": "string"}}, "type": "object"},
+            "description": "Search",
+            "name": "search",
+        }
+    ])
+
+
+def test_dynamic_tools_signature_is_order_insensitive():
+    left = _dynamic_tools_signature([
+        {"name": "b", "description": "B", "inputSchema": {"type": "object"}},
+        {"name": "a", "description": "A", "inputSchema": {"type": "object"}},
+    ])
+    right = _dynamic_tools_signature([
+        {"name": "a", "description": "A", "inputSchema": {"type": "object"}},
+        {"name": "b", "description": "B", "inputSchema": {"type": "object"}},
+    ])
+
+    assert left == right
 
 
 def test_extract_thread_id_reads_nested_thread_object():

@@ -258,6 +258,7 @@ async def _run_harness_turn(
         ephemeral_tool_names=explicit_tool_names,
         tagged_skill_ids=tagged_skill_ids,
         session_plan_mode=session_plan_mode,
+        harness_metadata=harness_meta or {},
     )
 
     error_text: str | None = None
@@ -348,6 +349,7 @@ async def _run_harness_turn(
             "session_id": result.session_id,
             "cost_usd": result.cost_usd,
             "usage": result.usage,
+            **(result.metadata or {}),
         },
     }
     if persisted_tool_calls:

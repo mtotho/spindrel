@@ -101,6 +101,7 @@ class TurnResult:
     final_text: str
     cost_usd: float | None = None
     usage: dict | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -365,6 +366,10 @@ class TurnContext:
     ``permission_mode == 'plan'``: permission mode controls approval/sandbox
     posture, while session plan mode controls the planning workflow contract.
     Runtime adapters may translate this into native collaboration modes."""
+    harness_metadata: Mapping[str, Any] = field(default_factory=dict)
+    """Opaque metadata from the latest persisted harness assistant row.
+    Runtime adapters can use this to carry their own resume-adjacent state
+    without core app services knowing provider-specific keys."""
 
 
 @dataclass(frozen=True)

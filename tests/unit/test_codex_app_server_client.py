@@ -201,6 +201,33 @@ async def test_request_timeout(monkeypatch) -> None:
         await client.close()
 
 
+async def test_request_fails_when_stream_closes(monkeypatch) -> None:
+    client, fake = await _make_client(monkeypatch)
+    try:
+        request_task = asyncio.create_task(client.request("never", {}, timeout=5))
+        await asyncio.sleep(0.01)
+        fake.stdout.push_eof()
+        with pytest.raises(RuntimeError, match="stream closed"):
+            await request_task
+    finally:
+        fake._wait_event.set()
+        await client.close()
+
+
+async def test_notification_iterator_exits_on_stream_close(monkeypatch) -> None:
+    client, fake = await _make_client(monkeypatch)
+    try:
+        fake.stdout.push_eof()
+
+        async def _drain() -> list[Notification]:
+            return [note async for note in client.notifications()]
+
+        assert await asyncio.wait_for(_drain(), timeout=2) == []
+    finally:
+        fake._wait_event.set()
+        await client.close()
+
+
 async def test_binary_not_found(monkeypatch) -> None:
     monkeypatch.delenv("CODEX_BIN", raising=False)
     monkeypatch.setattr("shutil.which", lambda _: None)

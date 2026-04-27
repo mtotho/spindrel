@@ -24,7 +24,6 @@ from integrations.sdk import (
     HarnessQuestionResult,
     TurnContext,
     execute_harness_spindrel_tool,
-    format_question_answer_for_runtime,
     request_harness_approval,
     request_harness_question,
 )
@@ -158,7 +157,42 @@ async def _route_user_input(
         logger.exception("codex: user-input routing failed")
         await request.respond_error("error", str(exc))
         return
-    await request.respond(format_question_answer_for_runtime(result, request.params or {}))
+    await request.respond(format_user_input_response_for_codex(result))
+
+
+def format_user_input_response_for_codex(
+    result: HarnessQuestionResult,
+) -> dict[str, dict[str, dict[str, list[str]]]]:
+    """Return Codex's ``item/tool/requestUserInput`` response schema.
+
+    Codex keys answers by question id, and each answer value is an object with
+    an ``answers`` string array. This intentionally differs from Claude's
+    AskUserQuestion callback shape.
+    """
+    answers: dict[str, dict[str, list[str]]] = {}
+    for index, answer in enumerate(result.answers):
+        qid = str(answer.get("question_id") or answer.get("id") or "").strip()
+        if not qid:
+            qid = _fallback_question_id(result.questions, index)
+        parts: list[str] = []
+        selected = answer.get("selected_options")
+        if isinstance(selected, list):
+            parts.extend(str(item).strip() for item in selected if str(item).strip())
+        text = str(answer.get("answer") or "").strip()
+        if text:
+            parts.append(text)
+        answers[qid] = {"answers": parts}
+    return {"answers": answers}
+
+
+def _fallback_question_id(questions: list[dict[str, Any]], index: int) -> str:
+    if index < len(questions):
+        question = questions[index]
+        for key in ("id", "question_id", "key"):
+            value = question.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return f"q{index + 1}"
 
 
 async def _route_tool_call(

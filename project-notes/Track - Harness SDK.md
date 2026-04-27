@@ -195,6 +195,7 @@ Approval mapping intent (final values from schema):
 - Rechecked provider boundaries after review: core harness state reads normalized usage only and has no Codex raw-token branch.
 - Treated Codex native plan items as plan text, not fake tool results, preserving the plan fallback without polluting the tool transcript.
 - Local binary checks confirmed `account/read` and `model/list` shapes; focused Codex unit tests pass. DB-backed turn-worker harness tests skip under the local Python 3.14 harness as expected.
+- Stabilized the Codex/Claude finish-line review findings: Codex user-input now uses the app-server response schema; app-server EOF wakes consumers instead of hanging turns; Codex dynamic-tool inventory changes force a fresh native thread; compact usage reuses normalized token telemetry; generated-schema drift checks cover the fields Spindrel depends on; Claude gets the documented streaming `PreToolUse` continue hook when supported.
 
 ## Later - Skill Bridge
 

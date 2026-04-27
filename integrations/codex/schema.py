@@ -18,7 +18,11 @@ caller in one pass when the upstream renames a method or enum value.
 
 from __future__ import annotations
 
+import json
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 
 class CodexSchemaError(RuntimeError):
@@ -175,12 +179,49 @@ def dynamic_tool_text_result(text: str, *, success: bool) -> dict:
 
 
 def verify_schema_against_binary(binary_path: str) -> None:
-    """Optionally probe the installed binary for a schema-drift check.
+    """Probe the installed binary for the app-server schema fields we depend on."""
+    with tempfile.TemporaryDirectory(prefix="spindrel-codex-schema-") as tmp:
+        out = Path(tmp)
+        try:
+            subprocess.run(
+                [
+                    binary_path,
+                    "app-server",
+                    "generate-json-schema",
+                    "--experimental",
+                    "--out",
+                    str(out),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except Exception as exc:
+            raise CodexSchemaError(f"failed to generate codex app-server schema: {exc}") from exc
 
-    The codex binary exposes ``codex app-server generate-json-schema
-    --experimental`` for protocol introspection. This function is a stub
-    today; once we wire it up it should compare the returned method names
-    + enum values against the constants above and raise
-    ``CodexSchemaError`` on drift.
-    """
-    return None
+        thread_start = _load_schema(out / "v2" / "ThreadStartParams.json")
+        turn_start = _load_schema(out / "v2" / "TurnStartParams.json")
+        user_input = _load_schema(out / "ToolRequestUserInputResponse.json")
+        dynamic_tool = _load_schema(out / "DynamicToolCallResponse.json")
+        token_usage = _load_schema(out / "v2" / "ThreadTokenUsageUpdatedNotification.json")
+
+    _require_property(thread_start, "dynamicTools", "ThreadStartParams")
+    _require_property(turn_start, "collaborationMode", "TurnStartParams")
+    _require_property(user_input, "answers", "ToolRequestUserInputResponse")
+    _require_property(dynamic_tool, DYNAMIC_TOOL_RESULT_CONTENT_ITEMS, "DynamicToolCallResponse")
+    _require_property(dynamic_tool, DYNAMIC_TOOL_RESULT_SUCCESS, "DynamicToolCallResponse")
+    _require_property(token_usage, "tokenUsage", "ThreadTokenUsageUpdatedNotification")
+
+
+def _load_schema(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except Exception as exc:
+        raise CodexSchemaError(f"failed to read generated schema {path.name}: {exc}") from exc
+
+
+def _require_property(schema_doc: dict, name: str, label: str) -> None:
+    properties = schema_doc.get("properties")
+    if not isinstance(properties, dict) or name not in properties:
+        raise CodexSchemaError(f"{label} missing required property {name!r}")

@@ -213,6 +213,7 @@ class ClaudeCodeRuntime:
         if ctx.model:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
+        _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
 
         async def _attach(specs: tuple[HarnessToolSpec, ...]) -> list[str]:
@@ -298,6 +299,7 @@ class ClaudeCodeRuntime:
         if ctx.model:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
+        _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         opts = ClaudeAgentOptions(**options_kwargs)
 
         result_meta: dict[str, Any] = {}
@@ -430,6 +432,42 @@ def _permission_allow_with_updated_input(
                 "falling back to plain allow"
             )
         return allowed
+
+
+async def _pre_tool_use_continue_hook(*_args: Any, **_kwargs: Any) -> dict[str, str]:
+    """Keep Claude Python streaming permission callbacks open.
+
+    Current Claude Agent SDK docs require a PreToolUse hook that continues
+    when using ``can_use_tool`` with streaming responses.
+    """
+    return {"decision": "continue"}
+
+
+def _set_streaming_permission_hooks(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+) -> None:
+    """Add the documented PreToolUse hook when the installed SDK accepts hooks."""
+    try:
+        sig = inspect.signature(options_cls)
+    except (TypeError, ValueError):
+        return
+    has_var_kwargs = any(
+        param.kind is inspect.Parameter.VAR_KEYWORD
+        for param in sig.parameters.values()
+    )
+    if "hooks" not in sig.parameters and not has_var_kwargs:
+        logger.warning(
+            "claude-code: installed ClaudeAgentOptions exposes no hooks kwarg; "
+            "can_use_tool may not fire reliably in streaming mode"
+        )
+        return
+    hooks = dict(options_kwargs.get("hooks") or {})
+    pre_tool_hooks = list(hooks.get("PreToolUse") or [])
+    if _pre_tool_use_continue_hook not in pre_tool_hooks:
+        pre_tool_hooks.append(_pre_tool_use_continue_hook)
+    hooks["PreToolUse"] = pre_tool_hooks
+    options_kwargs["hooks"] = hooks
 
 
 def _set_effort_kwarg(
