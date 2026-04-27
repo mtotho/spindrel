@@ -194,6 +194,29 @@ def _normalize_pem_text(value: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _translate_ssh_stderr(stderr: str) -> str:
+    """Prepend a friendly hint to common SSH failure modes; otherwise return as-is."""
+    if not stderr:
+        return stderr
+    lowered = stderr.lower()
+    if "error in libcrypto" in lowered:
+        return (
+            "OpenSSH couldn't load the private key (`error in libcrypto`). "
+            "This usually means hidden line-ending damage from copy-paste, or that the host's "
+            "OpenSSL is too old for this key type. Try re-saving the profile, or generate an "
+            "RSA key as a fallback. Raw stderr:\n"
+            + stderr
+        )
+    if "permission denied" in lowered and "publickey" in lowered:
+        return (
+            "Server rejected the key (`Permission denied`). "
+            "The public counterpart of this private key is probably not in "
+            "`~/.ssh/authorized_keys` for this username on the target host. Raw stderr:\n"
+            + stderr
+        )
+    return stderr
+
+
 def _validate_ssh_private_key(value: str) -> None:
     """Reject pasted secrets that won't load. Raises ValueError with a friendly message."""
     text = _normalize_pem_text(value).strip()
@@ -695,7 +718,7 @@ class SSHMachineControlProvider:
                 "handle_id": _target_handle_id(target),
             }
 
-        reason = (result.get("stderr") or "").strip() or "SSH probe failed."
+        reason = _translate_ssh_stderr((result.get("stderr") or "").strip()) or "SSH probe failed."
         await self._update_probe_state(
             db,
             target_id=target_id,

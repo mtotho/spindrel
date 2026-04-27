@@ -101,7 +101,7 @@ async def test_ssh_update_profile_preserves_existing_secret_when_omitted(monkeyp
 
     assert payload["label"] == "Renamed"
     assert profiles[0]["config"]["private_key"] == _SAMPLE_PRIVATE_KEY
-    assert profiles[0]["config"]["known_hosts"] == "new-known-hosts"
+    assert profiles[0]["config"]["known_hosts"] == "new-known-hosts\n"
 
 
 @pytest.mark.asyncio
@@ -341,3 +341,36 @@ async def test_ssh_update_profile_validates_new_private_key(monkeypatch):
         )
     # Original key should be untouched.
     assert profiles[0]["config"]["private_key"] == _SAMPLE_PRIVATE_KEY
+
+
+@pytest.mark.asyncio
+async def test_ssh_create_profile_normalizes_crlf_and_missing_trailing_newline(monkeypatch):
+    """A pasted key with CRLF and no terminal newline must be normalized before storage.
+
+    OpenSSH's libcrypto rejects keys without an LF terminator or with CRLF
+    line endings (manifests as `error in libcrypto`); cryptography parses
+    them anyway, so the bug only surfaces when ssh actually tries to load
+    the key from disk. Normalize on save so storage is always SSH-clean.
+    """
+    saved_profiles: list[dict] = []
+
+    async def _fake_save_profiles(_db, profiles):
+        saved_profiles[:] = list(profiles)
+
+    monkeypatch.setattr(ssh_machine_control, "_save_profiles", _fake_save_profiles)
+    monkeypatch.setattr(ssh_machine_control, "_get_stored_profiles", lambda: [])
+    monkeypatch.setattr(ssh_machine_control, "get_status", lambda _id: "enabled")
+
+    pasted = _SAMPLE_PRIVATE_KEY.rstrip("\n").replace("\n", "\r\n")
+    assert "\r\n" in pasted and not pasted.endswith("\n")
+
+    provider = ssh_machine_control.SSHMachineControlProvider()
+    await provider.create_profile(
+        _FakeDb(),
+        config={"private_key": pasted, "known_hosts": "known-hosts-entry\r\n"},
+    )
+
+    stored_key = saved_profiles[0]["config"]["private_key"]
+    assert "\r" not in stored_key
+    assert stored_key.endswith("\n")
+    assert stored_key.startswith("-----BEGIN")
