@@ -2708,6 +2708,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             interactionMode={interactionMode}
             fallbackX={WELL_X}
             fallbackY={WELL_Y}
+            hitWidth={WELL_R_MAX * 2}
+            hitHeight={WELL_R_MAX * WELL_Y_SQUASH * 2}
           >
             <NowWell
               tickedNow={tickedNow}
@@ -2721,6 +2723,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             interactionMode={interactionMode}
             fallbackX={MEMORY_OBSERVATORY_X}
             fallbackY={MEMORY_OBSERVATORY_Y}
+            hitWidth={1240}
+            hitHeight={920}
             style={{ zIndex: 4 }}
           >
             <MemoryObservatory
@@ -2739,6 +2743,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             interactionMode={interactionMode}
             fallbackX={ATTENTION_HUB_X}
             fallbackY={ATTENTION_HUB_Y}
+            hitWidth={220}
+            hitHeight={220}
           >
             <AttentionHubLandmark
               activeCount={activeAttentionCount}
@@ -2755,6 +2761,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             interactionMode={interactionMode}
             fallbackX={HEALTH_SUMMARY_X}
             fallbackY={HEALTH_SUMMARY_Y}
+            hitWidth={180}
+            hitHeight={180}
           >
             <DailyHealthLandmark
               zoom={ambientZoom}

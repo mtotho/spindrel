@@ -6,10 +6,20 @@ prerequisite, and this integration spawns it as a subprocess.
 
 ## Prerequisites
 
-1. **Install the `codex` binary** on the Spindrel host (or set
-   `CODEX_BIN=/path/to/codex` if it's not on `PATH`).
-2. **Authenticate**: run `codex login` once on the Spindrel host. The
-   binary persists credentials at the standard path it controls.
+1. **Enable the integration** on `/admin/integrations`. Spindrel
+   auto-installs `@openai/codex` from npm (declared in
+   `integration.yaml`'s `dependencies.npm`) into
+   `~/.local/bin/codex`. Set `CODEX_BIN=/path/to/codex` only if the
+   binary lives somewhere else.
+2. **Authenticate** by running `codex login` once inside the Spindrel
+   container. From the Spindrel host:
+
+   ```sh
+   docker exec -it spindrel codex login
+   ```
+
+   The binary persists credentials at the standard path it controls
+   (typically under `$HOME` for the spindrel user).
 
 `auth_status()` distinguishes the two failure modes — "binary not
 installed" vs "not logged in" — so the admin UI surfaces a useful error

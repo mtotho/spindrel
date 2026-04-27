@@ -92,6 +92,36 @@ async def ensure_integration_deps() -> None:
         await _check_system_deps(integration_id, deps.get("system", []))
 
 
+async def ensure_one_integration_deps(integration_id: str) -> None:
+    """Install missing dependencies for a single integration on demand.
+
+    Called from the admin enable handler so freshly added or freshly enabled
+    integrations don't have to wait for the next process restart to get
+    their npm / pip / apt deps installed.
+    """
+    from app.services.integration_manifests import get_manifest
+    from integrations import _iter_integration_candidates
+
+    manifest = get_manifest(integration_id)
+    if not manifest:
+        return
+    deps = manifest.get("dependencies", {})
+    if not isinstance(deps, dict):
+        return
+
+    int_dir: Path | None = None
+    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+        if iid == integration_id:
+            int_dir = candidate
+            break
+    if int_dir is None:
+        return
+
+    await _check_python_deps(integration_id, deps.get("python", []), int_dir)
+    await _check_npm_deps(integration_id, deps.get("npm", []), int_dir)
+    await _check_system_deps(integration_id, deps.get("system", []))
+
+
 async def _check_python_deps(
     integration_id: str,
     py_deps: list[dict],

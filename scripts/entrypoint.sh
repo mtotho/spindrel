@@ -55,7 +55,13 @@ if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
     # /opt/spindrel-pkg layout works: binaries are NOT in /usr/bin but
     # shutil.which() still finds them, so the "is dep already installed?"
     # check in integration_deps.py skips reinstall on rebuild.
-    export PATH="/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:${PATH}"
+    # Per-user npm-global prefix. Integrations install npm CLIs with
+    # ``npm install -g --prefix=~/.local <pkg>`` (see
+    # app/services/integration_deps.py::_check_npm_deps) which lands
+    # binaries at /home/spindrel/.local/bin/. Without this on PATH,
+    # auto-installed CLI tools like codex are invisible to subprocess
+    # spawns and to interactive `docker exec` shells.
+    export PATH="/home/spindrel/.local/bin:/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:${PATH}"
     export LD_LIBRARY_PATH="/opt/spindrel-pkg/usr/lib/x86_64-linux-gnu:/opt/spindrel-pkg/usr/lib:${LD_LIBRARY_PATH:-}"
 
     run_startup_as spindrel
@@ -65,7 +71,7 @@ if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
 fi
 
 # Fallback: non-root base image or spindrel user unavailable. Run as-is.
-export PATH="/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:${PATH}"
+export PATH="${HOME:-/root}/.local/bin:/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:${PATH}"
 export LD_LIBRARY_PATH="/opt/spindrel-pkg/usr/lib/x86_64-linux-gnu:/opt/spindrel-pkg/usr/lib:${LD_LIBRARY_PATH:-}"
 run_startup_as ""
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000

@@ -4,5 +4,13 @@ icon: Terminal
 description: OpenAI Codex CLI integration — drives the codex app-server JSON-RPC protocol over stdio.
 version: "0.1"
 
+# Auto-install the codex CLI as a global npm package on enable. The
+# integration spawns ``codex app-server`` over stdio; ``CODEX_BIN`` env
+# var overrides the binary location if needed.
+dependencies:
+  npm:
+    - package: "@openai/codex"
+      binary_name: codex
+
 provides:
   - harness

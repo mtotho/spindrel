@@ -85,7 +85,12 @@ RUN mkdir -p bots skills tools
 # ownership of container-internal paths, aligns the spindrel user with
 # the host docker-socket GID, then drops privileges via gosu.
 RUN groupadd -g 1000 spindrel \
-    && useradd -u 1000 -g spindrel -m -s /bin/bash spindrel
+    && useradd -u 1000 -g spindrel -m -s /bin/bash spindrel \
+    && printf 'export PATH="$HOME/.local/bin:/opt/spindrel-pkg/usr/bin:/opt/spindrel-pkg/usr/local/bin:/opt/spindrel-pkg/usr/sbin:$PATH"\n' \
+       > /etc/profile.d/spindrel-path.sh \
+    && chmod 0644 /etc/profile.d/spindrel-path.sh \
+    && printf 'source /etc/profile.d/spindrel-path.sh\n' >> /home/spindrel/.bashrc \
+    && chown spindrel:spindrel /home/spindrel/.bashrc
 
 # Narrow sudoers rule: spindrel may run apt-get (and only apt-get) without a
 # password. Integrations declare system deps in their manifest; the server

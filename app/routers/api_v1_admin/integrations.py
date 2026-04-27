@@ -179,6 +179,18 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
             integration_id, len(removed), embed_count,
         )
     else:  # enabled
+        # Install per-integration deps (npm/pip/system) before tool loading
+        # so freshly added integrations don't need a process restart to get
+        # their CLI binaries onto PATH.
+        try:
+            from app.services.integration_deps import ensure_one_integration_deps
+
+            await ensure_one_integration_deps(integration_id)
+        except Exception:
+            logger.warning(
+                "Dependency install on enable failed for %s; tools may not load",
+                integration_id, exc_info=True,
+            )
         # Load tools and index. Process start is deferred — auto-start loop
         # handles it once is_configured becomes true. Manual start button on
         # the UI remains available.

@@ -246,8 +246,8 @@ assert.deepEqual(movedLeftLayout.panes.map((pane) => pane.id), ["channel:old", "
 assert.deepEqual(moveChannelChatPane(movedLeftLayout, "channel:old", "left").panes.map((pane) => pane.id), ["channel:old", "channel:later", "primary"]);
 
 const browseGroups = buildChannelSessionPickerGroups(catalogEntries, "");
-assert.deepEqual(browseGroups.map((group) => group.id), ["previous"]);
-assert.deepEqual(browseGroups.map((group) => group.label), ["Previous chats"]);
+assert.deepEqual(browseGroups.map((group) => group.id), ["recent"]);
+assert.deepEqual(browseGroups.map((group) => group.label), ["Recent sessions"]);
 assert.deepEqual(browseGroups[0]?.entries.map((entry) => entry.id), ["old"]);
 
 const searchGroups = buildChannelSessionPickerGroups(catalogEntries, "rollback");

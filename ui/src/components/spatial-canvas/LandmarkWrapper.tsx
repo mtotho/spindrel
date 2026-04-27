@@ -21,6 +21,14 @@ interface LandmarkWrapperProps {
    *  (matches the server-side seed defaults in `LANDMARK_DEFAULTS`). */
   fallbackX: number;
   fallbackY: number;
+  /** World-space dimensions of the landmark's visual extent. Renders as a
+   *  transparent hit overlay centered on the anchor so empty regions of
+   *  large landmarks (e.g. Memory Observatory's pointer-events-none SVG)
+   *  still receive drag activation. Without this the wrapper has no hit
+   *  area beyond its descendants' painted pixels and large landmarks are
+   *  ungrabable. Defaults to 0 (no overlay). */
+  hitWidth?: number;
+  hitHeight?: number;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
@@ -40,6 +48,8 @@ export function LandmarkWrapper({
   interactionMode,
   fallbackX,
   fallbackY,
+  hitWidth,
+  hitHeight,
   className,
   style,
   children,
@@ -158,6 +168,22 @@ export function LandmarkWrapper({
       onPointerCancel={finish}
       onClickCapture={onClickCapture}
     >
+      {hitWidth && hitHeight ? (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: -hitWidth / 2,
+            top: -hitHeight / 2,
+            width: hitWidth,
+            height: hitHeight,
+            // Behind children by DOM order — interactive descendants stay
+            // clickable; this overlay only catches empty-area pointerdowns
+            // so the wrapper's capture handler can decide "drag or pan".
+            pointerEvents: "auto",
+          }}
+        />
+      ) : null}
       {children}
     </div>
   );
