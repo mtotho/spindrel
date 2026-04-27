@@ -256,6 +256,7 @@ function renderNativeAppView({
   gridDimensions,
   layout,
   hostSurface,
+  rendererVariant,
   t,
 }: RichResultViewProps) {
   return (
@@ -267,7 +268,7 @@ function renderNativeAppView({
         channelId,
         gridDimensions,
         layout,
-        hostSurface,
+        hostSurface: hostSurface ?? (rendererVariant === "terminal-chat" ? "plain" : "surface"),
         t,
       })}
     </>
@@ -509,7 +510,7 @@ resultViews.register("core.interactive_html", { default: renderInteractiveHtmlVi
 resultViews.register("core.diff", { any: renderDiffView });
 resultViews.register("core.file_listing", { any: renderFileListingView });
 resultViews.register("core.components", { default: renderComponentsView, terminal: renderJsonView });
-resultViews.register("core.native_app", { default: renderNativeAppView });
+resultViews.register("core.native_app", { any: renderNativeAppView });
 resultViews.register("core.plan", { default: renderPlanView, terminal: renderPlanView });
 resultViews.register("core.search_results", {
   default: renderDefaultSearchResultsView,

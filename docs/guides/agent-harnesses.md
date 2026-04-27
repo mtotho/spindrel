@@ -96,6 +96,21 @@ Each runtime exposes a `RuntimeCapabilities` contract through `GET /api/v1/runti
 
 Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harness-settings`. Missing patch keys mean no change; JSON `null` clears a value.
 
+## Support levels
+
+| Surface | Current level | Notes |
+|---|---|---|
+| Native runtime tools | Supported | Claude Code owns Bash, file edits, native web/MCP, and plan-mode tools. Spindrel approval modes can gate SDK permission prompts, but execution stays native. |
+| Model picker | Supported | Runtime capability endpoint exposes curated/freeform model choices; selection is stored per Spindrel session. Claude exposes no effort knob today. |
+| Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
+| Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
+| `/compact` and `/context` | Supported | Harness-aware compact resets native resume and injects a continuity hint; context reports host-visible native state. |
+| Host context hints | Supported | Heartbeats and compact summaries queue one-shot hints for the next harness turn. |
+| Spindrel tool bridge | Experimental | Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. Calls route through Spindrel dispatch. Needs deployed SDK smoke testing. |
+| Spindrel skills | Planned | Export/sync simple skills or expose skill lookup through bridged tools/resources. No automatic sync yet. |
+| Memory system | Planned | Read-only hints first; writes should go through explicit bridged tools/policies later. |
+| Usage aggregation | Planned | Per-message cost/usage exists; `/admin/usage` aggregation is not wired yet. |
+
 ## Harness questions
 
 When a runtime asks the user for structured input (Claude Code: `AskUserQuestion`), Spindrel intercepts the SDK callback and renders a native `core/harness_question` card in the chat transcript. The card is a normal persisted assistant `Message` scoped to the current Spindrel `Session.id`; it is not tied to `channel.active_session_id` except when the current view has no explicit session and falls back to the primary session.
@@ -158,6 +173,6 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 ## What's coming
 
 - **Codex driver:** Implement Codex against the same `TurnContext`, approval, settings, and capability contracts.
-- **Native compact/status:** Add harness-aware `/compact` semantics that summarize/reset the native resume state, and expose runtime context/window status in the chat chrome when available.
-- **Tool and skill bridge:** Expose selected Spindrel tools/skills to harnesses through a bridge that preserves dispatch, policy, approval, trace, and result envelopes.
+- **Richer native context telemetry:** If a runtime exposes token-window status, surface it in the chat chrome and `/context`.
+- **Skill bridge:** Expose selected Spindrel skills through export/sync or searchable bridged tools/resources.
 - **Heartbeat/memory integration:** Add a harness heartbeat path that can inject optional context hints, then layer read-only memory hints before allowing explicit writes through bridged tools.

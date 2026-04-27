@@ -25,6 +25,7 @@ const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
   "core/context_tracker": ContextTrackerWidget,
   "core/game_blockyard": BlockyardWidget,
   "core/game_ecosystem": EcosystemSimWidget,
+  "core/game_storybook": StorybookWidget,
   "core/harness_question": HarnessQuestionWidget,
   "core/machine_control_native": MachineControlWidget,
   "core/notes_native": NotesWidget,

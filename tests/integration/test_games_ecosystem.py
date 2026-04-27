@@ -29,7 +29,7 @@ from app.services.native_app_widgets import dispatch_native_widget_action
 pytestmark = pytest.mark.asyncio
 
 
-async def _make_instance(db_session) -> WidgetInstance:
+async def _make_instance(db_session, *, with_spatial_pin: bool = False) -> WidgetInstance:
     instance = WidgetInstance(
         id=uuid.uuid4(),
         widget_kind="native_app",
@@ -40,6 +40,20 @@ async def _make_instance(db_session) -> WidgetInstance:
     )
     db_session.add(instance)
     await db_session.flush()
+    if with_spatial_pin:
+        from app.db.models import WidgetDashboardPin
+
+        pin = WidgetDashboardPin(
+            id=uuid.uuid4(),
+            dashboard_key=WORKSPACE_SPATIAL_DASHBOARD_KEY,
+            widget_instance_id=instance.id,
+            position=0,
+            source_kind="dashboard",
+            tool_name="native_app",
+            envelope={},
+        )
+        db_session.add(pin)
+        await db_session.flush()
     return instance
 
 
@@ -300,7 +314,7 @@ class TestHeartbeatBlock:
         assert block is None
 
     async def test_block_lists_pending_games(self, db_session):
-        instance = await _make_instance(db_session)
+        instance = await _make_instance(db_session, with_spatial_pin=True)
         await _act(db_session, instance, "set_participants", {"bot_ids": ["crumb"]})
         await _act(db_session, instance, "set_phase", {"phase": "playing"})
         from app.services.games.heartbeat import build_active_games_block
@@ -314,7 +328,7 @@ class TestHeartbeatBlock:
         assert "expand" in block
 
     async def test_block_omits_after_actor_moves(self, db_session):
-        instance = await _make_instance(db_session)
+        instance = await _make_instance(db_session, with_spatial_pin=True)
         await _act(db_session, instance, "set_participants", {"bot_ids": ["crumb", "zymia"]})
         await _act(db_session, instance, "set_phase", {"phase": "playing"})
         d = _valid_direction(instance.state, "crumb")
