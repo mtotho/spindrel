@@ -456,6 +456,12 @@ def _blockyard_default_state() -> dict[str, Any]:
     return default_state()
 
 
+def _storybook_default_state() -> dict[str, Any]:
+    from app.services.games.storybook import default_state
+
+    return default_state()
+
+
 _ECOSYSTEM_REASONING_FIELD = {
     "reasoning": {
         "type": "string",
@@ -740,10 +746,182 @@ _BLOCKYARD_ACTIONS = (
         ),
         args_schema={"type": "object", "properties": {}},
     ),
+    NativeWidgetActionSpec(
+        id="set_bounds",
+        description=(
+            "User-only, setup phase only: change world bounds. Each axis "
+            "must be between 4 and 64."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "z": {"type": "integer"},
+            },
+            "required": ["x", "y", "z"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_blocks_per_turn",
+        description=(
+            "User-only: how many placements each bot may make per round (1..5)."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {"count": {"type": "integer"}},
+            "required": ["count"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_directive",
+        description=(
+            "User-only: set a creative directive bots see in their heartbeat "
+            "(e.g. 'build a sea-glass cathedral'). Pass empty theme to clear."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "theme": {"type": "string"},
+                "success_criteria": {"type": "string"},
+            },
+        },
+    ),
+)
+
+
+_STORYBOOK_REASONING_FIELD = {
+    "reasoning": {
+        "type": "string",
+        "description": (
+            "One short sentence on what you're trying to do with this stanza. "
+            "Visible in the turn log."
+        ),
+    },
+}
+
+
+_STORYBOOK_ACTIONS = (
+    NativeWidgetActionSpec(
+        id="add_stanza",
+        description=(
+            "Add 1..N sentences continuing from the previous stanza. The "
+            "sentence cap per turn is configurable; honor the directive if "
+            "one is set."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                **_STORYBOOK_REASONING_FIELD,
+            },
+            "required": ["text"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_title",
+        description="User-only: set the story's title.",
+        args_schema={
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+            "required": ["title"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_genre",
+        description="User-only: set the story's genre tag.",
+        args_schema={
+            "type": "object",
+            "properties": {"genre": {"type": "string"}},
+            "required": ["genre"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_stanza_cap",
+        description="User-only: total stanzas before the game auto-ends (1..60).",
+        args_schema={
+            "type": "object",
+            "properties": {"count": {"type": "integer"}},
+            "required": ["count"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_sentence_cap",
+        description="User-only: max sentences per turn (1..6).",
+        args_schema={
+            "type": "object",
+            "properties": {"count": {"type": "integer"}},
+            "required": ["count"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_participants",
+        description="User-only: rewrite the participant bot list.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "bot_ids": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["bot_ids"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_phase",
+        description="User-only: transition between setup, playing, and ended.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "phase": {"type": "string", "enum": ["setup", "playing", "ended"]},
+            },
+            "required": ["phase"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_directive",
+        description=(
+            "User-only: set a creative directive (e.g. 'cozy mystery, ends "
+            "with a reveal'). Pass empty theme to clear."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "theme": {"type": "string"},
+                "success_criteria": {"type": "string"},
+            },
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="delete_last_stanza",
+        description="User-only: pop the last stanza off the story.",
+        args_schema={"type": "object", "properties": {}},
+    ),
+    NativeWidgetActionSpec(
+        id="advance_round",
+        description="User-only: bump the round counter (skips a stuck participant).",
+        args_schema={"type": "object", "properties": {}},
+    ),
 )
 
 
 _REGISTRY: dict[str, NativeWidgetSpec] = {
+    "core/game_storybook": NativeWidgetSpec(
+        widget_ref="core/game_storybook",
+        name="game_storybook",
+        display_label="Storybook",
+        description=(
+            "Round-robin story completer. Each turn a player adds a short "
+            "stanza continuing the previous one. Set a title, genre, and "
+            "directive to steer it. Great for chatty 1v1 with a bot."
+        ),
+        icon="book-open-text",
+        supported_scopes=("dashboard", "channel"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 5, "h": 5}, "max_cells": {"w": 12, "h": 12}},
+        default_state=_storybook_default_state(),
+        actions=_STORYBOOK_ACTIONS,
+        context_export={"enabled": False, "summary_kind": "native_state", "hint_kind": "none"},
+        panel_title="Storybook",
+        show_panel_title=True,
+    ),
     "core/game_blockyard": NativeWidgetSpec(
         widget_ref="core/game_blockyard",
         name="game_blockyard",

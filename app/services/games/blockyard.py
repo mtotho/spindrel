@@ -26,12 +26,19 @@ from app.services.games import (
     PHASE_ENDED,
     PHASE_PLAYING,
     PHASE_SETUP,
+    apply_directive,
     assert_can_act,
     assert_phase,
     assert_user_only,
-    maybe_advance_round,
+    clear_directive,
     record_turn,
     register_game,
+)
+from app.services.games.hints import (
+    bot_pacing_nudge,
+    neighborhood_snapshot,
+    notable_labels,
+    unused_block_types,
 )
 
 
@@ -39,8 +46,12 @@ WIDGET_REF = "core/game_blockyard"
 GAME_TYPE = "blockyard"
 
 DEFAULT_BOUNDS = {"x": 16, "y": 16, "z": 8}
+MIN_BOUND = 4
+MAX_BOUND = 64
 DEFAULT_BLOCKS_PER_TURN = 1
+MAX_BLOCKS_PER_TURN = 5
 LABEL_MAX_LEN = 48
+NOTABLE_LABEL_CAP = 20
 
 # Block vocabulary. Display colors are hints for the renderer; the bot
 # only ever picks by name.
@@ -104,6 +115,9 @@ def default_state() -> dict[str, Any]:
         "blocks": {},
         "players": {},
         "blocks_per_turn": DEFAULT_BLOCKS_PER_TURN,
+        "round_placements": {},
+        "round_done": [],
+        "directive": None,
         "created_at": now,
         "updated_at": now,
     }
@@ -172,6 +186,14 @@ def _action_place(state: dict[str, Any], actor: str, args: dict[str, Any]) -> di
         raise ValidationError(
             f"({x},{y},{z}) is out of bounds (0..{bx-1}, 0..{by-1}, 0..{bz-1}).",
         )
+    if actor != ACTOR_USER:
+        budget = int(state.get("blocks_per_turn") or DEFAULT_BLOCKS_PER_TURN)
+        used = int(((state.get("round_placements") or {}).get(actor) or 0))
+        if used >= budget:
+            raise ValidationError(
+                f"You have already placed {used} block(s) this round "
+                f"(blocks_per_turn={budget}); wait for next round.",
+            )
     blocks = state.setdefault("blocks", {})
     key = _key(x, y, z)
     if key in blocks:
@@ -188,6 +210,8 @@ def _action_place(state: dict[str, Any], actor: str, args: dict[str, Any]) -> di
     if actor != ACTOR_USER:
         player = _ensure_player(state, actor)
         player["block_count"] = int(player.get("block_count") or 0) + 1
+        placements = state.setdefault("round_placements", {})
+        placements[actor] = int(placements.get(actor) or 0) + 1
     summary = f"placed {block_type} at ({x},{y},{z})"
     if label:
         summary += f" — {label}"
@@ -300,6 +324,8 @@ def _action_advance_round(state: dict[str, Any], actor: str, args: dict[str, Any
     state["round"] = int(state.get("round") or 0) + 1
     state["last_actor"] = None
     state["round_started_log_index"] = len(state.get("turn_log") or []) + 1
+    state["round_placements"] = {}
+    state["round_done"] = []
     return {"ok": True, "round": state["round"]}
 
 
@@ -310,7 +336,60 @@ def _action_clear_blocks(state: dict[str, Any], actor: str, args: dict[str, Any]
     state["blocks"] = {}
     for player in (state.get("players") or {}).values():
         player["block_count"] = 0
+    state["round_placements"] = {}
     return {"ok": True, "summary": "cleared all blocks"}
+
+
+def _action_set_bounds(state: dict[str, Any], actor: str, args: dict[str, Any]) -> dict[str, Any]:
+    """User-only: change world bounds. Only allowed in setup so live builds
+    don't get half-truncated."""
+    assert_user_only(actor, "set_bounds")
+    assert_phase(state, PHASE_SETUP)
+    try:
+        bx = int(args.get("x"))
+        by = int(args.get("y"))
+        bz = int(args.get("z"))
+    except (TypeError, ValueError):
+        raise ValidationError("x, y, z must be integers.") from None
+    for axis, value in (("x", bx), ("y", by), ("z", bz)):
+        if value < MIN_BOUND or value > MAX_BOUND:
+            raise ValidationError(
+                f"bounds.{axis} must be between {MIN_BOUND} and {MAX_BOUND}, got {value}.",
+            )
+    state["bounds"] = {"x": bx, "y": by, "z": bz}
+    return {"ok": True, "bounds": state["bounds"]}
+
+
+def _action_set_blocks_per_turn(state: dict[str, Any], actor: str, args: dict[str, Any]) -> dict[str, Any]:
+    """User-only: how many placements each bot may make per round (1..5)."""
+    assert_user_only(actor, "set_blocks_per_turn")
+    try:
+        value = int(args.get("count"))
+    except (TypeError, ValueError):
+        raise ValidationError("count must be an integer.") from None
+    if value < 1 or value > MAX_BLOCKS_PER_TURN:
+        raise ValidationError(
+            f"count must be between 1 and {MAX_BLOCKS_PER_TURN}, got {value}.",
+        )
+    state["blocks_per_turn"] = value
+    return {"ok": True, "blocks_per_turn": value}
+
+
+def _action_set_directive(state: dict[str, Any], actor: str, args: dict[str, Any]) -> dict[str, Any]:
+    """User-only: set or clear the creative directive. Empty theme clears it."""
+    assert_user_only(actor, "set_directive")
+    theme = str(args.get("theme") or "").strip()
+    if not theme:
+        cleared = clear_directive(state)
+        return {"ok": True, "cleared": cleared, "directive": None}
+    criteria = args.get("success_criteria")
+    directive = apply_directive(
+        state,
+        theme=theme,
+        success_criteria=str(criteria) if criteria else None,
+        set_by=actor,
+    )
+    return {"ok": True, "directive": directive}
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +406,9 @@ _USER_ACTIONS = {
     "set_participants": _action_set_participants,
     "set_phase": _action_set_phase,
     "set_player_color": _action_set_player_color,
+    "set_bounds": _action_set_bounds,
+    "set_blocks_per_turn": _action_set_blocks_per_turn,
+    "set_directive": _action_set_directive,
     "advance_round": _action_advance_round,
     "clear_blocks": _action_clear_blocks,
     # User can also place / remove freely.
@@ -349,6 +431,8 @@ async def dispatch(
     state = copy.deepcopy(instance.state or {})
     if "blocks" not in state or "bounds" not in state:
         state = default_state()
+    state.setdefault("round_placements", {})
+    state.setdefault("blocks_per_turn", DEFAULT_BLOCKS_PER_TURN)
     args = args or {}
 
     free_handler = _FREE_ACTIONS.get(action)
@@ -364,8 +448,16 @@ async def dispatch(
         raise NotFoundError(f"Unsupported blockyard action: {action!r}")
 
     is_bot_action = actor != ACTOR_USER
+    is_place = action == "place"
     if is_bot_action:
-        assert_can_act(state, actor)
+        # Participation gate first, then budget gate via the handler itself.
+        participants = list(state.get("participants") or [])
+        if actor not in participants:
+            raise ValidationError(f"Bot {actor!r} is not a participant in this game.")
+        if not is_place:
+            # Non-place bot actions still consume the whole turn — apply the
+            # framework's "already acted" guard.
+            assert_can_act(state, actor)
 
     result = handler(state, actor, args)
     record_turn(
@@ -377,7 +469,28 @@ async def dispatch(
         summary=result.get("summary") if isinstance(result, dict) else None,
     )
     if is_bot_action:
-        maybe_advance_round(state)
+        # Round advances when every participant has finished their turn —
+        # either by exhausting their placement budget or by taking a
+        # single-turn action like `remove`. This decouples from the
+        # framework's per-action "moved" set so multi-block budgets work.
+        budget = int(state.get("blocks_per_turn") or DEFAULT_BLOCKS_PER_TURN)
+        used = int((state.get("round_placements") or {}).get(actor) or 0)
+        budget_exhausted = is_place and used >= budget
+        round_done = state.setdefault("round_done", [])
+        if (not is_place) or budget_exhausted:
+            state["last_actor"] = actor
+            if actor not in round_done:
+                round_done.append(actor)
+        else:
+            # Mid-budget — bot can still act this round.
+            state["last_actor"] = None
+        participants = list(state.get("participants") or [])
+        if participants and all(p in round_done for p in participants):
+            state["round"] = int(state.get("round") or 0) + 1
+            state["last_actor"] = None
+            state["round_started_log_index"] = len(state.get("turn_log") or [])
+            state["round_placements"] = {}
+            state["round_done"] = []
     instance.state = state
     flag_modified(instance, "state")
     await db.flush()
@@ -444,10 +557,12 @@ def summarize(state: dict[str, Any]) -> str:
     round_n = state.get("round") or 0
     last_actor = state.get("last_actor") or "—"
     bx, by, bz = _bounds(state)
+    budget = int(state.get("blocks_per_turn") or DEFAULT_BLOCKS_PER_TURN)
     parts: list[str] = [
-        "Blockyard is a collaborative voxel-building game. Each turn you place "
-        "(or break) one block on a shared 3D grid. Build whatever you like — "
-        "towers, gardens, bridges, sculptures. Coordinate or compete with the others.",
+        "Blockyard is a collaborative voxel-building game. Each round you "
+        f"may place up to {budget} block(s) on the shared 3D grid, then it's "
+        "the next bot's turn. Build whatever you like — towers, gardens, "
+        "bridges, sculptures. Coordinate or compete.",
         f"Round {round_n}, phase={phase}, last actor: {last_actor}",
         f"Bounds: {bx}×{by}×{bz}  (valid range: 0..{bx-1}, 0..{by-1}, 0..{bz-1}; "
         f"axes: +x east, +y south, +z up — z=0 is the floor).",
@@ -459,12 +574,23 @@ def summarize(state: dict[str, Any]) -> str:
     players = state.get("players") or {}
     if players:
         parts.append("Players:")
+        placements = state.get("round_placements") or {}
         for bot_id, player in players.items():
+            used = int(placements.get(bot_id) or 0)
             parts.append(
-                f"  {bot_id}: blocks={player.get('block_count', 0)}, color={player.get('color', '?')}",
+                f"  {bot_id}: blocks={player.get('block_count', 0)} "
+                f"(this round: {used}/{budget})",
+            )
+    labels = notable_labels(state.get("blocks") or {}, cap=NOTABLE_LABEL_CAP)
+    if labels:
+        parts.append("Notable labeled blocks (build on or beside these):")
+        for entry in labels[:10]:
+            parts.append(
+                f"  - \"{entry['label']}\" — {entry.get('type')} at "
+                f"({entry['x']},{entry['y']},{entry['z']}) by {entry.get('bot')}",
             )
     parts.append("Grid snapshot (sorted by z then y then x):")
-    parts.extend(_grid_snapshot(state, max_lines=40))
+    parts.extend(_grid_snapshot(state, max_lines=30))
     log = list(state.get("turn_log") or [])[-5:]
     if log:
         parts.append("Recent turns:")
@@ -476,6 +602,50 @@ def summarize(state: dict[str, Any]) -> str:
                 line += f" — {note}"
             parts.append(line)
     return "\n".join(parts)
+
+
+def _last_placement_for(state: dict[str, Any], actor: str) -> tuple[int, int, int] | None:
+    yours: list[tuple[tuple[int, int, int], str]] = []
+    for key, cell in (state.get("blocks") or {}).items():
+        if cell.get("bot") != actor:
+            continue
+        try:
+            x, y, z = _unkey(key)
+        except (ValueError, IndexError):
+            continue
+        yours.append(((x, y, z), str(cell.get("ts") or "")))
+    if not yours:
+        return None
+    yours.sort(key=lambda kv: kv[1])
+    return yours[-1][0]
+
+
+def localize(state: dict[str, Any], actor: str) -> str | None:
+    """Per-bot coaching: budget remaining, last-placement neighborhood,
+    pacing nudge, and any unused block types worth trying."""
+    if actor == ACTOR_USER or not actor:
+        return None
+    parts: list[str] = []
+    budget = int(state.get("blocks_per_turn") or DEFAULT_BLOCKS_PER_TURN)
+    used = int(((state.get("round_placements") or {}).get(actor) or 0))
+    remaining = max(0, budget - used)
+    parts.append(
+        f"This round: you have {remaining} of {budget} placement(s) left.",
+    )
+    anchor = _last_placement_for(state, actor)
+    if anchor is not None:
+        snapshot = neighborhood_snapshot(state.get("blocks") or {}, anchor, radius=2)
+        parts.append(f"Around your last placement {anchor}:")
+        parts.append(snapshot)
+    nudge = bot_pacing_nudge(state, actor)
+    if nudge:
+        parts.append(nudge)
+    unused = unused_block_types(state, actor, BLOCK_TYPES)
+    if unused and len(unused) < len(BLOCK_TYPES):
+        parts.append(
+            f"Block types you've never placed: {', '.join(unused[:5])}.",
+        )
+    return "\n".join(parts) if parts else None
 
 
 def available_actions(state: dict[str, Any], actor: str) -> list[str]:
@@ -495,4 +665,5 @@ register_game(
     dispatcher=dispatch,
     summarizer=summarize,
     available_actions=available_actions,
+    localize=localize,
 )

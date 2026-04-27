@@ -5,7 +5,8 @@ import { parsePayload, PreviewCard, type NativeAppRendererProps } from "./shared
 interface HarnessQuestion {
   id: string;
   question: string;
-  options?: string[];
+  header?: string;
+  options?: Array<string | { label?: string; value?: string; description?: string }>;
   allows_multiple?: boolean;
   allows_other?: boolean;
   required?: boolean;
@@ -31,6 +32,14 @@ function statusCopy(status: string) {
   if (status === "expired") return "Expired";
   if (status === "cancelled") return "Cancelled";
   return "Waiting for your answer";
+}
+
+function optionParts(option: string | { label?: string; value?: string; description?: string }) {
+  if (typeof option === "string") return { label: option, description: "" };
+  return {
+    label: String(option.label || option.value || "").trim(),
+    description: String(option.description || "").trim(),
+  };
 }
 
 function errorMessage(err: unknown) {
@@ -181,24 +190,33 @@ export function HarnessQuestionWidget({
       </div>
 
       {questions.map((question) => {
-        const options = Array.isArray(question.options) ? question.options : [];
+        const options = Array.isArray(question.options)
+          ? question.options.map(optionParts).filter((option) => option.label)
+          : [];
         const chosen = selected[question.id] ?? [];
         return (
           <div key={question.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
-              {question.question}
-              {question.required === false ? null : <span style={{ color: t.danger }}> *</span>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {question.header ? (
+                <div style={{ fontSize: 11, color: t.textDim, fontWeight: 650, textTransform: "uppercase" }}>
+                  {question.header}
+                </div>
+              ) : null}
+              <div style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>
+                {question.question}
+                {question.required === false ? null : <span style={{ color: t.danger }}> *</span>}
+              </div>
             </div>
             {options.length ? (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {options.map((option) => {
-                  const active = chosen.includes(option);
+                  const active = chosen.includes(option.label);
                   return (
                     <button
-                      key={option}
+                      key={option.label}
                       type="button"
                       disabled={readonly}
-                      onClick={() => toggleOption(question, option)}
+                      onClick={() => toggleOption(question, option.label)}
                       style={{
                         border: `1px solid ${active ? t.accentBorder : t.surfaceBorder}`,
                         background: active ? t.accentSubtle : t.surfaceRaised,
@@ -210,7 +228,14 @@ export function HarnessQuestionWidget({
                         opacity: readonly && !active ? 0.65 : 1,
                       }}
                     >
-                      {option}
+                      <span style={{ display: "flex", flexDirection: "column", gap: 2, textAlign: "left" }}>
+                        <span>{option.label}</span>
+                        {option.description ? (
+                          <span style={{ color: active ? t.accent : t.textDim, fontSize: 11, fontWeight: 400 }}>
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
                     </button>
                   );
                 })}

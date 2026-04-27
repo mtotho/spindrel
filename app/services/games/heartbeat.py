@@ -26,7 +26,9 @@ from app.db.models import (
 from app.services.games import (
     PHASE_PLAYING,
     available_actions_for,
+    directive_block,
     is_game_widget,
+    localize_for_actor,
     summarize_state_for_prompt,
 )
 from app.services.dashboards import WORKSPACE_SPATIAL_DASHBOARD_KEY
@@ -135,6 +137,14 @@ async def build_active_games_block(
         pin_segment = f"dashboard_pin_id={pin.id}" if pin else "dashboard_pin_id=<missing>"
         header = f"  {idx}. {spec_label.title()} {location} {pin_segment}".rstrip()
         lines.append(header)
+        directive_text = directive_block(state)
+        if directive_text:
+            for line in directive_text.splitlines():
+                lines.append(f"     {line}")
+        local_hint = localize_for_actor(widget_ref, state, bot_id)
+        if local_hint:
+            for line in local_hint.splitlines():
+                lines.append(f"     {line}")
         digest = summarize_state_for_prompt(widget_ref, state)
         for digest_line in digest.splitlines():
             lines.append(f"     {digest_line}")
@@ -150,8 +160,18 @@ async def build_active_games_block(
                 )
                 lines.append(
                     "     Pick coordinates within bounds, choose a block type from the list, "
-                    "and CALL the tool now. Build something interesting — a wall, tower, "
-                    "tree, sculpture, gateway. Use your most recent placement as the anchor.",
+                    "and CALL the tool now. Build on or beside your last placement; honor the "
+                    "directive if one is set.",
+                )
+            if "add_stanza" in actions:
+                lines.append(
+                    f'     EXAMPLE: invoke_widget_action(dashboard_pin_id="{pin_id_text}", '
+                    f'action="add_stanza", args={{"text": "Marta noticed the salt in '
+                    f'its fur looked wrong.", "reasoning": "introduce a clue"}}).',
+                )
+                lines.append(
+                    "     Continue the previous stanza — pick up its tone, advance the "
+                    "story, leave a hook for the next player. Honor the directive.",
                 )
     lines.append(
         "Take your turn now via invoke_widget_action. Do not wait, do not just describe "

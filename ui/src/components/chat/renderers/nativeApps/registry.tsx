@@ -11,6 +11,7 @@ import { PlanQuestionsWidget } from "./PlanQuestionsWidget";
 import { PinnedFilesWidget } from "./PinnedFilesWidget";
 import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
 import { StandingOrderWidget } from "./StandingOrderWidget";
+import { StorybookWidget } from "./StorybookWidget";
 import { TodoWidget } from "./TodoWidget";
 import { UpcomingActivityWidget } from "./UpcomingActivityWidget";
 import { UsageForecastWidget } from "./UsageForecastWidget";

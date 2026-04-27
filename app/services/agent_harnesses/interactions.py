@@ -70,22 +70,29 @@ def _question_text(question: dict[str, Any]) -> str:
     return "Question"
 
 
-def _question_options(question: dict[str, Any]) -> list[str]:
+def _question_options(question: dict[str, Any]) -> list[dict[str, str]]:
     raw = question.get("options")
     if raw is None:
         raw = question.get("choices")
     if not isinstance(raw, list):
         return []
-    out: list[str] = []
+    out: list[dict[str, str]] = []
     for item in raw:
         if isinstance(item, str):
             label = item.strip()
+            description = ""
         elif isinstance(item, dict):
             label = str(item.get("label") or item.get("value") or "").strip()
+            description = str(item.get("description") or item.get("help") or "").strip()
         else:
             label = ""
         if label:
-            out.append(redact(label))
+            out.append(
+                {
+                    "label": redact(label),
+                    "description": redact(description) if description else "",
+                }
+            )
     return out
 
 
@@ -102,9 +109,13 @@ def normalize_harness_questions(tool_input: dict[str, Any]) -> list[dict[str, An
             {
                 "id": _question_id(raw, index),
                 "question": _question_text(raw),
+                "header": redact(str(raw.get("header") or raw.get("title") or "").strip())
+                if raw.get("header") or raw.get("title")
+                else "",
                 "options": options,
                 "allows_multiple": bool(
                     raw.get("allows_multiple")
+                    or raw.get("multiSelect")
                     or raw.get("multiple")
                     or raw.get("multi_select")
                 ),
@@ -172,12 +183,16 @@ def _envelope(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "content_type": NATIVE_APP_CONTENT_TYPE,
         "widget_ref": HARNESS_QUESTION_WIDGET_REF,
-        "body": {"state": state},
+        "body": {
+            "widget_ref": HARNESS_QUESTION_WIDGET_REF,
+            "state": state,
+        },
         "plain_body": state.get("title") or "Harness question",
-        "display": "inline",
+        "display": "block",
         "truncated": False,
         "record_id": state.get("interaction_id"),
         "byte_size": 0,
+        "display_label": state.get("title") or "Harness question",
     }
 
 
@@ -188,6 +203,7 @@ def _metadata_for_state(state: dict[str, Any]) -> dict[str, Any]:
         "suppress_outbox": True,
         "harness_interaction": state,
         "envelope": envelope,
+        "assistant_turn_body": {"version": 1, "items": []},
     }
 
 

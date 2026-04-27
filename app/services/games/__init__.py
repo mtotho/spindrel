@@ -135,17 +135,86 @@ def maybe_advance_round(state: dict[str, Any]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Directive (creative objective / theme) helpers
+# ---------------------------------------------------------------------------
+
+
+DIRECTIVE_THEME_MAX_LEN = 240
+DIRECTIVE_CRITERIA_MAX_LEN = 240
+
+
+def apply_directive(
+    state: dict[str, Any],
+    *,
+    theme: str,
+    success_criteria: str | None = None,
+    set_by: str = ACTOR_USER,
+) -> dict[str, Any]:
+    """Set the user-authored creative directive on a game's state.
+
+    The directive is a free-text objective that surfaces in the heartbeat
+    prompt and the settings drawer. Games are expected to expose a
+    ``set_directive`` user-only action that delegates here.
+    """
+    cleaned_theme = (theme or "").strip()
+    if not cleaned_theme:
+        raise ValidationError("theme is required for set_directive")
+    if len(cleaned_theme) > DIRECTIVE_THEME_MAX_LEN:
+        raise ValidationError(
+            f"theme is too long (max {DIRECTIVE_THEME_MAX_LEN} chars)",
+        )
+    cleaned_criteria = (success_criteria or "").strip() or None
+    if cleaned_criteria and len(cleaned_criteria) > DIRECTIVE_CRITERIA_MAX_LEN:
+        raise ValidationError(
+            f"success_criteria is too long (max {DIRECTIVE_CRITERIA_MAX_LEN} chars)",
+        )
+    directive = {
+        "theme": cleaned_theme,
+        "success_criteria": cleaned_criteria,
+        "set_by": set_by,
+        "set_at": _now_iso(),
+    }
+    state["directive"] = directive
+    return directive
+
+
+def clear_directive(state: dict[str, Any]) -> bool:
+    """Remove any existing directive. Returns True if one was present."""
+    if "directive" in state:
+        state.pop("directive", None)
+        return True
+    return False
+
+
+def directive_block(state: dict[str, Any]) -> str | None:
+    """Render the directive as a one-or-two-line prompt block, or None."""
+    directive = state.get("directive")
+    if not isinstance(directive, dict):
+        return None
+    theme = str(directive.get("theme") or "").strip()
+    if not theme:
+        return None
+    line = f"Directive: {theme}"
+    criteria = directive.get("success_criteria")
+    if criteria:
+        line += f"\nSuccess: {criteria}"
+    return line
+
+
+# ---------------------------------------------------------------------------
 # Dispatch registry
 # ---------------------------------------------------------------------------
 
 
 GameDispatcher = Callable[..., Any]
 GameSummarizer = Callable[[dict[str, Any]], str]
+GameLocalizer = Callable[[dict[str, Any], str], str | None]
 
 
 _DISPATCHERS: dict[str, GameDispatcher] = {}
 _SUMMARIZERS: dict[str, GameSummarizer] = {}
 _AVAILABLE_ACTIONS: dict[str, Callable[[dict[str, Any], str], list[str]]] = {}
+_LOCALIZERS: dict[str, GameLocalizer] = {}
 
 
 def register_game(
@@ -154,11 +223,34 @@ def register_game(
     dispatcher: GameDispatcher,
     summarizer: GameSummarizer,
     available_actions: Callable[[dict[str, Any], str], list[str]] | None = None,
+    localize: GameLocalizer | None = None,
 ) -> None:
     _DISPATCHERS[widget_ref] = dispatcher
     _SUMMARIZERS[widget_ref] = summarizer
     if available_actions is not None:
         _AVAILABLE_ACTIONS[widget_ref] = available_actions
+    if localize is not None:
+        _LOCALIZERS[widget_ref] = localize
+
+
+def localize_for_actor(
+    widget_ref: str,
+    state: dict[str, Any],
+    actor: str,
+) -> str | None:
+    """Return per-bot coaching text for the heartbeat block, or None.
+
+    Each game registers an optional ``localize(state, actor)`` callback;
+    when present, the heartbeat block uses its return value to replace
+    most of the raw state dump with bot-aware hints.
+    """
+    fn = _LOCALIZERS.get(widget_ref)
+    if fn is None:
+        return None
+    try:
+        return fn(state, actor)
+    except Exception:
+        return None
 
 
 def get_dispatcher(widget_ref: str) -> GameDispatcher | None:
@@ -194,3 +286,4 @@ def is_game_widget(widget_ref: str | None) -> bool:
 # Keep imports at the bottom to avoid circular-dep issues with shared helpers.
 from app.services.games import ecosystem  # noqa: E402,F401
 from app.services.games import blockyard  # noqa: E402,F401
+from app.services.games import storybook  # noqa: E402,F401

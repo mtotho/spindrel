@@ -8,9 +8,12 @@ import {
 } from "./shared";
 import { WidgetSettingsDrawer, WidgetSettingsSection } from "./WidgetSettingsDrawer";
 import {
+  GameDirectiveSection,
   GameParticipantsSection,
   GamePhaseSection,
   GameTurnLogSection,
+  GameWorldEditableSection,
+  type GameDirective,
   type GamePhase,
 } from "./games/GameSettingsSections";
 
@@ -60,6 +63,8 @@ interface BlockyardState {
   blocks?: Record<string, BlockRecord>;
   players?: Record<string, PlayerRecord>;
   blocks_per_turn?: number;
+  round_placements?: Record<string, number>;
+  directive?: GameDirective | null;
 }
 
 const ACTOR_USER = "__user__";
@@ -758,17 +763,28 @@ export function BlockyardWidget({
           onAdvanceRound={() => void runAction("advance_round", {})}
         />
 
-        {/* Bounds + stats */}
-        <WidgetSettingsSection label="World">
-          <div className="text-[11px] text-text-dim grid grid-cols-2 gap-1">
-            <span>Bounds</span>
-            <span className="font-mono text-text">{bounds.x}×{bounds.y}×{bounds.z}</span>
-            <span>Total blocks</span>
-            <span className="font-mono text-text">{Object.keys(blocks).length}</span>
-            <span>Block types</span>
-            <span className="font-mono text-text">{BLOCK_TYPES.length}</span>
-          </div>
-        </WidgetSettingsSection>
+        <GameDirectiveSection
+          directive={state.directive ?? null}
+          busy={busy === "set_directive"}
+          placeholder="e.g. build a sea-glass cathedral, tall and translucent"
+          onSave={(theme, success_criteria) =>
+            void runAction(
+              "set_directive",
+              success_criteria ? { theme, success_criteria } : { theme },
+            )
+          }
+          onClear={() => void runAction("set_directive", { theme: "" })}
+        />
+
+        <GameWorldEditableSection
+          bounds={bounds}
+          blocksPerTurn={state.blocks_per_turn ?? 1}
+          phase={phase}
+          totalBlocks={Object.keys(blocks).length}
+          busy={busy === "set_bounds" || busy === "set_blocks_per_turn"}
+          onSetBounds={(x, y, z) => void runAction("set_bounds", { x, y, z })}
+          onSetBlocksPerTurn={(count) => void runAction("set_blocks_per_turn", { count })}
+        />
 
         {/* Player color overrides — only when there's anyone to color */}
         {participants.length > 0 && (
