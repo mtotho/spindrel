@@ -20,6 +20,7 @@ from integrations.sdk import (
     current_dispatch_type,
     get_setting,
     register_tool as register,
+    resolve_chrome,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,35 +31,7 @@ _M2E_BUNDLE = _SCRIPTS_DIR / "mermaid-to-excalidraw.bundle.js"
 _INSTALL_LOCK = asyncio.Lock()
 
 
-def _find_chrome_path() -> str | None:
-    """Find a usable Chromium/Chrome binary.
-
-    Check order: integration setting → env vars → well-known paths.
-    """
-    # 1. Integration setting (configured via admin UI)
-    try:
-        val = get_setting("excalidraw", "EXCALIDRAW_CHROME_PATH")
-        if val and shutil.which(val):
-            return val
-    except Exception:
-        pass
-
-    # 2. Environment variables
-    for env in ("CHROME_PATH", "PUPPETEER_EXECUTABLE_PATH"):
-        val = os.environ.get(env)
-        if val and shutil.which(val):
-            return val
-
-    # 3. Well-known paths
-    for candidate in (
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/google-chrome",
-    ):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-    return None
+_CHROME_SETTING = ("excalidraw", "EXCALIDRAW_CHROME_PATH")
 
 
 async def _ensure_deps() -> str | None:
@@ -119,7 +92,7 @@ async def _export_scene(scene: dict, output_path: Path) -> str | None:
     if err:
         return err
 
-    chrome = _find_chrome_path()
+    chrome = await _resolve_chrome()
     if not chrome:
         return (
             "No Chrome/Chromium found. Install chromium or google-chrome, "
@@ -480,7 +453,7 @@ async def mermaid_to_excalidraw(
         mmd_path.write_text(mermaid, encoding="utf-8")
 
         # Step 1: Mermaid → Excalidraw JSON (uses Puppeteer + headless Chrome)
-        chrome = _find_chrome_path()
+        chrome = await _resolve_chrome()
         if not chrome:
             return json.dumps({
                 "error": (

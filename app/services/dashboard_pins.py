@@ -23,6 +23,7 @@ from app.services.native_app_widgets import (
     extract_native_widget_ref_from_envelope,
     get_or_create_native_widget_instance,
 )
+from app.services.pin_contract import compute_pin_source_stamp
 from app.services.widget_contracts import build_pin_contract_metadata, build_public_fields_for_pin
 from app.services.widget_layout import (
     VALID_ZONES,
@@ -477,6 +478,15 @@ async def create_pin(
         widget_contract_snapshot=contract_meta["widget_contract_snapshot"],
         config_schema_snapshot=contract_meta["config_schema_snapshot"],
         widget_presentation_snapshot=contract_meta["widget_presentation_snapshot"],
+        # Phase 1 stamp populate: legacy build_pin_contract_metadata above
+        # writes the snapshot fields; the new resolver chain produces just
+        # the stamp. Phase 3 will collapse both paths through compute_pin_metadata.
+        source_stamp=compute_pin_source_stamp(
+            tool_name=tool_name,
+            envelope=envelope,
+            source_bot_id=resolved_bot_id,
+            caller_origin=widget_origin,
+        ),
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
         grid_layout=(
@@ -771,6 +781,14 @@ async def update_pin_envelope(
     pin.display_label = envelope.get("display_label") or pin.display_label
     flag_modified(pin, "envelope")
     _refresh_pin_contract_metadata(pin)
+    pin.source_stamp = compute_pin_source_stamp(
+        tool_name=pin.tool_name,
+        envelope=envelope,
+        source_bot_id=pin.source_bot_id,
+        caller_origin=pin.widget_origin
+        if pin.provenance_confidence == "authoritative"
+        else None,
+    )
     await db.commit()
     await db.refresh(pin)
 
@@ -851,6 +869,14 @@ async def update_pin_scope(
     pin.envelope = envelope
     flag_modified(pin, "envelope")
     _refresh_pin_contract_metadata(pin)
+    pin.source_stamp = compute_pin_source_stamp(
+        tool_name=pin.tool_name,
+        envelope=envelope,
+        source_bot_id=pin.source_bot_id,
+        caller_origin=pin.widget_origin
+        if pin.provenance_confidence == "authoritative"
+        else None,
+    )
 
     await db.commit()
     await db.refresh(pin)

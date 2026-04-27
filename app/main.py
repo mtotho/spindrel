@@ -373,6 +373,12 @@ async def lifespan(application: FastAPI):
     await seed_widget_packages()
     from app.services.widget_templates import load_widget_templates_from_db
     await load_widget_templates_from_db()
+    # Wire pin contract resolver dependencies once registries are populated.
+    # The package falls back to lazy auto-wiring when imported before this
+    # call (e.g. by tests bypassing the lifespan), so this is just for
+    # explicit ordering + observability.
+    from app.services.pin_contract import wire_pin_contract
+    wire_pin_contract()
     logger.info("Auto-installing missing integration dependencies...")
     from app.services.integration_deps import ensure_integration_deps
     await ensure_integration_deps()

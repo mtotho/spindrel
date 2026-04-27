@@ -428,3 +428,97 @@ def make_settings(integration_id: str, keys: dict[str, str]) -> type:
         attrs[key] = _make_prop(key, default)
 
     return type("_Settings", (), attrs)
+
+
+# ---------------------------------------------------------------------------
+# System-binary helpers
+# ---------------------------------------------------------------------------
+
+_CHROME_NAMES = ("chromium", "chromium-browser", "google-chrome-stable", "google-chrome")
+_CHROME_FALLBACK_PATHS = (
+    "/opt/spindrel-pkg/usr/bin/chromium",
+    "/opt/spindrel-pkg/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+)
+
+
+def find_chrome_path(setting: tuple[str, str] | None = None) -> str | None:
+    """Locate a usable Chromium/Chrome binary.
+
+    Resolution order: optional integration setting → ``CHROME_PATH`` /
+    ``PUPPETEER_EXECUTABLE_PATH`` env vars → ``shutil.which()`` for
+    chromium/chrome variants → hardcoded fallback paths (including the
+    persistent ``/opt/spindrel-pkg/usr/bin/`` prefix used by
+    ``app/services/integration_deps.install_system_package``).
+
+    The PATH lookup is the load-bearing step in production: apt
+    packages installed at runtime live in ``/opt/spindrel-pkg`` rather
+    than ``/usr/bin``, and the entrypoint already prepends that to
+    PATH.
+
+    Args:
+        setting: Optional ``(integration_id, key)`` to consult first.
+    """
+    import os as _os
+    import shutil as _shutil
+
+    if setting:
+        try:
+            val = get_setting(setting[0], setting[1])
+            if val and _shutil.which(val):
+                return val
+        except Exception:
+            pass
+
+    for env in ("CHROME_PATH", "PUPPETEER_EXECUTABLE_PATH"):
+        val = _os.environ.get(env)
+        if val and _shutil.which(val):
+            return val
+
+    for name in _CHROME_NAMES:
+        found = _shutil.which(name)
+        if found:
+            return found
+
+    for candidate in _CHROME_FALLBACK_PATHS:
+        if _os.path.isfile(candidate) and _os.access(candidate, _os.X_OK):
+            return candidate
+
+    return None
+
+
+async def resolve_chrome(setting: tuple[str, str] | None = None) -> str | None:
+    """Find chromium, triggering a one-time auto-install if missing.
+
+    Wraps :func:`find_chrome_path` and, on a miss, calls
+    :func:`app.services.integration_deps.install_system_package` for
+    ``chromium``. The install is the same one the admin "Install"
+    button runs and is idempotent — subsequent calls short-circuit.
+
+    Use this from any tool that needs chromium at call time. The
+    integration's ``integration.yaml`` should still declare chromium
+    in ``dependencies.system`` so first-boot enrollment also installs
+    it.
+    """
+    chrome = find_chrome_path(setting)
+    if chrome:
+        return chrome
+
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    try:
+        from app.services.integration_deps import install_system_package
+    except Exception:
+        _logger.exception("install_system_package import failed for chromium auto-install")
+        return None
+
+    try:
+        if await install_system_package("chromium"):
+            return find_chrome_path(setting)
+    except Exception:
+        _logger.exception("Auto-install of chromium failed")
+    return None

@@ -2100,6 +2100,7 @@ class WidgetDashboardPin(Base):
     widget_contract_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     config_schema_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     widget_presentation_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    source_stamp: Mapped[str | None] = mapped_column(Text, nullable=True)
     envelope: Mapped[dict] = mapped_column(JSONB, nullable=False)
     display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     grid_layout: Mapped[dict] = mapped_column(
