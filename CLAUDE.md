@@ -2,7 +2,7 @@
 
 ## Entry Point
 
-For repo-wide work, start with this file, then open [`docs/guides/index.md`](docs/guides/index.md) and the matching canonical guide for the area you are touching.
+For repo-wide work: start with this file, then open [`docs/guides/index.md`](docs/guides/index.md) and the matching canonical guide for the area you're touching. For project state (active tracks, bugs, decisions), see the project's `INDEX.md` and `AGENTS.md` in the workspace's vault.
 
 Keep public, reusable process in `docs/guides/`. Local workspace state and private session workflow belong in workspace-level agent instructions, not in this public repo file.
 

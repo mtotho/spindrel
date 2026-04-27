@@ -1,20 +1,20 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-26 (public-release docs audit + harness positioning)
+updated: 2026-04-27
 ---
 # Agent Server — Roadmap
 
-The canonical view of where the project stands. For *why* → [[Architecture Decisions]]. For *how* → [[Architecture]], `agent-server/docs/guides/context-management.md`, and `agent-server/docs/guides/discovery-and-enrollment.md`. For bugs → [[Loose Ends]].
+Where the project stands. **Read [[INDEX]] first** for navigation. For *why* → [[Architecture Decisions]]. For *how* → [[Architecture]] + `agent-server/docs/guides/`. For bugs → [[Loose Ends]].
 
 ## Product Identity
 **"Best self-hosted personal AI agent."** Target: runs Ollama/local models, wants more than chat, values self-hosting. Auto-discovery is the killer feature — bots need only `model` + `system_prompt`.
 
 ## Current Phase: Active Product Buildout
-Feature work, structural cleanup, and bug fixing are all in scope. Keep new mechanisms deep and documented; avoid parallel process docs and update the owning track when shipping cross-cutting work.
+Feature work, structural cleanup, and bug fixing all in scope. Keep new mechanisms deep and documented; update the owning track when shipping cross-cutting work.
 
 ## Completed (monitor only)
-Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-authored skills can now carry named stored scripts, so reusable tool workflows can be saved with `manage_bot_skill` and executed later by reference.
+Full detail in [[Completed Tracks]].
 
 | Area | One-line |
 |---|---|
@@ -23,176 +23,68 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 | Workflows | **DEPRECATED** — superseded by task pipelines. UI hidden, backend dormant. See [[Track - Automations]] |
 | Memory hygiene | Two job types (Maintenance + Skill Review), cross-channel curation, 80+ tests |
 | Multi-bot channels | Unified `prepare_bot_context()` pipeline, identity/routing fixes |
-| Skill simplification | All 7 phases done. Per-bot working set, auto-inject, enrolled ranking. See [[Track - Skill Simplification]] |
-| Sub-agent system | Experimental readonly sidecars only; prompt nudges removed, policy enforced, traceable child runs |
-| Declarative integrations | YAML-only, bundled MCP, visual/YAML editor, per-channel scoping |
-| Web-native Phase 2 | Metro→Vite, expo-router→react-router v7, all RN→HTML. Zero TS errors |
-| Integration delivery | Bus + outbox + renderer abstraction. POST /chat → 202. See [[Track - Integration Delivery]] |
+| Skill simplification | All 7 phases done. See [[Track - Skill Simplification]] |
+| Sub-agent system | Experimental readonly sidecars only |
+| Declarative integrations | YAML-only, bundled MCP, visual/YAML editor |
+| Web-native Phase 2 | Metro→Vite, expo-router→react-router v7, all RN→HTML |
+| Integration delivery | Bus + outbox + renderer abstraction. See [[Track - Integration Delivery]] |
 | Workspace container collapse | Subprocess-based `exec_tool`, container lifecycle deleted (2026-04-14) |
 | Workspace singleton | Single workspace, bootstrap-owned membership (2026-04-10) |
-| User Management | Admin-vs-user experience locked down across 8 phases. See [[Completed Tracks#User Management]] and [[Track - User Management]] |
+| User Management | Admin-vs-user experience locked down (8 phases). See [[Track - User Management]] |
+| Web-Native Phase 3 | Tailwind cleanup, sidebar redesigned, `PageHeader` unified, column-reverse hack removed |
+| Chat State Rehydration | Channel-scoped `/approvals`, ToolCall upsert, `GET /channels/{id}/state` snapshot. See [[Track - Chat State Rehydration]] |
+| Knowledge Base convention | Auto `knowledge-base/` per channel & bot; two narrow search tools. See [[Track - Indexing & Search]] |
+| Context Estimation | Single tokenizer (`app/agent/tokenization.py`); real API `prompt_tokens` in header |
+| Temporal Context | `app/services/temporal_context.py` plain-English block; 35 tests |
 
 ## Active
 
-### System Health Visibility — shipped 2026-04-26
-Server-error visibility for unstructured stderr that escapes the structured trace bus. Three layers: (1) durable rotating JSONL log handler in `app/main.py` writing to a new `spindrel-logs:/var/log/spindrel` named volume; (2) `read_container_logs` / `get_recent_server_errors` / `get_latest_health_summary` tools behind a new `system_diagnostics` skill; (3) deterministic non-LLM `generate_daily_summary` (in `app/services/system_health_summary.py`) wired into `task_worker`, persisting `SystemHealthSummary` rows + a single rollup `WorkspaceAttentionItem` per day. New canvas landmark `DailyHealthLandmark` shows Pending / Clean / N errors next to the Attention Hub; clicking opens a server-truth `SummaryPanel`. Shares `_error_signature` with the 60s structured detector so dedupe keys align across paths. 20 unit tests across parser + log-file + generator. See [[Architecture Decisions#Daily server-error rollup is server-generated, not LLM-generated]].
-
-### Harness SDK (2026-04-27)
-External agent harnesses are now a real runtime lane rather than a one-off Claude Code bridge. **Phase 3 (harness approvals), Phase 4 (runtime controls/settings/slash UX), Phase 5 (native-feel foundation), and Phase 6 v1 (Codex runtime via `codex app-server`) are all shipped.** Remaining work is verification and polish: deployed-runtime smoke checks, richer telemetry, skill bridge, and usage/observability follow-through. See [[Track - Harness SDK]].
-
-### Notifications (2026-04-26)
-Core reusable notification targets shipped: `user_push`, `channel`, `integration_binding`, and `group`, with delivery audit history, admin UI, bot-granted `list_notification_targets` / `send_notification` tools, and Usage Alerts migrated to shared `target_ids` with lazy legacy-target migration. V1 intentionally reuses PWA push, channel outbox, and integration renderers rather than introducing a parallel delivery stack. See [[Track - Notifications]].
-
-### Spatial Canvas (2026-04-26)
-Workspace-scope infinite plane replacing `HomeGrid` on desktop. Channels auto-populate as draggable tiles seeded by phyllotaxis; widgets are opt-in via "Pin to workspace canvas"; participating bots auto-seed as larger emoji actor nodes with channel-scoped spatial policy, heartbeat-owned canned spatial prompting, awareness context, bounded movement, nearby inspect, auditable object tugs, bot-owned spatial widget tools, and opt-in Attention Beacons. Attention Items are persisted domain state rendered as canvas beacons: bot warnings attach to existing canvas targets; structured system failures surface as admin-only asteroid markers with trace evidence. Double-click a channel tile → animated zoom-dive (~300ms) to its existing dashboard; clicking a bot opens a docked chat. `Ctrl+Shift+Space` toggles canvas as an overlay from any route (swaps main content; sidebar stays; contextual camera). `workspace_spatial_nodes` is the single source of truth for world positions; fixed system landmarks like Now Well and Memory Observatory sit outside that draggable-node table. Memory Observatory renders `/admin/learning#Memory` activity as active bot lanes, hot memory-file bodies, recent write sparks, deterministic triage findings, memory search, and source inspection. Custom DOM + CSS transforms + dnd-kit drag for ordinary nodes; bots use pointer-to-world dragging to avoid zoom drift. Edges, activity pulses, Gossamer HUD, minimap, embedded-live-channel-at-max-zoom all stacked as Phase 2+. Mobile keeps `HomeChannelsList`. See [[Track - Spatial Canvas]]. Prototype: `scratch/alt-ui-prototypes/spatial-canvas.html`.
-
-### Integration Contract + Canonical Guide (2026-04-23)
-New north-star guide at `docs/guides/integrations.md` (mirroring `widget-system.md`'s authority model), a central canonical-guides index at `docs/guides/index.md`, retirement of the legacy `chat_hud` / `chat_hud_presets` surface in favor of dashboard widgets, `binding.suggestions_endpoint` shape standardization, three `integration_id == "x"` boundary fixes in `app/` via a new hook registry, and a pytest drift gate. See [[Track - Integration Contract]]. Plan: `~/.claude/plans/so-currently-our-wiggly-teapot.md`.
-
-### Integration Rich Results (2026-04-24)
-Slack-led v1 for declared rich tool-result rendering: `rich_tool_results` capability, manifest `tool_result_rendering` support matrix, SDK portable-card boundary, Slack read-only Block Kit adapter, Slack approval presenter split, shared Slack/Discord depth contract tests, and Slack transport/streaming/`NEW_MESSAGE`/approval/ephemeral delivery deepening. Also adds an SDK-only integration import allowlist gate for future cleanup. See [[Track - Integration Rich Results]].
-
-### `browser_live` integration — v0.1 shipped 2026-04-19
-MV3 Chrome-extension bridge drives the user's real logged-in session. Five tools: `browser_goto/act/eval/screenshot/status`. Pairing via a single `BROWSER_LIVE_PAIRING_TOKEN` admin setting. See `integrations/browser_live/README.md`.
-
-### Local machine control — guided companion polish shipped 2026-04-25
-Machine control is a core subsystem with pluggable providers, probe-based readiness, provider-scoped profiles, and session-scoped leases over `(provider_id, target_id)`. `local_companion` now has recoverable launcher/service commands plus reconnecting Linux user-service install; SSH targets bind to explicit profiles. Shared broker, `browser_live` lease convergence, cross-platform companion packaging, and richer capabilities remain. See [[Track - Local Machine Control]].
-
-### Image Generation Canonical Overhaul — shipped 2026-04-24
-`generate_image` is now first-class for any bot — no dedicated image-bot delegation needed. Migration 246 adds `provider_models.supports_image_generation` (backfilled for gpt-image / dall-e / gemini-*-image / imagen families). `app/tools/local/image.py` retired the string-sniffer routing in favor of `_image_family(model, provider_id)` (returns `openai` / `openai-subscription` / `gemini`); dropped legacy `source_image_b64`; added `size` / `aspect_ratio` / `seed` parameters. **Real Gemini multimodal edit** via `chat.completions.create(modalities=["text","image"])` replaces the prior description-fallback. **`OpenAIResponsesAdapter._Images`** namespace lights up the openai-subscription path via the Responses API built-in `image_generation` tool. Settings panel filters the model dropdown to flagged models only; admin model rows expose an image-gen checkbox + badge. Skill rewritten; `docs/guides/providers.md` updated. 38 unit tests across `test_image_tool.py` / `test_openai_responses_images.py` / `test_image_capability_flag.py`. Plan: `~/.claude/plans/functional-jingling-aurora.md`. Session log: `Sessions/agent-server/2026-04-24-39-image-generation-overhaul.md`.
-
-### Provider Refactor — Phases 5 + 6 shipped 2026-04-24
-Phase 1 shipped: unified reasoning/effort knob + `/effort <off|low|medium|high>`, single slash-command registry source of truth, canonical `docs/guides/providers.md`, silent Codex `reasoning_effort` drop fixed. Phase 2 shipped: `ProviderModel.supports_reasoning` column (migration 242 + known-family backfill), bot editor UI gates the reasoning control per model, `/effort` rejects with a helpful toast on non-reasoning bots, admin models form exposes the flag. **Phase 5 (2026-04-24)** added capability metadata + foot-gun fixes: `context_window` / `max_output_tokens` split, `supports_prompt_caching` + `supports_structured_output` + `cached_input_cost_per_1m` columns (migration 245 + backfill), per-provider `extra_headers` JSON (OpenRouter / OpenAI org / anthropic-beta), per-model `extra_body` JSON (Ollama `num_ctx` foot-gun), `Retry-After` honoring in the rate-limit retry path, `prompt_cache.py` consults the DB column instead of sniffing `"claude" in model_id.lower()`, `/admin/usage` cached pricing math stops overstating Anthropic ~10× while cache is active. 31 tests. **Phase 6 (2026-04-24)** added catalog auto-refresh + Provider Health: daily `asyncio.create_task` loop walks enabled providers, records `last_refresh_ts` / `last_refresh_error`, `POST /providers/{id}/refresh-now` endpoint + success-test-triggered refresh, `GET /usage/provider-health` aggregator (p50/p95 latency, cache-hit, circuit-breaker cooldown), new `/admin/usage` → Providers tab. Phases 3–4 (adapter dedup, prompt-dialect polish) still queued. See [[Track - Provider Refactor]].
-
-### Provider-dialect prompt templating — v1 shipped 2026-04-19
-`prompt_style` capability flag on `ProviderModel` (markdown/xml/structured). Framework prompts use `{% section %}` markers rewritten per model. **Open question**: does XML wrapping on Anthropic move any metric? No eval data yet — hook into [[Track - Experiments]]. Plan: `~/.claude/plans/swirling-plotting-biscuit.md`.
-
-### Programmatic Tool Calling — run_script + returns-schema lint-pin (2026-04-19)
-`run_script` collapses 10–50 LLM-driven dispatches into one Python script; output-schema discoverability via `register(returns=...)` + `list_tool_signatures`. Tiers 1–4 backfilled (45+ tools); 5 complex local tools remain in `_PENDING_BACKFILL`. Lint pin in `tests/unit/test_tool_returns_schema_coverage.py`.
-
-### Knowledge Base convention — shipped 2026-04-19 (session 22)
-Every channel and bot gets an auto-created `knowledge-base/` folder, auto-indexed + auto-retrieved. Two narrow search tools: `search_channel_knowledge(query)` and `search_bot_knowledge(query)`. Replaces the 4-knob segment mudball. See [[Track - Indexing & Search]] Phase 4 + [[Architecture Decisions#Knowledge-base convention replaces manual segment UI as the default]].
-
-### Docs Refresh — public-release audit pass 2026-04-26
-README/docs index now surface status pages, security, local machine control, admin terminal, and external-agent harnesses. Harness docs now position Claude Code as the proven path and Codex v1 as newly shipped but still untested/live-validation territory. Setup/security/execution/status docs received release-readiness corrections. Remaining: screenshot hero gate, workflow deprecation/product-surface mismatch, and MkDocs build verification. See [[Track - Docs Refresh]].
-
-### ChatGPT Subscription OAuth Provider — shipped 2026-04-19
-New `openai-subscription` provider type authenticates against OpenAI's Codex Responses API with a ChatGPT OAuth Bearer token (no API key). Device-code flow + `OpenAIResponsesAdapter` + allowlisted model autoseed. See [[Architecture Decisions#ChatGPT Subscription OAuth — Codex Device-Code Flow, Responses-API-Only]].
-
-### ~~Chat State Rehydration~~ — shipped 2026-04-18
-All 3 phases shipped same day (channel-scoped `/approvals`, at-start ToolCall upsert, `GET /channels/{id}/state` snapshot + `useChannelState` hook). See [[Track - Chat State Rehydration]], [[Completed Tracks]].
-
-### Context Estimation Consolidation — shipped 2026-04-21
-One tokenizer (`app/agent/tokenization.py`): Anthropic hits native `messages.count_tokens`, others go through `tiktoken`, unknowns fall back to chars/3.5. Header shows real API `prompt_tokens` (`source: "api"`) with pre-call estimate fallback; `compute_context_breakdown` gained `mode: "last_turn" | "next_turn"`. Plan: `~/.claude/plans/sleepy-puzzling-island.md`.
-
-### Sub-session polish — Phase 8 + Phase 9 shipped 2026-04-21
-Phase 8 closed visibility/mobile/cross-device scratch gaps; Phase 9 made scratch sessions first-class (titles, summaries, rename/promote endpoints, bootstrap summary, per-session history reads). See [[Track - Task Sub-Sessions#Phase 8]] and [[Track - Task Sub-Sessions#Phase 9]].
-
-### Slack thread_ts mirroring + thread UX polish — shipped 2026-04-20 (Track Phase 7)
-Threads are one bidirectional conversation across web and Slack via integration-generic `IntegrationMeta` thread-ref hooks + migration 230's `sessions.integration_thread_refs`. `ThreadParentAnchor` + lazy-spawn on first send. See [[Track - Task Sub-Sessions#Phase 7]].
-
-### Threads + in-channel scratch chat — shipped 2026-04-20 (Track Phase 6)
-Reply-in-thread forks a sub-session anchored at a Message; Scratch chat FAB mounts an ephemeral dock with zero main-feed footprint. Both ride the existing `ChatSession` primitive. See [[Track - Task Sub-Sessions#Phase 6]].
-
-### Task Sub-Sessions — pipeline-as-chat refactor (2026-04-18)
-Pipeline runs render as a chat-native sub-session (pre-run modal → live transcript → compact anchor card). Phase 0 backend + Phase 1 UI + bus bridge shipped. **Phase 3 (interactive push-back: composer + backend pause/resume) + extensible `<EphemeralSession>` primitive** remain separate plans. See [[Track - Task Sub-Sessions]].
-
-### Bot Audit Pipelines (2026-04-18, demoted 2026-04-20)
-Five orchestrator audit pipelines exist; only `analyze_discovery` stays featured. The broader "one pipeline per knob" surface produced noise; configurator skill + `propose_config_change` replaces ambient config-fix. See [[Track - Automations]].
-
-### Configurator skill + `propose_config_change` (2026-04-20)
-Organic ambient-chat path for fixing bot / channel / integration config. Folder-layout skill `skills/configurator/{index,bot,channel,integration}.md` + a `safety_tier="mutating"` tool with per-scope field allowlists. Skills loader now handles `skills/<name>/index.md` folder layout. Plan: `~/.claude/plans/scalable-prancing-music.md`.
-
-### Automations (Task Pipelines) — Phases 1–5 shipped (2026-04-17)
-Per-channel pipeline subscriptions, cron scheduling, `fail_if` step-failure signaling, `pipeline_mode` channel override, channel-settings `PipelinesTab`, admin "Used by" + "Subscribed channels" views. See [[Track - Automations]].
-
-### Test Quality (2026-04-24)
-Phases 0–Q-SEC-3 all shipped (~1195+ tests) — **full Q-SEC sweep closed 2026-04-24** (Q-SEC-1 widget-auth, Q-SEC-2 SSRF, Q-SEC-3 webhook replay all shipped same day). 13 real bugs fixed in code, **0 open drift-pinned bugs** (Q-SEC-2 surfaced 3 SSRF horizontal gaps + Q-SEC-3 surfaced 5 webhook replay-contract gaps, all documented in [[Loose Ends]] with flip-on-fix pins). **Phase Q-SEC-3 (2026-04-24)** added 14 webhook-replay drift pins across five surfaces: GitHub HMAC body-only replayability (same-payload-twice + no delivery-id binding), BlueBubbles static-token auth with self-reported `dateCreated` staleness (token-only auth + GUID-dedup-attacker-controlled), Slack Socket-Mode absence-pin (zero POST routes; future Events API migration forces fresh drift file), local_companion WS `secrets.compare_digest` on static token with no challenge/nonce in hello handshake, and outbound Spindrel webhook signatures (deterministic sign_payload, captured-sig-valid-forever, `X-Spindrel-Signature` set without `X-Spindrel-Timestamp`). **Phase Q-SEC-2 (2026-04-24)** added 9 SSRF horizontal drift pins — proving `assert_public_url` is actually invoked at `standing_orders` fetch + loopback-rejected end-to-end, AST-inspection pins on 2 ungated sinks (`attachment_summarizer.py`, `mcp_servers._test_mcp_connection`), and string-only bypass pins for `validate_webhook_url` (DNS-rebinding hostname, decimal-encoded IP, IPv6-mapped-IPv4 loopback). **Phase Q-SEC-1 (2026-04-24)** added 13 widget-auth drift pins covering token-claim shape, `pin_id` passthrough, scope verbatim, non-admin ApiKeyAuth gate, dangling FK 400; flipped 1 broken concurrent-mint test so the `jti` nonce contract is now positively pinned. **Phase Q-MACH (2026-04-24)** closed the three boundaries Phase O explicitly stopped at: 36 new drift tests across admin `/machines` routes (exception-to-HTTP mapping, read/write scope gates, body passthrough + path-wins-over-body, disconnected-target 200 envelope shape) + `local_companion` WS handshake (4404 unknown target, 4401 wrong token, empty-registered-token short-circuit, 4400 malformed hello across three variants, successful register target+bridge pair, empty-capabilities → `["shell"]` default on both sides, clean-disconnect finally unregister, multi-connect last-writer-wins) + provider-impl extensions (register_connected_target no-op on unknown, probe_target ValueError vs offline envelope). No new production bugs — all invariants hold. Revived 1 pre-existing broken test (`test_machine_status_returns_refreshable_semantic_envelope` fixture was missing `"ready": True`). Phase P2 (2026-04-24) closed both pre-existing broken-test entries from [[Loose Ends]] with 12 staleness flips across `test_model_params_llm` + `test_dashboard_pins_service`. Phase P (2026-04-23) closed the 4 drift-pinned Loose Ends carried out of Phase N (L.1 heartbeat `reset_stale_running_runs`, J.5 widget-auth JWT `jti`, I.5 generic-regex attribution idempotency, N.3 channel-delete cache invalidation). Phase O (2026-04-23) landed the 19-test `machine_control.py` service-layer drift sweep. Phase N (N.1–N.8, 2026-04-23) shipped 79 tests across widget presets + native envelope repair + channel-skill enrollment + session_plan_mode + rerank header-prefix + approval lifecycle + context-assembly bot cache + outbox drainer fire-and-forget, including N.6's two production-breaking NameError fixes in `_create_approval_state`. Backlog: Q-CONC (loop_dispatch gather isolation + tokenization cascade + SSE back-pressure + rerank pathological + bus publisher isolation), Q-CHURN (loop_dispatch/loop_helpers/rag_formatting + integration config routers + binding_suggestions + device_status cache). See [[Track - Test Quality]].
-
-### Experiments / Autoresearch (2026-04-18)
-Pipeline-layer optimization harness — knob → apply → evaluate → score → record → propose → loop. Phase 1a + 1b shipped (real `bot_invoke` evaluator via task-scoped `current_system_prompt_override` ContextVar, eval child Tasks, outcome capture via correlation_id). Phase 2 next: `experiment.iterate.yaml` + first hill-climb spec. See [[Track - Experiments]].
-
-### Temporal Context Awareness (2026-04-17)
-`app/services/temporal_context.py` replaces the one-line "Current time" injection with a plain-English block (weekday + day-part, gap since last human message, Layer-2 resolved references for relative-time phrases). Cache-safe; 35 unit tests.
-
-### Web-Native Conversion — Phase 3 (Tailwind + cleanup)
-Sidebar redesigned. Unified `PageHeader`. 210 Tailwind classNames fixed. Global `flex-direction: column` hack removed (2026-04-15) — 127 containers made explicit across 55 files.
-
-### Integration Delivery — remaining work
-Phases A–G + UI + bus restructure shipped. **Remaining**: Phase H acceptance test gaps, manual smoke coverage, ~10 polish items. See [[Track - Integration Delivery]].
-
-**Integration Event System (2026-04-15)**: Standard `events:` declarations across 7 integrations. `emit_integration_event()` with category-based cooldowns. Trigger-events API, grouped source dropdown, auto-injected event_filter.
-
-**Integration DX (updated 2026-04-15)**: `sdk.py` single-import, YAML as single source of truth, `setup.py` removed, auto-install deps on startup, system dep management via admin UI.
-
-### Streaming Architecture
-Phase 1 done (bus carries data + seq numbers + replay). Phase 2 folded into Integration Delivery (shipped). Phases 3-5 planned: split UI cache, separate domain from transport, backpressure + outbox. See [[Track - Streaming Architecture]].
-
-### Code Quality & Refactoring
-Ousterhout depth audit clusters 1–5 shipped 2026-04-23 → 2026-04-24 (indexing boundary, dashboard router split + preset drift, HTTPException boundary-bypass, cross-surface drift guards across event bus / widget boundary / theme tokens / inline-hex ratchet, tool_dispatch deepening 686→310 LOC via 7 cohesive helpers). 6 bugs from 156-file audit landed. `assemble_context` extracted (~1400→~990 lines). Remaining: `assemble_context` (1500) + `run_agent_tool_loop` (883) as Cluster 6+; widget envelope triple-rebuild reconciliation as its own cluster; loop, file_sync, tasks, compaction god-function splits queued behind. See [[Track - Code Quality]].
-
-### Memory & Knowledge admin reframe (2026-04-24)
-`/admin/learning` is now framed as Memory & Knowledge: overview + memory activity + knowledge inventory + conversation-history search + existing dreaming/skills surfaces. The first implementation adds read-first unified search across bot memory, bot KB, channel KB, and archived sections, plus admin APIs for memory activity and knowledge inventory.
-
-### Wyoming Voice Integration
-Phase 1 scaffold + Phase 3 ESPHome + Phase 4 satellite shipped. **Remaining**: wake word routing, streaming TTS, ESPHome wake word support.
-
-### Widget SDK (2026-04-21)
-Phase A (iframe SDK) + B.0–B.6 backend shipped. Bot↔widget handler bridge (2026-04-20) turns any `@on_action` into a bot-callable tool via declarative `handlers:` block; Todo widget is the reference. `@on_event` channel subscriptions + shared-DB suites (`widget_suite.py`) are the primitive layer. See [[Track - Widget SDK]].
-
-### Standing Orders — shipped 2026-04-24
-First-party native widget (`core/standing_order_native`) plus a new native-widget cron seam so a bot can plant a dashboard tile that keeps ticking after the turn ends, then pings back in chat when a completion condition fires. Spec + action dispatcher in `app/services/native_app_widgets.py`; tick engine + strategies (`poll_url`, `timer`) + scheduler loop in `app/services/standing_orders.py`; `spawn_standing_order` tool in `app/tools/local/standing_order_tools.py` (skill-gated under `skills/standing_orders.md`, per-bot cap 5). React tile at `ui/src/components/chat/renderers/nativeApps/StandingOrderWidget.tsx`. `create_pin(override_widget_instance=...)` enables multi-instance-per-channel. 25 tests across unit + integration. **Follow-ups**: `event_wait` strategy + `event_seen` completion kind (plan spec'd 3 strategies, v1 shipped 2), e2e verification on the live server. See session log `Sessions/agent-server/2026-04-24-08-standing-orders-native-widget.md`.
-
-### Widget Primitives — Phase 1 shipped 2026-04-24
-Expand the YAML component-tree primitive set so integration-owned widgets default to declarative YAML instead of hand-rolled HTML. **Phase 1 shipped same day** — `image` v2 with `aspect_ratio`, `auth: bearer`, `lightbox`, and normalized-coord `overlays` (schema + renderer + 11 tests + docs). Next: `tiles` v2, `timeline` primitive, ISO-8601 canonicalization, frigate port, broader HTML-widget audit. Bot-authored widgets stay HTML+SDK (AI-first library contract, unchanged). Design principle: every new field passes the "LLM emitting this YAML has one obvious choice" entropy test. See [[Track - Widget Primitives]].
-
-### HTML Widget Catalog + Frontmatter — shipped 2026-04-19 (Widgets P3-1)
-`app/services/html_widget_scanner.py` walks `**/widgets/**/*.html` ∪ spindrel-using workspace HTML, parses YAML frontmatter, memoizes by (path, mtime). Pins via `emit_html_widget` path-mode envelope — reuses the existing renderer. See [[Architecture Decisions#Tool Renderers vs HTML Widgets: Two Kinds, Not One]].
-
-### Interactive Tool Result Widgets (2026-04-16)
-DX + robustness track. Phases 0–5 shipped. `sd-*` CSS vocabulary + design-token vars + dark-mode propagation in every iframe; state_poll + per-pin config + tiles + hover-reveal (77 tests). Pinned-widget context injection renders pin envelopes as a system message. Flagship HTML catalog + Phase 2 HTML result renderers (`generate_image`, `get_weather`, `frigate_list_cameras`, `web_search` via `core.search_results`) shipped and tightened 2026-04-23. See [[Track - Widgets]] and [[Widget Authoring]].
-
-### Channel Dashboards + OmniPanel TLC (2026-04-18, redesign 2026-04-19)
-Every channel has an implicit widget dashboard at slug `channel:<uuid>`, lazy-created and cascade-deleted. OmniPanel is a scaled mini-view of the dashboard's left half; layout fidelity round-trips. Migrations 213 + 215 moved the old `config.pinned_widgets[]` shape into `widget_dashboard_pins`. See [[Track - Widget Dashboard]].
-
-### Mobile polish + channel layout_mode — shipped 2026-04-20
-Mobile hamburger on channel routes now opens a tabbed `MobileChannelDrawer` (Widgets / Files / Jump). New `channel.config["layout_mode"]` (full / rail-header-chat / rail-chat / dashboard-only) gates chat zones. Mobile editor gate on `<768px`. See [[Architecture Decisions#Mobile hamburger on channel routes opens a tabbed drawer]] and [[Architecture Decisions#Chat-screen zones are gated by `channel.config["layout_mode"]`]].
-
-### Chat-screen zones via positional dashboard placement — P12 shipped 2026-04-20
-Channel dashboard is now the chat-screen layout editor. Three positional zones recomputed every read via `channel_chat_zones.classify_pin`: leftmost cols → `rail`, rightmost cols → `dock_right`, top row → `header_chip`. No migration; no `chat_zone` key. See [[Track - Widget Dashboard]].
-
-### Kiosk / Fullscreen + Panel-mode HTML widget — P9 + P10 shipped 2026-04-19
-`?kiosk=1` URL param hides chrome; `useKioskMode` wires Fullscreen API + Wake Lock + idle-cursor-hide. Panel mode (migration 224 `is_main_panel` + partial unique index) promotes one HTML widget to a side panel. P11-a (size presets, Full-width, Reset-layout) shipped same day. Remaining: P11-b undo, P11-c HA-style sections. See [[Track - Widget Dashboard]].
-
-### Sandbox bot/channel context + tool grouping (2026-04-19)
-`/widgets/dev#tools` now passes user-selected bot/channel into `admin_execute_tool` so ContextVar-consuming tools return real data. `requires_bot_context` / `requires_channel_context` flags on `@register(...)`; sidebar grouped by `source_integration`. See [[Track - Widget Dashboard]] P7.
-
-### Widget Dashboard + Developer Panel (2026-04-18)
-P5 code shipped but not user-tested. HA/Grafana-style grid (`react-grid-layout/legacy`, 12-col, migration 211 `grid_layout` JSONB), `EditPinDrawer`, `RecentTab`, sample_payload seeds. HTML widget output v1 + bot-scoped iframe auth (short-lived JWT minted against emitting bot's scopes) shipped same track. See [[Track - Widget Dashboard]] and [[Architecture Decisions#Interactive HTML Widgets Authenticate as the Emitting Bot]].
-
-### Home Assistant Integration (2026-04-16)
-New `integrations/homeassistant/` — skill + carapace moved from mission_control. `tool_widgets` templates: HassTurnOn/Off use status + toggle + entity properties; HassLightSet adds power toggle + brightness slider. Args use `where: type=entity | pluck: name | first` to target entities (not areas).
-
-### Excalidraw Diagram Integration
-Tools-only integration for hand-drawn diagrams. Shipped 2026-04-12. **Remaining**: verify on test server (needs Chrome), unit tests.
-
-### E2E Testing
-308+ tests, 23 files, cron every 6h. OpenAI native provider smoke landed. See [[E2E Testing Roadmap]].
-
-### Google Workspace
-Token refresh + Drive folder done. Pending: hard folder enforcement, retry/backoff. Direction shift to community MCP server. See [[Track - Google Workspace]].
-
-### UI Design — canonical spec shipped 2026-04-23
-`agent-server/docs/guides/ui-design.md` is the target spec for all UI work. Two surface archetypes (command / content), one token system, canonical active-row pill, documented anti-patterns, known-debt appendix. Adoption + debt migration tracked in [[Track - UI Vision]]. Cross-referenced from `feedback_no_gratuitous_borders`, `feedback_no_left_colored_borders`, `feedback_tailwind_not_inline`, `feedback_widgets_use_app_theme`.
-
-### UI Polish
-Pass 1 done. **Per-channel terminal chat mode shipped 2026-04-21** — channel setting flips the main feed/composer into a command-first Codex/Claude-style presentation without changing approvals/widgets/tool plumbing. Rich tool-result rendering and broader polish history live in [[Track - UI Polish]]. Target spec lives in `agent-server/docs/guides/ui-design.md` ([[Track - UI Vision]]).
-
-### PWA & Push Notifications (2026-04-19)
-Icons, favicon, service worker, Web Push end-to-end. Bot-callable `send_push_notification` tool (HomeAssistant-notify style, not auto-push on every message) + `POST /api/v1/push/send` scoped endpoint. See [[Track - PWA & Push]].
-
-### Integration Depth — Slack pilot shipped (2026-04-17)
-Slack grew from "mature chat renderer" to "first-class Slack app" across 5 phases: @-mentions + thread read-up + reactions-as-intents, scheduled/pin/bookmark + App Home + shortcuts, `Capability.EPHEMERAL` + `chat.postEphemeral`, `Capability.MODALS` + `views.open`, plus reusable recipe in [[Integration Depth Playbook]]. See [[Track - Slack Depth]].
+| Area | Latest | One-line | Track |
+|---|---|---|---|
+| System Health Visibility | shipped 2026-04-26 | Rotating JSONL log handler + `read_container_logs` / `get_recent_server_errors` tools + deterministic daily summary + `DailyHealthLandmark` canvas marker | (in [[Architecture Decisions]]) |
+| Harness SDK | 2026-04-27 | External agent harnesses as a real runtime lane. Phases 3–6 v1 (Codex via `codex app-server`) shipped; verification + telemetry + skill bridge remain | [[Track - Harness SDK]] |
+| Notifications | 2026-04-26 | Reusable targets (`user_push`/`channel`/`integration_binding`/`group`), audit history, admin UI, bot-callable tools, Usage Alerts migrated | [[Track - Notifications]] |
+| Spatial Canvas | 2026-04-26 | Workspace-scope infinite plane replacing `HomeGrid`. Channels as draggable tiles, bots as actors, Attention Beacons, zoom-dive to dashboards. `Ctrl+Shift+Space` toggles overlay | [[Track - Spatial Canvas]] |
+| Integration Contract | 2026-04-23 | Canonical guide at `docs/guides/integrations.md`; `chat_hud` retired in favor of dashboard widgets; `integration_id == "x"` boundary fixes via hook registry; pytest drift gate | [[Track - Integration Contract]] |
+| Integration Rich Results | 2026-04-24 | Slack-led v1: `rich_tool_results` capability, `tool_result_rendering` matrix, SDK portable-card boundary, Slack Block Kit + approval split + depth contract tests | [[Track - Integration Rich Results]] |
+| `browser_live` integration | shipped 2026-04-19 | MV3 Chrome-extension bridge, 5 tools, `BROWSER_LIVE_PAIRING_TOKEN` pairing | `integrations/browser_live/README.md` |
+| Local machine control | 2026-04-25 | Pluggable providers, probe readiness, session leases. `local_companion` recoverable launcher + reconnecting Linux service. Shared broker / packaging remain | [[Track - Local Machine Control]] |
+| Image Generation | shipped 2026-04-24 | `generate_image` first-class for any bot. Migration 246 + capability flag + family routing + Gemini multimodal edit + Responses API path | [[Track - Provider Refactor]] |
+| Provider Refactor | Phases 5+6 shipped 2026-04-24 | Capability metadata (`extra_headers`/`extra_body`/cache flag), catalog auto-refresh, `/admin/usage` Providers tab. Phases 3–4 queued | [[Track - Provider Refactor]] |
+| Provider-dialect templating | v1 2026-04-19 | `prompt_style` capability flag; `{% section %}` markers rewritten per model. XML-on-Anthropic eval pending | [[Track - Experiments]] |
+| Programmatic Tool Calling | 2026-04-19 | `run_script` collapses 10–50 dispatches; `register(returns=...)` + `list_tool_signatures`; lint pin |  |
+| Docs Refresh | 2026-04-26 | README/docs index audit. Harness positioning corrected. Screenshot heroes / workflow deprecation / MkDocs verify remain | [[Track - Docs Refresh]] |
+| ChatGPT OAuth Provider | shipped 2026-04-19 | `openai-subscription` provider type, device-code flow, `OpenAIResponsesAdapter` |  |
+| Task Sub-Sessions | Phases 6–9 shipped 2026-04-21 | Threads + scratch chat; thread_ts mirroring; first-class scratch sessions (titles/promote/per-session history); pipeline-as-chat refactor. Phase 3 interactive push-back queued | [[Track - Task Sub-Sessions]] |
+| Bot Audit Pipelines | demoted 2026-04-20 | Only `analyze_discovery` featured; configurator skill + `propose_config_change` replaces ambient config-fix | [[Track - Automations]] |
+| Configurator skill | 2026-04-20 | Folder-layout `skills/configurator/{index,bot,channel,integration}.md` + safety-tier `propose_config_change` |  |
+| Automations | Phases 1–5 shipped 2026-04-17 | Per-channel pipeline subs, cron, `fail_if`, `pipeline_mode`, channel `PipelinesTab` | [[Track - Automations]] |
+| Test Quality | Q-SEC sweep closed 2026-04-24 | ~1195+ tests, 13 real bugs fixed, 0 open drift-pinned bugs. Q-CONC + Q-CHURN backlog | [[Track - Test Quality]] |
+| Experiments / Autoresearch | 2026-04-18 | Knob → apply → evaluate → score → record → propose → loop. Phase 1a/1b shipped; Phase 2 (`experiment.iterate.yaml`) next | [[Track - Experiments]] |
+| Integration Delivery | shipped + remaining | Phases A–G + UI + bus restructure shipped. H acceptance gaps + manual smoke + ~10 polish remain | [[Track - Integration Delivery]] |
+| Streaming Architecture | Phase 1 shipped | Bus carries data + seq + replay. Phases 3–5 (split UI cache, transport split, backpressure) planned | [[Track - Streaming Architecture]] |
+| Code Quality | Clusters 1–5 shipped 2026-04-24 | Ousterhout depth audit; 6 bugs from 156-file audit landed; `assemble_context` extracted (~1400→~990); 686→310 LOC `tool_dispatch`. Cluster 6+ (`assemble_context`/`run_agent_tool_loop`) + widget envelope reconciliation queued | [[Track - Code Quality]] |
+| Memory & Knowledge admin | 2026-04-24 | `/admin/learning` reframed; read-first unified search across bot memory + KBs + history + dreaming | (in admin UI) |
+| Wyoming Voice | Phase 1 + 3 + 4 shipped | Scaffold + ESPHome + satellite. Wake-word routing / streaming TTS / ESPHome wake remain |  |
+| Widget SDK | A + B.0–B.6 shipped | iframe SDK + handler bridge (Todo widget); `@on_event` channel subs + `widget_suite.py` shared-DB suites | [[Track - Widget SDK]] |
+| Standing Orders | shipped 2026-04-24 | Native widget + cron seam; `spawn_standing_order` tool; `core/standing_order_native`; tick engine + strategies | (in [[Track - Widget SDK]]) |
+| Widget Primitives | Phase 1 shipped 2026-04-24 | `image` v2 (aspect, auth, lightbox, overlays). `tiles` v2 / `timeline` / ISO-8601 / frigate port queued | [[Track - Widget Primitives]] |
+| HTML Widget Catalog | shipped 2026-04-19 | `app/services/html_widget_scanner.py` walks `**/widgets/**`, parses frontmatter, `(path, mtime)` memo. Path-mode envelope reuses renderer | (in [[Track - Widgets]]) |
+| Interactive Tool Result Widgets | Phases 0–5 shipped | `sd-*` CSS, design-token vars, dark-mode propagation; `state_poll` + per-pin config + tiles + hover-reveal (77 tests) | [[Track - Widgets]] |
+| Channel Dashboards + OmniPanel | 2026-04-19 | Implicit dashboard at `channel:<uuid>`, lazy-create + cascade-delete; OmniPanel mini-view; migrations 213+215 | [[Track - Widget Dashboard]] |
+| Mobile + layout_mode | 2026-04-20 | Tabbed `MobileChannelDrawer`; `channel.config["layout_mode"]` (full / rail-header-chat / rail-chat / dashboard-only); `<768px` editor gate |  |
+| Chat zones via dashboard | P12 shipped 2026-04-20 | `channel_chat_zones.classify_pin` recomputes `rail`/`dock_right`/`header_chip` per read |  |
+| Kiosk + panel-mode | P9–P11a shipped 2026-04-19 | `?kiosk=1`, `useKioskMode`, Fullscreen + Wake Lock; migration 224 panel mode; size presets / Full-width / Reset-layout. P11-b/c queued |  |
+| Sandbox dev panel | 2026-04-19 | `/widgets/dev#tools` passes bot/channel context; `requires_*_context` flags; sidebar grouped by `source_integration` | (in [[Track - Widget Dashboard]]) |
+| Widget Dashboard P5 | 2026-04-18 | HA/Grafana grid (`react-grid-layout/legacy`), `EditPinDrawer`, `RecentTab`, sample_payload seeds. HTML widget output v1 + bot-scoped iframe auth | [[Track - Widget Dashboard]] |
+| Home Assistant integration | 2026-04-16 | Skill + (legacy) carapace moved from mission_control; `tool_widgets` for HassTurnOn/Off + HassLightSet | `integrations/homeassistant/` |
+| Excalidraw | shipped 2026-04-12 | Tools-only diagram integration. Test-server verify + unit tests pending |  |
+| E2E Testing | 308+ tests, cron 6h | OpenAI native provider smoke landed | [[E2E Testing Roadmap]] |
+| Google Workspace | partial | Token refresh + Drive folder. Shifting to community MCP server | [[Track - Google Workspace]] |
+| UI Design | canonical spec 2026-04-23 | `agent-server/docs/guides/ui-design.md` is target spec. Adoption + debt migration in [[Track - UI Vision]] | [[Track - UI Polish]] / [[Track - UI Vision]] |
+| UI Polish | per-channel terminal mode 2026-04-21 | Pass 1 done. Channel command-first composer mode; rich tool-result rendering | [[Track - UI Polish]] |
+| PWA & Push | 2026-04-19 | SW + Web Push + bot-callable `send_push_notification` + scoped `POST /api/v1/push/send` | [[Track - PWA & Push]] |
+| Slack Depth | shipped 2026-04-17 | 5 phases: mentions/threads/reactions, scheduled/pin/bookmark/App Home, `EPHEMERAL`, `MODALS`, recipe in [[Integration Depth Playbook]] | [[Track - Slack Depth]] |
 
 ## Technical Debt
 _None load-bearing right now._
@@ -210,17 +102,10 @@ Discord audit next (following the playbook), then BlueBubbles, then GitHub's dis
 - Trust the pipeline — fix mechanisms, don't add config knobs
 
 ## Canonical Guides
-Index: `agent-server/docs/guides/index.md`. These win against other docs when they disagree. Update the matching guide in the same pass as any architectural change — drift is the enemy.
-- `development-process.md` — review triage, Agent Briefs, contract/red-line review, out-of-scope decisions
-- `context-management.md` — context admission + history profiles
-- `discovery-and-enrollment.md` — tool / skill / MCP residency + enrollment
-- `widget-system.md` — widget contracts, origins, presentation, host policy
-- `ui-design.md` — UI archetypes, design tokens, anti-patterns
-- `ui-components.md` — shared dropdowns, prompt editors, settings rows, component usage catalog
-- `integrations.md` — integration contract + responsibility boundary
-- `ubiquitous-language.md` — canonical glossary + flagged ambiguities
+Index: `agent-server/docs/guides/index.md`. These win against other docs when they disagree. Update the matching guide in the same pass as any architectural change.
 
 ## Related
+- [[INDEX]] — start-here navigation map
 - [[Architecture]] — subsystem map and request flow
 - [[Architecture Decisions]] — load-bearing decisions
 - [[Loose Ends]] — bugs, gotchas, things to verify

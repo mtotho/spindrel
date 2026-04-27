@@ -1,15 +1,16 @@
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
-import { HomeChannelsList } from "@/src/components/home/HomeChannelsList";
+import { MobileHub } from "@/src/components/home/MobileHub";
 import { SpatialCanvas } from "@/src/components/spatial-canvas/SpatialCanvas";
 
 /**
  * Root route `/`. Desktop → spatial canvas (workspace-scope infinite plane
- * of channel + widget tiles, see `Track - Spatial Canvas`). Mobile keeps
- * the vertical channels list (canvas is desktop-only through P11).
+ * of channel + widget tiles, see `Track - Spatial Canvas`). Mobile → the
+ * sectioned mobile hub (`MobileHub`) — channel list plus alert /
+ * upcoming / memory / pinned-widget / bloat sections.
  */
 export default function Home() {
   const columns = useResponsiveColumns();
-  if (columns === "single") return <HomeChannelsList />;
+  if (columns === "single") return <MobileHub />;
   return (
     <div className="relative flex-1 min-h-0">
       <SpatialCanvas />
