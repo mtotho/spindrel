@@ -14,6 +14,12 @@ Design intent: replace the throwaway `HomeGrid` (a "desktopified command palette
 
 ## Status
 
+2026-04-27 follow-up: shortened migration 263's Alembic revision id to
+`263_spatial_landmarks` after production startup hit the default
+`alembic_version.version_num VARCHAR(32)` limit. The migration is now
+idempotent for retry after the failed version-table update; the revision-chain
+guard passes.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

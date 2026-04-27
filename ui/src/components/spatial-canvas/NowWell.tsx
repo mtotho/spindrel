@@ -59,8 +59,8 @@ export function NowWell({ tickedNow, zoom, lens = null }: NowWellProps) {
     <div
       className="absolute pointer-events-none"
       style={{
-        left: WELL_X - svgW / 2,
-        top: WELL_Y - svgH / 2,
+        left: -svgW / 2,
+        top: -svgH / 2,
         width: svgW,
         height: svgH,
         transform: lens

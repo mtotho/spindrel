@@ -1,17 +1,21 @@
 """Seed ``WidgetInstance.state`` for screenshot-staged native widgets.
 
 Usage:
-    python - <channel_id> <widget_ref> <state_json>
+    python - <scope_ref> <widget_ref> <state_json> [scope_kind]
 
-Native widgets (``core/notes_native``, ``core/todo_native``, etc.) render from
-``WidgetInstance.state`` on the server side — ``envelope.state`` passed to the
-pin create call is cosmetic. To make screenshots show realistic content, we
-update the WidgetInstance directly after the pin lands.
+``scope_kind`` defaults to ``"channel"``. Pass ``"dashboard"`` and a
+dashboard slug (e.g. ``"workspace:spatial"``) as ``scope_ref`` to seed
+canvas-scoped pins, where every pin of a given ``widget_ref`` on the
+spatial dashboard shares one WidgetInstance row.
 
-Idempotent: overwrites existing state. The WidgetInstance is looked up by
-(widget_ref, scope_kind='channel', scope_ref=<channel_id>), matching the
-channel-dashboard singleton that ``get_or_create_native_widget_instance``
-creates for each (widget_ref, channel) pair.
+Native widgets (``core/notes_native``, ``core/todo_native``, etc.) render
+from ``WidgetInstance.state`` on the server side — ``envelope.state``
+passed to the pin create call is cosmetic. To make screenshots show
+realistic content, we update the WidgetInstance directly after the pin
+lands.
+
+Idempotent: overwrites matching keys; falls back to creating the row if
+none exists yet (handy when seeding before any pin actually mounts).
 """
 from __future__ import annotations
 
@@ -22,12 +26,16 @@ import uuid
 
 
 async def main() -> None:
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: python - <channel_id> <widget_ref> <state_json>")
+    if len(sys.argv) not in (4, 5):
+        raise SystemExit("usage: python - <scope_ref> <widget_ref> <state_json> [scope_kind]")
 
-    channel_id = sys.argv[1]
+    scope_ref = sys.argv[1]
     widget_ref = sys.argv[2]
     state_raw = sys.argv[3]
+    scope_kind = sys.argv[4] if len(sys.argv) == 5 else "channel"
+
+    if scope_kind not in {"channel", "dashboard"}:
+        raise SystemExit(f"scope_kind must be 'channel' or 'dashboard', got {scope_kind!r}")
 
     try:
         state = json.loads(state_raw)
@@ -37,7 +45,9 @@ async def main() -> None:
     if not isinstance(state, dict):
         raise SystemExit("state_json must be a JSON object")
 
-    channel_uuid = uuid.UUID(channel_id)
+    # Channel scopes need a UUID; dashboard scopes use the slug as-is.
+    if scope_kind == "channel":
+        scope_ref = str(uuid.UUID(scope_ref))
 
     from app.db.engine import async_session  # type: ignore
     from app.db.models import WidgetInstance  # type: ignore
@@ -49,8 +59,8 @@ async def main() -> None:
                 select(WidgetInstance).where(
                     WidgetInstance.widget_kind == "native_app",
                     WidgetInstance.widget_ref == widget_ref,
-                    WidgetInstance.scope_kind == "channel",
-                    WidgetInstance.scope_ref == str(channel_uuid),
+                    WidgetInstance.scope_kind == scope_kind,
+                    WidgetInstance.scope_ref == scope_ref,
                 )
             )
         ).scalar_one_or_none()
@@ -58,14 +68,14 @@ async def main() -> None:
         if row is None:
             raise SystemExit(
                 f"WidgetInstance not found: widget_ref={widget_ref!r} "
-                f"channel_id={channel_id}"
+                f"scope_kind={scope_kind} scope_ref={scope_ref}"
             )
 
         merged = dict(row.state or {})
         merged.update(state)
         row.state = merged
         await db.commit()
-        print(f"ok widget_ref={widget_ref} channel_id={channel_id} keys={sorted(merged.keys())}")
+        print(f"ok widget_ref={widget_ref} scope={scope_kind}:{scope_ref} keys={sorted(merged.keys())}")
 
 
 if __name__ == "__main__":

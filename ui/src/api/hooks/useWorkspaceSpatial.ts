@@ -229,6 +229,20 @@ export function useLandmarkNode(kind: LandmarkKind): SpatialNode | undefined {
   return nodes.find((n) => n.landmark_kind === kind);
 }
 
+/** Live world position of a landmark, with fallback defaults that mirror
+ *  the server-side seed coords. Use this at any callsite that needs to
+ *  reason about a landmark's current location (orbit math, fly-to camera,
+ *  lens projection) so the position tracks user drags. */
+export function landmarkPositionFromNodes(
+  nodes: SpatialNode[] | undefined,
+  kind: LandmarkKind,
+  fallbackX: number,
+  fallbackY: number,
+): { x: number; y: number } {
+  const row = nodes?.find((n) => n.landmark_kind === kind);
+  return { x: row?.world_x ?? fallbackX, y: row?.world_y ?? fallbackY };
+}
+
 export function useFindCanvasNodesByPinPredicate(
   predicate: (pin: SpatialNodePin) => boolean,
 ): SpatialNode[] {

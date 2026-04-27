@@ -88,10 +88,24 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="widget-dashboard",
         route="/widgets/channel/{demo_dashboard}",
-        viewport={"width": 1440, "height": 900},
+        viewport={"width": 1600, "height": 1000},
         wait_kind="function",
         wait_arg="window.__spindrel_pin_count() >= 5",
         output="widget-dashboard.png",
+        # Collapse the secondary channels-list sidebar so the dashboard
+        # fills the viewport instead of leaving a blank ~360px column on
+        # the left. ``spindrel-ui`` is the Zustand persist key for the UI
+        # store; ``sidebarCollapsed`` is what the AppShell's Sidebar reads.
+        extra_init_scripts=[
+            "(() => {"
+            "  const KEY = 'spindrel-ui';"
+            "  let raw = localStorage.getItem(KEY);"
+            "  let obj = raw ? JSON.parse(raw) : { state: {}, version: 0 };"
+            "  obj.state = obj.state || {};"
+            "  obj.state.sidebarCollapsed = true;"
+            "  localStorage.setItem(KEY, JSON.stringify(obj));"
+            "})();"
+        ],
     ),
     ScreenshotSpec(
         name="chat-pipeline-live",

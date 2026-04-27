@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Wind, X } from "lucide-react";
 import { useAgentSmell, type AgentSmellBot } from "../../api/hooks/useUsage";
-import { ATTENTION_HUB_X, ATTENTION_HUB_Y } from "./spatialGeometry";
 
 const SATELLITE_OFFSET_X = 110;
 const SATELLITE_OFFSET_Y = -60;
@@ -19,7 +18,15 @@ function severityClass(severity: string): string {
   return "border-success/60 bg-success/15 text-success";
 }
 
-export function BloatSatellite() {
+interface BloatSatelliteProps {
+  /** Live world position of the Attention Hub landmark; the satellite
+   *  anchors its small orbit relative to the hub so dragging the hub
+   *  carries the bloat callout with it. */
+  hubX: number;
+  hubY: number;
+}
+
+export function BloatSatellite({ hubX, hubY }: BloatSatelliteProps) {
   const [open, setOpen] = useState(false);
   const { data } = useAgentSmell({ hours: 24, baseline_days: 7, limit: 25 });
   const summary = data?.summary;
@@ -36,8 +43,8 @@ export function BloatSatellite() {
         type="button"
         className={`absolute flex flex-col items-center justify-center rounded-full border-2 shadow-md backdrop-blur transition-transform hover:scale-110 ${severityClass(summary?.max_severity ?? "watch")}`}
         style={{
-          left: ATTENTION_HUB_X + SATELLITE_OFFSET_X - 32,
-          top: ATTENTION_HUB_Y + SATELLITE_OFFSET_Y - 32,
+          left: hubX + SATELLITE_OFFSET_X - 32,
+          top: hubY + SATELLITE_OFFSET_Y - 32,
           width: 64,
           height: 64,
           zIndex: 5,

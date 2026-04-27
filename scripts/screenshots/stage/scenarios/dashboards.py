@@ -22,20 +22,21 @@ def pin_full_dashboard(
 ) -> list[str]:
     """Pin the 5-widget flagship dashboard for ``widget-dashboard.png``.
 
-    Layout: standard preset (12-col grid, 30px rows). Two rows that fill the
-    full grid width — the prior 3×2 layout left whole tiles showing
-    "Loading…" / session-scoped placeholders, which read as default-sized
-    and content-less. The current shape:
+    The channel-scoped dashboard renders ``ChannelDashboardMultiCanvas``,
+    which reserves a fixed-width rail on the left and dock on the right
+    regardless of pin contents. A pure-grid layout reads as "the dashboard
+    is squeezed in the middle" because the rail and dock zones sit empty
+    on either side. This layout pins widgets into all three zones so the
+    full viewport reads as a populated dashboard:
 
-      Row 1 (h=14): Notes (8w, hero) + Standing order (4w, rich log)   = 12
-      Row 2 (h=10): Todos (4w) + Usage forecast (4w) + Upcoming (4w)   = 12
+      RAIL (left, fixed width):  Todos                — running checklist
+      GRID (center, 12-col):     Notes (12w) + Standing order (12w) stacked
+      DOCK (right, fixed width): Usage forecast + Upcoming activity stacked
 
-    Every tile in this set has a real populated state seeded by
-    ``_seed_widget_states_for_channel`` (see ``flagship.py``) so no widget
-    renders an empty body. Machine-control is intentionally dropped — it's
-    channel-session-scoped and renders a "no active session" placeholder
-    until a chat session opens, which is exactly the kind of empty tile the
-    flagship dashboard should not showcase.
+    Every tile has a populated state seeded by
+    ``_seed_widget_states_for_channel`` (see ``flagship.py``). Machine
+    control is intentionally dropped — it's channel-session-scoped and
+    renders a "no active session" placeholder until a chat session opens.
     """
     dashboard_key = dashboard_key_for_channel(channel_id)
     existing = {p.get("display_label"): p for p in client.list_pins(dashboard_key=dashboard_key)}
@@ -53,21 +54,25 @@ def pin_full_dashboard(
                 pass
             existing.pop(label, None)
 
+    # (label, envelope, zone, grid_layout)
+    # Rail/dock are 1-col tracks — width is fixed by ``CHANNEL_PANEL_DEFAULT_WIDTH``,
+    # so ``w`` doesn't matter (set to 1 by convention). Grid is the 12-col
+    # center; full-width tiles use w=12.
     specs = [
-        ("Notes",              env.notes(),              {"x": 0, "y": 0,  "w": 8, "h": 14}),
-        ("Standing order",     env.standing_order_poll(),{"x": 8, "y": 0,  "w": 4, "h": 14}),
-        ("Todos",              env.todos(),              {"x": 0, "y": 14, "w": 4, "h": 10}),
-        ("Usage forecast",     env.usage_forecast(),     {"x": 4, "y": 14, "w": 4, "h": 10}),
-        ("Upcoming activity",  env.upcoming_activity(),  {"x": 8, "y": 14, "w": 4, "h": 10}),
+        ("Todos",              env.todos(),              "rail", {"x": 0, "y": 0,  "w": 1, "h": 16}),
+        ("Notes",              env.notes(),              "grid", {"x": 0, "y": 0,  "w": 12, "h": 16}),
+        ("Standing order",     env.standing_order_poll(),"grid", {"x": 0, "y": 16, "w": 12, "h": 12}),
+        ("Usage forecast",     env.usage_forecast(),     "dock", {"x": 0, "y": 0,  "w": 1, "h": 12}),
+        ("Upcoming activity",  env.upcoming_activity(),  "dock", {"x": 0, "y": 12, "w": 1, "h": 12}),
     ]
 
     ids: list[str] = []
     layout_patches: list[dict] = []
-    for label, envelope, grid in specs:
+    for label, envelope, zone, grid in specs:
         if label in existing:
             pin_id = str(existing[label]["id"])
             ids.append(pin_id)
-            layout_patches.append({"id": pin_id, "zone": "grid", **grid})
+            layout_patches.append({"id": pin_id, "zone": zone, **grid})
             continue
         pin = client.create_pin(
             dashboard_key=dashboard_key,
@@ -77,7 +82,7 @@ def pin_full_dashboard(
             source_channel_id=channel_id,
             source_bot_id=source_bot_id,
             display_label=label,
-            zone="grid",
+            zone=zone,
             grid_layout=grid,
         )
         ids.append(str(pin["id"]))

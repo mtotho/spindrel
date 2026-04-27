@@ -1,7 +1,6 @@
 import { Activity } from "lucide-react";
 
 import { useLatestHealthSummary } from "../../api/hooks/useSystemHealth";
-import { HEALTH_SUMMARY_X, HEALTH_SUMMARY_Y } from "./spatialGeometry";
 
 interface Props {
   zoom: number;
@@ -53,13 +52,12 @@ export default function DailyHealthLandmark({ zoom, onOpen }: Props) {
       type="button"
       className={`absolute flex flex-col items-center justify-center rounded-full border bg-surface-raised/85 text-text backdrop-blur transition-colors hover:bg-surface-hover ${accent}`}
       style={{
-        left: HEALTH_SUMMARY_X - size / 2,
-        top: HEALTH_SUMMARY_Y - size / 2,
+        left: -size / 2,
+        top: -size / 2,
         width: size,
         height: size,
         zIndex: 4,
       }}
-      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();

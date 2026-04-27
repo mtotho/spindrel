@@ -38,6 +38,7 @@ import { apiFetch } from "../../api/client";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
+  landmarkPositionFromNodes,
   useSpatialNodes,
   useUpdateSpatialNode,
   useDeleteSpatialNode,
@@ -82,6 +83,7 @@ import {
   type MemoryObservationSelection,
 } from "./MemoryObservatory";
 import DailyHealthLandmark from "./DailyHealthLandmark";
+import { LandmarkWrapper } from "./LandmarkWrapper";
 import { BloatSatellite } from "./BloatSatellite";
 import { buildWidgetOverviewClusters } from "./widgetOverviewClusters";
 import { ChatSession } from "../chat/ChatSession";
@@ -135,6 +137,8 @@ import {
   MEMORY_OBSERVATORY_Y,
   ATTENTION_HUB_X,
   ATTENTION_HUB_Y,
+  HEALTH_SUMMARY_X,
+  HEALTH_SUMMARY_Y,
   type DensityIntensity,
   type DensityWindow,
   type TrailsMode,
@@ -221,6 +225,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const navigate = useNavigate();
   const location = useLocation();
   const { data: nodes } = useSpatialNodes();
+  // Live landmark positions derived from `nodes`. Falls back to the
+  // hardcoded seed defaults until the canvas list query resolves; once
+  // the row exists it's the source of truth, so user drags propagate to
+  // every consumer (orbit math, edge beacons, fly-to camera, lens projection).
+  const wellPos = landmarkPositionFromNodes(nodes, "now_well", WELL_X, WELL_Y);
+  const memoryObsPos = landmarkPositionFromNodes(nodes, "memory_observatory", MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y);
+  const attentionHubPos = landmarkPositionFromNodes(nodes, "attention_hub", ATTENTION_HUB_X, ATTENTION_HUB_Y);
+  const dailyHealthPos = landmarkPositionFromNodes(nodes, "daily_health", HEALTH_SUMMARY_X, HEALTH_SUMMARY_Y);
   const { data: attentionItems } = useWorkspaceAttention();
   const markAttentionResponded = useMarkAttentionResponded();
   const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
@@ -1275,7 +1287,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       const def = taskDefinitions.find((t) => t.id === taskId);
       if (!def) return;
       const idx = taskDefinitions.findIndex((t) => t.id === taskId);
-      const orbit = definitionOrbit(taskId, taskDefinitions.length, idx);
+      const orbit = definitionOrbit(taskId, taskDefinitions.length, idx, wellPos);
       // Aim the camera so the orbit point sits in the viewport center
       // at near-max zoom; the editor pop-in covers the rest visually.
       const targetScale = MAX_SCALE * 0.95;
@@ -1546,21 +1558,21 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       rect.width / wellWidth,
       rect.height / wellHeight,
     );
-    const targetX = rect.width / 2 - WELL_X * targetScale;
-    const targetY = rect.height / 2 - WELL_Y * targetScale;
+    const targetX = rect.width / 2 - wellPos.x * targetScale;
+    const targetY = rect.height / 2 - wellPos.y * targetScale;
     scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
-  }, [scheduleCamera]);
+  }, [scheduleCamera, wellPos.x, wellPos.y]);
 
   const flyToMemoryObservatory = useCallback(() => {
     const rect = viewportRectRef.current;
     if (!rect.width || !rect.height) return;
     const targetScale = Math.min(0.9, Math.max(0.55, cameraRef.current.scale));
     scheduleCamera({
-      x: rect.width / 2 - MEMORY_OBSERVATORY_X * targetScale,
-      y: rect.height / 2 - MEMORY_OBSERVATORY_Y * targetScale,
+      x: rect.width / 2 - memoryObsPos.x * targetScale,
+      y: rect.height / 2 - memoryObsPos.y * targetScale,
       scale: targetScale,
     }, "immediate");
-  }, [scheduleCamera]);
+  }, [scheduleCamera, memoryObsPos.x, memoryObsPos.y]);
 
   const starboardObjects = useMemo<StarboardObjectItem[]>(() => {
     const rect = viewportRectRef.current;
@@ -1579,12 +1591,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         label: "Memory Observatory",
         kind: "landmark",
         subtitle: "Landmark",
-        worldX: MEMORY_OBSERVATORY_X,
-        worldY: MEMORY_OBSERVATORY_Y,
-        distance: distanceFromFocus(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
-        onSelect: () => flyToStarboardObject(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
+        worldX: memoryObsPos.x,
+        worldY: memoryObsPos.y,
+        distance: distanceFromFocus(memoryObsPos.x, memoryObsPos.y),
+        onSelect: () => flyToStarboardObject(memoryObsPos.x, memoryObsPos.y),
         actions: [
-          jumpAction(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
+          jumpAction(memoryObsPos.x, memoryObsPos.y),
           { label: "Open Memory Observatory", icon: "open", onSelect: flyToMemoryObservatory },
         ],
       },
@@ -1593,12 +1605,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         label: "Now Well",
         kind: "landmark",
         subtitle: "Landmark",
-        worldX: WELL_X,
-        worldY: WELL_Y,
-        distance: distanceFromFocus(WELL_X, WELL_Y),
-        onSelect: () => flyToStarboardObject(WELL_X, WELL_Y),
+        worldX: wellPos.x,
+        worldY: wellPos.y,
+        distance: distanceFromFocus(wellPos.x, wellPos.y),
+        onSelect: () => flyToStarboardObject(wellPos.x, wellPos.y),
         actions: [
-          jumpAction(WELL_X, WELL_Y),
+          jumpAction(wellPos.x, wellPos.y),
           { label: "Open Now Well", icon: "open", onSelect: flyToWell },
         ],
       },
@@ -1607,15 +1619,15 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         label: "Attention Hub",
         kind: "landmark",
         subtitle: activeAttentionCount > 0 ? `${activeAttentionCount} active` : "Landmark",
-        worldX: ATTENTION_HUB_X,
-        worldY: ATTENTION_HUB_Y,
-        distance: distanceFromFocus(ATTENTION_HUB_X, ATTENTION_HUB_Y),
+        worldX: attentionHubPos.x,
+        worldY: attentionHubPos.y,
+        distance: distanceFromFocus(attentionHubPos.x, attentionHubPos.y),
         onSelect: () => {
-          flyToStarboardObject(ATTENTION_HUB_X, ATTENTION_HUB_Y);
+          flyToStarboardObject(attentionHubPos.x, attentionHubPos.y);
           openStarboardAttention();
         },
         actions: [
-          jumpAction(ATTENTION_HUB_X, ATTENTION_HUB_Y),
+          jumpAction(attentionHubPos.x, attentionHubPos.y),
           { label: "Open Attention", icon: "open", onSelect: () => openStarboardAttention() },
         ],
       },
@@ -1734,8 +1746,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         id: "memory-observatory",
         label: "Memory Observatory",
         shortLabel: "Memory",
-        worldX: MEMORY_OBSERVATORY_X,
-        worldY: MEMORY_OBSERVATORY_Y,
+        worldX: memoryObsPos.x,
+        worldY: memoryObsPos.y,
         colorClass: "border-violet-300/40 text-violet-200 hover:border-violet-200/70",
         icon: Brain,
         onClick: flyToMemoryObservatory,
@@ -1744,8 +1756,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         id: "now-well",
         label: "Now Well",
         shortLabel: "Now",
-        worldX: WELL_X,
-        worldY: WELL_Y,
+        worldX: wellPos.x,
+        worldY: wellPos.y,
         colorClass: "border-sky-300/35 text-sky-100 hover:border-sky-200/65",
         icon: Target,
         onClick: flyToWell,
@@ -1754,8 +1766,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         id: "attention-hub",
         label: attentionSignalsVisible && mapAttentionCount > 0 ? `Attention Hub (${mapAttentionCount} mapped)` : "Attention Hub",
         shortLabel: "Attention",
-        worldX: ATTENTION_HUB_X,
-        worldY: ATTENTION_HUB_Y,
+        worldX: attentionHubPos.x,
+        worldY: attentionHubPos.y,
         colorClass: "border-warning/55 text-warning hover:border-warning/85",
         icon: Radar,
         onClick: () => openStarboardAttention(),
@@ -2201,7 +2213,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
 
   const nowWellLens =
     lensEngaged && focalScreen
-      ? projectFisheye(WELL_X, WELL_Y, camera, focalScreen, lensRadius)
+      ? projectFisheye(wellPos.x, wellPos.y, camera, focalScreen, lensRadius)
       : null;
 
   const channelClusters = useMemo(
@@ -2297,7 +2309,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       const key = upcomingIdentityKey(item) + ":" + item.scheduled_at;
       if (firedKeysRef.current.has(key)) continue;
       firedKeysRef.current.add(key);
-      const orbit = upcomingOrbit(item, t);
+      const orbit = upcomingOrbit(item, t, undefined, wellPos);
       newPulses.push({
         id: key + ":" + Math.random().toString(36).slice(2, 8),
         x: orbit.x,
@@ -2317,7 +2329,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     const buckets = new Map<string, string[]>();
     for (const item of upcomingItems ?? []) {
       const key = upcomingReactKey(item);
-      const bucket = upcomingOrbitBucket(item, tickedNow);
+      const bucket = upcomingOrbitBucket(item, tickedNow, wellPos);
       const members = buckets.get(bucket) ?? [];
       members.push(key);
       buckets.set(bucket, members);
@@ -2682,45 +2694,69 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             />
           )}
           <MovementTraceLayer nodes={nodes ?? []} viewportBbox={viewportBbox} />
-          <NowWell
-            tickedNow={tickedNow}
-            zoom={ambientZoom}
-            lens={nowWellLens}
-          />
-          <div
-            className="absolute"
-            style={{
-              left: MEMORY_OBSERVATORY_X,
-              top: MEMORY_OBSERVATORY_Y,
-              zIndex: 4,
-            }}
+          <LandmarkWrapper
+            kind="now_well"
+            scale={ambientZoom}
+            interactionMode={interactionMode}
+            fallbackX={WELL_X}
+            fallbackY={WELL_Y}
+          >
+            <NowWell
+              tickedNow={tickedNow}
+              zoom={ambientZoom}
+              lens={nowWellLens}
+            />
+          </LandmarkWrapper>
+          <LandmarkWrapper
+            kind="memory_observatory"
+            scale={ambientZoom}
+            interactionMode={interactionMode}
+            fallbackX={MEMORY_OBSERVATORY_X}
+            fallbackY={MEMORY_OBSERVATORY_Y}
+            style={{ zIndex: 4 }}
           >
             <MemoryObservatory
               zoom={ambientZoom}
               lens={
                 lensEngaged && focalScreen
-                  ? projectFisheye(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y, camera, focalScreen, lensRadius)
+                  ? projectFisheye(memoryObsPos.x, memoryObsPos.y, camera, focalScreen, lensRadius)
                   : null
               }
               onInspect={setMemorySelection}
             />
-          </div>
-          <AttentionHubLandmark
-            activeCount={activeAttentionCount}
-            mappedCount={mapAttentionCount}
-            signalsVisible={attentionSignalsVisible}
-            zoom={ambientZoom}
-            onOpen={() => openStarboardAttention()}
-          />
-          <BloatSatellite />
-          <DailyHealthLandmark
-            zoom={ambientZoom}
-            onOpen={openStarboardHealth}
-          />
+          </LandmarkWrapper>
+          <LandmarkWrapper
+            kind="attention_hub"
+            scale={ambientZoom}
+            interactionMode={interactionMode}
+            fallbackX={ATTENTION_HUB_X}
+            fallbackY={ATTENTION_HUB_Y}
+          >
+            <AttentionHubLandmark
+              activeCount={activeAttentionCount}
+              mappedCount={mapAttentionCount}
+              signalsVisible={attentionSignalsVisible}
+              zoom={ambientZoom}
+              onOpen={() => openStarboardAttention()}
+            />
+          </LandmarkWrapper>
+          <BloatSatellite hubX={attentionHubPos.x} hubY={attentionHubPos.y} />
+          <LandmarkWrapper
+            kind="daily_health"
+            scale={ambientZoom}
+            interactionMode={interactionMode}
+            fallbackX={HEALTH_SUMMARY_X}
+            fallbackY={HEALTH_SUMMARY_Y}
+          >
+            <DailyHealthLandmark
+              zoom={ambientZoom}
+              onOpen={openStarboardHealth}
+            />
+          </LandmarkWrapper>
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
             const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
-            const orbit = upcomingOrbit(item, tickedNow, spread);
+            const orbit = upcomingOrbit(item, tickedNow, spread, wellPos);
             const lens =
               lensEngaged && focalScreen
                 ? projectFisheye(orbit.x, orbit.y, camera, focalScreen, lensRadius)
@@ -2738,7 +2774,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             );
           })}
           {!channelClusterMode && taskDefinitions.map((task, idx) => {
-            const orbit = definitionOrbit(task.id, taskDefinitions.length, idx);
+            const orbit = definitionOrbit(task.id, taskDefinitions.length, idx, wellPos);
             const lens =
               lensEngaged && focalScreen
                 ? projectFisheye(orbit.x, orbit.y, camera, focalScreen, lensRadius)
@@ -3241,13 +3277,12 @@ function AttentionHubLandmark({
       type="button"
       className="absolute flex flex-col items-center justify-center rounded-full border border-warning/45 bg-surface-raised/85 text-text backdrop-blur transition-transform hover:scale-105 hover:border-warning/80"
       style={{
-        left: ATTENTION_HUB_X - size / 2,
-        top: ATTENTION_HUB_Y - size / 2,
+        left: -size / 2,
+        top: -size / 2,
         width: size,
         height: size,
         zIndex: 4,
       }}
-      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();

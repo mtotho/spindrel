@@ -14,6 +14,12 @@ import {
   WELL_Y_SQUASH,
 } from "./spatialGeometry";
 
+export interface DefinitionWellCenter {
+  x: number;
+  y: number;
+}
+const DEFAULT_WELL: DefinitionWellCenter = { x: WELL_X, y: WELL_Y };
+
 /** Stable hash from a string to a uniform [0, 1) — FNV-1a 32-bit. */
 export function angularSlotForId(id: string): number {
   let h = 2166136261 >>> 0;
@@ -46,6 +52,7 @@ export function definitionOrbit(
   taskId: string,
   count?: number,
   index?: number,
+  well: DefinitionWellCenter = DEFAULT_WELL,
 ): DefinitionOrbitPoint {
   let theta: number;
   if (count && count > 0 && index !== undefined && index >= 0) {
@@ -57,7 +64,7 @@ export function definitionOrbit(
     theta = angularSlotForId(taskId) * Math.PI * 2;
   }
   const r = DEFINITIONS_R;
-  const x = WELL_X + Math.cos(theta) * r;
-  const y = WELL_Y + Math.sin(theta) * r * WELL_Y_SQUASH;
+  const x = well.x + Math.cos(theta) * r;
+  const y = well.y + Math.sin(theta) * r * WELL_Y_SQUASH;
   return { x, y, theta };
 }

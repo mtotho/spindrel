@@ -6,6 +6,15 @@ import {
   radiusForMinutes,
 } from "./spatialGeometry.ts";
 
+/** Live well center used by orbit math. Defaults to the seed coords; the
+ *  canvas overrides this each render with the live landmark position so
+ *  orbits track user drags of the Now Well landmark. */
+export interface WellCenter {
+  x: number;
+  y: number;
+}
+const DEFAULT_WELL_CENTER: WellCenter = { x: WELL_X, y: WELL_Y };
+
 export interface UpcomingOrbitSpread {
   index: number;
   count: number;
@@ -72,6 +81,7 @@ export function upcomingOrbit(
   item: UpcomingItem,
   tickedNow: number,
   spread: UpcomingOrbitSpread = { index: 0, count: 1 },
+  well: WellCenter = DEFAULT_WELL_CENTER,
 ): { x: number; y: number; minutesUntil: number; radius: number; theta: number } {
   const t = Date.parse(item.scheduled_at);
   const minutesUntil = Number.isNaN(t) ? 0 : Math.max(0, (t - tickedNow) / 60_000);
@@ -83,8 +93,8 @@ export function upcomingOrbit(
   const tangentX = -Math.sin(theta);
   const tangentY = Math.cos(theta) * WELL_Y_SQUASH;
   return {
-    x: WELL_X + r * Math.cos(theta) + tangentX * spreadOffset,
-    y: WELL_Y + r * Math.sin(theta) * WELL_Y_SQUASH + tangentY * spreadOffset,
+    x: well.x + r * Math.cos(theta) + tangentX * spreadOffset,
+    y: well.y + r * Math.sin(theta) * WELL_Y_SQUASH + tangentY * spreadOffset,
     minutesUntil,
     radius: r,
     theta,
@@ -94,8 +104,9 @@ export function upcomingOrbit(
 export function upcomingOrbitBucket(
   item: UpcomingItem,
   tickedNow: number,
+  well: WellCenter = DEFAULT_WELL_CENTER,
 ): string {
-  const orbit = upcomingOrbit(item, tickedNow);
+  const orbit = upcomingOrbit(item, tickedNow, undefined, well);
   const radiusBucket = Math.round(orbit.radius / 56);
   const angleBucket = Math.round((orbit.theta * 180 / Math.PI) / 18);
   return `${radiusBucket}:${angleBucket}`;
