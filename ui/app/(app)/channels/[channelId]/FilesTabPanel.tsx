@@ -13,7 +13,7 @@
  * IN CONTEXT card has been dropped; the token gauge lives in the action row.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, FolderPlus, Search, Upload, RefreshCw, X } from "lucide-react";
+import { Plus, FolderPlus, Search, Upload, MoreHorizontal, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
@@ -113,6 +113,7 @@ interface FilesTabPanelProps {
   /** Workspace-relative root for this channel's file browser, e.g. /common/project. */
   rootPath?: string | null;
   rootLabel?: string;
+  onOpenTerminal?: (workspaceRelativePath: string) => void;
 }
 
 export function FilesTabPanel({
@@ -125,6 +126,7 @@ export function FilesTabPanel({
   focusSearchOnMount = false,
   rootPath,
   rootLabel = "Project",
+  onOpenTerminal,
 }: FilesTabPanelProps) {
   const t = useThemeTokens();
   const queryClient = useQueryClient();
@@ -668,6 +670,39 @@ export function FilesTabPanel({
   const tokenTitle = activeFiles.length
     ? `Active files in context:\n${activeFiles.map((f) => f.name).join("\n")}`
     : "No active files in context";
+  const openOverflowMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const items: ContextMenuItem[] = [
+      {
+        label: "Refresh",
+        action: () => {
+          refreshAll();
+          setContextMenu(null);
+        },
+      },
+    ];
+    if (onOpenTerminal) {
+      items.push({
+        label: "Open terminal here",
+        action: () => {
+          onOpenTerminal(currentPath);
+          setContextMenu(null);
+        },
+      });
+    }
+    items.push({
+      label: `Context: ~${tokenStr} tok`,
+      separator: true,
+      action: () => setContextMenu(null),
+    });
+    setContextMenu({
+      x: Math.max(8, rect.right - 190),
+      y: rect.bottom + 6,
+      items,
+    });
+  }, [currentPath, onOpenTerminal, refreshAll, tokenStr]);
 
   return (
     <div
@@ -719,16 +754,8 @@ export function FilesTabPanel({
           >
             <Search size={13} color={showFilter ? t.accent : t.textDim} />
           </button>
-          <button
-            type="button"
-            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-            onClick={refreshAll}
-            title="Refresh"
-          >
-            <RefreshCw size={13} color={t.textDim} />
-          </button>
           <span
-            className="ml-1 truncate"
+            className="ml-1 min-w-0 flex-1 truncate"
             style={{
               color: t.textDim,
               fontSize: 10,
@@ -736,30 +763,21 @@ export function FilesTabPanel({
             }}
           >
             {visibleSummary}
-            {selectedCount > 0 ? ` · ${selectedCount} selected` : " · drag files to move"}
+            {selectedCount > 0 ? ` · ${selectedCount} selected` : ""}
           </span>
-          <span
-            className="ml-auto relative overflow-hidden rounded"
-            title={tokenTitle}
-            style={{
-              padding: "1px 6px",
-              fontSize: 10,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              color: tokenColor,
-              backgroundColor: `${t.text}06`,
-              flexShrink: 0,
-            }}
+          <button
+            type="button"
+            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+            onClick={openOverflowMenu}
+            title={`${tokenTitle}\n\nMore file actions`}
           >
-            <span
-              className="absolute left-0 top-0 bottom-0 rounded"
-              style={{
-                width: `${Math.round(tokenPct * 100)}%`,
-                backgroundColor: tokenColor,
-                opacity: 0.12,
-                transition: "width 0.3s ease, background-color 0.3s ease",
-              }}
-            />
-            <span className="relative">~{tokenStr} tok</span>
+            <MoreHorizontal size={14} color={tokenColor} />
+          </button>
+          <span
+            className="sr-only"
+            title={tokenTitle}
+          >
+            ~{tokenStr} tok, {Math.round(tokenPct * 100)}% of file context budget
           </span>
         </div>
 

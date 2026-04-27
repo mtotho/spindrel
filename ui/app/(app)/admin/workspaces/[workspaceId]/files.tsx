@@ -1,8 +1,9 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { useState, useEffect, useMemo } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo } from "react";
 
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { Terminal as TerminalIcon, X as CloseIcon } from "lucide-react";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useWorkspace, useWorkspaceIndexStatus } from "@/src/api/hooks/useWorkspaces";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
@@ -13,6 +14,9 @@ import { SplitViewContainer } from "@/src/components/workspace/SplitViewContaine
 import { UploadDialog } from "@/src/components/workspace/UploadDialog";
 
 const MOBILE_BREAKPOINT = 768;
+const TerminalPanel = lazy(() =>
+  import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
+);
 
 export default function WorkspaceFileBrowser() {
   const t = useThemeTokens();
@@ -30,6 +34,7 @@ export default function WorkspaceFileBrowser() {
   const isMobile = windowWidth < MOBILE_BREAKPOINT;
 
   const [showUpload, setShowUpload] = useState(false);
+  const [terminalRequest, setTerminalRequest] = useState<{ cwd: string; label: string } | null>(null);
   const { data: indexData } = useWorkspaceIndexStatus(workspaceId);
 
   // Build set of indexed paths (including ancestor directories for teal dot on folders)
@@ -81,11 +86,24 @@ export default function WorkspaceFileBrowser() {
 
   // Current directory for upload dialog
   const currentDir = leftActive ? leftActive.substring(0, leftActive.lastIndexOf("/")) || "/" : "/";
+  const openTerminalAtPath = (workspaceRelativePath: string) => {
+    if (!workspaceId) return;
+    const trimmed = (workspaceRelativePath || "/").replace(/^\/+|\/+$/g, "");
+    setTerminalRequest({
+      cwd: `workspace://${workspaceId}${trimmed ? `/${trimmed}` : ""}`,
+      label: trimmed ? `/${trimmed}` : "/",
+    });
+  };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
       {isMobile && <PageHeader variant="detail" title="Workspace" backTo={`/admin/workspaces/${workspaceId}`} />}
-      <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
+      <BrowserToolbar
+        workspace={workspace}
+        onUpload={() => setShowUpload(true)}
+        onOpenTerminal={openTerminalAtPath}
+        isMobile={isMobile}
+      />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative" }}>
         {/* Mobile overlay tree */}
@@ -130,6 +148,47 @@ export default function WorkspaceFileBrowser() {
           onClose={() => setShowUpload(false)}
         />
       )}
+      {terminalRequest && (
+        <WorkspaceTerminalDrawer
+          cwd={terminalRequest.cwd}
+          label={terminalRequest.label}
+          onClose={() => setTerminalRequest(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function WorkspaceTerminalDrawer({
+  cwd,
+  label,
+  onClose,
+}: {
+  cwd: string;
+  label: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-y-0 right-0 z-[10035] flex w-[min(820px,92vw)] flex-col border-l border-surface-border bg-[#0a0d12] shadow-2xl">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/10 bg-[#0d1117] px-3">
+        <TerminalIcon size={15} className="text-accent" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-semibold text-zinc-200">Terminal</div>
+          <div className="truncate font-mono text-[10px] text-zinc-500">{label}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1.5 text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+          aria-label="Close terminal"
+          title="Close terminal"
+        >
+          <CloseIcon size={14} />
+        </button>
+      </div>
+      <Suspense fallback={<div className="flex flex-1 items-center justify-center bg-[#0a0d12] text-[12px] text-zinc-500">Starting terminal...</div>}>
+        <TerminalPanel cwd={cwd} title={cwd} />
+      </Suspense>
     </div>
   );
 }

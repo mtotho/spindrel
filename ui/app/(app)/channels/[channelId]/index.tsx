@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { PipelineRunModal } from "./PipelineRunModal";
@@ -34,7 +34,7 @@ import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
-import { FolderOpen, Cog, Settings as SettingsIcon, PanelLeft as PanelLeftIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon, Layers, Search } from "lucide-react";
+import { FolderOpen, Cog, Settings as SettingsIcon, PanelLeft as PanelLeftIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon, Layers, Search, Terminal as TerminalIcon } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
@@ -113,6 +113,10 @@ import {
 import { channelSessionCatalogKey, useChannelSessionCatalog, usePromoteScratchSession } from "@/src/api/hooks/useChannelSessions";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
+
+const TerminalPanel = lazy(() =>
+  import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
+);
 
 function readLegacyRightDockWidth(): number {
   if (typeof window === "undefined") return CHANNEL_PANEL_DEFAULT_WIDTH;
@@ -753,6 +757,22 @@ export default function ChatScreen() {
     : undefined;
   const fileWorkspaceId = projectWorkspaceId || workspaceId;
   const fileRootPath = projectPath ? `/${projectPath}` : undefined;
+  const [terminalRequest, setTerminalRequest] = useState<{ cwd: string; label: string } | null>(null);
+  const buildWorkspaceTerminalCwd = useCallback((workspaceRelativePath?: string | null) => {
+    if (!fileWorkspaceId) return null;
+    const trimmed = (workspaceRelativePath || fileRootPath || `/channels/${channelId}`).replace(/^\/+|\/+$/g, "");
+    return `workspace://${fileWorkspaceId}${trimmed ? `/${trimmed}` : ""}`;
+  }, [channelId, fileRootPath, fileWorkspaceId]);
+  const openTerminalAtPath = useCallback((workspaceRelativePath?: string | null) => {
+    const cwd = buildWorkspaceTerminalCwd(workspaceRelativePath);
+    if (!cwd) return;
+    const labelRaw = workspaceRelativePath || fileRootPath || `/channels/${channelId}`;
+    const labelPath = labelRaw.startsWith("/") ? labelRaw : `/${labelRaw}`;
+    setTerminalRequest({
+      cwd,
+      label: labelPath || "/",
+    });
+  }, [buildWorkspaceTerminalCwd, channelId, fileRootPath]);
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
   const setRememberedChannelPath = useFileBrowserStore((s) => s.setChannelExplorerPath);
   const legacyExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
@@ -1419,6 +1439,14 @@ export default function ChatScreen() {
         category: "This Channel",
         onSelect: () => openBrowseFiles(),
       });
+      actions.push({
+        id: `channel:${channelId}:open-terminal`,
+        label: projectPath ? "Open terminal in project" : "Open terminal in channel workspace",
+        hint: projectPath ? `/${projectPath}` : channelLabel,
+        icon: TerminalIcon,
+        category: "This Channel",
+        onSelect: () => openTerminalAtPath(fileRootPath || `/channels/${channelId}`),
+      });
     }
 
     if (!isSystemChannel) {
@@ -1563,10 +1591,12 @@ export default function ChatScreen() {
     channelDashboardHref,
     dockPins.length,
     focusOrRestorePanels,
+    fileRootPath,
     navigate,
     openLeftPanelTab,
     openSessionsOverlay,
     openSplitOverlay,
+    openTerminalAtPath,
     panelPrefs.leftOpen,
     panelPrefs.rightOpen,
     panelPrefs.topChromeCollapsed,
@@ -1576,6 +1606,7 @@ export default function ChatScreen() {
     railPins.length,
     layoutMode,
     patchChannelPanelPrefs,
+    projectPath,
     registerPaletteActions,
     toggleRightDockPanel,
   ]);
@@ -2034,6 +2065,7 @@ export default function ChatScreen() {
               channelDisplayName={channel?.display_name || channel?.name}
               activeFile={activeFile}
               onSelectFile={handleSelectFile}
+              onOpenTerminal={openTerminalAtPath}
               activeTab={panelPrefs.leftTab}
               onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
               expandedWidgetId={panelPrefs.mobileExpandedWidgetId}
@@ -2112,6 +2144,7 @@ export default function ChatScreen() {
                 channelDisplayName={channel?.display_name || channel?.name}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
+                onOpenTerminal={openTerminalAtPath}
                 onClose={handleCloseExplorer}
                 width={panelLayout.left.width}
                 activeTab={panelPrefs.leftTab}
@@ -2494,6 +2527,47 @@ export default function ChatScreen() {
           onToggleFocusLayout={focusOrRestorePanels}
         />
       )}
+      {terminalRequest && (
+        <ChannelTerminalDrawer
+          cwd={terminalRequest.cwd}
+          label={terminalRequest.label}
+          onClose={() => setTerminalRequest(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChannelTerminalDrawer({
+  cwd,
+  label,
+  onClose,
+}: {
+  cwd: string;
+  label: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-y-0 right-0 z-[10035] flex w-[min(820px,92vw)] flex-col border-l border-surface-border bg-[#0a0d12] shadow-2xl">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/10 bg-[#0d1117] px-3">
+        <TerminalIcon size={15} className="text-accent" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-semibold text-zinc-200">Terminal</div>
+          <div className="truncate font-mono text-[10px] text-zinc-500">{label}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1.5 text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+          aria-label="Close terminal"
+          title="Close terminal"
+        >
+          <CloseIcon size={14} />
+        </button>
+      </div>
+      <Suspense fallback={<div className="flex flex-1 items-center justify-center bg-[#0a0d12] text-[12px] text-zinc-500">Starting terminal...</div>}>
+        <TerminalPanel cwd={cwd} title={cwd} />
+      </Suspense>
     </div>
   );
 }

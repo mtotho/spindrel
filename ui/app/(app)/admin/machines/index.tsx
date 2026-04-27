@@ -35,6 +35,7 @@ import {
   normalizeMachineEnrollConfig,
   type MachineEnrollDraft,
 } from "@/src/components/machineControl/MachineEnrollFields";
+import { ProfileSetupGuide } from "@/src/components/machineControl/ProfileSetupGuide";
 
 function formatDateTime(value?: string | null): string | null {
   if (!value) return null;
@@ -283,6 +284,9 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                   {editingProfile ? `Edit profile: ${editingProfile.label}` : "Create profile"}
                 </div>
                 <div className="flex flex-col gap-3">
+                  {!editingProfile && provider.profile_setup_guide && (
+                    <ProfileSetupGuide guide={provider.profile_setup_guide} />
+                  )}
                   <TextInput
                     value={profileLabelDraft}
                     onChangeText={setProfileLabelDraft}

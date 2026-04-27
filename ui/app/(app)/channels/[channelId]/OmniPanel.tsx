@@ -51,6 +51,7 @@ interface OmniPanelProps {
   channelDisplayName?: string | null;
   activeFile: string | null;
   onSelectFile: (path: string) => void;
+  onOpenTerminal?: (workspaceRelativePath: string) => void;
   onClose: () => void;
   width?: number;
   fullWidth?: boolean;
@@ -85,6 +86,7 @@ export function OmniPanel({
   channelDisplayName,
   activeFile,
   onSelectFile,
+  onOpenTerminal,
   onClose: _onClose,
   width = 300,
   fullWidth = false,
@@ -190,6 +192,7 @@ export function OmniPanel({
       channelDisplayName={channelDisplayName}
       activeFile={activeFile}
       onSelectFile={onSelectFile}
+      onOpenTerminal={onOpenTerminal}
       focusSearchOnMount={false}
     />
   ) : null;

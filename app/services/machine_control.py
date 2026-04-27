@@ -203,6 +203,50 @@ def _provider_profile_fields(provider_id: str) -> list[dict[str, Any]]:
     return [field for field in fields if isinstance(field, dict)]
 
 
+def _provider_profile_setup_guide(provider_id: str) -> dict[str, Any] | None:
+    block = _provider_block(provider_id)
+    guide = block.get("profile_setup_guide")
+    if not isinstance(guide, dict):
+        return None
+    raw_steps = guide.get("steps")
+    if not isinstance(raw_steps, list):
+        return None
+    steps: list[dict[str, Any]] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        title = raw_step.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        step: dict[str, Any] = {"title": title.strip()}
+        description = raw_step.get("description")
+        if isinstance(description, str) and description.strip():
+            step["description"] = description.strip()
+        raw_commands = raw_step.get("commands")
+        if isinstance(raw_commands, list):
+            commands: list[dict[str, str]] = []
+            for raw_command in raw_commands:
+                if not isinstance(raw_command, dict):
+                    continue
+                label = raw_command.get("label")
+                value = raw_command.get("value")
+                if not isinstance(label, str) or not isinstance(value, str):
+                    continue
+                if not label.strip() or not value.strip():
+                    continue
+                commands.append({"label": label.strip(), "value": value})
+            if commands:
+                step["commands"] = commands
+        steps.append(step)
+    if not steps:
+        return None
+    payload: dict[str, Any] = {"steps": steps}
+    summary = guide.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        payload["summary"] = summary.strip()
+    return payload
+
+
 def _normalize_target_status(
     status: dict[str, Any] | None,
     *,
@@ -365,6 +409,7 @@ def _provider_summary(provider_id: str, provider: MachineControlProvider) -> dic
         "integration_admin_href": _provider_admin_href(provider_id),
         "enroll_fields": _provider_enroll_fields(provider_id),
         "profile_fields": _provider_profile_fields(provider_id),
+        "profile_setup_guide": _provider_profile_setup_guide(provider_id),
         "metadata": block.get("metadata") if isinstance(block.get("metadata"), dict) else None,
     }
 

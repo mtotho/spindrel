@@ -1,4 +1,5 @@
 import { Suspense, lazy } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Spinner } from "@/src/components/shared/Spinner";
@@ -8,6 +9,8 @@ const TerminalPanel = lazy(() =>
 );
 
 export default function AdminTerminalScreen() {
+  const [params] = useSearchParams();
+  const cwd = params.get("cwd") || undefined;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
       <PageHeader
@@ -23,7 +26,7 @@ export default function AdminTerminalScreen() {
             </div>
           }
         >
-          <TerminalPanel />
+          <TerminalPanel cwd={cwd} />
         </Suspense>
       </div>
     </div>

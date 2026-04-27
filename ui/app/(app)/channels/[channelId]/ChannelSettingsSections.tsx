@@ -684,6 +684,9 @@ function HarnessProjectDirectorySection({
 }) {
   const projectPath = (form.project_path ?? "").replace(/^\/+/, "");
   const effectiveWorkspaceId = form.project_workspace_id ?? workspaceId ?? null;
+  const terminalHref = effectiveWorkspaceId && projectPath
+    ? `/admin/terminal?cwd=${encodeURIComponent(`workspace://${effectiveWorkspaceId}/${projectPath}`)}`
+    : null;
   return (
     <Section
       title="Project Directory"
@@ -711,6 +714,14 @@ function HarnessProjectDirectorySection({
               >
                 Open location
               </Link>
+            )}
+            {terminalHref && (
+              <>
+                {" · "}
+                <Link to={terminalHref} className="font-semibold text-accent hover:underline">
+                  Open terminal
+                </Link>
+              </>
             )}
           </>
         ) : (

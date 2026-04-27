@@ -76,6 +76,22 @@ export interface MachineControlEnrollField {
   options?: Array<{ value: string; label: string }>;
 }
 
+export interface MachineProfileSetupGuideCommand {
+  label: string;
+  value: string;
+}
+
+export interface MachineProfileSetupGuideStep {
+  title: string;
+  description?: string | null;
+  commands?: MachineProfileSetupGuideCommand[] | null;
+}
+
+export interface MachineProfileSetupGuide {
+  summary?: string | null;
+  steps: MachineProfileSetupGuideStep[];
+}
+
 export interface MachineProviderProfile {
   profile_id: string;
   label: string;
@@ -100,6 +116,7 @@ export interface MachineProviderState {
   integration_admin_href: string;
   enroll_fields?: MachineControlEnrollField[] | null;
   profile_fields?: MachineControlEnrollField[] | null;
+  profile_setup_guide?: MachineProfileSetupGuide | null;
   profiles?: MachineProviderProfile[] | null;
   profile_count?: number | null;
   metadata?: Record<string, unknown> | null;

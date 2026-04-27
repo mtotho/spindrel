@@ -17,6 +17,8 @@ interface TerminalPanelProps {
   onExit?: () => void;
   /** Optional className for the outer container — usually `flex-1` or sized. */
   className?: string;
+  /** Optional compact title bar for embedded terminal drawers. */
+  title?: string;
 }
 
 type WireMessage =
@@ -50,7 +52,7 @@ function decodeBase64ToBytes(b64: string): Uint8Array {
  * Lifecycle: mount → POST /admin/terminal/sessions → connect WS with the
  * returned id → render xterm → on unmount, close WS (server kills the PTY).
  */
-export function TerminalPanel({ seedCommand, cwd, onExit, className }: TerminalPanelProps) {
+export function TerminalPanel({ seedCommand, cwd, onExit, className, title }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -237,7 +239,12 @@ export function TerminalPanel({ seedCommand, cwd, onExit, className }: TerminalP
 
   return (
     <div className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0d12] ${className ?? ""}`}>
-      <div ref={containerRef} className="absolute inset-0 p-2" />
+      {title && (
+        <div className="flex h-8 shrink-0 items-center border-b border-white/10 px-3 font-mono text-[11px] text-zinc-400">
+          {title}
+        </div>
+      )}
+      <div ref={containerRef} className={`absolute inset-x-0 bottom-0 p-2 ${title ? "top-8" : "top-0"}`} />
       {status === "connecting" && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#0a0d12]/90">
           <div className="flex items-center gap-2 text-[12px] text-text-dim">

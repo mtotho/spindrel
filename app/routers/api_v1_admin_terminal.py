@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Optional
+from urllib.parse import unquote, urlparse
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
@@ -61,6 +64,34 @@ class CreateTerminalSessionOut(BaseModel):
     session_id: str
 
 
+def _resolve_terminal_cwd(cwd: str | None) -> str | None:
+    if not cwd:
+        return None
+    if not cwd.startswith("workspace://"):
+        return cwd
+    parsed = urlparse(cwd)
+    workspace_id = parsed.netloc
+    try:
+        uuid.UUID(workspace_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="workspace cwd must include a valid workspace id")
+
+    rel = unquote(parsed.path or "").lstrip("/")
+    parts = [part for part in rel.replace("\\", "/").split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        raise HTTPException(status_code=422, detail="workspace cwd must stay inside the workspace")
+
+    from app.services.shared_workspace import shared_workspace_service
+
+    root = os.path.realpath(shared_workspace_service.ensure_host_dirs(workspace_id))
+    resolved = os.path.realpath(os.path.join(root, *parts)) if parts else root
+    root_prefix = root.rstrip(os.sep) + os.sep
+    if resolved != root and not resolved.startswith(root_prefix):
+        raise HTTPException(status_code=422, detail="workspace cwd must stay inside the workspace")
+    os.makedirs(resolved, exist_ok=True)
+    return resolved
+
+
 @router.post(
     "/terminal/sessions",
     response_model=CreateTerminalSessionOut,
@@ -80,7 +111,7 @@ async def create_terminal_session(
         session = await create_session(
             user_key,
             seed_command=body.seed_command,
-            cwd=body.cwd,
+            cwd=_resolve_terminal_cwd(body.cwd),
         )
     except TerminalSessionLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))

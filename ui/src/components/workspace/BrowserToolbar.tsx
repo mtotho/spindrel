@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Columns2, FilePlus, FolderPlus, Upload, Settings, ChevronRight,
-  PanelLeft,
+  PanelLeft, Terminal,
 } from "lucide-react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
 import {
@@ -15,10 +15,11 @@ import { useThemeTokens } from "../../theme/tokens";
 interface BrowserToolbarProps {
   workspace: SharedWorkspace;
   onUpload: () => void;
+  onOpenTerminal?: (workspaceRelativePath: string) => void;
   isMobile?: boolean;
 }
 
-export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbarProps) {
+export function BrowserToolbar({ workspace, onUpload, onOpenTerminal, isMobile }: BrowserToolbarProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const splitMode = useFileBrowserStore((s) => s.splitMode);
@@ -145,6 +146,9 @@ export function BrowserToolbar({ workspace, onUpload, isMobile }: BrowserToolbar
       <ToolbarButton icon={<FilePlus size={14} />} title="New File" onClick={() => setCreating("file")} />
       <ToolbarButton icon={<FolderPlus size={14} />} title="New Folder" onClick={() => setCreating("folder")} />
       <ToolbarButton icon={<Upload size={14} />} title="Upload" onClick={onUpload} />
+      {onOpenTerminal && (
+        <ToolbarButton icon={<Terminal size={14} />} title="Open terminal here" onClick={() => onOpenTerminal(currentDir)} />
+      )}
 
       {/* Split — hide on mobile */}
       {!isMobile && (

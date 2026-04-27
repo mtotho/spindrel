@@ -54,6 +54,7 @@ interface MobileChannelDrawerProps {
   channelDisplayName?: string | null;
   activeFile: string | null;
   onSelectFile: (workspaceRelativePath: string) => void;
+  onOpenTerminal?: (workspaceRelativePath: string) => void;
   activeTab?: OmniPanelTab;
   onTabChange?: (tab: OmniPanelTab) => void;
   expandedWidgetId?: string | null;
@@ -92,6 +93,7 @@ export function MobileChannelDrawer({
   channelDisplayName,
   activeFile,
   onSelectFile,
+  onOpenTerminal,
   activeTab: controlledTab,
   onTabChange,
   expandedWidgetId,
@@ -266,6 +268,7 @@ export function MobileChannelDrawer({
             channelDisplayName={channelDisplayName}
             activeFile={activeFile}
             onSelectFile={handleSelectFile}
+            onOpenTerminal={onOpenTerminal}
             focusSearchOnMount={false}
           />
         )}
