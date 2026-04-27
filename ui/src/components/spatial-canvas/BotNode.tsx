@@ -5,7 +5,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { MessageCircle } from "lucide-react";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import {
   LENS_SETTLE_MS,
@@ -80,7 +79,7 @@ export function ManualBotNode({
     transformOrigin: "center center",
     transition,
     touchAction: "none",
-    cursor: diving ? "default" : isDragging ? "grabbing" : dragEnabled ? "grab" : "default",
+    cursor: diving ? "default" : isDragging ? "grabbing" : dragEnabled ? "grab" : "pointer",
     opacity: reduced ? 0.68 : 1,
     contain: "layout paint style",
   };
@@ -120,16 +119,12 @@ export function BotTile({
   avatarEmoji,
   zoom,
   reduced,
-  onOpenChat,
-  chatDisabled,
 }: {
   name: string;
   botId: string;
   avatarEmoji: string | null;
   zoom: number;
   reduced: boolean;
-  onOpenChat: () => void;
-  chatDisabled: boolean;
 }) {
   const compact = zoom < 0.55;
   const avatar = avatarEmoji || "🤖";
@@ -139,8 +134,6 @@ export function BotTile({
   const innerSize = reduced ? 58 : 82;
   const emojiSize = reduced ? 28 : 38;
   const labelTop = reduced ? 108 : 132;
-  const chatLeft = reduced ? 138 : 154;
-  const chatTop = reduced ? 90 : 104;
   return (
     <div
       className="relative flex h-full w-full items-center justify-center overflow-visible"
@@ -168,21 +161,6 @@ export function BotTile({
           {name}
         </div>
       </div>
-      <button
-        type="button"
-        disabled={chatDisabled}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenChat();
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-        title={chatDisabled ? "No channel available for this bot" : "Open mini chat"}
-        aria-label={chatDisabled ? "No channel available" : `Open mini chat with ${name}`}
-        className="absolute flex h-8 w-8 items-center justify-center rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim"
-        style={{ left: chatLeft, top: chatTop }}
-      >
-        <MessageCircle className="w-3.5 h-3.5" aria-hidden />
-      </button>
     </div>
   );
 }

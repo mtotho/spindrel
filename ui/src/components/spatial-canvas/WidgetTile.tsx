@@ -57,6 +57,7 @@ interface WidgetTileProps {
   /** Tile id (canvas uses this to set the activated tile). */
   nodeId: string;
   onActivate: (nodeId: string) => void;
+  onSelect?: () => void;
 }
 
 const MIN_W = 200;
@@ -91,10 +92,11 @@ function WidgetTileInner({
   activated,
   nodeId,
   onActivate,
+  onSelect,
 }: WidgetTileProps) {
-  if (zoom < CHIP_THRESHOLD) return <ChipView zoom={zoom} extraScale={extraScale} />;
+  if (zoom < CHIP_THRESHOLD) return <ChipView zoom={zoom} extraScale={extraScale} onSelect={onSelect} />;
   if (zoom < TITLE_THRESHOLD)
-    return <ChipTitleView pin={pin} zoom={zoom} extraScale={extraScale} />;
+    return <ChipTitleView pin={pin} zoom={zoom} extraScale={extraScale} onSelect={onSelect} />;
   return (
     <CardView
       pin={pin}
@@ -102,6 +104,7 @@ function WidgetTileInner({
       activated={activated}
       nodeId={nodeId}
       onActivate={onActivate}
+      onSelect={onSelect}
       zoom={zoom}
     />
   );
@@ -114,6 +117,7 @@ export const WidgetTile = memo(WidgetTileInner, (prev, next) => {
   if (prev.activated !== next.activated) return false;
   if (prev.nodeId !== next.nodeId) return false;
   if (prev.onActivate !== next.onActivate) return false;
+  if (prev.onSelect !== next.onSelect) return false;
 
   const prevTier =
     prev.zoom < CHIP_THRESHOLD ? "chip" :
@@ -151,13 +155,17 @@ function WidgetGlyph({ size }: { size: number }) {
   );
 }
 
-function ChipView({ zoom, extraScale }: { zoom: number; extraScale: number }) {
+function ChipView({ zoom, extraScale, onSelect }: { zoom: number; extraScale: number; onSelect?: () => void }) {
   const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom) * Math.max(0.05, extraScale);
   const glyphScale = Math.max(1, OVERVIEW_MIN_CHIP_SCREEN_PX / (64 * effectiveScale));
   return (
     <div
       data-tile-kind="widget"
-      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center active:cursor-grabbing"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center"
       style={{ width: 76, height: 76 }}
     >
       <div
@@ -176,10 +184,12 @@ function ChipTitleView({
   pin,
   zoom,
   extraScale,
+  onSelect,
 }: {
   pin: SpatialNodePin;
   zoom: number;
   extraScale: number;
+  onSelect?: () => void;
 }) {
   // Counter-scale the title so it stays readable at chip+title zoom range
   // (0.4 ≤ z < 0.6). Same trick as channel DotView. `extraScale` covers
@@ -190,7 +200,11 @@ function ChipTitleView({
   return (
     <div
       data-tile-kind="widget"
-      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center gap-3 active:cursor-grabbing"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3"
       style={{ width: 220, minHeight: 112 }}
     >
       <WidgetGlyph size={56} />
@@ -213,6 +227,7 @@ function CardView({
   activated,
   nodeId,
   onActivate,
+  onSelect,
   zoom,
 }: {
   pin: SpatialNodePin;
@@ -220,6 +235,7 @@ function CardView({
   activated: boolean;
   nodeId: string;
   onActivate: (id: string) => void;
+  onSelect?: () => void;
   zoom: number;
 }) {
   const t = useThemeTokens();
@@ -357,10 +373,14 @@ function CardView({
   return (
     <div
       data-tile-kind="widget"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
       className={`group relative w-full h-full text-text flex flex-col overflow-hidden ${
         isFramelessNative
           ? "pointer-events-none"
-          : `cursor-grab active:cursor-grabbing rounded-xl border bg-surface-raised shadow-lg ${
+          : `cursor-pointer rounded-xl border bg-surface-raised shadow-lg ${
               activated ? "border-accent" : "border-surface-border"
             }`
       }`}
@@ -460,11 +480,11 @@ function CardView({
             {!activated && (
               <button
                 type="button"
-                aria-label="Activate widget"
-                title="Click to interact"
+                aria-label="Select widget"
+                title="Select widget"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onActivate(nodeId);
+                  onSelect?.();
                 }}
                 onDoubleClick={(e) => e.stopPropagation()}
                 className="absolute inset-0 cursor-pointer bg-transparent border-0 p-0 m-0"

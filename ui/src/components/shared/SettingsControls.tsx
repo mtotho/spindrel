@@ -145,14 +145,26 @@ export function StatusBadge({
   );
 }
 
+export type QuietPillTone = "neutral" | "warning" | "danger" | "success" | "info";
+
+const QUIET_PILL_TONE_CLASSES: Record<QuietPillTone, string> = {
+  neutral: "bg-surface-overlay/35 text-text-muted",
+  warning: "bg-warning/10 text-warning-muted",
+  danger: "bg-danger/10 text-danger",
+  success: "bg-success/10 text-success",
+  info: "bg-accent/10 text-accent",
+};
+
 export function QuietPill({
   label,
   title,
+  tone = "neutral",
   className = "",
   maxWidthClass = "max-w-[160px]",
 }: {
   label: React.ReactNode;
   title?: string;
+  tone?: QuietPillTone;
   className?: string;
   maxWidthClass?: string;
 }) {
@@ -160,9 +172,9 @@ export function QuietPill({
     <span
       title={title}
       className={
-        `inline-flex shrink-0 items-center rounded-full bg-surface-overlay/35 ` +
-        `px-1.5 py-px text-[9px] font-semibold uppercase leading-[14px] tracking-[0.05em] text-text-muted ` +
-        `${maxWidthClass} ` +
+        `inline-flex shrink-0 items-center rounded-full ` +
+        `px-1.5 py-px text-[9px] font-semibold uppercase leading-[14px] tracking-[0.05em] ` +
+        `${QUIET_PILL_TONE_CLASSES[tone]} ${maxWidthClass} ` +
         className
       }
     >

@@ -23,9 +23,10 @@ The route underneath the overlay **stays mounted**. SSE streams, in-flight bot r
 ![Mid-zoom view — channel cluster with density halos visible](../images/spatial-zoom-out-01.png)
 
 - **Pan** — click-and-drag on the background.
-- **Move items** — the canvas defaults to Browse mode, so dragging over tiles
-  pans the map. Turn on Arrange in the canvas chrome, or hold `Shift` while
-  dragging an item, to move channels, widgets, or bots.
+- **Select items** — in Browse mode, clicking a channel, bot, widget, cluster,
+  or landmark selects it and shows a compact action rail near the target.
+- **Move items** — turn on Arrange in the canvas chrome. Browse mode never
+  moves objects, and `Shift` is not a movement override.
 - **Zoom** — wheel anywhere on the canvas. Holding the cursor over a widget tile zooms the canvas, not the widget (until the tile is "activated"; see [Widget tiles](#widget-tiles)).
 - **Recenter** — use `Cmd+K` / `Ctrl+K` and pick the canvas recenter action.
 - **Fly to a channel** — `Cmd+K` and pick a channel. When the canvas is mounted, channel-pick navigates by flying the camera to that tile instead of route-changing.
@@ -48,7 +49,11 @@ Each channel renders at semantic-zoom levels. The authored bounding boxes stay t
 | `0.4 – 1.0` (**preview**) | Compact card: hash chip, colored bullet, name, last activity timestamp. |
 | `≥ 1.0` (**snapshot**) | Expanded card with member-bot chips, private flag, and a "double-click to dive" hint. |
 
-Clicking a cluster frames its member neighborhood; double-clicking dives into the cluster's winner channel. Cluster halos respect the **Activity** toggle. When Activity is enabled, member halos collapse into the cluster marker; when Activity is off, the winner is still selected from recent usage, but no glow is shown.
+Clicking a cluster selects it and shows Focus/Dive actions; double-clicking
+dives into the cluster's winner channel. Cluster halos respect the **Activity**
+toggle. When Activity is enabled, member halos collapse into the cluster marker;
+when Activity is off, the winner is still selected from recent usage, but no
+glow is shown.
 
 **Double-click a channel tile to dive in.** A ~300ms zoom-and-translate animation runs to completion, then the route changes to `/channels/:id`. The canvas never embeds the channel page — diving is always a route change.
 
@@ -73,7 +78,11 @@ Widget tiles also have three semantic-zoom levels:
 
 ![Channel close-up with widget cards floating around it](../images/spatial-zoom-out-in-01.png)
 
-**Iframe gesture handling.** A live widget would normally swallow wheel and click events. The canvas covers the iframe with a transparent shield until you click into the tile to activate it. Once activated, wheel and click reach the iframe; pan/zoom of the canvas pauses inside the tile. `Esc` or clicking the canvas background deactivates.
+**Iframe gesture handling.** A live widget would normally swallow wheel and
+click events. The canvas covers the iframe with a transparent shield until the
+tile is activated from the selected-object rail or Starboard action menu. Once
+activated, wheel and click reach the iframe; pan/zoom of the canvas pauses
+inside the tile. `Esc` or clicking the canvas background deactivates.
 
 **Viewport culling.** Only tiles inside (or within one viewport of) the camera get a live iframe; far-away tiles render a static body. Pan a viewport away and back without the iframe remounting. Pan farther and state is discarded — by design.
 
@@ -84,6 +93,10 @@ Widgets on the canvas use the same iframe contract, SDK, theme, and bot-scoped a
 Bots that participate in channels can appear as actor nodes on the canvas when a channel's spatial-bot policy enables them. Their world position is global per bot, while awareness, self-movement, object tugging, inspection, map view, and bot-owned widget management are gated per channel.
 
 Bot nodes are seeded near their primary or member channel, but not inside the channel/widget cluster. The server tests candidate spawn positions against existing canvas rectangles and keeps at least the default edge-clearance gap, so a bot is not born already crowding another object. Older untouched bot rows that still match the former overlapping spawn distance are repaired the next time the bot node is ensured.
+
+Clicking a bot selects it. Chat and bot settings are explicit actions on the
+selected-object rail or context menus, so a normal canvas click never randomly
+opens chat while the user is trying to inspect or navigate.
 
 `move_on_canvas` moves by bounded grid steps. If a move would worsen under-clearance crowding, the tool rejects it and names the blocking object plus the before/after edge gap in policy steps.
 
@@ -115,10 +128,11 @@ viewport. The last station choice persists in `localStorage`.
   canvas does not open a competing side panel.
 - **Objects** lists positioned canvas entities ordered by distance from the
   current viewport center. It includes channel, widget, bot, and landmark
-  positions. The list has client-side search, and clicking a row flies the
-  camera to that object without changing the user's current zoom unless they
-  are far out. Right-clicking a row opens Starboard-local actions such as open
-  channel, open bot chat/settings, activate widget, or open source channel.
+  positions. The list has client-side search, and clicking a row selects that
+  object and flies the camera to it without changing the user's current zoom
+  unless they are far out. Channel rows still double-click to dive.
+  Right-clicking a row opens Starboard-local actions such as open channel, open
+  bot chat/settings, activate widget, or open source channel.
 - **Controls** owns canvas behavior toggles: command palette, Attention
   signals, connection lines, Activity halos, bot visibility, and edge beacons.
 

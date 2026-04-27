@@ -51,6 +51,7 @@ interface ChannelTileProps {
    *  does not subscribe to the same bots query independently. */
   botAvatarById?: Map<string, string>;
   onDive: () => void;
+  onSelect?: () => void;
 }
 
 const DOT_THRESHOLD = 0.4;
@@ -58,12 +59,12 @@ const SNAPSHOT_THRESHOLD = 1.0;
 const OVERVIEW_MIN_DOT_SCREEN_PX = 22;
 const OVERVIEW_MIN_LABEL_SCREEN_PX = 13;
 
-export function ChannelTile({ channel, icon, zoom, extraScale = 1, botAvatarById, onDive }: ChannelTileProps) {
+export function ChannelTile({ channel, icon, zoom, extraScale = 1, botAvatarById, onDive, onSelect }: ChannelTileProps) {
   if (zoom < DOT_THRESHOLD)
-    return <DotView channel={channel} zoom={zoom} extraScale={extraScale} onDive={onDive} />;
+    return <DotView channel={channel} zoom={zoom} extraScale={extraScale} onDive={onDive} onSelect={onSelect} />;
   if (zoom < SNAPSHOT_THRESHOLD)
-    return <PreviewView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} />;
-  return <SnapshotView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} />;
+    return <PreviewView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} onSelect={onSelect} />;
+  return <SnapshotView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} onSelect={onSelect} />;
 }
 
 function ChannelGlyph({ icon, size, active }: { icon: string | null; size: number; active?: boolean }) {
@@ -313,11 +314,13 @@ function DotView({
   zoom,
   extraScale,
   onDive,
+  onSelect,
 }: {
   channel: Channel;
   zoom: number;
   extraScale: number;
   onDive: () => void;
+  onSelect?: () => void;
 }) {
   const name = channelName(channel);
   const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
@@ -327,8 +330,12 @@ function DotView({
   return (
     <div
       data-tile-kind="channel"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
       onDoubleClick={onDive}
-      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center gap-3 active:cursor-grabbing"
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3"
       style={{ width: 240, minHeight: 150 }}
     >
       <div
@@ -359,11 +366,13 @@ function PreviewView({
   icon,
   botAvatarById,
   onDive,
+  onSelect,
 }: {
   channel: Channel;
   icon: string | null;
   botAvatarById?: Map<string, string>;
   onDive: () => void;
+  onSelect?: () => void;
 }) {
   const name = channelName(channel);
   const isUnread = useChannelReadStore((s) => s.isUnread(channel.id, channel.updated_at));
@@ -371,8 +380,12 @@ function PreviewView({
   return (
     <div
       data-tile-kind="channel"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
       onDoubleClick={onDive}
-      className="relative w-full h-full cursor-grab active:cursor-grabbing"
+      className="relative w-full h-full cursor-pointer"
     >
       <ChannelPlanet channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="preview" />
       <div className="absolute inset-0 flex flex-col gap-1.5 p-3" >
@@ -398,11 +411,13 @@ function SnapshotView({
   icon,
   botAvatarById,
   onDive,
+  onSelect,
 }: {
   channel: Channel;
   icon: string | null;
   botAvatarById?: Map<string, string>;
   onDive: () => void;
+  onSelect?: () => void;
 }) {
   const name = channelName(channel);
   const isUnread = useChannelReadStore((s) => s.isUnread(channel.id, channel.updated_at));
@@ -411,8 +426,12 @@ function SnapshotView({
   return (
     <div
       data-tile-kind="channel"
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect?.();
+      }}
       onDoubleClick={onDive}
-      className="relative w-full h-full cursor-grab active:cursor-grabbing"
+      className="relative w-full h-full cursor-pointer"
     >
       <ChannelPlanet channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="snapshot" />
       <div className="absolute inset-0 flex flex-col gap-1.5 p-4" >

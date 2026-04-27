@@ -32,6 +32,9 @@ import {
   Locate,
   Move,
   Radar,
+  MoreHorizontal,
+  Bot,
+  Box,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../../api/client";
@@ -68,6 +71,7 @@ import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
 import { SpatialAttentionSignal, shouldSurfaceAttentionOnMap } from "./SpatialAttentionLayer";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
+import { SpatialSelectionRail, type SpatialSelectionAction } from "./SpatialSelectionRail";
 import { DraggableNode } from "./DraggableNode";
 import { ManualBotNode, BotTile } from "./BotNode";
 import {
@@ -76,7 +80,7 @@ import {
   LensHint,
 } from "./SpatialCanvasChrome";
 import { MovementTraceLayer } from "./MovementTraceLayer";
-import { canMoveSpatialNode, type SpatialInteractionMode } from "./spatialInteraction";
+import type { SpatialInteractionMode } from "./spatialInteraction";
 import {
   MemoryObservationPanel,
   MemoryObservatory,
@@ -221,6 +225,13 @@ interface SpatialCanvasProps {
   initialFlyToChannelId?: string | null;
 }
 
+type SpatialSelection =
+  | { kind: "channel"; nodeId: string }
+  | { kind: "bot"; nodeId: string }
+  | { kind: "widget"; nodeId: string }
+  | { kind: "landmark"; id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health" }
+  | { kind: "channel-cluster"; id: string };
+
 export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCanvasProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -238,8 +249,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
   const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
   const [interactionMode, setInteractionMode] = useState<SpatialInteractionMode>("browse");
-  const [shiftDragActive, setShiftDragActive] = useState(false);
-  const dragEnabled = canMoveSpatialNode(interactionMode, shiftDragActive);
+  const [selectedSpatialObject, setSelectedSpatialObject] = useState<SpatialSelection | null>(null);
+  const dragEnabled = interactionMode === "arrange";
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
@@ -261,6 +272,18 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    if (!selectedSpatialObject) return;
+    if (
+      (selectedSpatialObject.kind === "channel" ||
+        selectedSpatialObject.kind === "bot" ||
+        selectedSpatialObject.kind === "widget") &&
+      !(nodes ?? []).some((node) => node.id === selectedSpatialObject.nodeId)
+    ) {
+      setSelectedSpatialObject(null);
+    }
+  }, [nodes, selectedSpatialObject]);
 
   // Live tick for the Now Well + orbital tile positions. Server data is
   // 60s-fresh (`useSpatialUpcomingActivity` refetchInterval), but tile radii
@@ -375,6 +398,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   }, [openStarboard]);
   const openStarboardHealth = useCallback(() => {
     openStarboard("health");
+  }, [openStarboard]);
+  const openStarboardSmell = useCallback(() => {
+    openStarboard("smell");
   }, [openStarboard]);
 
   useEffect(() => {
@@ -837,24 +863,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     };
   }, [lensEngaged, draggingNodeId, triggerLensSettle]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Shift") setShiftDragActive(true);
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Shift") setShiftDragActive(false);
-    };
-    const onBlur = () => setShiftDragActive(false);
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, []);
-
   // If a drag starts while the lens is held, drop the lens (drag math at the
   // lens edge would be non-linear — release first, drag second).
   useEffect(() => {
@@ -874,18 +882,17 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const onBgPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0 || diving) return;
-      // Pan starts on any click that DIDN'T land on a tile, or on ordinary
-      // tile drags while the canvas is in Browse mode. Shift and Arrange mode
-      // hand the gesture back to the tile movement paths.
-      // covers the entire viewport (absolute inset-0), so a strict
+      // Pan starts on background space only. Tiles and landmarks own their
+      // own click/selection semantics; Arrange mode is the only movement mode.
+      // The world layer covers the entire viewport (absolute inset-0), so a strict
       // `target === currentTarget` check would only allow pan on the
       // viewport's literal edges — the gap area between tiles wouldn't
-      // pan. Tile drag is owned by dnd-kit on the tile's listeners; this
-      // handler stays out of its way.
+      // pan.
       const target = e.target as HTMLElement;
       if (target.closest("button,a,input,textarea,select")) return;
-      if (target.closest("[data-tile-kind]") && canMoveSpatialNode(interactionMode, e.shiftKey)) return;
-      // Background click — release any activated widget tile.
+      if (target.closest("[data-tile-kind]")) return;
+      // Background click releases focused object state.
+      setSelectedSpatialObject(null);
       if (activatedTileId) setActivatedTileId(null);
       // Pan supersedes lens — drop the lens if it's engaged.
       if (lensEngaged) {
@@ -901,7 +908,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [diving, activatedTileId, lensEngaged, interactionMode, triggerLensSettle],
+    [diving, activatedTileId, lensEngaged, triggerLensSettle],
   );
 
   const onBgPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -1549,6 +1556,31 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
+  const focusNode = useCallback(
+    (node: SpatialNode) => {
+      flyToStarboardObject(node.world_x + node.world_w / 2, node.world_y + node.world_h / 2);
+    },
+    [flyToStarboardObject],
+  );
+
+  const selectNode = useCallback(
+    (kind: "channel" | "bot" | "widget", node: SpatialNode, focus = false) => {
+      setSelectedSpatialObject({ kind, nodeId: node.id });
+      setContextMenu(null);
+      if (focus) focusNode(node);
+    },
+    [focusNode],
+  );
+
+  const selectLandmark = useCallback(
+    (id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health", x: number, y: number, focus = false) => {
+      setSelectedSpatialObject({ kind: "landmark", id });
+      setContextMenu(null);
+      if (focus) flyToStarboardObject(x, y);
+    },
+    [flyToStarboardObject],
+  );
+
   const flyToWell = useCallback(() => {
     const rect = viewportRectRef.current;
     if (!rect.width || !rect.height) return;
@@ -1594,7 +1626,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldX: memoryObsPos.x,
         worldY: memoryObsPos.y,
         distance: distanceFromFocus(memoryObsPos.x, memoryObsPos.y),
-        onSelect: () => flyToStarboardObject(memoryObsPos.x, memoryObsPos.y),
+        onSelect: () => selectLandmark("memory_observatory", memoryObsPos.x, memoryObsPos.y, true),
         actions: [
           jumpAction(memoryObsPos.x, memoryObsPos.y),
           { label: "Open Memory Observatory", icon: "open", onSelect: flyToMemoryObservatory },
@@ -1608,7 +1640,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldX: wellPos.x,
         worldY: wellPos.y,
         distance: distanceFromFocus(wellPos.x, wellPos.y),
-        onSelect: () => flyToStarboardObject(wellPos.x, wellPos.y),
+        onSelect: () => selectLandmark("now_well", wellPos.x, wellPos.y, true),
         actions: [
           jumpAction(wellPos.x, wellPos.y),
           { label: "Open Now Well", icon: "open", onSelect: flyToWell },
@@ -1623,12 +1655,25 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldY: attentionHubPos.y,
         distance: distanceFromFocus(attentionHubPos.x, attentionHubPos.y),
         onSelect: () => {
-          flyToStarboardObject(attentionHubPos.x, attentionHubPos.y);
-          openStarboardAttention();
+          selectLandmark("attention_hub", attentionHubPos.x, attentionHubPos.y, true);
         },
         actions: [
           jumpAction(attentionHubPos.x, attentionHubPos.y),
           { label: "Open Attention", icon: "open", onSelect: () => openStarboardAttention() },
+        ],
+      },
+      {
+        id: "landmark-daily-health",
+        label: "Daily Health",
+        kind: "landmark",
+        subtitle: "Landmark",
+        worldX: dailyHealthPos.x,
+        worldY: dailyHealthPos.y,
+        distance: distanceFromFocus(dailyHealthPos.x, dailyHealthPos.y),
+        onSelect: () => selectLandmark("daily_health", dailyHealthPos.x, dailyHealthPos.y, true),
+        actions: [
+          jumpAction(dailyHealthPos.x, dailyHealthPos.y),
+          { label: "Open Daily Health", icon: "open", onSelect: openStarboardHealth },
         ],
       },
     ];
@@ -1645,7 +1690,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => flyToStarboardObject(worldX, worldY),
+          onSelect: () => selectNode("channel", node, true),
           onDoubleClick: () =>
             diveToChannel(node.channel_id!, {
               x: node.world_x,
@@ -1681,7 +1726,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => flyToStarboardObject(worldX, worldY),
+          onSelect: () => selectNode("widget", node, true),
           actions: [
             jumpAction(worldX, worldY),
             { label: "Activate widget", icon: "activate", onSelect: () => setActivatedTileId(node.id) },
@@ -1707,7 +1752,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => flyToStarboardObject(worldX, worldY),
+          onSelect: () => selectNode("bot", node, true),
           actions: [
             jumpAction(worldX, worldY),
             {
@@ -1737,9 +1782,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     channelsById,
     camera,
     activeAttentionCount,
+    dailyHealthPos.x,
+    dailyHealthPos.y,
     flyToStarboardObject,
+    selectNode,
+    selectLandmark,
     flyToMemoryObservatory,
     flyToWell,
+    openStarboardHealth,
     openStarboardAttention,
     channelForBot,
     diveToChannel,
@@ -2093,7 +2143,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const handleBotPointerDown = useCallback(
     (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0 || diving) return;
-      if (!canMoveSpatialNode(interactionMode, e.shiftKey)) return;
+      if (!dragEnabled) return;
       const world = pointerToWorld(e.clientX, e.clientY);
       if (!world) return;
       e.preventDefault();
@@ -2110,7 +2160,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [diving, interactionMode, pointerToWorld],
+    [diving, dragEnabled, pointerToWorld],
   );
 
   const handleBotPointerMove = useCallback(
@@ -2285,6 +2335,228 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }),
     [nodes, camera, satellitedWidgetNodeIds, channelClusterMode],
   );
+
+  const selectionRail = useMemo(() => {
+    if (!selectedSpatialObject || draggingNodeId || diving) return null;
+
+    const toScreen = (worldX: number, worldY: number) => ({
+      x: camera.x + worldX * camera.scale,
+      y: camera.y + worldY * camera.scale,
+    });
+    const moreAction = (
+      items: SpatialContextMenuItem[],
+    ): SpatialSelectionAction => ({
+      id: "more",
+      label: "More actions",
+      icon: MoreHorizontal,
+      onSelect: (event) => {
+        event.stopPropagation();
+        setContextMenu({
+          screenX: event.clientX,
+          screenY: event.clientY,
+          items,
+        });
+      },
+    });
+
+    if (selectedSpatialObject.kind === "channel-cluster") {
+      const cluster = channelClusters.find((entry) => entry.id === selectedSpatialObject.id);
+      if (!cluster) return null;
+      const node = cluster.winner.node;
+      const channel = cluster.winner.channel;
+      const anchor = toScreen(node.world_x + node.world_w / 2, node.world_y - 12);
+      const focus = () => flyToWorldBounds(cluster.worldBounds);
+      const dive = () =>
+        diveToChannel(channel.id, {
+          x: node.world_x,
+          y: node.world_y,
+          w: node.world_w,
+          h: node.world_h,
+        });
+      return {
+        x: anchor.x,
+        y: anchor.y,
+        label: `${channel.display_name || channel.name} cluster`,
+        meta: `${cluster.members.length} channels`,
+        leading: <Radar className="h-4 w-4" />,
+        actions: [
+          { id: "focus", label: "Focus cluster", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
+          { id: "dive", label: "Dive into winner", icon: ZoomIn, onSelect: (event) => { event.stopPropagation(); dive(); } },
+          moreAction([
+            { label: "Fly to cluster members", icon: <Locate size={14} />, onClick: focus },
+            { label: `Dive into #${channel.name}`, icon: <ZoomIn size={14} />, onClick: dive },
+          ]),
+        ] satisfies SpatialSelectionAction[],
+      };
+    }
+
+    if (selectedSpatialObject.kind === "landmark") {
+      const landmark =
+        selectedSpatialObject.id === "now_well"
+          ? { label: "Now Well", meta: "Landmark", x: wellPos.x, y: wellPos.y, open: flyToWell, icon: Target }
+          : selectedSpatialObject.id === "memory_observatory"
+          ? { label: "Memory Observatory", meta: "Landmark", x: memoryObsPos.x, y: memoryObsPos.y, open: flyToMemoryObservatory, icon: Brain }
+          : selectedSpatialObject.id === "attention_hub"
+          ? { label: "Attention Hub", meta: `${activeAttentionCount} active`, x: attentionHubPos.x, y: attentionHubPos.y, open: () => openStarboardAttention(), icon: Radar }
+          : { label: "Daily Health", meta: "Landmark", x: dailyHealthPos.x, y: dailyHealthPos.y, open: openStarboardHealth, icon: Sparkles };
+      const anchor = toScreen(landmark.x, landmark.y - 90);
+      const focus = () => flyToStarboardObject(landmark.x, landmark.y);
+      const Icon = landmark.icon;
+      return {
+        x: anchor.x,
+        y: anchor.y,
+        label: landmark.label,
+        meta: landmark.meta,
+        leading: <Icon className="h-4 w-4" />,
+        actions: [
+          { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
+          { id: "open", label: "Open", icon: ExternalLink, onSelect: (event) => { event.stopPropagation(); landmark.open(); } },
+          moreAction([
+            { label: "Focus", icon: <Locate size={14} />, onClick: focus },
+            { label: "Open", icon: <ExternalLink size={14} />, onClick: landmark.open },
+          ]),
+        ] satisfies SpatialSelectionAction[],
+      };
+    }
+
+    const node = (nodes ?? []).find((entry) => entry.id === selectedSpatialObject.nodeId);
+    if (!node) return null;
+    const anchor = toScreen(node.world_x + node.world_w / 2, node.world_y - 12);
+    const focus = () => focusNode(node);
+
+    if (selectedSpatialObject.kind === "channel" && node.channel_id) {
+      const channel = channelsById.get(node.channel_id);
+      if (!channel) return null;
+      const dive = () =>
+        diveToChannel(channel.id, {
+          x: node.world_x,
+          y: node.world_y,
+          w: node.world_w,
+          h: node.world_h,
+        });
+      const openChat = () =>
+        setOpenBotChat({
+          botId: channel.bot_id,
+          botName: channel.bot_id,
+          channelId: channel.id,
+          channelName: channel.name,
+        });
+      return {
+        x: anchor.x,
+        y: anchor.y,
+        label: `#${channel.name}`,
+        meta: "Channel",
+        leading: <MessageCircle className="h-4 w-4" />,
+        actions: [
+          { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
+          { id: "dive", label: "Dive", icon: ZoomIn, onSelect: (event) => { event.stopPropagation(); dive(); } },
+          { id: "chat", label: "Open chat", icon: MessageCircle, onSelect: (event) => { event.stopPropagation(); openChat(); } },
+          moreAction([
+            { label: "Dive into channel", icon: <ZoomIn size={14} />, onClick: dive },
+            { label: "Fly camera here", icon: <Locate size={14} />, onClick: focus },
+            { label: `Open mini chat - #${channel.name}`, icon: <MessageCircle size={14} />, onClick: openChat },
+            { label: "Open channel", icon: <ExternalLink size={14} />, onClick: () => navigate(`/channels/${channel.id}`) },
+            { label: "Unpin from canvas", icon: <Trash2 size={14} />, danger: true, separator: true, onClick: () => deleteNode.mutate(node.id) },
+          ]),
+        ] satisfies SpatialSelectionAction[],
+      };
+    }
+
+    if (selectedSpatialObject.kind === "bot" && node.bot_id) {
+      const botId = node.bot_id;
+      const botName = node.bot?.display_name || node.bot?.name || botId;
+      const channel = channelForBot(botId);
+      const openChat = () => {
+        if (!channel) return;
+        setOpenBotChat({ botId, botName, channelId: channel.id, channelName: channel.name });
+      };
+      const openSettings = () =>
+        navigate(`/admin/bots/${botId}`, {
+          state: { backTo: `${location.pathname}${location.search}` },
+        });
+      return {
+        x: anchor.x,
+        y: anchor.y,
+        label: botName,
+        meta: "Bot",
+        leading: <Bot className="h-4 w-4" />,
+        actions: [
+          { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
+          { id: "chat", label: channel ? "Open chat" : "No channel available", icon: MessageCircle, disabled: !channel, onSelect: (event) => { event.stopPropagation(); openChat(); } },
+          { id: "settings", label: "Bot settings", icon: Settings, onSelect: (event) => { event.stopPropagation(); openSettings(); } },
+          moreAction([
+            { label: "Fly camera here", icon: <Locate size={14} />, onClick: focus },
+            { label: channel ? `Open mini chat - ${botName}` : "Open mini chat (no channel)", icon: <MessageCircle size={14} />, disabled: !channel, onClick: openChat },
+            { label: "Open bot admin", icon: <ExternalLink size={14} />, onClick: openSettings },
+            { label: "Reset position", icon: <Home size={14} />, separator: true, onClick: () => deleteNode.mutate(node.id) },
+          ]),
+        ] satisfies SpatialSelectionAction[],
+      };
+    }
+
+    if (selectedSpatialObject.kind === "widget" && node.pin) {
+      const title = node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget";
+      const sourceId = node.pin.source_channel_id;
+      const activate = () => setActivatedTileId(node.id);
+      const openSource = () => {
+        if (sourceId) navigate(`/channels/${sourceId}`);
+      };
+      return {
+        x: anchor.x,
+        y: anchor.y,
+        label: title,
+        meta: "Widget",
+        leading: <Box className="h-4 w-4" />,
+        actions: [
+          { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
+          { id: "activate", label: "Activate widget", icon: Eye, onSelect: (event) => { event.stopPropagation(); activate(); } },
+          { id: "source", label: sourceId ? "Open source" : "No source channel", icon: ExternalLink, disabled: !sourceId, onSelect: (event) => { event.stopPropagation(); openSource(); } },
+          moreAction([
+            { label: "Activate widget", icon: <Eye size={14} />, onClick: activate },
+            { label: "Fly camera here", icon: <Locate size={14} />, onClick: focus },
+            { label: "Open source channel", icon: <ExternalLink size={14} />, disabled: !sourceId, onClick: openSource },
+            { label: "Reset size", icon: <Settings size={14} />, onClick: () => updateNode.mutate({ nodeId: node.id, body: { world_w: 320, world_h: 220 } }) },
+            { label: "Unpin from canvas", icon: <Trash2 size={14} />, danger: true, separator: true, onClick: () => deleteNode.mutate(node.id) },
+          ]),
+        ] satisfies SpatialSelectionAction[],
+      };
+    }
+
+    return null;
+  }, [
+    selectedSpatialObject,
+    draggingNodeId,
+    diving,
+    camera.x,
+    camera.y,
+    camera.scale,
+    channelClusters,
+    nodes,
+    channelsById,
+    wellPos.x,
+    wellPos.y,
+    memoryObsPos.x,
+    memoryObsPos.y,
+    attentionHubPos.x,
+    attentionHubPos.y,
+    dailyHealthPos.x,
+    dailyHealthPos.y,
+    activeAttentionCount,
+    flyToWorldBounds,
+    diveToChannel,
+    flyToWell,
+    flyToMemoryObservatory,
+    openStarboardAttention,
+    openStarboardHealth,
+    flyToStarboardObject,
+    focusNode,
+    channelForBot,
+    navigate,
+    location.pathname,
+    location.search,
+    deleteNode,
+    updateNode,
+  ]);
 
   // Fire-pulse tracking — when an upcoming item's scheduled_at crosses
   // tickedNow we render a one-shot expanding ring at its last orbit position.
@@ -2711,11 +2983,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             hitWidth={WELL_R_MAX * 2}
             hitHeight={WELL_R_MAX * WELL_Y_SQUASH * 2}
           >
-            <NowWell
-              tickedNow={tickedNow}
-              zoom={ambientZoom}
-              lens={nowWellLens}
-            />
+            <div
+              data-tile-kind="landmark"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                selectLandmark("now_well", wellPos.x, wellPos.y);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                flyToWell();
+              }}
+            >
+              <NowWell
+                tickedNow={tickedNow}
+                zoom={ambientZoom}
+                lens={nowWellLens}
+              />
+            </div>
           </LandmarkWrapper>
           <LandmarkWrapper
             kind="memory_observatory"
@@ -2727,15 +3012,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             hitHeight={920}
             style={{ zIndex: 4 }}
           >
-            <MemoryObservatory
-              zoom={ambientZoom}
-              lens={
-                lensEngaged && focalScreen
-                  ? projectFisheye(memoryObsPos.x, memoryObsPos.y, camera, focalScreen, lensRadius)
-                  : null
-              }
-              onInspect={setMemorySelection}
-            />
+            <div
+              data-tile-kind="landmark"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                selectLandmark("memory_observatory", memoryObsPos.x, memoryObsPos.y);
+              }}
+            >
+              <MemoryObservatory
+                zoom={ambientZoom}
+                lens={
+                  lensEngaged && focalScreen
+                    ? projectFisheye(memoryObsPos.x, memoryObsPos.y, camera, focalScreen, lensRadius)
+                    : null
+                }
+                onInspect={setMemorySelection}
+              />
+            </div>
           </LandmarkWrapper>
           <LandmarkWrapper
             kind="attention_hub"
@@ -2746,15 +3040,28 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             hitWidth={220}
             hitHeight={220}
           >
-            <AttentionHubLandmark
-              activeCount={activeAttentionCount}
-              mappedCount={mapAttentionCount}
-              signalsVisible={attentionSignalsVisible}
-              zoom={ambientZoom}
-              onOpen={() => openStarboardAttention()}
-            />
+            <div
+              data-tile-kind="landmark"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                selectLandmark("attention_hub", attentionHubPos.x, attentionHubPos.y);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                openStarboardAttention();
+              }}
+            >
+              <AttentionHubLandmark
+                activeCount={activeAttentionCount}
+                mappedCount={mapAttentionCount}
+                signalsVisible={attentionSignalsVisible}
+                zoom={ambientZoom}
+                onOpen={() => openStarboardAttention()}
+              />
+            </div>
           </LandmarkWrapper>
-          <BloatSatellite hubX={attentionHubPos.x} hubY={attentionHubPos.y} />
+          <BloatSatellite hubX={attentionHubPos.x} hubY={attentionHubPos.y} onOpen={openStarboardSmell} />
           <LandmarkWrapper
             kind="daily_health"
             scale={ambientZoom}
@@ -2764,10 +3071,23 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             hitWidth={180}
             hitHeight={180}
           >
-            <DailyHealthLandmark
-              zoom={ambientZoom}
-              onOpen={openStarboardHealth}
-            />
+            <div
+              data-tile-kind="landmark"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                selectLandmark("daily_health", dailyHealthPos.x, dailyHealthPos.y);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                openStarboardHealth();
+              }}
+            >
+              <DailyHealthLandmark
+                zoom={ambientZoom}
+                onOpen={openStarboardHealth}
+              />
+            </div>
           </LandmarkWrapper>
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
@@ -2845,7 +3165,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   maxClusterTokens={maxClusterTokens}
                   widgetCount={widgetSatellitesByClusterId.get(cluster.id)?.length ?? 0}
                   widgetOpacity={widgetOverviewOpacity}
-                  onFocus={() => flyToWorldBounds(cluster.worldBounds)}
+                  onFocus={() => {
+                    setSelectedSpatialObject({ kind: "channel-cluster", id: cluster.id });
+                    setContextMenu(null);
+                  }}
                   onDiveWinner={() =>
                     diveToChannel(cluster.winner.channel.id, {
                       x: winnerNode.world_x,
@@ -2932,6 +3255,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     zoom={interactiveZoom}
                     extraScale={lens?.sizeFactor ?? 1}
                     botAvatarById={botAvatarById}
+                    onSelect={() => selectNode("channel", node)}
                     onDive={() =>
                       diveToChannel(channel.id, {
                         x: node.world_x,
@@ -2947,7 +3271,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             if (node.bot_id) {
               if (!botsVisible) return null;
               const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
-              const channel = channelForBot(node.bot_id);
               return (
                 <ManualBotNode
                   key={node.id}
@@ -2967,20 +3290,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                       return curr === node.id ? null : curr;
                     })
                   }
-                  onClick={() => {
-                    if (!channel) return;
-                    setOpenBotChat({
-                      botId: node.bot_id!,
-                      botName,
-                      channelId: channel.id,
-                      channelName: channel.name,
-                    });
-                  }}
-                  onDoubleClick={() =>
-                    navigate(`/admin/bots/${node.bot_id}`, {
-                      state: { backTo: `${location.pathname}${location.search}` },
-                    })
-                  }
+                  onClick={() => selectNode("bot", node)}
+                  onDoubleClick={() => {}}
                 >
                   <BotTile
                     name={botName}
@@ -2988,16 +3299,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     avatarEmoji={node.bot?.avatar_emoji ?? null}
                     zoom={interactiveZoom}
                     reduced={botsReduced}
-                    onOpenChat={() => {
-                      if (!channel) return;
-                      setOpenBotChat({
-                        botId: node.bot_id!,
-                        botName,
-                        channelId: channel.id,
-                        channelName: channel.name,
-                      });
-                    }}
-                    chatDisabled={!channel}
                   />
                 </ManualBotNode>
               );
@@ -3052,6 +3353,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   activated={activatedTileId === node.id}
                   nodeId={node.id}
                   onActivate={handleActivate}
+                  onSelect={() => selectNode("widget", node)}
                 />
               </DraggableNode>
             );
@@ -3108,6 +3410,16 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         </div>
       </DndContext>
       <LensHint />
+      {selectionRail && (
+        <SpatialSelectionRail
+          x={selectionRail.x}
+          y={selectionRail.y}
+          label={selectionRail.label}
+          meta={selectionRail.meta}
+          leading={selectionRail.leading}
+          actions={selectionRail.actions}
+        />
+      )}
       {diveCandidate && (
         <DivePulseOverlay channelLabel={diveCandidate.label} />
       )}
@@ -3135,7 +3447,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         />
         <button
           type="button"
-          title={interactionMode === "arrange" ? "Arrange mode on. Click to return to Browse. Hold Shift + drag also moves items." : "Arrange items. You can also hold Shift + drag any item."}
+          title={interactionMode === "arrange" ? "Arrange mode on. Click to return to Browse." : "Arrange items"}
           aria-pressed={interactionMode === "arrange"}
           onClick={() => setInteractionMode((mode) => (mode === "arrange" ? "browse" : "arrange"))}
           className={`inline-flex h-10 items-center gap-1.5 rounded-md border px-3 text-sm font-medium shadow-sm transition-colors ${
