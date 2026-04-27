@@ -12,9 +12,9 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
 ## Quick start
 
-1. **Enable the integration that owns the runtime.** Each harness ships as part of an integration, not as a baked-in dep. For Claude Code: open `/admin/integrations`, find Claude Code, click Enable. The integration's `requirements.txt` (which pins `claude-agent-sdk`) installs on enable; the SDK bundles the `claude` CLI alongside it. **No SDK or CLI lives in the base Docker image** — nothing related to a harness ships with Spindrel itself.
+1. **Enable the integration that owns the runtime.** Each harness ships as part of an integration, not as a baked-in dep. For Claude Code: open `/admin/integrations`, find Claude Code, click Enable. The integration's `requirements.txt` (which pins `claude-agent-sdk`) installs on enable; the SDK bundles the `claude` CLI alongside it. For Codex: enable the Codex integration, then make sure the host/container can execute `codex app-server` via `${CODEX_BIN:-codex}`. **No harness SDK or CLI lives in the base Docker image** — nothing related to a harness ships with Spindrel itself unless you enable/install it yourself.
 
-2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. If it's not authenticated, click the **Run `claude login`** button — a terminal drawer opens inside the Spindrel container with the command already running. Complete the OAuth flow in your browser, paste the code back into the drawer, close it. The card auto-refreshes to ✓ "Logged in via …".
+2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. For Claude, click **Run `claude login`** if needed. For Codex, install the binary first, then run `codex login` once in the same host/container environment that Spindrel will spawn. The auth-status card distinguishes "binary missing" from "not logged in" so setup failures are obvious before the first turn.
 
     Under the hood the CLI writes credentials to `$CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`). The Claude Agent SDK that the integration installed inherits these credentials — no API key needed. See [Admin Terminal](admin-terminal.md) for the terminal mechanics.
 
@@ -118,7 +118,7 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
 | `/compact`, `/new`, `/clear`, and `/context` | Supported | Harness `/compact` triggers native runtime compaction when supported. `/new` and `/clear` open a fresh Spindrel session without deleting the old one or changing the channel primary/default pointer. `/context` reports host-visible native state, hints, bridge health, and native compact status. |
 | Host context hints | Supported | Heartbeats and workspace-files memory queue host hints for harness turns. Native compaction does not use Spindrel continuity hints. |
-| Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed SDK smoke testing. |
+| Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through runtime-native bridge hooks when available: Claude via the SDK MCP helper surface, Codex via `dynamicTools` when the installed binary advertises support. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed-runtime smoke testing. |
 | Spindrel skills | Partial | `@skill:<id>` adds a tagged skill index hint for the turn and relies on bridged `get_skill` / `get_skill_list` for progressive skill fetching. No native `.claude/skills` sync yet. |
 | Memory system | Partial | Workspace-files memory injects a host hint telling the harness where memory files live. Reads/writes still require explicit bridged tools/policies. |
 | Usage aggregation | Planned | Per-message cost/usage exists; `/admin/usage` aggregation is not wired yet. |
@@ -198,7 +198,7 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 
 ## What's coming
 
-- **Codex driver:** Implement Codex against the same `TurnContext`, approval, settings, and capability contracts.
+- **Codex live validation:** The Codex runtime is in tree now, but still needs real-binary verification for `model/list`, auth shape, `dynamicTools` support, approval routing, and native compaction before it graduates from fresh beta/untested status.
 - **Richer native context telemetry:** If a runtime exposes token-window status, surface it in the chat chrome and `/context`.
 - **Skill bridge:** Expose selected Spindrel skills through export/sync or searchable bridged tools/resources.
 - **Heartbeat/memory integration:** Add a harness heartbeat path that can inject optional context hints, then layer read-only memory hints before allowing explicit writes through bridged tools.

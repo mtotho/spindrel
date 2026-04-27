@@ -3291,6 +3291,7 @@ function AttentionHubLandmark({
         height: size,
         zIndex: 4,
       }}
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();

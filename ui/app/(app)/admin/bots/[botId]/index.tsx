@@ -4,6 +4,7 @@ import { AlertTriangle, Bot, Brain, FileText, GitBranch, MessageSquare, Save, Sh
 
 import { ApiError } from "@/src/api/client";
 import { useBotEditorData, useCreateBot, useDeleteBot, useUpdateBot } from "@/src/api/hooks/useBots";
+import { useHarnessRuntimes } from "@/src/api/hooks/useRuntimes";
 import { useSettings } from "@/src/api/hooks/useSettings";
 import { useUsageLogs, useUsageSummary } from "@/src/api/hooks/useUsage";
 import { PageHeader } from "@/src/components/layout/PageHeader";
@@ -167,6 +168,25 @@ function IdentitySection({ draft, editorData, isNew, update }: {
 }) {
   const { open: termOpen, options: termOpts, openTerminal, closeTerminal } = useTerminalDrawer();
   const isHarness = !!draft.harness_runtime;
+  const { data: runtimesData } = useHarnessRuntimes();
+  const runtimeOptions = useMemo(() => {
+    const live = runtimesData?.runtimes ?? [];
+    const opts = [{ label: "None (Spindrel agent loop)", value: "" }];
+    const seen = new Set<string>();
+    for (const r of live) {
+      seen.add(r.name);
+      opts.push({ label: r.display_name || r.name, value: r.name });
+    }
+    // Preserve a previously-selected runtime even if the integration has
+    // since been disabled — so the dropdown shows what's actually saved.
+    if (draft.harness_runtime && !seen.has(draft.harness_runtime)) {
+      opts.push({
+        label: `${draft.harness_runtime} (integration disabled)`,
+        value: draft.harness_runtime,
+      });
+    }
+    return opts;
+  }, [runtimesData, draft.harness_runtime]);
   return (
     <div className="flex flex-col gap-6">
       <SectionFrame title="Identity" description={isHarness ? "Name and ownership. The harness runtime owns model selection." : "Name, ownership, and the model chain used for this bot."}>
@@ -223,10 +243,7 @@ function IdentitySection({ draft, editorData, isNew, update }: {
               <SelectInput
                 value={draft.harness_runtime ?? ""}
                 onChange={(v) => update({ harness_runtime: v || null })}
-                options={[
-                  { label: "None (Spindrel agent loop)", value: "" },
-                  { label: "Claude Code", value: "claude-code" },
-                ]}
+                options={runtimeOptions}
               />
             </FormRow>
           </Col>

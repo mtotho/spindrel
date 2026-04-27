@@ -46,3 +46,31 @@ export function useRuntimeCapabilities(
     staleTime: 60 * 60 * 1000,
   });
 }
+
+export interface HarnessRuntimeSummary {
+  name: string;
+  display_name: string;
+  ok: boolean;
+  detail: string;
+  suggested_command?: string | null;
+}
+
+/**
+ * Live list of registered agent-harness runtimes with their auth status.
+ * Populates the bot editor's Runtime dropdown and the /admin/harnesses page.
+ *
+ * The list reflects which integrations are enabled (and thus had their
+ * harness module imported on startup). Enabling a harness-providing
+ * integration auto-registers its runtime; this query staleTime is short so
+ * the dropdown reflects that without a manual refresh.
+ */
+export function useHarnessRuntimes() {
+  return useQuery({
+    queryKey: ["harness-runtimes"],
+    queryFn: () =>
+      apiFetch<{ runtimes: HarnessRuntimeSummary[] }>(
+        "/api/v1/admin/harnesses",
+      ),
+    staleTime: 30 * 1000,
+  });
+}

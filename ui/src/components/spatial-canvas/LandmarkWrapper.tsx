@@ -57,15 +57,22 @@ export function LandmarkWrapper({
     dy: number;
   } | null>(null);
 
-  const onPointerDown = useCallback(
+  const onPointerDownCapture = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
-      // Always stop the event from reaching the canvas pan handler — the
-      // landmark owns its hit area whether or not the user is dragging.
-      e.stopPropagation();
       if (!node) return;
-      if (!canMoveSpatialNode(interactionMode, e.shiftKey)) return;
+      if (!canMoveSpatialNode(interactionMode, e.shiftKey)) {
+        // Not entering drag — let the event continue to the inner element so
+        // its click handler still fires. Inner elements call their own
+        // stopPropagation to prevent canvas pan in browse mode.
+        return;
+      }
+      // Capture phase: this fires BEFORE descendants' pointerdown handlers.
+      // Required because the inner clickable element calls stopPropagation in
+      // its own onPointerDown — without capture, the wrapper would never see
+      // a Shift+drag intent.
       e.preventDefault();
+      e.stopPropagation();
       setDrag({
         pointerId: e.pointerId,
         startX: e.clientX,
@@ -128,14 +135,28 @@ export function LandmarkWrapper({
     ...style,
   };
 
+  // Suppress click after a real drag so e.g. dragging the Attention Hub
+  // doesn't also open the Attention drawer at the drop location.
+  const onClickCapture = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (drag) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    },
+    [drag],
+  );
+
   return (
     <div
+      data-tile-kind="landmark"
       className={className}
       style={composedStyle}
-      onPointerDown={onPointerDown}
+      onPointerDownCapture={onPointerDownCapture}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
       onPointerCancel={finish}
+      onClickCapture={onClickCapture}
     >
       {children}
     </div>

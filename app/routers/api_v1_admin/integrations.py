@@ -144,6 +144,36 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
         removed = unregister_integration_tools(integration_id)
         from app.agent.tools import remove_integration_embeddings
         embed_count = await remove_integration_embeddings(integration_id)
+        # Drop any harness runtime this integration registered. The runtime
+        # name isn't always the integration id, so we re-scan after the
+        # ``HARNESS_REGISTRY`` snapshot below to remove the entries that
+        # came from this integration's harness.py.
+        try:
+            from app.services.agent_harnesses import HARNESS_REGISTRY, unregister_runtime
+            from integrations import _iter_integration_candidates
+
+            harness_path = None
+            for candidate, iid, _is_external, _source in _iter_integration_candidates():
+                if iid == integration_id:
+                    harness_path = candidate / "harness.py"
+                    break
+            if harness_path and harness_path.is_file():
+                # Remove every runtime whose adapter module path matches this
+                # integration's harness.py file.
+                import inspect
+
+                drop = []
+                for runtime_name, runtime in list(HARNESS_REGISTRY.items()):
+                    try:
+                        src = inspect.getsourcefile(type(runtime))
+                    except Exception:
+                        src = None
+                    if src and str(harness_path) == src:
+                        drop.append(runtime_name)
+                for runtime_name in drop:
+                    unregister_runtime(runtime_name)
+        except Exception:
+            logger.debug("Could not unregister harness for %s", integration_id, exc_info=True)
         logger.info(
             "Integration %s → available: removed %d tool(s), %d embedding(s)",
             integration_id, len(removed), embed_count,
@@ -166,6 +196,14 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
         # pass here for newly available skills, prompts, and workflows.
         from app.services import file_sync
         await file_sync.sync_all_files()
+        # If the integration ships a harness adapter, register it now so the
+        # new runtime appears without a server restart.
+        try:
+            from app.services.agent_harnesses import discover_and_load_harnesses
+
+            discover_and_load_harnesses()
+        except Exception:
+            logger.debug("Harness discovery on enable failed for %s", integration_id, exc_info=True)
         logger.info("Integration %s → enabled: loaded %d tool(s)", integration_id, len(loaded))
 
     # MCP servers honor the new active state.

@@ -14,7 +14,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 
 ## Why Spindrel
 
-- **Bring your own agent — Claude Code today, Codex SDK next** — Swap any bot for the real Claude Code SDK and run it from the Spindrel web UI as a persistent, scheduled, channel-bound coding agent. Native planning, native tool calling, native bash and file edits — Claude owns the agent loop. Spindrel owns everything around it: per-channel workspaces, persistent sessions across browser reloads, scheduled runs and recurring tasks, heartbeat hints injected as extra context, your Spindrel skills and tools handed to the SDK, an in-browser terminal for `claude login` / workspace setup, and resume state so a long-running task survives a refresh. Codex SDK support is planned on the same runtime boundary — same scheduling, same channel model, same skill/tool injection. See [Agent Harnesses](docs/guides/agent-harnesses.md).
+- **Bring your own agent — Claude Code now, Codex v1 newly landed** — Swap any bot for a real external coding-agent runtime and run it from the Spindrel web UI as a persistent, scheduled, channel-bound coding agent. Native planning, native tool calling, native bash and file edits stay with the harness. Spindrel owns everything around it: per-channel workspaces, persistent sessions across browser reloads, scheduled runs and recurring tasks, heartbeat hints injected as extra context, selected Spindrel skills/tools bridged back into the runtime, an in-browser terminal for login / workspace setup, and resume state so a long-running task survives a refresh. Claude Code is the proven path today; Codex v1 shipped on 2026-04-27 and is still in fresh-beta / live-validation territory. See [Agent Harnesses](docs/guides/agent-harnesses.md).
 - **Any LLM provider, mix and match** — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM, or any OpenAI-compatible endpoint. Assign different providers per bot. Automatic retry with exponential backoff and fallback models.
 - **ChatGPT Subscription provider** — Sign in with ChatGPT OAuth device-code flow instead of an API key. Mix plan-billing providers with API-key providers across bots.
 - **Skill-based expertise (auto-discovered)** — Skills are markdown documents that bots discover and pull in at runtime via RAG. Drop a `.md` into `skills/` (or a foldered skill pack with `index.md` + child docs) and any bot can ground itself in that knowledge — no manual wiring per bot. Bots can also author their own skills with `manage_bot_skill`, so they get smarter over time.
@@ -26,7 +26,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Widget dashboards + HTML widgets** — Tool results render as live widgets. Pin them to channel dashboards or named dashboards, or have bots author interactive HTML widgets with bot-scoped auth.
 - **Spatial canvas** — `Ctrl+Shift+Space` toggles a workspace-scope infinite plane on the desktop home. Channels auto-populate as draggable tiles; widgets are opt-in. Semantic zoom (dot → preview → live iframe), fisheye lens, and a `Now Well` with scheduled work in orbit.
 - **Programmatic tool calling** — `run_script` lets bots orchestrate many tool calls in one turn when plain chat loops would be too noisy or expensive.
-- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, BlueBubbles, Google Workspace (Drive), Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
+- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, Codex, BlueBubbles, Google Workspace (Drive), Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
 - **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
@@ -63,7 +63,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, f
 | ![HTML widget hero](docs/images/html-widget-hero.png) | ![Usage and forecast](docs/images/usage-and-forecast.png) |
 | Bot-authored interactive HTML widget with bot-scoped auth | Token usage, daily spend, and budget forecast |
 | ![Agent harnesses](docs/images/harness-overview.png) | ![Bot editor — agent harness](docs/images/harness-bot-editor.png) |
-| Run Claude Code (and soon Codex SDK) end-to-end from Spindrel — auth status, one-click `claude login` | Bind any bot to a harness runtime — Spindrel keeps the channel, schedule, workspace; the SDK runs the loop |
+| Run external harnesses from Spindrel — Claude Code today, Codex v1 newly landed | Bind any bot to a harness runtime — Spindrel keeps the channel, schedule, workspace; the runtime runs the loop |
 | ![Harness chat — Claude Code in a Spindrel channel](docs/images/harness-chat-result.png) | ![Admin terminal](docs/images/terminal-rest.png) |
 | A real Claude Code turn inside a Spindrel channel — native thinking, native tool calls (Read, Grep), final reply | Browser PTY into the Spindrel container — used for `claude login`, `git clone`, and other harness setup |
 
@@ -109,7 +109,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, f
 | [Integration Status](docs/guides/integration-status.md) | Current readiness by integration |
 | [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, capabilities, workspaces, and how they compose |
 | [LLM Providers](docs/guides/providers.md) | Provider types, ChatGPT Subscription OAuth, Ollama, LiteLLM |
-| [Agent Harnesses](docs/guides/agent-harnesses.md) | Remote Claude Code sessions in the Spindrel UI; Codex runtime boundary |
+| [Agent Harnesses](docs/guides/agent-harnesses.md) | External harness runtimes in the Spindrel UI; Claude Code + fresh Codex v1 |
 | [Admin Terminal](docs/guides/admin-terminal.md) | Browser terminal used for harness login, workspace setup, and admin ops |
 | [Local Machine Control](docs/guides/local-machine-control.md) | Session-scoped leases for paired local-machine command execution |
 | [Programmatic Tool Calling](docs/guides/programmatic-tool-calling.md) | `run_script` for batching, filtering, and multi-tool orchestration inside one turn |

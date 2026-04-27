@@ -10,18 +10,18 @@ updated: 2026-04-27 (Phase 6 v1 shipped — codex runtime + host seam cleanup)
 
 Make external agent harnesses feel like first-class Spindrel sessions without pretending they are normal Spindrel bots. A harness owns the coding-agent loop, native tools, file edits, and native session id; Spindrel owns the browser UI, channel transcript, workspace path, session persistence, approvals, and any explicitly bridged Spindrel tools/skills.
 
-This track covers the stable host contract used by Claude Code today and Codex later: approvals, per-session runtime controls, slash-command filtering, and optional bridges from harness runtimes back into Spindrel's tool and skill systems.
+This track covers the stable host contract used by Claude Code and Codex today, and by future runtimes later: approvals, per-session runtime controls, slash-command filtering, and optional bridges from harness runtimes back into Spindrel's tool and skill systems.
 
 ## Current State
 
-- Claude Code is the only implemented harness runtime. It lives in `integrations/claude_code/harness.py`.
+- Claude Code and Codex are both implemented harness runtimes. They live in `integrations/claude_code/harness.py` and `integrations/codex/harness.py`.
 - Harness discovery/registration lives under `app/services/agent_harnesses`; active integration harness modules register runtime instances on import.
 - Harness bots reuse standard Spindrel bot workspaces. The bot workspace directory is the harness cwd.
 - A harness turn bypasses normal Spindrel context assembly, model selection, prompt injection, skills, knowledge bases, memory, and fanout. Host hints, manual compact continuity summaries, and selected Spindrel tools now have narrow bridge paths back into the runtime.
 - Spindrel currently streams assistant text and live tool breadcrumbs into the channel, persists the final assistant message with tool breadcrumbs, and stores harness resume/cost metadata on assistant-message metadata for the Spindrel session.
 - Phase 2 shipped the in-app terminal and per-session resume keying, plus a broad auto-approve `can_use_tool` shim so Claude Code does not stall on SDK permission prompts.
 - Known-secret and common-pattern redaction now applies at the host boundary for harness streams and persisted final assistant text. Native harness tools still execute outside Spindrel's tool dispatcher, so a token printed by the harness should be treated as compromised even if the UI/transcript redacts it afterward.
-- Phase 3 planning is converging on per-session approval modes that reuse `ToolApproval` rows and approval cards without creating linked `ToolCall` rows for native harness tools.
+- Per-session approval modes, session-scoped model/effort/runtime settings, durable harness question cards, `/compact` / `/context` / `/new` / `/clear`, host hints, and the first Spindrel tool/skill bridge lane are all real.
 - The integration import boundary matters here: harness runtime modules should import host contracts through `integrations.sdk`, not directly from `app.*`, so the boundary test can stay meaningful.
 
 ## Invariants
@@ -43,7 +43,7 @@ This track covers the stable host contract used by Claude Code today and Codex l
 | 2 | Resume + broad auto-approval cleanup | shipped | Per-session resume keying and auto-approve `can_use_tool` shim to avoid SDK permission stalls. |
 | 3 | Harness approvals | shipped | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. Phase 3a (backend) and Phase 3b (UI) both shipped 2026-04-26. |
 | 4 | Harness control surface | shipped | `RuntimeCapabilities` Protocol; per-session `harness_settings` (model/effort/runtime_settings); `GET /runtimes/{name}/capabilities`; `GET/POST /sessions/{id}/harness-settings`; header model + effort pills (per-session, alongside Phase 3 approval-mode pill); harness-aware `/model` and `/effort`; `?bot_id=` filter on `/api/v1/slash-commands` and `/help`. Follow-up fixed channel-surface slash requests to carry `current_session_id` so scratch/split/thread panes target their own session, with `active_session_id` only as the default primary fallback. Shipped 2026-04-26. |
-| 5 | Native-feel foundation | in progress | Session-bound harness context hints, `/compact` resume reset + continuity summary, `/context`/status endpoint, heartbeat/workspace-files hints, channel/admin settings cleanup, normal tool pickers as Spindrel bridge source, first Spindrel tool bridge via Claude SDK in-process MCP, durable harness question cards, persisted harness tool breadcrumbs, and model-scoped effort controls. Needs SDK smoke test on the harness image. |
+| 5 | Native-feel foundation | shipped (follow-up verification open) | Session-bound harness context hints, harness-aware `/compact` / `/context` / `/new` / `/clear`, heartbeat/workspace-files hints, channel/admin settings cleanup, normal tool pickers as bridge source, first Spindrel tool bridge, durable harness question cards, persisted harness tool breadcrumbs, and model-scoped effort controls all landed on 2026-04-26. Remaining work is runtime smoke-testing and polish, not missing core plumbing. |
 | 6 | Codex runtime | shipped 2026-04-27 (v1) | Codex via the official `codex app-server` JSON-RPC protocol over stdio (no third-party Python SDK). Spawns the user-installed `codex` binary; same `TurnContext`/approval/settings/capabilities/tool-bridge contracts as Claude. Includes Phase A host-seam cleanup (single `build_turn_context`, shared `apply_tool_bridge`, public `resolve_approval_verdict`, `format_question_answer_for_runtime`, `HarnessToolSpec`/`HarnessBridgeInventory` on `base.py`). UI literals dropped from `BotPicker`/`ToolSelector`/`format.ts`. Plan: `~/.claude/plans/partitioned-conjuring-finch.md`. See [[#Phase 6 - Codex App-Server Harness V1]]. Verify on host with `codex` binary: live `model/list`, dynamicTools-supported vs unsupported paths, server-issued approval routing, native compaction. |
 | 7 | Skill bridge | planned | Export simple skills to harness-native skill folders and/or expose searchable Spindrel skills as bridged tools/resources. |
 | 8 | Usage + observability | planned | Aggregate harness usage/cost into admin usage, expose runtime version/auth/health, and improve post-refresh tool-call rehydration. |
@@ -129,9 +129,9 @@ Open verification:
 - Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
 - Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
 
-## Phase 6 - Codex App-Server Harness V1
+## Phase 6 - Codex App-Server Harness V1 — shipped 2026-04-27
 
-Plan locked 2026-04-27. Plan file: `~/.claude/plans/partitioned-conjuring-finch.md`. **Not yet executed** — Opus planned, hand off to Sonnet next session.
+Plan file: `~/.claude/plans/partitioned-conjuring-finch.md`. Implemented the same day; see session log `vault/Sessions/agent-server/2026-04-27-N-codex-harness-integration.md` for the execution record.
 
 ### Locked decisions
 
@@ -182,13 +182,10 @@ Approval mapping intent (final values from schema):
 
 ### Open verification questions (resolve from installed binary, not docs)
 
-- Exact app-server method names (`thread/start`, `turn/start`, `thread/compact/start`, `turn/interrupt`, `account/read`, `model/list`).
-- Item kinds (`item/started`, `item/completed`, `item/agentMessage/delta`, `item/commandExecution/outputDelta`, `item/fileChange/outputDelta`, `turn/plan/updated`, `thread/tokenUsage/updated`).
-- `approvalPolicy` and sandbox profile enum values + casing.
-- Dynamic tool result envelope shape (likely `{"contentItems": [...], "success": bool}`, but field names from schema).
-- `turn/interrupt` shape — README implies both `threadId` and `turnId` required.
-- Whether `dynamicTools` capability is reported via `initialize` or only inferable by probe.
-- Whether `turn/interrupt` cleans up server-initiated approval requests, or Spindrel must expire pending approvals/questions for the cancelled turn.
+- Confirm `account/read` response shape against a real binary (`account.email` / `requiresOpenaiAuth` are current expectations).
+- Confirm `model/list` response shape against a real binary (current adapter accepts `models: [{id}]` or strings).
+- Confirm the `dynamicTools` capability discovery key returned by `initialize`.
+- Confirm whether `turn/diff/updated` should become a user-visible breadcrumb/state update.
 
 ## Later - Skill Bridge
 

@@ -38,10 +38,17 @@ async def list_harnesses(
     """
     runtimes: list[dict] = []
     for name, runtime in HARNESS_REGISTRY.items():
+        display_name = name
+        try:
+            caps = runtime.capabilities()
+            display_name = getattr(caps, "display_name", None) or name
+        except Exception:
+            pass
         try:
             status = runtime.auth_status()
             runtimes.append({
                 "name": name,
+                "display_name": display_name,
                 "ok": bool(status.ok),
                 "detail": str(status.detail),
                 "suggested_command": getattr(status, "suggested_command", None),
@@ -49,6 +56,7 @@ async def list_harnesses(
         except Exception as exc:
             runtimes.append({
                 "name": name,
+                "display_name": display_name,
                 "ok": False,
                 "detail": f"auth_status() raised {type(exc).__name__}: {exc}",
                 "suggested_command": None,

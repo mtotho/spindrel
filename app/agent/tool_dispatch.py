@@ -1672,6 +1672,10 @@ async def _create_approval_state(
             status="awaiting_approval",
             completed_at=None,
         ))
+        # ToolApproval has an FK to ToolCall, but there is no ORM relationship
+        # between these objects for SQLAlchemy to infer insert ordering. Flush
+        # the call row first so Postgres can satisfy the FK on approval insert.
+        await db.flush()
         db.add(ToolApproval(
             id=approval_id,
             session_id=session_id,

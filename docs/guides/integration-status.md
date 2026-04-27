@@ -6,7 +6,7 @@ This page is the honest status snapshot for Spindrel's integrations.
 
 It is **not** a marketing matrix. If something is rough, partial, untested, or likely to change, this page should say so plainly.
 
-**Snapshot date:** 2026-04-26
+**Snapshot date:** 2026-04-27
 
 ## Status meanings
 
@@ -30,8 +30,9 @@ It is **not** a marketing matrix. If something is rough, partial, untested, or l
 | Excalidraw | `working` | Hand-drawn diagram rendering from Mermaid or Excalidraw JSON | Tested and working |
 | Google Workspace | `partial` | Google OAuth, Drive/Gmail/Calendar/Docs/etc. access through the GWS CLI | Slightly tested; some pieces work, but it is still not a fully trusted path |
 | ARR | `working` | Sonarr/Radarr/qBittorrent/Jellyfin/Jellyseerr/Bazarr control and browsing | Large surface area, but mostly tested and working |
-| Claude Code | `working (beta)` | External agent harness runtime for persistent remote Claude Code sessions in the Spindrel web UI | No Spindrel agent/RAG middleman; Claude owns the tools, bash, file edits, permissions, OAuth identity, and native session id. Admin-only remote-code-execution surface. |
-| Local Companion | `working (beta)` | Paired local-machine command provider with session-scoped leases | First machine-control provider; useful for local execution but still fresh and should be treated as trusted-operator tooling |
+| Claude Code | `working (beta)` | External agent harness runtime for persistent remote Claude Code sessions in the Spindrel web UI | Real and usable today, but harness mode as a whole is still new. Claude is the most proven runtime on that path. Admin-only remote-code-execution surface. |
+| Codex | `untested` | External agent harness runtime via the official `codex app-server` JSON-RPC protocol | v1 shipped 2026-04-27 on the same host/runtime boundary as Claude Code, but it still needs live-binary validation and soak before it should be promised as a trusted path. |
+| Local Companion | `working` | Paired local-machine command provider with session-scoped leases | Confirmed working recently. Recoverable launcher/service commands and reconnecting Linux user-service flow shipped 2026-04-25; still trusted-operator tooling, not a casual-user feature. |
 | Frigate | `working` | Camera/event tools, MQTT push alerts, snapshots/clips, and widget surface | Tested and working |
 | GitHub | `working` | GitHub webhook ingestion plus issue/PR comment dispatch | Working, though the events side is still rough in places |
 | Web Search | `working` | SearXNG/DuckDuckGo search, fetch, and widget rendering | Tested and working |

@@ -9,7 +9,7 @@ It is meant to answer questions like:
 - Which ones are still rough, partial, or advanced-user territory?
 - Which ones are tested heavily in real use versus only "seem to work"?
 
-**Snapshot date:** 2026-04-26
+**Snapshot date:** 2026-04-27
 
 ## Status meanings
 
@@ -59,7 +59,7 @@ The product is powerful now, but the honest framing is "serious self-hosted oper
 | Approval-aware tool gating | `working` | `medium` | Tool discovery respects availability and approval constraints instead of blindly exposing everything. |
 | Tool approval flow | `working` | `medium` | Approval queues, inline approval states, and integration-aware approval handling are real parts of the product, even if some policy UX is still rough. |
 | Parallel tool execution / sub-agents | `working` | `medium` | Parallel sub-agent execution exists and the sub-agent system is a completed track. |
-| External agent harnesses | `working (beta)` | `medium` | Claude Code can run as a persistent remote session in the Spindrel UI without a Spindrel agent/RAG middleman. Spindrel owns UI/session/workspace/auth management; Claude owns the coding-agent loop. Codex is planned, not shipped. |
+| External agent harnesses | `working (beta)` | `medium` | Harness mode is real, but still new. Claude Code is the proven path today; Codex v1 shipped on the same runtime boundary on 2026-04-27, but still needs real-binary soak before it can carry more confidence than “fresh beta.” |
 | LLM fallbacks + retries | `working` | `high` | Retry, cooldown skip, fallback model routing, and rate-limit waits are part of the normal stack and are believed to be working well. |
 | Temporal context awareness | `working` | `medium` | The system intentionally feeds date/time context into reasoning so agents can anchor work to when things happened, not just what happened. |
 | Prompt caching respect | `working` | `medium` | The system is designed to preserve provider-side prompt caching wins rather than casually defeating them. |
@@ -97,6 +97,7 @@ The product is powerful now, but the honest framing is "serious self-hosted oper
 | Heartbeats | `working` | `high` | Scheduled autonomous check-ins are a real, supported mechanism. |
 | Event-triggered automation | `working (beta)` | `low` | Any event an integration brings in can be used to fire a task automatically, but this surface has not been tested deeply enough yet to claim broad reliability. |
 | Push notifications | `working` | `medium` | Bots can intentionally send browser push notifications, and push delivery is part of the product rather than an external bolt-on. |
+| Reusable notifications / alert targets | `working (beta)` | `medium` | Shared notification targets (`user_push`, `channel`, `integration_binding`, `group`) and bot-callable send/list tools shipped 2026-04-26. Useful and real, but still a fresh operator surface. |
 | Friendly setup/orchestration wizard | `working (beta)` | `medium` | Setup is straightforward and the orchestrator helps guide onboarding, but the overall polish is still evolving. |
 
 ## Models, providers, and cost controls
@@ -154,7 +155,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | HTML widgets authored by bots | `working (beta)` | `medium` | Bot-authored interactive HTML widgets are real and useful, with bot-scoped auth. |
 | Widget templates / component widgets | `working` | `medium` | Declarative widget templates and state polling are a real platform surface. |
 | Customizable widget dashboards | `working (beta)` | `medium` | Named dashboards, channel dashboards, panel mode, and chat-zone placement are workable today, but the surface is still fresh, not yet super robust, and needs tuning plus more bug-finding. |
-| Spatial Canvas | `working (beta)` | `medium` | Desktop home can operate as an infinite workspace plane with draggable channels, widgets, bot nodes, connection lines, activity halos, Now Well, Memory Observatory, and edge beacons. Powerful but still new. |
+| Spatial Canvas | `working (beta)` | `medium` | Desktop home can operate as an infinite workspace plane with draggable channels, widgets, bot nodes, connection lines, activity halos, Now Well, Memory Observatory, Attention Hub/Starboard stations, daily-health landmarks, and edge beacons. Powerful but still new. |
 | Chat panels / HUD / channel widget zones | `working (beta)` | `medium` | Left rail, center dashboard, right rail, and top-center chips are real, but layout polish is still ongoing. |
 | Developer panel / widget authoring workbench | `working (beta)` | `medium` | `/widgets/dev` is useful and real, but still under active polish. |
 | Quick navigation with Ctrl/Cmd-K | `working` | `high` | Command palette is a first-class navigation surface and is heavily used in practice. |
@@ -178,6 +179,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Webhooks | `working (beta)` | `low` | Outgoing lifecycle webhooks are supported and documented, but current confidence is lower because this surface has not been exercised much recently. |
 | API keys + documented API | `working` | `high` | Scoped API keys and documented HTTP APIs are established features and are used constantly by the web UI and bot integrations. |
 | Endpoint catalog / API discoverability | `working` | `medium` | The server builds an endpoint catalog from the actual app routes, which is useful and real even if it is not a flashy headline feature. |
+| Local machine control | `working` | `medium` | Session-scoped leases, provider probes, and transcript-first command execution are working. The Local Companion path was confirmed working and now has recoverable launcher/service flows; still trusted-operator tooling rather than a consumer feature. |
 | Tool policies | `partial` | `medium` | Tool policies work, but the current experience is not yet well-optimized enough to call polished. |
 
 ## Security, operations, and admin
@@ -186,6 +188,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 |---|---|---|---|
 | Secret key storage | `working` | `medium` | Secret paste blocking/redirection into secure storage is confirmed working; less recent confidence on every downstream retrieval path. |
 | Security posture / good practices | `working (beta)` | `low` | Reasonable best-practice hardening for LAN/self-hosted use, but not tested enough to present as broadly battle-tested or ready for hostile/public multi-user exposure. |
+| System health visibility | `working (beta)` | `medium` | Daily server-error rollups, structured error summaries, and operator-facing health tools shipped 2026-04-26. Good visibility now exists, but the surface is still fresh. |
 | Backup script included | `working` | `high` | Backup/restore tooling is documented and backup is known to work on demand in real use. |
 | Easy command-line setup | `working` | `high` | `setup.sh` + Docker-based bootstrap are real strengths. |
 | Docker-first hosting story | `working` | `high` | Running in Docker is the normal path. |

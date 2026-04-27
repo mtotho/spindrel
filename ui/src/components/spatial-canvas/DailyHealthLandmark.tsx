@@ -58,6 +58,7 @@ export default function DailyHealthLandmark({ zoom, onOpen }: Props) {
         height: size,
         zIndex: 4,
       }}
+      onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
         onOpen();
