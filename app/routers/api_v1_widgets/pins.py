@@ -151,6 +151,19 @@ async def create_dashboard_pin(
 
 
 @router.get(
+    "/dashboard/pins/{pin_id}",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_dashboard_pin(
+    pin_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a single dashboard pin by id."""
+    pin = await get_pin(db, pin_id)
+    return serialize_pin(pin)
+
+
+@router.get(
     "/dashboard/pins/{pin_id}/db-status",
     dependencies=[Depends(require_scopes("channels:read"))],
 )

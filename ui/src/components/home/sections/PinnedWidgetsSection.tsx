@@ -2,14 +2,14 @@ import { Link } from "react-router-dom";
 import { Pin } from "lucide-react";
 
 import { useSpatialNodes } from "../../../api/hooks/useWorkspaceSpatial";
+import { widgetPinHref } from "../../../lib/hubRoutes";
 import { SectionHeading } from "./SectionHeading";
 
 const MAX_PINS = 8;
 
 /**
- * Quick-access chips for canvas widget pins. Each pin links into the
- * channel that owns the underlying widget so the user can interact with
- * the live widget instead of just browsing the spatial canvas.
+ * Quick-access chips for canvas widget pins. Each pin opens the dedicated
+ * full-widget route so mobile users get a focused interaction surface.
  */
 export function PinnedWidgetsSection() {
   const { data: nodes } = useSpatialNodes();
@@ -27,8 +27,7 @@ export function PinnedWidgetsSection() {
         {visible.map((node) => {
           const pin = node.pin!;
           const label = pin.display_label || pin.panel_title || pin.tool_name;
-          const channelId = pin.source_channel_id;
-          const href = channelId ? `/channels/${channelId}` : "/";
+          const href = widgetPinHref(pin.id);
           return (
             <Link
               key={node.id}

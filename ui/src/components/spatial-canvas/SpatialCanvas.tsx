@@ -112,6 +112,8 @@ import {
   buildChannelSurfaceRoute,
   getChannelLastSurface,
 } from "../../stores/channelLastSurface";
+import { widgetPinHref } from "../../lib/hubRoutes";
+import { SPATIAL_HANDOFF_KEY } from "../../lib/spatialHandoff";
 import {
   CAMERA_STORAGE_KEY,
   CONNECTIONS_ENABLED_KEY,
@@ -989,14 +991,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }, "immediate");
   }, [nodes, scheduleCamera]);
 
-  // Beam-me-up handoff. When the user clicks the "Beam to spatial canvas"
-  // button on a channel route, ChannelHeader sets a sessionStorage flag with
-  // the source channel id + timestamp before navigating home. On the canvas's
-  // next mount, we look that flag up, find the matching tile, and recenter
-  // the camera on it at a safe overview zoom (well below the push-through
-  // dive threshold). Without this, the camera state loaded from localStorage
-  // can leave the user already zoomed deep over the source tile, and the
-  // dive detector immediately re-fires and sucks them back in.
+  // Beam-me-up handoff. Channel and widget detail routes set a sessionStorage
+  // flag before navigating here; on mount we select the target node and land
+  // at a safe overview zoom below the push-through dive threshold.
   const beamConsumedRef = useRef(false);
   useEffect(() => {
     if (beamConsumedRef.current) return;
@@ -1005,7 +1002,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     if (!rect.width || !rect.height) return;
     let raw: string | null = null;
     try {
-      raw = sessionStorage.getItem("spatial.beamFromChannel");
+      raw = sessionStorage.getItem(SPATIAL_HANDOFF_KEY);
     } catch {
       beamConsumedRef.current = true;
       return;
@@ -1015,21 +1012,36 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       return;
     }
     try {
-      sessionStorage.removeItem("spatial.beamFromChannel");
+      sessionStorage.removeItem(SPATIAL_HANDOFF_KEY);
     } catch {
       // Ignore — flag will just expire on the timestamp check next time.
     }
     beamConsumedRef.current = true;
-    let parsed: { channelId?: string; ts?: number } | null = null;
+    let parsed: { kind?: string; channelId?: string; pinId?: string; ts?: number } | null = null;
     try {
       parsed = JSON.parse(raw);
     } catch {
       return;
     }
-    if (!parsed?.channelId || typeof parsed.ts !== "number") return;
+    if (!parsed || typeof parsed.ts !== "number") return;
     if (Date.now() - parsed.ts > 5000) return;
-    const tile = nodes.find((n) => n.channel_id === parsed!.channelId);
+    const tile = parsed.kind === "widgetPin" && parsed.pinId
+      ? nodes.find((n) => {
+          if (n.widget_pin_id === parsed!.pinId) return true;
+          const origin = n.pin?.widget_origin;
+          return !!origin
+            && typeof origin === "object"
+            && (origin as { source_dashboard_pin_id?: unknown }).source_dashboard_pin_id === parsed!.pinId;
+        })
+      : parsed.channelId
+        ? nodes.find((n) => n.channel_id === parsed!.channelId)
+        : null;
     if (!tile) return;
+    if (tile.widget_pin_id) {
+      setSelectedSpatialObject({ kind: "widget", nodeId: tile.id });
+    } else if (tile.channel_id) {
+      setSelectedSpatialObject({ kind: "channel", nodeId: tile.id });
+    }
     const targetScale = DIVE_SCALE_THRESHOLD * 0.7;
     const tileCx = tile.world_x + tile.world_w / 2;
     const tileCy = tile.world_y + tile.world_h / 2;
@@ -1730,6 +1742,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           actions: [
             jumpAction(worldX, worldY),
             { label: "Activate widget", icon: "activate", onSelect: () => setActivatedTileId(node.id) },
+            { label: "Open full widget", icon: "open", onSelect: () => navigate(widgetPinHref(node.pin!.id)) },
             {
               label: "Open source channel",
               icon: "open",
@@ -2498,6 +2511,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       const title = node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget";
       const sourceId = node.pin.source_channel_id;
       const activate = () => setActivatedTileId(node.id);
+      const openFull = () => navigate(widgetPinHref(node.pin!.id));
       const openSource = () => {
         if (sourceId) navigate(`/channels/${sourceId}`);
       };
@@ -2510,9 +2524,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         actions: [
           { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
           { id: "activate", label: "Activate widget", icon: Eye, onSelect: (event) => { event.stopPropagation(); activate(); } },
+          { id: "open-full", label: "Open full", icon: Maximize2, onSelect: (event) => { event.stopPropagation(); openFull(); } },
           { id: "source", label: sourceId ? "Open source" : "No source channel", icon: ExternalLink, disabled: !sourceId, onSelect: (event) => { event.stopPropagation(); openSource(); } },
           moreAction([
             { label: "Activate widget", icon: <Eye size={14} />, onClick: activate },
+            { label: "Open full widget", icon: <Maximize2 size={14} />, onClick: openFull },
             { label: "Fly camera here", icon: <Locate size={14} />, onClick: focus },
             { label: "Open source channel", icon: <ExternalLink size={14} />, disabled: !sourceId, onClick: openSource },
             { label: "Reset size", icon: <Settings size={14} />, onClick: () => updateNode.mutate({ nodeId: node.id, body: { world_w: 320, world_h: 220 } }) },
@@ -2726,6 +2742,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           label: "Activate widget",
           icon: <Eye size={14} />,
           onClick: () => setActivatedTileId(hitNode.id),
+        });
+        items.push({
+          label: "Open full widget",
+          icon: <Maximize2 size={14} />,
+          onClick: () => navigate(widgetPinHref(pin.id)),
         });
         if (pin.source_channel_id) {
           const sourceId = pin.source_channel_id;

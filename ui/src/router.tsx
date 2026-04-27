@@ -42,6 +42,9 @@ const SetupPage = lazy(() => import("@/app/(auth)/setup"));
 // App root
 const HomePage = lazy(() => import("@/app/(app)/index"));
 const CanvasPage = lazy(() => import("@/app/(app)/canvas"));
+const HubAttentionPage = lazy(() => import("@/app/(app)/hub/attention"));
+const HubDailyHealthPage = lazy(() => import("@/app/(app)/hub/daily-health"));
+const HubContextBloatPage = lazy(() => import("@/app/(app)/hub/context-bloat"));
 const SettingsShell = lazy(() =>
   import("@/app/(app)/settings/SettingsShell").then((m) => ({
     default: m.SettingsShell,
@@ -109,6 +112,7 @@ const AdminToolsIndex = lazy(() => import("@/app/(app)/admin/tools/index"));
 const AdminToolDetail = lazy(() => import("@/app/(app)/admin/tools/[toolId]/index"));
 // Widgets (dashboard + developer panel)
 const WidgetsDashboard = lazy(() => import("@/app/(app)/widgets/index"));
+const WidgetPinPage = lazy(() => import("@/app/(app)/widgets/pins/[pinId]"));
 const WidgetsDevPanel = lazy(() => import("@/app/(app)/widgets/dev/index"));
 const WidgetsRedirect = lazy(() => import("@/app/(app)/widgets/WidgetsRedirect"));
 const AdminUsage = lazy(() => import("@/app/(app)/admin/usage/index"));
@@ -139,6 +143,9 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <HomePage /> },
           { path: "canvas", element: <CanvasPage /> },
+          { path: "hub/attention", element: <HubAttentionPage /> },
+          { path: "hub/daily-health", element: <HubDailyHealthPage /> },
+          { path: "hub/context-bloat", element: <HubContextBloatPage /> },
           {
             path: "settings",
             element: <SettingsShell />,
@@ -196,6 +203,7 @@ export const router = createBrowserRouter([
           { path: "widgets/dev", element: <WidgetsDevPanel /> },
           { path: "widgets/channel/:channelId/settings", element: <ChannelDashboardSettingsRedirect /> },
           { path: "widgets/channel/:channelId", element: <WidgetsDashboard /> },
+          { path: "widgets/pins/:pinId", element: <WidgetPinPage /> },
           { path: "widgets/:slug", element: <WidgetsDashboard /> },
 
           // Admin — gated to is_admin users. Non-admins see UnauthorizedCard
@@ -213,6 +221,7 @@ export const router = createBrowserRouter([
               { path: "bots", element: <AdminBotsIndex /> },
               { path: "bots/:botId", element: <AdminBotDetail /> },
               { path: "config-state", element: <AdminConfigState /> },
+              { path: "system-health", element: <Navigate to="/hub/daily-health" replace /> },
               { path: "delegations", element: <AdminDelegations /> },
               { path: "diagnostics", element: <AdminDiagnostics /> },
               { path: "docker-stacks", element: <AdminDockerStacks /> },

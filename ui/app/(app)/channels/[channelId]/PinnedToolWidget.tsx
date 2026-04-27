@@ -6,8 +6,8 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
-import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid } from "lucide-react";
-import { useMatch, useSearchParams } from "react-router-dom";
+import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2 } from "lucide-react";
+import { Link, useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -41,6 +41,7 @@ import {
 } from "@/src/lib/dashboardGrid";
 import { resolveWidgetHostPolicy } from "@/src/lib/widgetHostPolicy";
 import type { HeaderBackdropMode } from "@/src/lib/widgetHostPolicy";
+import { widgetPinHref } from "@/src/lib/hubRoutes";
 
 const INITIAL_REFRESH_GRACE_MS = 2 * 60 * 1000;
 // Session-local freshness cache so dashboard <-> chat route switches don't
@@ -164,7 +165,7 @@ export function PinnedToolWidget({
   const dashboardWidgetConfig = useDashboardPinsStore(
     (s) => s.pins.find((p) => p.id === widget.id)?.widget_config,
   );
-  const widgetConfig = dashboardWidgetConfig;
+  const widgetConfig = dashboardWidgetConfig ?? widget.config;
   const syncSignature = useMemo(
     () => buildWidgetSyncSignature(widget.tool_name, widgetConfig ?? null),
     [widget.tool_name, widgetConfig],
@@ -822,6 +823,14 @@ export function PinnedToolWidget({
               <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
             </button>
           )}
+          <Link
+            to={widgetPinHref(widget.id)}
+            className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
+            aria-label="Open widget full screen"
+            title="Open full"
+          >
+            <Maximize2 size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
+          </Link>
           <button
             type="button"
             onClick={() => { void refreshState(); }}
@@ -903,6 +912,14 @@ export function PinnedToolWidget({
               <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
             </button>
           )}
+          <Link
+            to={widgetPinHref(widget.id)}
+            className={ctrlBtnClass}
+            aria-label="Open widget full screen"
+            title="Open full"
+          >
+            <Maximize2 size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
+          </Link>
           <button
             type="button"
             onClick={() => setInspectorOpen(true)}
@@ -933,6 +950,18 @@ export function PinnedToolWidget({
             <X size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
           </button>
         </div>
+      )}
+
+      {runtimeRail && (
+        <Link
+          to={widgetPinHref(widget.id)}
+          className="absolute right-1 top-1 z-20 rounded-md border border-surface-border/40 bg-surface-raised/85 p-1.5 text-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:bg-surface-overlay hover:text-text group-hover:opacity-100 focus:opacity-100"
+          aria-label="Open widget full screen"
+          title="Open full"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Maximize2 size={ctrlIconSize} />
+        </Link>
       )}
 
       {/* Body: component content. Dashboard scope fills the tile; channel

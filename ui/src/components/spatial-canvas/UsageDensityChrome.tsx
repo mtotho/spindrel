@@ -324,7 +324,17 @@ export function UsageDensityChrome({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
               {station === "hub" ? (
-                <HubSections />
+                <HubSections
+                  navigation={{
+                    onAttentionItem: (item) => {
+                      onSelectAttention(item);
+                      selectStation("attention");
+                    },
+                    onAttentionHub: () => selectStation("attention"),
+                    onDailyHealth: () => selectStation("health"),
+                    onContextBloat: () => selectStation("smell"),
+                  }}
+                />
               ) : station === "controls" ? (
                 <>
                   <div className="mb-4">

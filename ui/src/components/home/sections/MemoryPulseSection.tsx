@@ -2,6 +2,7 @@ import { Brain, ChevronRight, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { useMemoryObservatory } from "../../../api/hooks/useLearningOverview";
+import { MEMORY_CENTER_HREF } from "../../../lib/hubRoutes";
 import { SectionHeading } from "./SectionHeading";
 
 const MAX_FILES = 3;
@@ -26,7 +27,7 @@ export function MemoryPulseSection() {
         {activeBots.map((bot) => (
           <Link
             key={`bot-${bot.bot_id}`}
-            to={`/admin/bots/${encodeURIComponent(bot.bot_id)}#learning`}
+            to={MEMORY_CENTER_HREF}
             className="group flex min-h-[56px] items-center gap-3 rounded-md bg-surface-raised/40 px-3 py-2.5 transition-colors hover:bg-surface-overlay/45"
           >
             <div className="min-w-0 flex-1">
@@ -47,7 +48,7 @@ export function MemoryPulseSection() {
         {hotFiles.map((file) => (
           <Link
             key={`file-${file.id}`}
-            to={`/admin/bots/${encodeURIComponent(file.bot_id)}#learning`}
+            to={MEMORY_CENTER_HREF}
             className="group flex min-h-[56px] items-center gap-3 rounded-md bg-surface-raised/40 px-3 py-2.5 transition-colors hover:bg-surface-overlay/45"
           >
             <FileText size={14} className="shrink-0 text-text-dim" />

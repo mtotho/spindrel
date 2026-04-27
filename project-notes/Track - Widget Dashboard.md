@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-23 (pinned widget context is visible in /context and preview)
+updated: 2026-04-27 (dedicated pinned-widget route + open-full affordances)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -18,6 +18,8 @@ updated: 2026-04-23 (pinned widget context is visible in /context and preview)
 > Later the same day: the pinned-widget export is now surfaced in the user-facing debug paths too. Slash `/context` renders a dedicated pinned-widget section, admin `context-preview` includes the same snapshot plus a `Pinned Widget Context` preview block, and channel settings now expose a default-on `pinned_widget_context_enabled` toggle. New invariant: chat-context contribution from dashboard pins must be both inspectable and locally suppressible.
 >
 > **2026-04-23 dashboard contract follow-up.** Pinned widgets now carry persisted `widget_origin` plus `widget_contract_snapshot` / `config_schema_snapshot`, so dashboard reads do not have to rediscover definition kind or schema from fragile envelope heuristics. Runtime widget config is now `widget_config` canonically across state_poll/template substitution; `config` remains a compatibility alias only. New invariant: dashboard pins are durable contract objects, not just cached envelopes with a position.
+>
+> **2026-04-27 full-widget route follow-up.** Pinned widgets now have a durable `/widgets/pins/:pinId` route backed by a single-pin read endpoint. Mobile widget rows/chips open that route directly; pinned widget chrome and spatial canvas menus expose Open full; desktop full-widget view includes Back plus Collapse to space when the pin has a spatial projection. New invariant: any pinned widget with a dashboard pin id can be opened as a focused surface without losing its persisted pin identity/config/envelope behavior.
 >
 > Same-day base-layer follow-up: pins and catalog entries now also surface `widget_presentation` (`presentation_family`, panel metadata, layout hints), and the UI host path resolves final chrome from one policy object instead of scattered booleans. New invariant: dashboard placement (`zone`), authored presentation (`card | chip | panel`), and runtime host policy (title mode, wrapper surface, fill-height) are distinct layers and should not be conflated again.
 >

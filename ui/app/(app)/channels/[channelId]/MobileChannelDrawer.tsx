@@ -24,7 +24,8 @@
  */
 import { useCallback, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
-import { Layers, Search, Files, X, LayoutDashboard } from "lucide-react";
+import { Layers, Search, Files, X, LayoutDashboard, Maximize2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
 import type { OmniPanelTab } from "@/src/stores/ui";
@@ -36,6 +37,7 @@ import { CommandPaletteContent } from "@/src/components/layout/CommandPalette";
 import type { PaletteItem } from "@/src/components/palette/types";
 import { FilesTabPanel } from "./FilesTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
+import { widgetPinHref } from "@/src/lib/hubRoutes";
 import type {
   PinnedWidget,
   ToolResultEnvelope,
@@ -100,6 +102,7 @@ export function MobileChannelDrawer({
   onExpandedWidgetChange,
 }: MobileChannelDrawerProps) {
   const t = useThemeTokens();
+  const navigate = useNavigate();
   const storeTab = useUIStore((s) => s.omniPanelTab);
   const setStoreTab = useUIStore((s) => s.setOmniPanelTab);
   const patchChannelPanelPrefs = useUIStore((s) => s.patchChannelPanelPrefs);
@@ -155,6 +158,14 @@ export function MobileChannelDrawer({
   const handleEnvelopeUpdate = useCallback(
     (pinId: string, envelope: ToolResultEnvelope) => updateEnvelope(pinId, envelope),
     [updateEnvelope],
+  );
+
+  const handleOpenWidget = useCallback(
+    (pinId: string) => {
+      onClose();
+      navigate(widgetPinHref(pinId));
+    },
+    [navigate, onClose],
   );
 
   const handleSelectFile = useCallback(
@@ -253,6 +264,7 @@ export function MobileChannelDrawer({
             grid={gridPins}
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
+            onOpenWidget={handleOpenWidget}
             onClose={onClose}
             expandedWidgetId={expandedWidgetId ?? null}
             onExpandedWidgetChange={onExpandedWidgetChange}
@@ -296,6 +308,7 @@ interface WidgetsTabProps {
   grid: WidgetDashboardPin[];
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  onOpenWidget: (pinId: string) => void;
   onClose: () => void;
   expandedWidgetId: string | null;
   onExpandedWidgetChange?: (widgetId: string | null) => void;
@@ -310,6 +323,7 @@ function WidgetsTab({
   grid,
   onUnpin,
   onEnvelopeUpdate,
+  onOpenWidget,
   onClose,
   expandedWidgetId,
   onExpandedWidgetChange,
@@ -333,6 +347,7 @@ function WidgetsTab({
         chipMode
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        onOpenWidget={onOpenWidget}
         expandedWidgetId={expandedWidgetId}
         onExpandedWidgetChange={onExpandedWidgetChange}
       />
@@ -343,6 +358,7 @@ function WidgetsTab({
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        onOpenWidget={onOpenWidget}
         expandedWidgetId={expandedWidgetId}
         onExpandedWidgetChange={onExpandedWidgetChange}
       />
@@ -353,6 +369,7 @@ function WidgetsTab({
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        onOpenWidget={onOpenWidget}
         expandedWidgetId={expandedWidgetId}
         onExpandedWidgetChange={onExpandedWidgetChange}
       />
@@ -363,6 +380,7 @@ function WidgetsTab({
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        onOpenWidget={onOpenWidget}
         expandedWidgetId={expandedWidgetId}
         onExpandedWidgetChange={onExpandedWidgetChange}
       />
@@ -391,6 +409,7 @@ interface ZoneSectionProps {
   chipMode?: boolean;
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  onOpenWidget: (pinId: string) => void;
   expandedWidgetId: string | null;
   onExpandedWidgetChange?: (widgetId: string | null) => void;
 }
@@ -403,6 +422,7 @@ function ZoneSection({
   chipMode = false,
   onUnpin,
   onEnvelopeUpdate,
+  onOpenWidget,
   expandedWidgetId,
   onExpandedWidgetChange,
 }: ZoneSectionProps) {
@@ -438,7 +458,7 @@ function ZoneSection({
             >
               <button
                 type="button"
-                onClick={() => onExpandedWidgetChange?.(expanded ? null : p.id)}
+                onClick={() => onOpenWidget(p.id)}
                 className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
                 style={{ color: expanded ? t.text : t.textMuted }}
               >
@@ -452,7 +472,10 @@ function ZoneSection({
                     background: expanded ? `${t.accent}1f` : t.surfaceOverlay,
                   }}
                 >
-                  {expanded ? "Open" : title}
+                  <span className="inline-flex items-center gap-1">
+                    <Maximize2 size={10} />
+                    Full
+                  </span>
                 </span>
               </button>
               {expanded && (

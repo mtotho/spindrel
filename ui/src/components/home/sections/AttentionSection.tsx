@@ -7,6 +7,7 @@ import {
   type AttentionSeverity,
   type WorkspaceAttentionItem,
 } from "../../../api/hooks/useWorkspaceAttention";
+import { attentionHubHref, attentionItemHref } from "../../../lib/hubRoutes";
 import { StatusBadge } from "../../shared/SettingsControls";
 import { SectionHeading } from "./SectionHeading";
 
@@ -23,12 +24,6 @@ function severityVariant(s: AttentionSeverity): "danger" | "warning" | "info" {
   return "info";
 }
 
-function attentionHref(item: WorkspaceAttentionItem): string {
-  if (item.channel_id) return `/channels/${item.channel_id}`;
-  if (item.target_kind === "bot") return `/admin/bots/${encodeURIComponent(item.target_id)}`;
-  return "/";
-}
-
 const MAX_ITEMS = 4;
 
 /**
@@ -36,7 +31,13 @@ const MAX_ITEMS = 4;
  * when there's nothing to act on. Tapping an item jumps to its target
  * channel (or bot detail page when the item is bot-scoped).
  */
-export function AttentionSection() {
+export function AttentionSection({
+  onOpenItem,
+  onOpenHub,
+}: {
+  onOpenItem?: (item: WorkspaceAttentionItem) => void;
+  onOpenHub?: () => void;
+}) {
   const { data } = useWorkspaceAttention();
   const active = (data ?? []).filter(isActiveAttentionItem);
   if (active.length === 0) return null;
@@ -54,7 +55,15 @@ export function AttentionSection() {
         {visible.map((item) => (
           <Link
             key={item.id}
-            to={attentionHref(item)}
+            to={attentionItemHref(item)}
+            onClick={
+              onOpenItem
+                ? (event) => {
+                    event.preventDefault();
+                    onOpenItem(item);
+                  }
+                : undefined
+            }
             className="group flex min-h-[56px] items-start gap-3 rounded-md bg-surface-raised/40 px-3 py-2.5 transition-colors hover:bg-surface-overlay/45"
           >
             <div className="mt-0.5">
@@ -73,9 +82,20 @@ export function AttentionSection() {
           </Link>
         ))}
         {overflow > 0 ? (
-          <div className="px-3 py-1.5 text-[11px] text-text-dim">
+          <Link
+            to={attentionHubHref()}
+            onClick={
+              onOpenHub
+                ? (event) => {
+                    event.preventDefault();
+                    onOpenHub();
+                  }
+                : undefined
+            }
+            className="px-3 py-1.5 text-[11px] text-text-dim hover:text-text"
+          >
             +{overflow} more in Attention Hub
-          </div>
+          </Link>
         ) : null}
       </div>
     </section>

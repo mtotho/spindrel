@@ -2,6 +2,7 @@ import { Activity, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { useLatestHealthSummary } from "../../../api/hooks/useSystemHealth";
+import { DAILY_HEALTH_HREF } from "../../../lib/hubRoutes";
 import { StatusBadge } from "../../shared/SettingsControls";
 import { SectionHeading } from "./SectionHeading";
 
@@ -24,7 +25,7 @@ function formatRelative(value: string | null | undefined): string {
  * Daily Health rollup of yesterday's structured server errors. Always
  * visible — the absence of errors is itself useful information.
  */
-export function DailyHealthSection() {
+export function DailyHealthSection({ onOpen }: { onOpen?: () => void }) {
   const { data } = useLatestHealthSummary();
   const summary = data?.summary ?? null;
   const errorCount = summary?.error_count ?? 0;
@@ -52,7 +53,15 @@ export function DailyHealthSection() {
     <section className="flex flex-col gap-2">
       <SectionHeading icon={<Activity size={14} />} label="Daily Health" />
       <Link
-        to="/admin/system-health"
+        to={DAILY_HEALTH_HREF}
+        onClick={
+          onOpen
+            ? (event) => {
+                event.preventDefault();
+                onOpen();
+              }
+            : undefined
+        }
         className="group flex min-h-[56px] items-center gap-3 rounded-md bg-surface-raised/40 px-3 py-2.5 transition-colors hover:bg-surface-overlay/45"
       >
         <StatusBadge label={badge.label} variant={badge.variant} />

@@ -62,6 +62,57 @@ class TestCRUD:
         assert pins[0]["id"] == created["id"]
 
     @pytest.mark.asyncio
+    async def test_get_single_pin(self, client):
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "HassTurnOn",
+                "envelope": _make_envelope("Desk Lamp"),
+                "tool_args": {"entity_id": "light.desk"},
+                "widget_config": {"entity_id": "light.desk"},
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert create.status_code == 200, create.text
+        created = create.json()
+
+        fetched = await client.get(
+            f"/api/v1/widgets/dashboard/pins/{created['id']}",
+            headers=AUTH_HEADERS,
+        )
+
+        assert fetched.status_code == 200, fetched.text
+        payload = fetched.json()
+        assert payload["id"] == created["id"]
+        assert payload["display_label"] == "Desk Lamp"
+        assert payload["widget_config"] == {"entity_id": "light.desk"}
+
+    @pytest.mark.asyncio
+    async def test_get_single_pin_404(self, client):
+        r = await client.get(
+            f"/api/v1/widgets/dashboard/pins/{uuid.uuid4()}",
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_single_pin_requires_auth(self, client):
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "HassTurnOn",
+                "envelope": _make_envelope("Desk Lamp"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert create.status_code == 200, create.text
+
+        r = await client.get(f"/api/v1/widgets/dashboard/pins/{create.json()['id']}")
+        assert r.status_code in {401, 403}
+
+    @pytest.mark.asyncio
     async def test_positions_increment(self, client):
         for i in range(3):
             r = await client.post(

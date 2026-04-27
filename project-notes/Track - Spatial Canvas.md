@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-26 (P22.2 game polish + Storybook 1v1 planned.)
+updated: 2026-04-27 (Hub station routes + widget collapse handoff.)
 ---
 
 # Track — Spatial Canvas
@@ -19,6 +19,13 @@ Design intent: replace the throwaway `HomeGrid` (a "desktopified command palette
 `alembic_version.version_num VARCHAR(32)` limit. The migration is now
 idempotent for retry after the failed version-table update; the revision-chain
 guard passes.
+
+2026-04-27 UI follow-up: mobile Home Hub and desktop Starboard Hub now share
+route-aware section targets. Mobile opens full Attention, Daily Health, Context
+Bloat, Memory Center, and pinned-widget pages; desktop Starboard stays
+contextual for Attention/Health/Bloat station switches. Pinned widget full view
+adds a desktop collapse-to-space handoff that selects and safely zooms out to
+the matching spatial widget tile.
 
 | Phase | Status | Description |
 |---|---|---|
