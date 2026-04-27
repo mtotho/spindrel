@@ -155,8 +155,8 @@ export function CanvasLibraryContent({ onClose, worldCenter, embedded = false }:
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${embedded ? "" : "bg-surface-raised"}`}>
-        {!embedded && (
-          <div className="flex flex-row items-center gap-2 px-4 py-3 border-b border-surface-border">
+      {!embedded && (
+        <div className="flex flex-row items-center gap-2 px-4 py-3">
           <span className="text-sm font-semibold text-text">Add to canvas</span>
           <span className="text-[11px] text-text-dim">drops at camera center</span>
           <div className="flex-1" />
@@ -169,57 +169,80 @@ export function CanvasLibraryContent({ onClose, worldCenter, embedded = false }:
           >
             <X size={16} />
           </button>
-          </div>
-        )}
-        {embedded && (
-          <div className="px-2 pb-2 text-xs text-text-muted">
-            Drops at the current camera center unless opened from a map position.
-          </div>
-        )}
-        <div className="flex flex-row items-center gap-1 px-2 pb-2">
-          <CanvasTab label="Presets" active={tab === "presets"} onClick={() => setTab("presets")} />
-          <CanvasTab label="Library" active={tab === "library"} onClick={() => setTab("library")} />
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {tab === "presets" ? (
-            <WidgetPresetsPane
-              mode="pin"
-              scopeChannelId={null}
-              onPin={handlePresetPin}
-              layout="narrow"
-            />
-          ) : (
-            <WidgetLibrary
-              mode="pin"
-              botEnumeration="all-bots"
-              pinScope={{ kind: "user" }}
-              libraryBotId={null}
-              scopeChannelId={null}
-              onPin={handleLibraryPin}
-              hideToolRenderers
-            />
-          )}
-        </div>
-        {(pin.isPending || pinPreset.isPending) && (
-          <div className="px-4 py-2 text-[11px] text-text-dim">
-            pinning...
+      )}
+      {embedded && (
+        <div className="px-2 pb-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Place</div>
+          <div className="mt-1 text-xs text-text-muted">
+            New widgets land at the current camera center. Context-menu launches keep the clicked map position.
           </div>
+        </div>
+      )}
+      <div className="mx-2 mb-3 grid grid-cols-2 gap-1 rounded-md bg-surface-overlay/30 p-1">
+        <CanvasTab
+          label="Presets"
+          description="Configured integration widgets"
+          active={tab === "presets"}
+          onClick={() => setTab("presets")}
+        />
+        <CanvasTab
+          label="Library"
+          description="Standalone widget catalog"
+          active={tab === "library"}
+          onClick={() => setTab("library")}
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {tab === "presets" ? (
+          <WidgetPresetsPane
+            mode="pin"
+            scopeChannelId={null}
+            onPin={handlePresetPin}
+            layout="narrow"
+          />
+        ) : (
+          <WidgetLibrary
+            mode="pin"
+            botEnumeration="all-bots"
+            pinScope={{ kind: "user" }}
+            libraryBotId={null}
+            scopeChannelId={null}
+            onPin={handleLibraryPin}
+            hideToolRenderers
+          />
         )}
       </div>
+      {(pin.isPending || pinPreset.isPending) && (
+        <div className="px-4 py-2 text-[11px] text-text-dim">
+          pinning...
+        </div>
+      )}
+    </div>
   );
 }
 
-function CanvasTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function CanvasTab({
+  label,
+  description,
+  active,
+  onClick,
+}: {
+  label: string;
+  description: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={[
-        "rounded-md px-3 py-1.5 text-[12px] transition-colors",
-        active ? "bg-accent/15 text-accent font-semibold" : "text-text-muted hover:bg-surface-overlay/60",
-      ].join(" ")}
+      className={`rounded px-3 py-2 text-left transition-colors ${
+        active ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+      }`}
     >
-      {label}
+      <span className="block text-sm font-medium">{label}</span>
+      <span className="block truncate text-[11px] text-text-dim">{description}</span>
     </button>
   );
 }

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Activity, Bot, Box, Command, Eye, ExternalLink, Hash, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Radar, Search, Settings2, X } from "lucide-react";
+import { Activity, Bot, Box, ChevronDown, Command, Eye, ExternalLink, Hash, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, X } from "lucide-react";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
 import { AttentionHubContent } from "./SpatialAttentionLayer";
+import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
   id: string;
@@ -25,7 +27,7 @@ export interface StarboardObjectAction {
   disabled?: boolean;
 }
 
-export type StarboardStation = "controls" | "objects" | "attention";
+export type StarboardStation = "attention" | "launch" | "health" | "objects" | "controls";
 
 interface UsageDensityChromeProps {
   open: boolean;
@@ -56,6 +58,7 @@ interface UsageDensityChromeProps {
   selectedAttentionId: string | null;
   onSelectAttention: (item: WorkspaceAttentionItem | null) => void;
   onReplyAttention?: (item: WorkspaceAttentionItem) => void;
+  launchWorldCenter: { x: number; y: number } | null;
 }
 
 const WINDOWS: DensityWindow[] = ["24h", "7d", "30d"];
@@ -81,12 +84,20 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   landmark: "Landmark",
 };
 
+const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; icon: ReactNode }> = [
+  { id: "attention", label: "Attention", eyebrow: "Issues and assignments", icon: <Radar size={15} /> },
+  { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", icon: <Plus size={15} /> },
+  { id: "health", label: "Daily Health", eyebrow: "Server rollup", icon: <Activity size={15} /> },
+  { id: "objects", label: "Objects", eyebrow: "Map entities", icon: <LayoutList size={15} /> },
+  { id: "controls", label: "Controls", eyebrow: "Canvas behavior", icon: <Settings2 size={15} /> },
+];
+
 export function loadStarboardStation(): StarboardStation {
   try {
     const stored = window.localStorage.getItem(STARBOARD_TAB_KEY);
-    return stored === "objects" || stored === "controls" || stored === "attention" ? stored : "controls";
+    return stored === "objects" || stored === "controls" || stored === "attention" || stored === "launch" || stored === "health" ? stored : "attention";
   } catch {
-    return "controls";
+    return "attention";
   }
 }
 
@@ -142,6 +153,7 @@ export function UsageDensityChrome({
   selectedAttentionId,
   onSelectAttention,
   onReplyAttention,
+  launchWorldCenter,
 }: UsageDensityChromeProps) {
   const [objectQuery, setObjectQuery] = useState("");
   const [objectMenu, setObjectMenu] = useState<{
@@ -149,15 +161,37 @@ export function UsageDensityChrome({
     y: number;
     item: StarboardObjectItem;
   } | null>(null);
+  const [stationMenuOpen, setStationMenuOpen] = useState(false);
+  const stationMenuRef = useRef<HTMLDivElement | null>(null);
+  const activeStation = STATIONS.find((item) => item.id === station) ?? STATIONS[0];
   const selectStation = (nextStation: StarboardStation) => {
     onStationChange(nextStation);
     persistStarboardTab(nextStation);
+    setStationMenuOpen(false);
   };
   const normalizedQuery = objectQuery.trim().toLowerCase();
   const visibleObjects = objects.filter((item) => {
     if (!normalizedQuery) return true;
     return `${item.label} ${item.subtitle ?? ""} ${KIND_LABEL[item.kind]}`.toLowerCase().includes(normalizedQuery);
   });
+
+  useEffect(() => {
+    if (!stationMenuOpen) return;
+    function close(event: PointerEvent) {
+      const menu = stationMenuRef.current;
+      if (menu && menu.contains(event.target as Node)) return;
+      setStationMenuOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setStationMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [stationMenuOpen]);
 
   return (
     <div
@@ -184,22 +218,61 @@ export function UsageDensityChrome({
           data-starboard-panel="true"
           className="fixed bottom-0 right-0 top-0 z-[65] flex w-[560px] max-w-[calc(100vw-1rem)] flex-col border-l border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
           onPointerDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.stopPropagation()}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
           onWheelCapture={(event) => {
             event.stopPropagation();
           }}
         >
-          <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Canvas</div>
-              <div className="mt-0.5 text-base font-semibold">Starboard</div>
-            </div>
-            <div className="mx-4 flex min-w-0 flex-1 items-center justify-center">
-              <div className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-overlay/40 p-1">
-                <StationButton active={station === "controls"} icon={<Settings2 size={14} />} label="Controls" onClick={() => selectStation("controls")} />
-                <StationButton active={station === "objects"} icon={<LayoutList size={14} />} label="Objects" onClick={() => selectStation("objects")} />
-                <StationButton active={station === "attention"} icon={<Radar size={14} />} label="Attention" onClick={() => selectStation("attention")} />
-              </div>
+          <div className="flex items-center justify-between px-3 py-3">
+            <div ref={stationMenuRef} className="relative min-w-0 flex-1">
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-surface-overlay/50"
+                onClick={() => setStationMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={stationMenuOpen}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/[0.08] text-accent">
+                  {activeStation.icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Starboard</span>
+                  <span className="block truncate text-base font-semibold text-text">{activeStation.label}</span>
+                </span>
+                <ChevronDown size={16} className="text-text-dim" />
+              </button>
+              {stationMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-0 top-full z-[50003] mt-2 w-72 rounded-md border border-surface-border bg-surface-raised/95 p-1 backdrop-blur"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                >
+                  {STATIONS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="menuitem"
+                      className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${
+                        station === item.id ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                      }`}
+                      onClick={() => selectStation(item.id)}
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-overlay/50">{item.icon}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">{item.label}</span>
+                        <span className="block truncate text-xs text-text-dim">{item.eyebrow}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -212,7 +285,7 @@ export function UsageDensityChrome({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
               {station === "controls" ? (
                 <>
                   <div className="mb-4">
@@ -381,12 +454,20 @@ export function UsageDensityChrome({
                     )}
                   </div>
                 </>
-              ) : (
+              ) : station === "attention" ? (
                 <AttentionHubContent
                   items={attentionItems}
                   selectedId={selectedAttentionId}
                   onSelect={onSelectAttention}
                   onReply={onReplyAttention}
+                />
+              ) : station === "health" ? (
+                <SummaryPanel embedded />
+              ) : (
+                <CanvasLibraryContent
+                  embedded
+                  worldCenter={launchWorldCenter}
+                  onClose={() => onOpenChange(false)}
                 />
               )}
           </div>

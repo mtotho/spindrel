@@ -61,12 +61,11 @@ import { UpcomingFirePulse } from "./UpcomingFirePulse";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
-import { UsageDensityChrome, loadStarboardStation, type StarboardObjectItem, type StarboardStation } from "./UsageDensityChrome";
+import { UsageDensityChrome, loadStarboardStation, type StarboardObjectAction, type StarboardObjectItem, type StarboardStation } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
 import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
 import { SpatialAttentionSignal, shouldSurfaceAttentionOnMap } from "./SpatialAttentionLayer";
 import { DivePulseOverlay } from "./DivePulseOverlay";
-import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
 import { DraggableNode } from "./DraggableNode";
 import { ManualBotNode, BotTile } from "./BotNode";
@@ -84,7 +83,6 @@ import {
 } from "./MemoryObservatory";
 import DailyHealthLandmark from "./DailyHealthLandmark";
 import { BloatSatellite } from "./BloatSatellite";
-import SummaryPanel from "../system-health/SummaryPanel";
 import { buildWidgetOverviewClusters } from "./widgetOverviewClusters";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
@@ -360,6 +358,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     openStarboard("attention");
     closeAttentionHub();
   }, [closeAttentionHub, openStarboard]);
+  const openStarboardLaunch = useCallback(() => {
+    openStarboard("launch");
+  }, [openStarboard]);
+  const openStarboardHealth = useCallback(() => {
+    openStarboard("health");
+  }, [openStarboard]);
 
   useEffect(() => {
     if (!attentionHubOpen) return;
@@ -544,7 +548,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   // Hovered tile (for connection-line highlighting). Tracked at the canvas
   // level so layers under the tile map can react.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [libraryOpen, setLibraryOpen] = useState(false);
   const [openBotChat, setOpenBotChat] = useState<{
     botId: string;
     botName: string;
@@ -555,8 +558,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [starboardOpen, setStarboardOpen] = useState(false);
   const [starboardStation, setStarboardStation] = useState<StarboardStation>(loadStarboardStation);
   const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
-  const [healthSummaryOpen, setHealthSummaryOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (starboardOpen) return;
+    setPinPositionOverride(null);
+  }, [starboardOpen]);
 
   // Mobile + reduced-motion gates. We disable the starfield + halo breathing
   // on mobile (especially iOS PWAs, where every continuous animation is a
@@ -1561,6 +1568,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     const focusX = rect.width ? (rect.width / 2 - camera.x) / scale : 0;
     const focusY = rect.height ? (rect.height / 2 - camera.y) / scale : 0;
     const distanceFromFocus = (worldX: number, worldY: number) => Math.hypot(worldX - focusX, worldY - focusY);
+    const jumpAction = (worldX: number, worldY: number): StarboardObjectAction => ({
+      label: "Jump here",
+      icon: "jump",
+      onSelect: () => flyToStarboardObject(worldX, worldY),
+    });
     const items: StarboardObjectItem[] = [
       {
         id: "landmark-memory-observatory",
@@ -1571,6 +1583,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldY: MEMORY_OBSERVATORY_Y,
         distance: distanceFromFocus(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
         onSelect: () => flyToStarboardObject(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
+        actions: [
+          jumpAction(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
+          { label: "Open Memory Observatory", icon: "open", onSelect: flyToMemoryObservatory },
+        ],
       },
       {
         id: "landmark-now-well",
@@ -1581,6 +1597,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldY: WELL_Y,
         distance: distanceFromFocus(WELL_X, WELL_Y),
         onSelect: () => flyToStarboardObject(WELL_X, WELL_Y),
+        actions: [
+          jumpAction(WELL_X, WELL_Y),
+          { label: "Open Now Well", icon: "open", onSelect: flyToWell },
+        ],
       },
       {
         id: "landmark-attention-hub",
@@ -1592,8 +1612,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         distance: distanceFromFocus(ATTENTION_HUB_X, ATTENTION_HUB_Y),
         onSelect: () => {
           flyToStarboardObject(ATTENTION_HUB_X, ATTENTION_HUB_Y);
-          openAttentionHub();
+          openStarboardAttention();
         },
+        actions: [
+          jumpAction(ATTENTION_HUB_X, ATTENTION_HUB_Y),
+          { label: "Open Attention", icon: "open", onSelect: () => openStarboardAttention() },
+        ],
       },
     ];
     for (const node of nodes ?? []) {
@@ -1610,6 +1634,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldY,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => flyToStarboardObject(worldX, worldY),
+          actions: [
+            jumpAction(worldX, worldY),
+            { label: "Open channel", icon: "open", onSelect: () => navigate(`/channels/${node.channel_id}`) },
+            {
+              label: channel ? `Open mini chat - #${channel.name}` : "Open mini chat",
+              icon: "chat",
+              disabled: !channel,
+              onSelect: () => {
+                if (!channel) return;
+                setOpenBotChat({
+                  botId: channel.bot_id,
+                  botName: channel.bot_id,
+                  channelId: channel.id,
+                  channelName: channel.name,
+                });
+              },
+            },
+          ],
         });
       } else if (node.pin) {
         items.push({
@@ -1621,17 +1663,52 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldY,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => flyToStarboardObject(worldX, worldY),
+          actions: [
+            jumpAction(worldX, worldY),
+            { label: "Activate widget", icon: "activate", onSelect: () => setActivatedTileId(node.id) },
+            {
+              label: "Open source channel",
+              icon: "open",
+              disabled: !node.pin.source_channel_id,
+              onSelect: () => {
+                if (node.pin?.source_channel_id) navigate(`/channels/${node.pin.source_channel_id}`);
+              },
+            },
+          ],
         });
       } else if (node.bot_id) {
+        const botId = node.bot_id;
+        const botName = node.bot?.display_name || node.bot?.name || botId;
+        const channel = channelForBot(botId);
         items.push({
           id: `node-${node.id}`,
-          label: node.bot?.display_name || node.bot?.name || node.bot_id,
+          label: botName,
           kind: "bot",
           subtitle: "Bot",
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => flyToStarboardObject(worldX, worldY),
+          actions: [
+            jumpAction(worldX, worldY),
+            {
+              label: channel ? `Open bot chat - ${botName}` : "Open bot chat",
+              icon: "chat",
+              disabled: !channel,
+              onSelect: () => {
+                if (!channel) return;
+                setOpenBotChat({ botId, botName, channelId: channel.id, channelName: channel.name });
+              },
+            },
+            {
+              label: "Open bot settings",
+              icon: "settings",
+              onSelect: () =>
+                navigate(`/admin/bots/${botId}`, {
+                  state: { backTo: `${location.pathname}${location.search}` },
+                }),
+            },
+          ],
         });
       }
     }
@@ -1642,7 +1719,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     camera,
     activeAttentionCount,
     flyToStarboardObject,
-    openAttentionHub,
+    flyToMemoryObservatory,
+    flyToWell,
+    openStarboardAttention,
+    channelForBot,
+    navigate,
+    location.pathname,
+    location.search,
   ]);
 
   const edgeBeacons = useMemo(() => {
@@ -1675,7 +1758,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         worldY: ATTENTION_HUB_Y,
         colorClass: "border-warning/55 text-warning hover:border-warning/85",
         icon: Radar,
-        onClick: openAttentionHub,
+        onClick: () => openStarboardAttention(),
         persistent: attentionSignalsVisible && mapAttentionCount > 0,
       },
     ];
@@ -1729,7 +1812,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     mapAttentionCount,
     flyToMemoryObservatory,
     flyToWell,
-    openAttentionHub,
+    openStarboardAttention,
     flyToChannel,
     flyToNodeById,
   ]);
@@ -1775,7 +1858,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         label: "Canvas: Open Attention Hub",
         category: "Canvas",
         icon: Radar,
-        onSelect: () => openAttentionHub(),
+        onSelect: () => openStarboardAttention(),
       },
       {
         id: "canvas-toggle-arrange",
@@ -1842,7 +1925,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     fitAllNodes,
     flyToWell,
     flyToMemoryObservatory,
-    openAttentionHub,
+    openStarboardAttention,
     interactionMode,
     cycleDensityIntensity,
     cycleTrailsMode,
@@ -2468,7 +2551,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           icon: <Plus size={14} />,
           onClick: () => {
             setPinPositionOverride({ x: worldX - 160, y: worldY - 110 });
-            setLibraryOpen(true);
+            openStarboardLaunch();
           },
         });
         items.push({
@@ -2627,12 +2710,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             mappedCount={mapAttentionCount}
             signalsVisible={attentionSignalsVisible}
             zoom={ambientZoom}
-            onOpen={openAttentionHub}
+            onOpen={() => openStarboardAttention()}
           />
           <BloatSatellite />
           <DailyHealthLandmark
             zoom={ambientZoom}
-            onOpen={() => setHealthSummaryOpen(true)}
+            onOpen={openStarboardHealth}
           />
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
@@ -2963,7 +3046,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   <SpatialAttentionSignal
                     items={items}
                     scale={camera.scale * (lens?.sizeFactor ?? 1) * botScale}
-                    onSelect={(item) => setSelectedAttentionId(item.id)}
+                    onSelect={openStarboardAttention}
                   />
                 )}
               </div>
@@ -2979,22 +3062,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         selection={memorySelection}
         onClose={() => setMemorySelection(null)}
       />
-      <SpatialAttentionLayer
-        items={attentionItems ?? []}
-        selectedId={selectedAttentionId}
-        hubOpen={attentionHubOpen}
-        onSelect={(item) => setSelectedAttentionId(item?.id ?? null)}
-        onCloseHub={closeAttentionHub}
-        onReply={handleAttentionReply}
-      />
-      {healthSummaryOpen ? (
-        <div
-          className="absolute right-0 top-0 z-[5] flex h-full w-full max-w-md border-l border-surface-border/60 shadow-xl"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <SummaryPanel onClose={() => setHealthSummaryOpen(false)} />
-        </div>
-      ) : null}
       {landmarkBeaconsVisible && (
         <SpatialEdgeBeacons
           camera={camera}
@@ -3007,7 +3074,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         className="absolute top-4 right-4 z-[2] flex flex-row items-stretch gap-2"
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <AddWidgetButton onClick={() => setLibraryOpen(true)} />
+        <AddWidgetButton
+          onClick={() => {
+            setPinPositionOverride(null);
+            openStarboardLaunch();
+          }}
+        />
         <button
           type="button"
           title={interactionMode === "arrange" ? "Arrange mode on. Click to return to Browse. Hold Shift + drag also moves items." : "Arrange items. You can also hold Shift + drag any item."}
@@ -3043,6 +3115,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           onAttentionSignalsVisibleChange={setAttentionSignalsVisible}
           onOpenPalette={() => useUIStore.getState().openPalette()}
           objects={starboardObjects}
+          open={starboardOpen}
+          station={starboardStation}
+          onOpenChange={setStarboardOpen}
+          onStationChange={setStarboardStation}
+          attentionItems={attentionItems ?? []}
+          selectedAttentionId={selectedAttentionId}
+          onSelectAttention={(item) => setSelectedAttentionId(item?.id ?? null)}
+          onReplyAttention={handleAttentionReply}
+          launchWorldCenter={
+            pinPositionOverride
+              ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
+              : viewportSize.w && viewportSize.h
+                ? {
+                    x: (viewportSize.w / 2 - cameraRef.current.x) / cameraRef.current.scale,
+                    y: (viewportSize.h / 2 - cameraRef.current.y) / cameraRef.current.scale,
+                  }
+                : null
+          }
         />
       </div>
       {/* Canvas commands now live in ⌘K via `usePaletteActions` registration
@@ -3057,23 +3147,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           onClose={() => setMinimapVisible(false)}
         />
       )}
-      <CanvasLibrarySheet
-        open={libraryOpen}
-        onClose={() => {
-          setLibraryOpen(false);
-          setPinPositionOverride(null);
-        }}
-        worldCenter={
-          pinPositionOverride
-            ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
-            : viewportSize.w && viewportSize.h
-            ? {
-                x: (viewportSize.w / 2 - cameraRef.current.x) / cameraRef.current.scale,
-                y: (viewportSize.h / 2 - cameraRef.current.y) / cameraRef.current.scale,
-              }
-            : null
-        }
-      />
       {contextMenu && (
         <SpatialContextMenu
           screenX={contextMenu.screenX}

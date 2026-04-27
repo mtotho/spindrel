@@ -510,6 +510,7 @@ export function BlockyardWidget({
               const alpha = skin.alpha ?? 1;
               return (
                 <g key={`b-${x}-${y}-${z}`} opacity={alpha} style={{ cursor: removeMode ? "pointer" : "default" }}
+                   onPointerDown={removeMode ? (e) => e.stopPropagation() : undefined}
                    onClick={(e) => {
                      if (removeMode) {
                        e.stopPropagation();
@@ -617,6 +618,7 @@ export function BlockyardWidget({
                     style={{ cursor: phase === "ended" ? "default" : "pointer" }}
                     onPointerEnter={() => setHoverCell({ x, y, z: targetZ })}
                     onPointerLeave={() => setHoverCell((c) => (c?.x === x && c?.y === y ? null : c))}
+                    onPointerDown={phase === "ended" ? undefined : (e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleCellClick(x, y);
