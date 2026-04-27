@@ -32,7 +32,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.services.agent_harnesses.base import (
+from integrations.sdk import (
     AuthStatus,
     ChannelEventEmitter,
     HarnessModelOption,

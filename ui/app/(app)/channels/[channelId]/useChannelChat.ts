@@ -608,7 +608,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
       clear: async () => {
         if (!channelId) return;
         try {
-          const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
+          const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${channelId}/sessions`, { method: "POST" });
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
           navigate(`/channels/${channelId}/session/${result.new_session_id}`);
@@ -618,7 +618,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
       },
       new: async () => {
         if (!channelId) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${channelId}/sessions`, { method: "POST" });
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
         navigate(`/channels/${channelId}/session/${result.new_session_id}`);

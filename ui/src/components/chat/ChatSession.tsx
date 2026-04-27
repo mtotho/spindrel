@@ -448,13 +448,13 @@ function ChannelChatSession({
   const channelSlashLocalHandlers = useMemo(
     () => ({
       clear: async () => {
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${source.channelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${source.channelId}/sessions`, { method: "POST" });
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
         navigate(`/channels/${source.channelId}/session/${result.new_session_id}`);
       },
       new: async () => {
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${source.channelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${source.channelId}/sessions`, { method: "POST" });
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
         navigate(`/channels/${source.channelId}/session/${result.new_session_id}`);
@@ -908,13 +908,13 @@ function FixedSessionChatSession({
     () => ({
       clear: async () => {
         if (!parentChannelId) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, { method: "POST" });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
       },
       new: async () => {
         if (!parentChannelId) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, { method: "POST" });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
       },
@@ -1333,14 +1333,14 @@ function EphemeralChatSession({
       clear: async () => {
         const channelForNew = scratchBoundChannelId ?? parentChannelId;
         if (!channelForNew) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelForNew}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${channelForNew}/sessions`, { method: "POST" });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${channelForNew}/session/${result.new_session_id}`);
       },
       new: async () => {
         const channelForNew = scratchBoundChannelId ?? parentChannelId;
         if (!channelForNew) return;
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${channelForNew}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${channelForNew}/sessions`, { method: "POST" });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${channelForNew}/session/${result.new_session_id}`);
       },
@@ -1935,12 +1935,12 @@ function ThreadChatSession({
   const threadSlashLocalHandlers = useMemo(
     () => ({
       clear: async () => {
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, { method: "POST" });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
       },
       new: async () => {
-        const result = await apiFetch<{ new_session_id: string }>(`/channels/${parentChannelId}/sessions`, { method: "POST" });
+        const result = await apiFetch<{ new_session_id: string }>(`/api/v1/channels/${parentChannelId}/sessions`, { method: "POST" });
         qc.invalidateQueries({ queryKey: ["session-messages"] });
         navigate(`/channels/${parentChannelId}/session/${result.new_session_id}`);
       },

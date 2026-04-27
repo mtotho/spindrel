@@ -2,7 +2,9 @@
 
 ![Agent Harnesses admin page — registered runtimes, auth status, one-click claude login](../images/harness-overview.png)
 
-An **external agent harness** lets you run a coding-agent session from Spindrel's web UI without routing the turn through Spindrel's RAG loop. Claude Code is supported today; Codex is planned on the same runtime boundary.
+An **external agent harness** lets you run a coding-agent session from Spindrel's web UI without routing the turn through Spindrel's RAG loop. Claude Code and Codex are both supported today on the same runtime boundary.
+
+> **Codex prerequisite.** The Codex runtime spawns the user-installed `codex` binary as `codex app-server` and speaks the official OpenAI app-server JSON-RPC protocol over stdio. No third-party Python SDK is bundled. Install the `codex` binary on the Spindrel host (or set `CODEX_BIN` to its path) and run `codex login` once. `auth_status()` distinguishes "binary not installed" from "not logged in" so the admin card surfaces a useful error before login is attempted. Spindrel's effective tool set bridges into Codex via `dynamicTools` when the installed binary supports it; otherwise the bridge status records `"unsupported"` and the harness still runs with native Codex tools.
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
 

@@ -68,3 +68,28 @@ def test_claude_capabilities_shape():
     # Must NOT allow Spindrel-loop / runtime-conflicting commands:
     for cmd in ("plan", "find", "skills"):
         assert cmd not in allowed, f"{cmd} must NOT be in Claude allowlist"
+
+
+def test_codex_capabilities_shape():
+    """Pin the Codex runtime's static control surface."""
+    from integrations.codex.harness import CodexRuntime
+
+    caps = CodexRuntime().capabilities()
+    assert caps.display_name == "Codex"
+    assert caps.model_is_freeform is True
+    assert caps.supported_models
+    assert caps.model_options
+    assert caps.effort_values == ("low", "medium", "high")
+    assert caps.approval_modes == (
+        "bypassPermissions", "acceptEdits", "default", "plan",
+    )
+    assert caps.native_compaction is True
+
+
+def test_claude_and_codex_have_distinct_display_names():
+    pytest.importorskip("claude_agent_sdk")
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+    from integrations.codex.harness import CodexRuntime
+
+    assert ClaudeCodeRuntime().capabilities().display_name == "Claude Code"
+    assert CodexRuntime().capabilities().display_name == "Codex"

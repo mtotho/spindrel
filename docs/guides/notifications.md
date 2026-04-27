@@ -1,5 +1,7 @@
 # Notifications
 
+![Notifications admin surface — three channel targets, a group bundling two of them, bot-grant pills](../images/notifications-overview.png)
+
 Core notification targets are reusable, admin-managed destinations for human-facing alerts.
 
 ## Target Kinds

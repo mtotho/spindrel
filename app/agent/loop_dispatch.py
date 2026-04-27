@@ -168,7 +168,7 @@ async def _dispatch_tool(
     ))
 
 
-async def _resolve_approval_verdict(
+async def resolve_approval_verdict(
     approval_id: str,
     *,
     timeout_seconds: int,
@@ -232,7 +232,7 @@ async def _process_tool_call_result(
             approval_event["capability"] = capability
         yield _event_with_compaction_tag(approval_event, compaction)
         try:
-            verdict = await _resolve_approval_verdict(
+            verdict = await resolve_approval_verdict(
                 tc_result.approval_id,
                 timeout_seconds=tc_result.approval_timeout,
             )

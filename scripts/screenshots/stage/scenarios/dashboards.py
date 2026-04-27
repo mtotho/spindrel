@@ -20,23 +20,45 @@ def pin_full_dashboard(
     channel_id: str,
     source_bot_id: str,
 ) -> list[str]:
-    """Pin the 6-widget flagship dashboard for ``widget-dashboard.png``.
+    """Pin the 5-widget flagship dashboard for ``widget-dashboard.png``.
 
-    Layout: standard preset (12-col grid, 30px rows). Each tile is 4 wide ×
-    10 tall — matches the ``M``/``L`` size-preset region (`ui/src/lib/
-    dashboardGrid.ts`). Two rows of three; widgets get enough vertical room to
-    render their body instead of clipping to the header.
+    Layout: standard preset (12-col grid, 30px rows). Two rows that fill the
+    full grid width — the prior 3×2 layout left whole tiles showing
+    "Loading…" / session-scoped placeholders, which read as default-sized
+    and content-less. The current shape:
+
+      Row 1 (h=14): Notes (8w, hero) + Standing order (4w, rich log)   = 12
+      Row 2 (h=10): Todos (4w) + Usage forecast (4w) + Upcoming (4w)   = 12
+
+    Every tile in this set has a real populated state seeded by
+    ``_seed_widget_states_for_channel`` (see ``flagship.py``) so no widget
+    renders an empty body. Machine-control is intentionally dropped — it's
+    channel-session-scoped and renders a "no active session" placeholder
+    until a chat session opens, which is exactly the kind of empty tile the
+    flagship dashboard should not showcase.
     """
     dashboard_key = dashboard_key_for_channel(channel_id)
     existing = {p.get("display_label"): p for p in client.list_pins(dashboard_key=dashboard_key)}
 
+    # Drop pins that the prior layout placed but the current one doesn't
+    # ship. Without this, reruns leak old "Machine control" placeholder tiles
+    # into the screenshot.
+    obsolete_labels = {"Machine control"}
+    for label in obsolete_labels:
+        pin = existing.get(label)
+        if pin and pin.get("id"):
+            try:
+                client.delete_pin(str(pin["id"]))
+            except Exception:
+                pass
+            existing.pop(label, None)
+
     specs = [
-        ("Notes",              env.notes(),              {"x": 0, "y": 0,  "w": 4, "h": 10}),
-        ("Todos",              env.todos(),              {"x": 4, "y": 0,  "w": 4, "h": 10}),
-        ("Usage forecast",     env.usage_forecast(),     {"x": 8, "y": 0,  "w": 4, "h": 10}),
-        ("Upcoming activity",  env.upcoming_activity(),  {"x": 0, "y": 10, "w": 4, "h": 10}),
-        ("Standing order",     env.standing_order_poll(),{"x": 4, "y": 10, "w": 4, "h": 10}),
-        ("Machine control",    env.machine_control(),    {"x": 8, "y": 10, "w": 4, "h": 10}),
+        ("Notes",              env.notes(),              {"x": 0, "y": 0,  "w": 8, "h": 14}),
+        ("Standing order",     env.standing_order_poll(),{"x": 8, "y": 0,  "w": 4, "h": 14}),
+        ("Todos",              env.todos(),              {"x": 0, "y": 14, "w": 4, "h": 10}),
+        ("Usage forecast",     env.usage_forecast(),     {"x": 4, "y": 14, "w": 4, "h": 10}),
+        ("Upcoming activity",  env.upcoming_activity(),  {"x": 8, "y": 14, "w": 4, "h": 10}),
     ]
 
     ids: list[str] = []

@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-27
+updated: 2026-04-27 (Phase 6 v1 shipped — codex runtime + host seam cleanup)
 ---
 # Track - Harness SDK
 
@@ -44,7 +44,7 @@ This track covers the stable host contract used by Claude Code today and Codex l
 | 3 | Harness approvals | shipped | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. Phase 3a (backend) and Phase 3b (UI) both shipped 2026-04-26. |
 | 4 | Harness control surface | shipped | `RuntimeCapabilities` Protocol; per-session `harness_settings` (model/effort/runtime_settings); `GET /runtimes/{name}/capabilities`; `GET/POST /sessions/{id}/harness-settings`; header model + effort pills (per-session, alongside Phase 3 approval-mode pill); harness-aware `/model` and `/effort`; `?bot_id=` filter on `/api/v1/slash-commands` and `/help`. Follow-up fixed channel-surface slash requests to carry `current_session_id` so scratch/split/thread panes target their own session, with `active_session_id` only as the default primary fallback. Shipped 2026-04-26. |
 | 5 | Native-feel foundation | in progress | Session-bound harness context hints, `/compact` resume reset + continuity summary, `/context`/status endpoint, heartbeat/workspace-files hints, channel/admin settings cleanup, normal tool pickers as Spindrel bridge source, first Spindrel tool bridge via Claude SDK in-process MCP, durable harness question cards, persisted harness tool breadcrumbs, and model-scoped effort controls. Needs SDK smoke test on the harness image. |
-| 6 | Codex runtime | planned | Implement Codex against the same `TurnContext`, approval, settings, status, tool-bridge, and runtime-capability contracts. |
+| 6 | Codex runtime | shipped 2026-04-27 (v1) | Codex via the official `codex app-server` JSON-RPC protocol over stdio (no third-party Python SDK). Spawns the user-installed `codex` binary; same `TurnContext`/approval/settings/capabilities/tool-bridge contracts as Claude. Includes Phase A host-seam cleanup (single `build_turn_context`, shared `apply_tool_bridge`, public `resolve_approval_verdict`, `format_question_answer_for_runtime`, `HarnessToolSpec`/`HarnessBridgeInventory` on `base.py`). UI literals dropped from `BotPicker`/`ToolSelector`/`format.ts`. Plan: `~/.claude/plans/partitioned-conjuring-finch.md`. See [[#Phase 6 - Codex App-Server Harness V1]]. Verify on host with `codex` binary: live `model/list`, dynamicTools-supported vs unsupported paths, server-issued approval routing, native compaction. |
 | 7 | Skill bridge | planned | Export simple skills to harness-native skill folders and/or expose searchable Spindrel skills as bridged tools/resources. |
 | 8 | Usage + observability | planned | Aggregate harness usage/cost into admin usage, expose runtime version/auth/health, and improve post-refresh tool-call rehydration. |
 
@@ -128,6 +128,67 @@ Open verification:
 - Decide whether heartbeat hints should target only the primary session forever or fan out to recently active scratch/split sessions when a channel has no obvious primary human context.
 - Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
 - Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
+
+## Phase 6 - Codex App-Server Harness V1
+
+Plan locked 2026-04-27. Plan file: `~/.claude/plans/partitioned-conjuring-finch.md`. **Not yet executed** — Opus planned, hand off to Sonnet next session.
+
+### Locked decisions
+
+- **No third-party Python SDK.** Talk to the official `codex app-server` JSON-RPC protocol over stdio (`${CODEX_BIN:-codex} app-server`). The third-party `codex-app-server-sdk` PyPI package is unofficial + AGPL and is rejected as a runtime dep.
+- **Cleanup scope** = blockers only (the 6 smells below). Other smells filed for separate cleanup.
+- **Approval contract** = thread-level Codex `approvalPolicy` + sandbox profile + Codex server-initiated approval requests routed into existing harness approval cards via `request_harness_approval`. Spindrel `dynamicTools` calls flow through `execute_harness_spindrel_tool` only — that already runs Spindrel policy/approval via `dispatch_tool_call`, so no second prompt.
+- **Schema discipline** = all method names + enum values + envelope shapes live in `integrations/codex/schema.py`, sourced from the installed `codex` binary. No protocol literals in `harness.py` / `events.py` / `approvals.py`.
+- **Capabilities** = sync, static fallback only. Live `model/list` is async and routes through `list_models()`.
+- **Deployment** = `codex` binary is a server-side prerequisite. `auth_status()` distinguishes binary-missing from not-logged-in. Baking the binary into the harness image is a follow-up Loose End.
+
+### Blocker smells to fix BEFORE adding Codex (Phase A)
+
+1. UI hardcoded `claude-code` / `claude_code` literals: `ui/src/components/shared/BotPicker.tsx:17-18`, `ui/src/components/shared/ToolSelector.tsx:15`, `ui/src/utils/format.ts:10`. Capabilities endpoint already returns `display_name`; UI consumes it via new `useRuntimeCapabilities(runtime_id)` hook.
+2. `_maybe_attach_spindrel_tool_bridge` in `integrations/claude_code/harness.py:530-649` mixes host-side bookkeeping with Claude-MCP wrapping. Lift host concerns into `app/services/agent_harnesses/tools.py::apply_tool_bridge(ctx, runtime, *, attach)`; runtime adapter passes a closure that wraps its own SDK shape.
+3. `_build_ask_user_question_updated_input` (Claude `harness.py:474-510`) is generic. Move to `app/services/agent_harnesses/interactions.py::format_question_answer_for_runtime`.
+4. `TurnContext` constructed in 3 drift-prone places (`turn_worker.py::_run_harness_turn:241-256`, `session_state.py::run_native_harness_compact:469-481`, `api_v1_sessions.py:986+`). Add `app/services/agent_harnesses/context.py::build_turn_context(...)` and wire all three callers.
+5. `_apply_effort_option` host-side `inspect.signature` sniffer is brittle and incompatible with Codex. **Fix is NOT a `translate_options` Protocol** — keep all option construction inside each runtime's `start_turn`. Drop the host sniffer.
+6. `app/services/agent_harnesses/tools.py:24` imports private `_resolve_approval_verdict` from `loop_dispatch`. Promote to public `resolve_approval_verdict`.
+
+Also: move `HarnessToolSpec` + `HarnessBridgeInventory` from `tools.py` to `base.py` to avoid circular imports when the Protocol grows.
+
+### New Codex integration files (Phase B)
+
+```
+integrations/codex/
+  integration.yaml        # id: codex, provides: [harness], no settings
+  __init__.py
+  README.md
+  app_server.py           # stdio JSON-RPC client (no third-party deps)
+  schema.py               # constants from installed codex binary
+  harness.py              # CodexRuntime — implements HarnessRuntime; self-registers
+  events.py               # notification → ChannelEventEmitter
+  approvals.py            # mode → (approvalPolicy, sandbox); server-request → Spindrel cards
+```
+
+Approval mapping intent (final values from schema):
+
+| Spindrel mode | Codex `approvalPolicy` | Sandbox profile |
+|---|---|---|
+| `bypassPermissions` | most-permissive ("never"-equivalent) | most-permissive write |
+| `acceptEdits` | on-request equivalent | workspace-write equivalent |
+| `default` | on-request equivalent | workspace-write equivalent |
+| `plan` | most-restrictive | read-only equivalent (+ host instruction) |
+
+### Tests (Phase C)
+
+`test_codex_app_server_client.py`, `test_codex_runtime_capabilities.py`, `test_codex_runtime_events.py`, `test_codex_runtime_bridge.py` (incl. dynamic-tools-unsupported path + no-double-prompt assertion), `test_codex_runtime_approvals.py`, plus updates to `test_runtime_capabilities.py` and the integration import boundary test.
+
+### Open verification questions (resolve from installed binary, not docs)
+
+- Exact app-server method names (`thread/start`, `turn/start`, `thread/compact/start`, `turn/interrupt`, `account/read`, `model/list`).
+- Item kinds (`item/started`, `item/completed`, `item/agentMessage/delta`, `item/commandExecution/outputDelta`, `item/fileChange/outputDelta`, `turn/plan/updated`, `thread/tokenUsage/updated`).
+- `approvalPolicy` and sandbox profile enum values + casing.
+- Dynamic tool result envelope shape (likely `{"contentItems": [...], "success": bool}`, but field names from schema).
+- `turn/interrupt` shape — README implies both `threadId` and `turnId` required.
+- Whether `dynamicTools` capability is reported via `initialize` or only inferable by probe.
+- Whether `turn/interrupt` cleans up server-initiated approval requests, or Spindrel must expire pending approvals/questions for the cancelled turn.
 
 ## Later - Skill Bridge
 

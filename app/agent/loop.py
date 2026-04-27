@@ -18,7 +18,7 @@ from app.agent.context_pruning import prune_in_loop_tool_results, should_prune_i
 from app.agent.loop_dispatch import (
     LoopDispatchState,
     SummarizeSettings,
-    _resolve_approval_verdict,  # noqa: F401 — re-exported
+    resolve_approval_verdict,  # noqa: F401 — re-exported
     dispatch_iteration_tool_calls,
 )
 from app.agent.loop_helpers import (

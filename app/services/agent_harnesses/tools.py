@@ -11,8 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,30 +19,140 @@ from sqlalchemy import select
 from app.agent.bots import get_bot
 from app.agent.channel_overrides import apply_auto_injections, resolve_effective_tools
 from app.agent.context import current_resolved_skill_ids, current_skills_in_context, set_agent_context
-from app.agent.loop_dispatch import SummarizeSettings, _resolve_approval_verdict
+from app.agent.loop_dispatch import SummarizeSettings, resolve_approval_verdict
 from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call
 from app.config import settings
 from app.db.models import Channel, ChannelSkillEnrollment
-from app.services.agent_harnesses.base import TurnContext
+from app.services.agent_harnesses.base import (
+    HarnessBridgeInventory,
+    HarnessToolSpec,
+    TurnContext,
+)
 from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "HarnessBridgeInventory",
+    "HarnessToolSpec",
+    "apply_tool_bridge",
+    "execute_harness_spindrel_tool",
+    "list_harness_spindrel_tools",
+    "list_harness_spindrel_tools_for",
+    "resolve_harness_bridge_inventory",
+]
 
-@dataclass(frozen=True)
-class HarnessToolSpec:
-    name: str
-    description: str
-    parameters: dict[str, Any]
-    schema: dict[str, Any]
+
+HarnessAttach = Callable[[tuple[HarnessToolSpec, ...]], Awaitable[list[str]]]
 
 
-@dataclass(frozen=True)
-class HarnessBridgeInventory:
-    specs: tuple[HarnessToolSpec, ...]
-    ignored_client_tools: tuple[str, ...]
-    errors: tuple[str, ...] = ()
+async def apply_tool_bridge(
+    ctx: TurnContext,
+    runtime: Any,
+    *,
+    attach: HarnessAttach,
+) -> tuple[list[str], list[str]]:
+    """Resolve the Spindrel bridge inventory and let the runtime attach it.
+
+    The runtime supplies an ``attach(specs)`` coroutine that wraps each spec
+    into its SDK-native shape (Claude in-process MCP server, Codex
+    ``dynamicTools``, etc.) and returns the list of tool names the runtime
+    actually exported. The host owns inventory resolution and bridge-status
+    bookkeeping so each runtime adapter only handles its own SDK shape.
+
+    Returns ``(exported_tool_names, ignored_client_tool_names)``.
+    """
+    runtime_name = getattr(runtime, "name", None) or runtime.__class__.__name__
+    if ctx.channel_id is None:
+        return [], []
+    from app.services.agent_harnesses.session_state import set_bridge_status
+
+    ignored_client_tools: tuple[str, ...] = ()
+    inventory_errors: tuple[str, ...] = ()
+    specs: tuple[HarnessToolSpec, ...] = ()
+    try:
+        async with ctx.db_session_factory() as db:
+            inventory = await resolve_harness_bridge_inventory(
+                db,
+                bot_id=ctx.bot_id,
+                channel_id=ctx.channel_id,
+                explicit_tool_names=ctx.ephemeral_tool_names,
+            )
+        specs = inventory.specs
+        ignored_client_tools = inventory.ignored_client_tools
+        inventory_errors = inventory.errors
+    except Exception:
+        logger.exception("%s: failed to list Spindrel bridge tools", runtime_name)
+        async with ctx.db_session_factory() as db:
+            await set_bridge_status(
+                db,
+                ctx.spindrel_session_id,
+                status="error",
+                ignored_client_tools=ignored_client_tools,
+                error="failed to list Spindrel bridge tools",
+            )
+        return [], list(ignored_client_tools)
+
+    if not specs:
+        async with ctx.db_session_factory() as db:
+            await set_bridge_status(
+                db,
+                ctx.spindrel_session_id,
+                status="no_tools_selected",
+                ignored_client_tools=ignored_client_tools,
+                explicit_tool_names=ctx.ephemeral_tool_names,
+                tagged_skill_ids=ctx.tagged_skill_ids,
+                inventory_errors=inventory_errors,
+                error="; ".join(inventory_errors) if inventory_errors else None,
+            )
+        return [], list(ignored_client_tools)
+
+    try:
+        exported = await attach(specs)
+    except Exception as exc:
+        logger.exception("%s: bridge attach failed", runtime_name)
+        async with ctx.db_session_factory() as db:
+            await set_bridge_status(
+                db,
+                ctx.spindrel_session_id,
+                status="error",
+                exported_tools=[spec.name for spec in specs],
+                ignored_client_tools=ignored_client_tools,
+                explicit_tool_names=ctx.ephemeral_tool_names,
+                tagged_skill_ids=ctx.tagged_skill_ids,
+                inventory_errors=inventory_errors,
+                error=str(exc) or "bridge attach failed",
+            )
+        return [], list(ignored_client_tools)
+
+    if not exported:
+        async with ctx.db_session_factory() as db:
+            await set_bridge_status(
+                db,
+                ctx.spindrel_session_id,
+                status="unsupported",
+                exported_tools=[spec.name for spec in specs],
+                ignored_client_tools=ignored_client_tools,
+                explicit_tool_names=ctx.ephemeral_tool_names,
+                tagged_skill_ids=ctx.tagged_skill_ids,
+                inventory_errors=inventory_errors,
+                error="runtime did not export any bridge tools",
+            )
+        return [], list(ignored_client_tools)
+
+    async with ctx.db_session_factory() as db:
+        await set_bridge_status(
+            db,
+            ctx.spindrel_session_id,
+            status="enabled",
+            exported_tools=list(exported),
+            ignored_client_tools=ignored_client_tools,
+            explicit_tool_names=ctx.ephemeral_tool_names,
+            tagged_skill_ids=ctx.tagged_skill_ids,
+            inventory_errors=inventory_errors,
+        )
+    return list(exported), list(ignored_client_tools)
 
 
 def _spec_from_schema(schema: dict[str, Any]) -> HarnessToolSpec | None:
@@ -138,7 +247,23 @@ async def _collect_harness_spindrel_tools_for(
     errors: list[str] = []
     local_names = list(dict.fromkeys(list(eff.local_tools) + list(explicit_tool_names or ())))
     try:
-        schemas.extend(get_local_tool_schemas(local_names))
+        local_schemas = get_local_tool_schemas(local_names)
+        schemas.extend(local_schemas)
+        if local_names:
+            resolved_local_names = {
+                spec.name
+                for schema in local_schemas
+                if (spec := _spec_from_schema(schema)) is not None
+            }
+            missing_local_names = [
+                name for name in local_names if name not in resolved_local_names
+            ]
+            if missing_local_names:
+                errors.append(
+                    "local tools not registered: "
+                    + ", ".join(missing_local_names[:20])
+                    + (" ..." if len(missing_local_names) > 20 else "")
+                )
     except Exception as exc:
         logger.exception("harness bridge: failed to resolve local tool schemas")
         errors.append(f"local tools: {exc}")
@@ -244,7 +369,7 @@ async def execute_harness_spindrel_tool(
         allowed_tool_names=set(allowed_tool_names) if allowed_tool_names is not None else set(),
     )
     if result.needs_approval and result.approval_id:
-        verdict = await _resolve_approval_verdict(
+        verdict = await resolve_approval_verdict(
             result.approval_id,
             timeout_seconds=result.approval_timeout,
         )

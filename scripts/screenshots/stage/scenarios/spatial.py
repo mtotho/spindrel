@@ -25,6 +25,8 @@ Idempotent end-to-end via stable ``screenshot:spatial:*`` client_ids and
 """
 from __future__ import annotations
 
+import json
+
 from . import StagedState
 from . import bots as bot_scenarios
 from .._exec import run_server_helper
@@ -78,8 +80,85 @@ SPATIAL_PINS: list[tuple[str, "callable", str, tuple[float, float, float, float]
     ("Standing order",    env.standing_order_poll,"widget-building", ( 360.0, -120.0, 260.0, 180.0)),
     ("Upcoming activity", env.upcoming_activity,  "dev-commits",     ( 460.0,  120.0, 240.0, 160.0)),
     ("Usage forecast",    env.usage_forecast,     "system-audit",    (-440.0,  140.0, 240.0, 160.0)),
-    ("Notes · garden",env.notes,             "gardening",       (-700.0, -360.0, 220.0, 140.0)),
+    ("Notes · garden",    env.notes,              "gardening",       (-700.0, -360.0, 220.0, 140.0)),
 ]
+
+
+# Per-channel widget state seeds — keyed by ``(widget_ref, channel_slug)``.
+# Native widgets render from ``WidgetInstance.state`` which is keyed on
+# (widget_ref, scope='channel', scope_ref=<channel_id>), so each spatial
+# pin gets its own content even though several pins share the same
+# widget_ref. Without this, the canvas reads as "a constellation of empty
+# notes" — every pin renders the placeholder copy instead of real text.
+_SPATIAL_WIDGET_STATES: dict[tuple[str, str], dict] = {
+    ("core/notes_native", "qa"): {
+        "body": (
+            "# QA standup\n\n"
+            "**Test runs since last beat:** 14 / 14 green\n"
+            "\n"
+            "## Triage\n\n"
+            "- Flake watch: `tests/integration/test_widget_auth.py::test_concurrent_mint`\n"
+            "- New: drift gate added for SSRF horizontal pins (Q-SEC-2)\n"
+            "- Owner: @qa-lead\n"
+            "\n"
+            "## Up next\n\n"
+            "1. Spatial canvas snapshot tests\n"
+            "2. Notification target replay coverage\n"
+        ),
+        "updated_at": "2026-04-26T15:00:00Z",
+    },
+    ("core/notes_native", "gardening"): {
+        "body": (
+            "# Garden log — week of 4/22\n\n"
+            "## Beds\n\n"
+            "- **Bed A (tomatoes)** — staked 3 indeterminates, mulched\n"
+            "- **Bed B (peppers)** — first flowers on the cayennes 🌶️\n"
+            "- **Bed C (greens)** — second succession sown Tuesday\n"
+            "\n"
+            "## Watch\n\n"
+            "- Aphids forming on the brassicas — neem on Friday if still active\n"
+            "- Forecast: rain Thursday → skip irrigation\n"
+        ),
+        "updated_at": "2026-04-26T11:30:00Z",
+    },
+    ("core/todo_native", "qa"): {
+        "items": [
+            {"id": "qa1", "text": "Add SSRF drift pin: hostname rebinding", "done": True},
+            {"id": "qa2", "text": "Pin webhook replay contract — outbound", "done": True},
+            {"id": "qa3", "text": "Cover loop_dispatch isolation (Q-CONC)", "done": False},
+            {"id": "qa4", "text": "Capture flake on test_widget_auth concurrent_mint", "done": False},
+            {"id": "qa5", "text": "Audit binding_suggestions endpoint coverage", "done": False},
+        ],
+        "updated_at": "2026-04-26T15:00:00Z",
+    },
+    ("core/standing_order_native", "widget-building"): {
+        "goal": "Watch widget-canvas rebuilds for stale pins",
+        "status": "running",
+        "strategy": "poll_url",
+        "strategy_args": {
+            "url": "http://localhost:18000/api/v1/widgets/dashboard/health",
+            "interval_seconds": 1800,
+        },
+        "strategy_state": {"last_status": "ok"},
+        "interval_seconds": 1800,
+        "iterations": 7,
+        "max_iterations": 96,
+        "completion": {},
+        "log": [
+            {"at": "2026-04-26T08:00:00Z", "level": "info", "text": "Tick — 0 stale pins"},
+            {"at": "2026-04-26T11:00:00Z", "level": "info", "text": "Tick — 0 stale pins"},
+            {"at": "2026-04-26T14:00:00Z", "level": "warn", "text": "Tick — 2 stale pins on workspace:spatial"},
+            {"at": "2026-04-26T15:30:00Z", "level": "info", "text": "Reconciled stale pins via patch_pins_layout"},
+        ],
+        "message_on_complete": "All canvas pins reconciled.",
+        "owning_bot_id": "",
+        "owning_channel_id": "",
+        "next_tick_at": "2026-04-26T17:00:00Z",
+        "last_tick_at": "2026-04-26T15:30:00Z",
+        "terminal_reason": None,
+        "updated_at": "2026-04-26T15:30:00Z",
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +301,28 @@ def stage_spatial(
             args=[_ch_id(slug, channel_id_by_slug), primary_bot],
             dry_run=dry_run,
         )
+
+    # 7. Native widget state seeds — the spatial canvas pins each render from
+    # ``WidgetInstance.state`` keyed on the source channel, so without this
+    # every pin shows the empty-state "No notes yet" placeholder.
+    import subprocess
+    for (widget_ref, channel_slug), widget_state in _SPATIAL_WIDGET_STATES.items():
+        channel_id = channel_id_by_slug.get(channel_slug)
+        if not channel_id:
+            continue
+        try:
+            run_server_helper(
+                ssh_alias=ssh_alias,
+                container=ssh_container,
+                helper_name="seed_widget_instance_state",
+                args=[channel_id, widget_ref, json.dumps(widget_state)],
+                dry_run=dry_run,
+            )
+        except (RuntimeError, subprocess.CalledProcessError):
+            # Pin might not have been created on this channel yet — that's
+            # fine, just skip the seed. Reruns will succeed once the pin
+            # lands. Don't crash the whole stage on a missing instance.
+            continue
 
     # 7. Surface a stable hero-channel UUID for capture specs to reference.
     # ``qa`` is the densest channel (canvas pins, heartbeat, recent activity)

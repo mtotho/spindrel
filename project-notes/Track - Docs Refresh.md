@@ -412,6 +412,14 @@ One-liner per integration, pulled from each `integrations/<name>/integration.yam
 
 ---
 
+### What shipped 2026-04-27 — hero gate cleanup wave 2
+
+- **Notifications hero (`notifications-overview.png`)** — new `NOTIFICATIONS_SPECS` + `stage_notifications` scenario seed three channel targets + a group bundling two of them + two test sends so the delivery-history pane is non-empty. Hero ref added at the top of `docs/guides/notifications.md`.
+- **Attention beacons heroes (`attention-canvas.png` + `attention-hub.png`)** — new `ATTENTION_SPECS` + `stage_attention` scenario POSTs three Attention Items (warning / error / critical) targeting spatial-scenario channels. Canvas spec relies on the lucide `triangle-alert` / `shield-alert` icon classes (NOT `alert-triangle`; lucide-react 1.0.1 renamed it). Hub spec opens the drawer by clicking the canvas-edge `button[title="Open Attention Hub"]` landmark. Both heroes are referenced from `docs/guides/attention-beacons.md`.
+- **Slack hero — allowlisted.** Real Slack delivery captures need live tokens we don't run on the e2e instance; added `slack.md` to `_HERO_OPTIONAL` in `scripts/screenshots/check_drift.py` with a comment to revisit once we wire a Block Kit preview surface or a Slack workspace fixture.
+- **Quickstart video** — added a new `stay_in_the_loop` section between scheduled work and harness, with three still scenes (canvas → hub → notifications) tied together by the "same primitive end to end" caption arc.
+- Drift gate at 53/53 image refs OK; `--require-hero` shows 1 remaining (`discord.md`, intentionally deferred).
+
 ## Key invariants
 
 - **Never cite "freeze" as a scope cap.** The freeze is on new features/mechanisms/tables — not on docs accuracy.

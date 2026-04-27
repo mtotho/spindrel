@@ -49,6 +49,25 @@ def _redact_value(value: object) -> object:
 
 
 @dataclass(frozen=True)
+class HarnessToolSpec:
+    """One Spindrel tool surfaced to a harness runtime via the bridge."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    schema: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class HarnessBridgeInventory:
+    """Resolved bridge inventory for one harness turn."""
+
+    specs: tuple[HarnessToolSpec, ...]
+    ignored_client_tools: tuple[str, ...]
+    errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AuthStatus:
     """Reported by ``HarnessRuntime.auth_status()``.
 

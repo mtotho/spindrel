@@ -687,3 +687,45 @@ class TestPositionHistory:
             headers=AUTH_HEADERS,
         )
         assert r2.status_code in (400, 422), r2.text
+
+
+class TestSpatialLandmarks:
+    async def test_get_nodes_seeds_all_landmarks(self, client):
+        from app.services.workspace_spatial import LANDMARK_DEFAULTS
+
+        r = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        nodes = r.json()["nodes"]
+        landmarks = {n["landmark_kind"]: n for n in nodes if n["landmark_kind"]}
+        assert set(landmarks.keys()) == set(LANDMARK_DEFAULTS.keys())
+        for kind, (x, y) in LANDMARK_DEFAULTS.items():
+            assert landmarks[kind]["world_x"] == x
+            assert landmarks[kind]["world_y"] == y
+            assert landmarks[kind]["channel_id"] is None
+            assert landmarks[kind]["widget_pin_id"] is None
+            assert landmarks[kind]["bot_id"] is None
+
+    async def test_landmark_seed_idempotent(self, client):
+        r1 = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        r2 = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        ids_1 = {n["id"] for n in r1.json()["nodes"] if n["landmark_kind"]}
+        ids_2 = {n["id"] for n in r2.json()["nodes"] if n["landmark_kind"]}
+        assert ids_1 == ids_2 and len(ids_1) == 4
+
+    async def test_landmark_position_is_patchable(self, client):
+        r = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        hub = next(n for n in r.json()["nodes"] if n["landmark_kind"] == "attention_hub")
+        patch = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{hub['id']}",
+            json={"world_x": 1234.0, "world_y": -567.0},
+            headers=AUTH_HEADERS,
+        )
+        assert patch.status_code == 200, patch.text
+        moved = patch.json()["node"]
+        assert moved["landmark_kind"] == "attention_hub"
+        assert moved["world_x"] == 1234.0
+        assert moved["world_y"] == -567.0
+        # Re-read confirms persistence.
+        r2 = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        again = next(n for n in r2.json()["nodes"] if n["landmark_kind"] == "attention_hub")
+        assert (again["world_x"], again["world_y"]) == (1234.0, -567.0)

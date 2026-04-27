@@ -7,11 +7,10 @@ export function prettyIntegrationName(slug: string): string {
     gmail: "Gmail",
     frigate: "Frigate",
     arr: "Media Stack",
-    claude_code: "Claude Code",
     bluebubbles: "BlueBubbles",
     ingestion: "Ingestion",
   };
-  return names[slug] ?? slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return names[slug] ?? slug.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function formatBytes(bytes: number): string {

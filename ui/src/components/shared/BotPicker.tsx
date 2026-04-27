@@ -12,12 +12,15 @@ function shortModel(model: string): string {
   return parts[parts.length - 1];
 }
 
+function titleCaseRuntime(slug: string): string {
+  return slug
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function botRuntimeLabel(bot: BotConfig): string {
   if (!bot.harness_runtime) return shortModel(bot.model);
-  if (bot.harness_runtime === "claude-code" || bot.harness_runtime === "claude_code") {
-    return "Claude Code harness";
-  }
-  return `${bot.harness_runtime} harness`;
+  return `${titleCaseRuntime(bot.harness_runtime)} harness`;
 }
 
 function BotAvatar({ bot, size }: { bot: BotConfig; size: number }) {

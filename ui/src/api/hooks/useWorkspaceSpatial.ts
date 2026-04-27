@@ -19,11 +19,18 @@ export interface SpatialNodePin {
   panel_title?: string | null;
 }
 
+export type LandmarkKind =
+  | "now_well"
+  | "memory_observatory"
+  | "attention_hub"
+  | "daily_health";
+
 export interface SpatialNode {
   id: string;
   channel_id: string | null;
   widget_pin_id: string | null;
   bot_id: string | null;
+  landmark_kind: LandmarkKind | null;
   world_x: number;
   world_y: number;
   world_w: number;
@@ -210,6 +217,16 @@ export function useFindCanvasNodesByIdentity(
   const { data: nodes } = useSpatialNodes();
   if (!identityKey || !nodes) return [];
   return nodes.filter((n) => n.pin && identityFor(n.pin) === identityKey);
+}
+
+/** Pick the spatial node row for a given fixed landmark. Returns undefined
+ *  until the canvas list query resolves. World coords on the row are the
+ *  source of truth; defaults in `spatialGeometry.ts` only apply on the
+ *  server side at first-seed time. */
+export function useLandmarkNode(kind: LandmarkKind): SpatialNode | undefined {
+  const { data: nodes } = useSpatialNodes();
+  if (!nodes) return undefined;
+  return nodes.find((n) => n.landmark_kind === kind);
 }
 
 export function useFindCanvasNodesByPinPredicate(

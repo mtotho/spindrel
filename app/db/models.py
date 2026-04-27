@@ -2364,6 +2364,7 @@ class WorkspaceSpatialNode(Base):
         nullable=True,
     )
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    landmark_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     world_x: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     world_y: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     world_w: Mapped[float] = mapped_column(Float, nullable=False, default=220.0)
@@ -2395,7 +2396,8 @@ class WorkspaceSpatialNode(Base):
         CheckConstraint(
             "((CASE WHEN channel_id IS NOT NULL THEN 1 ELSE 0 END) + "
             "(CASE WHEN widget_pin_id IS NOT NULL THEN 1 ELSE 0 END) + "
-            "(CASE WHEN bot_id IS NOT NULL THEN 1 ELSE 0 END)) = 1",
+            "(CASE WHEN bot_id IS NOT NULL THEN 1 ELSE 0 END) + "
+            "(CASE WHEN landmark_kind IS NOT NULL THEN 1 ELSE 0 END)) = 1",
             name="ck_workspace_spatial_nodes_target_exactly_one",
         ),
         # One spatial node per target. Partial unique indexes are honored on
@@ -2420,6 +2422,13 @@ class WorkspaceSpatialNode(Base):
             unique=True,
             postgresql_where=text("bot_id IS NOT NULL"),
             sqlite_where=text("bot_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_workspace_spatial_nodes_landmark_kind",
+            "landmark_kind",
+            unique=True,
+            postgresql_where=text("landmark_kind IS NOT NULL"),
+            sqlite_where=text("landmark_kind IS NOT NULL"),
         ),
         Index("ix_workspace_spatial_nodes_seed_index", "seed_index"),
     )

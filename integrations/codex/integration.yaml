@@ -1,0 +1,8 @@
+id: codex
+name: Codex
+icon: Terminal
+description: OpenAI Codex CLI integration — drives the codex app-server JSON-RPC protocol over stdio.
+version: "0.1"
+
+provides:
+  - harness

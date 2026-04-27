@@ -1,5 +1,7 @@
 # Attention Beacons
 
+![Beacons attached to channel tiles on the spatial canvas — warning, error, and critical-severity badges render wherever an Attention Item targets a node](../images/attention-canvas.png)
+
 Attention Beacons are Spindrel's shared attention and work-intake system.
 The persisted domain object is an **Attention Item**. A **Beacon** is the
 Spatial Canvas rendering of an active item.
@@ -82,6 +84,8 @@ The **Attention Hub** is the global triage surface. It is reachable from:
 - the canvas edge beacon
 - the channel header attention count
 - the command palette
+
+![Attention Hub drawer — items grouped by lane (Needs reply, Assigned, System, Recent) with severity, target, and next-steps inline](../images/attention-hub.png)
 
 The hub lists lanes for items needing reply, assigned work, system errors, and
 recent/reported items. Clicking a Beacon opens the same hub drawer with message,

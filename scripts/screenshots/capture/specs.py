@@ -90,7 +90,7 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         route="/widgets/channel/{demo_dashboard}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg="window.__spindrel_pin_count() >= 6",
+        wait_arg="window.__spindrel_pin_count() >= 5",
         output="widget-dashboard.png",
     ),
     ScreenshotSpec(
@@ -116,7 +116,7 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         route="/widgets/channel/{demo_dashboard}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg="window.__spindrel_ready >= 1 || window.__spindrel_pin_count() >= 6",
+        wait_arg="window.__spindrel_ready >= 1 || window.__spindrel_pin_count() >= 5",
         output="html-widget-hero.png",
     ),
     ScreenshotSpec(
@@ -1066,6 +1066,90 @@ HARNESS_SPECS: list[ScreenshotSpec] = [
             ' && document.querySelectorAll(\'[class*="bg-skeleton"]\').length === 0'
         ),
         output="harness-chat-result.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Notifications captures — the admin-only ``/admin/notifications`` page is
+# the in-use surface for this feature (there is no per-channel chat path).
+# Pre-seed three channel targets + a group + a delivery-history row via the
+# admin API before running this capture so the page shows populated state.
+# ---------------------------------------------------------------------------
+NOTIFICATIONS_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="notifications-overview",
+        route="/admin/notifications",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Reusable targets|Create a notification target|Targets/.test(document.body.innerText)'
+        ),
+        # Let target rows + delivery-history fetch settle.
+        pre_capture_js="await new Promise(r => setTimeout(r, 600));",
+        output="notifications-overview.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Attention Beacons captures — the spatial canvas with active beacons
+# attached to channel tiles. Beacons are seeded via
+# ``stage_attention`` (POSTs against ``/workspace/attention``) on top of the
+# spatial scenario's existing channels.
+# ---------------------------------------------------------------------------
+ATTENTION_SPECS: list[ScreenshotSpec] = [
+    # Canvas-level shot: zoom out enough that several channel tiles are in
+    # frame, with the warning/error AlertTriangle badges visible at the
+    # tile corners. Predicate gates on at least one badge + the canvas
+    # being mounted.
+    ScreenshotSpec(
+        name="attention-canvas",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
+            ' && document.querySelectorAll(\'[data-tile-kind="channel"]\').length >= 4'
+        ),
+        # Allow time for the 15s-interval attention items query to settle
+        # AFTER the canvas mounts. Channels paint in <1s; attention items
+        # land via React Query on first fetch, but the badge-stack render is
+        # gated on `nodes` AND `attentionItems` both being populated.
+        pre_capture_js="await new Promise(r => setTimeout(r, 2500));",
+        output="attention-canvas.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            # Mid-zoom (~0.55) panned upper-left, same framing as
+            # spatial-zoom-out-01 — channels are large enough that beacon
+            # badges read clearly in the corner.
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+        ],
+    ),
+    # Hub drawer: clicks the canvas-edge "Open Attention Hub" landmark button
+    # (rendered at world (0, -650)) to open the drawer, then captures. Predicate
+    # gates on the button being mounted; pre_capture_js does the click + waits.
+    ScreenshotSpec(
+        name="attention-hub",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'button[title="Open Attention Hub"]\')'
+        ),
+        pre_capture_js=(
+            "const btn = document.querySelector('button[title=\"Open Attention Hub\"]');"
+            " if (btn) btn.click();"
+            " await new Promise(r => setTimeout(r, 1200));"
+        ),
+        output="attention-hub.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            # Camera centered on world (0, -100) at scale 0.7 — keeps the
+            # constellation visible in the background while the drawer slides
+            # in from the right.
+            _spatial_camera_init({"x": 720, "y": 380, "scale": 0.7}),
+        ],
     ),
 ]
 

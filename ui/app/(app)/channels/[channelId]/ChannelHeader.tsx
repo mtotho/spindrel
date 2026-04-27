@@ -544,6 +544,7 @@ export function ChannelHeader({
               <HarnessHeaderChrome
                 runtime={bot.harness_runtime}
                 sessionId={sessionId ?? null}
+                compact={isMobile}
                 t={t}
               />
             )}
@@ -781,14 +782,19 @@ export function ChannelHeader({
 function HarnessHeaderChrome({
   runtime,
   sessionId,
+  compact = false,
   t,
 }: {
   runtime: string;
   sessionId: string | null;
+  compact?: boolean;
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const { data: caps } = useRuntimeCapabilities(runtime);
   const displayName = caps?.display_name ?? runtime;
+  if (compact) {
+    return sessionId ? <HarnessStatusPill sessionId={sessionId} t={t} /> : null;
+  }
   return (
     <>
       <span

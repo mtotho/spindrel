@@ -291,14 +291,17 @@ from app.services.time_coercion import to_iso_z_or_none  # noqa: E402, F401
 # tests/unit/test_integration_import_boundary.py forbids direct app.* imports
 # from harness modules — they go through these re-exports instead.
 
+from app.agent.loop_dispatch import resolve_approval_verdict  # noqa: E402, F401
 from app.services.agent_harnesses.base import (  # noqa: E402, F401
     AuthStatus,
     ChannelEventEmitter,
+    HarnessBridgeInventory,
     HarnessCompactResult,
     HarnessContextHint,
     HarnessModelOption,
     HarnessRuntime,
     HarnessSlashCommandPolicy,
+    HarnessToolSpec,
     RuntimeCapabilities,
     TurnContext,
     TurnResult,
@@ -310,6 +313,7 @@ from app.services.agent_harnesses.approvals import (  # noqa: E402, F401
     request_harness_approval,
     revoke_turn_bypass,
 )
+from app.services.agent_harnesses.context import build_turn_context  # noqa: E402, F401
 from app.services.agent_harnesses.settings import (  # noqa: E402, F401
     HARNESS_SETTINGS_KEY,
     HarnessSettings,
@@ -327,11 +331,11 @@ from app.services.agent_harnesses.session_state import (  # noqa: E402, F401
 from app.services.agent_harnesses.interactions import (  # noqa: E402, F401
     HarnessQuestionAnswer,
     HarnessQuestionResult,
+    format_question_answer_for_runtime,
     request_harness_question,
 )
 from app.services.agent_harnesses.tools import (  # noqa: E402, F401
-    HarnessBridgeInventory,
-    HarnessToolSpec,
+    apply_tool_bridge,
     execute_harness_spindrel_tool,
     list_harness_spindrel_tools,
     list_harness_spindrel_tools_for,

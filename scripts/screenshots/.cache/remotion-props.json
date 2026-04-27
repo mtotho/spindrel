@@ -165,6 +165,168 @@
       "fit": "cover"
     },
     {
+      "id": "title-stay_in_the_loop",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Stay in the loop"
+    },
+    {
+      "id": "attention_canvas_still",
+      "kind": "still",
+      "duration": 7.0,
+      "asset_url": "attention_canvas_still.png",
+      "caption": "When something needs you, it shows up where the work lives \u2014 beacons attach to the channel, bot, or widget that raised them.",
+      "ken_burns": {
+        "start": [
+          1.05,
+          0.5,
+          0.45
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "attention_hub_still",
+      "kind": "still",
+      "duration": 8.0,
+      "asset_url": "attention_hub_still.png",
+      "caption": "The Attention Hub is one triage surface for everything: bot warnings, system failures, your own notes.",
+      "ken_burns": {
+        "start": [
+          1.04,
+          0.55,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "notifications_still",
+      "kind": "still",
+      "duration": 7.0,
+      "asset_url": "notifications_still.png",
+      "caption": "Push it anywhere \u2014 channels, integrations, devices, or a group that fans out to all three.",
+      "ken_burns": {
+        "start": [
+          1.05,
+          0.5,
+          0.45
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-bring_your_model",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Bring your own agent"
+    },
+    {
+      "id": "harness_overview_still",
+      "kind": "still",
+      "duration": 7.0,
+      "asset_url": "harness_overview_still.png",
+      "caption": "Bring your own agent \u2014 Claude Code today, Codex SDK next.",
+      "ken_burns": {
+        "start": [
+          1.05,
+          0.5,
+          0.3
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "harness_bot_editor_still",
+      "kind": "still",
+      "duration": 7.0,
+      "asset_url": "harness_bot_editor_still.png",
+      "caption": "Bind any bot to a harness \u2014 Spindrel keeps the channel, workspace, schedule.",
+      "ken_burns": {
+        "start": [
+          1.04,
+          0.5,
+          0.55
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "harness_chat_still",
+      "kind": "still",
+      "duration": 9.0,
+      "asset_url": "harness_chat_still.png",
+      "caption": "Native loop, native tools \u2014 your channel runs Claude end to end.",
+      "ken_burns": {
+        "start": [
+          1.05,
+          0.5,
+          0.65
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
       "id": "title-first_channel",
       "kind": "title_card",
       "duration": 1.4,

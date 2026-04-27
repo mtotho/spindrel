@@ -25,18 +25,37 @@ WIDGET_STATE_SEEDS: dict[str, dict] = {
     "core/notes_native": {
         "body": (
             "# Evening check-in\n\n"
-            "- Overnight alerts: 3 resolved, 1 open (camera 4 offline)\n"
-            "- Shipped: screenshot pipeline, docs refresh Phase A\n"
-            "- Tomorrow: flagship 8 review with the team\n"
+            "**Status:** quiet day, on track\n"
+            "\n"
+            "## What landed\n\n"
+            "- Screenshot pipeline → flagship + spatial captures green\n"
+            "- Docs refresh Phase A — heroes wired into 50/50 image refs\n"
+            "- Standing order: package watch elevated to **Out for delivery**\n"
+            "\n"
+            "## Open\n\n"
+            "- 🔴 **Camera 4 offline** since 18:42 (Frigate)\n"
+            "- 🟡 Heartbeat lag on `#system-audit` (~ 90s)\n"
+            "- 🟢 Build pipeline: 14/14 green\n"
+            "\n"
+            "## Tomorrow\n\n"
+            "1. Flagship 8 review with the team — **9:30 AM**\n"
+            "2. Bring camera 4 back online (HA reboot path)\n"
+            "3. Send `#ops` the weekly summary\n"
+            "\n"
+            "_Updated by Orchestrator at 20:15_\n"
         ),
         "updated_at": "2026-04-24T20:15:00Z",
     },
     "core/todo_native": {
         "items": [
             {"id": "t1", "text": "Review overnight alerts", "done": True},
-            {"id": "t2", "text": "Bring camera 4 back online", "done": False},
-            {"id": "t3", "text": "Ship docs refresh Phase A", "done": False},
-            {"id": "t4", "text": "Send ops status to #team", "done": False},
+            {"id": "t2", "text": "Triage Frigate camera 4 (offline since 18:42)", "done": False},
+            {"id": "t3", "text": "Ship docs refresh Phase A — heroes wired", "done": True},
+            {"id": "t4", "text": "Capture flagship 8 + spatial bundles", "done": True},
+            {"id": "t5", "text": "Stage attention beacons + notification targets", "done": True},
+            {"id": "t6", "text": "Re-render quickstart video with stay-in-the-loop section", "done": False},
+            {"id": "t7", "text": "Walk through release checklist with @oncall", "done": False},
+            {"id": "t8", "text": "Send ops status to #team", "done": False},
         ],
         "updated_at": "2026-04-24T20:15:00Z",
     },

@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 from app.agent import approval_pending
-from app.agent.loop import _resolve_approval_verdict
+from app.agent.loop import resolve_approval_verdict
 from app.db.models import ToolApproval, ToolCall
 
 pytestmark = pytest.mark.asyncio
@@ -58,7 +58,7 @@ class TestResolvedApprovals:
         appr, _ = await _seed(db_session)
 
         task = asyncio.create_task(
-            _resolve_approval_verdict(str(appr.id), timeout_seconds=1)
+            resolve_approval_verdict(str(appr.id), timeout_seconds=1)
         )
         await asyncio.sleep(0)
         assert approval_pending.resolve_approval(str(appr.id), "approved") is True
@@ -71,7 +71,7 @@ class TestResolvedApprovals:
         appr, _ = await _seed(db_session)
 
         task = asyncio.create_task(
-            _resolve_approval_verdict(str(appr.id), timeout_seconds=1)
+            resolve_approval_verdict(str(appr.id), timeout_seconds=1)
         )
         await asyncio.sleep(0)
         assert approval_pending.resolve_approval(str(appr.id), "denied") is True
@@ -88,7 +88,7 @@ class TestTimeoutReconciliation:
         appr, tc = await _seed(db_session)
         appr_id, tc_id = appr.id, tc.id
 
-        verdict = await _resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
+        verdict = await resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
         db_session.expire_all()
 
         ap_row = await db_session.get(ToolApproval, appr_id)
@@ -107,7 +107,7 @@ class TestTimeoutReconciliation:
         )
         appr_id, tc_id = appr.id, tc.id
 
-        verdict = await _resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
+        verdict = await resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
         db_session.expire_all()
 
         ap_row = await db_session.get(ToolApproval, appr_id)
@@ -125,7 +125,7 @@ class TestTimeoutReconciliation:
         )
         appr_id, tc_id = appr.id, tc.id
 
-        verdict = await _resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
+        verdict = await resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
         db_session.expire_all()
 
         ap_row = await db_session.get(ToolApproval, appr_id)
@@ -138,7 +138,7 @@ class TestTimeoutReconciliation:
     async def test_timeout_with_missing_row_returns_expired(
         self, patched_async_sessions
     ):
-        verdict = await _resolve_approval_verdict(str(uuid.uuid4()), timeout_seconds=0.01)
+        verdict = await resolve_approval_verdict(str(uuid.uuid4()), timeout_seconds=0.01)
 
         assert verdict == "expired"
         assert approval_pending.pending_count() == 0

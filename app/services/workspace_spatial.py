@@ -53,6 +53,18 @@ _DEFAULT_WIDGET_W = 360.0
 _DEFAULT_WIDGET_H = 240.0
 _DEFAULT_BOT_W = 260.0
 _DEFAULT_BOT_H = 180.0
+
+# Fixed system landmarks. Default world coords mirror the UI fallbacks in
+# ui/src/components/spatial-canvas/spatialGeometry.ts; once the seed row
+# exists, the row is the source of truth and the user can drag landmarks
+# anywhere on the canvas. world_w/world_h are zero because landmarks size
+# themselves in CSS; the row is just the position anchor.
+LANDMARK_DEFAULTS: dict[str, tuple[float, float]] = {
+    "now_well": (0.0, 2200.0),
+    "memory_observatory": (-2800.0, 100.0),
+    "attention_hub": (0.0, -650.0),
+    "daily_health": (1100.0, -650.0),
+}
 # Satellite ring around a source channel — first widget sits ~_SAT_RING out
 # from the channel's center; subsequent widgets spiral outward by the golden
 # angle so they don't pile up at one bearing.
@@ -121,6 +133,7 @@ def serialize_node(
         "channel_id": str(node.channel_id) if node.channel_id else None,
         "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
         "bot_id": node.bot_id,
+        "landmark_kind": node.landmark_kind,
         "world_x": node.world_x,
         "world_y": node.world_y,
         "world_w": node.world_w,
@@ -433,7 +446,11 @@ async def _ensure_bot_node(
                 and _edge_clearance(existing, channel_node) < _default_min_clearance_world_units()
                 and _distance(existing, channel_node) <= 180.0
             ):
-                nodes = list((await db.execute(select(WorkspaceSpatialNode))).scalars().all())
+                nodes = list((await db.execute(
+                    select(WorkspaceSpatialNode).where(
+                        WorkspaceSpatialNode.landmark_kind.is_(None),
+                    )
+                )).scalars().all())
                 existing.world_x, existing.world_y = _bot_spawn_position_near_channel(
                     channel_node=channel_node,
                     seed=existing.seed_index or 0,
@@ -471,6 +488,38 @@ async def _ensure_bot_node(
     db.add(node)
     await db.flush()
     return node
+
+
+async def _ensure_landmark_nodes(db: AsyncSession) -> int:
+    """Create a row for each fixed system landmark that doesn't have one yet.
+
+    Landmarks (Now Well, Memory Observatory, Attention Hub, Daily Health) are
+    stored as ordinary spatial nodes with ``landmark_kind`` set so the user
+    can drag them just like channel and widget tiles. First read seeds them
+    at the canonical default positions in ``LANDMARK_DEFAULTS``; subsequent
+    reads no-op thanks to the partial unique index.
+    """
+    existing_rows = (await db.execute(
+        select(WorkspaceSpatialNode.landmark_kind).where(
+            WorkspaceSpatialNode.landmark_kind.is_not(None),
+        )
+    )).scalars().all()
+    existing = {row for row in existing_rows if row}
+    inserted = 0
+    for kind, (x, y) in LANDMARK_DEFAULTS.items():
+        if kind in existing:
+            continue
+        db.add(WorkspaceSpatialNode(
+            landmark_kind=kind,
+            world_x=float(x),
+            world_y=float(y),
+            world_w=0.0,
+            world_h=0.0,
+        ))
+        inserted += 1
+    if inserted:
+        await db.commit()
+    return inserted
 
 
 async def _ensure_bot_nodes(db: AsyncSession) -> int:
@@ -514,6 +563,7 @@ async def list_nodes(
     """
     await _ensure_channel_nodes(db)
     await _ensure_bot_nodes(db)
+    await _ensure_landmark_nodes(db)
     rows = (await db.execute(
         select(WorkspaceSpatialNode).order_by(WorkspaceSpatialNode.pinned_at.asc())
     )).scalars().all()
@@ -975,8 +1025,13 @@ async def _nodes_with_pins(
 ) -> tuple[list[WorkspaceSpatialNode], dict[uuid.UUID, WidgetDashboardPin]]:
     await _ensure_channel_nodes(db)
     await _ensure_bot_nodes(db)
+    await _ensure_landmark_nodes(db)
+    # Landmarks are visual chrome (zero-sized world rects), not collision
+    # targets — exclude them from neighborhood/movement reasoning.
     nodes = list((await db.execute(
-        select(WorkspaceSpatialNode).order_by(WorkspaceSpatialNode.pinned_at.asc())
+        select(WorkspaceSpatialNode)
+        .where(WorkspaceSpatialNode.landmark_kind.is_(None))
+        .order_by(WorkspaceSpatialNode.pinned_at.asc())
     )).scalars().all())
     pin_ids = [n.widget_pin_id for n in nodes if n.widget_pin_id is not None]
     pin_map: dict[uuid.UUID, WidgetDashboardPin] = {}

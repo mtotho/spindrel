@@ -10,7 +10,7 @@ meta:
   transition: crossfade
   transition_duration: 0.5
   watermark:
-    text: "spindrel.dev"
+    text: "docs.spindrel.dev"
     opacity: 0.45
   caption_style:
     position: bottom

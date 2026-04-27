@@ -404,6 +404,52 @@ async def cancel_pending_harness_questions_for_session(session_id: uuid.UUID) ->
     return count
 
 
+def format_question_answer_for_runtime(
+    result: HarnessQuestionResult,
+    original_input: dict[str, Any],
+) -> dict[str, Any]:
+    """Shape a ``HarnessQuestionResult`` into the dict a runtime feeds back.
+
+    Runtimes that issue an ``AskUserQuestion``-style request need a payload
+    that mirrors their original tool_input but with the user's answers spliced
+    in. Both Claude and Codex re-use this shape — keeping it here means the
+    runtime adapter does not own generic answer shaping.
+    """
+    question_by_id = {str(q.get("id")): q for q in result.questions}
+    answers_by_question: dict[str, str] = {}
+    structured_answers: list[dict[str, Any]] = []
+    for answer in result.answers:
+        qid = str(answer.get("question_id") or "")
+        question = question_by_id.get(qid, {})
+        label = str(question.get("question") or qid or "Question")
+        selected = answer.get("selected_options")
+        parts: list[str] = []
+        if isinstance(selected, list):
+            parts.extend(str(item) for item in selected if str(item).strip())
+        text = str(answer.get("answer") or "").strip()
+        if text:
+            parts.append(text)
+        rendered = "; ".join(parts)
+        answers_by_question[label] = rendered
+        structured_answers.append(
+            {
+                "question_id": qid,
+                "question": label,
+                "answer": rendered,
+                "selected_options": selected if isinstance(selected, list) else [],
+            }
+        )
+    if result.notes:
+        answers_by_question["Additional notes"] = result.notes
+    return {
+        **original_input,
+        "questions": result.questions,
+        "answers": answers_by_question,
+        "spindrel_answers": structured_answers,
+        "spindrel_notes": result.notes or "",
+    }
+
+
 async def request_harness_question(
     *,
     ctx,

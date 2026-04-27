@@ -444,7 +444,7 @@ async def run_native_harness_compact(
     from app.db.engine import async_session
     from app.services.agent_harnesses import get_runtime
     from app.services.agent_harnesses.approvals import load_session_mode
-    from app.services.agent_harnesses.base import TurnContext
+    from app.services.agent_harnesses.context import build_turn_context
     from app.services.agent_harnesses.settings import load_session_settings
     from app.services.workspace import workspace_service
 
@@ -466,7 +466,7 @@ async def run_native_harness_compact(
     permission_mode = await load_session_mode(db, session_id)
     settings = await load_session_settings(db, session_id)
 
-    ctx = TurnContext(
+    ctx = build_turn_context(
         spindrel_session_id=session_id,
         channel_id=session.channel_id or session.parent_channel_id,
         bot_id=bot.id,

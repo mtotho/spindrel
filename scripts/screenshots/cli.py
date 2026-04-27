@@ -21,12 +21,14 @@ from scripts.screenshots.capture.browser import AuthBundle
 from scripts.screenshots.capture.runner import capture_batch
 from scripts.screenshots.capture.specs import (
     A3_DOCS_SPECS,
+    ATTENTION_SPECS,
     CORE_FEATURE_SPECS,
     DOCS_REPAIR_SPECS,
     FLAGSHIP_SPECS,
     HARNESS_SPECS,
     INTEGRATION_CHAT_SPECS,
     INTEGRATIONS_SPECS,
+    NOTIFICATIONS_SPECS,
     SPATIAL_SPECS,
     resolve_specs,
 )
@@ -56,6 +58,12 @@ from scripts.screenshots.stage.scenarios.integration_chat import (
     teardown_integration_chat,
 )
 from scripts.screenshots.stage.scenarios.spatial import stage_spatial, teardown_spatial
+from scripts.screenshots.stage.scenarios.attention import (
+    stage_attention,
+    stage_notifications,
+    teardown_attention,
+    teardown_notifications,
+)
 
 
 logger = logging.getLogger("screenshots")
@@ -68,7 +76,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat", "harness"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat", "harness", "notifications", "attention"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -145,6 +153,20 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
                 dry_run=dry_run,
             )
         print(f"staged (harness):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "notifications":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_notifications(client, dry_run=dry_run)
+        print("staged (notifications):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "attention":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_attention(client, dry_run=dry_run)
+        print("staged (attention):")
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
@@ -245,6 +267,15 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             # each spec seeds via ``extra_init_scripts``. No route
             # placeholders needed.
             spec_list = SPATIAL_SPECS
+        elif only == "notifications":
+            # /admin/notifications is static — staging populates DB rows the
+            # page reads back. No route placeholders.
+            spec_list = NOTIFICATIONS_SPECS
+        elif only == "attention":
+            # Attention captures key off ``/`` only (canvas + drawer). DB
+            # state from ``stage_attention`` drives what renders. No route
+            # placeholders.
+            spec_list = ATTENTION_SPECS
         elif only == "integrations":
             # Routes are static (/admin/integrations/<slug>) — no placeholders.
             spec_list = INTEGRATIONS_SPECS
@@ -415,6 +446,16 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_spatial(client)
         print("teardown (spatial): removed spatial canvas pins, channels, and bots")
+        return
+    if only == "notifications":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_notifications(client)
+        print("teardown (notifications): removed seeded notification targets")
+        return
+    if only == "attention":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_attention(client)
+        print("teardown (attention): resolved seeded attention items")
         return
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":

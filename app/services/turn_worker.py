@@ -168,7 +168,8 @@ async def _run_harness_turn(
         load_session_mode,
         revoke_turn_bypass,
     )
-    from app.services.agent_harnesses.base import HarnessContextHint, TurnContext
+    from app.services.agent_harnesses.base import HarnessContextHint
+    from app.services.agent_harnesses.context import build_turn_context
     from app.services.agent_harnesses.session_state import (
         clear_consumed_context_hints,
         load_context_hints,
@@ -238,7 +239,7 @@ async def _run_harness_turn(
         session_id=session_id,
     )
 
-    ctx = TurnContext(
+    ctx = build_turn_context(
         spindrel_session_id=session_id,
         channel_id=channel_id,
         bot_id=bot.id,

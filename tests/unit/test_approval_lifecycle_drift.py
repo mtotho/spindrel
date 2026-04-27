@@ -3,7 +3,7 @@
 Drift-pin tests for the recently-extracted approval helpers:
   - ``app.agent.tool_dispatch._create_approval_state`` (atomic ToolCall +
     ToolApproval insert + fire-and-forget APPROVAL_REQUESTED publish)
-  - ``app.agent.loop_dispatch._resolve_approval_verdict`` (timeout path
+  - ``app.agent.loop_dispatch.resolve_approval_verdict`` (timeout path
     expires pending rows, already-resolved rows return DB truth)
 
 Existing `test_approval_orphan_pointers.py` + `test_loop_approval_race.py`
@@ -34,7 +34,7 @@ import pytest
 from sqlalchemy import select
 
 from app.agent.context import current_dispatch_config, current_dispatch_type
-from app.agent.loop_dispatch import _resolve_approval_verdict
+from app.agent.loop_dispatch import resolve_approval_verdict
 from app.agent.tool_dispatch import _create_approval_state
 from app.db.models import ToolApproval, ToolCall
 
@@ -214,7 +214,7 @@ class TestResolveVerdictTerminalToolCallPreserved:
         await db_session.commit()
         appr_id, tc_id = appr.id, tc.id
 
-        verdict = await _resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
+        verdict = await resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
         db_session.expire_all()
 
         appr_row = await db_session.get(ToolApproval, appr_id)
@@ -246,7 +246,7 @@ class TestResolveVerdictOrphanApproval:
         await db_session.commit()
         appr_id = appr.id
 
-        verdict = await _resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
+        verdict = await resolve_approval_verdict(str(appr_id), timeout_seconds=0.01)
         db_session.expire_all()
 
         appr_row = await db_session.get(ToolApproval, appr_id)
@@ -262,6 +262,6 @@ class TestResolveVerdictBadUUIDContract:
         that silently swallows it doesn't strand approvals.
         """
         with pytest.raises(ValueError):
-            await _resolve_approval_verdict(
+            await resolve_approval_verdict(
                 "not-a-valid-uuid", timeout_seconds=0.01
             )

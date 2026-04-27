@@ -12,7 +12,6 @@ export function humanizeSource(s: string): string {
   const SPECIAL: Record<string, string> = {
     homeassistant: "Home Assistant",
     bluebubbles: "Blue Bubbles",
-    claude_code: "Claude Code",
     web_search: "Web Search",
   };
   if (SPECIAL[s]) return SPECIAL[s];

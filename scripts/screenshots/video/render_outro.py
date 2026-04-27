@@ -27,7 +27,7 @@ _RECAP = "A workspace, as a place — your bots, dashboards, and scheduled jobs 
 _SUBLINE = "Bring your own agent — Claude Code · Codex SDK soon"
 _LINKS = [
     ("Code", "github.com/mtotho/spindrel"),
-    ("Docs", "spindrel.dev"),
+    ("Docs", "docs.spindrel.dev"),
 ]
 
 
