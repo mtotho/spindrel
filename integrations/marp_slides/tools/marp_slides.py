@@ -19,67 +19,10 @@ from integrations.sdk import (
     current_channel_id,
     current_dispatch_type,
     register_tool as register,
+    resolve_chrome,
 )
 
 logger = logging.getLogger(__name__)
-
-
-_CHROME_NAMES = ("chromium", "chromium-browser", "google-chrome-stable", "google-chrome")
-
-
-def _find_chrome_path() -> str | None:
-    """Find a usable Chromium/Chrome binary, avoiding snap-packaged browsers.
-
-    PATH lookup picks up ``/opt/spindrel-pkg/usr/bin/chromium`` (the
-    persistent dpkg-extracted location used by
-    ``app/services/integration_deps.py``), so the hardcoded /usr/bin
-    fallback isn't the only escape hatch.
-    """
-    for env in ("CHROME_PATH", "PUPPETEER_EXECUTABLE_PATH"):
-        val = os.environ.get(env)
-        if val and shutil.which(val):
-            return val
-
-    for name in _CHROME_NAMES:
-        found = shutil.which(name)
-        if found:
-            return found
-
-    for candidate in (
-        "/opt/spindrel-pkg/usr/bin/chromium",
-        "/opt/spindrel-pkg/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/google-chrome",
-    ):
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return candidate
-
-    return None
-
-
-async def _resolve_chrome() -> str | None:
-    """Find chromium, triggering a one-time auto-install if missing.
-
-    Marp declares chromium as a system dep in its integration manifest;
-    this calls the same install path the admin UI's Install button uses.
-    Idempotent.
-    """
-    chrome = _find_chrome_path()
-    if chrome:
-        return chrome
-    try:
-        from app.services.integration_deps import install_system_package
-    except Exception:
-        logger.exception("install_system_package import failed for chromium auto-install")
-        return None
-    try:
-        if await install_system_package("chromium"):
-            return _find_chrome_path()
-    except Exception:
-        logger.exception("Auto-install of chromium failed")
-    return None
 
 
 async def _ensure_marp() -> list[str] | None:
@@ -182,7 +125,7 @@ async def create_marp_slides(
         input_path.write_text(markdown, encoding="utf-8")
 
         env = os.environ.copy()
-        chrome = await _resolve_chrome()
+        chrome = await resolve_chrome()
         if chrome:
             env["CHROME_PATH"] = chrome
             logger.info("Using browser for Marp: %s", chrome)

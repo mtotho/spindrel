@@ -577,7 +577,15 @@ Plan: `~/.claude/plans/nifty-hatching-book.md`. Follows the same workflow as Clu
   - 7e-d ✅ (Stages 30-33 finalization traces helper, 441 → 357 LOC — **cumulative -76%**)
   
   Same-day baseline exact-match across 8 cluster runs (11 failed, 71 passed, 1 skipped in focused suite). Zero regressions. `assemble_context` is now a readable top-to-bottom driver where each `# --- stage ---` divider marks a helper call.
-- **Widget envelope triple-rebuild reconciliation** (`native_app_widgets.py:753` + `widget_contracts.py:406` + `dashboard_pins.py:269`) — touches cross-module pin semantics; deserves its own focused cluster.
+- **Widget envelope triple-rebuild reconciliation** (`native_app_widgets.py:753` + `widget_contracts.py:406` + `dashboard_pins.py:269`) — Hybrid C+B design plan accepted 2026-04-27 (`~/.claude/plans/we-need-an-in-sparkling-sparrow.md`). Phased rollout:
+  | Phase | Scope | Status |
+  |---|---|---|
+  | 1 | Additive: new `app/services/pin_contract/` package (5 OriginResolvers, 4 public functions, `compute_pin_source_stamp` helper); migration 264 adds `widget_dashboard_pins.source_stamp TEXT NULL`; write paths populate stamps; `list_pins` unchanged | ✅ shipped 2026-04-27 (session log `Sessions/agent-server/2026-04-27-P-pin-contract-deepening-phase-1.md`) |
+  | 2 | Backfill script: walk all pins, run `reconcile_pin_metadata`, populate stamps | pending |
+  | 3 | `list_pins` flip — gate `render_pin_metadata` on `source_stamp + widget_origin + provenance_confidence + widget_contract_snapshot + widget_presentation_snapshot all NOT NULL`; `reconcile_pin_metadata` fallback for stragglers; collapse legacy `build_pin_contract_metadata` / `infer_pin_origin` / `build_public_fields_from_origin` into thin wrappers | pending |
+  | 4 | Background reconciler scanning for stamp drift (low frequency) | pending |
+  
+  **Phase 1 outcome**: 31 new tests across `test_pin_contract_resolvers.py` + `test_pin_contract_service.py`; existing drift suite (`test_refresh_pin_contract_metadata.py`, `test_widget_preset_drift.py`) untouched and green; two silent `except Exception: pass` branches at `widget_contracts.py:514` and `:618` replaced in the new code path with narrow `PresetNotFound` catch + log + fallback (legacy bare-except removed in Phase 3). Stamp model: unified `sha256(widget.yaml || NUL || html body)` for every HTML widget scope; native uses `instance.state["updated_at"]`; preset uses integration `content_hash`.
 - **Terminal chat mode as CSS archetype** — currently a render-code fork (`chatMode` prop); works. Punt until a third archetype appears.
 - **LIGHT color-drift fix** — the 6 allowlisted keys (`text-dim`, `success`, `warning`, `danger`, `purple`, `danger-muted`) are a real design call between Tailwind-default shades and darker designer-chosen shades. Out of scope for a refactor; in scope for the next UI polish pass.
 

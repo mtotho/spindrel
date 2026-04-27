@@ -397,6 +397,46 @@ Don't publish the same logical event on both the outbox and the ephemeral bus an
 
 Declaring `Capability.REACTIONS` in YAML without a `render()` branch for reaction events means those events silently disappear. A renderer unit test asserting every declared capability has a rendered case catches this.
 
+## System dependencies (apt packages)
+
+Integrations that need a system binary (chromium, gh, jq, ripgrep, …) declare it in their manifest:
+
+```yaml
+# integration.yaml
+dependencies:
+  system:
+    - binary: chromium
+      apt_package: chromium
+      alternatives: [chromium-browser, google-chrome-stable, google-chrome]
+      install_hint: "Click Install or run: apt-get install -y chromium"
+```
+
+`app/services/integration_deps.py` honors this declaration in two places:
+
+1. **First-time install** via the admin UI's "Install" button or `ensure_one_integration_deps()` on enable. Calls `install_system_package(apt_package)` which runs `apt-get download` + `dpkg -x` into `/opt/spindrel-pkg/` (a named Docker volume) — NOT `/usr/bin`. This persists across image rebuilds (`spindrel pull`) without baking packages into the image layer.
+2. **Re-extract on rebuild** — `_check_system_deps()` reads `.installed-system-deps.json` from the workspace volume and re-runs the install for any previously-installed package whose binary is missing after a rebuild.
+
+The entrypoint (`scripts/entrypoint.sh`) prepends `/opt/spindrel-pkg/usr/bin` to `PATH` and `/opt/spindrel-pkg/usr/lib*` to `LD_LIBRARY_PATH`, so `shutil.which("chromium")` finds the persistent binary just like a normal system install.
+
+### Looking up a binary from a tool
+
+**Always go through PATH (`shutil.which`)** — never hardcode `/usr/bin/<name>`. Hardcoded `/usr/bin` checks miss the persistent `/opt/spindrel-pkg` prefix and produce phantom "not installed" errors.
+
+For chromium specifically the SDK ships a helper that handles both lookup and one-time auto-install:
+
+```python
+# integrations/<id>/tools/<tool>.py
+from integrations.sdk import resolve_chrome
+
+chrome = await resolve_chrome()  # or resolve_chrome(("myint", "MYINT_CHROME_PATH"))
+if not chrome:
+    return "No Chrome/Chromium found. ..."
+```
+
+`resolve_chrome()` resolves in this order: optional integration-setting → `CHROME_PATH` / `PUPPETEER_EXECUTABLE_PATH` env vars → `shutil.which()` for the chrome binaries → hardcoded fallback paths (including `/opt/spindrel-pkg/usr/bin/`). On miss it calls `install_system_package("chromium")` once — the same install path as the admin UI button, idempotent. Used by `excalidraw` and `marp_slides`.
+
+For other binaries follow the same pattern: declare in `dependencies.system`, look up with `shutil.which()`, and (optionally) call `install_system_package(apt_package)` from your tool when a missing binary is recoverable. If the lookup pattern ends up duplicated in a second integration, lift it into `integrations/sdk.py` rather than copy-pasting.
+
 ## Removed surface
 
 ### `chat_hud` / `chat_hud_presets` — removed 2026-04-23

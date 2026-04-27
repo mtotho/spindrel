@@ -8,7 +8,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -18,7 +17,6 @@ from integrations.sdk import (
     current_bot_id,
     current_channel_id,
     current_dispatch_type,
-    get_setting,
     register_tool as register,
     resolve_chrome,
 )
@@ -92,7 +90,7 @@ async def _export_scene(scene: dict, output_path: Path) -> str | None:
     if err:
         return err
 
-    chrome = await _resolve_chrome()
+    chrome = await resolve_chrome(_CHROME_SETTING)
     if not chrome:
         return (
             "No Chrome/Chromium found. Install chromium or google-chrome, "
@@ -453,7 +451,7 @@ async def mermaid_to_excalidraw(
         mmd_path.write_text(mermaid, encoding="utf-8")
 
         # Step 1: Mermaid → Excalidraw JSON (uses Puppeteer + headless Chrome)
-        chrome = await _resolve_chrome()
+        chrome = await resolve_chrome(_CHROME_SETTING)
         if not chrome:
             return json.dumps({
                 "error": (
