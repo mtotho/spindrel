@@ -34,11 +34,18 @@ async def test_mode_translation_uses_schema_constants():
     assert accept["approvalPolicy"] == schema.APPROVAL_POLICY_UNLESS_TRUSTED
 
 
-async def test_sandbox_values_are_camel_case():
-    """Per README, sandbox values are camelCase (workspaceWrite, not workspace-write)."""
-    assert schema.SANDBOX_WORKSPACE_WRITE == "workspaceWrite"
-    assert schema.SANDBOX_READ_ONLY == "readOnly"
-    assert schema.SANDBOX_DANGER_FULL_ACCESS == "dangerFullAccess"
+async def test_sandbox_values_are_kebab_case():
+    """Pinned against the installed codex binary's serde tag — kebab-case, not camelCase."""
+    assert schema.SANDBOX_WORKSPACE_WRITE == "workspace-write"
+    assert schema.SANDBOX_READ_ONLY == "read-only"
+    assert schema.SANDBOX_DANGER_FULL_ACCESS == "danger-full-access"
+
+
+async def test_approval_policy_values_match_binary():
+    assert schema.APPROVAL_POLICY_NEVER == "never"
+    assert schema.APPROVAL_POLICY_UNLESS_TRUSTED == "untrusted"
+    assert schema.APPROVAL_POLICY_ON_REQUEST == "on-request"
+    assert schema.APPROVAL_POLICY_ON_FAILURE == "on-failure"
 
 
 @dataclass

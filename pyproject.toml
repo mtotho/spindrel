@@ -1,6 +1,6 @@
 [project]
 name = "spindrel"
-version = "0.1.0"
+version = "0.2.0"
 description = "Self-hosted AI agent server with persistent channels, composable expertise, and a pluggable integration framework"
 license = {text = "AGPL-3.0"}
 requires-python = ">=3.12"

@@ -89,12 +89,13 @@ APPROVAL_DECISION_CANCEL = "cancel"
 # ---------------------------------------------------------------------------
 
 APPROVAL_POLICY_NEVER = "never"
-APPROVAL_POLICY_UNLESS_TRUSTED = "unlessTrusted"
-APPROVAL_POLICY_ON_REQUEST = "on_request"
+APPROVAL_POLICY_UNLESS_TRUSTED = "untrusted"
+APPROVAL_POLICY_ON_REQUEST = "on-request"
+APPROVAL_POLICY_ON_FAILURE = "on-failure"
 
-SANDBOX_DANGER_FULL_ACCESS = "dangerFullAccess"
-SANDBOX_WORKSPACE_WRITE = "workspaceWrite"
-SANDBOX_READ_ONLY = "readOnly"
+SANDBOX_DANGER_FULL_ACCESS = "danger-full-access"
+SANDBOX_WORKSPACE_WRITE = "workspace-write"
+SANDBOX_READ_ONLY = "read-only"
 
 
 # ---------------------------------------------------------------------------
