@@ -35,6 +35,7 @@ import {
   channelIdFromSlug,
   channelSlug,
   isChannelSlug,
+  isWorkspaceSpatialSlug,
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
@@ -104,11 +105,15 @@ export default function WidgetsDashboardPage() {
     slug: string;
     channelId: string;
   }>();
+  const navigate = useNavigate();
   const slug = channelIdParam
     ? channelSlug(channelIdParam)
     : slugParam || "default";
   const channelScopedId = channelIdParam ?? channelIdFromSlug(slug);
   const isChannelScoped = isChannelSlug(slug);
+  useEffect(() => {
+    if (isWorkspaceSpatialSlug(slug)) navigate("/canvas", { replace: true });
+  }, [navigate, slug]);
   // Host-side broker. On user dashboards (no channel) the broker is dormant —
   // streaming widgets there fall through to the direct /widget-actions/stream
   // path. Channel-scoped dashboards multiplex onto the ChannelChatSession's
@@ -416,7 +421,6 @@ export default function WidgetsDashboardPage() {
     }, 400);
   };
 
-  const navigate = useNavigate();
   const patchBuilderSearch = useCallback(
     (mutate: (params: URLSearchParams) => void, replace = false) => {
       setSearchParams((prev) => {

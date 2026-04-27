@@ -24,7 +24,6 @@ import {
   Maximize2,
   Home,
   ZoomIn,
-  Eye,
   Link2,
   Settings,
   ExternalLink,
@@ -1739,9 +1738,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldY,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => selectNode("widget", node, true),
+          onDoubleClick: () => navigate(widgetPinHref(node.pin!.id)),
           actions: [
             jumpAction(worldX, worldY),
-            { label: "Activate widget", icon: "activate", onSelect: () => setActivatedTileId(node.id) },
             { label: "Open full widget", icon: "open", onSelect: () => navigate(widgetPinHref(node.pin!.id)) },
             {
               label: "Open source channel",
@@ -2510,7 +2509,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     if (selectedSpatialObject.kind === "widget" && node.pin) {
       const title = node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget";
       const sourceId = node.pin.source_channel_id;
-      const activate = () => setActivatedTileId(node.id);
       const openFull = () => navigate(widgetPinHref(node.pin!.id));
       const openSource = () => {
         if (sourceId) navigate(`/channels/${sourceId}`);
@@ -2523,11 +2521,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         leading: <Box className="h-4 w-4" />,
         actions: [
           { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
-          { id: "activate", label: "Activate widget", icon: Eye, onSelect: (event) => { event.stopPropagation(); activate(); } },
           { id: "open-full", label: "Open full", icon: Maximize2, onSelect: (event) => { event.stopPropagation(); openFull(); } },
           { id: "source", label: sourceId ? "Open source" : "No source channel", icon: ExternalLink, disabled: !sourceId, onSelect: (event) => { event.stopPropagation(); openSource(); } },
           moreAction([
-            { label: "Activate widget", icon: <Eye size={14} />, onClick: activate },
             { label: "Open full widget", icon: <Maximize2 size={14} />, onClick: openFull },
             { label: "Fly camera here", icon: <Locate size={14} />, onClick: focus },
             { label: "Open source channel", icon: <ExternalLink size={14} />, disabled: !sourceId, onClick: openSource },
@@ -2738,11 +2734,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         });
       } else if (tileKind === "widget" && hitNode?.pin) {
         const pin = hitNode.pin;
-        items.push({
-          label: "Activate widget",
-          icon: <Eye size={14} />,
-          onClick: () => setActivatedTileId(hitNode.id),
-        });
         items.push({
           label: "Open full widget",
           icon: <Maximize2 size={14} />,
@@ -3365,6 +3356,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     return curr === node.id ? null : curr;
                   })
                 }
+                onDoubleClick={() => navigate(widgetPinHref(node.pin!.id))}
               >
                 <WidgetTile
                   pin={node.pin}

@@ -5,7 +5,7 @@
  * but adapted for side panel: drag handle, refresh, unpin controls.
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MutableRefObject } from "react";
 import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2 } from "lucide-react";
 import { Link, useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
@@ -105,12 +105,22 @@ interface PinnedToolWidgetProps {
   /** Chat runtime rail/dock mirror: placement is dashboard-owned, so hide
    *  edit/debug/refresh/unpin chrome and let the widget body own its title. */
   runtimeRail?: boolean;
+  /** Dedicated full-page route: render only the widget body. Route chrome
+   *  owns title, debug, refresh, source, and navigation controls. */
+  bodyOnly?: boolean;
+  controlsRef?: MutableRefObject<PinnedToolWidgetControls | null>;
   /** Channel multi-canvas dashboard: the enclosing `DndContext` supplies a
    *  pre-wired draggable binding (useSortable or useDraggable) so the grip
    *  icon becomes the single drag handle — intra-canvas AND cross-canvas.
    *  When omitted, the widget falls back to its own internal useSortable
    *  (used by the channel-scope OmniPanel rail in runtime chat). */
   externalDrag?: ExternalDragBinding;
+}
+
+export interface PinnedToolWidgetControls {
+  refresh: () => Promise<void>;
+  refreshing: boolean;
+  refreshTooltip: string;
 }
 
 export function PinnedToolWidget({
@@ -127,6 +137,8 @@ export function PinnedToolWidget({
   headerBackdropMode = "glass",
   panelSurface = false,
   runtimeRail = false,
+  bodyOnly = false,
+  controlsRef,
   externalDrag,
   layout,
 }: PinnedToolWidgetProps) {
@@ -295,6 +307,17 @@ export function PinnedToolWidget({
     refreshInFlightRef.current = run;
     return run;
   }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel, markPinRefreshed]);
+  const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
+  const refreshTooltip = lastRefreshedAt
+    ? `${updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`} · ${new Date(lastRefreshedAt).toLocaleString()} · Click to refresh`
+    : "Refresh";
+  useEffect(() => {
+    if (!controlsRef) return;
+    controlsRef.current = { refresh: refreshState, refreshing, refreshTooltip };
+    return () => {
+      if (controlsRef.current?.refresh === refreshState) controlsRef.current = null;
+    };
+  }, [controlsRef, refreshState, refreshing, refreshTooltip]);
 
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
@@ -555,6 +578,20 @@ export function PinnedToolWidget({
   // Show skeleton placeholder on initial load (before first poll/hydration)
   if (!currentEnvelope || body == null || awaitingFirstPollForRefreshable) {
     if (!hasEverLoadedRef.current || awaitingFirstPollForRefreshable) {
+      if (bodyOnly) {
+        return (
+          <div
+            ref={rootRef}
+            className="flex h-full min-h-0 w-full flex-col gap-2 p-4"
+            {...(externalDrag?.attributes ?? (isDashboard ? {} : fbAttrs))}
+          >
+            <div className="h-4 w-32 rounded bg-skeleton/[0.04]" />
+            <div className="h-3 w-4/5 rounded bg-skeleton/[0.04]" />
+            <div className="h-3 w-2/5 rounded bg-skeleton/[0.04]" />
+            <div className="mt-2 flex-1 rounded bg-skeleton/[0.03]" />
+          </div>
+        );
+      }
       return (
         <div
           ref={externalDrag?.setNodeRef ?? fbSetRef}
@@ -625,11 +662,6 @@ export function PinnedToolWidget({
   const rootAttrs = externalDrag?.attributes ?? (isDashboard ? {} : fbAttrs);
   const handleListeners = externalDrag?.listeners ?? (isDashboard ? undefined : fbListeners);
 
-  const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
-  const refreshTooltip = lastRefreshedAt
-    ? `${updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`} · ${new Date(lastRefreshedAt).toLocaleString()} · Click to refresh`
-    : "Refresh";
-
   // Dashboard cards and header-rail tiles live inside host-constrained slots
   // — fill height so the body scrolls/clips within the tile instead of
   // expanding past the allotted runtime surface.
@@ -675,6 +707,51 @@ export function PinnedToolWidget({
     ((isDashboard || railMode) && editMode && !showGenericTitle) && !showPanelTitle;
   const showHostHeader = !runtimeRail && !suppressHostHeaderForTitlelessHeader;
   const showHeaderDragLane = showHostHeader && (!isDashboard || editMode || railMode) && !!handleListeners;
+  if (bodyOnly) {
+    return (
+      <div
+        ref={rootRef}
+        className="relative h-full min-h-0 w-full overflow-hidden"
+        style={dragStyle}
+        {...rootAttrs}
+      >
+        <div className="h-full min-h-0 overflow-y-auto scroll-subtle">
+          <RichToolResult
+            envelope={currentEnvelope}
+            sessionId={viewedSessionId ?? undefined}
+            channelId={channelId ?? undefined}
+            dispatcher={dispatcher}
+            fillHeight
+            dashboardPinId={widget.id}
+            gridDimensions={measuredSize ?? undefined}
+            onIframeReady={handleIframeReady}
+            hoverScrollbars={hostPolicy.hoverScrollbars}
+            layout={hostPolicy.zone}
+            hostSurface={hostPolicy.wrapperSurface}
+            presentationFamily={hostPolicy.presentationFamily}
+            t={t}
+          />
+        </div>
+        {showIframeSkeleton && (
+          <div
+            className="absolute inset-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
+            aria-hidden
+          >
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "90%" }} />
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "60%" }} />
+            <div className="flex-1 rounded bg-skeleton/[0.03] mt-1" />
+          </div>
+        )}
+        {inspectorOpen && (
+          <WidgetInspector
+            pinId={widget.id}
+            pinLabel={resolveDisplayName(widget)}
+            onClose={() => setInspectorOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on

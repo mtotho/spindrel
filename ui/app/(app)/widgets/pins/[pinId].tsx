@@ -1,19 +1,22 @@
-import { useEffect, useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, Minimize2, RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Bot, Bug, ExternalLink, Hash, LayoutDashboard, Minimize2, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { PageHeader } from "@/src/components/layout/PageHeader";
-import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
+import { PinnedToolWidget, type PinnedToolWidgetControls } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
+import { WidgetInspector } from "@/app/(app)/channels/[channelId]/WidgetInspector";
 import { useDashboardPin } from "@/src/api/hooks/useDashboardPin";
+import { useChannel } from "@/src/api/hooks/useChannels";
+import { useBots } from "@/src/api/hooks/useBots";
 import { useSpatialNodes } from "@/src/api/hooks/useWorkspaceSpatial";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
-import { channelIdFromSlug, isChannelSlug } from "@/src/stores/dashboards";
+import { channelIdFromSlug, isChannelSlug, isWorkspaceSpatialSlug } from "@/src/stores/dashboards";
 import { asPinnedWidget } from "@/src/lib/widgetPins";
 import { writeSpatialHandoff } from "@/src/lib/spatialHandoff";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import type { ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
 
 function dashboardHref(pin: WidgetDashboardPin): string {
+  if (isWorkspaceSpatialSlug(pin.dashboard_key)) return "/canvas";
   if (isChannelSlug(pin.dashboard_key)) {
     const channelId = channelIdFromSlug(pin.dashboard_key);
     if (channelId) return `/widgets/channel/${encodeURIComponent(channelId)}`;
@@ -25,6 +28,11 @@ function fallbackBackHref(pin: WidgetDashboardPin | undefined): string {
   if (!pin) return "/canvas";
   if (pin.source_channel_id) return `/channels/${encodeURIComponent(pin.source_channel_id)}`;
   return dashboardHref(pin);
+}
+
+function shortId(value: string | null | undefined): string {
+  if (!value) return "none";
+  return value.length > 12 ? value.slice(0, 8) : value;
 }
 
 function matchesCanvasPin(nodePinId: string | null, nodePinOrigin: unknown, pinId: string): boolean {
@@ -39,7 +47,12 @@ export default function WidgetPinPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const widgetControlsRef = useRef<PinnedToolWidgetControls | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [pageRefreshing, setPageRefreshing] = useState(false);
   const { data: pin, isLoading, error, refetch } = useDashboardPin(pinId);
+  const { data: sourceChannel } = useChannel(pin?.source_channel_id ?? undefined);
+  const { data: bots = [] } = useBots();
   const hydrateDashboard = useDashboardPinsStore((s) => s.hydrate);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const { data: nodes } = useSpatialNodes();
@@ -60,6 +73,18 @@ export default function WidgetPinPage() {
     ?? pin?.envelope?.panel_title
     ?? pin?.tool_name
     ?? "Widget";
+  const bot = bots.find((candidate) => candidate.id === pin?.source_bot_id) ?? null;
+  const botLabel =
+    bot?.display_name
+    ?? bot?.name
+    ?? pin?.source_bot_id
+    ?? "User scoped";
+  const sourceLabel = sourceChannel?.display_name ?? sourceChannel?.name ?? pin?.source_channel_id ?? "No source channel";
+  const dashboardLabel = isWorkspaceSpatialSlug(pin?.dashboard_key)
+    ? "Spatial canvas"
+    : isChannelSlug(pin?.dashboard_key)
+      ? "Channel dashboard"
+      : pin?.dashboard_key ?? "Dashboard";
 
   const goBack = () => {
     if (window.history.length > 1) navigate(-1);
@@ -72,6 +97,17 @@ export default function WidgetPinPage() {
     navigate("/canvas");
   };
 
+  const refreshWidget = async () => {
+    setPageRefreshing(true);
+    try {
+      const controls = widgetControlsRef.current;
+      if (controls) await controls.refresh();
+      await refetch();
+    } finally {
+      setPageRefreshing(false);
+    }
+  };
+
   const handleEnvelopeUpdate = (widgetId: string, envelope: ToolResultEnvelope) => {
     updateEnvelope(widgetId, envelope);
     queryClient.setQueryData<WidgetDashboardPin>(["dashboard-pin", widgetId], (current) =>
@@ -79,75 +115,145 @@ export default function WidgetPinPage() {
     );
   };
 
-  const right = pin ? (
-    <>
-      {!isMobile && (
-        <button
-          type="button"
-          onClick={collapseToSpace}
-          disabled={!canvasNode}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-surface-border px-3 text-sm text-text-muted transition-colors hover:bg-surface-overlay hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
-          title={canvasNode ? "Collapse to spatial canvas" : "This widget is not on the spatial canvas"}
-        >
-          <Minimize2 size={15} />
-          <span>Collapse to space</span>
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => void refetch()}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-surface-border text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
-        title="Reload widget"
-        aria-label="Reload widget"
-      >
-        <RefreshCw size={15} />
-      </button>
-    </>
-  ) : null;
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
-      <PageHeader
-        variant="detail"
-        parentLabel="Widgets"
-        title={title}
-        subtitle={pin?.source_channel_id ? "Pinned channel widget" : "Pinned widget"}
-        onBack={goBack}
-        right={right}
-      />
-      <main className="flex min-h-0 flex-1 flex-col p-0 md:items-center md:justify-center md:p-4">
+      <header className="shrink-0 bg-surface px-3 pb-2 pt-3 md:px-5 md:pt-4">
+        <div className="flex min-h-11 items-center gap-2 md:gap-3">
+          <button
+            type="button"
+            onClick={goBack}
+            className="header-icon-btn h-10 w-10 shrink-0"
+            aria-label="Back"
+            title="Back"
+          >
+            <ArrowLeft size={19} className="text-text-muted" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <LayoutDashboard size={16} className="shrink-0 text-text-dim" />
+              <h1 className="truncate text-[15px] font-semibold text-text md:text-base">{title}</h1>
+            </div>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-dim">
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <Bot size={12} />
+                <span className="truncate">{botLabel}</span>
+              </span>
+              <span className="text-text-dim/50">/</span>
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <Hash size={12} />
+                <span className="truncate">{sourceLabel}</span>
+              </span>
+            </div>
+          </div>
+          {pin && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {!isMobile && (
+                <button
+                  type="button"
+                  onClick={collapseToSpace}
+                  disabled={!canvasNode}
+                  className="inline-flex h-9 items-center gap-2 rounded-md px-2.5 text-sm text-text-muted transition-colors hover:bg-surface-overlay hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+                  title={canvasNode ? "Collapse to spatial canvas" : "This widget is not on the spatial canvas"}
+                >
+                  <Minimize2 size={15} />
+                  <span className="hidden lg:inline">Collapse to space</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void refreshWidget()}
+                disabled={pageRefreshing}
+                className="header-icon-btn h-9 w-9"
+                title={widgetControlsRef.current?.refreshTooltip ?? "Refresh"}
+                aria-label="Refresh widget"
+              >
+                <RefreshCw size={15} className={pageRefreshing ? "animate-spin text-text-muted" : "text-text-muted"} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setInspectorOpen(true)}
+                className="header-icon-btn h-9 w-9"
+                title="Inspect widget"
+                aria-label="Inspect widget"
+              >
+                <Bug size={15} className="text-text-muted" />
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="flex min-h-0 flex-1 flex-col px-2 pb-1 md:px-6 md:pb-2">
         {isLoading ? (
-          <div className="m-4 rounded-md border border-surface-border bg-surface-raised px-4 py-3 text-sm text-text-muted">
+          <div className="m-4 rounded-md bg-surface-raised px-4 py-3 text-sm text-text-muted">
             Loading widget...
           </div>
         ) : error || !pin ? (
-          <div className="m-4 flex max-w-lg flex-col gap-3 rounded-md border border-surface-border bg-surface-raised px-4 py-4 text-sm text-text-muted">
+          <div className="m-4 flex max-w-lg flex-col gap-3 rounded-md bg-surface-raised px-4 py-4 text-sm text-text-muted">
             <div>Widget could not be loaded.</div>
             <button
               type="button"
               onClick={goBack}
-              className="inline-flex w-fit items-center gap-2 rounded-md border border-surface-border px-3 py-2 text-text hover:bg-surface-overlay"
+              className="inline-flex w-fit items-center gap-2 rounded-md px-3 py-2 text-text hover:bg-surface-overlay"
             >
-              <ChevronLeft size={15} />
+              <ArrowLeft size={15} />
               Back
             </button>
           </div>
         ) : (
-          <div className="flex min-h-0 w-full flex-1 flex-col md:h-[min(760px,calc(100vh-156px))] md:max-w-[1120px] md:flex-none">
+          <div className="mx-auto flex min-h-0 w-full flex-1 flex-col md:h-[min(780px,calc(100vh-170px))] md:max-w-[1180px] md:flex-none">
             <PinnedToolWidget
               widget={asPinnedWidget(pin)}
               scope={{ kind: "dashboard", channelId: pin.source_channel_id ?? undefined }}
               onUnpin={() => undefined}
               onEnvelopeUpdate={handleEnvelopeUpdate}
+              bodyOnly
+              controlsRef={widgetControlsRef}
               panelSurface
-              borderless={isMobile}
-              hideTitles={false}
+              borderless
+              hideTitles
               hoverScrollbars
             />
           </div>
         )}
       </main>
+
+      {pin && (
+        <footer className="shrink-0 bg-surface px-3 py-2 md:px-6">
+          <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-2 text-xs text-text-dim">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span>{dashboardLabel}</span>
+              <span>Pin {shortId(pin.id)}</span>
+              <span>{pin.tool_name}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {pin.source_channel_id && (
+                <Link
+                  to={`/channels/${encodeURIComponent(pin.source_channel_id)}`}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-text-muted hover:bg-surface-overlay hover:text-text"
+                >
+                  <ExternalLink size={13} />
+                  Source
+                </Link>
+              )}
+              <Link
+                to={dashboardHref(pin)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-text-muted hover:bg-surface-overlay hover:text-text"
+              >
+                <LayoutDashboard size={13} />
+                Dashboard
+              </Link>
+            </div>
+          </div>
+        </footer>
+      )}
+      {inspectorOpen && pin && (
+        <WidgetInspector
+          pinId={pin.id}
+          pinLabel={title}
+          onClose={() => setInspectorOpen(false)}
+        />
+      )}
     </div>
   );
 }
-
