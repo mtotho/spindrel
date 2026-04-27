@@ -246,7 +246,20 @@ async def _collect_harness_spindrel_tools_for(
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
     schemas: list[dict[str, Any]] = []
     errors: list[str] = []
-    local_names = list(dict.fromkeys(list(eff.local_tools) + list(explicit_tool_names or ())))
+    enrolled_names: list[str] = []
+    if bot_id:
+        try:
+            from app.services.tool_enrollment import get_enrolled_tool_names
+
+            enrolled_names = await get_enrolled_tool_names(bot_id)
+        except Exception:
+            logger.warning("harness bridge: failed to load enrolled tools for %s", bot_id, exc_info=True)
+    local_names = list(dict.fromkeys(
+        list(eff.local_tools)
+        + list(eff.pinned_tools or ())
+        + enrolled_names
+        + list(explicit_tool_names or ())
+    ))
     try:
         local_schemas = get_local_tool_schemas(local_names)
         schemas.extend(local_schemas)

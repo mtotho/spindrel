@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-27 (harness approval mode composer control)
+updated: 2026-04-27 (harness stop + terminal approval cards)
 ---
 # Track — UI Polish
 
@@ -214,6 +214,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Harness-question prompts now render as transcript-owned cards** — terminal chat no longer wraps the card in an extra `assistant:<runtime>` header or duplicates it in the composer lane. Hidden answer transport rows are filtered out of live/page sync, and pending question cards suppress the generic streaming `(thinking...)` row for the blocked turn.
 - [x] **Harness approval mode moved to the composer footer** — the old header `edits`/`bypass`/`plan` pill is gone. Harness channels now render the same approval mode as colored footer text beside the plan control in terminal and default composers, and clicking it cycles through `session-approval-mode` with the existing backend mutation.
 - [x] **Harness composer mode control is no longer duplicated** — harness chats now suppress the separate `Start plan` composer affordance, leaving the approval-mode footer text as the only bottom-right harness mode control.
+- [x] **Harness approval cards are terminal-aware** — live and orphan harness approval prompts now render with transcript-style inline chrome in terminal mode while default mode keeps the full card treatment.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -226,6 +227,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd agent-server/ui && npx tsc --noEmit` after moving harness approval mode into the composer footer
 - [x] `cd agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node --test .chat-test-dist/src/components/chat/harnessApprovalModeControl.test.js`
 - [x] `cd agent-server/ui && npx tsc --noEmit` after suppressing duplicate harness `Start plan`
+- [x] `cd agent-server/ui && npx tsc --noEmit` after terminal approval-card polish
 - [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
 - [x] `python -m py_compile app/services/slash_commands.py app/routers/api_v1_slash_commands.py tests/integration/test_slash_commands.py`
 - [x] `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` after summary/surface UI adoption

@@ -528,13 +528,14 @@ def _attach_claude_mcp_bridge(
     for spec in specs:
         parameters = spec.parameters or {"type": "object", "properties": {}}
 
-        async def _handler(args: dict[str, Any], *, _name: str = spec.name) -> str:
-            return await execute_harness_spindrel_tool(
+        async def _handler(args: dict[str, Any], *, _name: str = spec.name) -> dict[str, Any]:
+            text = await execute_harness_spindrel_tool(
                 ctx,
                 tool_name=_name,
                 arguments=args,
                 allowed_tool_names=allowed_tool_names,
             )
+            return {"content": [{"type": "text", "text": text or ""}]}
 
         try:
             sdk_tools.append(tool(spec.name, spec.description or spec.name, parameters)(_handler))

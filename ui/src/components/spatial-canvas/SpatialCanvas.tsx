@@ -183,6 +183,7 @@ import {
   clusterSuppressedChannelIds,
   clusterSuppressedNodeIds,
 } from "./spatialClustering";
+import { isEmptySpaceClickGesture } from "./spatialCanvasPointer";
 
 /**
  * Backend-driven spatial canvas. Renders one tile per `WorkspaceSpatialNode`
@@ -894,8 +895,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       const target = e.target as HTMLElement;
       if (target.closest("button,a,input,textarea,select")) return;
       if (target.closest("[data-tile-kind]")) return;
-      // Background click releases focused object state.
-      setSelectedSpatialObject(null);
       if (activatedTileId) setActivatedTileId(null);
       // Pan supersedes lens — drop the lens if it's engaged.
       if (lensEngaged) {
@@ -929,6 +928,19 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     if (!p || p.pointerId !== e.pointerId) return;
     panState.current = null;
     flushCamera();
+    if (
+      isEmptySpaceClickGesture({
+        startX: p.startX,
+        startY: p.startY,
+        endX: e.clientX,
+        endY: e.clientY,
+      })
+    ) {
+      setSelectedSpatialObject(null);
+      setSelectedAttentionId(null);
+      setStarboardOpen(false);
+      setContextMenu(null);
+    }
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {

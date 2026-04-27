@@ -19,6 +19,7 @@ The built-in skill library is clustered by theme. Each cluster has its own `inde
 - **[automation](automation/index.md)** — standing orders, machine control.
 - **[configurator](configurator/index.md)** — bot / channel / integration config changes via `propose_config_change`.
 - **[orchestrator](orchestrator/index.md)** — shared-workspace multi-bot coordination, audits, model efficiency, delegation reference.
+- **[diagnostics](diagnostics/index.md)** — investigate server failures: health summary, recent errors, structured traces, raw container logs. Cheapest-first L1→L5 procedure plus the heartbeat / nightly digest pattern.
 
 ## Standalone core skills
 
@@ -32,7 +33,6 @@ Not every skill fits a cluster. These sit at the top level:
 - `programmatic_tool_use` — `run_script` for chaining tool calls in one pass.
 - `generate_image` — image generation with attachments.
 - `e2e_testing` — running the test harness, reading results.
-- `system_diagnostics` — investigate server failures: health summary, recent errors, structured traces, raw container logs. Cheapest-first procedure suitable for heartbeats and nightly reports.
 
 ## How skill IDs work
 

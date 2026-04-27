@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-27 (Hub station routes + widget collapse handoff.)
+updated: 2026-04-27 (Empty-space click clears Starboard selection.)
 ---
 
 # Track — Spatial Canvas
@@ -31,6 +31,11 @@ Same-day polish: Hub/Starboard-linked pages now carry contextual Back/Menu
 state into list/detail pages, so mobile can return to Home or Canvas without
 losing the global menu. Attention Hub moved assignment controls up into the
 primary detail flow and dropped heavy wrapper borders in favor of tonal surfaces.
+
+Same-day interaction follow-up: an empty-space click on the canvas now clears
+the selected object and closes Starboard, while a background pan/grab keeps the
+panel open. The click path is pinned by a pointer-drift regression helper so
+selection dismissal does not regress back to pointer-down behavior.
 
 | Phase | Status | Description |
 |---|---|---|

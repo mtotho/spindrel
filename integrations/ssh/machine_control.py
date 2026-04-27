@@ -174,9 +174,29 @@ def _looks_like_public_key(value: str) -> bool:
     return any(head.startswith(prefix) for prefix in _SSH_PUBLIC_KEY_PREFIXES)
 
 
+def _normalize_pem_text(value: str) -> str:
+    """Make a pasted PEM-style secret palatable to OpenSSH.
+
+    Browsers and clipboards routinely smuggle in CRLF line endings, trailing
+    whitespace, or strip the final newline — any of which makes OpenSSL emit
+    `error in libcrypto` even when the key is otherwise valid. We:
+      * replace CRLF and bare CR with LF,
+      * strip trailing whitespace from each line,
+      * ensure the result ends with exactly one trailing LF.
+    """
+    if not value:
+        return value
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in normalized.split("\n")]
+    # Drop trailing empty lines, then re-add a single terminal newline.
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines) + "\n"
+
+
 def _validate_ssh_private_key(value: str) -> None:
     """Reject pasted secrets that won't load. Raises ValueError with a friendly message."""
-    text = value.strip()
+    text = _normalize_pem_text(value).strip()
     if not text:
         raise ValueError("Paste the contents of your private key file (the file *without* the .pub extension).")
 
@@ -276,8 +296,8 @@ async def _run_ssh(
         raise ValueError("SSH target is missing host or username.")
 
     config = auth.get("config") if isinstance(auth.get("config"), dict) else {}
-    private_key = str(config.get("private_key") or "")
-    known_hosts = str(config.get("known_hosts") or "")
+    private_key = _normalize_pem_text(str(config.get("private_key") or ""))
+    known_hosts = _normalize_pem_text(str(config.get("known_hosts") or ""))
     if not private_key.strip():
         raise ValueError("SSH profile is missing a private key.")
     if not known_hosts.strip():
@@ -491,8 +511,8 @@ class SSHMachineControlProvider:
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload = config if isinstance(config, dict) else {}
-        private_key = str(payload.get("private_key") or "")
-        known_hosts = str(payload.get("known_hosts") or "")
+        private_key = _normalize_pem_text(str(payload.get("private_key") or ""))
+        known_hosts = _normalize_pem_text(str(payload.get("known_hosts") or ""))
         if not known_hosts.strip():
             raise ValueError("SSH profile creation requires known_hosts.")
         _validate_ssh_private_key(private_key)
@@ -538,7 +558,7 @@ class SSHMachineControlProvider:
                 if key not in payload:
                     continue
                 value = payload.get(key)
-                next_config[key] = "" if value is None else str(value)
+                next_config[key] = "" if value is None else _normalize_pem_text(str(value))
             if not str(next_config.get("known_hosts") or "").strip():
                 raise ValueError("SSH profile must keep known_hosts.")
             if "private_key" in payload:

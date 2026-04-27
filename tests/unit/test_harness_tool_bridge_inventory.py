@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
-
-import pytest
 
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import EffectiveTools
@@ -25,8 +24,7 @@ def _schema(name: str) -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_bridge_inventory_exports_selected_local_tools():
+def test_bridge_inventory_exports_selected_local_tools():
     bot = BotConfig(
         id="harness-bot",
         name="Harness Bot",
@@ -49,20 +47,25 @@ async def test_bridge_inventory_exports_selected_local_tools():
             "app.services.agent_harnesses.tools.get_local_tool_schemas",
             return_value=[_schema("bennie_loggins_health_summary")],
         ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
     ):
-        inventory = await resolve_harness_bridge_inventory(
-            _Db(),
-            bot_id="harness-bot",
-            channel_id=None,
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+            )
         )
 
     assert [spec.name for spec in inventory.specs] == ["bennie_loggins_health_summary"]
     assert inventory.errors == ()
 
 
-@pytest.mark.asyncio
-async def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():
+def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():
     bot = BotConfig(
         id="harness-bot",
         name="Harness Bot",
@@ -85,13 +88,73 @@ async def test_bridge_inventory_reports_selected_local_tools_missing_from_regist
             "app.services.agent_harnesses.tools.get_local_tool_schemas",
             return_value=[_schema("bennie_loggins_health_summary")],
         ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
     ):
-        inventory = await resolve_harness_bridge_inventory(
-            _Db(),
-            bot_id="harness-bot",
-            channel_id=None,
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+            )
         )
 
     assert [spec.name for spec in inventory.specs] == ["bennie_loggins_health_summary"]
     assert inventory.errors == ("local tools not registered: missing_tool",)
+
+
+def test_bridge_inventory_includes_pinned_and_enrolled_tools():
+    bot = BotConfig(
+        id="harness-bot",
+        name="Harness Bot",
+        model="claude-sonnet-4-6",
+        system_prompt="",
+        local_tools=["declared_tool"],
+        pinned_tools=["pinned_tool"],
+    )
+
+    with (
+        patch("app.services.agent_harnesses.tools.get_bot", return_value=bot),
+        patch(
+            "app.services.agent_harnesses.tools.resolve_effective_tools",
+            return_value=EffectiveTools(
+                local_tools=list(bot.local_tools),
+                pinned_tools=list(bot.pinned_tools),
+            ),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.apply_auto_injections",
+            side_effect=lambda eff, _bot: eff,
+        ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=["fetched_tool"]),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.get_local_tool_schemas",
+            return_value=[
+                _schema("declared_tool"),
+                _schema("pinned_tool"),
+                _schema("fetched_tool"),
+            ],
+        ) as schemas,
+        patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
+    ):
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+            )
+        )
+
+    assert schemas.call_args.args[0] == ["declared_tool", "pinned_tool", "fetched_tool"]
+    assert [spec.name for spec in inventory.specs] == [
+        "declared_tool",
+        "pinned_tool",
+        "fetched_tool",
+    ]
+    assert inventory.errors == ()

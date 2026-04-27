@@ -64,6 +64,8 @@
     "src/components/chat/renderers/nativeApps/nativeWidgetLayout.test.ts",
     "src/components/chat/renderers/nativeApps/contextTrackerLayout.ts",
     "src/components/chat/renderers/nativeApps/contextTrackerLayout.test.ts",
+    "src/components/spatial-canvas/spatialCanvasPointer.ts",
+    "src/components/spatial-canvas/spatialCanvasPointer.test.ts",
     "src/components/palette/types.ts",
     "src/components/palette/catalog.ts",
     "src/components/palette/items.test.ts",
