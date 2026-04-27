@@ -5,9 +5,11 @@ import { Bot, ChevronDown, ChevronRight, Hash, Hash as HashIcon, Lock, Plus, Spa
 import { useChannels } from "../../../api/hooks/useChannels";
 import { useBots } from "../../../api/hooks/useBots";
 import { prettyIntegrationName } from "../../../utils/format";
+import { contextualNavigationState } from "../../../lib/contextualNavigation";
 import type { BotConfig, Channel } from "../../../types/api";
 import { QuietPill } from "../../shared/SettingsControls";
 import { SectionHeading } from "./SectionHeading";
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 function isOrchestratorChannel(channel: Channel): boolean {
   return channel.client_id === "orchestrator:home";
@@ -149,6 +151,7 @@ function ChannelRow({ channel, bot }: { channel: Channel; bot: BotConfig | undef
   return (
     <Link
       to={`/channels/${channel.id}`}
+      state={HUB_BACK_STATE}
       data-testid="channel-row"
       className="group flex min-h-[56px] items-center gap-3 rounded-md bg-surface-raised/40 px-3 py-3 transition-colors hover:bg-surface-overlay/45"
     >
@@ -193,6 +196,7 @@ function FirstChannelCTA() {
       </div>
       <Link
         to="/channels/new"
+        state={HUB_BACK_STATE}
         className="flex items-center justify-center gap-2 rounded-md bg-accent/[0.08] px-4 py-3 text-sm font-medium text-accent transition-colors hover:bg-accent/[0.12]"
       >
         <Plus size={14} />

@@ -187,7 +187,7 @@ function AttentionHubDrawer({
   if (!open) return null;
   return (
     <aside
-      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[460px] max-w-[calc(100vw-2rem)] flex-col rounded-md border border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
+      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[460px] max-w-[calc(100vw-2rem)] flex-col rounded-md bg-surface-raised/95 text-sm text-text backdrop-blur"
       onPointerDown={(event) => event.stopPropagation()}
     >
       <AttentionHubContent
@@ -242,7 +242,7 @@ export function AttentionHubContent({
     <>
       <div className="flex items-center justify-between px-4 py-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-text-dim">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-dim/80">
             <Radar size={14} />
             Attention Hub
           </div>
@@ -295,7 +295,7 @@ export function AttentionHubContent({
 function AttentionLane({ title, items, onSelect }: { title: string; items: WorkspaceAttentionItem[]; onSelect: (item: WorkspaceAttentionItem) => void }) {
   return (
     <section className="mb-4">
-      <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-[0.08em] text-text-dim">
+      <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
         <span>{title}</span>
         <span>{items.length}</span>
       </div>
@@ -306,7 +306,7 @@ function AttentionLane({ title, items, onSelect }: { title: string; items: Works
           <button
             key={item.id}
             type="button"
-            className="block w-full rounded-md border border-surface-border bg-surface/70 px-3 py-2 text-left hover:border-accent/40 hover:bg-surface-overlay/50"
+            className="block w-full rounded-md bg-surface-raised/45 px-3 py-2 text-left hover:bg-surface-overlay/50"
             onClick={() => onSelect(item)}
           >
             <div className="flex items-start justify-between gap-2">
@@ -359,28 +359,28 @@ function CreateAttentionForm({ onCreated }: { onCreated: (item: WorkspaceAttenti
         }
       }}
     >
-      <input className="w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <textarea className="min-h-28 w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Message" value={message} onChange={(e) => setMessage(e.target.value)} />
+      <input className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <textarea className="min-h-28 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Message" value={message} onChange={(e) => setMessage(e.target.value)} />
       <div className="grid grid-cols-2 gap-2">
-        <select className="rounded-md border border-surface-border bg-surface px-2 py-2 text-sm" value={severity} onChange={(e) => setSeverity(e.target.value as AttentionSeverity)}>
+        <select className="rounded-md border border-input-border bg-input px-2 py-2 text-sm text-text" value={severity} onChange={(e) => setSeverity(e.target.value as AttentionSeverity)}>
           <option value="info">Info</option>
           <option value="warning">Warning</option>
           <option value="error">Error</option>
           <option value="critical">Critical</option>
         </select>
-        <select className="rounded-md border border-surface-border bg-surface px-2 py-2 text-sm" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+        <select className="rounded-md border border-input-border bg-input px-2 py-2 text-sm text-text" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
           <option value="">Target channel...</option>
           {channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
         </select>
       </div>
-      <div className="space-y-2 rounded-md border border-surface-border p-3">
-        <div className="text-[11px] uppercase tracking-[0.08em] text-text-dim">Assign Bot</div>
+      <div className="space-y-2 rounded-md bg-surface-raised/45 p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Assign Bot</div>
         <BotPicker value={botId} onChange={setBotId} bots={bots} allowNone />
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" className={`rounded-md border px-2 py-1.5 text-xs ${mode === "next_heartbeat" ? "border-accent text-accent" : "border-surface-border text-text-muted"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
-          <button type="button" className={`rounded-md border px-2 py-1.5 text-xs ${mode === "run_now" ? "border-accent text-accent" : "border-surface-border text-text-muted"}`} onClick={() => setMode("run_now")}>Run now</button>
+          <button type="button" className={`rounded-md px-2 py-1.5 text-xs ${mode === "next_heartbeat" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
+          <button type="button" className={`rounded-md px-2 py-1.5 text-xs ${mode === "run_now" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("run_now")}>Run now</button>
         </div>
-        <textarea className="min-h-20 w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        <textarea className="min-h-20 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
       </div>
       <button type="submit" disabled={!canSubmit || create.isPending || assign.isPending} className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50">
         Create Attention Item
@@ -437,22 +437,25 @@ function AttentionDetail({
   };
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-      <button type="button" className="text-xs text-text-dim hover:text-text" onClick={onBack}>Back to all issues</button>
-      <div className="space-y-2">
+    <div className="min-h-0 flex-1 space-y-4 overflow-auto px-3 pb-4 pt-2 md:px-4">
+      <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>Back to all issues</button>
+
+      <section className="space-y-3 rounded-md bg-surface-raised/50 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Target</div>
-            <span className="truncate text-base font-medium text-text">{targetLabel(item)}</span>
-            <span className="ml-2 rounded-full bg-surface-overlay px-2 py-0.5 text-xs font-medium text-text-muted">
-              {currentIndex + 1} of {targetCount} issue{targetCount === 1 ? "" : "s"}
-            </span>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Target</div>
+            <div className="mt-1 flex min-w-0 items-center gap-2">
+              <span className="truncate text-base font-semibold text-text">{targetLabel(item)}</span>
+              <span className="shrink-0 rounded-full bg-surface-overlay px-2 py-0.5 text-xs font-medium text-text-muted">
+                {currentIndex + 1} of {targetCount} issue{targetCount === 1 ? "" : "s"}
+              </span>
+            </div>
           </div>
           {targetCount > 1 && (
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+                className="rounded-md px-2 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
                 disabled={bulkAcknowledge.isPending}
                 onClick={acknowledgeTarget}
               >
@@ -461,7 +464,7 @@ function AttentionDetail({
               <button
                 type="button"
                 disabled={!previousItem}
-                className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+                className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
                 onClick={() => previousItem && onSelect(previousItem)}
               >
                 Prev
@@ -469,7 +472,7 @@ function AttentionDetail({
               <button
                 type="button"
                 disabled={!nextItem}
-                className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+                className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
                 onClick={() => nextItem && onSelect(nextItem)}
               >
                 Next
@@ -486,7 +489,7 @@ function AttentionDetail({
                 className={`relative flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-xs ${
                   candidate.id === item.id
                     ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
-                    : "bg-surface-raised/40 text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                    : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
                 }`}
                 onClick={() => onSelect(candidate)}
               >
@@ -500,42 +503,47 @@ function AttentionDetail({
             ))}
           </div>
         )}
-      </div>
-      <div>
-        <h2 className="text-lg font-medium">{item.title}</h2>
-        <div className="mt-1 text-xs text-text-muted">{item.severity} · {statusLabel(item)} · {item.source_type}</div>
-      </div>
-      <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{item.message}</p>
-      {item.assignment_report && (
-        <div className="rounded-md border border-accent/25 bg-accent/10 p-3">
-          <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-accent">Bot Findings</div>
-          <p className="whitespace-pre-wrap text-sm text-text-muted">{item.assignment_report}</p>
-        </div>
-      )}
-      <div className="grid grid-cols-2 gap-2 text-xs text-text-dim">
-        <span>Target: {item.target_kind}</span>
-        <span>Count: {item.occurrence_count}</span>
-        <span>Channel: {item.channel_name ?? item.channel_id ?? "none"}</span>
-        <span>Last: {item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "unknown"}</span>
-      </div>
-      {item.latest_correlation_id && (
-        <button type="button" className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-accent hover:bg-accent/10" onClick={() => openTraceInspector({ correlationId: item.latest_correlation_id!, title: item.title })}>
-          <ExternalLink size={14} />
-          Open trace evidence
-        </button>
-      )}
-      <div className="space-y-2 rounded-md border border-surface-border p-3">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-text-dim"><Bot size={13} /> Assignment</div>
+      </section>
+
+      <section className="space-y-3 rounded-md bg-surface-raised/55 p-3">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80"><Bot size={13} /> Assignment</div>
         <BotPicker value={botId} onChange={setBotId} bots={bots} allowNone />
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" className={`rounded-md border px-2 py-1.5 text-xs ${mode === "next_heartbeat" ? "border-accent text-accent" : "border-surface-border text-text-muted"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
-          <button type="button" className={`rounded-md border px-2 py-1.5 text-xs ${mode === "run_now" ? "border-accent text-accent" : "border-surface-border text-text-muted"}`} onClick={() => setMode("run_now")}>Run now</button>
+        <div className="grid grid-cols-2 gap-2 rounded-md bg-surface-overlay/45 p-0.5">
+          <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "next_heartbeat" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
+          <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "run_now" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("run_now")}>Run now</button>
         </div>
-        <textarea className="min-h-20 w-full rounded-md border border-surface-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-        <button type="button" disabled={!botId || assign.isPending} className="rounded-md border border-accent/40 px-3 py-2 text-sm text-accent disabled:opacity-50" onClick={() => assign.mutate({ itemId: item.id, bot_id: botId, mode, instructions })}>
+        <textarea className="min-h-24 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        <button type="button" disabled={!botId || assign.isPending} className="rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50" onClick={() => assign.mutate({ itemId: item.id, bot_id: botId, mode, instructions })}>
           Assign
         </button>
-      </div>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-medium text-text">{item.title}</h2>
+          <div className="mt-1 text-xs text-text-muted">{item.severity} · {statusLabel(item)} · {item.source_type}</div>
+        </div>
+        <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{item.message}</p>
+        {item.assignment_report && (
+          <div className="rounded-md bg-accent/[0.08] p-3">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">Bot Findings</div>
+            <p className="whitespace-pre-wrap text-sm text-text-muted">{item.assignment_report}</p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2 text-xs text-text-dim">
+          <span>Target: {item.target_kind}</span>
+          <span>Count: {item.occurrence_count}</span>
+          <span>Channel: {item.channel_name ?? item.channel_id ?? "none"}</span>
+          <span>Last: {item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "unknown"}</span>
+        </div>
+        {item.latest_correlation_id && (
+          <button type="button" className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-accent hover:bg-accent/10" onClick={() => openTraceInspector({ correlationId: item.latest_correlation_id!, title: item.title })}>
+            <ExternalLink size={14} />
+            Open trace evidence
+          </button>
+        )}
+      </section>
+
       <div className="flex flex-wrap gap-2">
         {onReply && (
           <button type="button" className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-accent hover:bg-accent/10" onClick={() => onReply(item)}>

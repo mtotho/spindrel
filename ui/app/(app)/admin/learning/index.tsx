@@ -501,6 +501,7 @@ export default function LearningCenterPage() {
         variant="list"
         title="Memory & Knowledge"
         subtitle="Search and inspect what bots remember, know, and retrieve."
+        chrome="flow"
       />
       <div className="flex flex-col gap-3 px-4 pb-3 pt-2 md:px-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

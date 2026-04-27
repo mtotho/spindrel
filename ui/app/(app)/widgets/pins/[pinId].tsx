@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bot, Bug, ExternalLink, Hash, LayoutDashboard, Minimize2, RefreshCw } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Bot, Bug, ExternalLink, Hash, LayoutDashboard, Menu, Minimize2, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PinnedToolWidget, type PinnedToolWidgetControls } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { WidgetInspector } from "@/app/(app)/channels/[channelId]/WidgetInspector";
@@ -13,6 +13,8 @@ import { channelIdFromSlug, isChannelSlug, isWorkspaceSpatialSlug } from "@/src/
 import { asPinnedWidget } from "@/src/lib/widgetPins";
 import { writeSpatialHandoff } from "@/src/lib/spatialHandoff";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
+import { readContextualNavigationState } from "@/src/lib/contextualNavigation";
+import { useUIStore } from "@/src/stores/ui";
 import type { ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
 
 function dashboardHref(pin: WidgetDashboardPin): string {
@@ -45,8 +47,10 @@ function matchesCanvasPin(nodePinId: string | null, nodePinOrigin: unknown, pinI
 export default function WidgetPinPage() {
   const { pinId } = useParams<{ pinId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const openPalette = useUIStore((s) => s.openPalette);
   const widgetControlsRef = useRef<PinnedToolWidgetControls | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [pageRefreshing, setPageRefreshing] = useState(false);
@@ -87,6 +91,11 @@ export default function WidgetPinPage() {
       : pin?.dashboard_key ?? "Dashboard";
 
   const goBack = () => {
+    const contextualBack = readContextualNavigationState(location.state);
+    if (contextualBack?.backTo) {
+      navigate(contextualBack.backTo, { replace: true });
+      return;
+    }
     if (window.history.length > 1) navigate(-1);
     else navigate(fallbackBackHref(pin));
   };
@@ -178,6 +187,17 @@ export default function WidgetPinPage() {
               >
                 <Bug size={15} className="text-text-muted" />
               </button>
+              {isMobile && (
+                <button
+                  type="button"
+                  onClick={openPalette}
+                  className="header-icon-btn h-9 w-9"
+                  title="Open menu"
+                  aria-label="Open menu"
+                >
+                  <Menu size={15} className="text-text-muted" />
+                </button>
+              )}
             </div>
           )}
         </div>

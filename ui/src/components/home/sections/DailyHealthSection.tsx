@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 
 import { useLatestHealthSummary } from "../../../api/hooks/useSystemHealth";
 import { DAILY_HEALTH_HREF } from "../../../lib/hubRoutes";
+import { contextualNavigationState } from "../../../lib/contextualNavigation";
 import { StatusBadge } from "../../shared/SettingsControls";
 import { SectionHeading } from "./SectionHeading";
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 function formatRelative(value: string | null | undefined): string {
   if (!value) return "never";
@@ -54,6 +56,7 @@ export function DailyHealthSection({ onOpen }: { onOpen?: () => void }) {
       <SectionHeading icon={<Activity size={14} />} label="Daily Health" />
       <Link
         to={DAILY_HEALTH_HREF}
+        state={HUB_BACK_STATE}
         onClick={
           onOpen
             ? (event) => {

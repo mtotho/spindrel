@@ -112,6 +112,7 @@ import {
   getChannelLastSurface,
 } from "../../stores/channelLastSurface";
 import { widgetPinHref } from "../../lib/hubRoutes";
+import { contextualNavigationState } from "../../lib/contextualNavigation";
 import { SPATIAL_HANDOFF_KEY } from "../../lib/spatialHandoff";
 import {
   CAMERA_STORAGE_KEY,
@@ -236,6 +237,7 @@ type SpatialSelection =
 export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCanvasProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const canvasBackState = contextualNavigationState(`${location.pathname}${location.search}`, "Canvas");
   const { data: nodes } = useSpatialNodes();
   // Live landmark positions derived from `nodes`. Falls back to the
   // hardcoded seed defaults until the canvas list query resolves; once
@@ -1711,7 +1713,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             }),
           actions: [
             jumpAction(worldX, worldY),
-            { label: "Open channel", icon: "open", onSelect: () => navigate(`/channels/${node.channel_id}`) },
+            { label: "Open channel", icon: "open", onSelect: () => navigate(`/channels/${node.channel_id}`, { state: canvasBackState }) },
             {
               label: channel ? `Open mini chat - #${channel.name}` : "Open mini chat",
               icon: "chat",
@@ -1738,16 +1740,16 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           worldY,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => selectNode("widget", node, true),
-          onDoubleClick: () => navigate(widgetPinHref(node.pin!.id)),
+          onDoubleClick: () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState }),
           actions: [
             jumpAction(worldX, worldY),
-            { label: "Open full widget", icon: "open", onSelect: () => navigate(widgetPinHref(node.pin!.id)) },
+            { label: "Open full widget", icon: "open", onSelect: () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState }) },
             {
               label: "Open source channel",
               icon: "open",
               disabled: !node.pin.source_channel_id,
               onSelect: () => {
-                if (node.pin?.source_channel_id) navigate(`/channels/${node.pin.source_channel_id}`);
+                if (node.pin?.source_channel_id) navigate(`/channels/${node.pin.source_channel_id}`, { state: canvasBackState });
               },
             },
           ],
@@ -1781,7 +1783,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               icon: "settings",
               onSelect: () =>
                 navigate(`/admin/bots/${botId}`, {
-                  state: { backTo: `${location.pathname}${location.search}` },
+                  state: canvasBackState,
                 }),
             },
           ],
@@ -2467,7 +2469,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             { label: "Dive into channel", icon: <ZoomIn size={14} />, onClick: dive },
             { label: "Fly camera here", icon: <Locate size={14} />, onClick: focus },
             { label: `Open mini chat - #${channel.name}`, icon: <MessageCircle size={14} />, onClick: openChat },
-            { label: "Open channel", icon: <ExternalLink size={14} />, onClick: () => navigate(`/channels/${channel.id}`) },
+            { label: "Open channel", icon: <ExternalLink size={14} />, onClick: () => navigate(`/channels/${channel.id}`, { state: canvasBackState }) },
             { label: "Unpin from canvas", icon: <Trash2 size={14} />, danger: true, separator: true, onClick: () => deleteNode.mutate(node.id) },
           ]),
         ] satisfies SpatialSelectionAction[],
@@ -2484,7 +2486,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       };
       const openSettings = () =>
         navigate(`/admin/bots/${botId}`, {
-          state: { backTo: `${location.pathname}${location.search}` },
+          state: canvasBackState,
         });
       return {
         x: anchor.x,
@@ -2509,9 +2511,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     if (selectedSpatialObject.kind === "widget" && node.pin) {
       const title = node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget";
       const sourceId = node.pin.source_channel_id;
-      const openFull = () => navigate(widgetPinHref(node.pin!.id));
+      const openFull = () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState });
       const openSource = () => {
-        if (sourceId) navigate(`/channels/${sourceId}`);
+        if (sourceId) navigate(`/channels/${sourceId}`, { state: canvasBackState });
       };
       return {
         x: anchor.x,
@@ -2737,14 +2739,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         items.push({
           label: "Open full widget",
           icon: <Maximize2 size={14} />,
-          onClick: () => navigate(widgetPinHref(pin.id)),
+          onClick: () => navigate(widgetPinHref(pin.id), { state: canvasBackState }),
         });
         if (pin.source_channel_id) {
           const sourceId = pin.source_channel_id;
           items.push({
             label: "Open source channel",
             icon: <ExternalLink size={14} />,
-            onClick: () => navigate(`/channels/${sourceId}`),
+            onClick: () => navigate(`/channels/${sourceId}`, { state: canvasBackState }),
           });
         }
         items.push({
@@ -2786,7 +2788,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           icon: <ExternalLink size={14} />,
           onClick: () =>
             navigate(`/admin/bots/${botId}`, {
-              state: { backTo: `${location.pathname}${location.search}` },
+              state: canvasBackState,
             }),
         });
         items.push({
@@ -3356,7 +3358,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     return curr === node.id ? null : curr;
                   })
                 }
-                onDoubleClick={() => navigate(widgetPinHref(node.pin!.id))}
+                onDoubleClick={() => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState })}
               >
                 <WidgetTile
                   pin={node.pin}

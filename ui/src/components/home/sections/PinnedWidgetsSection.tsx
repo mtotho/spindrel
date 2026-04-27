@@ -3,9 +3,11 @@ import { Pin } from "lucide-react";
 
 import { useSpatialNodes } from "../../../api/hooks/useWorkspaceSpatial";
 import { widgetPinHref } from "../../../lib/hubRoutes";
+import { contextualNavigationState } from "../../../lib/contextualNavigation";
 import { SectionHeading } from "./SectionHeading";
 
 const MAX_PINS = 8;
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 /**
  * Quick-access chips for canvas widget pins. Each pin opens the dedicated
@@ -32,6 +34,7 @@ export function PinnedWidgetsSection() {
             <Link
               key={node.id}
               to={href}
+              state={HUB_BACK_STATE}
               className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-surface-raised/40 px-3 py-2 text-xs text-text-muted transition-colors hover:bg-surface-overlay/45 hover:text-text"
               title={label}
             >

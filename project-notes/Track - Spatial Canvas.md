@@ -27,6 +27,11 @@ contextual for Attention/Health/Bloat station switches. Pinned widget full view
 adds a desktop collapse-to-space handoff that selects and safely zooms out to
 the matching spatial widget tile.
 
+Same-day polish: Hub/Starboard-linked pages now carry contextual Back/Menu
+state into list/detail pages, so mobile can return to Home or Canvas without
+losing the global menu. Attention Hub moved assignment controls up into the
+primary detail flow and dropped heavy wrapper borders in favor of tonal surfaces.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

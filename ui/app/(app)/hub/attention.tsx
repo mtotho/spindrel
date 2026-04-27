@@ -55,9 +55,11 @@ export default function HubAttentionPage() {
         title="Attention"
         subtitle="Issues, assignments, and replies"
         backTo="/"
+        chrome="flow"
+        showMenuWithBack
       />
-      <main className="min-h-0 flex-1 p-3 md:p-4">
-        <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-md border border-surface-border bg-surface-raised/70">
+      <main className="min-h-0 flex-1 px-2 pb-2 md:px-4 md:pb-4">
+        <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-md bg-surface-raised/55">
           <AttentionHubContent
             items={items}
             selectedId={selectedId}
@@ -69,4 +71,3 @@ export default function HubAttentionPage() {
     </div>
   );
 }
-

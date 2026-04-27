@@ -1,8 +1,9 @@
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Menu, ChevronRight } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { cn } from "../../lib/cn";
+import { readContextualNavigationState, sameNavigationTarget } from "../../lib/contextualNavigation";
 
 export interface PageHeaderProps {
   variant: "list" | "detail";
@@ -15,6 +16,8 @@ export interface PageHeaderProps {
   hideNav?: boolean;
   hideTitle?: boolean;
   inline?: boolean;
+  chrome?: "standard" | "flow";
+  showMenuWithBack?: boolean;
 }
 
 export function PageHeader({
@@ -28,6 +31,8 @@ export function PageHeader({
   hideNav,
   hideTitle,
   inline,
+  chrome = "standard",
+  showMenuWithBack,
 }: PageHeaderProps) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
@@ -35,22 +40,35 @@ export function PageHeader({
   const openPalette = useUIStore((s) => s.openPalette);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const sidebarHidden = isMobile || sidebarCollapsed;
 
-  const handleBack = backTo ? () => navigate(backTo) : onBack;
+  const currentTarget = `${location.pathname}${location.search}${location.hash}`;
+  const contextualBack = readContextualNavigationState(location.state);
+  const contextualBackTo = contextualBack && !sameNavigationTarget(contextualBack.backTo, currentTarget)
+    ? contextualBack.backTo
+    : null;
+  const effectiveBackTo = contextualBackTo ?? backTo;
+  const handleBack = onBack ?? (effectiveBackTo
+    ? () => navigate(effectiveBackTo, contextualBackTo ? { replace: true } : undefined)
+    : undefined);
+  const contextualBackActive = !onBack && !!contextualBackTo;
+  const openMenu = isMobile ? openPalette : toggleSidebar;
 
   // Detail pages with a back target show back arrow everywhere (mobile + desktop).
-  // List pages show hamburger on mobile or when sidebar is collapsed on desktop.
-  const useBackArrow = variant === "detail" && !!handleBack;
+  // Contextually-opened list pages also show back, so mobile users can return
+  // to the surface that launched them without losing global menu access.
+  const useBackArrow = (variant === "detail" || contextualBackActive) && !!handleBack;
   const useHamburger = !useBackArrow && (isMobile || (variant === "list" && sidebarHidden));
+  const useTrailingMenu = !hideNav && isMobile && useBackArrow && (showMenuWithBack || contextualBackActive);
 
   const showNav = !hideNav && (useHamburger || useBackArrow);
 
   const navButton = showNav && (
     <button
       onClick={useHamburger
-        ? (isMobile ? openPalette : toggleSidebar)
+        ? openMenu
         : handleBack}
       aria-label={useHamburger ? "Open menu" : "Go back"}
       className="w-10 h-10 rounded-md flex flex-row items-center justify-center hover:bg-surface-overlay/60 transition-colors cursor-pointer bg-transparent border-none p-0"
@@ -60,11 +78,22 @@ export function PageHeader({
         : <ArrowLeft size={20} className="text-text-muted" />}
     </button>
   );
+  const trailingMenuButton = useTrailingMenu && (
+    <button
+      type="button"
+      onClick={openMenu}
+      aria-label="Open menu"
+      className="w-10 h-10 rounded-md flex flex-row items-center justify-center hover:bg-surface-overlay/60 transition-colors cursor-pointer bg-transparent border-none p-0"
+    >
+      <Menu size={20} className="text-text-muted" />
+    </button>
+  );
 
   return (
     <div className={cn(
       "flex flex-row items-center shrink-0",
-      !inline && "min-h-[52px] bg-surface border-b border-surface-border",
+      !inline && "min-h-[52px] bg-surface",
+      !inline && chrome === "standard" && "border-b border-surface-border",
       isMobile ? "px-2 gap-1" : "px-4 gap-3",
     )}>
       {navButton}
@@ -92,6 +121,7 @@ export function PageHeader({
           {right}
         </div>
       )}
+      {trailingMenuButton}
     </div>
   );
 }

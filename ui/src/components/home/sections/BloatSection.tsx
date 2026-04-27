@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 
 import { useAgentSmell } from "../../../api/hooks/useUsage";
 import { CONTEXT_BLOAT_HREF } from "../../../lib/hubRoutes";
+import { contextualNavigationState } from "../../../lib/contextualNavigation";
 import { StatusBadge } from "../../shared/SettingsControls";
 import { SectionHeading } from "./SectionHeading";
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 function fmtTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
@@ -34,6 +36,7 @@ export function BloatSection({ onOpen }: { onOpen?: () => void }) {
       <SectionHeading icon={<Wind size={14} />} label="Context bloat" />
       <Link
         to={CONTEXT_BLOAT_HREF}
+        state={HUB_BACK_STATE}
         onClick={
           onOpen
             ? (event) => {

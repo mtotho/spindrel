@@ -3,8 +3,10 @@ import { RefreshableScrollView } from "../shared/RefreshableScrollView";
 import { usePageRefresh } from "../../hooks/usePageRefresh";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { contextualNavigationState } from "../../lib/contextualNavigation";
 
 import { HubSections } from "./HubSections";
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 /**
  * Mobile-only home hub. Replaces the legacy `HomeChannelsList` with a
@@ -27,6 +29,7 @@ export function MobileHub() {
         right={
           <Link
             to="/channels/new"
+            state={HUB_BACK_STATE}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-accent hover:bg-accent/[0.08] text-sm font-medium"
           >
             <Plus size={14} />

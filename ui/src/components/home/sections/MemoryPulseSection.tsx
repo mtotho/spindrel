@@ -3,10 +3,12 @@ import { Link } from "react-router-dom";
 
 import { useMemoryObservatory } from "../../../api/hooks/useLearningOverview";
 import { MEMORY_CENTER_HREF } from "../../../lib/hubRoutes";
+import { contextualNavigationState } from "../../../lib/contextualNavigation";
 import { SectionHeading } from "./SectionHeading";
 
 const MAX_FILES = 3;
 const MAX_BOTS = 3;
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 /**
  * Mobile slice of the Memory Observatory: most-active bots and the
@@ -28,6 +30,7 @@ export function MemoryPulseSection() {
           <Link
             key={`bot-${bot.bot_id}`}
             to={MEMORY_CENTER_HREF}
+            state={HUB_BACK_STATE}
             className="group flex min-h-[56px] items-center gap-3 rounded-md bg-surface-raised/40 px-3 py-2.5 transition-colors hover:bg-surface-overlay/45"
           >
             <div className="min-w-0 flex-1">
@@ -49,6 +52,7 @@ export function MemoryPulseSection() {
           <Link
             key={`file-${file.id}`}
             to={MEMORY_CENTER_HREF}
+            state={HUB_BACK_STATE}
             className="group flex min-h-[56px] items-center gap-3 rounded-md bg-surface-raised/40 px-3 py-2.5 transition-colors hover:bg-surface-overlay/45"
           >
             <FileText size={14} className="shrink-0 text-text-dim" />

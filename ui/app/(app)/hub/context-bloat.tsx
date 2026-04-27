@@ -10,13 +10,14 @@ export default function HubContextBloatPage() {
         title="Context Bloat"
         subtitle="Unused tools, skills, and estimated prompt weight"
         backTo="/"
+        chrome="flow"
+        showMenuWithBack
       />
-      <main className="min-h-0 flex-1 overflow-auto p-3 md:p-4">
-        <div className="mx-auto max-w-5xl rounded-md border border-surface-border bg-surface-raised/70 p-3">
+      <main className="min-h-0 flex-1 overflow-auto px-2 pb-2 md:px-4 md:pb-4">
+        <div className="mx-auto max-w-5xl rounded-md bg-surface-raised/55 p-3">
           <BloatStationContent />
         </div>
       </main>
     </div>
   );
 }
-

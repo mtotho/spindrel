@@ -8,6 +8,7 @@ import {
   type WorkspaceAttentionItem,
 } from "../../../api/hooks/useWorkspaceAttention";
 import { attentionHubHref, attentionItemHref } from "../../../lib/hubRoutes";
+import { contextualNavigationState } from "../../../lib/contextualNavigation";
 import { StatusBadge } from "../../shared/SettingsControls";
 import { SectionHeading } from "./SectionHeading";
 
@@ -25,6 +26,7 @@ function severityVariant(s: AttentionSeverity): "danger" | "warning" | "info" {
 }
 
 const MAX_ITEMS = 4;
+const HUB_BACK_STATE = contextualNavigationState("/", "Home");
 
 /**
  * Active workspace Attention items sorted by severity. Renders nothing
@@ -56,6 +58,7 @@ export function AttentionSection({
           <Link
             key={item.id}
             to={attentionItemHref(item)}
+            state={HUB_BACK_STATE}
             onClick={
               onOpenItem
                 ? (event) => {
@@ -84,6 +87,7 @@ export function AttentionSection({
         {overflow > 0 ? (
           <Link
             to={attentionHubHref()}
+            state={HUB_BACK_STATE}
             onClick={
               onOpenHub
                 ? (event) => {
