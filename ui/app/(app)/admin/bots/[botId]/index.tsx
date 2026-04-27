@@ -331,13 +331,19 @@ function ToolsSkillsSection({ editorData, draft, update, setGroup }: {
   update: (patch: Partial<BotConfig>) => void;
   setGroup: (group: BotGroupKey) => void;
 }) {
+  const isHarness = !!draft.harness_runtime;
   return (
     <div className="flex flex-col gap-6">
-      <SectionFrame title="Tools" description="Pinned tools, retrieval, MCP, client tools, and result behavior.">
+      {isHarness && (
+        <InfoBanner variant="info">
+          Bridge Tools & Skills configures what Spindrel can expose to the harness. Local and MCP tools are bridgeable when the runtime SDK supports it; browser/client callback tools are listed but not bridgeable yet.
+        </InfoBanner>
+      )}
+      <SectionFrame title={isHarness ? "Bridge Tools" : "Tools"} description={isHarness ? "Pinned tools, local tools, and MCP servers that can be exposed through the harness bridge." : "Pinned tools, retrieval, MCP, client tools, and result behavior."}>
         <ToolsSection editorData={editorData} draft={draft} update={update} />
       </SectionFrame>
-      <SectionFrame title="Skills" description="Structured skill enrollments for this bot.">
-        <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={() => setGroup("memory")} />
+      <SectionFrame title={isHarness ? "Bridge Skills" : "Skills"} description={isHarness ? "Structured skill enrollments available to bridged get_skill and get_skill_list." : "Structured skill enrollments for this bot."}>
+        <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={isHarness ? undefined : () => setGroup("memory")} />
         {!!draft.api_permissions?.length && <InfoBanner variant="info">API access tools are available from this bot's {draft.api_permissions.length} API scope{draft.api_permissions.length === 1 ? "" : "s"}.</InfoBanner>}
       </SectionFrame>
       <SectionFrame title="Delegation" description="Allow this bot to delegate work to selected bots.">
@@ -548,9 +554,9 @@ export default function BotEditorScreen() {
     navigate({ hash: group }, { replace: true });
   }, [navigate]);
 
-  // Harness bots delegate the agent loop to an external runtime, so the
-  // prompt/tools/skills/memory/workspace sections don't apply. Hide them so
-  // the user can't try to set a system prompt and wonder why it does nothing.
+  // Harness bots delegate the agent loop to an external runtime. Keep
+  // bridge-owned tools/skills and workspace controls visible, hide normal-loop
+  // prompt/memory/context surfaces.
   const isHarnessBot = !!draft?.harness_runtime;
   const visibleGroups = isHarnessBot ? HARNESS_BOT_GROUPS : undefined;
 

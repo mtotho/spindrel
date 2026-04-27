@@ -11,6 +11,7 @@ from app.dependencies import get_db, require_scopes
 from app.domain.errors import NotFoundError, ValidationError
 from app.services.workspace_attention import (
     acknowledge_attention_item,
+    acknowledge_attention_items_bulk,
     assign_attention_item,
     actor_label,
     create_user_attention_item,
@@ -48,6 +49,13 @@ class AttentionAssignRequest(BaseModel):
     instructions: str | None = None
 
 
+class AttentionBulkAcknowledgeRequest(BaseModel):
+    scope: str = "workspace_visible"
+    target_kind: str | None = None
+    target_id: str | None = None
+    channel_id: uuid.UUID | None = None
+
+
 @router.post("")
 async def create_attention_item_route(
     body: AttentionCreateRequest,
@@ -73,6 +81,31 @@ async def create_attention_item_route(
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
     return {"item": await serialize_attention_item(db, item)}
+
+
+@router.post("/acknowledge-bulk")
+async def acknowledge_attention_bulk(
+    body: AttentionBulkAcknowledgeRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        items = await acknowledge_attention_items_bulk(
+            db,
+            auth=auth,
+            scope=body.scope,
+            target_kind=body.target_kind,
+            target_id=body.target_id,
+            channel_id=body.channel_id,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    serialized = await serialize_attention_items(db, items)
+    return {
+        "count": len(items),
+        "item_ids": [item["id"] for item in serialized],
+        "items": serialized,
+    }
 
 
 @router.get("")

@@ -659,6 +659,26 @@ textarea::placeholder {
   transform-origin: bottom right;
 }
 
+@keyframes attention-signal-pulse {
+  0%, 100% {
+    opacity: 0.70;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+.attention-signal-pulse {
+  animation: attention-signal-pulse 2200ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-signal-pulse {
+    animation: none !important;
+  }
+}
+
 /* react-grid-layout drop-target placeholder. The library's default is
  * `background: red; opacity: 0.2` — looks alarming and occasionally sticks in
  * the DOM after drop. Override to use the accent color, and safety-net hide

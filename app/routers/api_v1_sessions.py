@@ -934,6 +934,8 @@ class HarnessStatusOut(BaseModel):
     last_turn_at: str | None = None
     usage: dict[str, Any] | None = None
     cost_usd: float | None = None
+    hints: list[dict[str, Any]] = Field(default_factory=list)
+    bridge_status: dict[str, Any] = Field(default_factory=dict)
     context_note: str
 
 
@@ -969,6 +971,8 @@ async def get_harness_status(
     from app.services.agent_harnesses.approvals import load_session_mode
     from app.services.agent_harnesses.session_state import (
         HARNESS_RESUME_RESET_AT_KEY,
+        hint_preview,
+        load_bridge_status,
         load_context_hints,
         load_latest_harness_metadata,
     )
@@ -981,6 +985,7 @@ async def get_harness_status(
     mode = await load_session_mode(db, session_id)
     settings = await load_session_settings(db, session_id)
     hints = await load_context_hints(db, session_id)
+    bridge_status = await load_bridge_status(db, session_id)
     harness_meta, last_turn_at = await load_latest_harness_metadata(db, session_id)
     meta = session.metadata_ or {}
     return HarnessStatusOut(
@@ -996,6 +1001,8 @@ async def get_harness_status(
         last_turn_at=last_turn_at.isoformat() if last_turn_at else None,
         usage=(harness_meta or {}).get("usage") if harness_meta else None,
         cost_usd=(harness_meta or {}).get("cost_usd") if harness_meta else None,
+        hints=[hint_preview(hint) for hint in hints],
+        bridge_status=bridge_status,
         context_note=(
             "Native harness context is provider-managed; Spindrel tracks resume id, "
             "compact resets, and pending host hints for this session."

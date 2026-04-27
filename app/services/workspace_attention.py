@@ -247,6 +247,45 @@ async def acknowledge_attention_item(db: AsyncSession, item_id: uuid.UUID) -> Wo
     return item
 
 
+async def acknowledge_attention_items_bulk(
+    db: AsyncSession,
+    *,
+    auth: Any,
+    scope: str,
+    target_kind: str | None = None,
+    target_id: str | None = None,
+    channel_id: uuid.UUID | None = None,
+) -> list[WorkspaceAttentionItem]:
+    if scope not in {"target", "workspace_visible"}:
+        raise ValidationError("scope must be 'target' or 'workspace_visible'")
+    clauses = [WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES)]
+    if scope == "target":
+        if not target_kind or not target_id:
+            raise ValidationError("target_kind and target_id are required for target scope.")
+        clauses.extend([
+            WorkspaceAttentionItem.target_kind == target_kind,
+            WorkspaceAttentionItem.target_id == str(target_id),
+        ])
+        if channel_id:
+            clauses.append(WorkspaceAttentionItem.channel_id == channel_id)
+    if not _is_admin_auth(auth):
+        clauses.append(WorkspaceAttentionItem.source_type.in_(("bot", "user")))
+    items = list((await db.execute(
+        select(WorkspaceAttentionItem).where(*clauses).order_by(desc(WorkspaceAttentionItem.last_seen_at))
+    )).scalars().all())
+    if not items:
+        return []
+    now = _now()
+    for item in items:
+        item.status = "acknowledged"
+        item.occurrence_count = max(1, int(item.occurrence_count or 1))
+        item.updated_at = now
+    await db.commit()
+    for item in items:
+        await db.refresh(item)
+    return items
+
+
 async def mark_attention_responded(
     db: AsyncSession,
     item_id: uuid.UUID,

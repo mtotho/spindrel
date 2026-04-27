@@ -588,19 +588,25 @@ async def _compact_session(
         from app.services.agent_harnesses.session_state import compact_harness_session
 
         summary = await compact_harness_session(db, session_id)
-        payload = SideEffectPayload(
-            effect="compact",
-            scope_kind=scope_kind,
-            scope_id=str(scope_id),
-            title="Harness session compacted",
-            detail=(
-                "Native resume will restart on the next turn; Spindrel queued a "
-                f"{len(summary):,}-character continuity summary as a one-shot hint."
-            ),
-            status="started",
-            message_id=None,
+        detail = (
+            "Native resume will restart on the next turn; Spindrel queued a "
+            f"{len(summary):,}-character continuity summary as a one-shot hint."
         )
-        return _side_effect_result(payload, command_id="compact")
+        return SlashCommandResult(
+            command_id="compact",
+            result_type="harness_compact_summary",
+            payload={
+                "session_id": str(session_id),
+                "scope_kind": scope_kind,
+                "scope_id": str(scope_id),
+                "title": "Harness session compacted",
+                "detail": detail,
+                "summary_preview": summary[:1400],
+                "summary_chars": len(summary),
+                "queued_hint_kind": "compact_summary",
+            },
+            fallback_text=f"Harness session compacted\n\n{detail}",
+        )
 
     request = await request_manual_compaction(session_id, bot, db)
     status: Literal["queued", "started"] = (
@@ -778,6 +784,8 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         from app.services.agent_harnesses.approvals import load_session_mode
         from app.services.agent_harnesses.session_state import (
             HARNESS_RESUME_RESET_AT_KEY,
+            hint_preview,
+            load_bridge_status,
             load_context_hints,
             load_latest_harness_metadata,
         )
@@ -787,6 +795,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         settings = await load_session_settings(ctx.db, session.id)
         mode = await load_session_mode(ctx.db, session.id)
         hints = await load_context_hints(ctx.db, session.id)
+        bridge_status = await load_bridge_status(ctx.db, session.id)
         harness_meta, last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
         bridge_tools = await list_harness_spindrel_tools_for(
             ctx.db,
@@ -802,6 +811,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             f"Native resume id: {(harness_meta or {}).get('session_id') or 'none'}",
             f"Pending host hints: {len(hints)}",
             f"Spindrel bridge tools: {len(bridge_tools)}",
+            f"Bridge status: {bridge_status.get('status') or ('enabled' if bridge_tools else 'none_selected')}",
         ]
         if last_turn_at:
             lines.append(f"Last harness turn: {last_turn_at.isoformat()}")
@@ -822,11 +832,13 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 "permission_mode": mode,
                 "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
                 "pending_hint_count": len(hints),
+                "hints": [hint_preview(hint) for hint in hints],
                 "bridge_tools": [
                     {"name": spec.name, "description": spec.description}
                     for spec in bridge_tools
                 ],
-                "bridge_status": "enabled" if bridge_tools else "none_selected",
+                "bridge_status": bridge_status.get("status") or ("enabled" if bridge_tools else "none_selected"),
+                "bridge_status_detail": bridge_status,
                 "native_token_budget_available": False,
                 "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
                 "last_compacted_at": reset_at if isinstance(reset_at, str) else None,

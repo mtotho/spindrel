@@ -829,23 +829,71 @@ function HarnessStatusPill({
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const { data } = useSessionHarnessStatus(sessionId);
+  const [open, setOpen] = React.useState(false);
   if (!data) return null;
   const resume = data.harness_session_id
     ? data.harness_session_id.slice(0, 8)
     : "new";
   const usageLabel = formatHarnessUsage(data.usage);
   const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
+  const bridge = (data.bridge_status ?? {}) as Record<string, unknown>;
+  const exportedTools = Array.isArray(bridge.exported_tools) ? bridge.exported_tools.map(String) : [];
+  const ignoredClientTools = Array.isArray(bridge.ignored_client_tools) ? bridge.ignored_client_tools.map(String) : [];
+  const explicitTools = Array.isArray(bridge.explicit_tool_names) ? bridge.explicit_tool_names.map(String) : [];
+  const taggedSkills = Array.isArray(bridge.tagged_skill_ids) ? bridge.tagged_skill_ids.map(String) : [];
+  const hintRows = Array.isArray(data.hints) ? data.hints : [];
   return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] shrink-0 max-w-[14rem] truncate"
-      style={{
-        backgroundColor: t.surfaceOverlay,
-        color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
-        fontFamily: "'Menlo', monospace",
-      }}
-      title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}.`}
-    >
-      ctx {usageLabel ?? resume}{hints}
+    <span className="relative inline-flex shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex max-w-[14rem] items-center gap-1 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text"
+        style={{
+          color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
+          fontFamily: "'Menlo', monospace",
+        }}
+        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}.`}
+      >
+        ctx {usageLabel ?? resume}{hints}
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-full z-[1000] mt-2 w-80 rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+          style={{ fontFamily: "system-ui, sans-serif" }}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="font-medium text-text">Harness context</div>
+            <button type="button" onClick={() => setOpen(false)} className="rounded bg-transparent p-1 text-text-dim hover:bg-surface-overlay hover:text-text" aria-label="Close context details">
+              <CloseIcon size={12} />
+            </button>
+          </div>
+          <div className="grid gap-1">
+            <div><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
+            <div><span className="text-text-dim">Bridge</span> {String(bridge.status || "unknown")} · {exportedTools.length} tool{exportedTools.length === 1 ? "" : "s"}</div>
+            {typeof bridge.error === "string" && bridge.error && <div className="text-warning-muted">{bridge.error}</div>}
+            {explicitTools.length > 0 && <div><span className="text-text-dim">One-turn tools</span> {explicitTools.join(", ")}</div>}
+            {taggedSkills.length > 0 && <div><span className="text-text-dim">Tagged skills</span> {taggedSkills.join(", ")}</div>}
+            {ignoredClientTools.length > 0 && <div><span className="text-text-dim">Not bridgeable</span> {ignoredClientTools.join(", ")}</div>}
+          </div>
+          <div className="mt-3 border-t border-surface-border pt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Pending hints</div>
+            {hintRows.length === 0 ? (
+              <div className="text-text-dim">None</div>
+            ) : hintRows.map((hint, idx) => (
+              <div key={idx} className="mb-2 last:mb-0">
+                <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
+                <div className="line-clamp-3 text-[11px] leading-snug">{String(hint.preview || "")}</div>
+              </div>
+            ))}
+          </div>
+          {exportedTools.length > 0 && (
+            <div className="mt-3 border-t border-surface-border pt-2">
+              <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Exported tools</div>
+              <div className="max-h-24 overflow-auto font-mono text-[10px] leading-4">{exportedTools.join(", ")}</div>
+            </div>
+          )}
+        </div>
+      )}
     </span>
   );
 }

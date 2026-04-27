@@ -61,10 +61,10 @@ import { UpcomingFirePulse } from "./UpcomingFirePulse";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
-import { UsageDensityChrome } from "./UsageDensityChrome";
+import { UsageDensityChrome, type StarboardObjectItem } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
 import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
-import { SpatialAttentionBadgeStack, SpatialAttentionLayer } from "./SpatialAttentionLayer";
+import { SpatialAttentionSignal, SpatialAttentionLayer, shouldSurfaceAttentionOnMap } from "./SpatialAttentionLayer";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
@@ -74,7 +74,6 @@ import {
   AddWidgetButton,
   CanvasStarfield,
   LensHint,
-  ShortcutChip,
 } from "./SpatialCanvasChrome";
 import { MovementTraceLayer } from "./MovementTraceLayer";
 import { canMoveSpatialNode, type SpatialInteractionMode } from "./spatialInteraction";
@@ -122,6 +121,7 @@ import {
   TRAILS_MODE_KEY,
   MINIMAP_VISIBLE_KEY,
   LANDMARK_BEACONS_VISIBLE_KEY,
+  ATTENTION_SIGNALS_VISIBLE_KEY,
   DIVE_SCALE_THRESHOLD,
   DIVE_DWELL_MS,
   DIVE_VIEWPORT_MARGIN,
@@ -150,6 +150,7 @@ import {
   loadTrailsMode,
   loadMinimapVisible,
   loadLandmarkBeaconsVisible,
+  loadAttentionSignalsVisible,
   clampCamera,
   loadStoredCamera,
   projectFisheye,
@@ -313,6 +314,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   }, [attentionItems, nodes]);
   const activeAttentionCount = useMemo(
     () => (attentionItems ?? []).filter(isActiveAttentionItem).length,
+    [attentionItems],
+  );
+  const mapAttentionCount = useMemo(
+    () => (attentionItems ?? []).filter(shouldSurfaceAttentionOnMap).length,
     [attentionItems],
   );
 
@@ -594,6 +599,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [trailsMode, setTrailsMode] = useState<TrailsMode>(loadTrailsMode);
   const [minimapVisible, setMinimapVisible] = useState<boolean>(loadMinimapVisible);
   const [landmarkBeaconsVisible, setLandmarkBeaconsVisible] = useState<boolean>(loadLandmarkBeaconsVisible);
+  const [attentionSignalsVisible, setAttentionSignalsVisible] = useState<boolean>(loadAttentionSignalsVisible);
   // Right-click context menu — single instance at a time. `worldXY` is set
   // when the user right-clicks on the empty background so "Add widget here"
   // can drop the new pin at the click position rather than camera center.
@@ -618,10 +624,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       localStorage.setItem(TRAILS_MODE_KEY, trailsMode);
       localStorage.setItem(MINIMAP_VISIBLE_KEY, minimapVisible ? "1" : "0");
       localStorage.setItem(LANDMARK_BEACONS_VISIBLE_KEY, landmarkBeaconsVisible ? "1" : "0");
+      localStorage.setItem(ATTENTION_SIGNALS_VISIBLE_KEY, attentionSignalsVisible ? "1" : "0");
     } catch {
       /* storage disabled */
     }
-  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode, minimapVisible, landmarkBeaconsVisible]);
+  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode, minimapVisible, landmarkBeaconsVisible, attentionSignalsVisible]);
 
   const cycleTrailsMode = useCallback(() => {
     setTrailsMode((curr) => {
@@ -1508,6 +1515,110 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }, "immediate");
   }, [scheduleCamera]);
 
+  const starboardObjects = useMemo<StarboardObjectItem[]>(() => {
+    const rect = viewportRectRef.current;
+    const scale = Math.max(camera.scale, 0.05);
+    const focusX = rect.width ? (rect.width / 2 - camera.x) / scale : 0;
+    const focusY = rect.height ? (rect.height / 2 - camera.y) / scale : 0;
+    const distanceFromFocus = (worldX: number, worldY: number) => Math.hypot(worldX - focusX, worldY - focusY);
+    const items: StarboardObjectItem[] = [
+      {
+        id: "landmark-memory-observatory",
+        label: "Memory Observatory",
+        kind: "landmark",
+        subtitle: "Landmark",
+        worldX: MEMORY_OBSERVATORY_X,
+        worldY: MEMORY_OBSERVATORY_Y,
+        distance: distanceFromFocus(MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y),
+        onSelect: flyToMemoryObservatory,
+      },
+      {
+        id: "landmark-now-well",
+        label: "Now Well",
+        kind: "landmark",
+        subtitle: "Landmark",
+        worldX: WELL_X,
+        worldY: WELL_Y,
+        distance: distanceFromFocus(WELL_X, WELL_Y),
+        onSelect: flyToWell,
+      },
+      {
+        id: "landmark-attention-hub",
+        label: "Attention Hub",
+        kind: "landmark",
+        subtitle: activeAttentionCount > 0 ? `${activeAttentionCount} active` : "Landmark",
+        worldX: ATTENTION_HUB_X,
+        worldY: ATTENTION_HUB_Y,
+        distance: distanceFromFocus(ATTENTION_HUB_X, ATTENTION_HUB_Y),
+        onSelect: () => {
+          const rectNow = viewportRectRef.current;
+          if (!rectNow.width || !rectNow.height) {
+            openAttentionHub();
+            return;
+          }
+          const targetScale = Math.min(0.9, Math.max(0.55, cameraRef.current.scale));
+          scheduleCamera({
+            x: rectNow.width / 2 - ATTENTION_HUB_X * targetScale,
+            y: rectNow.height / 2 - ATTENTION_HUB_Y * targetScale,
+            scale: targetScale,
+          }, "immediate");
+          openAttentionHub();
+        },
+      },
+    ];
+    for (const node of nodes ?? []) {
+      const worldX = node.world_x + node.world_w / 2;
+      const worldY = node.world_y + node.world_h / 2;
+      if (node.channel_id) {
+        const channel = channelsById.get(node.channel_id);
+        items.push({
+          id: `node-${node.id}`,
+          label: channel ? `#${channel.name}` : "Channel",
+          kind: "channel",
+          subtitle: "Channel",
+          worldX,
+          worldY,
+          distance: distanceFromFocus(worldX, worldY),
+          onSelect: () => flyToChannel(node.channel_id!),
+        });
+      } else if (node.pin) {
+        items.push({
+          id: `node-${node.id}`,
+          label: node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget",
+          kind: "widget",
+          subtitle: node.pin.tool_name || "Widget",
+          worldX,
+          worldY,
+          distance: distanceFromFocus(worldX, worldY),
+          onSelect: () => flyToNodeById(node.id),
+        });
+      } else if (node.bot_id) {
+        items.push({
+          id: `node-${node.id}`,
+          label: node.bot?.display_name || node.bot?.name || node.bot_id,
+          kind: "bot",
+          subtitle: "Bot",
+          worldX,
+          worldY,
+          distance: distanceFromFocus(worldX, worldY),
+          onSelect: () => flyToNodeById(node.id),
+        });
+      }
+    }
+    return items.sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label));
+  }, [
+    nodes,
+    channelsById,
+    camera,
+    activeAttentionCount,
+    flyToMemoryObservatory,
+    flyToWell,
+    flyToChannel,
+    flyToNodeById,
+    openAttentionHub,
+    scheduleCamera,
+  ]);
+
   const edgeBeacons = useMemo(() => {
     const beacons = [
       {
@@ -1532,14 +1643,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       },
       {
         id: "attention-hub",
-        label: activeAttentionCount > 0 ? `Attention Hub (${activeAttentionCount} active)` : "Attention Hub",
+        label: attentionSignalsVisible && mapAttentionCount > 0 ? `Attention Hub (${mapAttentionCount} mapped)` : "Attention Hub",
         shortLabel: "Attention",
         worldX: ATTENTION_HUB_X,
         worldY: ATTENTION_HUB_Y,
         colorClass: "border-warning/55 text-warning hover:border-warning/85",
         icon: Radar,
         onClick: openAttentionHub,
-        persistent: activeAttentionCount > 0,
+        persistent: attentionSignalsVisible && mapAttentionCount > 0,
       },
     ];
 
@@ -1588,7 +1699,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     nodes,
     channelsById,
     botsVisible,
-    activeAttentionCount,
+    attentionSignalsVisible,
+    mapAttentionCount,
     flyToMemoryObservatory,
     flyToWell,
     openAttentionHub,
@@ -1685,6 +1797,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         onSelect: () => setLandmarkBeaconsVisible((v) => !v),
       },
       {
+        id: "canvas-toggle-attention-signals",
+        label: attentionSignalsVisible ? "Canvas: Hide attention signals" : "Canvas: Show attention signals",
+        category: "Canvas",
+        icon: Radar,
+        onSelect: () => setAttentionSignalsVisible((v) => !v),
+      },
+      {
         id: "canvas-toggle-bots",
         label: botsVisible ? "Canvas: Hide bots" : "Canvas: Show bots",
         category: "Canvas",
@@ -1706,6 +1825,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     connectionsEnabled,
     minimapVisible,
     landmarkBeaconsVisible,
+    attentionSignalsVisible,
     botsVisible,
   ]);
 
@@ -2478,6 +2598,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           </div>
           <AttentionHubLandmark
             activeCount={activeAttentionCount}
+            mappedCount={mapAttentionCount}
+            signalsVisible={attentionSignalsVisible}
             zoom={ambientZoom}
             onOpen={openAttentionHub}
           />
@@ -2571,11 +2693,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     })
                   }
                 />
-                <SpatialAttentionBadgeStack
-                  items={cluster.members.flatMap((member) => attentionByNodeId.get(member.node.id) ?? [])}
-                  scale={camera.scale}
-                  onSelect={(item) => setSelectedAttentionId(item.id)}
-                />
+                {attentionSignalsVisible && (
+                  <SpatialAttentionSignal
+                    items={cluster.members.flatMap((member) => attentionByNodeId.get(member.node.id) ?? [])}
+                    scale={camera.scale}
+                    onSelect={(item) => setSelectedAttentionId(item.id)}
+                  />
+                )}
               </div>
             );
           })}
@@ -2596,11 +2720,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 zoom={interactiveZoom}
                 opacity={widgetOverviewOpacity}
               />
-              <SpatialAttentionBadgeStack
-                items={cluster.nodes.flatMap((node) => attentionByNodeId.get(node.id) ?? [])}
-                scale={camera.scale}
-                onSelect={(item) => setSelectedAttentionId(item.id)}
-              />
+              {attentionSignalsVisible && (
+                <SpatialAttentionSignal
+                  items={cluster.nodes.flatMap((node) => attentionByNodeId.get(node.id) ?? [])}
+                  scale={camera.scale}
+                  onSelect={(item) => setSelectedAttentionId(item.id)}
+                />
+              )}
             </div>
           ))}
           {(nodes ?? []).map((node) => {
@@ -2807,11 +2933,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   contain: "layout style",
                 }}
               >
-                <SpatialAttentionBadgeStack
-                  items={items}
-                  scale={camera.scale * (lens?.sizeFactor ?? 1) * botScale}
-                  onSelect={(item) => setSelectedAttentionId(item.id)}
-                />
+                {attentionSignalsVisible && (
+                  <SpatialAttentionSignal
+                    items={items}
+                    scale={camera.scale * (lens?.sizeFactor ?? 1) * botScale}
+                    onSelect={(item) => setSelectedAttentionId(item.id)}
+                  />
+                )}
               </div>
             );
           })}
@@ -2885,8 +3013,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           onBotsReducedChange={setBotsReduced}
           landmarkBeaconsVisible={landmarkBeaconsVisible}
           onLandmarkBeaconsVisibleChange={setLandmarkBeaconsVisible}
+          attentionSignalsVisible={attentionSignalsVisible}
+          onAttentionSignalsVisibleChange={setAttentionSignalsVisible}
+          onOpenPalette={() => useUIStore.getState().openPalette()}
+          objects={starboardObjects}
         />
-        <ShortcutChip />
       </div>
       {/* Canvas commands now live in ⌘K via `usePaletteActions` registration
           below. The previous `<SpatialRadialMenu>` was removed in favor of the
@@ -2990,13 +3121,26 @@ function OriginMarker() {
   );
 }
 
-function AttentionHubLandmark({ activeCount, zoom, onOpen }: { activeCount: number; zoom: number; onOpen: () => void }) {
+function AttentionHubLandmark({
+  activeCount,
+  mappedCount,
+  signalsVisible,
+  zoom,
+  onOpen,
+}: {
+  activeCount: number;
+  mappedCount: number;
+  signalsVisible: boolean;
+  zoom: number;
+  onOpen: () => void;
+}) {
   const compact = zoom < 0.45;
-  const size = compact ? 156 : 180;
+  const size = compact ? 178 : 220;
+  const visibleCount = signalsVisible ? mappedCount : 0;
   return (
     <button
       type="button"
-      className="absolute flex flex-col items-center justify-center rounded-full border border-warning/45 bg-surface-raised/85 text-text shadow-[0_0_58px_rgb(var(--color-warning)/0.24)] backdrop-blur transition-transform hover:scale-105 hover:border-warning/80"
+      className="absolute flex flex-col items-center justify-center rounded-full border border-warning/45 bg-surface-raised/85 text-text backdrop-blur transition-transform hover:scale-105 hover:border-warning/80"
       style={{
         left: ATTENTION_HUB_X - size / 2,
         top: ATTENTION_HUB_Y - size / 2,
@@ -3011,12 +3155,16 @@ function AttentionHubLandmark({ activeCount, zoom, onOpen }: { activeCount: numb
       }}
       title="Open Attention Hub"
     >
-      <span className="absolute inset-3 rounded-full border border-warning/15" aria-hidden="true" />
-      <span className="absolute inset-8 rounded-full border border-warning/20" aria-hidden="true" />
-      <span className="absolute bottom-8 h-12 w-px bg-warning/45" aria-hidden="true" />
-      <Radar className="mb-2 text-warning drop-shadow-[0_0_12px_rgb(var(--color-warning)/0.45)]" size={compact ? 42 : 52} />
+      <span className="absolute inset-4 rounded-full border border-warning/20" aria-hidden="true" />
+      <span className="absolute inset-10 rounded-full border border-warning/25" aria-hidden="true" />
+      <span className="absolute bottom-10 h-14 w-px bg-warning/45" aria-hidden="true" />
+      <Radar className="mb-2 text-warning" size={compact ? 46 : 58} />
       {!compact && <span className="text-sm font-semibold">Attention Hub</span>}
-      <span className="mt-1 rounded-full bg-warning/15 px-2.5 py-0.5 text-[11px] font-semibold text-warning">{activeCount} active</span>
+      {signalsVisible && visibleCount > 0 ? (
+        <span className="mt-1 rounded-full bg-warning/10 px-2.5 py-0.5 text-[11px] font-semibold text-warning">{visibleCount} mapped</span>
+      ) : (
+        <span className="mt-1 text-[11px] text-text-dim">{activeCount} active</span>
+      )}
     </button>
   );
 }

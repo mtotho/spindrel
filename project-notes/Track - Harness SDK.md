@@ -110,6 +110,10 @@ What is landing:
 - Pending durable `core/harness_question` cards now get a sticky lane immediately above the composer in default and terminal chat modes, and freeform send is blocked until the pending interaction is answered.
 - Workspace-files memory on a harness bot injects a host hint pointing the runtime at durable memory files; reads/writes still require native filesystem access or selected bridged tools.
 - Claude Code gets a best-effort Spindrel tool bridge through SDK in-process MCP helpers. Tool definitions are resolved dynamically from the same effective channel/bot tool configuration as the normal loop, and invocation routes through `dispatch_tool_call` so policy, approval, trace rows, redaction, and result summarization stay centralized.
+- Bridge visibility is no longer count-only: harness status and `/context` expose pending hint previews, bridge health, exported tools, ignored client tools, explicit one-turn tools, tagged skills, and last bridge error. The existing ctx header status opens these details instead of adding another chip.
+- Composer `+ -> Tools` can insert `@tool:<name>` for one-turn bridge exposure. Harness bridge execution is constrained to the exported tool set through `dispatch_tool_call(allowed_tool_names=...)`.
+- Composer `+ -> Skills` / explicit `@skill:<id>` adds a tagged-skill index hint for the turn. Skill bodies remain progressive via bridged `get_skill` / `get_skill_list`; no native `.claude/skills` sync in Phase 5.
+- Harness `/compact` renders an inspectable transcript card with continuity summary preview while still queuing the summary as a one-shot host hint.
 - Claude Code `AskUserQuestion` now routes through a durable Spindrel native card (`core/harness_question`) instead of the SDK's transient prompt surface. The card is a persisted assistant message scoped to the current Spindrel session and renders in both default and terminal chat modes. Answering it writes a suppress-outbox user answer message, resolves the live SDK callback when present, or starts a fresh harness task in the same session if the callback disappeared after restart.
 - Harness live tool breadcrumbs are now persisted on the synthetic assistant message as canonical `tool_calls` plus `assistant_turn_body`, so refresh keeps the native tool transcript instead of collapsing to final text only.
 
@@ -123,7 +127,7 @@ Open verification:
 
 ## Later - Skill Bridge
 
-The tool bridge is now the base adapter for Spindrel-owned behavior. Skill work should build on it:
+The tool bridge is now the base adapter for Spindrel-owned behavior. Phase 5 includes a first progressive lookup lane (`@skill` index hint + bridged `get_skill` / `get_skill_list`). Remaining skill work should build on it:
 
 - simple Markdown skills can be exported/synced into harness-native skill directories;
 - dynamic Spindrel skills should remain in Spindrel and be exposed through bridged `list/search/get skill` tools/resources;

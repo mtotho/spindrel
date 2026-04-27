@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bot, Check, ExternalLink, MessageSquare, Plus, Radar, ShieldAlert, X } from "lucide-react";
+import { Bot, Check, ExternalLink, MessageSquare, Plus, Radar, X } from "lucide-react";
 import {
   useAcknowledgeAttentionItem,
   useAssignAttentionItem,
+  useBulkAcknowledgeAttentionItems,
   useCreateAttentionItem,
   useResolveAttentionItem,
   useWorkspaceAttention,
@@ -19,18 +20,11 @@ import { openTraceInspector } from "../../stores/traceInspector";
 
 const severityRank: Record<string, number> = { info: 0, warning: 1, error: 2, critical: 3 };
 
-function markerClass(item: WorkspaceAttentionItem): string {
-  if (item.source_type === "system") return "text-danger ring-danger/55 bg-danger/10";
-  if (item.severity === "critical" || item.severity === "error") return "text-danger ring-danger/55 bg-danger/10";
-  if (item.severity === "warning") return "text-warning ring-warning/60 bg-warning/10";
-  return "text-accent ring-accent/50 bg-accent/10";
-}
-
-function markerHaloClass(item: WorkspaceAttentionItem): string {
-  if (item.source_type === "system") return "bg-danger/10 ring-danger/25";
-  if (item.severity === "critical" || item.severity === "error") return "bg-danger/10 ring-danger/25";
-  if (item.severity === "warning") return "bg-warning/10 ring-warning/25";
-  return "bg-accent/10 ring-accent/20";
+function signalClass(item: WorkspaceAttentionItem): string {
+  if (item.source_type === "system") return "text-danger";
+  if (item.severity === "critical" || item.severity === "error") return "text-danger";
+  if (item.severity === "warning") return "text-warning";
+  return "text-accent";
 }
 
 function severityTextClass(item: WorkspaceAttentionItem): string {
@@ -53,6 +47,19 @@ function activeItems(items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] 
   return items.filter(isActiveAttentionItem);
 }
 
+export function shouldSurfaceAttentionOnMap(item: WorkspaceAttentionItem): boolean {
+  if (!isActiveAttentionItem(item)) return false;
+  if (item.source_type === "system") {
+    const classification = typeof item.evidence?.classification === "string" ? item.evidence.classification : "";
+    return item.severity === "critical"
+      || classification === "severe"
+      || classification === "repeated"
+      || (item.occurrence_count || 0) >= 3;
+  }
+  if (item.requires_response) return true;
+  return item.severity === "warning" || item.severity === "error" || item.severity === "critical";
+}
+
 function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralLabel}`;
 }
@@ -65,44 +72,47 @@ function targetLabel(item: WorkspaceAttentionItem): string {
   return item.channel_name ?? item.target_id ?? item.target_kind;
 }
 
-interface BadgeStackProps {
+interface SignalProps {
   items: WorkspaceAttentionItem[];
   scale: number;
   onSelect: (item: WorkspaceAttentionItem) => void;
 }
 
-export function SpatialAttentionBadgeStack({ items, scale, onSelect }: BadgeStackProps) {
-  const active = activeItems(items).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
+export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) {
+  const active = activeItems(items).filter(shouldSurfaceAttentionOnMap).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
   if (!active.length) return null;
   const primary = active[0];
   const count = active.length;
-  const system = active.some((item) => item.source_type === "system");
   const inv = 1 / Math.max(scale, 0.05);
   const occurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
+  const urgent = active.some((item) => item.source_type === "system" || item.severity === "critical");
+  const label = count === 1
+    ? `${targetLabel(primary)}: ${primary.title} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
+    : `${targetLabel(primary)}: ${plural(count, "active issue")} (${occurrenceCount} occurrences)`;
   return (
     <div
-      className="pointer-events-none absolute -right-2 -top-2 z-[50] flex items-center"
-      style={{ transform: `scale(${inv})`, transformOrigin: "top right" }}
+      className="pointer-events-none absolute left-1/2 top-1/2 z-[50]"
+      style={{
+        transform: `translate(18px, -34px) scale(${inv})`,
+        transformOrigin: "center center",
+      }}
     >
       <button
         type="button"
-        className={`pointer-events-auto relative flex h-8 min-w-8 items-center justify-center rounded-full px-2 ring-1 transition-transform duration-100 hover:scale-105 ${markerClass(primary)}`}
-        title={
-          count === 1
-            ? `${primary.title} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
-            : `${plural(count, "active alert")} on this target (${occurrenceCount} occurrences)`
-        }
+        className={`pointer-events-auto group relative flex h-10 w-10 items-center justify-center rounded-full ${signalClass(primary)} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
+        title={label}
+        aria-label={label}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           onSelect(primary);
         }}
       >
-        <span className={`absolute -inset-1.5 rounded-full ring-1 ${markerHaloClass(primary)}`} aria-hidden />
-        <span className="relative flex items-center gap-1">
-          {system ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
-          {count > 1 && <span className="text-[11px] font-semibold leading-none">{count}</span>}
-        </span>
+        <span
+          className={`absolute h-7 w-7 rounded-full border-t-2 border-r-2 border-current opacity-85 transition-transform duration-100 group-hover:scale-110 ${urgent ? "attention-signal-pulse" : ""}`}
+          aria-hidden
+        />
+        <span className="absolute h-1.5 w-1.5 translate-x-2 -translate-y-2 rounded-full bg-current" aria-hidden />
       </button>
     </div>
   );
@@ -175,6 +185,7 @@ function AttentionHubDrawer({
   onReply?: (item: WorkspaceAttentionItem) => void;
 }) {
   const [creating, setCreating] = useState(false);
+  const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const active = activeItems(items);
   const activeOccurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
@@ -192,12 +203,18 @@ function AttentionHubDrawer({
     return lanes;
   }, [items]);
   if (!open) return null;
+  const acknowledgeAllActive = () => {
+    if (!active.length) return;
+    const ok = window.confirm(`Acknowledge all ${active.length} active Attention Items you can see?`);
+    if (!ok) return;
+    bulkAcknowledge.mutate({ scope: "workspace_visible" }, { onSuccess: () => onSelect(null) });
+  };
   return (
     <aside
-      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[460px] max-w-[calc(100vw-2rem)] flex-col rounded-md bg-surface-raised/95 text-sm text-text shadow-xl ring-1 ring-surface-border backdrop-blur"
+      className="fixed bottom-4 right-4 top-16 z-[70] flex w-[460px] max-w-[calc(100vw-2rem)] flex-col rounded-md border border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="flex items-center justify-between border-b border-surface-border px-4 py-3">
+      <div className="flex items-center justify-between px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.08em] text-text-dim">
             <Radar size={14} />
@@ -208,6 +225,15 @@ function AttentionHubDrawer({
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={!active.length || bulkAcknowledge.isPending}
+            className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-40"
+            onClick={acknowledgeAllActive}
+            title="Acknowledge all active Attention Items you can see"
+          >
+            Ack all
+          </button>
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">
             <Plus size={16} />
           </button>
@@ -349,6 +375,7 @@ function AttentionDetail({
   onReply?: (item: WorkspaceAttentionItem) => void;
 }) {
   const acknowledge = useAcknowledgeAttentionItem();
+  const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const resolve = useResolveAttentionItem();
   const assign = useAssignAttentionItem();
   const { data: bots = [] } = useBots();
@@ -370,6 +397,16 @@ function AttentionDetail({
     if (nextActiveItem) onSelect(nextActiveItem);
     else onBack();
   };
+  const acknowledgeTarget = () => {
+    bulkAcknowledge.mutate({
+      scope: "target",
+      target_kind: item.target_kind,
+      target_id: item.target_id,
+      channel_id: item.channel_id,
+    }, {
+      onSuccess: () => onBack(),
+    });
+  };
 
   return (
     <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
@@ -385,6 +422,14 @@ function AttentionDetail({
           </div>
           {targetCount > 1 && (
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+                disabled={bulkAcknowledge.isPending}
+                onClick={acknowledgeTarget}
+              >
+                Ack target
+              </button>
               <button
                 type="button"
                 disabled={!previousItem}

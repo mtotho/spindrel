@@ -44,7 +44,7 @@ Scope is the domain model — actors, rooms, conversations, discovery, integrati
 | Term | Definition | Aliases to avoid |
 |---|---|---|
 | **Attention Item** | Persisted attention/work-intake state in `workspace_attention_items`: source, target, severity, lifecycle, dedupe, evidence, response, and future assignment metadata. | issue, alert row |
-| **Attention Beacon** | The Spatial Canvas rendering of an active Attention Item. Bot-authored beacons render as warning badges; system-authored structured failures render as asteroid-style markers. | issue marker, alert |
+| **Attention Beacon** | The Spatial Canvas rendering of an active Attention Item. Map beacons render as target-owned severity signals; counts, evidence, and actions live in the Attention Hub. | issue marker, alert |
 | **System Attention Item** | Admin-only Attention Item created by structured failure detectors such as failed ToolCalls, TraceEvents, or HeartbeatRuns. | log alert |
 
 ---

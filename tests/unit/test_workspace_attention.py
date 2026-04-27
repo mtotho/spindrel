@@ -6,6 +6,7 @@ import pytest
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
 from app.services.workspace_attention import (
     acknowledge_attention_item,
+    acknowledge_attention_items_bulk,
     assign_attention_item,
     build_attention_assignment_block,
     create_user_attention_item,
@@ -201,6 +202,105 @@ async def test_acknowledged_structured_item_reopens_for_new_source_event(db_sess
     assert reopened.id == item.id
     assert reopened.status == "open"
     assert reopened.occurrence_count == 2
+
+
+@pytest.mark.asyncio
+async def test_bulk_acknowledge_target_scope_only_hides_that_target(db_session):
+    channel_id = uuid.uuid4()
+    other_channel_id = uuid.uuid4()
+    db_session.add_all([
+        Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"),
+        Channel(id=other_channel_id, name="Other", bot_id="bot-a", client_id="other"),
+    ])
+    await db_session.commit()
+    first = await place_attention_item(
+        db_session,
+        source_type="bot",
+        source_id="bot-a",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="First",
+        dedupe_key="first",
+    )
+    second = await place_attention_item(
+        db_session,
+        source_type="user",
+        source_id="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Second",
+        dedupe_key="second",
+    )
+    other = await place_attention_item(
+        db_session,
+        source_type="bot",
+        source_id="bot-a",
+        channel_id=other_channel_id,
+        target_kind="channel",
+        target_id=str(other_channel_id),
+        title="Other",
+        dedupe_key="other",
+    )
+
+    updated = await acknowledge_attention_items_bulk(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["channels:write"], name="writer"),
+        scope="target",
+        target_kind="channel",
+        target_id=str(channel_id),
+        channel_id=channel_id,
+    )
+
+    assert {item.id for item in updated} == {first.id, second.id}
+    assert (await db_session.get(type(first), first.id)).status == "acknowledged"
+    assert (await db_session.get(type(second), second.id)).status == "acknowledged"
+    assert (await db_session.get(type(other), other.id)).status == "open"
+
+
+@pytest.mark.asyncio
+async def test_bulk_acknowledge_workspace_visible_respects_system_visibility(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    bot_item = await place_attention_item(
+        db_session,
+        source_type="bot",
+        source_id="bot-a",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Bot warning",
+        dedupe_key="bot-warning",
+    )
+    system_item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Trace error",
+        dedupe_key="trace-error",
+    )
+
+    writer_updates = await acknowledge_attention_items_bulk(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["channels:write"], name="writer"),
+        scope="workspace_visible",
+    )
+    assert {item.id for item in writer_updates} == {bot_item.id}
+    assert (await db_session.get(type(bot_item), bot_item.id)).status == "acknowledged"
+    assert (await db_session.get(type(system_item), system_item.id)).status == "open"
+
+    admin_updates = await acknowledge_attention_items_bulk(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:write"], name="admin"),
+        scope="workspace_visible",
+    )
+    assert {item.id for item in admin_updates} == {system_item.id}
+    assert (await db_session.get(type(system_item), system_item.id)).status == "acknowledged"
 
 
 @pytest.mark.asyncio

@@ -62,12 +62,43 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <HarnessContextSummaryCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
+  if (resultType === "harness_compact_summary") {
+    return <HarnessCompactSummaryCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
+  }
+
   if (resultType === "harness_model_effort_picker") {
     return <HarnessModelEffortPickerCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
   // Default: context_summary (used by /context)
   return <ContextSummaryCard message={message} chatMode={chatMode} />;
+}
+
+function HarnessCompactSummaryCard({
+  payload,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  chatMode: "default" | "terminal";
+}) {
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/compact"
+      meta="harness"
+    >
+      <div className="grid gap-2 p-3 text-[12px] text-text-muted">
+        <div className="font-medium text-text">{String(payload.title || "Harness session compacted")}</div>
+        <div>{String(payload.detail || "")}</div>
+        <div className="rounded bg-surface-overlay/50 p-2 font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
+          {String(payload.summary_preview || "")}
+        </div>
+        <div className="text-[10px] text-text-dim">
+          Queued hint: {String(payload.queued_hint_kind || "compact_summary")} · {Number(payload.summary_chars || 0).toLocaleString()} chars
+        </div>
+      </div>
+    </SlashResultPanel>
+  );
 }
 
 function HarnessModelEffortPickerCard({
@@ -153,6 +184,13 @@ function HarnessContextSummaryCard({
   chatMode: "default" | "terminal";
 }) {
   const tools = Array.isArray(payload.bridge_tools) ? payload.bridge_tools : [];
+  const hints = Array.isArray(payload.hints) ? payload.hints : [];
+  const bridgeStatus = payload.bridge_status_detail && typeof payload.bridge_status_detail === "object"
+    ? payload.bridge_status_detail as Record<string, any>
+    : {};
+  const ignoredClientTools = Array.isArray(bridgeStatus.ignored_client_tools) ? bridgeStatus.ignored_client_tools : [];
+  const explicitTools = Array.isArray(bridgeStatus.explicit_tool_names) ? bridgeStatus.explicit_tool_names : [];
+  const taggedSkills = Array.isArray(bridgeStatus.tagged_skill_ids) ? bridgeStatus.tagged_skill_ids : [];
   const usage = payload.usage && typeof payload.usage === "object"
     ? Object.entries(payload.usage).slice(0, 4).map(([k, v]) => `${k}: ${String(v)}`).join(" · ")
     : null;
@@ -169,12 +207,34 @@ function HarnessContextSummaryCard({
           <div><span className="text-text-dim">Approval</span> {payload.permission_mode || "default"}</div>
           <div><span className="text-text-dim">Resume</span> {payload.harness_session_id || "new"}</div>
           <div><span className="text-text-dim">Hints</span> {payload.pending_hint_count ?? 0}</div>
+          <div><span className="text-text-dim">Bridge</span> {String(payload.bridge_status || "unknown")}</div>
           <div><span className="text-text-dim">Token budget</span> {payload.native_token_budget_available ? "available" : "native unavailable"}</div>
         </div>
+        {bridgeStatus.error && <div className="text-warning-muted">{String(bridgeStatus.error)}</div>}
         <div>
           <span className="text-text-dim">Spindrel bridge tools</span>{" "}
           {tools.length ? tools.map((t: any) => t.name).join(", ") : "none selected"}
         </div>
+        {ignoredClientTools.length > 0 && (
+          <div><span className="text-text-dim">Client tools not bridgeable</span> {ignoredClientTools.join(", ")}</div>
+        )}
+        {explicitTools.length > 0 && (
+          <div><span className="text-text-dim">One-turn tools</span> {explicitTools.join(", ")}</div>
+        )}
+        {taggedSkills.length > 0 && (
+          <div><span className="text-text-dim">Tagged skills</span> {taggedSkills.join(", ")}</div>
+        )}
+        {hints.length > 0 && (
+          <div className="grid gap-1">
+            <div className="text-text-dim">Pending hints</div>
+            {hints.map((hint: any, idx: number) => (
+              <div key={idx} className="rounded bg-surface-overlay/50 px-2 py-1">
+                <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
+                <div className="text-[11px] leading-snug">{String(hint.preview || "")}</div>
+              </div>
+            ))}
+          </div>
+        )}
         {payload.last_compacted_at && <div><span className="text-text-dim">Last compact reset</span> {payload.last_compacted_at}</div>}
         {usage && <div><span className="text-text-dim">Last usage</span> {usage}</div>}
       </div>

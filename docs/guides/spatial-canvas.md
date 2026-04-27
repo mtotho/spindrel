@@ -27,9 +27,9 @@ The route underneath the overlay **stays mounted**. SSE streams, in-flight bot r
   pans the map. Turn on Arrange in the canvas chrome, or hold `Shift` while
   dragging an item, to move channels, widgets, or bots.
 - **Zoom** — wheel anywhere on the canvas. Holding the cursor over a widget tile zooms the canvas, not the widget (until the tile is "activated"; see [Widget tiles](#widget-tiles)).
-- **Recenter** — the `Recenter` button in the bottom-right chrome flies the camera back to the seeded center.
+- **Recenter** — use `Cmd+K` / `Ctrl+K` and pick the canvas recenter action.
 - **Fly to a channel** — `Cmd+K` and pick a channel. When the canvas is mounted, channel-pick navigates by flying the camera to that tile instead of route-changing.
-- **Fly to the Now Well** — the `Now` button next to `Recenter` frames the well (see [Now Well](#now-well-and-orbital-scheduled-tasks)).
+- **Fly to the Now Well** — use `Cmd+K` / `Ctrl+K` and pick the Now Well action (see [Now Well](#now-well-and-orbital-scheduled-tasks)).
 
 ![Wider constellation showing channels and the Now Well's nebula glow](../images/spatial-zoom-out-02.png)
 
@@ -95,13 +95,26 @@ Bot nodes are seeded near their primary or member channel, but not inside the ch
 
 Pinned widgets are drawn with a faint dashed curve back to their source channel tile. Hovering a widget tile brightens its outgoing line to accent color, making it obvious which channel a widget belongs to.
 
-Toggle the layer with the **`Lines`** button in the top-right chrome. The setting persists in `localStorage`.
+Toggle the layer from **Starboard → Controls → Connection lines**. The setting persists in `localStorage`.
+
+## Starboard
+
+The **Starboard** panel is the right-side canvas command surface. It is tabbed
+so future map workflows can live in one place instead of scattering small
+popovers across the viewport.
+
+- **Controls** owns canvas behavior toggles: command palette, Attention
+  signals, connection lines, Activity halos, bot visibility, and edge beacons.
+- **Objects** lists positioned canvas entities ordered by distance from the
+  current viewport center. It includes channel, widget, bot, and landmark
+  positions. The list has client-side search, and clicking a row flies the
+  camera to that object.
 
 ## Density halos
 
 Each channel tile carries a soft glow halo whose radius and opacity scale with the channel's recent token usage. Heavy channels glow visibly larger; quiet channels barely glow at all. Halos use the channel's hue, so they amplify identity rather than introducing a parallel color system.
 
-Cycle intensity with the **`Activity`** button (top-right): `subtle` (default) → `bold` → `off`. The gear popover next to it exposes:
+Cycle intensity from **Starboard → Controls → Activity**: `subtle` (default) → `bold` → `off`. The same panel exposes:
 
 - **Time window** — `24h` / `7d` / `30d`.
 - **Spike colors** — instead of channel-hued halos, tint by current-vs-prior-period ratio (cool below baseline, warm above).
@@ -152,25 +165,32 @@ Attention Beacons are active [Attention Items](attention-beacons.md) rendered
 on the canvas. They attach to existing channel, bot, widget, or system
 targets and do not create or move `workspace_spatial_nodes` rows.
 
-Bot-authored items render as warning badges on their target. Structured
-system failures render as admin-only system badges. Multiple active items on
-one target collapse into one smart badge whose count is active items; repeated
-occurrences are shown in the Hub/detail evidence instead of as a second
-floating chip. Clicking a grouped target opens a target review in the Hub
-drawer, with the target label, `N of M` issue position, a compact issue list,
-and acknowledge/resolve advancing to the next active issue for that target.
+Bot-authored and user-authored actionable items render as one target-owned
+rim signal using the worst active severity for that target. The map does not
+show counts on idle targets; counts, repeated occurrences, evidence, and issue
+navigation live in the Hub. Structured system failures render on the map only
+when they are critical, severe, or repeated enough to be actionable; quieter
+one-off tool failures stay Hub-only.
 
-Node-bound badges render in a high-z canvas world overlay instead of inside
-individual node stacking contexts, so nearby widgets cannot clip or cover
-them. They keep a stable screen size through inverse scaling while their anchor
-follows the bound tile during pan, zoom, and semantic-zoom transitions.
+Signals render in the high-z canvas world layer anchored to their target or
+cluster, so nearby widgets cannot clip or cover them. They keep a stable screen
+size through inverse scaling while their anchor follows the bound tile during
+pan, zoom, and semantic-zoom transitions. The local **Starboard → Controls →
+Attention signals** toggle hides these map signals without changing Attention
+Item state.
+
+Clicking a target signal opens target review in the Hub drawer, with the target
+label, `N of M` issue position, a compact issue list, and acknowledge/resolve
+advancing to the next active issue for that target. Target review can
+acknowledge all active items on that target; the global Hub header can
+acknowledge all active items visible to the current user after confirmation.
 
 The canvas also has a fixed **Attention Hub** signal landmark above the seed center.
 Opening it shows the global attention lanes, create form, assignment controls,
 and bot findings without leaving the canvas. The same hub can be opened from an
-edge beacon, the channel header count, or the command palette. When active
-items exist, the Hub's edge beacon remains available whenever the Hub is
-offscreen.
+edge beacon, the channel header count, or the command palette. When mapped
+items exist and Attention signals are visible, the Hub's edge beacon remains
+available whenever the Hub is offscreen.
 
 ## Reserved dashboard slug
 
@@ -207,4 +227,4 @@ Channel positions never leak into the `channels` table. Widget canvas positions 
 - [Widget System](widget-system.md) — the canonical widget contract that canvas widget tiles consume.
 - [Widget Dashboards](widget-dashboards.md) — channel and named dashboards. Canvas pins are a third dashboard surface that piggybacks on the same model.
 - [HTML Widgets](html-widgets.md) — bot-authored widgets and the bot-scoped auth model used inside canvas iframes.
-- [UI Design](ui-design.md) — token system and chrome rules. The canvas chrome (Activity, Lines, Now, Recenter buttons) follows the standard control surface language.
+- [UI Design](ui-design.md) — token system and chrome rules. The canvas chrome (Add plus the Starboard trigger) follows the standard control surface language.

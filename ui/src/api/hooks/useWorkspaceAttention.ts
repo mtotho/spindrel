@@ -70,6 +70,19 @@ export interface AssignAttentionInput {
   instructions?: string | null;
 }
 
+export interface BulkAcknowledgeAttentionInput {
+  scope: "target" | "workspace_visible";
+  target_kind?: AttentionTargetKind | null;
+  target_id?: string | null;
+  channel_id?: string | null;
+}
+
+interface BulkAcknowledgeAttentionResponse {
+  count: number;
+  item_ids: string[];
+  items: WorkspaceAttentionItem[];
+}
+
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
@@ -128,6 +141,30 @@ function useAttentionAction(path: (id: string) => string) {
 
 export function useAcknowledgeAttentionItem() {
   return useAttentionAction((id) => `/api/v1/workspace/attention/${id}/acknowledge`);
+}
+
+export function useBulkAcknowledgeAttentionItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: BulkAcknowledgeAttentionInput) => {
+      const res = await apiFetch<BulkAcknowledgeAttentionResponse>("/api/v1/workspace/attention/acknowledge-bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return res;
+    },
+    onSuccess: (res) => {
+      const ids = new Set(res.item_ids);
+      qc.setQueriesData<WorkspaceAttentionItem[]>(
+        { queryKey: WORKSPACE_ATTENTION_KEY },
+        (items) => items ? items.filter((item) => !ids.has(item.id)) : items,
+      );
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+    },
+  });
 }
 
 export function useResolveAttentionItem() {

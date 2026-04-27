@@ -866,6 +866,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   onInsertSkillTag={(skillId) => {
                     editorRef.current?.insertMention(`skill:${skillId}`);
                   }}
+                  onInsertToolTag={(toolName) => {
+                    editorRef.current?.insertMention(`tool:${toolName}`);
+                  }}
                   onAttachFiles={(files) => handleFileSelect(files)}
                   disabled={disabled || recorder.isRecording}
                   isMobile={isMobile}

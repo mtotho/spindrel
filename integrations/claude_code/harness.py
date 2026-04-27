@@ -31,9 +31,9 @@ from integrations.sdk import (
     TurnContext,
     TurnResult,
     execute_harness_spindrel_tool,
-    list_harness_spindrel_tools,
     request_harness_approval,
     request_harness_question,
+    resolve_harness_bridge_inventory,
 )
 
 # Probe-import the SDK at module load. The actual SDK calls live inside
@@ -451,13 +451,32 @@ async def _maybe_attach_spindrel_tool_bridge(
     """
     if ctx.channel_id is None:
         return
+    ignored_client_tools: tuple[str, ...] = ()
     try:
         async with ctx.db_session_factory() as db:
-            specs = await list_harness_spindrel_tools(db, ctx)
+            inventory = await resolve_harness_bridge_inventory(
+                db,
+                bot_id=ctx.bot_id,
+                channel_id=ctx.channel_id,
+                explicit_tool_names=ctx.ephemeral_tool_names,
+            )
+            specs = inventory.specs
+            ignored_client_tools = inventory.ignored_client_tools
     except Exception:
         logger.exception("claude-code: failed to list Spindrel bridge tools")
+        await _record_bridge_status(
+            ctx,
+            status="error",
+            ignored_client_tools=ignored_client_tools,
+            error="failed to list Spindrel bridge tools",
+        )
         return
     if not specs:
+        await _record_bridge_status(
+            ctx,
+            status="no_tools_selected",
+            ignored_client_tools=ignored_client_tools,
+        )
         return
 
     try:
@@ -467,9 +486,17 @@ async def _maybe_attach_spindrel_tool_bridge(
             "claude-code: SDK does not expose in-process MCP helpers; "
             "Spindrel tool bridge disabled for this turn"
         )
+        await _record_bridge_status(
+            ctx,
+            status="sdk_helper_missing",
+            exported_tools=[spec.name for spec in specs],
+            ignored_client_tools=ignored_client_tools,
+            error="claude_agent_sdk create_sdk_mcp_server/tool helper missing",
+        )
         return
 
     sdk_tools: list[Any] = []
+    allowed_tool_names = frozenset(spec.name for spec in specs)
     for spec in specs:
         parameters = spec.parameters or {"type": "object", "properties": {}}
 
@@ -478,6 +505,7 @@ async def _maybe_attach_spindrel_tool_bridge(
                 ctx,
                 tool_name=_name,
                 arguments=args,
+                allowed_tool_names=allowed_tool_names,
             )
 
         try:
@@ -486,6 +514,13 @@ async def _maybe_attach_spindrel_tool_bridge(
             logger.exception("claude-code: failed to wrap Spindrel tool %s", spec.name)
 
     if not sdk_tools:
+        await _record_bridge_status(
+            ctx,
+            status="error",
+            exported_tools=[spec.name for spec in specs],
+            ignored_client_tools=ignored_client_tools,
+            error="failed to wrap any Spindrel bridge tools",
+        )
         return
     server_name = "spindrel"
     try:
@@ -496,6 +531,13 @@ async def _maybe_attach_spindrel_tool_bridge(
         )
     except Exception:
         logger.exception("claude-code: failed to create Spindrel MCP bridge")
+        await _record_bridge_status(
+            ctx,
+            status="error",
+            exported_tools=[spec.name for spec in specs],
+            ignored_client_tools=ignored_client_tools,
+            error="failed to create Spindrel MCP bridge",
+        )
         return
     mcp_servers = dict(options_kwargs.get("mcp_servers") or {})
     mcp_servers[server_name] = server
@@ -503,6 +545,38 @@ async def _maybe_attach_spindrel_tool_bridge(
     allowed = list(options_kwargs.get("allowed_tools") or [])
     allowed.extend(f"mcp__{server_name}__{spec.name}" for spec in specs)
     options_kwargs["allowed_tools"] = allowed
+    await _record_bridge_status(
+        ctx,
+        status="enabled",
+        exported_tools=[spec.name for spec in specs],
+        ignored_client_tools=ignored_client_tools,
+    )
+
+
+async def _record_bridge_status(
+    ctx: TurnContext,
+    *,
+    status: str,
+    exported_tools: list[str] | tuple[str, ...] = (),
+    ignored_client_tools: list[str] | tuple[str, ...] = (),
+    error: str | None = None,
+) -> None:
+    try:
+        from app.services.agent_harnesses.session_state import set_bridge_status
+
+        async with ctx.db_session_factory() as db:
+            await set_bridge_status(
+                db,
+                ctx.spindrel_session_id,
+                status=status,
+                exported_tools=exported_tools,
+                ignored_client_tools=ignored_client_tools,
+                explicit_tool_names=ctx.ephemeral_tool_names,
+                tagged_skill_ids=ctx.tagged_skill_ids,
+                error=error,
+            )
+    except Exception:
+        logger.exception("claude-code: failed to record Spindrel bridge status")
 
 
 def _bridge_message(

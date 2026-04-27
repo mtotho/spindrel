@@ -22,6 +22,7 @@ from app.services.agent_harnesses.base import HarnessContextHint
 HARNESS_CONTEXT_HINTS_KEY = "harness_context_hints"
 HARNESS_RESUME_RESET_AT_KEY = "harness_resume_reset_at"
 HARNESS_LAST_COMPACT_SUMMARY_KEY = "harness_last_compact_summary"
+HARNESS_BRIDGE_STATUS_KEY = "harness_bridge_status"
 
 MAX_HINTS = 8
 MAX_HINT_CHARS = 12_000
@@ -71,6 +72,63 @@ def _hint_to_dict(hint: HarnessContextHint) -> dict[str, Any]:
         "source": hint.source,
         "consume_after_next_turn": hint.consume_after_next_turn,
     }
+
+
+def hint_preview(hint: HarnessContextHint, *, limit: int = 260) -> dict[str, Any]:
+    text = " ".join((hint.text or "").split())
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "..."
+    return {
+        "kind": hint.kind,
+        "source": hint.source,
+        "created_at": hint.created_at,
+        "consume_after_next_turn": hint.consume_after_next_turn,
+        "preview": text,
+    }
+
+
+async def set_bridge_status(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    *,
+    status: str,
+    exported_tools: list[str] | tuple[str, ...] = (),
+    ignored_client_tools: list[str] | tuple[str, ...] = (),
+    explicit_tool_names: list[str] | tuple[str, ...] = (),
+    tagged_skill_ids: list[str] | tuple[str, ...] = (),
+    error: str | None = None,
+) -> dict[str, Any]:
+    session = await db.get(Session, session_id)
+    if session is None:
+        return {}
+    payload = {
+        "status": status,
+        "exported_tools": list(exported_tools),
+        "exported_tool_count": len(exported_tools),
+        "ignored_client_tools": list(ignored_client_tools),
+        "ignored_client_tool_count": len(ignored_client_tools),
+        "explicit_tool_names": list(explicit_tool_names),
+        "tagged_skill_ids": list(tagged_skill_ids),
+        "error": error,
+        "updated_at": _now_iso(),
+    }
+    meta = dict(session.metadata_ or {})
+    meta[HARNESS_BRIDGE_STATUS_KEY] = payload
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    await db.commit()
+    return payload
+
+
+async def load_bridge_status(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+) -> dict[str, Any]:
+    session = await db.get(Session, session_id)
+    if session is None:
+        return {}
+    raw = (session.metadata_ or {}).get(HARNESS_BRIDGE_STATUS_KEY)
+    return dict(raw) if isinstance(raw, dict) else {}
 
 
 async def add_context_hint(

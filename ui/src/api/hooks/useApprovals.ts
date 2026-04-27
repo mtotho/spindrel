@@ -235,6 +235,8 @@ export interface HarnessStatus {
   last_turn_at: string | null;
   usage: Record<string, unknown> | null;
   cost_usd: number | null;
+  hints: Array<Record<string, unknown>>;
+  bridge_status: Record<string, unknown>;
   context_note: string;
 }
 

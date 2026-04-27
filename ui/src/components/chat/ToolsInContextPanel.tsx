@@ -3,8 +3,8 @@
 // Bottom: searchable catalog with per-tool status badge (pinned / included /
 // discover / none) drawn from the channel's primary bot config.
 //
-// Read-only: tools are called by the LLM, not dropped in by the user — so rows
-// don't mutate anything. Hovering / focusing a row reveals the description.
+// Harness sessions can drop a tool into the next turn as @tool:<name>. Normal
+// sessions still use this as a posture/readability panel.
 
 import { useMemo, useState } from "react";
 import { Wrench, Search, X, Pin } from "lucide-react";
@@ -59,10 +59,11 @@ const STATUS_RANK: Record<Status, number> = { pinned: 0, included: 1, discover: 
 export interface ToolsInContextPanelProps {
   channelId?: string;
   botId?: string;
+  onInsertToolTag?: (toolName: string) => void;
   onClose: () => void;
 }
 
-export function ToolsInContextPanel({ channelId, botId, onClose }: ToolsInContextPanelProps) {
+export function ToolsInContextPanel({ channelId, botId, onInsertToolTag, onClose }: ToolsInContextPanelProps) {
   const t = useThemeTokens();
   const [search, setSearch] = useState("");
 
@@ -184,7 +185,12 @@ export function ToolsInContextPanel({ channelId, botId, onClose }: ToolsInContex
           </div>
         ) : (
           filtered.map(({ tool, status }) => (
-            <CatalogRow key={`${tool.tool_name}:${tool.id}`} tool={tool} status={status} />
+            <CatalogRow
+              key={`${tool.tool_name}:${tool.id}`}
+              tool={tool}
+              status={status}
+              onSelect={onInsertToolTag}
+            />
           ))
         )}
       </div>
@@ -236,16 +242,13 @@ function PinnedRow({ name, description }: { name: string; description: string | 
   );
 }
 
-function CatalogRow({ tool, status }: { tool: ToolItem; status: Status }) {
+function CatalogRow({ tool, status, onSelect }: { tool: ToolItem; status: Status; onSelect?: (toolName: string) => void }) {
   const t = useThemeTokens();
   const badge = STATUS_STYLE[status];
   const dim = status === "none";
-  return (
-    <div
-      className="flex flex-col gap-0.5 w-full px-3 py-2 text-left"
-      style={{ opacity: dim ? 0.55 : 1 }}
-      title={tool.description ?? tool.tool_name}
-    >
+  const clickable = !!onSelect && (status !== "none" || !tool.server_name);
+  const content = (
+    <>
       <div className="flex flex-row items-center gap-2">
         <Wrench
           size={11}
@@ -271,7 +274,7 @@ function CatalogRow({ tool, status }: { tool: ToolItem; status: Status }) {
             color: badge.fg,
           }}
         >
-          {badge.label}
+          {clickable ? "add once" : badge.label}
         </span>
       </div>
       {tool.description && (
@@ -282,6 +285,28 @@ function CatalogRow({ tool, status }: { tool: ToolItem; status: Status }) {
           {tool.description}
         </span>
       )}
+    </>
+  );
+  if (clickable) {
+    return (
+      <button
+        type="button"
+        onClick={() => onSelect?.(tool.tool_name)}
+        className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-surface-overlay/60"
+        style={{ opacity: dim ? 0.7 : 1 }}
+        title={`Add @tool:${tool.tool_name} for one turn`}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div
+      className="flex flex-col gap-0.5 w-full px-3 py-2 text-left"
+      style={{ opacity: dim ? 0.55 : 1 }}
+      title={tool.description ?? tool.tool_name}
+    >
+      {content}
     </div>
   );
 }

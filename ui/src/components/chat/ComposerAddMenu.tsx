@@ -23,6 +23,7 @@ interface ComposerAddMenuProps {
   botId?: string;
   composerText: string;
   onInsertSkillTag: (skillId: string) => void;
+  onInsertToolTag?: (toolName: string) => void;
   onAttachFiles: (files: FileList) => void;
   disabled?: boolean;
   isMobile?: boolean;
@@ -35,6 +36,7 @@ export function ComposerAddMenu({
   botId,
   composerText,
   onInsertSkillTag,
+  onInsertToolTag,
   onAttachFiles,
   disabled = false,
   isMobile = false,
@@ -242,6 +244,10 @@ export function ComposerAddMenu({
                     <ToolsInContextPanel
                       channelId={channelId}
                       botId={botId}
+                      onInsertToolTag={(toolName) => {
+                        onInsertToolTag?.(toolName);
+                        setOpen(false);
+                      }}
                       onClose={() => setOpen(false)}
                     />
                   )}

@@ -329,10 +329,12 @@ from app.services.agent_harnesses.interactions import (  # noqa: E402, F401
     request_harness_question,
 )
 from app.services.agent_harnesses.tools import (  # noqa: E402, F401
+    HarnessBridgeInventory,
     HarnessToolSpec,
     execute_harness_spindrel_tool,
     list_harness_spindrel_tools,
     list_harness_spindrel_tools_for,
+    resolve_harness_bridge_inventory,
 )
 
 # ---------------------------------------------------------------------------

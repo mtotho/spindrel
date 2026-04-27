@@ -324,6 +324,10 @@ class TurnContext:
     context_hints: tuple[HarnessContextHint, ...] = ()
     """One-shot host context hints to prepend/inject into this harness turn.
     The turn worker clears consumed hints after the runtime accepts the turn."""
+    ephemeral_tool_names: tuple[str, ...] = ()
+    """Explicit ``@tool:<name>`` selections for this single user send."""
+    tagged_skill_ids: tuple[str, ...] = ()
+    """Explicit ``@skill:<id>`` selections for this single user send."""
 
 
 @dataclass(frozen=True)

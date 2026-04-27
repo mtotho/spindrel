@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -65,6 +66,9 @@ from app.utils import safe_create_task
 
 logger = logging.getLogger(__name__)
 
+_HARNESS_SKILL_TAG_RE = re.compile(r"(?<![<\w@])@skill:([A-Za-z_][\w\-\./]*)")
+_HARNESS_TOOL_TAG_RE = re.compile(r"(?<![<\w@])@tool:([A-Za-z_][\w\-\./]*)")
+
 
 def _format_turn_exception(exc: Exception) -> str:
     message = str(exc).strip()
@@ -78,6 +82,23 @@ def _build_turn_failure_message(error_text: str, partial_text: str = "") -> str:
     if partial_text.strip():
         return f"{partial_text.rstrip()}\n\n{marker}"
     return f"The turn failed before producing a response.\n\n{marker}"
+
+
+def _parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def _unique(matches: list[str]) -> tuple[str, ...]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for value in matches:
+            value = value.rstrip(".,;:!?")
+            if value and value not in seen:
+                seen.add(value)
+                out.append(value)
+        return tuple(out)
+
+    return (
+        _unique([m.group(1) for m in _HARNESS_TOOL_TAG_RE.finditer(text or "")]),
+        _unique([m.group(1) for m in _HARNESS_SKILL_TAG_RE.finditer(text or "")]),
+    )
 
 
 async def _run_harness_turn(
@@ -159,6 +180,40 @@ async def _run_harness_turn(
         harness_settings = await load_session_settings(db, session_id)
         context_hints = list(await load_context_hints(db, session_id))
 
+    explicit_tool_names, tagged_skill_ids = _parse_harness_explicit_tags(user_message)
+    if tagged_skill_ids:
+        from sqlalchemy import select
+        from app.db.models import Skill
+
+        async with async_session() as db:
+            rows = (await db.execute(
+                select(Skill.id, Skill.name, Skill.description).where(
+                    Skill.id.in_(list(tagged_skill_ids)),
+                    Skill.archived_at.is_(None),
+                )
+            )).all()
+        by_id = {row.id: row for row in rows}
+        lines = [
+            "The user explicitly tagged these Spindrel skills for this harness turn.",
+            "Use the bridged get_skill(skill_id=\"...\") tool to fetch full skill bodies progressively; these lines are an index, not the full content.",
+        ]
+        for skill_id in tagged_skill_ids:
+            row = by_id.get(skill_id)
+            if row is None:
+                lines.append(f"- {skill_id} — not found or archived")
+                continue
+            desc = f": {row.description}" if row.description else ""
+            lines.append(f"- {row.id} — {row.name}{desc}")
+        context_hints.append(
+            HarnessContextHint(
+                kind="tagged_skills",
+                source="composer",
+                created_at=datetime.now(timezone.utc).isoformat(),
+                consume_after_next_turn=True,
+                text="\n".join(lines),
+            )
+        )
+
     if getattr(bot, "memory_scheme", None) == "workspace-files":
         context_hints.append(
             HarnessContextHint(
@@ -196,6 +251,8 @@ async def _run_harness_turn(
         effort=harness_settings.effort,
         runtime_settings=harness_settings.runtime_settings,
         context_hints=tuple(context_hints),
+        ephemeral_tool_names=explicit_tool_names,
+        tagged_skill_ids=tagged_skill_ids,
     )
 
     error_text: str | None = None

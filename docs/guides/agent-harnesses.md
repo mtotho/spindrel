@@ -114,10 +114,10 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Model + effort picker | Supported | Runtime capability endpoint exposes model-scoped effort choices; selection is stored per Spindrel session. Bare `/model` and `/effort` render picker cards, while `/model <id>` and `/effort <level>` set values directly. |
 | Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
-| `/compact` and `/context` | Supported | Harness-aware compact resets native resume and injects a continuity hint; context reports host-visible native state. |
+| `/compact` and `/context` | Supported | Harness-aware compact resets native resume, queues a continuity hint, and renders an inspectable summary card; context reports host-visible native state, hints, and bridge health. |
 | Host context hints | Supported | Heartbeats and compact summaries queue one-shot hints for the next harness turn. |
-| Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. Calls route through Spindrel dispatch. Needs deployed SDK smoke testing. |
-| Spindrel skills | Planned | Export/sync simple skills or expose skill lookup through bridged tools/resources. No automatic sync yet. |
+| Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through Claude SDK in-process MCP when the installed SDK supports it. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed SDK smoke testing. |
+| Spindrel skills | Partial | `@skill:<id>` adds a tagged skill index hint for the turn and relies on bridged `get_skill` / `get_skill_list` for progressive skill fetching. No native `.claude/skills` sync yet. |
 | Memory system | Partial | Workspace-files memory injects a host hint telling the harness where memory files live. Reads/writes still require explicit bridged tools/policies. |
 | Usage aggregation | Planned | Per-message cost/usage exists; `/admin/usage` aggregation is not wired yet. |
 
@@ -129,17 +129,17 @@ Answering the card writes a suppress-outbox user message with the answers. If th
 
 ## Native status, compact, and host hints
 
-Harness sessions now expose lightweight native state through `GET /api/v1/sessions/{id}/harness-status` and `/context`:
+Harness sessions expose lightweight native state through `GET /api/v1/sessions/{id}/harness-status` and `/context`:
 
 - selected harness model/effort and approval mode;
 - latest native harness resume id;
-- pending one-shot host hints;
-- selected Spindrel bridge tools;
+- pending one-shot host hints with names and previews;
+- selected/exported Spindrel bridge tools, ignored client tools, bridge health, and explicit one-turn tags;
 - last turn timestamp, compact reset timestamp, and last usage/cost metadata when available.
 
 This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary unless a runtime later exposes token-window telemetry.
 
-`/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction. Instead it builds a continuity summary from recent session messages, stores a native resume reset marker on `Session.metadata`, and queues the summary as a one-shot host hint. The next harness turn starts without the old native resume id and receives that summary at the top of the prompt.
+`/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction. Instead it builds a continuity summary from recent session messages, stores a native resume reset marker on `Session.metadata`, queues the summary as a one-shot host hint, and renders a low-chrome transcript card with a preview. The next harness turn starts without the old native resume id and receives that summary at the top of the prompt.
 
 Scheduled heartbeats on harness channels also use one-shot host hints. They do not launch the normal Spindrel loop. The heartbeat preamble and task prompt are queued onto the channel's primary session so the next user-driven harness turn can see the scheduled context. Scratch/split fanout is intentionally not automatic yet.
 
@@ -151,9 +151,15 @@ Claude Code can receive selected Spindrel tools through a best-effort in-process
 
 Calls route back through `dispatch_tool_call`, not directly into Python functions. That means existing Spindrel policy, approval rows, audit/trace records, secret redaction, and result summarization remain in force. If the installed SDK does not provide the in-process MCP helper surface, the adapter disables the bridge for that turn and native Claude tools continue to work.
 
-The normal bot and channel tool pickers are intentionally still visible for harness bots. For harnesses they mean "make these Spindrel tools bridgeable to the runtime," not "inject these tools into Spindrel's normal LLM loop."
+The normal bot and channel tool pickers are intentionally still visible for harness bots. For harnesses they mean "make these Spindrel tools bridgeable to the runtime," not "inject these tools into Spindrel's normal LLM loop." The composer plus menu can also insert `@tool:<name>` for a one-turn bridge addition.
 
 The bridge is still early. Smoke-test SDK helper names on the deployed harness image before relying on it for production mutating tools.
+
+## Spindrel skill bridge
+
+Harness skill support is progressive, not native sync. When the user tags `@skill:<id>`, Spindrel adds a one-turn tagged-skill index hint that names the skill and tells the harness to fetch full bodies through bridged `get_skill`. This preserves Spindrel's normal skill-discovery rhythm: skills can reference other skills, and the harness can call `get_skill_list` / `get_skill` instead of receiving an unbounded body dump.
+
+If the SDK bridge is unavailable, Spindrel reports that state in `/context` and the ctx detail surface. It does not silently inject full skill bodies as a fallback.
 
 ## Adding context
 
@@ -161,7 +167,8 @@ Just put files in the workspace directory. The harness reads what's there:
 
 - Want your dotfiles' `CLAUDE.md` in the bot's view? `git clone git@github.com:me/dotfiles /data/harness/my-project/.dotfiles` (or whatever layout makes sense — the harness sees a normal filesystem).
 - Want your vault available? `git clone git@github.com:me/vault /data/harness/my-project/vault` and reference it from your project-level `CLAUDE.md`.
-- Want a Spindrel skill loaded? Copy its markdown into `<workdir>/.claude/skills/<name>.md` and the harness will pick it up via its own skill loader. (No automatic sync — Spindrel doesn't know what Claude Code's skill format requires; some Spindrel-internal skills will reference tools the harness doesn't have.)
+- Want a Spindrel skill for one turn? Use the composer plus menu or type `@skill:<id>`. The harness gets a tagged-skill index hint and can fetch the body through bridged `get_skill` when the bridge is available.
+- Want a Claude-native skill? Copy its markdown into `<workdir>/.claude/skills/<name>.md` and the harness will pick it up via its own skill loader. Spindrel does not automatically sync into that directory yet.
 
 There is intentionally no UI for this in v1. The directory IS the contract.
 

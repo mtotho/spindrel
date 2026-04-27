@@ -62,13 +62,19 @@ failure details that are not appropriate for every channel viewer.
 The Spatial Canvas renders active Attention Items as Beacons attached to
 existing targets:
 
-- bot-authored items render as warning badges
-- system-authored structured failures render as asteroid-style markers
-- user-authored items render with the same target-bound badge stack
+- bot-authored and user-authored items render as target-owned attention signals
+- system-authored structured failures render only when severe, critical, or
+  repeated enough to be actionable on the map
+- multiple active items on one target collapse into one signal using the worst
+  active severity
 
-Node-bound badges render in a high-z canvas world overlay with inverse-scale
-styling. That keeps them screen-sized and anchored to the bound channel, bot,
-or widget while avoiding clipping by neighboring widget chrome.
+Canvas signals are small rim ticks attached to the target body. They do not
+show issue counts on the idle map and must not overlap target labels. Counts,
+occurrences, and issue navigation live in the Hub detail surface. The local
+canvas preference **Show attention signals** hides target signals, cluster
+signals, and Attention edge urgency without changing Attention Item state.
+Informational non-actionable items remain Hub-only unless they explicitly
+require a response.
 
 The **Attention Hub** is the global triage surface. It is reachable from:
 
@@ -84,6 +90,11 @@ and actions. When a target has multiple active items, the drawer opens in a
 target review mode that labels the target, shows the current issue as `N of M`,
 lists the target's active issues, and advances to the next active item after
 acknowledge or resolve.
+
+The Hub owns bulk triage actions. Target review can acknowledge all active
+items for the current target. The global Hub can acknowledge all active items
+visible to the current user; this requires confirmation and respects the same
+admin-only system-item visibility rules as the list API.
 
 ## Reply And Resolve
 
