@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { Plus, Home } from "lucide-react";
+import { useState } from "react";
 import { useIntegrationIcons } from "../../api/hooks/useIntegrations";
 import { useUIStore, SIDEBAR_DEFAULT_WIDTH } from "../../stores/ui";
 import { useChannels } from "../../api/hooks/useChannels";
@@ -12,6 +13,7 @@ import { useChannelReadStore } from "../../stores/channelRead";
 import { ChannelList } from "./sidebar/ChannelList";
 import { SidebarRail } from "./sidebar/SidebarRail";
 import { SidebarFooter } from "./sidebar/SidebarFooter";
+import { UnreadInboxPanel } from "./sidebar/UnreadInboxPanel";
 import { useSidebarShortcut } from "./sidebar/useSidebarShortcut";
 import type { Channel } from "../../types/api";
 
@@ -138,13 +140,25 @@ function startResize(e: React.MouseEvent) {
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const width = useUIStore((s) => s.sidebarWidth);
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const [unreadInboxOpen, setUnreadInboxOpen] = useState(false);
   useSidebarShortcut();
 
   const panelWidth = collapsed ? 0 : width;
 
+  const toggleUnreadInbox = () => {
+    if (collapsed && !unreadInboxOpen) {
+      toggleSidebar();
+    }
+    setUnreadInboxOpen((open) => !open);
+  };
+
   return (
     <div className="flex flex-row h-full shrink-0">
-      <SidebarRail />
+      <SidebarRail
+        unreadInboxOpen={unreadInboxOpen}
+        onToggleUnreadInbox={toggleUnreadInbox}
+      />
       <div
         className={cn(
           "relative h-full overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none",
@@ -152,7 +166,11 @@ export function Sidebar() {
         style={{ width: panelWidth }}
         aria-hidden={collapsed}
       >
-        <SidebarPanel />
+        {unreadInboxOpen ? (
+          <UnreadInboxPanel onClose={() => setUnreadInboxOpen(false)} />
+        ) : (
+          <SidebarPanel />
+        )}
         {!collapsed && (
           <div
             role="separator"

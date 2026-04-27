@@ -21,7 +21,7 @@ export interface SessionReadState {
   reminder_sent_at: string | null;
 }
 
-interface UnreadStateResponse {
+export interface UnreadStateResponse {
   states: SessionReadState[];
   channels: {
     channel_id: string | null;

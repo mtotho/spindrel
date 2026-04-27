@@ -33,6 +33,7 @@ export interface UseChannelChatOptions {
   activeFile: string | null;
   onOpenSessions?: () => void;
   onOpenSessionSplit?: () => void;
+  enabled?: boolean;
 }
 
 export interface UseChannelChatReturn {
@@ -90,7 +91,14 @@ function makeClientLocalId(): string {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function useChannelChat({ channelId, channel, activeFile, onOpenSessions, onOpenSessionSplit }: UseChannelChatOptions): UseChannelChatReturn {
+export function useChannelChat({
+  channelId,
+  channel,
+  activeFile,
+  onOpenSessions,
+  onOpenSessionSplit,
+  enabled = true,
+}: UseChannelChatOptions): UseChannelChatReturn {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -104,7 +112,9 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
   // starts delivering deltas. The snapshot + SSE together replace the 256-
   // event replay buffer: refresh, mobile tab-wake, or background approvals
   // all show up inline instead of dropping to the ApprovalToast fallback.
-  useChannelState(channelId, channel?.bot_id);
+  const activeChannelId = enabled ? channelId : undefined;
+
+  useChannelState(activeChannelId, channel?.bot_id);
 
   // Subscribe to typed channel-events bus events. This is the SOLE source
   // of streaming UI state — POST /chat just acknowledges the turn.
@@ -117,7 +127,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
   // streaming indicator for the child bot (e.g. orchestrator running an audit
   // pipeline) appears in the channel. Events with ``payload.session_id``
   // undefined (legacy non-sub-session publishes) pass through unchanged.
-  useChannelEvents(channelId, channel?.bot_id, {
+  useChannelEvents(activeChannelId, channel?.bot_id, {
     sessionFilter: channel?.active_session_id ?? undefined,
   });
 
@@ -183,7 +193,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
       if (!lastPage.has_more || lastPage.messages.length === 0) return undefined;
       return lastPage.messages[0].id;
     },
-    enabled: !!channel?.active_session_id,
+    enabled: enabled && !!channel?.active_session_id,
   });
 
   // Sync DB messages into the chat store when new page data arrives.
@@ -194,6 +204,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
   // skipping the sync there leaves the UI stuck on "Send a message to
   // start the conversation" until the turn finishes.
   useEffect(() => {
+    if (!enabled) return;
     const storeEmpty = (chatState.messages?.length ?? 0) === 0;
     const canSync = turnsCount === 0 && !chatState.isProcessing;
     if (channelId && pages && (canSync || storeEmpty)) {
@@ -283,7 +294,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
   }, [channelId, pages]);
 
   // Poll session status while background processing is active
-  const { data: sessionStatus } = useSessionStatus(channelId, chatState.isProcessing);
+  const { data: sessionStatus } = useSessionStatus(channelId, enabled && chatState.isProcessing);
 
   const submitChat = useSubmitChat();
   const cancelChat = useCancelChat();
@@ -390,6 +401,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
   const prepareSend = useCallback(
     (text: string, files?: PendingFile[]): PreparedChatSend | null => {
       if (!channelId || !channel) return null;
+      if (!enabled) return null;
 
       // If viewing a file in non-split mode, auto-enable split.
       if (activeFile && !useUIStore.getState().fileExplorerSplit) {
@@ -457,7 +469,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
         ...(files ? { files } : {}),
       };
     },
-    [channelId, channel, activeFile, addMessage]
+    [channelId, channel, activeFile, addMessage, enabled]
   );
 
   const doSend = useCallback(
@@ -472,6 +484,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
   const handleSend = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
+      if (!enabled) return;
       const prepared = prepareSend(text, files);
       if (!prepared) return;
 
@@ -517,12 +530,13 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
         },
       });
     },
-    [channelId, channel, prepareSend, removeOptimisticMessage, secretCheck, setMessages, submitPrepared]
+    [channelId, channel, enabled, prepareSend, removeOptimisticMessage, secretCheck, setMessages, submitPrepared]
   );
 
   const handleSendAudio = useCallback(
     (audioBase64: string, audioFormat: string, message?: string) => {
       if (!channelId || !channel) return;
+      if (!enabled) return;
 
       if (activeFile && !useUIStore.getState().fileExplorerSplit) {
         useUIStore.getState().toggleFileExplorerSplit();
@@ -547,20 +561,21 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
       lastRequestRef.current[channelId] = request;
       submitChat.mutate(request);
     },
-    [channelId, channel, activeFile, addMessage, submitChat]
+    [channelId, channel, activeFile, addMessage, enabled, submitChat]
   );
 
   /** Cancel + send immediately (bypasses queue). */
   const handleSendNow = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
+      if (!enabled) return;
       queuedRequestRef.current = null;
       setIsQueued(false);
       setQueuedMessageText(null);
       handleCancel();
       setTimeout(() => doSend(text, files), 50);
     },
-    [channelId, channel, handleCancel, doSend],
+    [channelId, channel, enabled, handleCancel, doSend],
   );
 
   /** Cancel the queued message (remove optimistic message, keep current stream running). */
@@ -599,10 +614,10 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
     () => resolveAvailableSlashCommandIds({
       catalog: slashCatalog,
       surface: "channel",
-      enabled: !!channelId,
+      enabled: enabled && !!channelId,
       capabilities: ["clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
     }),
-    [channelId, slashCatalog],
+    [channelId, enabled, slashCatalog],
   );
 
   const slashLocalHandlers = useMemo(

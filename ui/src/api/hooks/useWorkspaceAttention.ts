@@ -117,6 +117,8 @@ export function useWorkspaceAttention(channelId?: string | null) {
       return res.items;
     },
     refetchInterval: 15_000,
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
   });
 }
 

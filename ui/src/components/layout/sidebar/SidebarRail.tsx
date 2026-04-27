@@ -6,6 +6,7 @@ import {
   Bot,
   BookOpen,
   Hash,
+  Inbox,
   LayoutDashboard,
   Monitor,
   Plug,
@@ -28,6 +29,7 @@ import {
   useDashboards,
 } from "../../../stores/dashboards";
 import { useChannels } from "../../../api/hooks/useChannels";
+import { useChannelReadStore } from "../../../stores/channelRead";
 import { LucideIconByName } from "../../IconPicker";
 import { cn } from "../../../lib/cn";
 import { useTodayUpcomingCount } from "./UpcomingRailPopover";
@@ -67,7 +69,40 @@ function RailLink({ href, active, title, children, badge, pinned }: RailLinkProp
   );
 }
 
-export function SidebarRail() {
+interface RailButtonProps {
+  active?: boolean;
+  title: string;
+  children: React.ReactNode;
+  badge?: React.ReactNode;
+  onClick: () => void;
+}
+
+function RailButton({ active, title, children, badge, onClick }: RailButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      className={cn(
+        "sidebar-rail-btn relative bg-transparent border-none p-0",
+        active &&
+          "bg-accent/[0.12] before:content-[''] before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-4 before:rounded-full before:bg-accent",
+      )}
+    >
+      {children}
+      {badge}
+    </button>
+  );
+}
+
+interface SidebarRailProps {
+  unreadInboxOpen?: boolean;
+  onToggleUnreadInbox?: () => void;
+}
+
+export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: SidebarRailProps) {
   const { pathname, search } = useLocation();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -77,6 +112,9 @@ export function SidebarRail() {
   const toggleTheme = useThemeStore((s) => s.toggle);
   const { data: version } = useVersion();
   const upcomingCount = useTodayUpcomingCount();
+  const unreadTotal = useChannelReadStore((s) =>
+    Object.values(s.unreadByChannel).reduce((sum, count) => sum + count, 0),
+  );
   // `allDashboards` includes channel-scoped dashboards (slug prefix `channel:`)
   // so a user can opt to pin a channel dashboard to the rail like any other.
   const { allDashboards } = useDashboards();
@@ -148,6 +186,21 @@ export function SidebarRail() {
         </button>
 
         <div className="h-px w-6 bg-surface-border/60 my-1" />
+
+        <RailButton
+          active={unreadInboxOpen}
+          title="Unread replies"
+          onClick={onToggleUnreadInbox ?? (() => {})}
+          badge={
+            unreadTotal > 0 ? (
+              <span className="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-accent text-[9px] font-bold text-white flex flex-row items-center justify-center tabular-nums">
+                {unreadTotal > 9 ? "9+" : unreadTotal}
+              </span>
+            ) : null
+          }
+        >
+          <Inbox size={18} className={unreadInboxOpen ? "text-accent" : "text-text-dim"} />
+        </RailButton>
 
         {isAdmin && (
           <RailLink

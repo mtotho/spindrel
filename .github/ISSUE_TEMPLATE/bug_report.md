@@ -18,10 +18,14 @@ Steps to reproduce the behavior:
 What you expected to happen.
 
 **Environment**
-- Deployment: Docker / local dev
+- Spindrel version / commit SHA: (release tag like `v0.2.0`, or `git rev-parse --short HEAD` from inside the container)
+- Deployment: Docker Compose / bare uvicorn / other
 - LLM provider: (e.g. Ollama, OpenAI, Anthropic)
 - Browser (if UI issue):
 - OS:
 
 **Logs**
 Relevant server logs (`docker compose logs agent-server` or journalctl output).
+
+**Screenshots**
+If applicable, add screenshots to help explain the problem.

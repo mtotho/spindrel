@@ -62,7 +62,8 @@ export function useChannelState(channelId: string | undefined, primaryBotId?: st
     // Short staleTime because the snapshot is always "as of now" — the SSE
     // stream delivers deltas thereafter, so repeated invalidations on
     // channel switch don't need to hit the network.
-    staleTime: 2_000,
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
   });
 
   // Seed the chat store whenever the snapshot changes. Seeding is idempotent:

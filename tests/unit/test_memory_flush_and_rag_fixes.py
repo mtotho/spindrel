@@ -351,7 +351,7 @@ class TestMemoryFlushServerSettings:
         from app.services.server_settings import SETTINGS_SCHEMA
 
         for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT", "PREVIOUS_SUMMARY_INJECT_CHARS"]:
-            assert SETTINGS_SCHEMA[key]["group"] == "Chat History"
+            assert SETTINGS_SCHEMA[key]["group"] == "Memory & Learning"
 
 
 # ===================================================================

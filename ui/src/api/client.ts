@@ -64,11 +64,15 @@ export async function apiFetch<T = unknown>(
 
   const token = getAuthToken();
   const url = `${serverUrl}${path}`;
+  const method = (options.method ?? "GET").toUpperCase();
+  const hasBody = options.body != null;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers as Record<string, string>),
   };
+  if (hasBody && !headers["Content-Type"] && method !== "GET" && method !== "HEAD") {
+    headers["Content-Type"] = "application/json";
+  }
 
   let res = await fetch(url, { ...options, headers });
 

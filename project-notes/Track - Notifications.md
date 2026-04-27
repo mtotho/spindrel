@@ -26,6 +26,7 @@ Make human-facing notifications a core reusable subsystem instead of bespoke per
 - Added `unread_notification_rules` for global and per-channel unread notification preferences. Rules reference shared notification targets and support immediate sends plus one reminder delay.
 - Agent assistant persistence now updates unread state after bus publication. Web-visible sessions mark read instead of creating unread; user sends mark the current session read.
 - Added `/api/v1/unread/state`, `/visible`, `/read`, `/rules`, and `/events`; UI badges now consume backend unread state and subscribe to user-scoped unread SSE for cross-session toasts.
+- Added a sidebar rail Unread entry with an aggregate badge and a dedicated inbox panel listing unread sessions across channels, with open, per-session mark-read, and mark-all-read actions.
 - Notification delivery suppresses exact mirror targets for the source channel/integration so a channel already mirrored to Slack does not get duplicate Slack unread notifications from the generic unread mechanism.
 
 ## Invariants

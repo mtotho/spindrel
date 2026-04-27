@@ -60,6 +60,21 @@ cd ui && npx tsc --noEmit
 
 Integrations live in `integrations/` and follow a standard structure. See `integrations/example/` for a template, and [docs/integrations/](docs/integrations/) for the development guide.
 
+## Release Process (maintainer)
+
+Spindrel uses a manual tag-driven release flow. Versions follow [SemVer](https://semver.org/); while we are in `0.x`, minor bumps may include breaking changes.
+
+1. Bump the version in **both** `pyproject.toml` and `ui/package.json` to `X.Y.Z` (these must stay in sync).
+2. Move the `## [Unreleased]` block in `CHANGELOG.md` into a new `## [X.Y.Z] - YYYY-MM-DD` section. Keep an empty `## [Unreleased]` skeleton at the top. Update the comparison links at the bottom of the file.
+3. Open a PR titled `Release vX.Y.Z`. Once it merges to `master`:
+   ```bash
+   git checkout master && git pull
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+4. The `Release` workflow (`.github/workflows/release.yml`) builds and pushes `ghcr.io/mtotho/spindrel:X.Y.Z` (and `:latest`), then creates a GitHub Release whose body is the matching `CHANGELOG.md` section.
+5. For pre-releases, tag `vX.Y.Z-rc1` (or similar) — the workflow auto-marks tags containing `-` as prereleases and skips `:latest`.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [AGPL-3.0 License](LICENSE).

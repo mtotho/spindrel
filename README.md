@@ -4,7 +4,9 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Status: Early Access](https://img.shields.io/badge/status-early%20access-orange.svg)](docs/guides/feature-status.md)
+[![Tests](https://github.com/mtotho/spindrel/actions/workflows/test.yml/badge.svg)](https://github.com/mtotho/spindrel/actions/workflows/test.yml)
 [![Docs](https://img.shields.io/badge/docs-docs.spindrel.dev-informational.svg)](https://docs.spindrel.dev)
+[![Release](https://img.shields.io/github/v/release/mtotho/spindrel?include_prereleases&sort=semver)](https://github.com/mtotho/spindrel/releases)
 
 Self-hosted AI agent server with persistent channels, composable expertise, workspace-driven memory, task pipelines, interactive widgets, and a pluggable integration framework.
 
@@ -160,6 +162,8 @@ See [CLAUDE.md](CLAUDE.md) for architecture details, key files, and development 
 - **Contributing** — see [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Code of Conduct** — see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - **Security** — see [SECURITY.md](SECURITY.md) for vulnerability reporting
+- **Releases & changelog** — [GitHub Releases](https://github.com/mtotho/spindrel/releases) · [CHANGELOG.md](CHANGELOG.md)
+- **Discussions** — usage questions, ideas, and show-and-tell go in [Discussions](https://github.com/mtotho/spindrel/discussions)
 
 ## License
 

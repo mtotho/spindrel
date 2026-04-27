@@ -6,6 +6,10 @@ on:
   push:
     branches: [master]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,3 +19,19 @@ jobs:
         run: docker build -f Dockerfile.test -t agent-test .
       - name: Run tests
         run: docker run --rm agent-test
+
+  ui-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+      - name: Typecheck
+        working-directory: ui
+        run: npx tsc --noEmit

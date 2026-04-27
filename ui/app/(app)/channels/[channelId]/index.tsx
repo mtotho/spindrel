@@ -316,6 +316,24 @@ export default function ChatScreen() {
     setSessionsOverlayOpen(true);
   }, []);
 
+  // ---- Single-session route mode (URL-driven) ----
+  // Route: /channels/:channelId/session/:sessionId?scratch=true|surface=channel
+  // Swaps the main chat column with the URL-provided session. Keep this
+  // above useChannelChat so the hidden primary channel transcript can stop
+  // its own state/messages/SSE subscriptions while a routed session is the
+  // visible chat surface.
+  const sessionMatch = useMatch("/channels/:channelId/session/:sessionId");
+  const [scratchSearch] = useSearchParams();
+  const routeSessionId = sessionMatch?.params.sessionId ?? null;
+  const isChannelSessionRoute = !!sessionMatch && scratchSearch.get("surface") === "channel";
+  const isScratchRoute = !!sessionMatch && !isChannelSessionRoute;
+  const routeSessionSurface: ChannelSessionSurface | null = routeSessionId
+    ? isScratchRoute
+      ? { kind: "scratch", sessionId: routeSessionId }
+      : { kind: "channel", sessionId: routeSessionId }
+    : null;
+  const scratchUrlSessionId = isScratchRoute ? routeSessionId : null;
+
   const {
     chatState,
     invertedData,
@@ -346,6 +364,7 @@ export default function ChatScreen() {
     activeFile,
     onOpenSessions: openSessionsOverlay,
     onOpenSessionSplit: openSplitOverlay,
+    enabled: !routeSessionId,
   });
 
   // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
@@ -432,22 +451,6 @@ export default function ChatScreen() {
     [threadSummaries, invertedData, channel?.bot_id],
   );
 
-  // ---- Single-session route mode (URL-driven) ----
-  // Route: /channels/:channelId/session/:sessionId?scratch=true|surface=channel
-  // Swaps the main chat column with the URL-provided session. Split/canvas
-  // state is deliberately separate: one visible session is a route-level page,
-  // not a pane nested under another session header.
-  const sessionMatch = useMatch("/channels/:channelId/session/:sessionId");
-  const [scratchSearch] = useSearchParams();
-  const routeSessionId = sessionMatch?.params.sessionId ?? null;
-  const isChannelSessionRoute = !!sessionMatch && scratchSearch.get("surface") === "channel";
-  const isScratchRoute = !!sessionMatch && !isChannelSessionRoute;
-  const routeSessionSurface: ChannelSessionSurface | null = routeSessionId
-    ? isScratchRoute
-      ? { kind: "scratch", sessionId: routeSessionId }
-      : { kind: "channel", sessionId: routeSessionId }
-    : null;
-  const scratchUrlSessionId = isScratchRoute ? routeSessionId : null;
   const setScratchReturn = useScratchReturnStore((s) => s.setScratchReturn);
   const clearScratchReturn = useScratchReturnStore((s) => s.clearScratchReturn);
   const scratchSessionState = useChatStore((s) =>
@@ -2148,10 +2151,12 @@ export default function ChatScreen() {
               actions={leftSpineActions}
             />
           )}
-          {/* OmniPanel — always rendered, animated via width clip.
+          {/* OmniPanel shell — animated via width clip.
               Hidden on system channels (orchestrator has no workspace files
               or channel-specific pinned widgets worth surfacing) and when
-              the channel's layout_mode is "dashboard-only".
+              the channel's layout_mode is "dashboard-only". The expensive
+              panel contents unmount when closed so rail widgets stop their
+              polling/SSE work instead of running inside a 0px container.
               Outer padding (pl-1.5 py-1.5) creates the 6px floating-card gap. */}
           {channelId && !isSystemChannel && showRailZone && (
             <div
@@ -2174,23 +2179,25 @@ export default function ChatScreen() {
                 flexShrink: 0,
               }}
             >
-              <OmniPanel
-                channelId={channelId}
-                dashboardHref={channelDashboardHref}
-                workspaceId={fileWorkspaceId ?? undefined}
-                fileRootPath={fileRootPath}
-                fileRootLabel="Project"
-                botId={channel?.bot_id}
-                channelDisplayName={channel?.display_name || channel?.name}
-                activeFile={activeFile}
-                onSelectFile={handleSelectFile}
-                onOpenTerminal={openTerminalAtPath}
-                onClose={handleCloseExplorer}
-                width={panelLayout.left.width}
-                activeTab={panelPrefs.leftTab}
-                onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
-                onCollapse={() => patchChannelPanelPrefs(channelId, { leftOpen: false })}
-              />
+              {showExplorer && (
+                <OmniPanel
+                  channelId={channelId}
+                  dashboardHref={channelDashboardHref}
+                  workspaceId={fileWorkspaceId ?? undefined}
+                  fileRootPath={fileRootPath}
+                  fileRootLabel="Project"
+                  botId={channel?.bot_id}
+                  channelDisplayName={channel?.display_name || channel?.name}
+                  activeFile={activeFile}
+                  onSelectFile={handleSelectFile}
+                  onOpenTerminal={openTerminalAtPath}
+                  onClose={handleCloseExplorer}
+                  width={panelLayout.left.width}
+                  activeTab={panelPrefs.leftTab}
+                  onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
+                  onCollapse={() => patchChannelPanelPrefs(channelId, { leftOpen: false })}
+                />
+              )}
             </div>
           )}
           {panelLayout.left.mode === "push" && channelId && (

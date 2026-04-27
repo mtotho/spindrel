@@ -119,6 +119,8 @@ export function useChannelEffectiveTools(channelId: string | undefined) {
     queryKey: ["channel-effective-tools", channelId],
     queryFn: () => apiFetch<EffectiveTools>(`/api/v1/admin/channels/${channelId}/effective-tools`),
     enabled: !!channelId,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

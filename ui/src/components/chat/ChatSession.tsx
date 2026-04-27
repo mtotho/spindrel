@@ -1286,7 +1286,7 @@ function EphemeralChatSession({
             local_status: "sending",
           },
         });
-        await submitChat.mutateAsync({
+        const result = await submitChat.mutateAsync({
           message,
           bot_id: botId,
           client_id: "web",
@@ -1302,8 +1302,15 @@ function EphemeralChatSession({
             model_provider_id_override: modelProviderId,
           } : {}),
         });
+        useChatStore.getState().setProcessing(
+          activeSessionId,
+          result.task_id ?? result.turn_id ?? clientLocalId,
+        );
         qc.invalidateQueries({ queryKey: ["session-messages", activeSessionId] });
       } catch (err) {
+        if (activeSessionId) {
+          useChatStore.getState().clearProcessing(activeSessionId);
+        }
         setSendError(err instanceof Error ? err.message : "Failed to send message");
       }
     },
