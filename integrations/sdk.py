@@ -435,14 +435,48 @@ def make_settings(integration_id: str, keys: dict[str, str]) -> type:
 # ---------------------------------------------------------------------------
 
 _CHROME_NAMES = ("chromium", "chromium-browser", "google-chrome-stable", "google-chrome")
+# When chromium is installed via dpkg-extract into /opt/spindrel-pkg, the
+# /usr/bin/chromium wrapper script (a Debian shell script) tries to source
+# /etc/chromium.d/* — but those config files land at /opt/spindrel-pkg/etc/
+# instead, and the wrapper has the path hardcoded. The dpkg-extract path
+# doesn't run postinst, so we can't fix the wrapper at install time.
+# Workaround: prefer the underlying ELF binary at usr/lib/chromium/chromium
+# for the spindrel-pkg layout. Puppeteer doesn't need the wrapper's
+# /etc/chromium.d/* flag injection — we pass our own launch args.
 _CHROME_FALLBACK_PATHS = (
+    "/opt/spindrel-pkg/usr/lib/chromium/chromium",
     "/opt/spindrel-pkg/usr/bin/chromium",
     "/opt/spindrel-pkg/usr/bin/chromium-browser",
+    "/usr/lib/chromium/chromium",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
     "/usr/bin/google-chrome-stable",
     "/usr/bin/google-chrome",
 )
+
+
+def _prefer_underlying_chromium(path: str) -> str:
+    """If ``path`` is the Debian chromium wrapper script under spindrel-pkg,
+    return the underlying ELF binary instead.
+
+    The wrapper at ``…/usr/bin/chromium`` sources ``/etc/chromium.d/*`` and
+    fails when chromium was dpkg-extracted (postinst doesn't run, so the
+    config files live under ``/opt/spindrel-pkg/etc/`` not ``/etc/``). The
+    real binary at ``…/usr/lib/chromium/chromium`` doesn't need that
+    indirection — puppeteer passes its own launch args.
+    """
+    import os as _os
+
+    head, tail = _os.path.split(path)
+    if tail not in {"chromium", "chromium-browser"}:
+        return path
+    if not head.endswith("/usr/bin"):
+        return path
+    prefix = head[: -len("/usr/bin")]
+    underlying = _os.path.join(prefix, "usr", "lib", "chromium", "chromium")
+    if _os.path.isfile(underlying) and _os.access(underlying, _os.X_OK):
+        return underlying
+    return path
 
 
 def find_chrome_path(setting: tuple[str, str] | None = None) -> str | None:
@@ -469,19 +503,19 @@ def find_chrome_path(setting: tuple[str, str] | None = None) -> str | None:
         try:
             val = get_setting(setting[0], setting[1])
             if val and _shutil.which(val):
-                return val
+                return _prefer_underlying_chromium(val)
         except Exception:
             pass
 
     for env in ("CHROME_PATH", "PUPPETEER_EXECUTABLE_PATH"):
         val = _os.environ.get(env)
         if val and _shutil.which(val):
-            return val
+            return _prefer_underlying_chromium(val)
 
     for name in _CHROME_NAMES:
         found = _shutil.which(name)
         if found:
-            return found
+            return _prefer_underlying_chromium(found)
 
     for candidate in _CHROME_FALLBACK_PATHS:
         if _os.path.isfile(candidate) and _os.access(candidate, _os.X_OK):

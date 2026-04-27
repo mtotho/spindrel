@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to release (e.g. v0.2.0)'
+        required: true
 
 concurrency:
   group: release-${{ github.ref }}
@@ -16,11 +21,24 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.ref }}
 
       - name: Resolve version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ steps.tag.outputs.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,11 +69,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.ref }}
 
       - name: Resolve version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ steps.tag.outputs.ref }}
 
       - name: Extract changelog section
         id: changelog
@@ -77,8 +108,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.ref }}
+          name: ${{ steps.tag.outputs.ref }}
           body: |
             ${{ steps.changelog.outputs.body }}
 
@@ -86,5 +117,5 @@ jobs:
 
             **Container image:** `ghcr.io/mtotho/spindrel:${{ steps.version.outputs.version }}`
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.tag.outputs.ref, '-') }}
+          make_latest: ${{ !contains(steps.tag.outputs.ref, '-') && 'true' || 'false' }}

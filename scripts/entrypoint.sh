@@ -36,6 +36,25 @@ if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
     chown -R spindrel:spindrel /opt/spindrel-pkg 2>/dev/null || true
     chmod 0755 /opt/spindrel-pkg 2>/dev/null || true
 
+    # Register dpkg-extracted shared libraries with the dynamic linker.
+    # apt packages dropped into /opt/spindrel-pkg via `dpkg -x` skip the
+    # postinst step that normally runs `ldconfig`, so libraries shipped
+    # in versioned subdirs (e.g. pulseaudio's libpulsecommon-17.0.so at
+    # …/x86_64-linux-gnu/pulseaudio/) aren't found by the loader even
+    # though the directory is on disk. Building an ld.so.cache here is
+    # the canonical Debian way to surface them — equivalent to what the
+    # missing postinst would do. No-op on rebuilds where the cache is
+    # already current.
+    if [ -d /opt/spindrel-pkg/usr/lib ] && command -v ldconfig >/dev/null 2>&1; then
+        mkdir -p /etc/ld.so.conf.d
+        {
+            echo "/opt/spindrel-pkg/usr/lib"
+            echo "/opt/spindrel-pkg/usr/lib/x86_64-linux-gnu"
+            find /opt/spindrel-pkg/usr/lib/x86_64-linux-gnu -mindepth 1 -maxdepth 2 -type d 2>/dev/null
+        } > /etc/ld.so.conf.d/spindrel-pkg.conf
+        ldconfig 2>/dev/null || true
+    fi
+
     # The spindrel user needs the host docker-socket GID in its group
     # list to use /var/run/docker.sock (integration sidecar containers,
     # docker_stacks service).

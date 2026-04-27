@@ -19,12 +19,17 @@ rebuild. Extracting into a volume-backed prefix is what gets us
 persistence without baking packages into the image.
 
 Known caveat: ``dpkg -x`` does not run the package's ``postinst``
-script. In practice this is fine for the tools Spindrel uses
-(chromium, gh, jq, ripgrep, etc.) — none of them require alternatives
-registration or /etc config to function. If a future package breaks
-because of a missing postinst step, the fix is to invoke the specific
-hook (e.g. ``update-ca-certificates``) after extraction rather than
-abandoning this pattern.
+script. For most CLIs (gh, jq, ripgrep) this is fine — they're a
+single static binary. Chromium pulls in ~20 transitive deps,
+including pulseaudio whose ``libpulsecommon-*.so`` lives in a
+versioned subdir that's normally registered with ``ldconfig`` by
+postinst. ``scripts/entrypoint.sh`` runs ``ldconfig`` against
+``/opt/spindrel-pkg/usr/lib/x86_64-linux-gnu/*/`` at boot to cover
+that gap. Separately, the chromium wrapper at ``…/usr/bin/chromium``
+is a shell script with hardcoded ``/usr/`` and ``/etc/`` paths that
+break under dpkg-extract; ``integrations.sdk.find_chrome_path``
+bypasses the wrapper and returns the underlying ELF binary
+(``…/usr/lib/chromium/chromium``) for the spindrel-pkg layout.
 """
 from __future__ import annotations
 

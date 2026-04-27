@@ -28,8 +28,11 @@ from scripts.screenshots.capture.specs import (
     HARNESS_SPECS,
     INTEGRATION_CHAT_SPECS,
     INTEGRATIONS_SPECS,
+    MOBILE_HOME_SPECS,
     NOTIFICATIONS_SPECS,
     SPATIAL_SPECS,
+    STARBOARD_SPECS,
+    WIDGET_PIN_SPECS,
     resolve_specs,
 )
 from scripts.screenshots.stage.client import SpindrelClient
@@ -76,7 +79,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat", "harness", "notifications", "attention"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -170,6 +173,15 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
+    if only == "widget-pin":
+        print("staged (widget-pin): no-op — reuses flagship state (run `stage --only flagship` first)")
+        return None
+    if only == "mobile-home":
+        print("staged (mobile-home): no-op — reuses flagship + attention state")
+        return None
+    if only == "starboard":
+        print("staged (starboard): no-op — reuses spatial + attention state")
+        return None
     if only == "spatial":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             state = stage_spatial(
@@ -276,6 +288,32 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             # state from ``stage_attention`` drives what renders. No route
             # placeholders.
             spec_list = ATTENTION_SPECS
+        elif only == "mobile-home":
+            spec_list = MOBILE_HOME_SPECS
+        elif only == "starboard":
+            spec_list = STARBOARD_SPECS
+        elif only == "widget-pin":
+            # Resolve the demo dashboard's Notes pin via list_pins. The
+            # demo dashboard is channel-scoped (`channel:<uuid>`); flagship
+            # staging seeds a "Notes" pin into it.
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            demo_ch = all_channels.get("screenshot:demo-dashboard")
+            if not demo_ch:
+                raise SystemExit(
+                    "screenshot:demo-dashboard channel not found. Run `stage --only flagship` first."
+                )
+            dashboard_key = f"channel:{demo_ch['id']}"
+            pins = client.list_pins(dashboard_key=dashboard_key)
+            notes_pin = next(
+                (p for p in pins if p.get("display_label") == "Notes"),
+                None,
+            )
+            if not notes_pin:
+                raise SystemExit(
+                    f"No 'Notes' pin found on {dashboard_key}. Run `stage --only flagship` first."
+                )
+            placeholders["notes_pin"] = str(notes_pin["id"])
+            spec_list = WIDGET_PIN_SPECS
         elif only == "integrations":
             # Routes are static (/admin/integrations/<slug>) — no placeholders.
             spec_list = INTEGRATIONS_SPECS
@@ -456,6 +494,9 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_attention(client)
         print("teardown (attention): resolved seeded attention items")
+        return
+    if only in ("widget-pin", "mobile-home", "starboard"):
+        print(f"teardown ({only}): no-op — reuses other bundles' state")
         return
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":

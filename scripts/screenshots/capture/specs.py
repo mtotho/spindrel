@@ -1085,6 +1085,125 @@ HARNESS_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
+# Widget-pin fullscreen captures — `/widgets/pins/<pinId>` is the new
+# whole-viewport widget surface and the default mobile path for opening a
+# widget from anywhere (channel rail, spatial canvas, mobile hub).
+#
+# Both shots target the populated Notes pin from the demo dashboard so the
+# body has rich markdown rather than a placeholder. Capture-time placeholder
+# resolution looks up `screenshot:demo-dashboard`'s pins and grabs the one
+# labeled "Notes".
+# ---------------------------------------------------------------------------
+WIDGET_PIN_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="widget-pin-fullscreen",
+        route="/widgets/pins/{notes_pin}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Wait for both the page header ("Collapse to space" CTA appears at
+        # ≥lg breakpoint) and the iframe-mounted widget body. The pin's
+        # display_label "Notes" lands in the H1 once the pin query resolves.
+        wait_arg=(
+            '/Notes/.test(document.body.innerText)'
+            ' && /Collapse to space|Refresh/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        # Give the same-origin widget iframe ~1s to paint its markdown body
+        # before we shoot — its <iframe> attaches synchronously but the
+        # rendered content lands a tick later.
+        pre_capture_js="await new Promise(r => setTimeout(r, 1000));",
+        output="widget-pin-fullscreen.png",
+    ),
+    ScreenshotSpec(
+        name="widget-pin-fullscreen-mobile",
+        route="/widgets/pins/{notes_pin}",
+        viewport={"width": 390, "height": 844},
+        wait_kind="function",
+        # Mobile header drops the "Collapse to space" label (hidden lg:inline)
+        # and shows the burger menu instead. Title + back button are stable.
+        wait_arg=(
+            '/Notes/.test(document.body.innerText)'
+            ' && !!document.querySelector(\'button[aria-label="Back"]\')'
+        ),
+        pre_capture_js="await new Promise(r => setTimeout(r, 1000));",
+        output="widget-pin-fullscreen-mobile.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Mobile hub capture — `/` at iPhone-12-Pro viewport (390x844) renders the
+# `MobileHub` component (single-column branch in `useResponsiveColumns`).
+# Sections render `null` when empty; staging flagship + attention provides
+# Channels + Attention populated, the rest stay empty on the e2e instance.
+# ---------------------------------------------------------------------------
+MOBILE_HOME_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="mobile-home",
+        route="/",
+        viewport={"width": 390, "height": 844},
+        wait_kind="function",
+        # MobileHub renders a "+ New" channel-create CTA in the PageHeader
+        # right slot, channel links once `useChannels` resolves, and category
+        # group headers (Daily / Home / Work / Showcase) once the
+        # ChannelsSection paints.
+        wait_arg=(
+            '/\\bNew\\b/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+            ' && /Daily|Showcase|Work/i.test(document.body.innerText)'
+        ),
+        # Allow attention items + sections to settle.
+        pre_capture_js="await new Promise(r => setTimeout(r, 800));",
+        output="mobile-home.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Starboard panel — the slide-in right rail on the spatial canvas. Shows the
+# Hub station by default (Attention summary, Daily Health, Upcoming, Channels).
+# Seeds `spatial.starboard.activeTab=hub` and clicks the "Open Starboard"
+# button; the panel itself is local component state so we can't pre-open via
+# storage alone.
+# ---------------------------------------------------------------------------
+STARBOARD_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="starboard-hub",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'button[title="Open Starboard"]\')'
+            ' && !!document.querySelector(\'[data-spatial-canvas="true"]\')'
+        ),
+        pre_capture_js=(
+            "const btn = document.querySelector('button[title=\"Open Starboard\"]');"
+            " if (btn) btn.click();"
+            # Panel slide-in + station content render — wait for the panel's
+            # data attribute and one of the Hub station's stable sections.
+            " const t0 = Date.now();"
+            " while (Date.now() - t0 < 4000) {"
+            "   if (document.querySelector('[data-starboard-panel=\"true\"]')"
+            "       && /Attention|Daily Health|Upcoming|Channels/.test(document.body.innerText)) break;"
+            "   await new Promise(r => setTimeout(r, 100));"
+            " }"
+            " await new Promise(r => setTimeout(r, 600));"
+        ),
+        output="starboard-hub.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            # Seed the active station so the panel opens on Hub even if a
+            # prior session persisted a different tab.
+            "(() => { localStorage.setItem('spatial.starboard.activeTab', 'hub'); })();",
+            # Frame the camera the same as spatial-overview-1 so the
+            # constellation reads in the background behind the panel.
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.7}),
+        ],
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Notifications captures — the admin-only ``/admin/notifications`` page is
 # the in-use surface for this feature (there is no per-channel chat path).
 # Pre-seed three channel targets + a group + a delivery-history row via the

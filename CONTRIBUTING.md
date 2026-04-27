@@ -75,6 +75,10 @@ Spindrel uses a manual tag-driven release flow. Versions follow [SemVer](https:/
 4. The `Release` workflow (`.github/workflows/release.yml`) builds and pushes `ghcr.io/mtotho/spindrel:X.Y.Z` (and `:latest`), then creates a GitHub Release whose body is the matching `CHANGELOG.md` section.
 5. For pre-releases, tag `vX.Y.Z-rc1` (or similar) — the workflow auto-marks tags containing `-` as prereleases and skips `:latest`.
 
+### Releasing a tag that already exists
+
+If a tag was pushed before the release workflow existed (or the workflow run failed and you want to retry), go to **Actions → Release → Run workflow** in the GitHub UI, enter the tag name (`vX.Y.Z`), and click Run. Same effect as pushing the tag fresh.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [AGPL-3.0 License](LICENSE).

@@ -43,7 +43,7 @@ const utilsBundlePath = resolve(
 const browser = await puppeteer.launch({
   headless: true,
   executablePath: chromePath || undefined,
-  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
 });
 
 try {
