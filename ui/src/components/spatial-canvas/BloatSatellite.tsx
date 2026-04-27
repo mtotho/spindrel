@@ -107,6 +107,15 @@ function BloatDrawer({
 
 function BloatRow({ bot }: { bot: AgentSmellBot }) {
   const name = bot.display_name || bot.name || bot.bot_id;
+  const m = bot.metrics;
+  const enrolledTools = m.enrolled_tools_count ?? 0;
+  const unusedTools = m.unused_tools_count ?? 0;
+  const enrolledSkills = m.enrolled_skills_count ?? 0;
+  const unusedSkills = m.unused_skills_count ?? 0;
+  const schemaTokens = m.tool_schema_tokens_estimate ?? 0;
+  const bloatTokens = m.estimated_bloat_tokens ?? 0;
+  const pinnedUnusedTools = m.pinned_unused_tools ?? [];
+  const pinnedUnusedSkills = m.pinned_unused_skills ?? [];
   return (
     <div className="rounded-md border border-surface-border bg-surface p-3">
       <div className="flex items-center justify-between gap-2">
@@ -119,24 +128,23 @@ function BloatRow({ bot }: { bot: AgentSmellBot }) {
         </span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-text-muted tabular-nums">
-        <span>{bot.metrics.enrolled_tools_count} enrolled tools</span>
-        <span>{bot.metrics.unused_tools_count} unused</span>
-        <span>{bot.metrics.enrolled_skills_count} enrolled skills</span>
-        <span>{bot.metrics.unused_skills_count} unused</span>
-        {bot.metrics.tool_schema_tokens_estimate ? (
+        <span>{enrolledTools} enrolled tools</span>
+        <span>{unusedTools} unused</span>
+        <span>{enrolledSkills} enrolled skills</span>
+        <span>{unusedSkills} unused</span>
+        {schemaTokens ? (
           <span className="col-span-2">
-            ~{fmtTokens(bot.metrics.tool_schema_tokens_estimate)} schema tokens/turn · ~
-            {fmtTokens(bot.metrics.estimated_bloat_tokens)} bloat
+            ~{fmtTokens(schemaTokens)} schema tokens/turn · ~{fmtTokens(bloatTokens)} bloat
           </span>
         ) : (
-          <span className="col-span-2">~{fmtTokens(bot.metrics.estimated_bloat_tokens)} bloat tokens/turn</span>
+          <span className="col-span-2">~{fmtTokens(bloatTokens)} bloat tokens/turn</span>
         )}
       </div>
-      {bot.metrics.pinned_unused_tools.length > 0 ? (
+      {pinnedUnusedTools.length > 0 ? (
         <div className="mt-2">
           <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Pinned but never used</div>
           <div className="flex flex-wrap gap-1">
-            {bot.metrics.pinned_unused_tools.map((name) => (
+            {pinnedUnusedTools.map((name) => (
               <span
                 key={name}
                 className="rounded-full border border-warning/60 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
@@ -148,11 +156,11 @@ function BloatRow({ bot }: { bot: AgentSmellBot }) {
           </div>
         </div>
       ) : null}
-      {bot.metrics.pinned_unused_skills.length > 0 ? (
+      {pinnedUnusedSkills.length > 0 ? (
         <div className="mt-2">
           <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Pinned skills, never used</div>
           <div className="flex flex-wrap gap-1">
-            {bot.metrics.pinned_unused_skills.map((name) => (
+            {pinnedUnusedSkills.map((name) => (
               <span
                 key={name}
                 className="rounded-full border border-warning/60 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"

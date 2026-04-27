@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Bot, Check, ExternalLink, MessageSquare, Plus, Radar, ShieldAlert, X } from "lucide-react";
 import {
   useAcknowledgeAttentionItem,
@@ -20,10 +20,23 @@ import { openTraceInspector } from "../../stores/traceInspector";
 const severityRank: Record<string, number> = { info: 0, warning: 1, error: 2, critical: 3 };
 
 function markerClass(item: WorkspaceAttentionItem): string {
-  if (item.source_type === "system") return "border-danger/60 bg-danger/15 text-danger";
-  if (item.severity === "critical" || item.severity === "error") return "border-danger/60 bg-danger/15 text-danger";
-  if (item.severity === "warning") return "border-warning/70 bg-warning/15 text-warning";
-  return "border-accent/50 bg-accent/10 text-accent";
+  if (item.source_type === "system") return "text-danger ring-danger/55 bg-danger/10";
+  if (item.severity === "critical" || item.severity === "error") return "text-danger ring-danger/55 bg-danger/10";
+  if (item.severity === "warning") return "text-warning ring-warning/60 bg-warning/10";
+  return "text-accent ring-accent/50 bg-accent/10";
+}
+
+function markerHaloClass(item: WorkspaceAttentionItem): string {
+  if (item.source_type === "system") return "bg-danger/10 ring-danger/25";
+  if (item.severity === "critical" || item.severity === "error") return "bg-danger/10 ring-danger/25";
+  if (item.severity === "warning") return "bg-warning/10 ring-warning/25";
+  return "bg-accent/10 ring-accent/20";
+}
+
+function severityTextClass(item: WorkspaceAttentionItem): string {
+  if (item.severity === "critical" || item.severity === "error") return "text-danger";
+  if (item.severity === "warning") return "text-warning";
+  return "text-accent";
 }
 
 function statusLabel(item: WorkspaceAttentionItem): string {
@@ -44,6 +57,14 @@ function plural(count: number, singular: string, pluralLabel = `${singular}s`): 
   return `${count} ${count === 1 ? singular : pluralLabel}`;
 }
 
+function targetKey(item: WorkspaceAttentionItem): string {
+  return `${item.target_kind}:${item.target_id ?? "none"}:${item.channel_id ?? "none"}`;
+}
+
+function targetLabel(item: WorkspaceAttentionItem): string {
+  return item.channel_name ?? item.target_id ?? item.target_kind;
+}
+
 interface BadgeStackProps {
   items: WorkspaceAttentionItem[];
   scale: number;
@@ -55,19 +76,17 @@ export function SpatialAttentionBadgeStack({ items, scale, onSelect }: BadgeStac
   if (!active.length) return null;
   const primary = active[0];
   const count = active.length;
-  const occurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
   const system = active.some((item) => item.source_type === "system");
   const inv = 1 / Math.max(scale, 0.05);
-  const compact = scale < 0.55;
+  const occurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
   return (
     <div
-      className="pointer-events-none absolute -right-3 -top-3 z-[50] flex items-center"
+      className="pointer-events-none absolute -right-2 -top-2 z-[50] flex items-center"
       style={{ transform: `scale(${inv})`, transformOrigin: "top right" }}
     >
       <button
         type="button"
-        className={`pointer-events-auto flex min-w-8 items-center justify-center gap-1 rounded-full border px-2 shadow-sm transition-transform duration-100 hover:scale-105 ${markerClass(primary)}`}
-        style={{ height: 30 }}
+        className={`pointer-events-auto relative flex h-8 min-w-8 items-center justify-center rounded-full px-2 ring-1 transition-transform duration-100 hover:scale-105 ${markerClass(primary)}`}
         title={
           count === 1
             ? `${primary.title} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
@@ -79,11 +98,11 @@ export function SpatialAttentionBadgeStack({ items, scale, onSelect }: BadgeStac
           onSelect(primary);
         }}
       >
-        {system ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
-        <span className="text-[11px] font-semibold leading-none">
-          {count === 1 ? (occurrenceCount > 1 ? "1" : "") : compact ? count : `${count}`}
+        <span className={`absolute -inset-1.5 rounded-full ring-1 ${markerHaloClass(primary)}`} aria-hidden />
+        <span className="relative flex items-center gap-1">
+          {system ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
+          {count > 1 && <span className="text-[11px] font-semibold leading-none">{count}</span>}
         </span>
-        {!compact && count > 1 && <span className="text-[10px] font-medium leading-none opacity-80">alerts</span>}
       </button>
     </div>
   );
@@ -159,6 +178,13 @@ function AttentionHubDrawer({
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const active = activeItems(items);
   const activeOccurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
+  const selectedTargetItems = useMemo(() => {
+    if (!selected) return [];
+    const key = targetKey(selected);
+    return active
+      .filter((item) => targetKey(item) === key)
+      .sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
+  }, [active, selected]);
   const grouped = useMemo(() => {
     const lanes = { needs: [] as WorkspaceAttentionItem[], assigned: [] as WorkspaceAttentionItem[], system: [] as WorkspaceAttentionItem[], recent: [] as WorkspaceAttentionItem[] };
     for (const item of items) lanes[laneFor(item)].push(item);
@@ -193,7 +219,13 @@ function AttentionHubDrawer({
       {creating ? (
         <CreateAttentionForm onCreated={(item) => { setCreating(false); onSelect(item); }} />
       ) : selected ? (
-        <AttentionDetail item={selected} onBack={() => onSelect(null)} onReply={onReply} />
+        <AttentionDetail
+          item={selected}
+          targetItems={selectedTargetItems}
+          onSelect={onSelect}
+          onBack={() => onSelect(null)}
+          onReply={onReply}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <AttentionLane title="Needs Reply" items={grouped.needs} onSelect={onSelect} />
@@ -303,7 +335,19 @@ function CreateAttentionForm({ onCreated }: { onCreated: (item: WorkspaceAttenti
   );
 }
 
-function AttentionDetail({ item, onBack, onReply }: { item: WorkspaceAttentionItem; onBack: () => void; onReply?: (item: WorkspaceAttentionItem) => void }) {
+function AttentionDetail({
+  item,
+  targetItems,
+  onSelect,
+  onBack,
+  onReply,
+}: {
+  item: WorkspaceAttentionItem;
+  targetItems: WorkspaceAttentionItem[];
+  onSelect: (item: WorkspaceAttentionItem | null) => void;
+  onBack: () => void;
+  onReply?: (item: WorkspaceAttentionItem) => void;
+}) {
   const acknowledge = useAcknowledgeAttentionItem();
   const resolve = useResolveAttentionItem();
   const assign = useAssignAttentionItem();
@@ -311,9 +355,79 @@ function AttentionDetail({ item, onBack, onReply }: { item: WorkspaceAttentionIt
   const [botId, setBotId] = useState(item.assigned_bot_id ?? "");
   const [mode, setMode] = useState<AttentionAssignmentMode>(item.assignment_mode ?? "next_heartbeat");
   const [instructions, setInstructions] = useState(item.assignment_instructions ?? "");
+  useEffect(() => {
+    setBotId(item.assigned_bot_id ?? "");
+    setMode(item.assignment_mode ?? "next_heartbeat");
+    setInstructions(item.assignment_instructions ?? "");
+  }, [item.id, item.assigned_bot_id, item.assignment_mode, item.assignment_instructions]);
+
+  const currentIndex = Math.max(0, targetItems.findIndex((candidate) => candidate.id === item.id));
+  const targetCount = Math.max(targetItems.length, 1);
+  const nextActiveItem = targetItems.find((candidate) => candidate.id !== item.id) ?? null;
+  const previousItem = targetItems[currentIndex - 1] ?? null;
+  const nextItem = targetItems[currentIndex + 1] ?? null;
+  const finishCurrent = () => {
+    if (nextActiveItem) onSelect(nextActiveItem);
+    else onBack();
+  };
+
   return (
     <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-      <button type="button" className="text-xs text-text-dim hover:text-text" onClick={onBack}>Back to list</button>
+      <button type="button" className="text-xs text-text-dim hover:text-text" onClick={onBack}>Back to all issues</button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Target</div>
+            <span className="truncate text-base font-medium text-text">{targetLabel(item)}</span>
+            <span className="ml-2 rounded-full bg-surface-overlay px-2 py-0.5 text-xs font-medium text-text-muted">
+              {currentIndex + 1} of {targetCount} issue{targetCount === 1 ? "" : "s"}
+            </span>
+          </div>
+          {targetCount > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={!previousItem}
+                className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+                onClick={() => previousItem && onSelect(previousItem)}
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                disabled={!nextItem}
+                className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+                onClick={() => nextItem && onSelect(nextItem)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+        {targetCount > 1 && (
+          <div className="space-y-1">
+            {targetItems.map((candidate, index) => (
+              <button
+                key={candidate.id}
+                type="button"
+                className={`relative flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-xs ${
+                  candidate.id === item.id
+                    ? "bg-accent/[0.08] text-text before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+                    : "bg-surface-raised/40 text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                }`}
+                onClick={() => onSelect(candidate)}
+              >
+                <span className="min-w-0 truncate">
+                  {index + 1}. {candidate.title}
+                </span>
+                <span className={`shrink-0 text-[10px] ${severityTextClass(candidate)}`}>
+                  {candidate.severity}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div>
         <h2 className="text-lg font-medium">{item.title}</h2>
         <div className="mt-1 text-xs text-text-muted">{item.severity} · {statusLabel(item)} · {item.source_type}</div>
@@ -360,12 +474,12 @@ function AttentionDetail({ item, onBack, onReply }: { item: WorkspaceAttentionIt
           type="button"
           className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay hover:text-text"
           disabled={acknowledge.isPending}
-          onClick={() => acknowledge.mutate(item.id, { onSuccess: onBack })}
+          onClick={() => acknowledge.mutate(item.id, { onSuccess: finishCurrent })}
         >
           <Check size={15} />
           Acknowledge
         </button>
-        <button type="button" className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay hover:text-text" disabled={resolve.isPending} onClick={() => resolve.mutate(item.id, { onSuccess: onBack })}>
+        <button type="button" className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay hover:text-text" disabled={resolve.isPending} onClick={() => resolve.mutate(item.id, { onSuccess: finishCurrent })}>
           Resolve
         </button>
       </div>

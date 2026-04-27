@@ -156,7 +156,9 @@ Bot-authored items render as warning badges on their target. Structured
 system failures render as admin-only system badges. Multiple active items on
 one target collapse into one smart badge whose count is active items; repeated
 occurrences are shown in the Hub/detail evidence instead of as a second
-floating chip.
+floating chip. Clicking a grouped target opens a target review in the Hub
+drawer, with the target label, `N of M` issue position, a compact issue list,
+and acknowledge/resolve advancing to the next active issue for that target.
 
 Node-bound badges render in a high-z canvas world overlay instead of inside
 individual node stacking contexts, so nearby widgets cannot clip or cover

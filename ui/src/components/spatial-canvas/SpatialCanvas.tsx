@@ -2481,6 +2481,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             zoom={ambientZoom}
             onOpen={openAttentionHub}
           />
+          <BloatSatellite />
           <DailyHealthLandmark
             zoom={ambientZoom}
             onOpen={() => setHealthSummaryOpen(true)}

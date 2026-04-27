@@ -66,9 +66,9 @@ existing targets:
 - system-authored structured failures render as asteroid-style markers
 - user-authored items render with the same target-bound badge stack
 
-Badges are rendered inside their target node or cluster shell with inverse-scale
-styling. That keeps them screen-sized while moving and zooming exactly with the
-bound channel, bot, or widget.
+Node-bound badges render in a high-z canvas world overlay with inverse-scale
+styling. That keeps them screen-sized and anchored to the bound channel, bot,
+or widget while avoiding clipping by neighboring widget chrome.
 
 The **Attention Hub** is the global triage surface. It is reachable from:
 
@@ -80,7 +80,10 @@ The **Attention Hub** is the global triage surface. It is reachable from:
 The hub lists lanes for items needing reply, assigned work, system errors, and
 recent/reported items. Clicking a Beacon opens the same hub drawer with message,
 next steps, source, target, count, assignment state, report findings, evidence,
-and actions.
+and actions. When a target has multiple active items, the drawer opens in a
+target review mode that labels the target, shows the current issue as `N of M`,
+lists the target's active issues, and advances to the next active item after
+acknowledge or resolve.
 
 ## Reply And Resolve
 

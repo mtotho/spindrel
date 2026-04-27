@@ -162,74 +162,83 @@ function AgentRow({
 
       {!compact ? (
         <>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-              gap: 6,
-              color: t.textDim,
-              fontSize: 11,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            <span>{fmtNumber(bot.metrics.total_tokens)} tokens</span>
-            <span>{bot.metrics.tool_calls} tools</span>
-            <span>{bot.metrics.repeated_tool_calls} repeats</span>
-            <span
-              title={
-                bot.metrics.tool_schema_tokens_estimate
-                  ? `${fmtNumber(bot.metrics.tool_schema_tokens_estimate)} schema tokens/turn`
-                  : "No tool_surface_summary recorded in window"
-              }
-            >
-              {fmtNumber(bot.metrics.estimated_bloat_tokens)} bloat
-            </span>
-          </div>
-          {(bot.metrics.pinned_unused_tools.length > 0 || bot.metrics.unused_tools_count > 0) ? (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 4,
-                color: t.textMuted,
-                fontSize: 10,
-                lineHeight: 1.5,
-              }}
-            >
-              {bot.metrics.unused_tools_count > 0 ? (
-                <span
+          {(() => {
+            const m = bot.metrics;
+            const unusedCount = m.unused_tools_count ?? 0;
+            const pinnedUnused = m.pinned_unused_tools ?? [];
+            const bloatTokens = m.estimated_bloat_tokens ?? 0;
+            const schemaTokens = m.tool_schema_tokens_estimate ?? 0;
+            return (
+              <>
+                <div
                   style={{
-                    border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 999,
-                    padding: "1px 6px",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: 6,
+                    color: t.textDim,
+                    fontSize: 11,
+                    fontVariantNumeric: "tabular-nums",
                   }}
-                  title="Tools enrolled (source=fetched) for >7 days with no recorded use"
                 >
-                  {bot.metrics.unused_tools_count} unused
-                </span>
-              ) : null}
-              {bot.metrics.pinned_unused_tools.slice(0, 3).map((name) => (
-                <span
-                  key={name}
-                  style={{
-                    border: `1px solid ${t.warningBorder}`,
-                    background: t.warningSubtle,
-                    color: t.warning,
-                    borderRadius: 999,
-                    padding: "1px 6px",
-                  }}
-                  title="Pinned but never used — surfaces user intent that isn't paying off"
-                >
-                  📌 {name}
-                </span>
-              ))}
-              {bot.metrics.pinned_unused_tools.length > 3 ? (
-                <span style={{ color: t.textDim }}>
-                  +{bot.metrics.pinned_unused_tools.length - 3}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
+                  <span>{fmtNumber(m.total_tokens)} tokens</span>
+                  <span>{m.tool_calls} tools</span>
+                  <span>{m.repeated_tool_calls} repeats</span>
+                  <span
+                    title={
+                      schemaTokens
+                        ? `${fmtNumber(schemaTokens)} schema tokens/turn`
+                        : "No tool_surface_summary recorded in window"
+                    }
+                  >
+                    {fmtNumber(bloatTokens)} bloat
+                  </span>
+                </div>
+                {(pinnedUnused.length > 0 || unusedCount > 0) ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 4,
+                      color: t.textMuted,
+                      fontSize: 10,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {unusedCount > 0 ? (
+                      <span
+                        style={{
+                          border: `1px solid ${t.surfaceBorder}`,
+                          borderRadius: 999,
+                          padding: "1px 6px",
+                        }}
+                        title="Tools enrolled (source=fetched) for >7 days with no recorded use"
+                      >
+                        {unusedCount} unused
+                      </span>
+                    ) : null}
+                    {pinnedUnused.slice(0, 3).map((name) => (
+                      <span
+                        key={name}
+                        style={{
+                          border: `1px solid ${t.warningBorder}`,
+                          background: t.warningSubtle,
+                          color: t.warning,
+                          borderRadius: 999,
+                          padding: "1px 6px",
+                        }}
+                        title="Pinned but never used — surfaces user intent that isn't paying off"
+                      >
+                        📌 {name}
+                      </span>
+                    ))}
+                    {pinnedUnused.length > 3 ? (
+                      <span style={{ color: t.textDim }}>+{pinnedUnused.length - 3}</span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            );
+          })()}
         </>
       ) : null}
 
