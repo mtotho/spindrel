@@ -493,23 +493,6 @@ function persistStarboardTab(tab: StarboardStation) {
   }
 }
 
-function StationButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
-        active
-          ? "bg-accent/[0.08] text-accent"
-          : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
-}
-
 function ObjectContextMenu({ x, y, item, onClose }: { x: number; y: number; item: StarboardObjectItem; onClose: () => void }) {
   const left = Math.min(x, window.innerWidth - 230);
   const top = Math.min(y, window.innerHeight - Math.max(64, item.actions.length * 34 + 12));

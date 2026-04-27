@@ -382,9 +382,16 @@ export function WidgetPresetsPane({
 
   const builder = layout === "builder";
   const narrow = layout === "narrow";
+  const compactSurface = builder || narrow;
 
   return (
-    <div className={builder ? "flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto" : "flex flex-col gap-3 p-3"}>
+    <div className={
+      builder
+        ? "flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto"
+        : narrow
+          ? "flex flex-col gap-4"
+          : "flex flex-col gap-3 p-3"
+    }>
       {!builder && !narrow && (
         <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
           <Home size={12} className="mt-0.5 shrink-0 text-accent/70" />
@@ -401,9 +408,13 @@ export function WidgetPresetsPane({
           ? "flex flex-col gap-3"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
-        <section className={builder ? "relative z-20 min-w-0 shrink-0 bg-transparent xl:min-h-0 xl:overflow-hidden" : "min-h-0 border border-surface-border bg-surface"}>
-          <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-3 py-2"}>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
+        <section className={
+          compactSurface
+            ? "relative z-20 min-w-0 shrink-0 bg-transparent xl:min-h-0 xl:overflow-hidden"
+            : "min-h-0 border border-surface-border bg-surface"
+        }>
+          <div className={compactSurface ? "pb-2" : "border-b border-surface-border px-3 py-2"}>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
               Presets
             </div>
             {builder && (
@@ -432,7 +443,7 @@ export function WidgetPresetsPane({
               </div>
             </div>
           )}
-          <div className={builder ? "space-y-1 xl:max-h-full xl:overflow-auto" : "max-h-full space-y-1 overflow-auto p-2"}>
+          <div className={compactSurface ? "space-y-1 xl:max-h-full xl:overflow-auto" : "max-h-full space-y-1 overflow-auto p-2"}>
             {filtered.map((preset) => {
               const active = preset.id === selectedPreset?.id;
               return (
@@ -445,16 +456,17 @@ export function WidgetPresetsPane({
                     setPinSuccess(false);
                   }}
                   className={[
-                    builder
+                    compactSurface
                       ? "relative z-10 w-full px-3 py-3 text-left transition-colors"
                       : "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                     active
-                      ? builder
+                      ? compactSurface
                         ? "bg-accent/[0.08] text-text"
                         : "border-accent/50 bg-accent/10 text-text"
-                      : builder
+                      : compactSurface
                         ? "text-text-muted hover:bg-surface-overlay/60"
                         : "border-transparent text-text-muted hover:border-surface-border hover:bg-surface-overlay",
+                    narrow && "rounded-md",
                   ].join(" ")}
                 >
                   <div className="text-[13px] font-medium text-text">{preset.name}</div>
@@ -465,14 +477,26 @@ export function WidgetPresetsPane({
           </div>
         </section>
 
-        <section className={builder ? "relative min-w-0 bg-transparent xl:min-h-0 xl:overflow-hidden" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+        <section className={
+          builder
+            ? "relative min-w-0 bg-transparent xl:min-h-0 xl:overflow-hidden"
+            : narrow
+              ? "min-h-0 rounded-md bg-surface-overlay/20 px-3 py-3"
+              : "min-h-0 rounded-xl border border-surface-border bg-surface"
+        }>
           {!selectedPreset ? (
             <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-[12px] text-text-muted">
               Select a preset to configure it.
             </div>
           ) : (
             <div className="flex min-w-0 flex-col 2xl:h-full 2xl:min-h-0">
-              <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
+              <div className={
+                builder
+                  ? "px-1 py-2"
+                  : narrow
+                    ? "pb-3"
+                    : "border-b border-surface-border px-4 py-3"
+              }>
                 <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                   <div className="min-w-0">
                     <div className="text-[15px] font-semibold text-text">{selectedPreset.name}</div>
@@ -499,7 +523,13 @@ export function WidgetPresetsPane({
                 )}
               </div>
 
-              <div className={builder ? "min-w-0 px-1 py-4 2xl:flex-1 2xl:overflow-auto" : "flex-1 overflow-auto p-4"}>
+              <div className={
+                builder
+                  ? "min-w-0 px-1 py-4 2xl:flex-1 2xl:overflow-auto"
+                  : narrow
+                    ? "flex-1 overflow-auto py-1"
+                    : "flex-1 overflow-auto p-4"
+              }>
                 <div className="grid gap-3">
                   {Object.entries(selectedPreset.binding_schema.properties ?? {}).map(([fieldId, field]) => (
                     <PresetField
@@ -540,14 +570,23 @@ export function WidgetPresetsPane({
                 )}
               </div>
 
-              <div className={builder ? "px-1 py-3" : "border-t border-surface-border px-4 py-3"}>
+              <div className={
+                builder
+                  ? "px-1 py-3"
+                  : narrow
+                    ? "pt-3"
+                    : "border-t border-surface-border px-4 py-3"
+              }>
                 <div className="flex flex-wrap items-center gap-2">
                   {!builder && (
                     <button
                       type="button"
                       onClick={runPreview}
                       disabled={!selectedBotId || previewState.running}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                      className={[
+                        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40",
+                        narrow ? "text-accent hover:bg-accent/[0.08]" : "bg-accent text-white hover:opacity-90",
+                      ].join(" ")}
                     >
                       {previewState.running ? <Loader2 size={13} className="animate-spin" /> : <Home size={13} />}
                       Run preview
@@ -558,7 +597,10 @@ export function WidgetPresetsPane({
                       type="button"
                       onClick={handlePin}
                       disabled={pinDisabled}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-3 py-1.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay disabled:opacity-40"
+                      className={[
+                        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40",
+                        narrow ? "text-text-muted hover:bg-surface-overlay/60 hover:text-text" : "border border-surface-border text-text-muted hover:bg-surface-overlay",
+                      ].join(" ")}
                     >
                       {pinning ? (
                         <Loader2 size={13} className="animate-spin" />
@@ -577,16 +619,34 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "relative min-w-0 bg-transparent xl:col-span-2 2xl:col-span-1 2xl:min-h-0 xl:overflow-hidden" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
-            <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
+          <section className={
+            builder
+              ? "relative min-w-0 bg-transparent xl:col-span-2 2xl:col-span-1 2xl:min-h-0 xl:overflow-hidden"
+              : narrow
+                ? "min-h-0 rounded-md bg-surface-overlay/20 px-3 py-3"
+                : "min-h-0 rounded-xl border border-surface-border bg-surface"
+          }>
+            <div className={
+              builder
+                ? "px-1 py-2"
+                : narrow
+                  ? "pb-3"
+                  : "border-b border-surface-border px-4 py-3"
+            }>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
                 Preview
               </div>
               <div className="mt-1 text-[11px] text-text-muted">
                 Confirm the widget before pinning it onto the dashboard.
               </div>
             </div>
-            <div className={builder ? "flex min-h-[180px] min-w-0 flex-col overflow-x-hidden px-1 py-4 2xl:h-full 2xl:overflow-auto" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
+            <div className={
+              builder
+                ? "flex min-h-[180px] min-w-0 flex-col overflow-x-hidden px-1 py-4 2xl:h-full 2xl:overflow-auto"
+                : narrow
+                  ? "flex min-h-[240px] flex-col overflow-auto"
+                  : "flex h-full min-h-[320px] flex-col overflow-auto p-4"
+            }>
               {previewState.running ? (
                 <div className="flex flex-1 items-center justify-center text-[12px] text-text-muted">
                   <Loader2 size={16} className="mr-2 animate-spin" />

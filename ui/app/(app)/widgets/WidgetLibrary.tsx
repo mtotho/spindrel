@@ -94,6 +94,8 @@ export interface WidgetLibraryProps {
    *  where tool renderers are not directly pinnable — those flow through their
    *  preset wrapper instead. */
   hideToolRenderers?: boolean;
+  /** Fit inside another command surface without adding a second gutter/frame. */
+  embedded?: boolean;
 }
 
 export function libraryPinIdentity(envelope: ToolResultEnvelope): string | null {
@@ -227,6 +229,7 @@ export function WidgetLibrary({
   onToolRendererPinCreated,
   query = "",
   hideToolRenderers = false,
+  embedded = false,
 }: WidgetLibraryProps) {
   const [catalog, setCatalog] = useState<WidgetLibraryCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -306,7 +309,7 @@ export function WidgetLibrary({
   const effectiveTopTab: TopTab = hideToolRenderers ? "pinnable" : topTab;
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className={embedded ? "flex flex-col gap-3" : "flex flex-col gap-3 p-3"}>
       {!hideToolRenderers && (
         <div className="flex items-center gap-2 border-b border-surface-border/50 px-1 pb-2">
           <TopTabButton
@@ -333,7 +336,7 @@ export function WidgetLibrary({
       )}
 
       {effectiveTopTab === "pinnable" && (
-        <PinnablePane
+          <PinnablePane
           catalog={catalog}
           error={error}
           totals={totals}
@@ -355,6 +358,7 @@ export function WidgetLibrary({
           onPin={onPin}
           expandedKey={expandedKey}
           setExpandedKey={setExpandedKey}
+          embedded={embedded}
         />
       )}
 
@@ -395,7 +399,7 @@ function PinnablePane({
   catalog, error, totals, scopeFilter, setScopeFilter, match,
   showCore, showIntegration, showBot, showWs, showChannel,
   pinBotId, resolutionBotId, scopeChannelId, botEnumeration, botsByBucket,
-  allowPin, existingRefs, onPin, expandedKey, setExpandedKey,
+  allowPin, existingRefs, onPin, expandedKey, setExpandedKey, embedded,
 }: {
   catalog: WidgetLibraryCatalog | null;
   error: string | null;
@@ -418,6 +422,7 @@ function PinnablePane({
   onPin?: (payload: LibraryPinPayload) => Promise<void>;
   expandedKey: string | null;
   setExpandedKey: (k: string | null) => void;
+  embedded: boolean;
 }) {
   if (error) {
     return (
@@ -441,7 +446,7 @@ function PinnablePane({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface px-1.5 py-1 text-[11px]">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-overlay/30 px-1.5 py-1 text-[11px]">
         <ScopeChip
           label={`All (${totals.all})`}
           active={scopeFilter === "all"}
@@ -508,6 +513,7 @@ function PinnablePane({
             onPin={onPin}
             expandedKey={expandedKey}
             setExpandedKey={setExpandedKey}
+            embedded={embedded}
           />
         )}
         {showIntegration && (
@@ -523,6 +529,7 @@ function PinnablePane({
             onPin={onPin}
             expandedKey={expandedKey}
             setExpandedKey={setExpandedKey}
+            embedded={embedded}
             emptyHint="No integration-shipped widgets on this instance."
           />
         )}
@@ -546,6 +553,7 @@ function PinnablePane({
                   onPin={onPin}
                   expandedKey={expandedKey}
                   setExpandedKey={setExpandedKey}
+                  embedded={embedded}
                 />
               );
             })}
@@ -562,6 +570,7 @@ function PinnablePane({
                 onPin={onPin}
                 expandedKey={expandedKey}
                 setExpandedKey={setExpandedKey}
+                embedded={embedded}
                 emptyHint="No bot-authored library widgets yet. Ask a bot: 'save this into your library'."
               />
             )}
@@ -584,6 +593,7 @@ function PinnablePane({
             onPin={onPin}
             expandedKey={expandedKey}
             setExpandedKey={setExpandedKey}
+            embedded={embedded}
             emptyHint={
               resolutionBotId
                 ? "No bot-authored library widgets yet. Ask the bot: 'save this into your library'."
@@ -604,6 +614,7 @@ function PinnablePane({
             onPin={onPin}
             expandedKey={expandedKey}
             setExpandedKey={setExpandedKey}
+            embedded={embedded}
             emptyHint={
               botEnumeration === "all-bots" || resolutionBotId
                 ? "Empty. Needs a shared workspace — bots in a shared workspace can author under widget://workspace/…"
@@ -623,7 +634,8 @@ function PinnablePane({
             allowPin={allowPin}
             onPin={onPin}
             expandedKey={expandedKey}
-            setExpandedKey={setExpandedKey}
+           setExpandedKey={setExpandedKey}
+            embedded={embedded}
             emptyHint="Drop an HTML file under a channel's workspace (or ask the bot: 'save this widget to the channel')."
           />
         )}
@@ -667,7 +679,7 @@ function ScopeChip({
 
 function Section({
   icon, title, subtitle, entries, pinBotId, resolutionBotId, existingRefs, allowPin, onPin, emptyHint,
-  expandedKey, setExpandedKey,
+  expandedKey, setExpandedKey, embedded,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -681,9 +693,10 @@ function Section({
   emptyHint?: string | null;
   expandedKey: string | null;
   setExpandedKey: (k: string | null) => void;
+  embedded: boolean;
 }) {
   return (
-    <div className="overflow-hidden rounded-md bg-surface">
+    <div className={embedded ? "overflow-hidden rounded-md bg-surface-overlay/20" : "overflow-hidden rounded-md bg-surface"}>
       <div className="flex items-baseline gap-2 px-3 py-2">
         {icon}
         <span className="text-[12px] font-semibold text-text">{title}</span>

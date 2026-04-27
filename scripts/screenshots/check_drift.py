@@ -41,6 +41,9 @@ _HERO_OPTIONAL = frozenset({
     "programmatic-tool-calling.md",
     "workflows.md",  # deprecated guide, intentionally hero-less
     "templates-and-activation.md",  # configuration concept; no single hero shot
+    "slack.md",  # capturing real Slack delivery requires live tokens we don't run
+                 # on the e2e instance; revisit once we either wire a Block Kit
+                 # preview path or stand up a Slack workspace fixture.
 })
 
 

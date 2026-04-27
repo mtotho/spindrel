@@ -172,14 +172,14 @@ export function CanvasLibraryContent({ onClose, worldCenter, embedded = false }:
         </div>
       )}
       {embedded && (
-        <div className="px-2 pb-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Place</div>
+        <div className="pb-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Drop target</div>
           <div className="mt-1 text-xs text-text-muted">
-            New widgets land at the current camera center. Context-menu launches keep the clicked map position.
+            Current view center; context-menu launches use the clicked map position.
           </div>
         </div>
       )}
-      <div className="mx-2 mb-3 grid grid-cols-2 gap-1 rounded-md bg-surface-overlay/30 p-1">
+      <div className="mb-3 grid grid-cols-2 gap-1 rounded-md bg-surface-overlay/30 p-1">
         <CanvasTab
           label="Presets"
           description="Configured integration widgets"
@@ -193,7 +193,7 @@ export function CanvasLibraryContent({ onClose, worldCenter, embedded = false }:
           onClick={() => setTab("library")}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === "presets" ? (
           <WidgetPresetsPane
             mode="pin"
@@ -210,6 +210,7 @@ export function CanvasLibraryContent({ onClose, worldCenter, embedded = false }:
             scopeChannelId={null}
             onPin={handleLibraryPin}
             hideToolRenderers
+            embedded={embedded}
           />
         )}
       </div>
