@@ -84,6 +84,7 @@ import {
   type MemoryObservationSelection,
 } from "./MemoryObservatory";
 import DailyHealthLandmark from "./DailyHealthLandmark";
+import { BloatSatellite } from "./BloatSatellite";
 import SummaryPanel from "../system-health/SummaryPanel";
 import { buildWidgetOverviewClusters } from "./widgetOverviewClusters";
 import { ChatSession } from "../chat/ChatSession";

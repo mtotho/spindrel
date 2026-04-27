@@ -4,7 +4,7 @@
 
 Spindrel installs as a Progressive Web App on desktop, Android, and iOS (16.4+). Once installed, bots can wake you with Web Push notifications — pipeline completions, approval requests, alerts, anything you explicitly asked to be buzzed about.
 
-This guide covers installing the PWA, enabling push, using the `send_push_notification` bot tool, and the server-side `POST /api/v1/push/send` endpoint.
+This guide covers installing the PWA, enabling push, using the `send_push_notification` bot tool, and the server-side `POST /api/v1/push/send` endpoint. PWA push is also available through core [notification targets](notifications.md) as the `user_push` target kind.
 
 ---
 
@@ -66,6 +66,8 @@ Multiple devices per user are supported: one subscription row per endpoint. When
 ## Sending from a bot — `send_push_notification`
 
 The canonical pattern: bot decides something is important enough to interrupt you, calls `send_push_notification`. This is Spindrel's equivalent of Home Assistant's `notify.*` service.
+
+For reusable admin-managed destinations, prefer [notification targets](notifications.md): create a `user_push` target, grant it to a bot, then have the bot call `send_notification` with that target id. Keep `send_push_notification` for direct one-off push sends.
 
 ```text
 send_push_notification(

@@ -191,6 +191,32 @@ tool injected so the bot can store concise findings on the item. Assignment
 semantics are investigate/report only; they do not authorize the bot to execute
 fixes.
 
+## Pinned Widget Context From Heartbeats
+
+`ChannelHeartbeat.include_pinned_widgets` is an opt-in heartbeat setting. When
+enabled, the heartbeat service snapshots export-enabled widgets pinned to the
+channel dashboard and appends the resulting block to the heartbeat
+`system_preamble`; it is not appended to the heartbeat user prompt.
+
+The block starts with:
+
+```text
+The user has these widgets pinned in this channel — treat their state as current reference data:
+```
+
+Each exported widget contributes one line, capped at 250 characters and with a
+2,000-character total block budget. Native widgets export compact summaries:
+
+- Notes: first body snippet, or an empty-note marker with update time.
+- Todo: `{open} open, {done} done; next: first two open titles`.
+- Pinned Files: pinned-file count and active filename when present.
+- Standing Order: goal, status, iteration count, and latest log/terminal reason.
+
+Widgets without `widget_contract.context_export.enabled=true`, without a
+summary, beyond the first 12 exports, or beyond the block budget are skipped.
+The snapshot includes skip reasons for debugging, but skipped rows are not
+shown to the bot.
+
 ---
 
 ## Metadata Injection

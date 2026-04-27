@@ -188,12 +188,9 @@ In **Admin > Usage > Alerts**:
 
 ### Notification Targets
 
-Alerts are delivered via the same dispatcher system used for bot messages. You can add multiple targets:
+Alerts use core [notification targets](notifications.md). Create reusable targets in **Admin > Notifications**, then select those targets in **Admin > Usage > Alerts**.
 
-- **Channel** — Any channel with a configured integration (Slack, Discord, BlueBubbles, etc.)
-- **Integration binding** — A specific integration client ID (e.g., a particular Slack channel or iMessage contact)
-
-Each target is dispatched independently — one failure doesn't block others.
+Supported target kinds include PWA push, channels, direct integration bindings, and groups. Each destination is dispatched independently; one failure doesn't block the others. Legacy spike-alert target JSON is migrated lazily into saved notification targets.
 
 ### Alert Content
 
@@ -305,11 +302,11 @@ All endpoints require admin authentication and are prefixed with `/api/v1/admin`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/spike-alerts/config` | Get config (auto-creates default if missing) |
-| PUT | `/spike-alerts/config` | Update thresholds, targets, enabled |
+| PUT | `/spike-alerts/config` | Update thresholds, `target_ids`, enabled |
 | POST | `/spike-alerts/test` | Fire test alert (bypasses cooldown) |
 | GET | `/spike-alerts/history` | Paginated alert history |
 | GET | `/spike-alerts/status` | Current rate, baseline, spike ratio |
-| GET | `/spike-alerts/targets/available` | List available notification targets |
+| GET | `/spike-alerts/targets/available` | Legacy available-target listing; prefer `/admin/notification-targets` |
 
 ### Providers
 

@@ -165,6 +165,23 @@ export interface AgentSmellMetrics {
   error_events: number;
   slow_trace_count: number;
   max_trace_duration_ms: number;
+  enrolled_tools_count: number;
+  unused_tools_count: number;
+  pinned_unused_tools: string[];
+  enrolled_skills_count: number;
+  unused_skills_count: number;
+  pinned_unused_skills: string[];
+  tool_schema_tokens_estimate: number;
+  estimated_bloat_tokens: number;
+}
+
+export interface AgentSmellSummary {
+  bloated_bot_count: number;
+  total_unused_tools: number;
+  total_pinned_unused_tools: number;
+  total_unused_skills: number;
+  total_estimated_bloat_tokens: number;
+  max_severity: "clean" | "watch" | "smelly" | "critical" | string;
 }
 
 export interface AgentSmellTraceEvidence {
@@ -200,6 +217,7 @@ export interface AgentSmellResponse {
   baseline_end: string;
   source_type?: string | null;
   bots: AgentSmellBot[];
+  summary: AgentSmellSummary;
 }
 
 function buildQS(params: Record<string, string | number | undefined>): string {

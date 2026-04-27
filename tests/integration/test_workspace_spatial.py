@@ -173,6 +173,7 @@ class TestSpatialNodesAutoSeed:
                 "enabled": True,
                 "allow_movement": True,
                 "allow_moving_spatial_objects": True,
+                "allow_attention_beacons": True,
                 "step_world_units": 32,
                 "max_move_steps_per_turn": 2,
             },
@@ -190,6 +191,7 @@ class TestSpatialNodesAutoSeed:
         )
         assert r2.status_code == 200, r2.text
         assert r2.json()["policy"]["allow_moving_spatial_objects"] is True
+        assert r2.json()["policy"]["allow_attention_beacons"] is True
 
     async def test_move_bot_node_respects_channel_policy(self, client, db_session):
         ch = await _create_channel(client)

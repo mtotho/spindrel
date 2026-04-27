@@ -27,6 +27,7 @@ interface Props {
   onSend: (message: string, files?: PendingFile[]) => void;
   onSendAudio?: (audioBase64: string, audioFormat: string, message?: string) => void;
   disabled?: boolean;
+  sendDisabledReason?: string | null;
   isStreaming?: boolean;
   onCancel?: () => void;
   modelOverride?: string;
@@ -111,7 +112,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, onHarnessModelChange, onHarnessEffortChange, harnessModelMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, onHarnessModelChange, onHarnessEffortChange, harnessModelMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -179,6 +180,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSend = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
+    if (sendDisabledReason) {
+      toast({ kind: "info", message: sendDisabledReason });
+      editorRef.current?.focus();
+      return;
+    }
     const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
     if (slashCommand && pendingFiles.length === 0) {
       onSlashCommand?.(slashCommand.id, slashCommand.args);
@@ -209,6 +215,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     text,
     pendingFiles,
     disabled,
+    sendDisabledReason,
     slashSurface,
     slashCatalog,
     availableSlashCommands,
@@ -329,7 +336,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   );
 
   const hasContent = !!(text.trim() || pendingFiles.length > 0);
-  const canSend = hasContent && !disabled;
+  const sendBlocked = !!sendDisabledReason;
+  const canAttemptSend = hasContent && !disabled;
+  const canSend = canAttemptSend && !sendBlocked;
   // Show stop button when streaming and user hasn't typed anything
   const showStop = !!isStreaming && !hasContent;
   // Grace period: stop button is visible but disabled briefly after streaming starts
@@ -517,6 +526,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSendNowLocal = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
+    if (sendDisabledReason) {
+      toast({ kind: "info", message: sendDisabledReason });
+      editorRef.current?.focus();
+      return;
+    }
     const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
     if (slashCommand && pendingFiles.length === 0) {
       onSlashCommand?.(slashCommand.id, slashCommand.args);
@@ -547,6 +561,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     text,
     pendingFiles,
     disabled,
+    sendDisabledReason,
     slashSurface,
     slashCatalog,
     availableSlashCommands,
@@ -561,7 +576,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
       : canSend
         ? t.accent
         : t.textDim;
-    const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
+    const sendBtnOpacity = canAttemptSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
       <div style={{ flexShrink: 0, marginTop: isTerminalMode ? 10 : 0 }}>
@@ -1076,7 +1091,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   : showStop ? undefined
                   : handleSend
                 }
-                disabled={!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording}
+                disabled={!canAttemptSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording}
                 style={{
                   display: "flex", flexDirection: "row",
                   alignItems: "center",
@@ -1087,7 +1102,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   borderRadius: isTerminalMode ? 0 : 8,
                   border: isTerminalMode ? "none" : "none",
                   padding: 0,
-                  cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
+                  cursor: (!canAttemptSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
                   backgroundColor: "transparent",
                   opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
                   transition: "background-color 0.15s, opacity 0.15s, border-color 0.15s",

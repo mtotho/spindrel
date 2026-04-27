@@ -10,6 +10,30 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Notifications reuse existing delivery paths instead of defining a provider stack
+**Decided 2026-04-26.** Core notifications are admin-managed targets over existing primitives: PWA Web Push, channel outbox delivery, direct integration binding rendering, and best-effort groups.
+
+**Load-bearing invariants.**
+- Notification targets are destinations, not integration providers. V1 has no SMTP/SMS/email provider registry and no integration manifest key.
+- Channel targets use the existing channel message/outbox path so the web UI and bound integrations see the same event.
+- Direct integration-binding targets call the existing renderer with a resolved dispatch target and only audit notification delivery; they do not create channel history.
+- Bot access requires both tool assignment and per-target `allowed_bot_ids` membership.
+- Usage spike alerts store shared notification `target_ids`; legacy spike target JSON is only a migration source.
+
+**Why.** This keeps notifications fundamental without overbuilding a parallel adapter universe. It captures the useful contract — reusable human-interrupt destinations that can be surfaced in UI and granted to bots — while preserving current delivery ownership in push, channel outbox, and integration renderers.
+
+### Daily server-error rollup is server-generated, not LLM-generated
+**Decided 2026-04-26.** Routine "what broke in the last 24h" sweeps run as a deterministic Python job, not as a scheduled bot turn. The deterministic generator (`app/services/system_health_summary.py::generate_daily_summary`) parses log sources, persists one `SystemHealthSummary` row, and upserts a single rollup `WorkspaceAttentionItem`; bots only enter the picture if the user wires an opt-in pipeline against the persisted summary.
+
+**Load-bearing invariants.**
+- The 60s structured detector (`app/services/workspace_attention.py::detect_structured_attention_once`) keeps its real-time role for `trace_event`/`tool_call`/`heartbeat_run` errors. The daily job does NOT replace it — it complements it by sweeping unstructured stderr that escapes the structured trace bus.
+- Both paths share `_error_signature` so daily-summary findings dedupe-align with the 60s detector's items.
+- App logs gain durability via a rotating JSONL handler (`app/services/log_file.py`) writing to a dedicated `spindrel-logs:/var/log/spindrel` named volume — the only sibling-container path is `docker logs` against an allowlist resolved at call time.
+- A dedicated Attention Hub canvas landmark (`DailyHealthLandmark`) surfaces the latest summary as a persistent tile (Pending / Clean / N errors). Click opens a server-truth side panel; nothing routes through chat by default.
+- Admin/op tools (`read_container_logs`, `get_recent_server_errors`, `get_latest_health_summary`) ship behind a new `system_diagnostics` skill, gated like every other tool.
+
+**Why.** User intent: "the summary should be non-LLM related." Routine error sweeps must not burn tokens; chat is too heavy a surface for a daily rollup. A persisted, deterministic artifact gives both humans and opt-in pipelines a stable target to read.
+
 ### Harness SDK is a host contract; runtime specifics stay in integrations
 **Decided 2026-04-26.** External agent harnesses are a separate runtime lane from normal Spindrel bots. They reuse Spindrel channels, workspaces, session persistence, approvals, and UI chrome, but the harness owns its native reasoning loop, native tools, file edits, and native session id. The planning home is [[Track - Harness SDK]].
 

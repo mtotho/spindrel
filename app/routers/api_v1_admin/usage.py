@@ -22,8 +22,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
-    Bot, Channel, ChannelHeartbeat, HeartbeatRun,
-    ProviderConfig, ProviderModel, Session, Task, ToolCall, TraceEvent,
+    Bot, BotSkillEnrollment, BotToolEnrollment, Channel, ChannelHeartbeat,
+    HeartbeatRun, ProviderConfig, ProviderModel, Session, Skill, Task,
+    ToolCall, TraceEvent,
 )
 from app.config import settings
 from app.dependencies import get_db, require_scopes
@@ -471,6 +472,15 @@ class AgentSmellMetrics(BaseModel):
     error_events: int = 0
     slow_trace_count: int = 0
     max_trace_duration_ms: int = 0
+    # Context bloat — working-set hygiene
+    enrolled_tools_count: int = 0
+    unused_tools_count: int = 0
+    pinned_unused_tools: list[str] = Field(default_factory=list)
+    enrolled_skills_count: int = 0
+    unused_skills_count: int = 0
+    pinned_unused_skills: list[str] = Field(default_factory=list)
+    tool_schema_tokens_estimate: int = 0
+    estimated_bloat_tokens: int = 0
 
 
 class AgentSmellTraceEvidence(BaseModel):
@@ -499,6 +509,16 @@ class AgentSmellBot(BaseModel):
     traces: list[AgentSmellTraceEvidence] = Field(default_factory=list)
 
 
+class AgentSmellSummary(BaseModel):
+    """Top-level workspace-wide bloat signal for satellites/badges."""
+    bloated_bot_count: int = 0
+    total_unused_tools: int = 0
+    total_pinned_unused_tools: int = 0
+    total_unused_skills: int = 0
+    total_estimated_bloat_tokens: int = 0
+    max_severity: str = "clean"
+
+
 class AgentSmellOut(BaseModel):
     window_start: str
     window_end: str
@@ -506,6 +526,7 @@ class AgentSmellOut(BaseModel):
     baseline_end: str
     source_type: str | None = None
     bots: list[AgentSmellBot] = Field(default_factory=list)
+    summary: AgentSmellSummary = Field(default_factory=AgentSmellSummary)
 
 
 def _metric_from_events(
@@ -806,6 +827,211 @@ def _reason_severity(points: int) -> str:
     return "watch"
 
 
+# ---------------------------------------------------------------------------
+# Context bloat — working-set hygiene signal
+# ---------------------------------------------------------------------------
+#
+# Underutilized tools and skills inflate every turn's prompt by 100-400 tokens
+# of unused schema each. The bloat signal joins persistent enrollments
+# (BotToolEnrollment / BotSkillEnrollment) against pinned lists (Bot.pinned_tools /
+# Bot.skills) and the most recent tool_surface_summary trace event to score
+# how much of a bot's working set is dead weight.
+
+# Heuristic: an average tool schema is ~200 tokens. Tracks the actual measured
+# value from tool_surface_summary when available; otherwise per-tool estimate.
+_AVG_TOOL_SCHEMA_TOKENS = 200
+_AVG_SKILL_OVERHEAD_TOKENS = 80
+_BLOAT_GRACE_DAYS = 7  # don't flag tools enrolled in the last week as unused
+
+
+class _BotBloatData(BaseModel):
+    """Per-bot working-set hygiene snapshot."""
+    enrolled_tools_count: int = 0
+    unused_tools_count: int = 0
+    pinned_unused_tools: list[str] = Field(default_factory=list)
+    enrolled_skills_count: int = 0
+    unused_skills_count: int = 0
+    pinned_unused_skills: list[str] = Field(default_factory=list)
+    tool_schema_tokens_estimate: int = 0
+    estimated_bloat_tokens: int = 0
+
+
+async def _fetch_agent_bloat_data(
+    db: AsyncSession,
+    *,
+    bot_ids: set[str],
+    after: datetime,
+) -> dict[str, _BotBloatData]:
+    """Build per-bot context-bloat snapshots.
+
+    "Unused" is conservative: source='fetched', fetch_count == 0, and the
+    enrollment is older than the grace window. Pinned items get reported
+    separately so the bot/operator sees user intent that isn't paying off.
+    """
+    if not bot_ids:
+        return {}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_BLOAT_GRACE_DAYS)
+
+    tool_rows = (await db.execute(
+        select(BotToolEnrollment).where(BotToolEnrollment.bot_id.in_(bot_ids))
+    )).scalars().all()
+    skill_rows = (await db.execute(
+        select(BotSkillEnrollment).where(BotSkillEnrollment.bot_id.in_(bot_ids))
+    )).scalars().all()
+    bot_rows = (await db.execute(
+        select(Bot.id, Bot.pinned_tools, Bot.skills).where(Bot.id.in_(bot_ids))
+    )).all()
+    pin_tools_by_bot: dict[str, list[str]] = {}
+    pin_skills_by_bot: dict[str, list[str]] = {}
+    for row in bot_rows:
+        pin_tools_by_bot[row.id] = list(row.pinned_tools or [])
+        pin_skills_by_bot[row.id] = list(row.skills or [])
+
+    skill_ids_referenced: set[str] = set()
+    for row in skill_rows:
+        skill_ids_referenced.add(row.skill_id)
+    for ids in pin_skills_by_bot.values():
+        skill_ids_referenced.update(ids)
+    skill_name_by_id: dict[str, str] = {}
+    if skill_ids_referenced:
+        skill_id_rows = (await db.execute(
+            select(Skill.id, Skill.name).where(Skill.id.in_(skill_ids_referenced))
+        )).all()
+        skill_name_by_id = {row.id: row.name for row in skill_id_rows}
+
+    # Most recent tool_surface_summary per bot (within window).
+    surface_events = (await db.execute(
+        select(TraceEvent)
+        .where(
+            TraceEvent.event_type == "tool_surface_summary",
+            TraceEvent.bot_id.in_(bot_ids),
+            TraceEvent.created_at >= after,
+        )
+        .order_by(TraceEvent.created_at.desc())
+    )).scalars().all()
+    schema_tokens_by_bot: dict[str, int] = {}
+    for ev in surface_events:
+        if ev.bot_id and ev.bot_id not in schema_tokens_by_bot:
+            est = int((ev.data or {}).get("tool_schema_tokens_estimate") or 0)
+            if est > 0:
+                schema_tokens_by_bot[ev.bot_id] = est
+
+    tools_by_bot: dict[str, list[BotToolEnrollment]] = {}
+    for row in tool_rows:
+        tools_by_bot.setdefault(row.bot_id, []).append(row)
+    skills_by_bot: dict[str, list[BotSkillEnrollment]] = {}
+    for row in skill_rows:
+        skills_by_bot.setdefault(row.bot_id, []).append(row)
+
+    out: dict[str, _BotBloatData] = {}
+    for bot_id in bot_ids:
+        tool_enrollments = tools_by_bot.get(bot_id, [])
+        skill_enrollments = skills_by_bot.get(bot_id, [])
+        pinned_tool_names = set(pin_tools_by_bot.get(bot_id, []))
+        pinned_skill_ids = set(pin_skills_by_bot.get(bot_id, []))
+
+        unused_tools = 0
+        for row in tool_enrollments:
+            if row.tool_name in pinned_tool_names:
+                continue  # pinned-unused reported separately
+            if (row.source or "").lower() != "fetched":
+                continue
+            if row.fetch_count and row.fetch_count > 0:
+                continue
+            enrolled_at = row.enrolled_at
+            if enrolled_at and enrolled_at.tzinfo is None:
+                enrolled_at = enrolled_at.replace(tzinfo=timezone.utc)
+            if enrolled_at and enrolled_at > cutoff:
+                continue  # within grace window
+            unused_tools += 1
+
+        # Pinned-but-never-used: pinned name with no enrollment row OR fetch_count == 0.
+        tool_use_by_name = {row.tool_name: row for row in tool_enrollments}
+        pinned_unused_tools: list[str] = []
+        for name in pin_tools_by_bot.get(bot_id, []):
+            row = tool_use_by_name.get(name)
+            if row is None or not row.fetch_count:
+                pinned_unused_tools.append(name)
+
+        unused_skills = 0
+        for row in skill_enrollments:
+            if row.skill_id in pinned_skill_ids:
+                continue
+            if (row.source or "").lower() != "fetched":
+                continue
+            if (row.fetch_count or 0) > 0 or (row.auto_inject_count or 0) > 0:
+                continue
+            enrolled_at = row.enrolled_at
+            if enrolled_at and enrolled_at.tzinfo is None:
+                enrolled_at = enrolled_at.replace(tzinfo=timezone.utc)
+            if enrolled_at and enrolled_at > cutoff:
+                continue
+            unused_skills += 1
+
+        skill_use_by_id = {row.skill_id: row for row in skill_enrollments}
+        pinned_unused_skills: list[str] = []
+        for sid in pin_skills_by_bot.get(bot_id, []):
+            row = skill_use_by_id.get(sid)
+            used = bool(row and ((row.fetch_count or 0) > 0 or (row.auto_inject_count or 0) > 0))
+            if not used:
+                pinned_unused_skills.append(skill_name_by_id.get(sid, sid))
+
+        bloat_tokens = (
+            unused_tools * _AVG_TOOL_SCHEMA_TOKENS
+            + len(pinned_unused_tools) * _AVG_TOOL_SCHEMA_TOKENS
+            + unused_skills * _AVG_SKILL_OVERHEAD_TOKENS
+        )
+
+        out[bot_id] = _BotBloatData(
+            enrolled_tools_count=len(tool_enrollments),
+            unused_tools_count=unused_tools,
+            pinned_unused_tools=pinned_unused_tools,
+            enrolled_skills_count=len(skill_enrollments),
+            unused_skills_count=unused_skills,
+            pinned_unused_skills=pinned_unused_skills,
+            tool_schema_tokens_estimate=schema_tokens_by_bot.get(bot_id, 0),
+            estimated_bloat_tokens=bloat_tokens,
+        )
+    return out
+
+
+def _bloat_severity_points(metrics: AgentSmellMetrics) -> tuple[int, str | None]:
+    """Score context-bloat contribution; cap at 20.
+
+    Treats unused enrollments and pinned-but-never-used items as the
+    primary cost signal. Returns (points, detail).
+    """
+    unused = metrics.unused_tools_count
+    pinned_unused = len(metrics.pinned_unused_tools)
+    skill_bloat = metrics.unused_skills_count + len(metrics.pinned_unused_skills)
+    if unused == 0 and pinned_unused == 0 and skill_bloat == 0:
+        return 0, None
+
+    points = 0
+    points += min(12, unused * 2)
+    points += min(6, pinned_unused * 1)
+    points += min(6, skill_bloat * 1)
+    if metrics.tool_schema_tokens_estimate >= 8000:
+        points += 4
+    elif metrics.tool_schema_tokens_estimate >= 5000:
+        points += 2
+    points = min(20, points)
+
+    parts: list[str] = []
+    if unused:
+        parts.append(f"{unused} unused tool{'s' if unused != 1 else ''}")
+    if pinned_unused:
+        parts.append(f"{pinned_unused} pinned-but-unused")
+    if metrics.unused_skills_count:
+        parts.append(f"{metrics.unused_skills_count} unused skill{'s' if metrics.unused_skills_count != 1 else ''}")
+    if metrics.pinned_unused_skills:
+        parts.append(f"{len(metrics.pinned_unused_skills)} pinned-unused skill{'s' if len(metrics.pinned_unused_skills) != 1 else ''}")
+    if metrics.tool_schema_tokens_estimate >= 5000:
+        parts.append(f"~{metrics.tool_schema_tokens_estimate // 1000}k schema tokens/turn")
+    return points, ", ".join(parts) or None
+
+
 def _agent_smell_score(
     *,
     metrics: AgentSmellMetrics,
@@ -899,9 +1125,19 @@ def _agent_smell_score(
             points=slow_points,
         ))
 
-    score = min(100, int(loop_points + failure_points + token_points + slow_points))
+    bloat_points, bloat_detail = _bloat_severity_points(metrics)
+    if bloat_points and bloat_detail:
+        reasons.append(AgentSmellReason(
+            key="context_bloat",
+            label="Context bloat",
+            detail=bloat_detail,
+            severity=_reason_severity(bloat_points),
+            points=bloat_points,
+        ))
+
+    score = min(100, int(loop_points + failure_points + token_points + slow_points + bloat_points))
     reasons.sort(key=lambda reason: reason.points, reverse=True)
-    return score, reasons[:3]
+    return score, reasons[:4]
 
 
 def _build_agent_smell_rows(
@@ -911,15 +1147,21 @@ def _build_agent_smell_rows(
     tool_calls: list[ToolCall],
     error_events: list[TraceEvent],
     bot_map: dict[str, Bot],
+    bloat_by_bot: dict[str, _BotBloatData] | None,
     limit: int,
     window: timedelta,
     baseline: timedelta,
 ) -> list[AgentSmellBot]:
-    bot_ids = {
+    bot_ids: set[str] = {
         row.bot_id
         for row in [*events, *tool_calls, *error_events]
         if row.bot_id
     }
+    # Include any bot that has bloat data even if it had no trace activity
+    # in the window — a bot with 18 stale enrollments but no recent calls
+    # still ranks as smelly.
+    if bloat_by_bot:
+        bot_ids.update(b for b, data in bloat_by_bot.items() if data.unused_tools_count or data.pinned_unused_tools or data.unused_skills_count or data.pinned_unused_skills)
     events_by_bot: dict[str, list[TraceEvent]] = {bot_id: [] for bot_id in bot_ids}
     baseline_by_bot: dict[str, list[TraceEvent]] = {bot_id: [] for bot_id in bot_ids}
     tools_by_bot: dict[str, list[ToolCall]] = {bot_id: [] for bot_id in bot_ids}
@@ -996,6 +1238,7 @@ def _build_agent_smell_rows(
         tool_statuses = Counter((call.status or "").lower() for call in bot_tools)
         tool_errors = sum(1 for call in bot_tools if (call.status or "").lower() == "error" or call.error)
         max_duration = max(durations.values(), default=0)
+        bloat = (bloat_by_bot or {}).get(bot_id) or _BotBloatData()
         metrics = AgentSmellMetrics(
             traces=len(set(trace_times.keys()) | set(trace_tokens.keys())),
             calls=len(bot_events),
@@ -1014,6 +1257,14 @@ def _build_agent_smell_rows(
             error_events=len(bot_errors),
             slow_trace_count=sum(1 for ms in durations.values() if ms >= 10 * 60 * 1000),
             max_trace_duration_ms=max_duration,
+            enrolled_tools_count=bloat.enrolled_tools_count,
+            unused_tools_count=bloat.unused_tools_count,
+            pinned_unused_tools=bloat.pinned_unused_tools,
+            enrolled_skills_count=bloat.enrolled_skills_count,
+            unused_skills_count=bloat.unused_skills_count,
+            pinned_unused_skills=bloat.pinned_unused_skills,
+            tool_schema_tokens_estimate=bloat.tool_schema_tokens_estimate,
+            estimated_bloat_tokens=bloat.estimated_bloat_tokens,
         )
         score, reasons = _agent_smell_score(metrics=metrics)
 
@@ -1373,17 +1624,47 @@ async def agent_smell(
         for row in [*events, *baseline_events, *tool_calls, *error_events]
         if row.bot_id
     }
+    # Pull every bot that has any enrollment row so bloat-only offenders
+    # (no recent trace activity, but a stale 18-tool working set) still rank.
+    bloat_bot_rows = (await db.execute(
+        select(BotToolEnrollment.bot_id).distinct().union(
+            select(BotSkillEnrollment.bot_id).distinct()
+        )
+    )).all()
+    for row in bloat_bot_rows:
+        if row[0]:
+            bot_ids.add(row[0])
+
     bot_map = await _load_bot_map(db, bot_ids)
+    bloat_by_bot = await _fetch_agent_bloat_data(db, bot_ids=bot_ids, after=after_dt)
+
     rows = _build_agent_smell_rows(
         events=events,
         baseline_events=baseline_events,
         tool_calls=tool_calls,
         error_events=error_events,
         bot_map=bot_map,
+        bloat_by_bot=bloat_by_bot,
         limit=limit,
         window=window,
         baseline=baseline,
     )
+
+    bloated_bots = [r for r in rows if any(reason.key == "context_bloat" for reason in r.reasons)]
+    severity_rank = {"clean": 0, "watch": 1, "smelly": 2, "critical": 3}
+    max_sev = "clean"
+    for row in bloated_bots:
+        if severity_rank.get(row.severity, 0) > severity_rank.get(max_sev, 0):
+            max_sev = row.severity
+    summary = AgentSmellSummary(
+        bloated_bot_count=len(bloated_bots),
+        total_unused_tools=sum(b.metrics.unused_tools_count for b in rows),
+        total_pinned_unused_tools=sum(len(b.metrics.pinned_unused_tools) for b in rows),
+        total_unused_skills=sum(b.metrics.unused_skills_count for b in rows),
+        total_estimated_bloat_tokens=sum(b.metrics.estimated_bloat_tokens for b in rows),
+        max_severity=max_sev,
+    )
+
     return AgentSmellOut(
         window_start=after_dt.isoformat(),
         window_end=now.isoformat(),
@@ -1391,6 +1672,7 @@ async def agent_smell(
         baseline_end=baseline_end.isoformat(),
         source_type=source_type,
         bots=rows,
+        summary=summary,
     )
 
 

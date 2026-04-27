@@ -571,6 +571,7 @@ def normalize_spatial_policy(raw: dict | None) -> dict[str, Any]:
         "allow_movement",
         "allow_moving_spatial_objects",
         "allow_spatial_widget_management",
+        "allow_attention_beacons",
         "allow_map_view",
         "allow_nearby_inspect",
     ):

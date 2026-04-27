@@ -65,6 +65,7 @@ export function getTurnMessages(
   index: number,
 ): Message[] | undefined {
   const header = invertedData[index];
+  if (!header) return undefined;
   if (header.role !== "assistant") return undefined;
   const messages = [header];
   for (let i = index - 1; i >= 0; i--) {

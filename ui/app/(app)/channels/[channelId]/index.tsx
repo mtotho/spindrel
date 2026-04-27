@@ -601,16 +601,36 @@ export default function ChatScreen() {
     | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
   const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
   const currentPlanSessionId = routeSessionId ?? channel?.active_session_id ?? undefined;
+  const queryClient = useQueryClient();
   const sessionPlan = useSessionPlanMode(currentPlanSessionId);
-  const pendingHarnessQuestion = useMemo(() => {
+  const [ignoredHarnessQuestionIds, setIgnoredHarnessQuestionIds] = useState<Set<string>>(() => new Set());
+  const pendingHarnessQuestionIndex = useMemo(() => {
     const targetSessionId = currentPlanSessionId ?? channel?.active_session_id;
-    return invertedData.find((m) => {
+    return invertedData.findIndex((m) => {
       const meta = m.metadata as any;
       return m.session_id === targetSessionId
+        && !ignoredHarnessQuestionIds.has(m.id)
         && meta?.kind === "harness_question"
         && meta?.harness_interaction?.status === "pending";
-    }) ?? null;
-  }, [channel?.active_session_id, currentPlanSessionId, invertedData]);
+    });
+  }, [channel?.active_session_id, currentPlanSessionId, ignoredHarnessQuestionIds, invertedData]);
+  const pendingHarnessQuestion = pendingHarnessQuestionIndex >= 0
+    ? invertedData[pendingHarnessQuestionIndex]
+    : null;
+  const handleIgnoreHarnessQuestion = useCallback(async () => {
+    if (!pendingHarnessQuestion?.session_id) return;
+    const questionId = pendingHarnessQuestion.id;
+    setIgnoredHarnessQuestionIds((prev) => new Set(prev).add(questionId));
+    try {
+      await apiFetch(`/api/v1/sessions/${pendingHarnessQuestion.session_id}/harness-interactions/${questionId}/cancel`, {
+        method: "POST",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["session-messages", pendingHarnessQuestion.session_id] });
+    } catch {
+      // Keep the local dismissal: this path is also used for cards that are
+      // already expired server-side but have stale metadata in the current view.
+    }
+  }, [pendingHarnessQuestion, queryClient]);
   const setApprovalMode = useSetSessionApprovalMode();
   const planBusy = sessionPlan.startPlan.isPending
     || sessionPlan.approvePlan.isPending
@@ -700,7 +720,6 @@ export default function ChatScreen() {
     ensureChannelPanelPrefs(channelId, channelPanelDefaults);
   }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
   const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
-  const queryClient = useQueryClient();
   const promoteScratch = usePromoteScratchSession();
   const { data: channelSessionCatalog } = useChannelSessionCatalog(channelId);
   const miniPane = panelPrefs.chatPaneLayout.miniPane;
@@ -1500,7 +1519,8 @@ export default function ChatScreen() {
   const messageInputProps = {
     onSend: handleSend,
     onSendAudio: handleSendAudio,
-    disabled: isPaused || !!pendingHarnessQuestion,
+    disabled: isPaused,
+    sendDisabledReason: pendingHarnessQuestion ? "Answer or ignore the harness question above to continue." : null,
     isStreaming: Object.keys(chatState.turns).length > 0 || chatState.isProcessing,
     onCancel: handleCancel,
     modelOverride: turnModelOverride,
@@ -1596,9 +1616,18 @@ export default function ChatScreen() {
   const pendingHarnessQuestionLane = pendingHarnessQuestion ? (
     <div className="px-3 pb-2">
       <div className="mb-1 text-[11px] text-text-dim">
-        Answer the question above to continue.
+        Answer the question above to continue, or ignore it if it expired.
       </div>
-      {renderMessage({ item: pendingHarnessQuestion, index: -1 })}
+      {renderMessage({ item: pendingHarnessQuestion, index: pendingHarnessQuestionIndex })}
+      <div className="mt-1 flex justify-end">
+        <button
+          type="button"
+          onClick={handleIgnoreHarnessQuestion}
+          className="rounded px-2 py-1 text-[11px] text-text-dim hover:bg-surface-overlay hover:text-text"
+        >
+          Ignore question
+        </button>
+      </div>
     </div>
   ) : null;
 

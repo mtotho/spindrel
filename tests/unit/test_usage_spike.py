@@ -310,6 +310,29 @@ class TestCheckForSpike:
 
 class TestDispatchAlert:
     @pytest.mark.asyncio
+    async def test_notification_target_ids_take_precedence(self):
+        target_id = uuid.uuid4()
+        config = _make_config(
+            target_ids=[str(target_id)],
+            targets=[{"type": "channel", "channel_id": str(uuid.uuid4())}],
+        )
+
+        with patch(
+            "app.services.usage_spike.send_notification",
+            new_callable=AsyncMock,
+            return_value={
+                "details": [{"target": {"id": str(target_id), "label": "Ops", "kind": "channel"}, "success": True}],
+                "succeeded": 1,
+            },
+        ) as mock_send:
+            attempted, succeeded, details = await _dispatch_alert(config, "test message")
+
+        assert attempted == 1
+        assert succeeded == 1
+        assert details[0]["target"]["label"] == "Ops"
+        mock_send.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_channel_target_success(self):
         """Dispatching to a channel target should call post_message."""
         channel_id = str(uuid.uuid4())

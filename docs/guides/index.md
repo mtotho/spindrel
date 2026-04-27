@@ -52,6 +52,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [Knowledge Bases](knowledge-bases.md) | Per-channel + per-bot knowledge folders |
 | [Local Machine Control](local-machine-control.md) | Machine-control subsystem + providers |
 | [MCP Servers](mcp-servers.md) | ModelContext Protocol server setup |
+| [Notifications](notifications.md) | Reusable notification targets, bot grants, delivery audit, Usage Alert integration |
 | [Pipelines](pipelines.md) | Task pipelines (cron, scheduled, per-channel) |
 | [Plan Mode](plan-mode.md) | Agent plan-mode behavior |
 | [Programmatic Tool Calling](programmatic-tool-calling.md) | `run_script` + returns schema |

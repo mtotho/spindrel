@@ -77,3 +77,17 @@ test("single-row assistant responses still produce a json bundle", () => {
     JSON.stringify(messages, null, 2),
   );
 });
+
+test("turn helpers ignore out-of-range indexes", () => {
+  const invertedData: Message[] = [
+    makeMessage({
+      id: "assistant-only",
+      content: "Only chunk",
+      created_at: "2026-04-22T22:00:00Z",
+    }),
+  ];
+
+  assert.equal(getTurnMessages(invertedData, -1), undefined);
+  assert.equal(getTurnMessages(invertedData, 1), undefined);
+  assert.equal(getTurnText(invertedData, -1), undefined);
+});

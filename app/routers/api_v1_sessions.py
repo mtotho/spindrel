@@ -954,6 +954,11 @@ class HarnessQuestionAnswerOut(BaseModel):
     task_id: uuid.UUID | None = None
 
 
+class HarnessQuestionCancelOut(BaseModel):
+    interaction_id: uuid.UUID
+    status: str
+
+
 @router.get("/{session_id}/harness-status", response_model=HarnessStatusOut)
 async def get_harness_status(
     session_id: uuid.UUID,
@@ -1076,6 +1081,34 @@ async def answer_harness_interaction(
         live_resolved=live_resolved,
         task_id=task_id,
     )
+
+
+@router.post(
+    "/{session_id}/harness-interactions/{interaction_id}/cancel",
+    response_model=HarnessQuestionCancelOut,
+)
+async def cancel_harness_interaction(
+    session_id: uuid.UUID,
+    interaction_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("sessions:write")),
+):
+    """Dismiss a pending/stale harness question without sending an answer."""
+    from app.services.agent_harnesses.interactions import expire_harness_question
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    row = await db.get(Message, interaction_id)
+    if row is None or row.session_id != session_id:
+        raise HTTPException(status_code=404, detail="harness question not found")
+    meta = row.metadata_ or {}
+    if not isinstance(meta, dict) or meta.get("kind") != "harness_question":
+        raise HTTPException(status_code=404, detail="harness question not found")
+
+    await expire_harness_question(str(interaction_id), status="cancelled")
+    return HarnessQuestionCancelOut(interaction_id=interaction_id, status="cancelled")
 
 
 @router.post("/{session_id}/harness-settings", response_model=HarnessSettingsOut)
