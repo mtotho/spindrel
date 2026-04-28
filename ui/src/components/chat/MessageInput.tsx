@@ -1,32 +1,28 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Send, Square, X, Mic, Check, ListTodo, ChevronDown } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
 import { useThemeTokens } from "../../theme/tokens";
-import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
-import { resolveSlashCommand, detectMissingSlashArgs } from "./slashCommands";
 import { toast } from "../../stores/toast";
 import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { createPortal } from "react-dom";
 import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
 import { ComposerAddMenu } from "./ComposerAddMenu";
+import { resolveComposerSubmitIntent, type ComposerSubmitIntent } from "./composerSubmit";
 import { getComposerPlanControlState, type ComposerPlanTone } from "./planControl";
 import {
   getHarnessApprovalModeControlState,
   type HarnessApprovalMode,
   type HarnessApprovalModeTone,
 } from "./harnessApprovalModeControl";
+import { useComposerDraftFiles, type PendingFile } from "./useComposerDraftFiles";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
-export interface PendingFile {
-  file: File;
-  preview?: string; // data URL for image preview
-  base64: string; // raw base64 (no data: prefix)
-}
+export type { PendingFile } from "./useComposerDraftFiles";
 
 interface Props {
   onSend: (message: string, files?: PendingFile[]) => void;
@@ -110,18 +106,6 @@ function tapHaptic(pattern: number | number[] = 8) {
   try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
 }
 
-/** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
-function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
-  return draftFiles.map((df) => {
-    const byteString = atob(df.base64);
-    const bytes = new Uint8Array(byteString.length);
-    for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
-    const file = new File([bytes], df.name, { type: df.type });
-    const preview = df.type.startsWith("image/") ? `data:${df.type};base64,${df.base64}` : undefined;
-    return { file, base64: df.base64, preview };
-  });
-}
-
 export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
@@ -131,40 +115,16 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   // runtime-allowlisted set automatically (picker + /help share one source).
   const slashCatalog = useSlashCommandList(currentBotId);
 
-  // Persisted draft state (per-channel)
-  const draft = useDraftsStore((s) => channelId ? s.getDraft(channelId) : null);
-  const setDraftText = useDraftsStore((s) => s.setDraftText);
-  const setDraftFiles = useDraftsStore((s) => s.setDraftFiles);
-  const clearDraft = useDraftsStore((s) => s.clearDraft);
-
-  // Fallback to local state when no channelId (shouldn't happen in practice)
-  const [localText, setLocalText] = useState("");
-  const [localFiles, setLocalFiles] = useState<PendingFile[]>([]);
-
-  const text = draft?.text ?? localText;
-  const setText = useCallback((t: string) => {
-    if (channelId) setDraftText(channelId, t);
-    else setLocalText(t);
-  }, [channelId, setDraftText]);
-
-  // Rebuild PendingFile objects from persisted draft files
-  const pendingFiles = useMemo(
-    () => draft?.files.length ? draftFilesToPending(draft.files) : localFiles,
-    [draft?.files, localFiles],
-  );
-  const setPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
-    const newFiles = typeof updater === "function" ? updater(pendingFiles) : updater;
-    if (channelId) {
-      setDraftFiles(channelId, newFiles.map((pf) => ({
-        name: pf.file.name,
-        type: pf.file.type,
-        size: pf.file.size,
-        base64: pf.base64,
-      })));
-    } else {
-      setLocalFiles(newFiles);
-    }
-  }, [channelId, pendingFiles, setDraftFiles]);
+  const {
+    text,
+    setText,
+    pendingFiles,
+    setPendingFiles,
+    clear: clearDraftState,
+    handleFileSelect,
+    removeFile,
+    handleImagePaste,
+  } = useComposerDraftFiles(channelId);
   const [showModelPicker, setShowModelPicker] = useState(false);
   // External openers (typed `/model` with no args, header pill mirror, etc.)
   // can request the picker open via a custom event scoped to this channel.
@@ -187,41 +147,15 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   const [isFocused, setIsFocused] = useState(false);
   const collapsed = false;
 
-  const handleSend = useCallback(() => {
-    const message = (editorRef.current?.getMarkdown() ?? text).trim();
-    if ((!message && pendingFiles.length === 0) || disabled) return;
-    if (sendDisabledReason) {
-      toast({ kind: "info", message: sendDisabledReason });
-      editorRef.current?.focus();
-      return;
-    }
-    const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
-    if (slashCommand && pendingFiles.length === 0) {
-      onSlashCommand?.(slashCommand.id, slashCommand.args);
-      if (channelId) clearDraft(channelId);
-      else { setLocalText(""); setLocalFiles([]); }
-      editorRef.current?.clear();
-      editorRef.current?.focus();
-      return;
-    }
-    // Bare `/cmd` typed with required args missing — hint instead of sending
-    // it as a normal chat message (which hits the bot and confuses things).
-    const missing = detectMissingSlashArgs(message, slashSurface, slashCatalog, availableSlashCommands);
-    if (missing && pendingFiles.length === 0) {
-      toast({
-        kind: "info",
-        message: `/${missing.id} needs: ${missing.missing.join(", ")}`,
-      });
-      editorRef.current?.focus();
-      return;
-    }
-    tapHaptic(8);
-    onSend(message, pendingFiles.length > 0 ? pendingFiles : undefined);
-    if (channelId) clearDraft(channelId);
-    else { setLocalText(""); setLocalFiles([]); }
-    editorRef.current?.clear();
-    editorRef.current?.focus();
-  }, [
+  const resolveCurrentSubmitIntent = useCallback(() => resolveComposerSubmitIntent({
+    rawMessage: editorRef.current?.getMarkdown() ?? text,
+    pendingFiles,
+    disabled,
+    sendDisabledReason,
+    slashSurface,
+    slashCatalog,
+    availableSlashCommands,
+  }), [
     text,
     pendingFiles,
     disabled,
@@ -229,11 +163,48 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
     slashSurface,
     slashCatalog,
     availableSlashCommands,
-    onSlashCommand,
-    onSend,
-    channelId,
-    clearDraft,
   ]);
+
+  const applySubmitIntent = useCallback((
+    intent: ComposerSubmitIntent<PendingFile>,
+    sendMessage: (message: string, files?: PendingFile[]) => void,
+    hapticPattern: number | number[],
+  ) => {
+    if (intent.kind === "idle") return;
+    if (intent.kind === "blocked") {
+      toast({ kind: "info", message: intent.reason });
+      editorRef.current?.focus();
+      return;
+    }
+    if (intent.kind === "slash") {
+      onSlashCommand?.(intent.id, intent.args);
+      clearDraftState();
+      editorRef.current?.clear();
+      editorRef.current?.focus();
+      return;
+    }
+    if (intent.kind === "missing_slash_args") {
+      toast({
+        kind: "info",
+        message: `/${intent.id} needs: ${intent.missing.join(", ")}`,
+      });
+      editorRef.current?.focus();
+      return;
+    }
+
+    tapHaptic(hapticPattern);
+    sendMessage(intent.message, intent.files);
+    clearDraftState();
+    editorRef.current?.clear();
+    editorRef.current?.focus();
+  }, [
+    onSlashCommand,
+    clearDraftState,
+  ]);
+
+  const handleSend = useCallback(() => {
+    applySubmitIntent(resolveCurrentSubmitIntent(), onSend, 8);
+  }, [applySubmitIntent, onSend, resolveCurrentSubmitIntent]);
 
   const handleRecallQueued = useCallback(() => {
     const recalled = onEditQueue?.();
@@ -272,15 +243,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
       const result = await recorder.stopRecording();
       if (result && onSendAudio) {
         onSendAudio(result.base64, result.format, text.trim() || undefined);
-        if (channelId) clearDraft(channelId);
-        else { setLocalText(""); setLocalFiles([]); }
+        clearDraftState();
         editorRef.current?.clear();
         editorRef.current?.focus();
       }
     } else {
       await recorder.startRecording();
     }
-  }, [recorder.isRecording, recorder.stopRecording, recorder.startRecording, onSendAudio, text, channelId, clearDraft]);
+  }, [recorder.isRecording, recorder.stopRecording, recorder.startRecording, onSendAudio, text, clearDraftState]);
 
   // Global keyboard listener for recording mode (editor is hidden, so onKeyDown won't fire)
   useEffect(() => {
@@ -311,39 +281,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
     window.addEventListener("spindrel:plan-question-fill", handlePlanFill as EventListener);
     return () => window.removeEventListener("spindrel:plan-question-fill", handlePlanFill as EventListener);
   }, [setText, text]);
-
-  // --- File handling ---
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files) return;
-    const newFiles: PendingFile[] = [];
-    for (const file of Array.from(files)) {
-      const base64 = await fileToBase64(file);
-      const preview = file.type.startsWith("image/")
-        ? URL.createObjectURL(file)
-        : undefined;
-      newFiles.push({ file, preview, base64 });
-    }
-    setPendingFiles((prev) => [...prev, ...newFiles]);
-  }, []);
-
-  const removeFile = useCallback((idx: number) => {
-    setPendingFiles((prev) => {
-      const next = [...prev];
-      if (next[idx]?.preview) URL.revokeObjectURL(next[idx].preview!);
-      next.splice(idx, 1);
-      return next;
-    });
-  }, []);
-
-  // Handle image paste from Tiptap editor — images go to pendingFiles
-  const handleImagePaste = useCallback(
-    (files: File[]) => {
-      const dt = new DataTransfer();
-      files.forEach((f) => dt.items.add(f));
-      handleFileSelect(dt.files);
-    },
-    [handleFileSelect]
-  );
 
   const hasContent = !!(text.trim() || pendingFiles.length > 0);
   const sendBlocked = !!sendDisabledReason;
@@ -579,52 +516,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
 
   // "Send now" — cancel stream and send immediately (web only)
   const handleSendNowLocal = useCallback(() => {
-    const message = (editorRef.current?.getMarkdown() ?? text).trim();
-    if ((!message && pendingFiles.length === 0) || disabled) return;
-    if (sendDisabledReason) {
-      toast({ kind: "info", message: sendDisabledReason });
-      editorRef.current?.focus();
-      return;
-    }
-    const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
-    if (slashCommand && pendingFiles.length === 0) {
-      onSlashCommand?.(slashCommand.id, slashCommand.args);
-      if (channelId) clearDraft(channelId);
-      else { setLocalText(""); setLocalFiles([]); }
-      editorRef.current?.clear();
-      editorRef.current?.focus();
-      return;
-    }
-    // Bare `/cmd` typed with required args missing — hint instead of sending
-    // it as a normal chat message (which hits the bot and confuses things).
-    const missing = detectMissingSlashArgs(message, slashSurface, slashCatalog, availableSlashCommands);
-    if (missing && pendingFiles.length === 0) {
-      toast({
-        kind: "info",
-        message: `/${missing.id} needs: ${missing.missing.join(", ")}`,
-      });
-      editorRef.current?.focus();
-      return;
-    }
-    tapHaptic([4, 30, 8]);
-    onSendNow?.(message, pendingFiles.length > 0 ? pendingFiles : undefined);
-    if (channelId) clearDraft(channelId);
-    else { setLocalText(""); setLocalFiles([]); }
-    editorRef.current?.clear();
-    editorRef.current?.focus();
-  }, [
-    text,
-    pendingFiles,
-    disabled,
-    sendDisabledReason,
-    slashSurface,
-    slashCatalog,
-    availableSlashCommands,
-    onSlashCommand,
-    onSendNow,
-    channelId,
-    clearDraft,
-  ]);
+    applySubmitIntent(
+      resolveCurrentSubmitIntent(),
+      (message, files) => onSendNow?.(message, files),
+      [4, 30, 8],
+    );
+  }, [applySubmitIntent, onSendNow, resolveCurrentSubmitIntent]);
 
   const sendIconColor = showStop || recorder.isRecording
       ? t.danger
@@ -1326,20 +1223,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
         </div>
       </div>
     );
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Strip data URL prefix: "data:...;base64,"
-      const idx = result.indexOf(",");
-      resolve(idx >= 0 ? result.slice(idx + 1) : result);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function menuItemStyle(t: ReturnType<typeof useThemeTokens>, isTerminalMode = false) {

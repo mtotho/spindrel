@@ -129,6 +129,25 @@ test("chat copy actions share one assistant-response bundle primitive for text a
     assert.match(messageBubble, /fullTurnMessages=\{fullTurnMessages\}/);
     assert.match(messageActions, /Copy JSON/);
 });
+test("MessageInput delegates draft files and submit decision policy", () => {
+    const messageInput = readChatFile("MessageInput.tsx");
+    const draftFiles = readChatFile("useComposerDraftFiles.ts");
+    const composerSubmit = readChatFile("composerSubmit.ts");
+    assert.match(messageInput, /useComposerDraftFiles/);
+    assert.match(messageInput, /resolveComposerSubmitIntent/);
+    assert.doesNotMatch(messageInput, /useDraftsStore/);
+    assert.doesNotMatch(messageInput, /type DraftFile/);
+    assert.doesNotMatch(messageInput, /function fileToBase64/);
+    assert.doesNotMatch(messageInput, /function draftFilesToPending/);
+    assert.doesNotMatch(messageInput, /resolveSlashCommand/);
+    assert.doesNotMatch(messageInput, /detectMissingSlashArgs/);
+    assert.match(draftFiles, /useDraftsStore/);
+    assert.match(draftFiles, /function fileToBase64/);
+    assert.match(draftFiles, /function draftFilesToPending/);
+    assert.match(composerSubmit, /resolveSlashCommand/);
+    assert.match(composerSubmit, /detectMissingSlashArgs/);
+    assert.doesNotMatch(composerSubmit, /toast/);
+});
 test("chat sends thread a stable client-local id through optimistic rows and requests", () => {
     const channelHook = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelChat.ts"), "utf8");
     const channelEvents = readFileSync(resolve(process.cwd(), "src/api/hooks/useChannelEvents.ts"), "utf8");

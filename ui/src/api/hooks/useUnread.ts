@@ -5,6 +5,7 @@ import { apiFetch } from "../client";
 import { getAuthToken, useAuthStore } from "../../stores/auth";
 import { useChannelReadStore } from "../../stores/channelRead";
 import { toast } from "../../stores/toast";
+import { mergeUnreadStateUpdates } from "../../lib/unreadStateCache";
 
 export interface SessionReadState {
   user_id: string;
@@ -55,6 +56,15 @@ interface UnreadRulesResponse {
   targets: UnreadNotificationTarget[];
 }
 
+interface MarkReadResponse {
+  states?: SessionReadState[];
+  updated?: number;
+}
+
+interface VisibleResponse {
+  state?: SessionReadState;
+}
+
 function applyUnreadState(data: UnreadStateResponse) {
   const counts: Record<string, number> = {};
   for (const row of data.channels) {
@@ -68,6 +78,23 @@ function applyReadState(state: SessionReadState) {
   // The event is per-session. Refetch soon for exact channel rollup; this
   // immediate update keeps badges responsive for the common one-session case.
   useChannelReadStore.getState().setChannelUnread(state.channel_id, state.unread_agent_reply_count);
+}
+
+function mergeReadStatesIntoUnreadCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  states: SessionReadState[],
+): boolean {
+  let merged = false;
+  queryClient.setQueryData<UnreadStateResponse>(["unread-state"], (current) => {
+    const next = mergeUnreadStateUpdates(current, states) as UnreadStateResponse | undefined;
+    merged = !!next;
+    if (next) applyUnreadState(next);
+    return next;
+  });
+  if (!merged) {
+    for (const state of states) applyReadState(state);
+  }
+  return merged;
 }
 
 export function useUnreadState() {
@@ -87,11 +114,15 @@ export function useMarkRead() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { session_id?: string; channel_id?: string; message_id?: string; source?: string; surface?: string }) =>
-      apiFetch("/api/v1/unread/read", {
+      apiFetch<MarkReadResponse>("/api/v1/unread/read", {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data.states?.length) {
+        mergeReadStatesIntoUnreadCache(queryClient, data.states);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["unread-state"] });
     },
   });
@@ -101,13 +132,14 @@ export function useMarkSessionVisible() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { session_id: string; surface?: string; mark_read?: boolean }) =>
-      apiFetch<{ state?: SessionReadState }>("/api/v1/unread/visible", {
+      apiFetch<VisibleResponse>("/api/v1/unread/visible", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     onSuccess: (data) => {
-      if (data.state) applyReadState(data.state);
-      queryClient.invalidateQueries({ queryKey: ["unread-state"] });
+      if (data.state) {
+        mergeReadStatesIntoUnreadCache(queryClient, [data.state]);
+      }
     },
   });
 }
@@ -189,8 +221,7 @@ export function useUnreadEvents() {
                 if (wire.kind !== "read_state_updated") continue;
                 const state = wire.payload?.state as SessionReadState | undefined;
                 if (!state) continue;
-                applyReadState(state);
-                queryClient.invalidateQueries({ queryKey: ["unread-state"] });
+                mergeReadStatesIntoUnreadCache(queryClient, [state]);
                 if (state.unread_agent_reply_count > 0 && state.channel_id) {
                   const now = Date.now();
                   const lastToastAt = lastToastAtBySession.current[state.session_id] ?? 0;

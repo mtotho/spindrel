@@ -1,0 +1,62 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { resolveComposerSubmitIntent } from "./composerSubmit.js";
+const catalog = [
+    {
+        id: "find",
+        label: "find",
+        description: "Find messages",
+        surfaces: ["channel", "session"],
+        local_only: false,
+        args: [{ name: "query", source: "free_text", required: true, enum: null }],
+    },
+    {
+        id: "stop",
+        label: "stop",
+        description: "Stop the current session",
+        surfaces: ["channel", "session"],
+        local_only: false,
+        args: [],
+    },
+];
+test("composer submit resolves valid slash commands before normal sends", () => {
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "/find release notes",
+        pendingFiles: [],
+        slashSurface: "channel",
+        slashCatalog: catalog,
+    }), { kind: "slash", id: "find", args: ["release", "notes"] });
+});
+test("composer submit reports missing slash args instead of sending as chat", () => {
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "/find",
+        pendingFiles: [],
+        slashSurface: "channel",
+        slashCatalog: catalog,
+    }), { kind: "missing_slash_args", id: "find", missing: ["query"] });
+});
+test("composer submit sends slash-looking text normally when files are attached", () => {
+    const file = { name: "note.txt", base64: "eA==" };
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "/find",
+        pendingFiles: [file],
+        slashSurface: "channel",
+        slashCatalog: catalog,
+    }), { kind: "send", message: "/find", files: [file] });
+});
+test("composer submit preserves blocked and idle states", () => {
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "hello",
+        pendingFiles: [],
+        disabled: true,
+        slashSurface: "channel",
+        slashCatalog: catalog,
+    }), { kind: "idle" });
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "hello",
+        pendingFiles: [],
+        sendDisabledReason: "No model selected",
+        slashSurface: "channel",
+        slashCatalog: catalog,
+    }), { kind: "blocked", reason: "No model selected" });
+});
