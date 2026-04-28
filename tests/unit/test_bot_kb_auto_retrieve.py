@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.context_assembly import _inject_bot_knowledge_base, _inject_workspace_rag
+from app.agent.context_assembly import AssemblyLedger, _inject_bot_knowledge_base, _inject_workspace_rag
 
 
 def _make_bot(*, shared_workspace_id: str | None = None, auto_retrieval: bool = True):
@@ -41,7 +41,7 @@ async def _collect(gen):
 async def test_bot_kb_auto_retrieval_uses_implicit_kb_segment():
     bot = _make_bot(shared_workspace_id="ws-1")
     messages: list[dict] = []
-    inject_chars: dict[str, int] = {}
+    ledger = AssemblyLedger()
     retrieve_mock = AsyncMock(return_value=(["[File: bots/bot-1/knowledge-base/facts.md]\n\nImportant fact"], 0.82))
 
     with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=retrieve_mock), \
@@ -61,11 +61,8 @@ async def test_bot_kb_auto_retrieval_uses_implicit_kb_segment():
             messages,
             bot,
             "what do you know about deployment?",
-            inject_chars,
-            budget_consume=lambda k, v: None,
-            budget_can_afford=lambda _: True,
+            ledger,
             context_profile=SimpleNamespace(allow_bot_knowledge_base=True),
-            inject_decisions={},
         ))
 
     retrieve_mock.assert_called_once()
@@ -75,37 +72,35 @@ async def test_bot_kb_auto_retrieval_uses_implicit_kb_segment():
         "embedding_model": "text-embedding-3-small",
     }]
     assert any("search_bot_knowledge" in m["content"] for m in messages)
-    assert inject_chars["bot_knowledge_base"] > 0
+    assert ledger.inject_chars["bot_knowledge_base"] > 0
     assert events == [{"type": "bot_knowledge_base", "count": 1, "similarity": 0.82}]
 
 
 @pytest.mark.asyncio
 async def test_bot_kb_auto_retrieval_respects_toggle_off():
     bot = _make_bot(auto_retrieval=False)
-    inject_decisions: dict[str, str] = {}
+    ledger = AssemblyLedger()
 
     with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock()) as retrieve_mock:
         events = await _collect(_inject_bot_knowledge_base(
             [],
             bot,
             "query",
-            {},
-            budget_consume=lambda k, v: None,
-            budget_can_afford=lambda _: True,
+            ledger,
             context_profile=SimpleNamespace(allow_bot_knowledge_base=True),
-            inject_decisions=inject_decisions,
         ))
 
     retrieve_mock.assert_not_called()
     assert events == []
-    assert inject_decisions["bot_knowledge_base"] == "skipped_disabled"
+    assert ledger.inject_decisions["bot_knowledge_base"] == "skipped_disabled"
 
 
 @pytest.mark.asyncio
 async def test_bot_kb_auto_retrieval_skips_when_budget_rejects():
     bot = _make_bot()
     messages: list[dict] = []
-    inject_decisions: dict[str, str] = {}
+    ledger = AssemblyLedger()
+    ledger.can_afford = lambda _: False
 
     with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock(return_value=(
         ["[File: knowledge-base/facts.md]\n\nImportant fact"],
@@ -127,45 +122,39 @@ async def test_bot_kb_auto_retrieval_skips_when_budget_rejects():
             messages,
             bot,
             "query",
-            {},
-            budget_consume=lambda k, v: None,
-            budget_can_afford=lambda _: False,
+            ledger,
             context_profile=SimpleNamespace(allow_bot_knowledge_base=True),
-            inject_decisions=inject_decisions,
         ))
 
     assert events == []
     assert messages == []
-    assert inject_decisions["bot_knowledge_base"] == "skipped_by_budget"
+    assert ledger.inject_decisions["bot_knowledge_base"] == "skipped_by_budget"
 
 
 @pytest.mark.asyncio
 async def test_bot_kb_auto_retrieval_respects_profile_gate():
     bot = _make_bot(auto_retrieval=True)
-    inject_decisions: dict[str, str] = {}
+    ledger = AssemblyLedger()
 
     with patch("app.agent.fs_indexer.retrieve_filesystem_context", new=AsyncMock()) as retrieve_mock:
         events = await _collect(_inject_bot_knowledge_base(
             [],
             bot,
             "query",
-            {},
-            budget_consume=lambda k, v: None,
-            budget_can_afford=lambda _: True,
+            ledger,
             context_profile=SimpleNamespace(allow_bot_knowledge_base=False),
-            inject_decisions=inject_decisions,
         ))
 
     retrieve_mock.assert_not_called()
     assert events == []
-    assert inject_decisions["bot_knowledge_base"] == "skipped_by_profile"
+    assert ledger.inject_decisions["bot_knowledge_base"] == "skipped_by_profile"
 
 
 @pytest.mark.asyncio
 async def test_workspace_rag_excludes_dedicated_channel_and_bot_kb_chunks():
     bot = _make_bot(shared_workspace_id="ws-1")
     messages: list[dict] = []
-    inject_decisions: dict[str, str] = {}
+    ledger = AssemblyLedger()
     retrieve_mock = AsyncMock(return_value=(
         [
             "[File: docs/runbook.md]\n\nworkspace fact",
@@ -195,14 +184,10 @@ async def test_workspace_rag_excludes_dedicated_channel_and_bot_kb_chunks():
             None,
             None,
             None,
-            {},
-            budget_consume=lambda k, v: None,
-            budget_can_afford=lambda _: True,
-            budget=None,
+            ledger,
             memory_scheme_injected_paths=set(),
             excluded_path_prefixes={"channels/ch-1/knowledge-base", "bots/bot-1/knowledge-base"},
             context_profile=SimpleNamespace(allow_workspace_rag=True),
-            inject_decisions=inject_decisions,
         ))
 
     retrieve_mock.assert_called_once()
@@ -214,4 +199,4 @@ async def test_workspace_rag_excludes_dedicated_channel_and_bot_kb_chunks():
     assert events == [{"type": "fs_context", "count": 1}]
     assert len(messages) == 1
     assert "docs/runbook.md" in messages[0]["content"]
-    assert inject_decisions["workspace_rag"] == "admitted"
+    assert ledger.inject_decisions["workspace_rag"] == "admitted"

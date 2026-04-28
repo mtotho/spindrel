@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.context_assembly import _inject_channel_workspace
+from app.agent.context_assembly import AssemblyLedger, _inject_channel_workspace
 
 
 def _make_bot():
@@ -59,7 +59,7 @@ async def test_implicit_kb_segment_injected_without_explicit_segments(tmp_path):
     fake_ws_root = str(tmp_path)
     fake_cw_root = str(tmp_path / "channels" / "ch-1")
     messages: list[dict] = []
-    inject_chars: dict[str, int] = {}
+    ledger = AssemblyLedger()
 
     retrieve_mock = AsyncMock(return_value=(["## some-file.md\n\nbody"], 0.7))
 
@@ -77,10 +77,10 @@ async def test_implicit_kb_segment_injected_without_explicit_segments(tmp_path):
              "include_bots": [],
              "segments": [],
              "segments_source": "default",
-         }):
+        }):
         events = await _collect(_inject_channel_workspace(
-            messages, bot, ch_row, "what do you know about oranges?", inject_chars,
-            budget_consume=lambda k, v: None,
+            messages, bot, ch_row, "what do you know about oranges?", ledger,
+            context_profile=SimpleNamespace(allow_channel_workspace=True, allow_channel_index_segments=True),
         ))
 
     # retrieve_filesystem_context called with an implicit KB segment
@@ -125,9 +125,10 @@ async def test_explicit_segments_compose_with_implicit_kb(tmp_path):
              "include_bots": [],
              "segments": [],
              "segments_source": "default",
-         }):
+        }):
         await _collect(_inject_channel_workspace(
-            messages, bot, ch_row, "query", {}, budget_consume=lambda k, v: None,
+            messages, bot, ch_row, "query", AssemblyLedger(),
+            context_profile=SimpleNamespace(allow_channel_workspace=True, allow_channel_index_segments=True),
         ))
 
     call = retrieve_mock.call_args
@@ -164,9 +165,10 @@ async def test_explicit_kb_segment_does_not_duplicate(tmp_path):
              "include_bots": [],
              "segments": [],
              "segments_source": "default",
-         }):
+        }):
         await _collect(_inject_channel_workspace(
-            messages, bot, ch_row, "query", {}, budget_consume=lambda k, v: None,
+            messages, bot, ch_row, "query", AssemblyLedger(),
+            context_profile=SimpleNamespace(allow_channel_workspace=True, allow_channel_index_segments=True),
         ))
 
     call = retrieve_mock.call_args

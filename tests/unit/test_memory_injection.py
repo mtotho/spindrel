@@ -10,7 +10,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.agent.context_assembly import _inject_memory_scheme
+from app.agent.context_assembly import AssemblyLedger, _inject_memory_scheme
+from app.agent.context_profiles import get_context_profile
 
 
 def _make_bot(bot_id: str = "test-bot", ws_root: str = "/tmp"):
@@ -25,8 +26,9 @@ def _make_bot(bot_id: str = "test-bot", ws_root: str = "/tmp"):
 
 async def _collect_events(bot, messages, ws_root):
     """Run _inject_memory_scheme and collect all yielded events."""
-    inject_chars: dict = {}
     injected_paths: set = set()
+    ledger = AssemblyLedger()
+    context_profile = get_context_profile("chat")
 
     from unittest.mock import patch
 
@@ -37,7 +39,7 @@ async def _collect_events(bot, messages, ws_root):
         mock_ws.get_workspace_root.return_value = ws_root
         events = []
         async for event in _inject_memory_scheme(
-            messages, bot, inject_chars, lambda k, v: None, injected_paths,
+            messages, bot, ledger, injected_paths, context_profile,
         ):
             events.append(event)
     return events, messages, injected_paths

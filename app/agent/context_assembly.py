@@ -2452,6 +2452,8 @@ async def _inject_channel_workspace(
     user_message: str,
     ledger: AssemblyLedger,
     context_profile: ContextProfile,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject channel workspace files, data listing, schema, index segments, and plan stall detection."""
     import os
@@ -2992,6 +2994,8 @@ async def assemble_context(
         )
         async for evt in _inject_channel_workspace(
             messages, bot, _ch_row, user_message, ledger, context_profile,
+            model_override=model_override,
+            provider_id_override=provider_id_override,
         ):
             yield evt
 

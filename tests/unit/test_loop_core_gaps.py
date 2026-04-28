@@ -276,7 +276,7 @@ class TestInLoopPruning:
     """Verify the in-loop pruning gate (iteration > 0) and context_pruning event."""
 
     @staticmethod
-    async def _fake_dispatch_iteration_tool_calls(*, accumulated_tool_calls, state, compaction, **kwargs):
+    async def _fake_dispatch_iteration_tool_calls(*, accumulated_tool_calls, state, ctx, **kwargs):
         for tc in accumulated_tool_calls:
             state.messages.append({
                 "role": "tool",

@@ -3,15 +3,16 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
 from app.agent.bots import BotConfig
 from app.agent.context_pruning import STICKY_TOOL_NAMES
 from app.agent.hooks import HookContext, fire_hook
-from app.agent.loop_cycle_detection import ToolCallSignature, make_signature
+from app.agent.loop_cycle_detection import make_signature
 from app.agent.loop_helpers import _append_transcript_tool_entry
+from app.agent.loop_state import LoopDispatchState, LoopRunContext, LoopRunState
 from app.agent.message_utils import _event_with_compaction_tag
 from app.agent.tracing import _trace
 from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call, enforce_turn_aggregate_cap
@@ -72,18 +73,6 @@ class SummarizeSettings:
     model: str
     max_tokens: int
     exclude: frozenset[str]
-
-
-@dataclass
-class LoopDispatchState:
-    messages: list[dict]
-    transcript_entries: list[dict]
-    tool_calls_made: list[str]
-    tool_envelopes_made: list[dict]
-    embedded_client_actions: list[dict]
-    tool_call_trace: list[ToolCallSignature]
-    tools_to_enroll: list[str]
-    iteration_injected_images: list[dict] = field(default_factory=list)
 
 
 def _make_dispatch_kwargs(
@@ -203,19 +192,15 @@ async def _process_tool_call_result(
     *,
     tc: dict,
     tc_result: ToolCallResult,
-    state: LoopDispatchState,
-    bot: BotConfig,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    correlation_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
+    ctx: LoopRunContext,
+    state: LoopRunState,
     iteration: int,
     provider_id: str | None,
     summarize_settings: SummarizeSettings,
-    compaction: bool,
     effective_allowed: set[str] | None,
     dispatch_tool_call_fn: Any,
 ) -> AsyncGenerator[dict[str, Any], None]:
+    bot = ctx.bot
     name = tc["function"]["name"]
     args = tc["function"]["arguments"]
 
@@ -230,7 +215,7 @@ async def _process_tool_call_result(
         capability = tc_result.tool_event.get("_capability") if tc_result.tool_event else None
         if capability:
             approval_event["capability"] = capability
-        yield _event_with_compaction_tag(approval_event, compaction)
+        yield _event_with_compaction_tag(approval_event, ctx.compaction)
         try:
             verdict = await resolve_approval_verdict(
                 tc_result.approval_id,
@@ -249,14 +234,14 @@ async def _process_tool_call_result(
                 args=args,
                 tool_call_id=tc["id"],
                 bot=bot,
-                session_id=session_id,
-                client_id=client_id,
-                correlation_id=correlation_id,
-                channel_id=channel_id,
+                session_id=ctx.session_id,
+                client_id=ctx.client_id,
+                correlation_id=ctx.correlation_id,
+                channel_id=ctx.channel_id,
                 iteration=iteration,
                 provider_id=provider_id,
                 summarize_settings=summarize_settings,
-                compaction=compaction,
+                compaction=ctx.compaction,
                 skip_policy=True,
                 effective_allowed=effective_allowed,
                 dispatch_tool_call_fn=dispatch_tool_call_fn,
@@ -270,7 +255,7 @@ async def _process_tool_call_result(
             "approval_id": tc_result.approval_id,
             "tool": name,
             "verdict": verdict,
-        }, compaction)
+        }, ctx.compaction)
 
     state.tool_calls_made.append(name)
     tc_result.envelope.tool_call_id = tc["id"]
@@ -303,7 +288,7 @@ async def _process_tool_call_result(
         # across prune cycles so hygiene / skill-review bots don't refetch.
         tool_message["_no_prune"] = True
     state.messages.append(tool_message)
-    yield _event_with_compaction_tag(tc_result.tool_event, compaction)
+    yield _event_with_compaction_tag(tc_result.tool_event, ctx.compaction)
 
     if (
         bot.id
@@ -314,8 +299,8 @@ async def _process_tool_call_result(
         state.tools_to_enroll.append(name)
 
     safe_create_task(fire_hook("after_tool_call", HookContext(
-        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-        client_id=client_id, correlation_id=correlation_id,
+        bot_id=bot.id, session_id=ctx.session_id, channel_id=ctx.channel_id,
+        client_id=ctx.client_id, correlation_id=ctx.correlation_id,
         extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
     )))
 
@@ -323,16 +308,11 @@ async def _process_tool_call_result(
 async def dispatch_iteration_tool_calls(
     *,
     accumulated_tool_calls: list[dict[str, Any]],
-    state: LoopDispatchState,
-    bot: BotConfig,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    correlation_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
+    ctx: LoopRunContext,
+    state: LoopRunState,
     iteration: int,
     provider_id: str | None,
     summarize_settings: SummarizeSettings,
-    compaction: bool,
     skip_tool_policy: bool,
     effective_allowed: set[str] | None,
     settings_obj: Any,
@@ -341,6 +321,7 @@ async def dispatch_iteration_tool_calls(
     is_client_tool_fn: Any = is_client_tool,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run all tool calls for one iteration."""
+    bot = ctx.bot
     state.iteration_injected_images.clear()
 
     has_client_tool = any(
@@ -353,15 +334,15 @@ async def dispatch_iteration_tool_calls(
     )
 
     if use_parallel:
-        if session_id and session_lock_manager.is_cancel_requested(session_id):
-            logger.info("Cancellation requested for session %s (before parallel batch)", session_id)
+        if ctx.session_id and session_lock_manager.is_cancel_requested(ctx.session_id):
+            logger.info("Cancellation requested for session %s (before parallel batch)", ctx.session_id)
             for remaining_tc in accumulated_tool_calls:
                 state.messages.append({
                     "role": "tool",
                     "tool_call_id": remaining_tc["id"],
                     "content": "[Cancelled by user]",
                 })
-            yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+            yield _event_with_compaction_tag({"type": "cancelled"}, ctx.compaction)
             return
 
         for tc in accumulated_tool_calls:
@@ -376,13 +357,13 @@ async def dispatch_iteration_tool_calls(
                 "tool": name,
                 "args": args,
                 "tool_call_id": tc["id"],
-            }, compaction)
+            }, ctx.compaction)
 
         sem = asyncio.Semaphore(settings_obj.PARALLEL_TOOL_MAX_CONCURRENT)
 
         async def _dispatch_one(tc: dict) -> tuple[dict, ToolCallResult, bool]:
             async with sem:
-                if session_id and session_lock_manager.is_cancel_requested(session_id):
+                if ctx.session_id and session_lock_manager.is_cancel_requested(ctx.session_id):
                     return (tc, ToolCallResult(
                         result_for_llm="[Cancelled by user]",
                         tool_event={"type": "tool_result", "tool": tc["function"]["name"], "result": "[Cancelled by user]"},
@@ -393,14 +374,14 @@ async def dispatch_iteration_tool_calls(
                         args=tc["function"]["arguments"],
                         tool_call_id=tc["id"],
                         bot=bot,
-                        session_id=session_id,
-                        client_id=client_id,
-                        correlation_id=correlation_id,
-                        channel_id=channel_id,
+                        session_id=ctx.session_id,
+                        client_id=ctx.client_id,
+                        correlation_id=ctx.correlation_id,
+                        channel_id=ctx.channel_id,
                         iteration=iteration,
                         provider_id=provider_id,
                         summarize_settings=summarize_settings,
-                        compaction=compaction,
+                        compaction=ctx.compaction,
                         skip_policy=skip_tool_policy,
                         effective_allowed=effective_allowed,
                         dispatch_tool_call_fn=dispatch_tool_call_fn,
@@ -428,7 +409,7 @@ async def dispatch_iteration_tool_calls(
             if trimmed_chars:
                 logger.warning(
                     "turn_aggregate_cap_hit bot=%s session=%s trimmed_chars=%d cap=%d tools=%s",
-                    bot.id, session_id, trimmed_chars, aggregate_cap,
+                    bot.id, ctx.session_id, trimmed_chars, aggregate_cap,
                     [tc["function"]["name"] for tc, _, _ in parallel_results],
                 )
 
@@ -448,31 +429,26 @@ async def dispatch_iteration_tool_calls(
             async for event in _process_tool_call_result(
                 tc=tc,
                 tc_result=tc_result,
+                ctx=ctx,
                 state=state,
-                bot=bot,
-                session_id=session_id,
-                client_id=client_id,
-                correlation_id=correlation_id,
-                channel_id=channel_id,
                 iteration=iteration,
                 provider_id=provider_id,
                 summarize_settings=summarize_settings,
-                compaction=compaction,
                 effective_allowed=effective_allowed,
                 dispatch_tool_call_fn=dispatch_tool_call_fn,
             ):
                 yield event
 
         if cancelled_during_parallel:
-            yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+            yield _event_with_compaction_tag({"type": "cancelled"}, ctx.compaction)
             return
 
     else:
         for index, tc in enumerate(accumulated_tool_calls):
-            if session_id and session_lock_manager.is_cancel_requested(session_id):
+            if ctx.session_id and session_lock_manager.is_cancel_requested(ctx.session_id):
                 logger.info(
                     "Cancellation requested for session %s (before tool %s)",
-                    session_id,
+                    ctx.session_id,
                     tc["function"]["name"],
                 )
                 for remaining_tc in accumulated_tool_calls[index:]:
@@ -481,7 +457,7 @@ async def dispatch_iteration_tool_calls(
                         "tool_call_id": remaining_tc["id"],
                         "content": "[Cancelled by user]",
                     })
-                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                yield _event_with_compaction_tag({"type": "cancelled"}, ctx.compaction)
                 return
 
             name = tc["function"]["name"]
@@ -495,21 +471,21 @@ async def dispatch_iteration_tool_calls(
                 "tool": name,
                 "args": args,
                 "tool_call_id": tc["id"],
-            }, compaction)
+            }, ctx.compaction)
 
             tc_result = await _dispatch_tool(
                 name=name,
                 args=args,
                 tool_call_id=tc["id"],
                 bot=bot,
-                session_id=session_id,
-                client_id=client_id,
-                correlation_id=correlation_id,
-                channel_id=channel_id,
+                session_id=ctx.session_id,
+                client_id=ctx.client_id,
+                correlation_id=ctx.correlation_id,
+                channel_id=ctx.channel_id,
                 iteration=iteration,
                 provider_id=provider_id,
                 summarize_settings=summarize_settings,
-                compaction=compaction,
+                compaction=ctx.compaction,
                 skip_policy=skip_tool_policy,
                 effective_allowed=effective_allowed,
                 dispatch_tool_call_fn=dispatch_tool_call_fn,
@@ -518,16 +494,11 @@ async def dispatch_iteration_tool_calls(
             async for event in _process_tool_call_result(
                 tc=tc,
                 tc_result=tc_result,
+                ctx=ctx,
                 state=state,
-                bot=bot,
-                session_id=session_id,
-                client_id=client_id,
-                correlation_id=correlation_id,
-                channel_id=channel_id,
                 iteration=iteration,
                 provider_id=provider_id,
                 summarize_settings=summarize_settings,
-                compaction=compaction,
                 effective_allowed=effective_allowed,
                 dispatch_tool_call_fn=dispatch_tool_call_fn,
             ):

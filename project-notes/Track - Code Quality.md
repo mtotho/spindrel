@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Pending request rendezvous seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Loop run state seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -32,7 +32,9 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - **`run_task` Wave C shipped.** The deferred agent-run-path extraction proved viable as an internal typed seam instead of a broad new public interface. `run_task` remains the task worker coordinator, but the hidden implementation now has locality around task-run preparation, harness-backed execution, and normal-agent persistence/dispatch/follow-up behavior.
 - **Pending request rendezvous seam shipped.** `app.agent.pending` and `app.agent.approval_pending` now share one `PendingRegistry` implementation while preserving their existing wrapper Interfaces and `_pending` monkeypatch points. Client-tool timeout handling now discards timed-out request futures so the registry cannot leak stale entries; approval cancel/resolve behavior is unchanged.
 - **Readonly tool returns-schema baseline restored.** Added schemas for `describe_canvas_neighborhood`, `inspect_nearby_spatial_object`, `view_spatial_canvas`, and `widget_version_history`; `tests/unit/test_tool_returns_schema_coverage.py` is green again.
-- **Next section candidate.** Leave draft `context_estimate.py` separate because it estimates unsaved bot config. The pending/approval verify-first item is done; next architecture section should continue with a fresh verify-first pass over `persona.py`, `vector_ops.py`, and `hybrid_search.py` before scoping any Module move, rather than bundling them blindly.
+- **Context assembly state seam shipped.** `assemble_context` now carries budget/admission accounting through `AssemblyLedger` and cross-stage outputs through `AssemblyStageState` instead of closure pairs plus ad hoc `out_state` dicts. Memory/channel/workspace/bot-KB/tool-retrieval helpers now expose typed in-file Interfaces. The pass also caught and fixed a real extraction leak: `_inject_channel_workspace` now receives `model_override` / `provider_id_override` explicitly instead of reading vanished outer-scope names.
+- **Loop run state seam shipped.** `run_agent_tool_loop`, `loop_dispatch`, and response-finalization helpers now share `LoopRunContext` for stable run identifiers/flags and `LoopRunState` for mutable turn state. The change collapses the wide helper signatures for no-tool finalization, post-loop forced responses, and per-iteration dispatch while preserving public loop entrypoints and the `LoopDispatchState` compatibility alias.
+- **Next section candidate.** Persona remains deferred as low-leverage/removable. The next high-value architecture pass should stay on the live agent loop and split one more coordinator slice: either extract provider-call/usage/fallback handling from `run_agent_tool_loop`, or isolate tool-iteration result handling around cancellation, image injection, in-loop pruning, and cycle detection. Avoid smaller utility modules until the loop coordinator stops being the highest-risk god function.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

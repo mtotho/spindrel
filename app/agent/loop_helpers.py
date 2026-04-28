@@ -7,6 +7,7 @@ from typing import Any, TYPE_CHECKING
 from app.agent.bots import BotConfig
 from app.agent.hooks import HookContext, fire_hook
 from app.agent.llm import FallbackInfo, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags
+from app.agent.loop_state import LoopRunContext, LoopRunState
 from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
@@ -249,37 +250,25 @@ def _collapse_final_assistant_tool_turn(messages: list[dict], *, turn_start: int
 def _finalize_response(
     text: str,
     *,
-    messages: list[dict],
-    bot: BotConfig,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    correlation_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
-    compaction: bool,
-    native_audio: bool,
-    user_msg_index: int | None,
-    transcript_emitted: bool,
-    tool_calls_made: list[str],
-    tool_envelopes_made: list[dict],
-    transcript_entries: list[dict],
-    thinking_content_buf: str,
-    turn_start: int,
-    embedded_client_actions: list[dict],
-) -> tuple[list[dict], bool]:
+    ctx: LoopRunContext,
+    state: LoopRunState,
+) -> list[dict]:
     """Shared response finalization: transcript, tracing, hooks, tools_used, response event."""
     events: list[dict] = []
+    messages = state.messages
+    bot = ctx.bot
 
-    if native_audio and user_msg_index is not None and not transcript_emitted:
+    if ctx.native_audio and ctx.user_msg_index is not None and not state.transcript_emitted:
         transcript, text = _extract_transcript(text)
         messages[-1]["content"] = text
-        events.append(_event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction))
+        events.append(_event_with_compaction_tag({"type": "transcript", "text": transcript}, ctx.compaction))
         if transcript:
-            messages[user_msg_index] = {"role": "user", "content": transcript}
+            messages[ctx.user_msg_index] = {"role": "user", "content": transcript}
         else:
-            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-        transcript_emitted = True
+            messages[ctx.user_msg_index] = {"role": "user", "content": "[inaudible]"}
+        state.transcript_emitted = True
 
-    if not text.strip() and not tool_calls_made:
+    if not text.strip() and not state.tool_calls_made:
         logger.warning("_finalize_response received empty text with no tool calls — applying fallback.")
         text = _EMPTY_RESPONSE_GENERIC_FALLBACK
         if messages and messages[-1].get("role") == "assistant":
@@ -288,50 +277,50 @@ def _finalize_response(
     _trace("✓ response (%d chars)", len(text))
     logger.info("Final response (%d chars): %r", len(text), text[:120])
 
-    if correlation_id is not None and not compaction:
+    if ctx.correlation_id is not None and not ctx.compaction:
         safe_create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
+            correlation_id=ctx.correlation_id,
+            session_id=ctx.session_id,
             bot_id=bot.id,
-            client_id=client_id,
+            client_id=ctx.client_id,
             event_type="response",
             data={"text": text[:500], "full_length": len(text)},
         ))
 
     safe_create_task(fire_hook("after_response", HookContext(
-        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-        client_id=client_id, correlation_id=correlation_id,
-        extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
+        bot_id=bot.id, session_id=ctx.session_id, channel_id=ctx.channel_id,
+        client_id=ctx.client_id, correlation_id=ctx.correlation_id,
+        extra={"response_length": len(text), "tool_calls_made": list(state.tool_calls_made)},
     )))
 
-    if tool_calls_made and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_tools_used"] = list(tool_calls_made)
-        if tool_envelopes_made:
-            messages[-1]["_tool_envelopes"] = list(tool_envelopes_made)
+    if state.tool_calls_made and messages and messages[-1].get("role") == "assistant":
+        messages[-1]["_tools_used"] = list(state.tool_calls_made)
+        if state.tool_envelopes_made:
+            messages[-1]["_tool_envelopes"] = list(state.tool_envelopes_made)
 
-    if thinking_content_buf and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_thinking_content"] = thinking_content_buf
+    if state.thinking_content and messages and messages[-1].get("role") == "assistant":
+        messages[-1]["_thinking_content"] = state.thinking_content
 
-    if transcript_entries and messages and messages[-1].get("role") == "assistant":
+    if state.transcript_entries and messages and messages[-1].get("role") == "assistant":
         messages[-1]["_assistant_turn_body"] = {
             "version": 1,
-            "items": list(transcript_entries),
+            "items": list(state.transcript_entries),
         }
 
     if messages and messages[-1].get("role") == "assistant":
-        _collapse_final_assistant_tool_turn(messages, turn_start=turn_start)
+        _collapse_final_assistant_tool_turn(messages, turn_start=ctx.turn_start)
 
     events.append(_event_with_compaction_tag({
         "type": "response",
         "text": text,
-        "tools_used": list(tool_calls_made) if tool_calls_made else None,
+        "tools_used": list(state.tool_calls_made) if state.tool_calls_made else None,
         "client_actions": (
-            _extract_client_actions(messages, turn_start) + embedded_client_actions
+            _extract_client_actions(messages, ctx.turn_start) + state.embedded_client_actions
         ),
-        **({"correlation_id": str(correlation_id)} if correlation_id else {}),
-    }, compaction))
+        **({"correlation_id": str(ctx.correlation_id)} if ctx.correlation_id else {}),
+    }, ctx.compaction))
 
-    return events, transcript_emitted
+    return events
 
 
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
@@ -775,27 +764,13 @@ def _check_prompt_budget_guard(
 async def _handle_no_tool_calls_path(
     *,
     accumulated_msg: Any,
-    messages: list[dict],
-    tool_calls_made: list[str],
-    tool_envelopes_made: list[dict],
-    transcript_entries: list[dict],
-    thinking_content_buf: str,
-    transcript_emitted: bool,
+    ctx: LoopRunContext,
+    state: LoopRunState,
     iteration: int,
-    bot: BotConfig,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    correlation_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
     model: str,
     tools_param: list[dict[str, Any]] | None,
     effective_provider_id: str | None,
     fallback_models: list[dict] | None,
-    compaction: bool,
-    native_audio: bool,
-    user_msg_index: int | None,
-    turn_start: int,
-    embedded_client_actions: list[dict],
     llm_call_fn: Any,
 ) -> Any:  # AsyncGenerator[dict, None]
     """Handle the branch when the LLM returned no tool calls: sanitize text, force-retry on empty, finalize.
@@ -805,6 +780,7 @@ async def _handle_no_tool_calls_path(
     """
     from app.services.secret_registry import redact as _redact_secrets
 
+    messages = state.messages
     text = _sanitize_llm_text(accumulated_msg.content or "")
     text = _redact_secrets(text)
 
@@ -821,11 +797,11 @@ async def _handle_no_tool_calls_path(
             accumulated_msg.usage is not None
             and accumulated_msg.usage.completion_tokens == 0
         )
-        if tool_calls_made and not zero_tokens:
+        if state.tool_calls_made and not zero_tokens:
             # Silent completion: bot did work via tool calls, nothing to say.
             logger.info(
                 "LLM completed silently after %d tool call(s) — accepting empty response.",
-                len(tool_calls_made),
+                len(state.tool_calls_made),
             )
             messages.pop()
         else:
@@ -840,14 +816,14 @@ async def _handle_no_tool_calls_path(
                 )
             empty_msg = (
                 f"LLM returned empty response after {iteration + 1} iteration(s) "
-                f"({len(tool_calls_made)} tool calls, {reason}). Forcing retry."
+                f"({len(state.tool_calls_made)} tool calls, {reason}). Forcing retry."
             )
             logger.warning("LLM response was empty (%s). Forcing a response...", reason)
             yield _event_with_compaction_tag({
                 "type": "warning",
                 "code": "empty_response",
                 "message": empty_msg,
-            }, compaction)
+            }, ctx.compaction)
             messages.pop()
             messages.append({
                 "role": "system",
@@ -865,18 +841,18 @@ async def _handle_no_tool_calls_path(
                 text = _redact_secrets(text)
                 if not text.strip():
                     logger.warning("Forced-response retry also returned empty — using fallback.")
-                    text = _synthesize_empty_response_fallback(tool_calls_made, messages)
+                    text = _synthesize_empty_response_fallback(state.tool_calls_made, messages)
                 retry_msg = retry.choices[0].message.model_dump(exclude_none=True)
                 retry_msg["content"] = text
                 messages.append(retry_msg)
             except Exception as exc:
                 logger.error("Forced-response retry failed: %s", exc)
-                if correlation_id is not None:
+                if ctx.correlation_id is not None:
                     safe_create_task(_record_trace_event(
-                        correlation_id=correlation_id,
-                        session_id=session_id,
-                        bot_id=bot.id,
-                        client_id=client_id,
+                        correlation_id=ctx.correlation_id,
+                        session_id=ctx.session_id,
+                        bot_id=ctx.bot.id,
+                        client_id=ctx.client_id,
                         event_type="llm_error",
                         event_name="forced_response_retry",
                         data={"message": str(exc)[:2000]},
@@ -887,22 +863,13 @@ async def _handle_no_tool_calls_path(
                     "type": "error",
                     "code": "llm_error",
                     "message": text,
-                }, compaction)
+                }, ctx.compaction)
 
-    _append_transcript_text_entry(transcript_entries, text)
-    fin_events, _ = _finalize_response(
+    _append_transcript_text_entry(state.transcript_entries, text)
+    fin_events = _finalize_response(
         text,
-        messages=messages, bot=bot, session_id=session_id,
-        client_id=client_id, correlation_id=correlation_id,
-        channel_id=channel_id, compaction=compaction,
-        native_audio=native_audio, user_msg_index=user_msg_index,
-        transcript_emitted=transcript_emitted,
-        tool_calls_made=tool_calls_made,
-        tool_envelopes_made=tool_envelopes_made,
-        transcript_entries=transcript_entries,
-        thinking_content_buf=thinking_content_buf,
-        turn_start=turn_start,
-        embedded_client_actions=embedded_client_actions,
+        ctx=ctx,
+        state=state,
     )
     for evt in fin_events:
         yield evt
@@ -910,46 +877,28 @@ async def _handle_no_tool_calls_path(
 
 async def _handle_loop_exit_forced_response(
     *,
-    loop_broken_reason: str | None,
-    detected_cycle_len: int,
+    ctx: LoopRunContext,
+    state: LoopRunState,
     iteration: int,
-    tool_call_trace: list,
     effective_max_iterations: int,
-    messages: list[dict],
     tools_param: list[dict[str, Any]] | None,
     model: str,
     effective_provider_id: str | None,
     fallback_models: list[dict] | None,
-    bot: BotConfig,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    correlation_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
-    compaction: bool,
-    transcript_entries: list[dict],
-    thinking_content_buf: str,
-    transcript_emitted: bool,
-    tool_calls_made: list[str],
-    tool_envelopes_made: list[dict],
-    turn_start: int,
-    embedded_client_actions: list[dict],
-    native_audio: bool,
-    user_msg_index: int | None,
-    out_state: dict,
     llm_call_fn: Any,
 ) -> Any:  # AsyncGenerator[dict, None]
     """Post-loop forced-response handler: warn, call LLM with tool_choice=none, finalize.
 
-    On LLM failure, sets out_state["terminated"] = True so the caller skips
-    the post-loop tool-enrollment flush and exits the outer generator —
-    preserving the original `return` semantics of this error path.
+    On LLM failure, marks the run state terminated so the caller skips the
+    post-loop tool-enrollment flush and exits the outer generator.
     """
     from app.services.secret_registry import redact as _redact_secrets
 
-    if loop_broken_reason == "cycle":
+    messages = state.messages
+    if state.loop_broken_reason == "cycle":
         break_msg = (
-            f"Tool loop detected (cycle of {detected_cycle_len} call(s) repeating) "
-            f"after {len(tool_call_trace)} tool calls. Breaking cycle."
+            f"Tool loop detected (cycle of {state.detected_cycle_len} call(s) repeating) "
+            f"after {len(state.tool_call_trace)} tool calls. Breaking cycle."
         )
         break_code = "tool_loop_detected"
         system_prompt = (
@@ -968,21 +917,21 @@ async def _handle_loop_exit_forced_response(
         )
 
     logger.warning("Agent loop ended: %s", break_code)
-    if correlation_id is not None:
+    if ctx.correlation_id is not None:
         safe_create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
+            correlation_id=ctx.correlation_id,
+            session_id=ctx.session_id,
+            bot_id=ctx.bot.id,
+            client_id=ctx.client_id,
             event_type="warning",
             event_name=break_code,
-            data={"iterations": iteration + 1, "total_tool_calls": len(tool_call_trace), "message": break_msg},
+            data={"iterations": iteration + 1, "total_tool_calls": len(state.tool_call_trace), "message": break_msg},
         ))
     yield _event_with_compaction_tag({
         "type": "warning",
         "code": break_code,
         "message": break_msg,
-    }, compaction)
+    }, ctx.compaction)
 
     messages.append({
         "role": "system",
@@ -1007,16 +956,16 @@ async def _handle_loop_exit_forced_response(
             "type": "error",
             "code": "llm_error",
             "message": fallback_text,
-        }, compaction)
+        }, ctx.compaction)
         yield _event_with_compaction_tag({
             "type": "response",
             "text": fallback_text,
             "client_actions": (
-                _extract_client_actions(messages, turn_start) + embedded_client_actions
+                _extract_client_actions(messages, ctx.turn_start) + state.embedded_client_actions
             ),
-            **({"correlation_id": str(correlation_id)} if correlation_id else {}),
-        }, compaction)
-        out_state["terminated"] = True
+            **({"correlation_id": str(ctx.correlation_id)} if ctx.correlation_id else {}),
+        }, ctx.compaction)
+        state.terminated = True
         return
 
     text = _sanitize_llm_text(msg.content or "")
@@ -1024,7 +973,7 @@ async def _handle_loop_exit_forced_response(
     post_loop_msg = msg.model_dump(exclude_none=True)
     post_loop_msg["content"] = text
     messages.append(post_loop_msg)
-    if response.usage and correlation_id is not None:
+    if response.usage and ctx.correlation_id is not None:
         usage_extras2 = _extract_usage_extras(response)
         gross_prompt_tokens2 = response.usage.prompt_tokens
         cached_prompt_tokens2 = usage_extras2.get("cached_tokens")
@@ -1041,33 +990,24 @@ async def _handle_loop_exit_forced_response(
             "iteration": iteration + 2,
             "model": model,
             "provider_id": effective_provider_id,
-            "channel_id": str(channel_id) if channel_id else None,
+            "channel_id": str(ctx.channel_id) if ctx.channel_id else None,
             **usage_extras2,
         }
         if cached_prompt_tokens2 is not None:
             usage_data2["cached_prompt_tokens"] = cached_prompt_tokens2
         safe_create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
+            correlation_id=ctx.correlation_id,
+            session_id=ctx.session_id,
+            bot_id=ctx.bot.id,
+            client_id=ctx.client_id,
             event_type="token_usage",
             data=usage_data2,
         ))
-    _append_transcript_text_entry(transcript_entries, text)
-    fin_events, _ = _finalize_response(
+    _append_transcript_text_entry(state.transcript_entries, text)
+    fin_events = _finalize_response(
         text,
-        messages=messages, bot=bot, session_id=session_id,
-        client_id=client_id, correlation_id=correlation_id,
-        channel_id=channel_id, compaction=compaction,
-        native_audio=native_audio, user_msg_index=user_msg_index,
-        transcript_emitted=transcript_emitted,
-        tool_calls_made=tool_calls_made,
-        tool_envelopes_made=tool_envelopes_made,
-        transcript_entries=transcript_entries,
-        thinking_content_buf=thinking_content_buf,
-        turn_start=turn_start,
-        embedded_client_actions=embedded_client_actions,
+        ctx=ctx,
+        state=state,
     )
     for evt in fin_events:
         yield evt

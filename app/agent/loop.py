@@ -16,7 +16,6 @@ from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
 from app.agent.context_pruning import prune_in_loop_tool_results, should_prune_in_loop
 from app.agent.loop_dispatch import (
-    LoopDispatchState,
     SummarizeSettings,
     resolve_approval_verdict,  # noqa: F401 — re-exported
     dispatch_iteration_tool_calls,
@@ -44,6 +43,7 @@ from app.agent.loop_helpers import (
     _sanitize_messages,
     _synthesize_empty_response_fallback,  # noqa: F401 — re-exported
 )
+from app.agent.loop_state import LoopRunContext, LoopRunState
 from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
@@ -53,7 +53,7 @@ from app.agent.message_utils import (
 from app.agent.prompt_sizing import estimate_chars_to_tokens, message_prompt_chars
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, extract_xml_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
-from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle
+from app.agent.loop_cycle_detection import detect_cycle
 from app.agent.tool_dispatch import dispatch_tool_call  # noqa: F401 — re-exported
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
@@ -166,27 +166,19 @@ async def run_agent_tool_loop(
                 data={k: v for k, v in _tool_surface_event.items() if k != "type"},
             ))
 
-    transcript_emitted = False
-    embedded_client_actions: list[dict] = []
-    tool_calls_made: list[str] = []  # track tool names for elevation classifier
-    tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() with tool_call ownership — persisted to Message.metadata.tool_results
-    transcript_entries: list[dict] = []  # ordered settled-chat replay model for the assistant turn
-    thinking_content_buf: str = ""  # accumulated thinking across loop iterations — persisted to final assistant message metadata
-    tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
-    _tools_to_enroll: list[str] = []  # tools to promote to persistent working set
-    _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
-    _detected_cycle_len: int = 0  # populated when cycle detected
-    _current_prompt_tokens_total = 0
-    _soft_budget_slimmed = False
-    _last_pruned_after_iteration: int | None = None
-    dispatch_state = LoopDispatchState(
+    ctx = LoopRunContext(
+        bot=bot,
+        session_id=session_id,
+        client_id=client_id,
+        correlation_id=correlation_id,
+        channel_id=channel_id,
+        compaction=compaction,
+        native_audio=native_audio,
+        user_msg_index=user_msg_index,
+        turn_start=turn_start,
+    )
+    state = LoopRunState(
         messages=messages,
-        transcript_entries=transcript_entries,
-        tool_calls_made=tool_calls_made,
-        tool_envelopes_made=tool_envelopes_made,
-        embedded_client_actions=embedded_client_actions,
-        tool_call_trace=tool_call_trace,
-        tools_to_enroll=_tools_to_enroll,
     )
 
     try:
@@ -236,12 +228,12 @@ async def run_agent_tool_loop(
                 _elapsed_seconds = time.monotonic() - _run_started_at
                 _soft_budget_pressure = (
                     context_profile_name == "heartbeat"
-                    and not _soft_budget_slimmed
+                    and not state.soft_budget_slimmed
                     and (
                         (_soft_max_llm_calls > 0 and iteration >= _soft_max_llm_calls)
                         or (
                             _soft_current_prompt_tokens > 0
-                            and _current_prompt_tokens_total >= _soft_current_prompt_tokens
+                            and state.current_prompt_tokens_total >= _soft_current_prompt_tokens
                         )
                         or (
                             _target_seconds > 0
@@ -255,17 +247,17 @@ async def run_agent_tool_loop(
                         _pressure_reason = "target_seconds"
                     elif (
                         _soft_current_prompt_tokens > 0
-                        and _current_prompt_tokens_total >= _soft_current_prompt_tokens
+                        and state.current_prompt_tokens_total >= _soft_current_prompt_tokens
                     ):
                         _pressure_reason = "soft_current_prompt_tokens"
-                    _soft_budget_slimmed = True
+                    state.soft_budget_slimmed = True
                     _pressure_event = {
                         "type": "heartbeat_budget_pressure",
                         "iteration": iteration + 1,
                         "reason": _pressure_reason,
                         "soft_max_llm_calls": _soft_max_llm_calls or None,
                         "soft_current_prompt_tokens": _soft_current_prompt_tokens or None,
-                        "current_prompt_tokens_total": _current_prompt_tokens_total,
+                        "current_prompt_tokens_total": state.current_prompt_tokens_total,
                         "target_seconds": _target_seconds or None,
                         "elapsed_seconds": round(_elapsed_seconds, 3),
                     }
@@ -427,7 +419,7 @@ async def run_agent_tool_loop(
                 bot=bot,
                 client_id=client_id,
                 turn_start=turn_start,
-                embedded_client_actions=embedded_client_actions,
+                embedded_client_actions=state.embedded_client_actions,
                 compaction=compaction,
             )
             for _evt in _budget_gate.events:
@@ -440,6 +432,7 @@ async def run_agent_tool_loop(
             effective_model = model
 
             messages = _sanitize_messages(messages)
+            state.messages = messages
 
             _llm_t0 = _time.monotonic()
 
@@ -568,7 +561,7 @@ async def run_agent_tool_loop(
                 _current_prompt_tokens = _gross_prompt_tokens
                 if _cached_prompt_tokens is not None:
                     _current_prompt_tokens = max(0, _gross_prompt_tokens - _cached_prompt_tokens)
-                _current_prompt_tokens_total += int(_current_prompt_tokens or 0)
+                state.current_prompt_tokens_total += int(_current_prompt_tokens or 0)
                 if correlation_id is not None:
                     _usage_data = {
                         "prompt_tokens": _gross_prompt_tokens,
@@ -601,9 +594,7 @@ async def run_agent_tool_loop(
             # and accumulate across iterations for persistence on the final
             # assistant message (see `_thinking_content` injection below).
             if accumulated_msg.thinking_content:
-                if thinking_content_buf:
-                    thinking_content_buf += "\n\n"
-                thinking_content_buf += accumulated_msg.thinking_content
+                state.append_thinking(accumulated_msg.thinking_content)
                 yield _event_with_compaction_tag(
                     {"type": "thinking_content", "text": accumulated_msg.thinking_content},
                     compaction,
@@ -618,40 +609,26 @@ async def run_agent_tool_loop(
             if not accumulated_msg.tool_calls:
                 async for _evt in _handle_no_tool_calls_path(
                     accumulated_msg=accumulated_msg,
-                    messages=messages,
-                    tool_calls_made=tool_calls_made,
-                    tool_envelopes_made=tool_envelopes_made,
-                    transcript_entries=transcript_entries,
-                    thinking_content_buf=thinking_content_buf,
-                    transcript_emitted=transcript_emitted,
+                    ctx=ctx,
+                    state=state,
                     iteration=iteration,
-                    bot=bot,
-                    session_id=session_id,
-                    client_id=client_id,
-                    correlation_id=correlation_id,
-                    channel_id=channel_id,
                     model=model,
                     tools_param=tools_param,
                     effective_provider_id=effective_provider_id,
                     fallback_models=fallback_models,
-                    compaction=compaction,
-                    native_audio=native_audio,
-                    user_msg_index=user_msg_index,
-                    turn_start=turn_start,
-                    embedded_client_actions=embedded_client_actions,
                     llm_call_fn=_llm_call,
                 ):
                     yield _evt
                 return
 
             _acc_content = accumulated_msg.content
-            if native_audio and user_msg_index is not None and not transcript_emitted and _acc_content:
+            if native_audio and user_msg_index is not None and not state.transcript_emitted and _acc_content:
                 transcript, _ = _extract_transcript(_acc_content)
                 if transcript:
                     logger.info("Audio transcript (from tool-call response): %r", transcript[:100])
                     yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
                     messages[user_msg_index] = {"role": "user", "content": transcript}
-                    transcript_emitted = True
+                    state.transcript_emitted = True
 
             # Emit intermediate text when the LLM returns content alongside tool calls.
             # Without this, the text is recorded in conversation history but never
@@ -661,7 +638,7 @@ async def run_agent_tool_loop(
             _intermediate_text = _sanitize_llm_text(_acc_content or "")
             _intermediate_text = _redact_secrets(_intermediate_text)
             if _intermediate_text:
-                _append_transcript_text_entry(transcript_entries, _intermediate_text)
+                _append_transcript_text_entry(state.transcript_entries, _intermediate_text)
                 yield _event_with_compaction_tag(
                     {"type": "assistant_text", "text": _intermediate_text},
                     compaction,
@@ -671,16 +648,11 @@ async def run_agent_tool_loop(
             logger.info("LLM requested %d tool call(s)", len(_acc_tool_calls))
             async for _dispatch_event in dispatch_iteration_tool_calls(
                 accumulated_tool_calls=_acc_tool_calls,
-                state=dispatch_state,
-                bot=bot,
-                session_id=session_id,
-                client_id=client_id,
-                correlation_id=correlation_id,
-                channel_id=channel_id,
+                ctx=ctx,
+                state=state,
                 iteration=iteration,
                 provider_id=effective_provider_id,
                 summarize_settings=summarize_settings,
-                compaction=compaction,
                 skip_tool_policy=skip_tool_policy,
                 effective_allowed=_effective_allowed,
                 settings_obj=settings,
@@ -691,7 +663,7 @@ async def run_agent_tool_loop(
                 yield _dispatch_event
                 if _dispatch_event.get("type") == "cancelled":
                     return
-            _iteration_injected_images = list(dispatch_state.iteration_injected_images)
+            _iteration_injected_images = list(state.iteration_injected_images)
 
             # Inject images as synthetic user message so LLM sees them natively
             if _iteration_injected_images:
@@ -743,7 +715,7 @@ async def run_agent_tool_loop(
                             "wait_seconds": 0,
                         }, compaction)
 
-            if settings.IN_LOOP_PRUNING_ENABLED and _last_pruned_after_iteration != iteration:
+            if settings.IN_LOOP_PRUNING_ENABLED and state.last_pruned_after_iteration != iteration:
                 _available_budget_tokens = 0
                 try:
                     from app.agent.context_budget import get_model_context_window
@@ -767,7 +739,7 @@ async def run_agent_tool_loop(
                         min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
                     )
                     if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
-                        _last_pruned_after_iteration = iteration
+                        state.last_pruned_after_iteration = iteration
                         yield _event_with_compaction_tag({
                             "type": "context_pruning",
                             "pruned_count": _in_loop_stats["pruned_count"],
@@ -795,58 +767,39 @@ async def run_agent_tool_loop(
                 })
 
             # --- Within-run tool loop detection ---
-            if settings.TOOL_LOOP_DETECTION_ENABLED and len(tool_call_trace) >= 3:
-                _detected_cycle_len = detect_cycle(tool_call_trace) or 0
-                if _detected_cycle_len:
-                    _loop_broken_reason = "cycle"
+            if settings.TOOL_LOOP_DETECTION_ENABLED and len(state.tool_call_trace) >= 3:
+                state.detected_cycle_len = detect_cycle(state.tool_call_trace) or 0
+                if state.detected_cycle_len:
+                    state.loop_broken_reason = "cycle"
                     logger.warning(
                         "Tool loop detected: cycle length %d after %d calls — breaking",
-                        _detected_cycle_len, len(tool_call_trace),
+                        state.detected_cycle_len, len(state.tool_call_trace),
                     )
                     break
 
         # --- Post-loop: forced response (max iterations or cycle break) ---
-        _forced_out_state: dict = {}
         async for _evt in _handle_loop_exit_forced_response(
-            loop_broken_reason=_loop_broken_reason,
-            detected_cycle_len=_detected_cycle_len,
+            ctx=ctx,
+            state=state,
             iteration=iteration,
-            tool_call_trace=tool_call_trace,
             effective_max_iterations=effective_max_iterations,
-            messages=messages,
             tools_param=tools_param,
             model=model,
             effective_provider_id=effective_provider_id,
             fallback_models=fallback_models,
-            bot=bot,
-            session_id=session_id,
-            client_id=client_id,
-            correlation_id=correlation_id,
-            channel_id=channel_id,
-            compaction=compaction,
-            transcript_entries=transcript_entries,
-            thinking_content_buf=thinking_content_buf,
-            transcript_emitted=transcript_emitted,
-            tool_calls_made=tool_calls_made,
-            tool_envelopes_made=tool_envelopes_made,
-            turn_start=turn_start,
-            embedded_client_actions=embedded_client_actions,
-            native_audio=native_audio,
-            user_msg_index=user_msg_index,
-            out_state=_forced_out_state,
             llm_call_fn=_llm_call,
         ):
             yield _evt
-        if _forced_out_state.get("terminated"):
+        if state.terminated:
             return
 
         # Flush tool usage telemetry (fire-and-forget) — success path only.
         # ``record_use_many`` upserts each row: creates with source='fetched'
         # if missing, increments fetch_count by occurrence count, stamps
         # last_used_at. Memory hygiene reads these to decide what to prune.
-        if _tools_to_enroll and bot.id:
+        if state.tools_to_enroll and bot.id:
             from app.services.tool_enrollment import record_use_many as _record_tool_uses
-            safe_create_task(_record_tool_uses(bot.id, _tools_to_enroll))
+            safe_create_task(_record_tool_uses(bot.id, state.tools_to_enroll))
 
     except Exception as exc:
         # Fire after_response hook on error path so integrations can clean up
@@ -855,7 +808,7 @@ async def run_agent_tool_loop(
             safe_create_task(fire_hook("after_response", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                 client_id=client_id, correlation_id=correlation_id,
-                extra={"error": True, "tool_calls_made": list(tool_calls_made)},
+                extra={"error": True, "tool_calls_made": list(state.tool_calls_made)},
             )))
         except Exception:
             pass  # best-effort; fire_hook/HookContext may not be bound if imports failed
