@@ -512,6 +512,7 @@ test("custom view-key component envelopes use rich-result renderer instead of wi
                 id: "call-machine",
                 name: "machine_status",
                 arguments: "{}",
+                surface: "widget",
             },
         ],
         toolResults: [

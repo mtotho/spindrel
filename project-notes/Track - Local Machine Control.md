@@ -196,7 +196,8 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 
 - `machine_status` cards no longer render as blank generic component widgets.
 - Root cause: transcript surface inference treated every inline `application/vnd.spindrel.components+json` envelope as a widget, bypassing the semantic `view_key` registry. `core.machine_target_status` then only displayed its placeholder heading component instead of the machine-control renderer body.
-- Inline component/html envelopes that carry an explicit `view_key` now route through `RichToolResult`; generic component/html envelopes without a semantic view still use `WidgetCard`.
+- Inline component/html envelopes that carry an explicit `view_key` now route through `RichToolResult` even when persisted tool-call metadata says `surface: "widget"`; generic component/html envelopes without a semantic view still use `WidgetCard`.
+- `machine_status` now includes target identity details in the `llm` summary (provider, label, host, status, profile, and reason) so the agent can identify the ready SSH target and not claim it can only see a connected-count aggregate.
 - Added a regression in `toolTranscriptModel.test.ts` for `machine_status` / `core.machine_target_status`.
 
 ## Current Architecture Shape
@@ -250,3 +251,4 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `cd agent-server/ui && npx tsc --noEmit --pretty false`
 - `cd agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false`
 - `cd agent-server/ui && node --test .chat-test-dist/src/components/chat/toolTranscriptModel.test.js .chat-test-dist/src/components/chat/renderArchitecture.test.js`
+- `pytest tests/unit/test_local_machine_control_phase5a.py -q`

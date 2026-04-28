@@ -317,6 +317,11 @@ function inferEnvelopeSurface(env) {
         return "rich_result";
     return env ? "root_rich_result" : null;
 }
+function resolveToolEnvelopeSurface(surface, env) {
+    if (env?.view_key)
+        return "rich_result";
+    return surface ?? inferEnvelopeSurface(env);
+}
 function buildMissingToolDataEntry(toolCallId) {
     return {
         id: `missing-tool:${toolCallId}`,
@@ -520,7 +525,7 @@ function isPersistedToolCall(toolCall) {
 function resolveOrderedTool(toolCall, result, index, renderMode) {
     if (isPersistedToolCall(toolCall)) {
         const normalized = normalizeToolCall(toolCall);
-        const surface = toolCall.surface ?? inferEnvelopeSurface(result);
+        const surface = resolveToolEnvelopeSurface(toolCall.surface, result);
         const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
         if (richSurface === "widget" && result) {
             return {
@@ -546,7 +551,7 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
         };
     }
     const envelope = result ?? toolCall.envelope;
-    const surface = toolCall.surface ?? inferEnvelopeSurface(envelope);
+    const surface = resolveToolEnvelopeSurface(toolCall.surface, envelope);
     const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
     if (richSurface === "widget" && envelope) {
         return {

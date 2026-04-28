@@ -392,6 +392,14 @@ function inferEnvelopeSurface(
   return env ? "root_rich_result" : null;
 }
 
+function resolveToolEnvelopeSurface(
+  surface: ToolSurface | null | undefined,
+  env: ToolResultEnvelope | undefined,
+): ToolSurface | "root_rich_result" | null {
+  if (env?.view_key) return "rich_result";
+  return surface ?? inferEnvelopeSurface(env);
+}
+
 type OrderedToolResolution = {
   key: string;
   transcriptEntries: SharedToolTranscriptEntry[];
@@ -656,7 +664,7 @@ function resolveOrderedTool(
 ): OrderedToolResolution {
   if (isPersistedToolCall(toolCall)) {
     const normalized = normalizeToolCall(toolCall);
-    const surface = toolCall.surface ?? inferEnvelopeSurface(result);
+    const surface = resolveToolEnvelopeSurface(toolCall.surface, result);
     const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
 
     if (richSurface === "widget" && result) {
@@ -686,7 +694,7 @@ function resolveOrderedTool(
   }
 
   const envelope = result ?? toolCall.envelope;
-  const surface = toolCall.surface ?? inferEnvelopeSurface(envelope);
+  const surface = resolveToolEnvelopeSurface(toolCall.surface, envelope);
   const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
 
   if (richSurface === "widget" && envelope) {

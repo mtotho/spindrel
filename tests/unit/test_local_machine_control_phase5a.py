@@ -136,17 +136,18 @@ class TestCoreMachineControlToolEnvelopes:
             "connected_target_count": 1,
             "targets": [
                 {
-                    "provider_id": "local_companion",
-                    "provider_label": "Local Companion",
+                    "provider_id": "ssh",
+                    "provider_label": "SSH",
                     "target_id": "target-1",
-                    "driver": "companion",
-                    "label": "Desk",
-                    "hostname": "workstation",
-                    "platform": "linux",
+                    "driver": "ssh",
+                    "label": "Mac Mini",
+                    "hostname": "10.10.100.183",
+                    "platform": "Darwin 25.3.0 arm64",
                     "capabilities": ["shell"],
                     "ready": True,
                     "connected": True,
-                    "connection_id": "conn-1",
+                    "connection_id": "ssh://michaeltoth@10.10.100.183:22",
+                    "profile_label": "Mac Mini",
                 },
             ],
         }
@@ -168,6 +169,9 @@ class TestCoreMachineControlToolEnvelopes:
         assert envelope["refreshable"] is True
         assert envelope["refresh_interval_seconds"] == 5
         assert envelope["data"]["connected_target_count"] == 1
+        assert "Mac Mini" in parsed["llm"]
+        assert "10.10.100.183" in parsed["llm"]
+        assert "SSH" in parsed["llm"]
 
     @pytest.mark.asyncio
     async def test_machine_exec_command_uses_command_result_view(self):

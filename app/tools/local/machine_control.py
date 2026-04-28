@@ -41,6 +41,42 @@ def _command_llm_summary(payload: dict) -> str:
     return "\n".join(parts)
 
 
+def _target_status_line(target: dict) -> str:
+    provider = str(target.get("provider_label") or target.get("provider_id") or "provider")
+    label = str(target.get("label") or target.get("target_id") or "target")
+    metadata = target.get("metadata") if isinstance(target.get("metadata"), dict) else {}
+    host = str(target.get("hostname") or metadata.get("host") or "")
+    status = str(target.get("status_label") or ("Ready" if target.get("ready") else "Unavailable"))
+    profile = str(target.get("profile_label") or "").strip()
+    parts = [provider, label]
+    if host and host != label:
+        parts.append(host)
+    parts.append(status)
+    if profile:
+        parts.append(f"profile: {profile}")
+    reason = str(target.get("reason") or "").strip()
+    if reason:
+        parts.append(f"reason: {reason}")
+    return " - " + " | ".join(parts)
+
+
+def _machine_status_llm_summary(payload: dict) -> str:
+    targets = payload.get("targets") if isinstance(payload.get("targets"), list) else []
+    ready_count = int(payload.get("connected_target_count") or payload.get("ready_target_count") or 0)
+    parts = [
+        f"{ready_count} connected machine target(s); "
+        f"{'an active lease exists' if payload.get('lease') else 'no active session lease'}.",
+    ]
+    if targets:
+        parts.append("Targets:")
+        parts.extend(_target_status_line(target) for target in targets if isinstance(target, dict))
+    lease = payload.get("lease")
+    if isinstance(lease, dict):
+        lease_label = lease.get("target_label") or lease.get("target_id") or "target"
+        parts.append(f"Active lease target: {lease_label}")
+    return "\n".join(parts)
+
+
 def _components_envelope(
     *,
     plain_body: str,
@@ -153,10 +189,7 @@ async def machine_status() -> str:
     return json.dumps(
         {
             "_envelope": envelope.compact_dict(),
-            "llm": (
-                f"{payload['connected_target_count']} connected machine target(s); "
-                f"{'an active lease exists' if payload.get('lease') else 'no active session lease'}."
-            ),
+            "llm": _machine_status_llm_summary(payload),
             **payload,
         },
         ensure_ascii=False,
