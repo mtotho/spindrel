@@ -44,6 +44,7 @@ from app.agent.loop_helpers import (
 )
 from app.agent.loop_exit import schedule_loop_error_cleanup, stream_loop_exit_finalization
 from app.agent.loop_llm import LoopLlmIterationDone, stream_loop_llm_iteration
+from app.agent.loop_pre_llm import LoopPreLlmIterationDone, stream_loop_pre_llm_iteration
 from app.agent.loop_state import LoopRunContext, LoopRunState
 from app.agent.loop_tool_iteration import LoopToolIterationDone, stream_loop_tool_iteration
 from app.agent.message_utils import (
@@ -204,232 +205,46 @@ async def run_agent_tool_loop(
         )
 
         for iteration in range(effective_max_iterations):
-            # Cancellation checkpoint: before LLM call
-            if session_id and session_locks.is_cancel_requested(session_id):
-                logger.info("Cancellation requested for session %s (before LLM call, iteration %d)", session_id, iteration + 1)
-                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
-                return
-
-            # Merge any tools activated mid-loop by get_tool_info into tools_param
-            # so the LLM can actually invoke them on this iteration.
-            tools_param, tool_choice = _merge_activated_tools_into_param(
-                _activated_list,
-                tools_param,
-                tool_choice,
-                _effective_allowed,
+            _pre_llm_done: LoopPreLlmIterationDone | None = None
+            async for _pre_llm_event in stream_loop_pre_llm_iteration(
+                ctx=ctx,
+                state=state,
                 iteration=iteration,
-            )
-
-            logger.debug("--- Iteration %d ---", iteration + 1)
-            logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
-
-            # In-loop pruning: trim tool results from older iterations within
-            # this turn. Runs only when live-history utilization crosses the
-            # pressure threshold; below threshold, pruning is pure loss.
-            if iteration > 0 and settings.IN_LOOP_PRUNING_ENABLED:
-                _elapsed_seconds = time.monotonic() - _run_started_at
-                _soft_budget_pressure = (
-                    context_profile_name == "heartbeat"
-                    and not state.soft_budget_slimmed
-                    and (
-                        (_soft_max_llm_calls > 0 and iteration >= _soft_max_llm_calls)
-                        or (
-                            _soft_current_prompt_tokens > 0
-                            and state.current_prompt_tokens_total >= _soft_current_prompt_tokens
-                        )
-                        or (
-                            _target_seconds > 0
-                            and _elapsed_seconds >= _target_seconds
-                        )
-                    )
-                )
-                if _soft_budget_pressure:
-                    _pressure_reason = "soft_max_llm_calls"
-                    if _target_seconds > 0 and _elapsed_seconds >= _target_seconds:
-                        _pressure_reason = "target_seconds"
-                    elif (
-                        _soft_current_prompt_tokens > 0
-                        and state.current_prompt_tokens_total >= _soft_current_prompt_tokens
-                    ):
-                        _pressure_reason = "soft_current_prompt_tokens"
-                    state.soft_budget_slimmed = True
-                    _pressure_event = {
-                        "type": "heartbeat_budget_pressure",
-                        "iteration": iteration + 1,
-                        "reason": _pressure_reason,
-                        "soft_max_llm_calls": _soft_max_llm_calls or None,
-                        "soft_current_prompt_tokens": _soft_current_prompt_tokens or None,
-                        "current_prompt_tokens_total": state.current_prompt_tokens_total,
-                        "target_seconds": _target_seconds or None,
-                        "elapsed_seconds": round(_elapsed_seconds, 3),
-                    }
-                    yield _event_with_compaction_tag(_pressure_event, compaction)
-                    if correlation_id is not None:
-                        safe_create_task(_record_trace_event(
-                            correlation_id=correlation_id,
-                            session_id=session_id,
-                            bot_id=bot.id,
-                            client_id=client_id,
-                            event_type="heartbeat_budget_pressure",
-                            data={k: v for k, v in _pressure_event.items() if k != "type"},
-                        ))
-                    _in_loop_stats = prune_in_loop_tool_results(
-                        messages,
-                        keep_iterations=min(_in_loop_keep_iterations, 1),
-                        min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
-                    )
-                    yield _event_with_compaction_tag({
-                        "type": "context_pruning",
-                        "pruned_count": _in_loop_stats["pruned_count"],
-                        "chars_saved": _in_loop_stats["chars_saved"],
-                        "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                        "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                        "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                        "scope": "in_loop",
-                        "keep_iterations": min(_in_loop_keep_iterations, 1),
-                        "live_history_utilization": None,
-                        "triggered_by": "heartbeat_soft_budget",
-                    }, compaction)
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            "Heartbeat soft budget reached. Continue only if one more tool call is clearly "
-                            "high-value and novel; otherwise produce a concise final heartbeat result."
-                        ),
-                    })
-                    if correlation_id is not None:
-                        safe_create_task(_record_trace_event(
-                            correlation_id=correlation_id,
-                            session_id=session_id,
-                            bot_id=bot.id,
-                            client_id=client_id,
-                            event_type="context_pruning",
-                            count=_in_loop_stats["pruned_count"],
-                            data={
-                                "scope": "in_loop",
-                                "chars_saved": _in_loop_stats["chars_saved"],
-                                "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                                "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                                "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                                "iteration": iteration + 1,
-                                "keep_iterations": min(_in_loop_keep_iterations, 1),
-                                "triggered_by": "heartbeat_soft_budget",
-                            },
-                        ))
-                    continue
-                _available_budget_tokens = 0
-                try:
-                    from app.agent.context_budget import get_model_context_window
-                    _window = get_model_context_window(model, effective_provider_id)
-                    if _window > 0:
-                        _available_budget_tokens = max(
-                            0,
-                            _window - int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO),
-                        )
-                except Exception:
-                    _available_budget_tokens = 0
-
-                _should_prune, _utilization = should_prune_in_loop(
-                    messages,
-                    available_budget_tokens=_available_budget_tokens,
-                    pressure_threshold=settings.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
-                )
-                if _should_prune:
-                    _in_loop_stats = prune_in_loop_tool_results(
-                        messages,
-                        keep_iterations=_in_loop_keep_iterations,
-                        min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
-                    )
-                    if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
-                        logger.info(
-                            "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d (utilization=%.2f)",
-                            _in_loop_stats["pruned_count"],
-                            _in_loop_stats["chars_saved"],
-                            iteration + 1,
-                            _utilization,
-                        )
-                        yield _event_with_compaction_tag({
-                            "type": "context_pruning",
-                            "pruned_count": _in_loop_stats["pruned_count"],
-                            "chars_saved": _in_loop_stats["chars_saved"],
-                            "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                            "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                            "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                            "scope": "in_loop",
-                            "keep_iterations": _in_loop_keep_iterations,
-                            "live_history_utilization": _utilization,
-                            "triggered_by": "pressure",
-                        }, compaction)
-                        if correlation_id is not None:
-                            safe_create_task(_record_trace_event(
-                                correlation_id=correlation_id,
-                                session_id=session_id,
-                                bot_id=bot.id,
-                                client_id=client_id,
-                                event_type="context_pruning",
-                                count=_in_loop_stats["pruned_count"],
-                                data={
-                                    "scope": "in_loop",
-                                    "chars_saved": _in_loop_stats["chars_saved"],
-                                    "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                                    "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                                    "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                                    "iteration": iteration + 1,
-                                    "keep_iterations": _in_loop_keep_iterations,
-                                    "live_history_utilization": _utilization,
-                                    "triggered_by": "pressure",
-                                },
-                            ))
-
-            # Context breakdown trace (first iteration only — avoids O(n) scan every iteration)
-            if correlation_id is not None and iteration == 0:
-                _breakdown: dict[str, dict] = {}
-                for _m in messages:
-                    _role = _m.get("role", "?")
-                    _content = _m.get("content") or ""
-                    _chars = message_prompt_chars(_m)
-                    _key = _role
-                    if _role == "system" and isinstance(_content, str):
-                        _key = _CLASSIFY_SYS_MSG(_content)
-                    if _key not in _breakdown:
-                        _breakdown[_key] = {"count": 0, "chars": 0}
-                    _breakdown[_key]["count"] += 1
-                    _breakdown[_key]["chars"] += _chars
-                safe_create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="context_breakdown",
-                    data={
-                        "breakdown": _breakdown,
-                        "total_messages": len(messages),
-                        "total_chars": sum(v["chars"] for v in _breakdown.values()),
-                        "iteration": iteration + 1,
-                    },
-                ))
-
-            # Prompt budget gate: context-window hard block + TPM rate-limit wait.
-            _budget_gate = _check_prompt_budget_guard(
-                messages=messages,
-                tools_param=tools_param,
                 model=model,
                 effective_provider_id=effective_provider_id,
-                iteration=iteration,
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot=bot,
-                client_id=client_id,
-                turn_start=turn_start,
-                embedded_client_actions=state.embedded_client_actions,
-                compaction=compaction,
-            )
-            for _evt in _budget_gate.events:
-                yield _evt
-            if _budget_gate.should_return:
+                tools_param=tools_param,
+                tool_choice=tool_choice,
+                activated_list=_activated_list,
+                effective_allowed=_effective_allowed,
+                context_profile_name=context_profile_name,
+                run_started_at=_run_started_at,
+                soft_max_llm_calls=_soft_max_llm_calls,
+                soft_current_prompt_tokens=_soft_current_prompt_tokens,
+                target_seconds=_target_seconds,
+                in_loop_keep_iterations=_in_loop_keep_iterations,
+                settings_obj=settings,
+                session_lock_manager=session_locks,
+                merge_activated_tools_fn=_merge_activated_tools_into_param,
+                prune_in_loop_tool_results_fn=prune_in_loop_tool_results,
+                should_prune_in_loop_fn=should_prune_in_loop,
+                check_prompt_budget_guard_fn=_check_prompt_budget_guard,
+                record_trace_event_fn=_record_trace_event,
+                safe_create_task_fn=safe_create_task,
+                sleep_fn=asyncio.sleep,
+                monotonic_fn=_time.monotonic,
+                message_prompt_chars_fn=message_prompt_chars,
+                classify_sys_msg_fn=_CLASSIFY_SYS_MSG,
+            ):
+                if isinstance(_pre_llm_event, LoopPreLlmIterationDone):
+                    _pre_llm_done = _pre_llm_event
+                    continue
+                yield _pre_llm_event
+            if _pre_llm_done is None or _pre_llm_done.return_loop:
                 return
-            if _budget_gate.wait_seconds:
-                await asyncio.sleep(_budget_gate.wait_seconds)
+            tools_param = _pre_llm_done.tools_param
+            tool_choice = _pre_llm_done.tool_choice
+            if _pre_llm_done.continue_loop:
+                continue
 
             _llm_done: LoopLlmIterationDone | None = None
             async for _llm_event in stream_loop_llm_iteration(
