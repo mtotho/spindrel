@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-27 (Mission Control replaces Command Center as the Starboard coordination surface.)
+updated: 2026-04-28 (Mission Control read model adds spatial readiness.)
 ---
 
 # Track — Spatial Canvas
@@ -53,6 +53,15 @@ tethered to the assigned bot or scoped channel, so bot position now carries
 coordination meaning instead of being only decorative. `Cmd/Ctrl+K` opens
 channel/session destinations by default; the canvas fly-to action remains
 available as the secondary `Cmd/Ctrl+Enter` action.
+
+2026-04-28 Mission Control readiness pass: added a dedicated read-only
+`/api/v1/workspace/mission-control` model that groups missions and assigned
+Attention signals into bot lanes with per-assignment spatial advisories
+(`ready`, `far`, `blocked`, `unknown`). Advisory status uses the assigned bot's
+global canvas node, the mission/assignment target channel node, and the
+channel-scoped spatial-bot policy; workspace missions without a channel target
+stay `unknown` and still show nearby mapped objects. `/hub/mission-control` is
+the durable route, while `/hub/command-center` remains a compatibility alias.
 
 | Phase | Status | Description |
 |---|---|---|
@@ -147,11 +156,11 @@ available as the secondary `Cmd/Ctrl+Enter` action.
 - Bot-owned widget management is permissioned separately from object tugging. `allow_spatial_widget_management` only permits create/move/resize/remove for spatial widgets whose `source_bot_id` matches the acting bot.
 - Attention Items are domain state, not spatial nodes. `workspace_attention_items` owns lifecycle, dedupe, evidence, and future assignment shape; Beacons are the canvas rendering attached to existing channel/bot/widget/system targets. `workspace_spatial_nodes` remains position-only.
 - Bot-authored Attention Beacons are opt-in per channel bot policy via `allow_attention_beacons`; source bots may update/resolve only their own items, while humans can override.
-- User-authored Attention Items are first-class work-intake items, visible to normal channel viewers, and can be assigned from the Command Center.
+- User-authored Attention Items are first-class work-intake items, visible to normal channel viewers, and can be assigned from Mission Control / the compatibility Command Center intake API.
 - Workspace Missions are the long-lived coordination layer for bot work. They are visible in Mission Control and on the map, but execution stays task-backed so runs keep the existing scheduler, model overrides, tracing, and task result surfaces.
 - Mission cadence is separate from channel heartbeat cadence. Assigning a mission to a channel does not mutate or override `ChannelHeartbeat`; mission intervals create their own `mission_tick` task rows and can be paused/resumed independently.
 - System Attention Beacons come from structured persisted failures and are admin-only. Raw server logs are evidence/follow-up material, not a direct v1 source.
-- Command Center assignments are investigate/report only. `next_heartbeat` injects at most one compact assignment block into the channel heartbeat bot's heartbeat; `run_now` creates an `attention_assignment` task with the narrow report tool.
+- Attention assignments are investigate/report only. `next_heartbeat` injects at most one compact assignment block into the channel heartbeat bot's heartbeat; `run_now` creates an `attention_assignment` task with the narrow report tool.
 - Attention signals must be anchored in world space to their bound target or cluster and render above neighboring node chrome; the overlay must follow pan/zoom/drag without visual detachment or widget clipping. Map signals are severity/attention cues only: one rim signal per target, no idle count text, with counts/actions/evidence owned by the Hub.
 - Movement is intentionally low-authority. Bots move by bounded cardinal steps, not arbitrary coordinates; object tugs require proximity and produce visible traces. Tugs also publish a synthetic assistant message into the active channel so spatial state changes are auditable in chat history.
 - Bot proximity is center-distance for ranking, edge-gap for judgment. `minimum_clearance_steps` defaults to 3, context calls out overlapping/too-close neighbors, and self-move tools should reject moves that worsen under-clearance crowding.

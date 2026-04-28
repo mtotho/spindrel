@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-import { useCommandCenter } from "@/src/api/hooks/useCommandCenter";
+import { useMissionControl } from "@/src/api/hooks/useMissionControl";
 import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
 import { formatTimeUntil } from "@/src/components/spatial-canvas/spatialActivity";
 import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
@@ -23,39 +23,39 @@ export function CommandCenterWidget({
   if (!payload.widget_instance_id) {
     return (
       <PreviewCard
-        title="Command Center"
-        description="Bot assignments, next heartbeat timing, upcoming work, and recent run reports."
+        title="Mission Control"
+        description="Mission load, bot lanes, attention signals, and spatial readiness."
         t={t}
       />
     );
   }
 
-  const { data, isLoading, isError } = useCommandCenter();
-  if (isLoading) return <div style={{ color: t.textDim, fontSize: 12 }}>Loading Command Center...</div>;
-  if (isError || !data) return <div style={{ color: t.textMuted, fontSize: 12 }}>Command Center is unavailable.</div>;
+  const { data, isLoading, isError } = useMissionControl();
+  if (isLoading) return <div style={{ color: t.textDim, fontSize: 12 }}>Loading Mission Control...</div>;
+  if (isError || !data) return <div style={{ color: t.textMuted, fontSize: 12 }}>Mission Control is unavailable.</div>;
 
-  const rows = data.bots.filter((bot) => bot.queue_depth > 0 || bot.upcoming.length > 0).slice(0, profile.compact ? 2 : 5);
+  const rows = data.lanes.filter((bot) => bot.missions.length > 0 || bot.attention_signals.length > 0).slice(0, profile.compact ? 2 : 5);
   const first = rows[0];
 
   if (profile.compact) {
     return (
-      <Link to="/hub/command-center" style={{ color: "inherit", textDecoration: "none" }}>
+      <Link to="/hub/mission-control" style={{ color: "inherit", textDecoration: "none" }}>
         <div style={{ display: "flex", minHeight: "100%", flexDirection: "column", gap: 10 }}>
           <div style={{ border: `1px solid ${t.surfaceBorder}`, borderRadius: 12, background: t.surface, padding: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, color: t.textDim, fontSize: 11 }}>
-              <span>Assigned</span>
-              <span>{data.summary.assigned}</span>
+              <span>Missions</span>
+              <span>{data.summary.active_missions}</span>
             </div>
             <div style={{ marginTop: 8, color: t.text, fontSize: 15, fontWeight: 600 }}>
-              {first?.active_assignment?.title ?? "No active assignment"}
+              {first?.missions[0]?.mission.title ?? "No active mission"}
             </div>
             <div style={{ marginTop: 6, color: t.textMuted, fontSize: 12 }}>
-              {first ? `${first.bot_name} · ${first.next_heartbeat_at ? formatTimeUntil(first.next_heartbeat_at) : "unscheduled"}` : `${data.summary.upcoming} upcoming`}
+              {first ? `${first.bot_name} · ${first.missions[0]?.mission.next_run_at ? formatTimeUntil(first.missions[0].mission.next_run_at) : "manual"}` : `${data.summary.attention_signals} attention`}
             </div>
           </div>
           <div style={{ color: t.textDim, fontSize: 11 }}>
-            {data.summary.blocked ? `${data.summary.blocked} blocked · ` : ""}
-            {data.summary.recent} recent reports
+            {data.summary.spatial_warnings ? `${data.summary.spatial_warnings} spatial warnings · ` : ""}
+            {data.summary.recent_updates} recent updates
           </div>
         </div>
       </Link>
@@ -66,18 +66,18 @@ export function CommandCenterWidget({
     <div style={{ display: "flex", minHeight: "100%", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, paddingBottom: 8 }}>
         <div style={{ color: t.textDim, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          Command Center
+          Mission Control
         </div>
-        <Link to="/hub/command-center" style={{ color: t.accent, fontSize: 11, textDecoration: "none" }}>
+        <Link to="/hub/mission-control" style={{ color: t.accent, fontSize: 11, textDecoration: "none" }}>
           Open
         </Link>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, paddingBottom: 10 }}>
         {[
-          ["Assigned", data.summary.assigned],
-          ["Blocked", data.summary.blocked],
-          ["Upcoming", data.summary.upcoming],
-          ["Recent", data.summary.recent],
+          ["Active", data.summary.active_missions],
+          ["Bots", data.summary.active_bots],
+          ["Spatial", data.summary.spatial_warnings],
+          ["Attention", data.summary.attention_signals],
         ].map(([label, value]) => (
           <div key={label} style={{ background: t.surface, borderRadius: 8, padding: "8px 10px" }}>
             <div style={{ color: t.textDim, fontSize: 10 }}>{label}</div>
@@ -87,23 +87,23 @@ export function CommandCenterWidget({
       </div>
       <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
         {rows.length ? rows.map((bot) => (
-          <Link key={bot.bot_id} to="/hub/command-center" style={{ color: "inherit", textDecoration: "none" }}>
+          <Link key={bot.bot_id} to="/hub/mission-control" style={{ color: "inherit", textDecoration: "none" }}>
             <div style={{ borderTop: `1px solid ${t.surfaceBorder}`, padding: "8px 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text, fontSize: 13 }}>
-                  {bot.active_assignment?.title ?? bot.bot_name}
+                  {bot.missions[0]?.mission.title ?? bot.bot_name}
                 </div>
                 <div style={{ marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.textMuted, fontSize: 11 }}>
-                  {bot.bot_name} · {bot.queue_depth} queued
+                  {bot.bot_name} · {bot.missions.length} missions · {bot.warning_count} warnings
                 </div>
               </div>
               <div style={{ color: t.textDim, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
-                {bot.next_heartbeat_at ? formatTimeUntil(bot.next_heartbeat_at) : "blocked"}
+                {bot.missions[0]?.mission.next_run_at ? formatTimeUntil(bot.missions[0].mission.next_run_at) : "manual"}
               </div>
             </div>
           </Link>
         )) : (
-          <div style={{ color: t.textMuted, fontSize: 12 }}>No assigned work in the current window.</div>
+          <div style={{ color: t.textMuted, fontSize: 12 }}>No active mission lanes.</div>
         )}
       </div>
     </div>

@@ -47,9 +47,10 @@ System-authored items come from persisted structured failures:
 Raw server logs are not a direct v1 source. They may become supporting
 evidence later when linked by correlation id or trace context.
 
-User-authored items are first-class Attention Items. They are created from the
-Command Center, use `source_type="user"`, and can be immediately assigned to a
-bot or left as unassigned intake.
+User-authored items are first-class Attention Items. They are created from
+Mission Control or the compatibility Command Center intake API, use
+`source_type="user"`, and can be immediately assigned to a bot or left as
+unassigned intake.
 
 ## Visibility
 
@@ -78,9 +79,9 @@ signals, and Attention edge urgency without changing Attention Item state.
 Informational non-actionable items remain Hub-only unless they explicitly
 require a response.
 
-The **Command Center** is the global operations surface. Attention is one
-section of that surface alongside bot assignment load, upcoming scheduled work,
-and recent run/report activity. It is reachable from:
+**Mission Control** is the global operations surface. Attention is integrated
+into that surface alongside mission load, bot lanes, spatial readiness, and
+recent progress. It is reachable from:
 
 - the start-zone spatial landmark above the seed center
 - the canvas edge beacon
@@ -89,13 +90,12 @@ and recent run/report activity. It is reachable from:
 
 ![Attention Hub drawer — items grouped by lane (Needs reply, Assigned, System, Recent) with severity, target, and next-steps inline](../images/attention-hub.png)
 
-The Command Center lists a bot board first: assigned Attention work, each bot's
-next heartbeat state, nearby upcoming work, and recent run reports. Attention
-items still expose message, next steps, source, target, count, assignment state,
-report findings, evidence, and actions. When a target has multiple active items,
-the detail surface labels the target, shows the current issue as `N of M`, lists
-the target's active issues, and advances to the next active item after
-acknowledge or resolve.
+Mission Control lists bot lanes first: active missions, assigned Attention work,
+readiness warnings, and recent progress. Attention items still expose message,
+next steps, source, target, count, assignment state, report findings, evidence,
+and actions. When a target has multiple active items, the detail surface labels
+the target, shows the current issue as `N of M`, lists the target's active
+issues, and advances to the next active item after acknowledge or resolve.
 
 The Hub owns bulk triage actions. Target review can acknowledge all active
 items for the current target. The global Hub can acknowledge all active items

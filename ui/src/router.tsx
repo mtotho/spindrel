@@ -143,6 +143,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <HomePage /> },
           { path: "canvas", element: <CanvasPage /> },
+          { path: "hub/mission-control", element: <HubCommandCenterPage /> },
           { path: "hub/command-center", element: <HubCommandCenterPage /> },
           { path: "hub/attention", element: <HubCommandCenterPage /> },
           { path: "hub/daily-health", element: <HubDailyHealthPage /> },

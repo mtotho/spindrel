@@ -4,12 +4,13 @@ import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import openai
 from sqlalchemy import select
 
-from app.agent.bots import get_bot
+from app.agent.bots import BotConfig, get_bot
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Channel, Session, Task, TraceEvent
@@ -861,6 +862,508 @@ async def _dispatch_to_specialized_runner(task: Task) -> bool:
     return False
 
 
+@dataclass
+class _PreparedTaskRun:
+    task: Task
+    bot: BotConfig
+    session_id: uuid.UUID
+    messages: list[dict]
+    messages_start: int
+    task_prompt: str
+    correlation_id: uuid.UUID
+    context_profile_name: str
+    task_timeout: int
+    ecfg: dict
+    model_override: str | None
+    provider_id_override: str | None
+    fallback_models: list | None
+    skip_tool_policy: bool
+    system_preamble: str | None
+    injected_tools: list[dict] | None
+    is_scheduled: bool
+    recurrence: str | None
+
+
+async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _PreparedTaskRun:
+    """Resolve the task's runtime state before the harness/agent invocation.
+
+    This is the task-run preparation seam: session selection, history profile,
+    prompt resolution, contextvars, model/tool overrides, and timeout policy
+    stay local here instead of leaking through the execution path.
+    """
+    _ecfg_override = (task.execution_config or {}).get("system_prompt_override")
+    if _ecfg_override is not None:
+        from app.agent.context import current_system_prompt_override
+        current_system_prompt_override.set(_ecfg_override)
+
+    from app.agent.persona import get_persona
+    from app.services.sessions import _effective_system_prompt, load_or_create
+
+    bot = get_bot(task.bot_id)
+    ecfg = task.execution_config or task.callback_config or {}
+    model_override = ecfg.get("model_override") or None
+    provider_id_override = ecfg.get("model_provider_id_override") or None
+
+    async with async_session() as db:
+        # Detect cross-bot delegation: task.session_id belongs to a different bot.
+        # In that case, create a proper child delegation session instead of reusing the parent.
+        parent_for_delegation = None
+        delegation_depth = 1
+        delegation_root_id = None
+
+        if task.session_id is not None:
+            orig_session = await db.get(Session, task.session_id)
+            if orig_session is not None and orig_session.bot_id != task.bot_id:
+                parent_for_delegation = task.session_id
+                delegation_depth = (orig_session.depth or 0) + 1
+                delegation_root_id = orig_session.root_session_id or orig_session.id
+
+        if parent_for_delegation is not None:
+            child_session_id = uuid.uuid4()
+            child_session = Session(
+                id=child_session_id,
+                client_id=task.client_id or "task",
+                bot_id=task.bot_id,
+                channel_id=task.channel_id,
+                parent_session_id=parent_for_delegation,
+                root_session_id=delegation_root_id,
+                depth=delegation_depth,
+                source_task_id=task.id,
+            )
+            db.add(child_session)
+            await db.commit()
+            task_channel = await db.get(Channel, task.channel_id) if task.channel_id else None
+            messages = [{
+                "role": "system",
+                "content": _effective_system_prompt(
+                    bot,
+                    channel=task_channel,
+                    model_override=model_override,
+                    provider_id_override=provider_id_override,
+                ),
+            }]
+            if bot.persona:
+                persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
+                if persona_layer:
+                    messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
+            session_id = child_session_id
+            logger.info(
+                "Task %s: cross-bot delegation -> child session %s (depth=%d, root=%s)",
+                task.id, child_session_id, delegation_depth, delegation_root_id,
+            )
+        else:
+            initial_profile = "task_none" if (task.execution_config or {}).get("history_mode") == "none" else "task_recent"
+            if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
+                initial_profile = "task_none"
+            session_id, messages = await load_or_create(
+                db,
+                task.session_id,
+                task.client_id or "task",
+                task.bot_id,
+                channel_id=task.channel_id,
+                context_profile_name=initial_profile,
+                model_override=model_override,
+                provider_id_override=provider_id_override,
+            )
+
+    from app.services.heartbeat import _trim_history_for_task
+    ecfg_hist = task.execution_config or {}
+    hist_mode = ecfg_hist.get("history_mode")
+    if hist_mode == "none":
+        hist_turns = 0
+    elif hist_mode == "recent":
+        try:
+            hist_turns = int(ecfg_hist.get("history_recent_count") or 10)
+        except (TypeError, ValueError):
+            hist_turns = 10
+    elif hist_mode == "full":
+        hist_turns = -1
+    else:
+        hist_turns = settings.HEARTBEAT_MAX_HISTORY_TURNS
+    messages = _trim_history_for_task(messages, hist_turns)
+    context_profile_name = "task_none" if hist_turns == 0 else "task_recent"
+    if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
+        context_profile_name = "task_none"
+
+    correlation_id = uuid.uuid4()
+    task.correlation_id = correlation_id
+    async with async_session() as corr_db:
+        t = await corr_db.get(Task, task.id)
+        if t:
+            t.correlation_id = correlation_id
+            await corr_db.commit()
+    messages_start = len(messages)
+
+    from app.services.prompt_resolution import resolve_prompt
+    async with async_session() as resolve_db:
+        task_prompt = await resolve_prompt(
+            workspace_id=str(task.workspace_id) if task.workspace_id else None,
+            workspace_file_path=task.workspace_file_path,
+            template_id=str(task.prompt_template_id) if task.prompt_template_id else None,
+            inline_prompt=task.prompt,
+            db=resolve_db,
+        )
+
+    is_scheduled = False
+    recurrence: str | None = None
+    if task.parent_task_id:
+        async with async_session() as preamble_db:
+            parent = await preamble_db.get(Task, task.parent_task_id)
+            if parent and parent.recurrence:
+                is_scheduled = True
+                recurrence = parent.recurrence
+    if is_scheduled:
+        preamble_lines = [f"[SCHEDULED TASK — recurring {recurrence}]"]
+        if task.title:
+            preamble_lines.append(f"Title: {task.title}")
+        preamble_lines.append(
+            "You are executing a scheduled task, not responding to a live user. "
+            "Execute the instructions below directly."
+        )
+        preamble_lines.append("---")
+        task_prompt = "\n".join(preamble_lines) + "\n" + task_prompt
+
+    fallback_models = ecfg.get("fallback_models") or None
+    skip_tool_policy = bool(ecfg.get("skip_tool_approval", False))
+
+    allowed_secrets = ecfg.get("allowed_secrets")
+    if allowed_secrets is not None:
+        from app.agent.context import current_allowed_secrets
+        current_allowed_secrets.set(allowed_secrets)
+
+    system_preamble = ecfg.get("system_preamble") or None
+    ecfg_skills = ecfg.get("skills") or None
+    ecfg_tool_names = ecfg.get("tools") or None
+
+    if ecfg_skills:
+        from app.agent.context import set_ephemeral_skills
+        set_ephemeral_skills(ecfg_skills)
+
+    injected_tools: list[dict] | None = None
+    if ecfg_tool_names:
+        from app.tools.registry import get_local_tool_schemas
+        injected_tools = get_local_tool_schemas(ecfg_tool_names) or None
+
+    exclude_tools = ecfg.get("exclude_tools") or None
+    if exclude_tools:
+        import dataclasses as dc
+        exclude_set = set(exclude_tools)
+        bot = dc.replace(bot, local_tools=[t for t in bot.local_tools if t not in exclude_set])
+        logger.info("Task %s: excluded tools %s", task.id, exclude_tools)
+
+    return _PreparedTaskRun(
+        task=task,
+        bot=bot,
+        session_id=session_id,
+        messages=messages,
+        messages_start=messages_start,
+        task_prompt=task_prompt,
+        correlation_id=correlation_id,
+        context_profile_name=context_profile_name,
+        task_timeout=resolve_task_timeout(task, task_channel),
+        ecfg=ecfg,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
+        fallback_models=fallback_models,
+        skip_tool_policy=skip_tool_policy,
+        system_preamble=system_preamble,
+        injected_tools=injected_tools,
+        is_scheduled=is_scheduled,
+        recurrence=recurrence,
+    )
+
+
+async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uuid.UUID) -> bool:
+    """Run harness-backed bots through the harness path, if configured."""
+    if not prepared.bot.harness_runtime:
+        return False
+
+    from app.services.turn_worker import _run_harness_turn
+
+    task = prepared.task
+    result_text, harness_error = await asyncio.wait_for(
+        _run_harness_turn(
+            channel_id=task.channel_id,
+            bus_key=task.channel_id or prepared.session_id,
+            session_id=prepared.session_id,
+            turn_id=turn_id,
+            bot=prepared.bot,
+            user_message=prepared.task_prompt,
+            correlation_id=prepared.correlation_id,
+            msg_metadata={
+                "source": "task",
+                "task_id": str(task.id),
+                "task_type": task.task_type,
+            },
+            pre_user_msg_id=None,
+            suppress_outbox=bool(prepared.ecfg.get("session_scoped")) or task.channel_id is None,
+            harness_model_override=prepared.ecfg.get("model_override") or None,
+            harness_effort_override=prepared.ecfg.get("harness_effort") or None,
+        ),
+        timeout=prepared.task_timeout,
+    )
+    if harness_error:
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = harness_error[:4000]
+                t.result = result_text
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        await _fire_task_complete(task, "failed")
+        await _publish_turn_ended(
+            task,
+            turn_id=turn_id,
+            result=result_text,
+            error=harness_error,
+            kind_hint="task",
+        )
+        return True
+
+    async with async_session() as db:
+        t = await db.get(Task, task.id)
+        if t:
+            t.status = "complete"
+            t.result = result_text
+            t.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+    await _fire_task_complete(task, "complete")
+    await _publish_turn_ended(
+        task,
+        turn_id=turn_id,
+        result=result_text,
+        kind_hint="task",
+    )
+    return True
+
+
+def _task_run_origin(task: Task) -> str:
+    if task.task_type in ("memory_hygiene", "skill_review"):
+        return "hygiene"
+    if task.task_type == "delegation":
+        return "subagent"
+    return "task"
+
+
+async def _run_normal_agent_task(
+    prepared: _PreparedTaskRun,
+    *,
+    turn_id: uuid.UUID,
+    suppress_channel: bool,
+    session_scoped_task: bool,
+) -> None:
+    """Run the normal agent path and own its persistence/dispatch side effects."""
+    from app.agent.context import current_run_origin
+    from app.agent.loop import run
+    from app.services.sessions import persist_turn
+
+    task = prepared.task
+    bot = prepared.bot
+    skip_skill_inject = task.task_type in ("memory_hygiene", "skill_review")
+    current_run_origin.set(_task_run_origin(task))
+
+    run_result = await asyncio.wait_for(
+        run(
+            prepared.messages, bot, prepared.task_prompt,
+            session_id=prepared.session_id,
+            client_id=task.client_id or "task",
+            correlation_id=prepared.correlation_id,
+            dispatch_type=task.dispatch_type,
+            dispatch_config=task.dispatch_config,
+            channel_id=task.channel_id,
+            model_override=prepared.model_override,
+            provider_id_override=prepared.provider_id_override,
+            fallback_models=prepared.fallback_models,
+            system_preamble=prepared.system_preamble,
+            injected_tools=prepared.injected_tools,
+            skip_tool_policy=prepared.skip_tool_policy,
+            task_mode=True,
+            skip_skill_inject=skip_skill_inject,
+            context_profile_name=prepared.context_profile_name,
+        ),
+        timeout=prepared.task_timeout,
+    )
+    result_text = run_result.response
+
+    task_meta: dict | None = None
+    if prepared.is_scheduled:
+        task_meta = {"trigger": "scheduled_task", "task_id": str(task.id)}
+        if task.title:
+            task_meta["task_title"] = task.title
+        if prepared.recurrence:
+            task_meta["recurrence"] = prepared.recurrence
+        if task.parent_task_id:
+            task_meta["schedule_id"] = str(task.parent_task_id)
+    elif task.task_type == "callback":
+        task_meta = {
+            "trigger": "callback",
+            "task_id": str(task.id),
+            "sender_type": "bot",
+            "sender_display_name": bot.name,
+        }
+        if task.parent_task_id:
+            async with async_session() as cb_db:
+                cb_parent = await cb_db.get(Task, task.parent_task_id)
+                if cb_parent and cb_parent.task_type == "delegation":
+                    task_meta["trigger"] = "delegation_callback"
+                    task_meta["delegation_child_bot_id"] = cb_parent.bot_id
+                    try:
+                        child_bot = get_bot(cb_parent.bot_id)
+                        task_meta["delegation_child_display"] = child_bot.display_name or child_bot.name
+                    except Exception:
+                        pass
+    elif (task.callback_config or {}).get("pipeline_task_id"):
+        pipeline_task_id = (task.callback_config or {}).get("pipeline_task_id")
+        pipeline_title = "Pipeline step"
+        try:
+            async with async_session() as pp_db:
+                pp_parent = await pp_db.get(Task, uuid.UUID(pipeline_task_id))
+                if pp_parent and pp_parent.title:
+                    pipeline_title = pp_parent.title
+        except Exception:
+            pass
+        task_meta = {
+            "trigger": "pipeline_step",
+            "sender_type": "pipeline",
+            "sender_display_name": pipeline_title,
+            "pipeline_task_id": pipeline_task_id,
+            "pipeline_step_index": (task.callback_config or {}).get("pipeline_step_index"),
+        }
+
+    pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
+    pre_user_msg_id = None
+    if pre_user_msg_id_str:
+        try:
+            pre_user_msg_id = uuid.UUID(pre_user_msg_id_str)
+        except (ValueError, TypeError):
+            logger.warning(
+                "task %s: invalid pre_user_msg_id %r in execution_config",
+                task.id, pre_user_msg_id_str,
+            )
+
+    persist_channel_id = None if suppress_channel else task.channel_id
+    async with async_session() as db:
+        await persist_turn(
+            db, prepared.session_id, bot, prepared.messages, prepared.messages_start,
+            correlation_id=prepared.correlation_id,
+            channel_id=persist_channel_id,
+            msg_metadata=task_meta,
+            pre_user_msg_id=pre_user_msg_id,
+            hide_messages=suppress_channel,
+            suppress_outbox=session_scoped_task,
+        )
+
+    dispatch_text = result_text
+    if prepared.is_scheduled:
+        label = f"🔁 _{task.title or 'Scheduled task'}_\n"
+        dispatch_text = label + result_text
+
+    delegation_meta = None
+    if task.task_type == "delegation":
+        parent_bot_id = (task.callback_config or {}).get("parent_bot_id")
+        parent_display = parent_bot_id
+        if parent_bot_id:
+            try:
+                parent_bot = get_bot(parent_bot_id)
+                parent_display = parent_bot.display_name or parent_bot.name
+            except Exception:
+                pass
+        delegation_meta = {
+            "delegated_by": parent_bot_id,
+            "delegated_by_display": parent_display,
+            "delegation_task_id": str(task.id),
+        }
+
+    dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
+    await _publish_turn_ended(
+        task,
+        turn_id=turn_id,
+        result=dispatch_text,
+        client_actions=dispatch_actions,
+        extra_metadata=delegation_meta,
+    )
+
+    cb = task.callback_config or {}
+    followup_tasks: list[Task] = []
+    if cb.get("trigger_rag_loop") and result_text:
+        followup_tasks.append(Task(
+            bot_id=task.bot_id,
+            client_id=task.client_id,
+            session_id=prepared.session_id,
+            channel_id=task.channel_id,
+            prompt=f"[Your scheduled task just ran and posted to the channel. The output was:]\n\n{result_text}",
+            status="pending",
+            task_type="callback",
+            dispatch_type=task.dispatch_type,
+            dispatch_config=dict(task.dispatch_config or {}),
+            callback_config={"trigger_rag_loop": False},
+            parent_task_id=task.id,
+            created_at=datetime.now(timezone.utc),
+        ))
+
+    has_result = bool(result_text) or bool(run_result.client_actions)
+    if cb.get("notify_parent") and has_result:
+        parent_bot_id = cb.get("parent_bot_id")
+        parent_session_str = cb.get("parent_session_id")
+        parent_client_id = cb.get("parent_client_id")
+        if parent_bot_id and parent_session_str:
+            try:
+                parent_session_id = uuid.UUID(parent_session_str)
+                child_display = task.bot_id
+                try:
+                    child_bot = get_bot(task.bot_id)
+                    child_display = child_bot.display_name or child_bot.name
+                except Exception:
+                    pass
+                cb_result_desc = result_text or "[The sub-agent completed its work via tool calls with no text response.]"
+                cb_prompt = (
+                    f"[DELEGATION RESULT — from {child_display}]\n"
+                    f"The sub-agent has already posted its response to the channel. "
+                    f"Here is what it returned:\n\n"
+                    f"{cb_result_desc}\n\n"
+                    f"Provide a brief follow-up or summary if appropriate. "
+                    f"Do NOT re-post any files or images the sub-agent already provided. "
+                    f"Do NOT delegate again — the work is complete."
+                )
+                followup_tasks.append(Task(
+                    bot_id=parent_bot_id,
+                    client_id=parent_client_id,
+                    session_id=parent_session_id,
+                    channel_id=task.channel_id,
+                    prompt=cb_prompt,
+                    status="pending",
+                    task_type="callback",
+                    dispatch_type=task.dispatch_type,
+                    dispatch_config=dict(task.dispatch_config or {}),
+                    execution_config={"exclude_tools": ["delegate_to_agent"]},
+                    parent_task_id=task.id,
+                    created_at=datetime.now(timezone.utc),
+                ))
+            except Exception:
+                logger.exception("Failed to build parent callback task for task %s", task.id)
+
+    async with async_session() as db:
+        t = await db.get(Task, task.id)
+        if t:
+            t.status = "complete"
+            t.result = result_text
+            t.completed_at = datetime.now(timezone.utc)
+        for followup_task in followup_tasks:
+            db.add(followup_task)
+        await db.commit()
+        for followup_task in followup_tasks:
+            await db.refresh(followup_task)
+
+    await _fire_task_complete(task, "complete")
+
+    for followup_task in followup_tasks:
+        logger.info(
+            "Task %s: created follow-up task %s (type=%s, bot=%s)",
+            task.id, followup_task.id, followup_task.task_type, followup_task.bot_id,
+        )
+
+
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
     if await _dispatch_to_specialized_runner(task):
@@ -972,500 +1475,21 @@ async def run_task(task: Task) -> None:
         except Exception:
             logger.debug("publish TURN_STARTED failed for task %s", task.id, exc_info=True)
 
-    _task_timeout = settings.TASK_MAX_RUN_SECONDS  # default; overridden below after channel loads
-
-    # Bot-invoke evaluator injects a per-case system_prompt_override via
-    # execution_config. Set the ContextVar before load_or_create so the fresh
-    # session's system message is built from the variant text, not the bot's
-    # configured prompt. Task-scoped: asyncio.create_task copies this context
-    # at spawn, so parallel eval tasks don't bleed into each other.
-    _ecfg_override = (task.execution_config or {}).get("system_prompt_override")
-    if _ecfg_override is not None:
-        from app.agent.context import current_system_prompt_override
-        current_system_prompt_override.set(_ecfg_override)
+    _task_timeout = settings.TASK_MAX_RUN_SECONDS  # default; overridden after task-run preparation
+    correlation_id: uuid.UUID | None = None
 
     try:
-        from app.agent.loop import run
-        from app.agent.persona import get_persona
-        from app.services.sessions import _effective_system_prompt, load_or_create
-        bot = get_bot(task.bot_id)
-        _ecfg_pre = task.execution_config or task.callback_config or {}
-        _model_override = _ecfg_pre.get("model_override") or None
-        _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
-
-        async with async_session() as db:
-            # Detect cross-bot delegation: task.session_id belongs to a different bot
-            # In that case, create a proper child delegation session instead of reusing the parent
-            parent_for_delegation = None
-            delegation_depth = 1
-            delegation_root_id = None
-
-            if task.session_id is not None:
-                orig_session = await db.get(Session, task.session_id)
-                if orig_session is not None and orig_session.bot_id != task.bot_id:
-                    parent_for_delegation = task.session_id
-                    delegation_depth = (orig_session.depth or 0) + 1
-                    delegation_root_id = orig_session.root_session_id or orig_session.id
-
-            if parent_for_delegation is not None:
-                # Cross-bot task → create a new child session with delegation linkage
-                child_session_id = uuid.uuid4()
-                child_session = Session(
-                    id=child_session_id,
-                    client_id=task.client_id or "task",
-                    bot_id=task.bot_id,
-                    channel_id=task.channel_id,
-                    parent_session_id=parent_for_delegation,
-                    root_session_id=delegation_root_id,
-                    depth=delegation_depth,
-                    source_task_id=task.id,
-                )
-                db.add(child_session)
-                await db.commit()
-                _task_channel = await db.get(Channel, task.channel_id) if task.channel_id else None
-                messages = [{
-                    "role": "system",
-                    "content": _effective_system_prompt(
-                        bot,
-                        channel=_task_channel,
-                        model_override=_model_override,
-                        provider_id_override=_provider_id_override,
-                    ),
-                }]
-                if bot.persona:
-                    persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
-                    if persona_layer:
-                        messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
-                session_id = child_session_id
-                logger.info(
-                    "Task %s: cross-bot delegation → child session %s (depth=%d, root=%s)",
-                    task.id, child_session_id, delegation_depth, delegation_root_id,
-                )
-            else:
-                _initial_profile = "task_none" if (task.execution_config or {}).get("history_mode") == "none" else "task_recent"
-                if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
-                    _initial_profile = "task_none"
-                session_id, messages = await load_or_create(
-                    db,
-                    task.session_id,
-                    task.client_id or "task",
-                    task.bot_id,
-                    channel_id=task.channel_id,
-                    context_profile_name=_initial_profile,
-                    model_override=_model_override,
-                    provider_id_override=_provider_id_override,
-                )
-
-        # Trim conversation history. Respects `execution_config.history_mode`
-        # set via the Task editor's "Chat context" picker, falling back to the
-        # heartbeat default for legacy tasks:
-        #   "none"   → 0 turns (system/preamble only — hermetic)
-        #   "recent" → `history_recent_count` turns (default 10)
-        #   "full"   → no trimming (-1)
-        from app.services.heartbeat import _trim_history_for_task
-        _ecfg_hist = task.execution_config or {}
-        _hist_mode = _ecfg_hist.get("history_mode")
-        if _hist_mode == "none":
-            _hist_turns = 0
-        elif _hist_mode == "recent":
-            try:
-                _hist_turns = int(_ecfg_hist.get("history_recent_count") or 10)
-            except (TypeError, ValueError):
-                _hist_turns = 10
-        elif _hist_mode == "full":
-            _hist_turns = -1
-        else:
-            _hist_turns = settings.HEARTBEAT_MAX_HISTORY_TURNS
-        messages = _trim_history_for_task(messages, _hist_turns)
-        _context_profile_name = "task_none" if _hist_turns == 0 else "task_recent"
-        if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
-            _context_profile_name = "task_none"
-
-        correlation_id = uuid.uuid4()
-        task.correlation_id = correlation_id  # reflect back to in-memory object for hooks
-        # Persist correlation_id on task row for cost attribution in forecast.
-        # Also store in execution_config for workflow step tracking if applicable.
-        async with async_session() as _corr_db:
-            _t = await _corr_db.get(Task, task.id)
-            if _t:
-                _t.correlation_id = correlation_id
-                await _corr_db.commit()
-        messages_start = len(messages)  # capture before run() appends new turn
-
-        # Resolve latest content from linked template or workspace file (if any)
-        from app.services.prompt_resolution import resolve_prompt
-        async with async_session() as resolve_db:
-            task_prompt = await resolve_prompt(
-                workspace_id=str(task.workspace_id) if task.workspace_id else None,
-                workspace_file_path=task.workspace_file_path,
-                template_id=str(task.prompt_template_id) if task.prompt_template_id else None,
-                inline_prompt=task.prompt,
-                db=resolve_db,
-            )
-
-        # For scheduled tasks, prepend a preamble so the bot knows this is an
-        # automated execution, not a live user message.
-        _is_scheduled = False
-        _recurrence: str | None = None
-        if task.parent_task_id:
-            async with async_session() as _preamble_db:
-                _parent = await _preamble_db.get(Task, task.parent_task_id)
-                if _parent and _parent.recurrence:
-                    _is_scheduled = True
-                    _recurrence = _parent.recurrence
-        if _is_scheduled:
-            _preamble_lines = [f"[SCHEDULED TASK — recurring {_recurrence}]"]
-            if task.title:
-                _preamble_lines.append(f"Title: {task.title}")
-            _preamble_lines.append(
-                "You are executing a scheduled task, not responding to a live user. "
-                "Execute the instructions below directly."
-            )
-            _preamble_lines.append("---")
-            task_prompt = "\n".join(_preamble_lines) + "\n" + task_prompt
-
-        # Model override from execution_config (preferred) or callback_config (legacy)
-        _fallback_models = _ecfg_pre.get("fallback_models") or None
-        _skip_tool_policy = bool(_ecfg_pre.get("skip_tool_approval", False))
-
-        # Scoped secrets from workflow steps
-        _allowed_secrets = _ecfg_pre.get("allowed_secrets")
-        if _allowed_secrets is not None:
-            from app.agent.context import current_allowed_secrets
-            current_allowed_secrets.set(_allowed_secrets)
-
-        # Webhook prompt injection: system_preamble, ephemeral skills, injected tools
-        _system_preamble = _ecfg_pre.get("system_preamble") or None
-        _ecfg_skills = _ecfg_pre.get("skills") or None
-        _ecfg_tool_names = _ecfg_pre.get("tools") or None
-
-        if _ecfg_skills:
-            from app.agent.context import set_ephemeral_skills
-            set_ephemeral_skills(_ecfg_skills)
-
-        _ecfg_injected_tools: list[dict] | None = None
-        if _ecfg_tool_names:
-            from app.tools.registry import get_local_tool_schemas
-            _ecfg_injected_tools = get_local_tool_schemas(_ecfg_tool_names) or None
-
-        # Exclude specific tools (e.g. block delegate_to_agent in callback tasks)
-        _exclude_tools = _ecfg_pre.get("exclude_tools") or None
-        if _exclude_tools:
-            import dataclasses as _dc
-            _exclude_set = set(_exclude_tools)
-            bot = _dc.replace(bot, local_tools=[t for t in bot.local_tools if t not in _exclude_set])
-            logger.info("Task %s: excluded tools %s", task.id, _exclude_tools)
-
-        _task_timeout = resolve_task_timeout(task, _task_channel)
-
-        if bot.harness_runtime:
-            from app.services.turn_worker import _run_harness_turn
-
-            _harness_model_override = _ecfg_pre.get("model_override") or None
-            _harness_effort_override = _ecfg_pre.get("harness_effort") or None
-            result_text, harness_error = await asyncio.wait_for(
-                _run_harness_turn(
-                    channel_id=task.channel_id,
-                    bus_key=task.channel_id or session_id,
-                    session_id=session_id,
-                    turn_id=_turn_id,
-                    bot=bot,
-                    user_message=task_prompt,
-                    correlation_id=correlation_id,
-                    msg_metadata={
-                        "source": "task",
-                        "task_id": str(task.id),
-                        "task_type": task.task_type,
-                    },
-                    pre_user_msg_id=None,
-                    suppress_outbox=bool(_ecfg_pre.get("session_scoped")) or task.channel_id is None,
-                    harness_model_override=_harness_model_override,
-                    harness_effort_override=_harness_effort_override,
-                ),
-                timeout=_task_timeout,
-            )
-            if harness_error:
-                async with async_session() as db:
-                    t = await db.get(Task, task.id)
-                    if t:
-                        t.status = "failed"
-                        t.error = harness_error[:4000]
-                        t.result = result_text
-                        t.completed_at = datetime.now(timezone.utc)
-                        await db.commit()
-                await _fire_task_complete(task, "failed")
-                await _publish_turn_ended(
-                    task,
-                    turn_id=_turn_id,
-                    result=result_text,
-                    error=harness_error,
-                    kind_hint="task",
-                )
-                return
-            async with async_session() as db:
-                t = await db.get(Task, task.id)
-                if t:
-                    t.status = "complete"
-                    t.result = result_text
-                    t.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
-            await _fire_task_complete(task, "complete")
-            await _publish_turn_ended(
-                task,
-                turn_id=_turn_id,
-                result=result_text,
-                kind_hint="task",
-            )
+        prepared = await _prepare_task_run(task, _task_channel)
+        _task_timeout = prepared.task_timeout
+        correlation_id = prepared.correlation_id
+        if await _run_harness_task_if_needed(prepared, turn_id=_turn_id):
             return
-
-        # Suppress skill auto-inject for hygiene tasks — the review prompt
-        # text would match enrolled skills semantically, polluting inject metrics.
-        _skip_skill_inject = task.task_type in ("memory_hygiene", "skill_review")
-
-        # Mark autonomous runs so policy rules can target them. Hygiene
-        # jobs get their own origin so rules can distinguish them from
-        # user-scheduled tasks.
-        from app.agent.context import current_run_origin
-        if task.task_type in ("memory_hygiene", "skill_review"):
-            current_run_origin.set("hygiene")
-        elif task.task_type == "delegation":
-            current_run_origin.set("subagent")
-        else:
-            current_run_origin.set("task")
-
-        run_result = await asyncio.wait_for(
-            run(
-                messages, bot, task_prompt,
-                session_id=session_id,
-                client_id=task.client_id or "task",
-                correlation_id=correlation_id,
-                dispatch_type=task.dispatch_type,
-                dispatch_config=task.dispatch_config,
-                channel_id=task.channel_id,
-                model_override=_model_override,
-                provider_id_override=_provider_id_override,
-                fallback_models=_fallback_models,
-                system_preamble=_system_preamble,
-                injected_tools=_ecfg_injected_tools,
-                skip_tool_policy=_skip_tool_policy,
-                task_mode=True,
-                skip_skill_inject=_skip_skill_inject,
-                context_profile_name=_context_profile_name,
-            ),
-            timeout=_task_timeout,
-        )
-        result_text = run_result.response
-
-        # Persist turn to session history so future agent turns see it as context
-        _task_meta: dict | None = None
-        if _is_scheduled:
-            _task_meta = {"trigger": "scheduled_task", "task_id": str(task.id)}
-            if task.title:
-                _task_meta["task_title"] = task.title
-            if _recurrence:
-                _task_meta["recurrence"] = _recurrence
-            if task.parent_task_id:
-                _task_meta["schedule_id"] = str(task.parent_task_id)
-        elif task.task_type == "callback":
-            # Callback tasks should identify themselves
-            # so the UI can display them properly instead of showing "You".
-            _task_meta = {"trigger": "callback", "task_id": str(task.id), "sender_type": "bot", "sender_display_name": bot.name}
-            # Check if the parent was a delegation task for richer metadata
-            if task.parent_task_id:
-                async with async_session() as _cb_db:
-                    _cb_parent = await _cb_db.get(Task, task.parent_task_id)
-                    if _cb_parent and _cb_parent.task_type == "delegation":
-                        _task_meta["trigger"] = "delegation_callback"
-                        _task_meta["delegation_child_bot_id"] = _cb_parent.bot_id
-                        try:
-                            _child_bot = get_bot(_cb_parent.bot_id)
-                            _task_meta["delegation_child_display"] = _child_bot.display_name or _child_bot.name
-                        except Exception:
-                            pass
-        elif (task.callback_config or {}).get("pipeline_task_id"):
-            # Pipeline agent-step child: the "user" message is the rendered
-            # step prompt emitted by the pipeline, not a human. Label it
-            # with the parent pipeline's title so the sub-session modal
-            # doesn't render "You" for an automated step.
-            _pipeline_task_id = (task.callback_config or {}).get("pipeline_task_id")
-            _pipeline_title = "Pipeline step"
-            try:
-                async with async_session() as _pp_db:
-                    _pp_parent = await _pp_db.get(Task, uuid.UUID(_pipeline_task_id))
-                    if _pp_parent and _pp_parent.title:
-                        _pipeline_title = _pp_parent.title
-            except Exception:
-                pass
-            _task_meta = {
-                "trigger": "pipeline_step",
-                "sender_type": "pipeline",
-                "sender_display_name": _pipeline_title,
-                "pipeline_task_id": _pipeline_task_id,
-                "pipeline_step_index": (task.callback_config or {}).get("pipeline_step_index"),
-            }
-        # If the inbound path pre-persisted the user message via
-        # ``store_passive_message`` (the inject_message → Task flow used by
-        # BlueBubbles, GitHub, /api/v1/sessions/{id}/messages, and
-        # /api/v1/channels/{id}/messages), the message id rides on
-        # ``execution_config["pre_user_msg_id"]``. Forward it to persist_turn
-        # so the user message is not double-persisted (otherwise the channel
-        # ends up showing two ``[Me]: ...`` rows for one inbound message —
-        # the bug that surfaced via the BlueBubbles webhook in production).
-        _pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
-        _pre_user_msg_id = None
-        if _pre_user_msg_id_str:
-            try:
-                _pre_user_msg_id = uuid.UUID(_pre_user_msg_id_str)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "task %s: invalid pre_user_msg_id %r in execution_config",
-                    task.id, _pre_user_msg_id_str,
-                )
-        from app.services.sessions import persist_turn
-        # Pipeline agent-step children still persist to the session (so
-        # context carries over for subsequent steps), but we pass
-        # channel_id=None to skip outbox enqueue AND the bus publish —
-        # the pipeline envelope owns the channel-side rendering.
-        _persist_channel_id = None if _suppress_channel else task.channel_id
-        async with async_session() as db:
-            await persist_turn(
-                db, session_id, bot, messages, messages_start,
-                correlation_id=correlation_id,
-                channel_id=_persist_channel_id,
-                msg_metadata=_task_meta,
-                pre_user_msg_id=_pre_user_msg_id,
-                hide_messages=_suppress_channel,
-                suppress_outbox=_session_scoped_task,
-            )
-
-        # Dispatch result (including any generated images)
-        # Prepend a visual indicator for Slack / other text-based dispatchers
-        _dispatch_text = result_text
-        if _is_scheduled:
-            _label = f"🔁 _{task.title or 'Scheduled task'}_\n"
-            _dispatch_text = _label + result_text
-
-        # Build delegation metadata for dispatch echo attribution
-        _delegation_meta = None
-        if task.task_type == "delegation":
-            _parent_bot_id = (task.callback_config or {}).get("parent_bot_id")
-            _parent_display = _parent_bot_id
-            if _parent_bot_id:
-                try:
-                    _pb = get_bot(_parent_bot_id)
-                    _parent_display = _pb.display_name or _pb.name
-                except Exception:
-                    pass
-            _delegation_meta = {
-                "delegated_by": _parent_bot_id,
-                "delegated_by_display": _parent_display,
-                "delegation_task_id": str(task.id),
-            }
-
-        # Callback tasks should NOT re-dispatch client_actions (images/files)
-        # that were already dispatched by the child delegation task.
-        _dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
-
-        await _publish_turn_ended(
-            task,
+        await _run_normal_agent_task(
+            prepared,
             turn_id=_turn_id,
-            result=_dispatch_text,
-            client_actions=_dispatch_actions,
-            extra_metadata=_delegation_meta,
+            suppress_channel=_suppress_channel,
+            session_scoped_task=_session_scoped_task,
         )
-
-        _cb = task.callback_config or {}
-
-        # Prepare follow-up tasks to create atomically with completion.
-        # Creating them in the same transaction as the status=complete update
-        # prevents a race where pending_tasks briefly drops to 0 between
-        # the delegation completing and the callback being created.
-        _followup_tasks: list[Task] = []
-
-        # trigger_rag_loop: create an immediate follow-up agent turn so the bot can
-        # react to what it just posted. Posts response to the same channel.
-        if _cb.get("trigger_rag_loop") and result_text:
-            _followup_tasks.append(Task(
-                bot_id=task.bot_id,
-                client_id=task.client_id,
-                session_id=session_id,
-                channel_id=task.channel_id,
-                prompt=f"[Your scheduled task just ran and posted to the channel. The output was:]\n\n{result_text}",
-                status="pending",
-                task_type="callback",
-                dispatch_type=task.dispatch_type,
-                dispatch_config=dict(task.dispatch_config or {}),
-                callback_config={"trigger_rag_loop": False},  # prevent loop
-                parent_task_id=task.id,
-                created_at=datetime.now(timezone.utc),
-            ))
-
-        # Notify parent: create a callback task for the parent bot if requested.
-        # Fire when there's text OR client_actions (e.g. image-bot may generate
-        # images via tools but return empty text).
-        _has_result = bool(result_text) or bool(run_result.client_actions)
-        if _cb.get("notify_parent") and _has_result:
-            _parent_bot_id = _cb.get("parent_bot_id")
-            _parent_session_str = _cb.get("parent_session_id")
-            _parent_client_id = _cb.get("parent_client_id")
-            if _parent_bot_id and _parent_session_str:
-                try:
-                    _parent_session_id = uuid.UUID(_parent_session_str)
-                    # Resolve child bot display name for the callback prompt
-                    _child_display = task.bot_id
-                    try:
-                        _child_bot = get_bot(task.bot_id)
-                        _child_display = _child_bot.display_name or _child_bot.name
-                    except Exception:
-                        pass
-                    _cb_result_desc = result_text or "[The sub-agent completed its work via tool calls with no text response.]"
-                    _cb_prompt = (
-                        f"[DELEGATION RESULT — from {_child_display}]\n"
-                        f"The sub-agent has already posted its response to the channel. "
-                        f"Here is what it returned:\n\n"
-                        f"{_cb_result_desc}\n\n"
-                        f"Provide a brief follow-up or summary if appropriate. "
-                        f"Do NOT re-post any files or images the sub-agent already provided. "
-                        f"Do NOT delegate again — the work is complete."
-                    )
-                    _followup_tasks.append(Task(
-                        bot_id=_parent_bot_id,
-                        client_id=_parent_client_id,
-                        session_id=_parent_session_id,
-                        channel_id=task.channel_id,
-                        prompt=_cb_prompt,
-                        status="pending",
-                        task_type="callback",
-                        dispatch_type=task.dispatch_type,
-                        dispatch_config=dict(task.dispatch_config or {}),
-                        # Block delegation tools in callback to prevent re-delegation loops
-                        execution_config={"exclude_tools": ["delegate_to_agent"]},
-                        parent_task_id=task.id,
-                        created_at=datetime.now(timezone.utc),
-                    ))
-                except Exception:
-                    logger.exception("Failed to build parent callback task for task %s", task.id)
-
-        # Mark complete and create follow-up tasks atomically
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "complete"
-                t.result = result_text
-                t.completed_at = datetime.now(timezone.utc)
-            for _ft in _followup_tasks:
-                db.add(_ft)
-            await db.commit()
-            for _ft in _followup_tasks:
-                await db.refresh(_ft)
-
-        await _fire_task_complete(task, "complete")
-
-        for _ft in _followup_tasks:
-            logger.info(
-                "Task %s: created follow-up task %s (type=%s, bot=%s)",
-                task.id, _ft.id, _ft.task_type, _ft.bot_id,
-            )
 
     except asyncio.TimeoutError:
         logger.error("Task %s timed out after %ds", task.id, _task_timeout)

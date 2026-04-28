@@ -3223,10 +3223,12 @@ async def assemble_for_preview(
     channel_id: uuid.UUID,
     *,
     user_message: str = "",
+    session_id: uuid.UUID | None = None,
+    db: Any | None = None,
 ) -> PreviewResult:
     """Run `assemble_context` for a channel without dispatching to the LLM.
 
-    Loads the channel's most recent session messages, then drives
+    Loads the selected, active, or most recent channel session messages, then drives
     `assemble_context` to completion with `correlation_id=None` so no trace
     events are persisted. Returns the assembled messages, the per-category
     breakdown, the budget snapshot, and the AssemblyResult.
@@ -3239,34 +3241,58 @@ async def assemble_for_preview(
     from app.agent.bots import get_bot
     from app.agent.context_budget import ContextBudget, get_model_context_window
     from app.agent.context_profiles import resolve_context_profile
-    from app.db.engine import async_session
     from app.db.models import Channel, Session
     from app.services.compaction import _get_history_mode
     from app.services.sessions import _load_messages
     from sqlalchemy import select
 
-    async with async_session() as db:
+    async def _load_preview_state(db):
         channel = await db.get(Channel, channel_id)
         if channel is None:
             raise ValueError(f"Channel not found: {channel_id}")
         bot = get_bot(channel.bot_id)
         history_mode = _get_history_mode(bot, channel)
 
-        # Find the most recent session for this channel; fall back to a
-        # synthetic empty list if none exist yet.
-        sess_row = await db.execute(
-            select(Session)
-            .where(Session.channel_id == channel_id)
-            .order_by(Session.created_at.desc())
-            .limit(1)
-        )
-        session = sess_row.scalar_one_or_none()
+        if session_id is not None:
+            session = await db.get(Session, session_id)
+            if session is None:
+                raise ValueError(f"Session not found: {session_id}")
+            belongs_to_channel = (
+                str(session.channel_id) == str(channel.id)
+                or str(session.parent_channel_id) == str(channel.id)
+            )
+            if not belongs_to_channel:
+                raise ValueError(f"Session {session_id} does not belong to channel {channel_id}")
+        elif channel.active_session_id:
+            session = await db.get(Session, channel.active_session_id)
+        else:
+            # Find the most recent session for this channel; fall back to a
+            # synthetic empty list if none exist yet.
+            sess_row = await db.execute(
+                select(Session)
+                .where(Session.channel_id == channel_id)
+                .order_by(Session.created_at.desc())
+                .limit(1)
+            )
+            session = sess_row.scalar_one_or_none()
         if session is not None:
             messages = await _load_messages(db, session)
-            session_id = session.id
+            resolved_session_id = session.id
         else:
             messages = []
-            session_id = None
+            resolved_session_id = None
+        return channel, bot, history_mode, session, messages, resolved_session_id
+
+    if db is None:
+        from app.db.engine import async_session
+        async with async_session() as owned_db:
+            channel, bot, history_mode, session, messages, resolved_session_id = (
+                await _load_preview_state(owned_db)
+            )
+    else:
+        channel, bot, history_mode, session, messages, resolved_session_id = (
+            await _load_preview_state(db)
+        )
 
     # Resolve effective model (channel override > bot default) for the budget.
     effective_model = getattr(channel, "model_override", None) or bot.model
@@ -3285,7 +3311,7 @@ async def assemble_for_preview(
         messages=messages,
         bot=bot,
         user_message=user_message,
-        session_id=session_id,
+        session_id=resolved_session_id,
         client_id=None,
         correlation_id=None,
         channel_id=channel_id,

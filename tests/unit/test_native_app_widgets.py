@@ -218,7 +218,7 @@ def test_native_catalog_entries_expose_contract():
     upcoming = next(entry for entry in entries if entry["name"] == "upcoming_activity_native")
     assert upcoming["supported_scopes"] == ["channel", "dashboard"]
     command_center = next(entry for entry in entries if entry["name"] == "command_center_native")
-    assert command_center["display_label"] == "Command Center"
+    assert command_center["display_label"] == "Mission Control"
     assert command_center["widget_ref"] == "core/command_center_native"
     assert command_center["supported_scopes"] == ["channel", "dashboard"]
     assert command_center["widget_contract"]["context_export"] == {

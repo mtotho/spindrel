@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Context preview consolidation shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Context preview, context breakdown runtime seam, and `run_task` Wave C seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -23,13 +23,15 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 | **14** | `_bot_row_to_config` decomposition | `app/agent/bots.py:295` | 5 nested-config builders + 2 repetitive-field mappers; function 189 → 64 LOC (-66%); file 821 → 841 LOC; 103/1 baseline match | ✅ SHIPPED |
 | **15** | `persist_turn` decomposition | `app/services/sessions.py:562` | 6 stage helpers (filter/metadata/insert/outbox-channel/outbox-thread/attachment-link/bus-publish); function 331 → 82 LOC (-75%); file 1341 → 1398 LOC; 16+442/5/2 baseline match | ✅ SHIPPED |
 | **15.1** | `persist_turn` typed seam follow-up (Ousterhout deepening audit candidate #5) | `app/services/sessions.py` + new `app/services/session_writes.py` | `_build_message_metadata` + `_insert_message_records` collapsed into one public function `stage_turn_messages(db, ctx, messages) -> TurnWriteResult` (frozen `TurnContext` collapses 9 kwargs → 1; `TurnWriteResult` replaces 3-tuple). Silent `JSONDecodeError`/`TypeError` swallow at delegation parse → logged WARNING with session/correlation/tool_call_id/preview, malformed entry skipped, well-formed siblings preserved. Non-object JSON also handled. sessions.py 1398 → 1278 LOC; new module 268 LOC. 91/22 baseline match + 3 new regression tests in `tests/unit/test_sessions_core_gaps.py::TestStageTurnMessagesMalformedDelegations` (94/22 final). Bug class shipped to [[Fix Log]] 2026-04-25. | ✅ SHIPPED |
-| **9** | `run_task` Wave A+B | `app/agent/tasks.py:774` | 3 helpers (`_mark_task_failed_in_db`, `_publish_turn_ended_safe`, `_dispatch_to_specialized_runner`); 5 of 8 mark-failed copies collapsed; function 657 → 596 LOC (-9%); file 1712 → 1729 LOC; 103/0 baseline match. Deeper agent-run-path extraction deferred — too test-coupled. | ✅ SHIPPED (partial) |
+| **9** | `run_task` Wave A-C | `app/agent/tasks.py:774` | Wave A+B kept the specialized-runner/error helpers. Wave C added a typed task-run seam: `_PreparedTaskRun`, `_prepare_task_run`, `_run_harness_task_if_needed`, and `_run_normal_agent_task`. `run_task` now owns dispatch/lock/start-event/error orchestration while preparation, harness invocation, and normal agent persistence/dispatch/follow-up policy are local to the helper modules. Function 657 → 178 LOC overall after Wave C; local verification: task unit slice 23/18, integration task file skipped under local profile. | ✅ SHIPPED |
 
 ## Maintenance pass (2026-04-28)
 
 - **Context preview consolidation shipped.** `admin_channel_context_preview` no longer rebuilds prompt composition in the router. It now validates channel existence, calls runtime `assemble_for_preview`, and delegates response shaping to `app.services.context_preview.build_context_preview_response`. The adapter may split the already-assembled base system prompt for display labels, but does not reconstruct prompt policy.
+- **Context breakdown runtime seam shipped.** `compute_context_breakdown` now gets static/runtime-injected categories from `assemble_for_preview` via the shared preview-block adapter instead of manually reconstructing global/workspace/bot prompts, memory files, skills, tools, widgets, section indexes, and workspace RAG estimates. The breakdown module still owns DB diagnostics: gross conversation size, pruning savings, compaction state, reranking state, effective settings, and last-turn API usage reconciliation. `assemble_for_preview` accepts optional `session_id`/`db` so scratch-session breakdowns can use the same runtime path without leaving the request DB context.
+- **`run_task` Wave C shipped.** The deferred agent-run-path extraction proved viable as an internal typed seam instead of a broad new public interface. `run_task` remains the task worker coordinator, but the hidden implementation now has locality around task-run preparation, harness-backed execution, and normal-agent persistence/dispatch/follow-up behavior.
 - **Readonly tool returns-schema baseline restored.** Added schemas for `describe_canvas_neighborhood`, `inspect_nearby_spatial_object`, `view_spatial_canvas`, and `widget_version_history`; `tests/unit/test_tool_returns_schema_coverage.py` is green again.
-- **Next section candidate.** Consolidate `compute_context_breakdown` / context estimate around the same runtime preview seam, then reassess the deferred deeper `run_task` agent-run-path extraction.
+- **Next section candidate.** Leave draft `context_estimate.py` separate because it estimates unsaved bot config. Next architecture section should pick the next verify-first item from the god-function/depth queue rather than reopening `run_task` immediately; `_run_normal_agent_task` can be revisited later only if follow-up-task or metadata policy starts changing again.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

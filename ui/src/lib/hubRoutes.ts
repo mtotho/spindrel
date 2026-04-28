@@ -3,7 +3,7 @@ import type { WorkspaceAttentionItem } from "../api/hooks/useWorkspaceAttention"
 export const DAILY_HEALTH_HREF = "/hub/daily-health";
 export const CONTEXT_BLOAT_HREF = "/hub/context-bloat";
 export const MEMORY_CENTER_HREF = "/admin/learning#Memory";
-export const COMMAND_CENTER_HREF = "/hub/command-center";
+export const COMMAND_CENTER_HREF = "/hub/mission-control";
 
 export function attentionHubHref(itemId?: string | null): string {
   if (!itemId) return COMMAND_CENTER_HREF;

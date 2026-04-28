@@ -1,5 +1,6 @@
 """Tests for Sonarr tool functions."""
 
+from datetime import date
 import json
 from unittest.mock import AsyncMock, patch
 
@@ -49,6 +50,21 @@ async def test_calendar_success():
     call_args = mock_get.call_args
     assert call_args[0][0] == "/api/v3/calendar"
     assert call_args[1]["params"]["includeSeries"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_calendar_null_days_ahead_uses_default():
+    api_data = []
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=api_data) as mock_get:
+        result = json.loads(await sonarr_calendar(days_ahead=None))
+
+    assert result == {"count": 0, "episodes": []}
+    params = mock_get.await_args.kwargs["params"]
+    assert params["includeSeries"] == "true"
+    start = params["start"]
+    end = params["end"]
+
+    assert (date.fromisoformat(end) - date.fromisoformat(start)).days == 7
 
 
 @pytest.mark.asyncio

@@ -228,6 +228,9 @@ interface SpatialCanvasProps {
    *  `/channels/:id` lands you on that tile rather than the last-saved
    *  camera. One-shot — fires once per mount, then is ignored. */
   initialFlyToChannelId?: string | null;
+  /** Spatial node id to center the camera on first paint. Used by durable
+   *  Mission Control links that jump to a bot or target tile. */
+  initialFlyToNodeId?: string | null;
 }
 
 type SpatialSelection =
@@ -237,7 +240,7 @@ type SpatialSelection =
   | { kind: "landmark"; id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health" }
   | { kind: "channel-cluster"; id: string };
 
-export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCanvasProps) {
+export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyToNodeId }: SpatialCanvasProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const canvasBackState = contextualNavigationState(`${location.pathname}${location.search}`, "Canvas");
@@ -1545,6 +1548,25 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       firedInitialFlyRef.current = true;
     }
   }, [initialFlyToChannelId, nodes, flyToChannel]);
+
+  const firedInitialNodeFlyRef = useRef(false);
+  useEffect(() => {
+    if (!initialFlyToNodeId) return;
+    if (firedInitialNodeFlyRef.current) return;
+    if (!nodes || nodes.length === 0) return;
+    const found = nodes.find((n) => n.id === initialFlyToNodeId);
+    if (!found) return;
+    if (flyToNodeById(initialFlyToNodeId)) {
+      firedInitialNodeFlyRef.current = true;
+      if (found.bot_id) {
+        setSelectedSpatialObject({ kind: "bot", nodeId: found.id });
+      } else if (found.channel_id) {
+        setSelectedSpatialObject({ kind: "channel", nodeId: found.id });
+      } else if (found.widget_pin_id) {
+        setSelectedSpatialObject({ kind: "widget", nodeId: found.id });
+      }
+    }
+  }, [initialFlyToNodeId, nodes, flyToNodeById]);
 
   // Pan + scale the camera so the Now Well fills the viewport with a small
   // padding margin. Uses the same scale-derivation trick as `diveToChannel`

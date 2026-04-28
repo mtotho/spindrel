@@ -133,6 +133,9 @@ async def _delete(path: str, params: dict | None = None, timeout: float = 15.0):
                 "days_ahead": {
                     "type": "integer",
                     "description": "Number of days to look ahead (default 7).",
+                    "minimum": 1,
+                    "maximum": 28,
+                    "default": 7,
                 },
             },
         },
@@ -155,10 +158,12 @@ async def _delete(path: str, params: dict | None = None, timeout: float = 15.0):
         }
     }
 )
-async def sonarr_calendar(days_ahead: int = 7) -> str:
+async def sonarr_calendar(days_ahead: int | None = 7) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
     try:
+        if days_ahead is None:
+            days_ahead = 7
         now = datetime.now(timezone.utc)
         params = {
             "start": now.strftime("%Y-%m-%d"),

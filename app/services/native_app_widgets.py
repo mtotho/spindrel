@@ -1105,8 +1105,8 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
     "core/command_center_native": NativeWidgetSpec(
         widget_ref="core/command_center_native",
         name="command_center_native",
-        display_label="Command Center",
-        description="First-party native operations board for assignments, upcoming work, and recent run reports.",
+        display_label="Mission Control",
+        description="First-party native operations board for missions, bot lanes, attention signals, and spatial readiness.",
         icon="radar",
         supported_scopes=("channel", "dashboard"),
         layout_hints={"preferred_zone": "grid", "min_cells": {"w": 5, "h": 3}, "max_cells": {"w": 12, "h": 8}},
@@ -1116,7 +1116,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         },
         actions=(),
         context_export={"enabled": False, "summary_kind": "server_provider", "hint_kind": "none"},
-        panel_title="Command Center",
+        panel_title="Mission Control",
         show_panel_title=True,
     ),
     "core/machine_control_native": NativeWidgetSpec(

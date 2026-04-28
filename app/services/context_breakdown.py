@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -17,11 +16,8 @@ from app.config import settings
 from app.agent.prompt_sizing import message_prompt_chars
 from app.db.models import (
     Channel,
-    ConversationSection,
     Message,
     Session,
-    SharedWorkspace,
-    SharedWorkspaceBot,
     TraceEvent,
 )
 
@@ -34,7 +30,7 @@ logger = logging.getLogger(__name__)
 # reads. 15 s is tight enough that message-level churn still surfaces on the
 # next tab flip while coalescing the worst-case stampede.
 _BREAKDOWN_CACHE_TTL = 15.0
-_breakdown_cache: dict[tuple[str, str], tuple[float, "ContextBreakdownResult"]] = {}
+_breakdown_cache: dict[tuple[str, str, str | None, str], tuple[float, "ContextBreakdownResult"]] = {}
 _not_compaction_run_clause = or_(
     Message.metadata_["kind"].astext.is_(None),
     Message.metadata_["kind"].astext != "compaction_run",
@@ -349,6 +345,226 @@ def _resolve_setting(channel_val, bot_val, global_val, channel_attr: str) -> Eff
     return EffectiveSetting(value=global_val, source="global")
 
 
+_LABEL_TO_CATEGORY: dict[str, tuple[str, str, str]] = {
+    "Global Base Prompt": (
+        "global_base_prompt",
+        "static",
+        "Server-wide prompt from the runtime context assembly path",
+    ),
+    "Workspace Base Prompt": (
+        "workspace_base_prompt",
+        "static",
+        "Workspace-authored prompt from the runtime context assembly path",
+    ),
+    "Bot System Prompt": (
+        "system_prompt",
+        "static",
+        "Bot-specific system prompt from the runtime context assembly path",
+    ),
+    "Memory Scheme Prompt": (
+        "memory_scheme_prompt",
+        "static",
+        "Workspace-files memory instructions from the runtime context assembly path",
+    ),
+    "Persona": (
+        "persona",
+        "static",
+        "Bot persona layer from the runtime context assembly path",
+    ),
+    "Date/Time": (
+        "datetime",
+        "static",
+        "Current timestamp injected by the runtime context assembly path",
+    ),
+    "Memory Bootstrap": (
+        "memory_bootstrap",
+        "static",
+        "MEMORY.md contents admitted by the runtime context assembly path",
+    ),
+    "Memory Housekeeping": (
+        "memory_housekeeping",
+        "static",
+        "Memory housekeeping reminder admitted by the runtime context assembly path",
+    ),
+    "Memory Today Log": (
+        "memory_today_log",
+        "static",
+        "Today's memory log admitted by the runtime context assembly path",
+    ),
+    "Memory Yesterday Log": (
+        "memory_yesterday_log",
+        "static",
+        "Yesterday's memory log admitted by the runtime context assembly path",
+    ),
+    "Memory Reference Index": (
+        "memory_reference_index",
+        "static",
+        "Memory reference index admitted by the runtime context assembly path",
+    ),
+    "Memory Loose Files": (
+        "memory_loose_files",
+        "static",
+        "Loose memory-file index admitted by the runtime context assembly path",
+    ),
+    "Memory Nudge": (
+        "memory_nudge",
+        "static",
+        "Memory-write reminder admitted by the runtime context assembly path",
+    ),
+    "Pinned Widget Context": (
+        "pinned_widgets",
+        "static",
+        "Pinned widget snapshot admitted by the runtime context assembly path",
+    ),
+    "Workspace Files": (
+        "channel_workspace",
+        "static",
+        "Channel workspace files admitted by the runtime context assembly path",
+    ),
+    "Context Profile": (
+        "context_profile_note",
+        "static",
+        "Context-profile note admitted by the runtime context assembly path",
+    ),
+    "Skill Index": (
+        "skill_index",
+        "rag",
+        "Skill working set/discovery index admitted by the runtime context assembly path",
+    ),
+    "Delegation Index": (
+        "delegation_index",
+        "rag",
+        "Delegatable bot index admitted by the runtime context assembly path",
+    ),
+    "Spatial Canvas": (
+        "spatial_canvas",
+        "rag",
+        "Spatial canvas awareness admitted by the runtime context assembly path",
+    ),
+    "Section Index": (
+        "section_index",
+        "rag",
+        "Conversation section index admitted by the runtime context assembly path",
+    ),
+    "Conversation Sections": (
+        "conversation_sections",
+        "rag",
+        "Retrieved conversation sections admitted by the runtime context assembly path",
+    ),
+    "Bot Knowledge Base": (
+        "bot_knowledge_base",
+        "rag",
+        "Bot knowledge-base excerpts admitted by the runtime context assembly path",
+    ),
+    "Channel Knowledge Base": (
+        "channel_index_segments",
+        "rag",
+        "Channel knowledge-base excerpts admitted by the runtime context assembly path",
+    ),
+    "Channel Index Segments": (
+        "channel_index_segments",
+        "rag",
+        "Channel index-segment excerpts admitted by the runtime context assembly path",
+    ),
+    "Workspace Files (RAG)": (
+        "workspace_context",
+        "rag",
+        "Workspace file excerpts admitted by the runtime context assembly path",
+    ),
+}
+
+_BREAKDOWN_IGNORED_LABELS = {
+    "Recent Conversation History Start",
+    "Recent Conversation History End",
+    "Compaction Summary",
+}
+
+
+def _slug_label(label: str) -> str:
+    return "".join(ch.lower() if ch.isalnum() else "_" for ch in label).strip("_") or "system_message"
+
+
+def _append_or_merge_category(
+    categories: list[ContextCategory],
+    *,
+    key: str,
+    label: str,
+    chars: int,
+    category: str,
+    description: str,
+) -> None:
+    if chars == 0:
+        return
+    for existing in categories:
+        if existing.key == key:
+            existing.chars += chars
+            return
+    categories.append(ContextCategory(
+        key=key,
+        label=label,
+        chars=chars,
+        tokens_approx=0,
+        percentage=0,
+        category=category,
+        description=description,
+    ))
+
+
+def _runtime_preview_categories(preview: Any) -> list[ContextCategory]:
+    """Convert an assembled runtime preview into breakdown display rows.
+
+    This is intentionally an adapter over ``assemble_for_preview``. It may
+    classify and group messages for the dev panel, but it must not recompute
+    whether prompt/RAG sections should exist.
+    """
+    from app.services.context_preview import extract_context_preview_blocks
+
+    blocks, _ = extract_context_preview_blocks(preview, include_history=False)
+    categories: list[ContextCategory] = []
+    for idx, block in enumerate(blocks, start=1):
+        label = block["label"]
+        if label in _BREAKDOWN_IGNORED_LABELS:
+            continue
+        content = block["content"]
+        key, category, description = _LABEL_TO_CATEGORY.get(
+            label,
+            (
+                f"runtime_{_slug_label(label)}_{idx}",
+                "static",
+                "Runtime system message admitted by the context assembly path",
+            ),
+        )
+        _append_or_merge_category(
+            categories,
+            key=key,
+            label=label,
+            chars=len(content),
+            category=category,
+            description=description,
+        )
+
+    tool_tokens = int((getattr(preview.budget, "breakdown", {}) or {}).get("tool_schemas") or 0)
+    if tool_tokens > 0:
+        _append_or_merge_category(
+            categories,
+            key="tool_schemas",
+            label="Tool Schemas",
+            chars=max(1, int(tool_tokens * 3.5)),
+            category="rag",
+            description="Tool schemas exposed by the runtime context assembly path",
+        )
+    return categories
+
+
+def _preview_forecast_tokens(preview: Any, fallback_chars: int) -> int:
+    consumed = getattr(preview.budget, "consumed_tokens", None)
+    if consumed is None:
+        consumed = getattr(preview.budget, "used_tokens", None)
+    if consumed is not None:
+        return int(consumed)
+    return _chars_to_tokens(fallback_chars)
+
+
 async def compute_context_breakdown(
     channel_id: str,
     db: AsyncSession,
@@ -379,9 +595,8 @@ async def compute_context_breakdown(
             return payload
         _breakdown_cache.pop(cache_key, None)
 
-    from app.agent.base_prompt import resolve_workspace_base_prompt
     from app.agent.bots import get_bot
-    from app.agent.persona import get_persona
+    from app.agent.context_assembly import assemble_for_preview
 
     import uuid as _uuid
     _ch_pk = _uuid.UUID(channel_id) if isinstance(channel_id, str) else channel_id
@@ -390,263 +605,14 @@ async def compute_context_breakdown(
         raise ValueError(f"Channel not found: {channel_id}")
 
     bot = get_bot(channel.bot_id)
-    categories: list[ContextCategory] = []
-
-    # -----------------------------------------------------------------------
-    # 1. Static context
-    # -----------------------------------------------------------------------
-
-    # Global base prompt (server-level, prepended before everything)
-    from app.config import settings as _settings
-    from app.services.prompt_dialect import render as _dialect_render
-    from app.services.providers import resolve_prompt_style
-    if _settings.GLOBAL_BASE_PROMPT:
-        _prompt_style = resolve_prompt_style(bot, channel)
-        _global_base_prompt = _dialect_render(_settings.GLOBAL_BASE_PROMPT, _prompt_style)
-        categories.append(ContextCategory(
-            key="global_base_prompt", label="Global Base Prompt", chars=len(_global_base_prompt),
-            tokens_approx=0, percentage=0, category="static",
-            description="Server-wide prompt prepended before all other base/system prompts",
-        ))
-
-    # Workspace base prompt: user-authored workspace instructions appended after
-    # the server-level global base prompt when enabled for this channel.
-    ws_base_enabled = False
-    swb = (await db.execute(
-        select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == bot.id)
-    )).scalar_one_or_none()
-    if swb:
-        ws = await db.get(SharedWorkspace, swb.workspace_id)
-        if ws:
-            ws_base_enabled = ws.workspace_base_prompt_enabled
-    if channel.workspace_base_prompt_enabled is not None:
-        ws_base_enabled = channel.workspace_base_prompt_enabled
-    base = None
-    if ws_base_enabled and getattr(bot, "shared_workspace_id", None):
-        base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
-    if base:
-        categories.append(ContextCategory(
-            key="workspace_base_prompt", label="Workspace Base Prompt", chars=len(base),
-            tokens_approx=0, percentage=0, category="static",
-            description="Workspace-authored prompt appended after the global base prompt",
-        ))
-
-    # Bot system prompt
-    sp_chars = len(bot.system_prompt.strip())
-    if sp_chars:
-        categories.append(ContextCategory(
-            key="system_prompt", label="System Prompt", chars=sp_chars,
-            tokens_approx=0, percentage=0, category="static",
-            description="Bot-specific system prompt",
-        ))
-
-    # Memory guidelines — DEPRECATED (DB memory no longer in use)
-
-    # Persona
-    if bot.persona:
-        persona_text = await get_persona(bot.id)
-        if persona_text:
-            p_chars = len("[PERSONA]\n") + len(persona_text)
-            categories.append(ContextCategory(
-                key="persona", label="Persona", chars=p_chars,
-                tokens_approx=0, percentage=0, category="static",
-                description="Bot persona layer injected as system message",
-            ))
-
-    # Workspace-files memory scheme: MEMORY.md baseline + profile-gated daily logs
-    if bot.memory_scheme == "workspace-files":
-        import os as _bd_os
-        from datetime import date as _bd_date
-        from app.services.memory_scheme import get_memory_root, get_memory_rel_path
-        from app.services.workspace import workspace_service
-        try:
-            _bd_ws_root = workspace_service.get_workspace_root(bot.id, bot)
-            _bd_mem_root = get_memory_root(bot, ws_root=_bd_ws_root)
-            _bd_mem_rel = get_memory_rel_path(bot)
-
-            # MEMORY.md
-            _bd_mem_md = _bd_os.path.join(_bd_mem_root, "MEMORY.md")
-            if _bd_os.path.isfile(_bd_mem_md):
-                _bd_md_chars = len(Path(_bd_mem_md).read_text())
-                if _bd_md_chars > 0:
-                    categories.append(ContextCategory(
-                        key="memory_md", label="MEMORY.md", chars=_bd_md_chars,
-                        tokens_approx=0, percentage=0, category="static",
-                        description=f"Curated stable facts ({_bd_mem_rel}/MEMORY.md) — durable baseline",
-                    ))
-
-            # Today's daily log
-            _bd_today = _bd_date.today().isoformat()
-            _bd_today_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_today}.md")
-            if _bd_os.path.isfile(_bd_today_path):
-                _bd_today_chars = len(Path(_bd_today_path).read_text())
-                if _bd_today_chars > 0:
-                    categories.append(ContextCategory(
-                        key="memory_today_log", label="Today's Log", chars=_bd_today_chars,
-                        tokens_approx=0, percentage=0, category="static",
-                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_today}.md) — often admitted in normal chat; profile/budget-gated elsewhere",
-                    ))
-
-            # Yesterday's daily log
-            _bd_yest = (_bd_date.today() - __import__("datetime").timedelta(days=1)).isoformat()
-            _bd_yest_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_yest}.md")
-            if _bd_os.path.isfile(_bd_yest_path):
-                _bd_yest_chars = len(Path(_bd_yest_path).read_text())
-                if _bd_yest_chars > 0:
-                    categories.append(ContextCategory(
-                        key="memory_yesterday_log", label="Yesterday's Log", chars=_bd_yest_chars,
-                        tokens_approx=0, percentage=0, category="static",
-                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_yest}.md) — often admitted in normal chat; profile/budget-gated elsewhere",
-                    ))
-
-            # Reference file count
-            _bd_ref_dir = _bd_os.path.join(_bd_mem_root, "reference")
-            if _bd_os.path.isdir(_bd_ref_dir):
-                _bd_ref_files = [f for f in _bd_os.listdir(_bd_ref_dir) if f.endswith(".md")]
-                if _bd_ref_files:
-                    categories.append(ContextCategory(
-                        key="memory_reference_index", label="Reference Index", chars=len(_bd_ref_files) * 40,
-                        tokens_approx=0, percentage=0, category="static",
-                        description=f"{len(_bd_ref_files)} reference file(s) listed (names only; read via get_memory_file)",
-                    ))
-        except Exception:
-            logger.debug("Could not compute memory scheme breakdown for bot %s", bot.id, exc_info=True)
-
-    # Datetime
-    categories.append(ContextCategory(
-        key="datetime", label="Date/Time", chars=72,
-        tokens_approx=0, percentage=0, category="static",
-        description="Current timestamp injected every turn",
-    ))
-
-    # -----------------------------------------------------------------------
-    # 2. Per-turn RAG (heuristic estimates)
-    # -----------------------------------------------------------------------
-
-    # Skills (all on-demand)
-    if bot.skills:
-        from app.db.models import Skill as SkillRow
-        ids = [s.id for s in bot.skills]
-        rows = (await db.execute(
-            select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(ids))
-        )).all()
-        if rows:
-            hdr = len("Available skills (use get_skill to retrieve full content):\n")
-            body = sum(len(f"- {r.id}: {r.name}\n") for r in rows)
-            categories.append(ContextCategory(
-                key="skills_index", label="Skill Index", chars=hdr + body,
-                tokens_approx=0, percentage=0, category="rag",
-                description=f"{len(rows)} skill(s) listed by name",
-            ))
-
-    # Tool schemas (rough estimate)
-    tool_count = len(bot.local_tools) + len(bot.client_tools)
-    if tool_count > 0 or bot.mcp_servers:
-        avg_schema = 400
-        if bot.tool_retrieval:
-            top_k = settings.TOOL_RETRIEVAL_TOP_K
-            est_tools = min(top_k, tool_count) + len(bot.pinned_tools)
-            categories.append(ContextCategory(
-                key="tool_schemas", label="Tool Schemas", chars=est_tools * avg_schema,
-                tokens_approx=0, percentage=0, category="rag",
-                description=f"~{est_tools} tool schemas (RAG + pinned); varies by query",
-            ))
-            unretrieved = max(0, tool_count - est_tools)
-            if unretrieved:
-                idx_chars = len("Available tools (not yet loaded):\n") + unretrieved * 105
-                categories.append(ContextCategory(
-                    key="tool_index", label="Tool Index", chars=idx_chars,
-                    tokens_approx=0, percentage=0, category="rag",
-                    description=f"~{unretrieved} compact entries for non-loaded tools",
-                ))
-        else:
-            categories.append(ContextCategory(
-                key="tool_schemas", label="Tool Schemas (all)", chars=tool_count * avg_schema,
-                tokens_approx=0, percentage=0, category="rag",
-                description=f"{tool_count} tool schemas (RAG disabled, all sent every turn)",
-            ))
-
-    # Delegation index
-    if bot.delegate_bots:
-        dele_chars = len("Available sub-agents:\n") + len(bot.delegate_bots) * 80
-        categories.append(ContextCategory(
-            key="delegation_index", label="Delegation Index", chars=dele_chars,
-            tokens_approx=0, percentage=0, category="rag",
-            description=f"{len(bot.delegate_bots)} delegatable bot(s)",
-        ))
-
-    # Channel workspace active files (eligible for static admission when profile allows)
-    if channel is not None:
-        try:
-            import os as _cw_os
-            from app.services.channel_workspace import get_channel_workspace_root
-            _cw_root = get_channel_workspace_root(str(channel_id), bot)
-            _cw_active_chars = 0
-            _cw_active_count = 0
-            if _cw_os.path.isdir(_cw_root):
-                for _cw_entry in sorted(_cw_os.scandir(_cw_root), key=lambda e: e.name):
-                    if _cw_entry.is_file() and _cw_entry.name.endswith(".md"):
-                        try:
-                            _cw_content = Path(_cw_entry.path).read_text()
-                            if _cw_content.strip():
-                                _cw_active_chars += len(_cw_content)
-                                _cw_active_count += 1
-                        except Exception:
-                            pass
-            if _cw_active_chars > 0:
-                # Cap at the same budget used in context_assembly
-                _CW_BUDGET = 50_000
-                _cw_injected = min(_cw_active_chars, _CW_BUDGET)
-                categories.append(ContextCategory(
-                    key="channel_workspace_files", label="Channel Workspace Files",
-                    chars=_cw_injected,
-                    tokens_approx=0, percentage=0, category="static",
-                    description=f"{_cw_active_count} active .md file(s) eligible for automatic admission in normal chat/execution ({_cw_active_chars:,} chars total"
-                                + (f", capped to {_CW_BUDGET:,})" if _cw_active_chars > _CW_BUDGET else ")"),
-                ))
-        except Exception:
-            logger.debug("Could not compute channel workspace files for channel %s", channel_id, exc_info=True)
-
-    # Workspace / filesystem RAG context
-    if bot.workspace.enabled and bot.workspace.indexing.enabled:
-        if getattr(bot.workspace, "bot_knowledge_auto_retrieval", True):
-            categories.append(ContextCategory(
-                key="bot_knowledge_base", label="Bot Knowledge Base",
-                chars=int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.22),
-                tokens_approx=0, percentage=0, category="rag",
-                description="Bot-wide knowledge-base excerpts auto-retrieved before broader workspace search",
-            ))
-        est_ws = int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.3)
-        categories.append(ContextCategory(
-            key="workspace_context", label="Workspace Files (RAG)", chars=est_ws,
-            tokens_approx=0, percentage=0, category="rag",
-            description="Broader workspace file chunks retrieved by semantic search after bot/channel knowledge layers",
-        ))
-
-    # Section index (file mode)
-    from app.services.compaction import _get_history_mode
-    _hist_mode = _get_history_mode(bot, channel)
-    if _hist_mode == "file":
-        _si_count = getattr(channel, "section_index_count", None)
-        _si_count = _si_count if _si_count is not None else settings.SECTION_INDEX_COUNT
-        if _si_count > 0:
-            _si_verbosity = getattr(channel, "section_index_verbosity", None) or settings.SECTION_INDEX_VERBOSITY
-            _actual_sections = (await db.execute(
-                select(func.count()).select_from(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
-            )).scalar_one()
-            _shown = min(_si_count, _actual_sections)
-            if _shown > 0:
-                # Estimate chars per section by verbosity
-                _per_section = {"compact": 60, "standard": 120, "detailed": 160}.get(_si_verbosity, 120)
-                _si_chars = 100 + _shown * _per_section  # header + entries
-                categories.append(ContextCategory(
-                    key="section_index", label="Section Index", chars=_si_chars,
-                    tokens_approx=0, percentage=0, category="rag",
-                    description=f"{_shown} recent section(s) in {_si_verbosity} mode (file history)",
-                ))
-
     target_session_id = session_id_str or (str(channel.active_session_id) if channel.active_session_id else None)
+    runtime_preview = await assemble_for_preview(
+        _ch_pk,
+        user_message="",
+        session_id=_uuid.UUID(session_id_str) if session_id_str else None,
+        db=db,
+    )
+    categories: list[ContextCategory] = _runtime_preview_categories(runtime_preview)
     target_session_pk = _uuid.UUID(target_session_id) if target_session_id else None
     target_session = None
     if target_session_pk is not None:
@@ -948,16 +914,18 @@ async def compute_context_breakdown(
         cat.tokens_approx = _chars_to_tokens(cat.chars)
         cat.percentage = round((cat.chars / gross_chars * 100) if gross_chars > 0 else 0, 1)
 
-    forecast_total_tokens = _chars_to_tokens(total_chars)
+    forecast_total_tokens = _preview_forecast_tokens(runtime_preview, total_chars)
 
     # Context budget info (if enabled)
     _budget_info = None
     api_total_tokens: int | None = None
-    context_profile: str | None = None
-    context_origin: str | None = None
-    live_history_turns: int | None = None
-    mandatory_static_injections: list[str] = []
-    optional_static_injections: list[str] = []
+    assembly = runtime_preview.assembly
+    preview_policy = getattr(assembly, "context_policy", {}) or {}
+    context_profile: str | None = getattr(assembly, "context_profile", None)
+    context_origin: str | None = getattr(assembly, "context_origin", None)
+    live_history_turns: int | None = preview_policy.get("live_history_turns")
+    mandatory_static_injections: list[str] = list(preview_policy.get("mandatory_static_injections") or [])
+    optional_static_injections: list[str] = list(preview_policy.get("optional_static_injections") or [])
     if settings.CONTEXT_BUDGET_ENABLED and include_budget:
         try:
             from app.agent.context_budget import get_model_context_window
@@ -966,11 +934,11 @@ async def compute_context_breakdown(
             _available = _window - _reserve
             # Pull the API-reported prompt_tokens for last_turn alignment.
             _latest = await fetch_latest_context_budget(channel_id, db, session_id=target_session_id)
-            context_profile = _latest.get("context_profile")
-            context_origin = _latest.get("context_origin")
-            live_history_turns = _latest.get("live_history_turns")
-            mandatory_static_injections = list(_latest.get("mandatory_static_injections") or [])
-            optional_static_injections = list(_latest.get("optional_static_injections") or [])
+            context_profile = _latest.get("context_profile") or context_profile
+            context_origin = _latest.get("context_origin") or context_origin
+            live_history_turns = _latest.get("live_history_turns") if _latest.get("live_history_turns") is not None else live_history_turns
+            mandatory_static_injections = list(_latest.get("mandatory_static_injections") or mandatory_static_injections)
+            optional_static_injections = list(_latest.get("optional_static_injections") or optional_static_injections)
             api_total_tokens = _latest.get("consumed_tokens") if _latest.get("source") == "api" else None
             _budget_info = {
                 "context_profile": context_profile,

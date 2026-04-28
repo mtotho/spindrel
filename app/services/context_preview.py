@@ -73,9 +73,23 @@ def _label_system_message(content: str, index: int) -> str:
         return "Persona"
     if stripped.startswith("Current time:") or stripped.startswith("Current local time:"):
         return "Date/Time"
+    if stripped.startswith("Your persistent memory"):
+        return "Memory Bootstrap"
+    if stripped.startswith("[Memory housekeeping]"):
+        return "Memory Housekeeping"
+    if stripped.startswith("Today's daily log"):
+        return "Memory Today Log"
+    if stripped.startswith("Yesterday's daily log"):
+        return "Memory Yesterday Log"
+    if stripped.startswith("Reference documents in"):
+        return "Memory Reference Index"
+    if stripped.startswith("Other files in"):
+        return "Memory Loose Files"
+    if stripped.startswith("[Memory reminder]"):
+        return "Memory Nudge"
     if stripped.startswith("Available skills"):
         return "Skill Index"
-    if stripped.startswith("Available sub-agents"):
+    if stripped.startswith("Available sub-agents") or stripped.startswith("Available delegates"):
         return "Delegation Index"
     if stripped.startswith("--- BEGIN RECENT CONVERSATION HISTORY ---"):
         return "Recent Conversation History Start"
@@ -87,8 +101,24 @@ def _label_system_message(content: str, index: int) -> str:
         return "Section Index"
     if stripped.startswith("## Channel workspace context"):
         return "Workspace Files"
+    if stripped.startswith("## Channel knowledge base"):
+        return "Channel Knowledge Base"
+    if stripped.startswith("## Channel index segments"):
+        return "Channel Index Segments"
     if stripped.startswith("## Bot knowledge base"):
         return "Bot Knowledge Base"
+    if stripped.startswith("## Workspace search context"):
+        return "Workspace Files (RAG)"
+    if stripped.startswith("## Indexed directory context"):
+        return "Workspace Files (RAG)"
+    if stripped.startswith("## Relevant conversation sections"):
+        return "Conversation Sections"
+    if stripped.startswith("Spatial canvas context"):
+        return "Spatial Canvas"
+    if stripped.startswith("Summary of the conversation so far:"):
+        return "Compaction Summary"
+    if stripped.startswith("Executive summary of conversation history:"):
+        return "Compaction Summary"
     if stripped.startswith("Current context profile:"):
         return "Context Profile"
     return f"System Message {index}"
@@ -102,8 +132,16 @@ def _budget_dict(budget: Any) -> dict[str, Any]:
     return {
         "total_tokens": getattr(budget, "total_tokens", None),
         "reserve_tokens": getattr(budget, "reserve_tokens", None),
-        "used_tokens": getattr(budget, "used_tokens", None),
-        "remaining_tokens": getattr(budget, "remaining_tokens", None),
+        "used_tokens": (
+            getattr(budget, "used_tokens", None)
+            if getattr(budget, "used_tokens", None) is not None
+            else getattr(budget, "consumed_tokens", None)
+        ),
+        "remaining_tokens": (
+            getattr(budget, "remaining_tokens", None)
+            if getattr(budget, "remaining_tokens", None) is not None
+            else getattr(budget, "remaining", None)
+        ),
     }
 
 
@@ -114,13 +152,12 @@ def _pinned_widget_context(decisions: dict[str, str]) -> dict[str, Any]:
     return {"enabled": True, "decision": decision or "unknown"}
 
 
-def build_context_preview_response(preview: Any, *, include_history: bool) -> dict[str, Any]:
-    """Shape a runtime ``PreviewResult`` into the legacy admin response.
-
-    The first system message is already composed by the same session-loading
-    path used for live turns. This adapter may split that display-only block
-    into labels, but it never rebuilds prompt content.
-    """
+def extract_context_preview_blocks(
+    preview: Any,
+    *,
+    include_history: bool,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Return display blocks from an already assembled runtime preview."""
     blocks: list[dict[str, str]] = []
     conversation: list[dict[str, str]] = []
     seen_system = 0
@@ -152,6 +189,20 @@ def build_context_preview_response(preview: Any, *, include_history: bool) -> di
                 "role": role,
                 "content": content[:10000],
             })
+    return blocks, conversation
+
+
+def build_context_preview_response(preview: Any, *, include_history: bool) -> dict[str, Any]:
+    """Shape a runtime ``PreviewResult`` into the legacy admin response.
+
+    The first system message is already composed by the same session-loading
+    path used for live turns. This adapter may split that display-only block
+    into labels, but it never rebuilds prompt content.
+    """
+    blocks, conversation = extract_context_preview_blocks(
+        preview,
+        include_history=include_history,
+    )
 
     total_chars = sum(len(block["content"]) for block in blocks + conversation)
     assembly = preview.assembly

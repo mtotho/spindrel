@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import { MISSION_CONTROL_KEY } from "./useMissionControl";
 
 export type MissionStatus = "active" | "paused" | "completed" | "cancelled";
 export type MissionScope = "workspace" | "channel";
@@ -107,6 +108,7 @@ export function useCreateWorkspaceMission() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_MISSIONS_KEY });
+      qc.invalidateQueries({ queryKey: MISSION_CONTROL_KEY });
     },
   });
 }
@@ -122,6 +124,7 @@ export function useRunWorkspaceMissionNow() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_MISSIONS_KEY });
+      qc.invalidateQueries({ queryKey: MISSION_CONTROL_KEY });
     },
   });
 }
@@ -139,6 +142,7 @@ export function useSetWorkspaceMissionStatus() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_MISSIONS_KEY });
+      qc.invalidateQueries({ queryKey: MISSION_CONTROL_KEY });
     },
   });
 }

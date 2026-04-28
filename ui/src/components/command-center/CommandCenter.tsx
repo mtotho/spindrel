@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Activity, Bot, CheckCircle2, Clock, ExternalLink, ListChecks, Pause, Play, Radar, Route, Settings2, Sparkles, Zap } from "lucide-react";
 
 import { useBots } from "../../api/hooks/useBots";
@@ -7,11 +8,16 @@ import {
   useCreateWorkspaceMission,
   useRunWorkspaceMissionNow,
   useSetWorkspaceMissionStatus,
-  useWorkspaceMissions,
   type MissionScope,
   type WorkspaceMission,
   type WorkspaceMissionUpdate,
 } from "../../api/hooks/useWorkspaceMissions";
+import {
+  useMissionControl,
+  type MissionControlLane,
+  type MissionControlMissionRow,
+  type MissionControlSpatialAdvisory,
+} from "../../api/hooks/useMissionControl";
 import { BotPicker } from "../shared/BotPicker";
 import { ChannelPicker } from "../shared/ChannelPicker";
 import { LlmModelDropdown } from "../shared/LlmModelDropdown";
@@ -48,6 +54,13 @@ function missionStatusVariant(status: WorkspaceMission["status"]): "success" | "
   return "info";
 }
 
+function readinessVariant(status: MissionControlSpatialAdvisory["status"]): "success" | "warning" | "danger" | "info" {
+  if (status === "ready") return "success";
+  if (status === "far") return "warning";
+  if (status === "blocked") return "danger";
+  return "info";
+}
+
 function updateIcon(kind: WorkspaceMissionUpdate["kind"]) {
   if (kind === "error") return <Activity size={13} className="text-danger" />;
   if (kind === "created") return <Sparkles size={13} className="text-accent" />;
@@ -57,21 +70,29 @@ function updateIcon(kind: WorkspaceMissionUpdate["kind"]) {
 
 export function CommandCenter({
   embedded = false,
+  initialItemId = null,
 }: {
   embedded?: boolean;
   initialItemId?: string | null;
 }) {
-  const { data: missions, isLoading, isError } = useWorkspaceMissions();
+  const { data, isLoading, isError } = useMissionControl();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = useMemo(() => missions?.find((mission) => mission.id === selectedId) ?? null, [missions, selectedId]);
-  const activeCount = (missions ?? []).filter((mission) => mission.status === "active").length;
-  const pausedCount = (missions ?? []).filter((mission) => mission.status === "paused").length;
-  const updateCount = (missions ?? []).reduce((sum, mission) => sum + mission.updates.length, 0);
+  useEffect(() => {
+    if (initialItemId) setSelectedId(initialItemId);
+  }, [initialItemId]);
+  const selectedRow = useMemo(() => {
+    if (!data || !selectedId) return null;
+    return data.lanes.flatMap((lane) => lane.missions).find((row) => row.mission.id === selectedId) ?? null;
+  }, [data, selectedId]);
+  const selected = selectedRow?.mission ?? data?.missions.find((mission) => mission.id === selectedId) ?? null;
+  const activeCount = data?.summary.active_missions ?? 0;
+  const pausedCount = data?.summary.paused_missions ?? 0;
+  const updateCount = data?.summary.recent_updates ?? 0;
 
   if (isLoading) {
     return <div className="p-4 text-sm text-text-dim">Loading Mission Control...</div>;
   }
-  if (isError || !missions) {
+  if (isError || !data) {
     return <div className="p-4 text-sm text-text-muted">Mission Control is unavailable.</div>;
   }
 
@@ -84,26 +105,26 @@ export function CommandCenter({
             Mission Control
           </div>
           <div className="mt-1 text-xs text-text-muted">
-            {activeCount} active · {pausedCount} paused · {updateCount} recent updates
+            {activeCount} active · {pausedCount} paused · {data.summary.active_bots} bots · {data.summary.spatial_warnings} spatial warnings · {updateCount} recent updates
           </div>
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-3 pb-4">
         {selected ? (
-          <MissionDetail mission={selected} onBack={() => setSelectedId(null)} />
+          <MissionDetail mission={selected} row={selectedRow} onBack={() => setSelectedId(null)} />
         ) : (
           <>
             <MissionComposer />
-            <BotLanes missions={missions} onSelect={setSelectedId} />
+            <BotLanes lanes={data.lanes} onSelect={setSelectedId} />
             <section className="mt-5">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Mission Updates</div>
                 <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{updateCount}</span>
               </div>
               <div className="space-y-1">
-                {missions.flatMap((mission) => mission.updates.map((update) => ({ mission, update }))).slice(0, 10).map(({ mission, update }) => (
-                  <MissionUpdateRow key={update.id} mission={mission} update={update} onSelect={() => setSelectedId(mission.id)} />
+                {data.recent_updates.slice(0, 10).map(({ mission_id, mission_title, update }) => (
+                  <MissionUpdateRow key={update.id} missionTitle={mission_title} update={update} onSelect={() => setSelectedId(mission_id)} />
                 ))}
                 {!updateCount && (
                   <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-3 py-6 text-center text-sm text-text-dim">
@@ -390,18 +411,7 @@ function HarnessMissionControls({
   );
 }
 
-function BotLanes({ missions, onSelect }: { missions: WorkspaceMission[]; onSelect: (id: string) => void }) {
-  const lanes = useMemo(() => {
-    const map = new Map<string, { botName: string; runtime?: string | null; missions: WorkspaceMission[] }>();
-    for (const mission of missions) {
-      for (const assignment of mission.assignments) {
-        const lane = map.get(assignment.bot_id) ?? { botName: assignment.bot_name, runtime: assignment.harness_runtime, missions: [] };
-        if (!lane.missions.some((item) => item.id === mission.id)) lane.missions.push(mission);
-        map.set(assignment.bot_id, lane);
-      }
-    }
-    return Array.from(map.entries()).sort((a, b) => a[1].botName.localeCompare(b[1].botName));
-  }, [missions]);
+function BotLanes({ lanes, onSelect }: { lanes: MissionControlLane[]; onSelect: (id: string) => void }) {
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
@@ -409,21 +419,40 @@ function BotLanes({ missions, onSelect }: { missions: WorkspaceMission[]; onSele
         <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{lanes.length}</span>
       </div>
       <div className="grid gap-2">
-        {lanes.map(([botId, lane]) => (
-          <div key={botId} className="rounded-md bg-surface-raised/45 px-3 py-3">
+        {lanes.map((lane) => (
+          <div key={lane.bot_id} className="rounded-md bg-surface-raised/45 px-3 py-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/[0.1] text-accent"><Bot size={15} /></span>
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-semibold text-text">{lane.botName}</span>
-                  <span className="block truncate text-xs text-text-dim">{lane.runtime ? `${lane.runtime} harness` : "Bot"}</span>
+                  <span className="block truncate text-sm font-semibold text-text">{lane.bot_name}</span>
+                  <span className="block truncate text-xs text-text-dim">
+                    {lane.harness_runtime ? `${lane.harness_runtime} harness` : "Bot"}
+                    {lane.bot_node ? ` · map ${Math.round(lane.bot_node.world_x)}, ${Math.round(lane.bot_node.world_y)}` : " · no map node"}
+                    {lane.nearest_objects[0] ? ` · near ${lane.nearest_objects[0].label}` : ""}
+                  </span>
                 </span>
               </div>
-              <span className="shrink-0 rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{lane.missions.length} missions</span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {lane.warning_count > 0 && <StatusBadge label={`${lane.warning_count} warnings`} variant="warning" />}
+                <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{lane.missions.length} missions</span>
+              </div>
             </div>
             <div className="space-y-1">
-              {lane.missions.map((mission) => (
-                <MissionListRow key={mission.id} mission={mission} onSelect={() => onSelect(mission.id)} />
+              {lane.missions.map((row) => (
+                <MissionListRow key={`${row.mission.id}-${row.assignment.id}`} row={row} onSelect={() => onSelect(row.mission.id)} />
+              ))}
+              {lane.attention_signals.map((signal) => (
+                <button key={signal.id} type="button" className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-surface-overlay/55">
+                  <Radar size={15} className="shrink-0 text-warning" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-text">{signal.title}</span>
+                    <span className="mt-1 block truncate text-xs text-text-dim">
+                      attention · {signal.channel_name ? `#${signal.channel_name}` : "workspace"} · {signal.assignment_status ?? signal.status}
+                    </span>
+                  </span>
+                  <StatusBadge label={signal.severity} variant={signal.severity === "critical" || signal.severity === "error" ? "danger" : "warning"} />
+                </button>
               ))}
             </div>
           </div>
@@ -438,7 +467,9 @@ function BotLanes({ missions, onSelect }: { missions: WorkspaceMission[]; onSele
   );
 }
 
-function MissionListRow({ mission, onSelect }: { mission: WorkspaceMission; onSelect: () => void }) {
+function MissionListRow({ row, onSelect }: { row: MissionControlMissionRow; onSelect: () => void }) {
+  const mission = row.mission;
+  const readiness = row.spatial_advisory;
   return (
     <button type="button" onClick={onSelect} className="flex w-full items-start gap-3 rounded-md px-3 py-2 text-left hover:bg-surface-overlay/55">
       <Route size={15} className="mt-0.5 shrink-0 text-accent" />
@@ -446,21 +477,22 @@ function MissionListRow({ mission, onSelect }: { mission: WorkspaceMission; onSe
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-medium text-text">{mission.title}</span>
           <StatusBadge label={mission.status} variant={missionStatusVariant(mission.status)} />
+          <StatusBadge label={readiness.status} variant={readinessVariant(readiness.status)} />
         </span>
         <span className="mt-1 block truncate text-xs text-text-dim">
-          {mission.channel_name ? `#${mission.channel_name}` : "workspace"} · {recurrenceLabel(mission.recurrence)} · next {formatRelative(mission.next_run_at)}
+          {mission.channel_name ? `#${mission.channel_name}` : "workspace"} · target {readiness.target_channel_name ? `#${readiness.target_channel_name}` : "unknown"} · next {formatRelative(mission.next_run_at)}
         </span>
       </span>
     </button>
   );
 }
 
-function MissionUpdateRow({ mission, update, onSelect }: { mission: WorkspaceMission; update: WorkspaceMissionUpdate; onSelect: () => void }) {
+function MissionUpdateRow({ missionTitle, update, onSelect }: { missionTitle: string; update: WorkspaceMissionUpdate; onSelect: () => void }) {
   return (
     <button type="button" onClick={onSelect} className="flex w-full items-start gap-3 rounded-md bg-surface-raised/35 px-3 py-2 text-left hover:bg-surface-overlay/45">
       <span className="mt-0.5">{updateIcon(update.kind)}</span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-text">{mission.title}</span>
+        <span className="block truncate text-sm font-medium text-text">{missionTitle}</span>
         <span className="mt-1 line-clamp-2 text-xs text-text-muted">{update.summary}</span>
         <span className="mt-1 block truncate text-[11px] text-text-dim">
           {update.bot_name ?? "system"} · {formatRelative(update.created_at)}
@@ -470,10 +502,11 @@ function MissionUpdateRow({ mission, update, onSelect }: { mission: WorkspaceMis
   );
 }
 
-function MissionDetail({ mission, onBack }: { mission: WorkspaceMission; onBack: () => void }) {
+function MissionDetail({ mission, row, onBack }: { mission: WorkspaceMission; row?: MissionControlMissionRow | null; onBack: () => void }) {
   const runNow = useRunWorkspaceMissionNow();
   const setStatus = useSetWorkspaceMissionStatus();
   const latest = mission.updates[0];
+  const spatial = row?.spatial_advisory;
   return (
     <div>
       <button type="button" className="mb-3 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text" onClick={onBack}>
@@ -535,6 +568,51 @@ function MissionDetail({ mission, onBack }: { mission: WorkspaceMission; onBack:
           )}
         </div>
       </section>
+
+      {spatial && (
+        <section className="mt-4 rounded-md bg-surface-raised/35 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+              <Radar size={13} />
+              Spatial Readiness
+            </div>
+            <StatusBadge label={spatial.status} variant={readinessVariant(spatial.status)} />
+          </div>
+          <p className="text-sm text-text-muted">{spatial.reason}</p>
+          <div className="mt-3 grid gap-2 text-xs text-text-dim sm:grid-cols-2">
+            <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Target</div>
+              <div className="mt-1 truncate text-text">{spatial.target_channel_name ? `#${spatial.target_channel_name}` : "Unknown target"}</div>
+            </div>
+            <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Distance</div>
+              <div className="mt-1 text-text">
+                {spatial.center_distance != null ? `${spatial.center_distance} center · ${spatial.edge_distance ?? 0} edge` : "No mapped distance"}
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {spatial.bot_node_id && (
+              <Link to={`/canvas?node=${encodeURIComponent(spatial.bot_node_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
+                <ExternalLink size={12} />
+                Fly to bot
+              </Link>
+            )}
+            {spatial.target_node_id && (
+              <Link to={`/canvas?node=${encodeURIComponent(spatial.target_node_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
+                <ExternalLink size={12} />
+                Fly to target
+              </Link>
+            )}
+            {spatial.target_channel_id && (
+              <Link to={`/channels/${encodeURIComponent(spatial.target_channel_id)}`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text">
+                <ExternalLink size={12} />
+                Open channel
+              </Link>
+            )}
+          </div>
+        </section>
+      )}
 
       {latest?.next_actions?.length ? (
         <section className="mt-4">

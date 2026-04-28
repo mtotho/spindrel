@@ -5,8 +5,8 @@ import { contextualNavigationState, readContextualNavigationState, sameNavigatio
 import { attentionHubHref, CONTEXT_BLOAT_HREF, DAILY_HEALTH_HREF, MEMORY_CENTER_HREF, widgetPinHref } from "./hubRoutes";
 
 test("hub route helpers point mobile sections at durable surfaces", () => {
-  assert.equal(attentionHubHref(), "/hub/attention");
-  assert.equal(attentionHubHref("item/1"), "/hub/attention?item=item%2F1");
+  assert.equal(attentionHubHref(), "/hub/mission-control");
+  assert.equal(attentionHubHref("item/1"), "/hub/mission-control?item=item%2F1");
   assert.equal(DAILY_HEALTH_HREF, "/hub/daily-health");
   assert.equal(CONTEXT_BLOAT_HREF, "/hub/context-bloat");
   assert.equal(MEMORY_CENTER_HREF, "/admin/learning#Memory");

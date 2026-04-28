@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { MobileHub } from "@/src/components/home/MobileHub";
 import { SpatialCanvas } from "@/src/components/spatial-canvas/SpatialCanvas";
@@ -10,10 +11,11 @@ import { SpatialCanvas } from "@/src/components/spatial-canvas/SpatialCanvas";
  */
 export default function Home() {
   const columns = useResponsiveColumns();
+  const [searchParams] = useSearchParams();
   if (columns === "single") return <MobileHub />;
   return (
     <div className="relative flex-1 min-h-0">
-      <SpatialCanvas />
+      <SpatialCanvas initialFlyToChannelId={searchParams.get("channel")} initialFlyToNodeId={searchParams.get("node")} />
     </div>
   );
 }

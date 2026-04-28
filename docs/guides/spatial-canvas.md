@@ -117,10 +117,10 @@ docked full-height surface with a header station switcher so future map
 workflows can live in one place instead of scattering small popovers across the
 viewport. The last station choice persists in `localStorage`.
 
-- **Command Center** is the default Hub station. It embeds the operations board
-  for bot assignments, next heartbeat timing, upcoming work, recent reports, and
-  Attention detail/create flows. Canvas Attention signals, the hub landmark, the
-  hub edge beacon, and the command palette route here when the canvas is mounted.
+- **Mission Control** is the default Hub station. It embeds the operations board
+  for mission load, bot lanes, spatial readiness, progress updates, and compact
+  Attention signals. Canvas Attention signals, the hub landmark, the hub edge
+  beacon, and the command palette route here when the canvas is mounted.
 - **Attention** remains a focused subsection for target review and legacy links.
 - **Launch Bay** hosts the add-to-canvas flow, including the optional
   `core/command_center_native` widget for users who want a removable world tile.
@@ -214,13 +214,13 @@ advancing to the next active issue for that target. Target review can
 acknowledge all active items on that target; the global Hub header can
 acknowledge all active items visible to the current user after confirmation.
 
-The canvas also has a fixed **Command Center** landmark above the seed center.
-Opening it switches Starboard to the Command Center station, showing assignment
-load, upcoming work, recent reports, Attention detail, quick-add intake, and bot
-findings without leaving the canvas. The same station can be opened from an edge
-beacon, the channel header count, or the command palette. When mapped items exist
-and Attention signals are visible, the Hub's edge beacon remains available
-whenever the Hub is offscreen.
+The canvas also has a fixed **Mission Control** landmark above the seed center.
+Opening it switches Starboard to the Mission Control station, showing mission
+load, assigned bot lanes, spatial readiness, recent progress, compact Attention
+signals, and bot findings without leaving the canvas. The same station can be
+opened from an edge beacon, the channel header count, or the command palette.
+When mapped items exist and Attention signals are visible, the Hub's edge beacon
+remains available whenever the Hub is offscreen.
 
 ## Reserved dashboard slug
 
