@@ -134,24 +134,39 @@ def test_error_boundary_forwards_errors(source: str) -> None:
     assert 'type: "error"' in source
 
 
+def test_interactive_widget_iframe_allows_external_link_popups(source: str) -> None:
+    """Normal target=_blank links inside interactive widgets should open.
+
+    Without these sandbox tokens, users could only open widget links through
+    browser context-menu workarounds.
+    """
+    sandbox = (
+        "allow-scripts allow-same-origin allow-forms "
+        "allow-popups allow-popups-to-escape-sandbox"
+    )
+    marker = 'iframe.setAttribute(\n      "sandbox",'
+    start = source.index(marker)
+    end = source.index("    );", start)
+    sandbox_call = source[start:end]
+
+    assert sandbox in sandbox_call
+    assert "allow-top-navigation" not in sandbox_call
+
+
 # ── Host-side postMessage receiver ────────────────────────────────────
-# The receiver in the React component demultiplexes notify / log / error
-# into toasts, the widget log ring, and the error banner respectively.
+# The receiver in the React component demultiplexes notify / error / ready
+# into toasts, the error banner, and iframe-ready handoff respectively.
 def test_host_receiver_wired(source: str) -> None:
     # message listener registered + scoped to iframe.contentWindow
     assert 'window.addEventListener("message"' in source
     assert "event.source !== iframe.contentWindow" in source
-    # Three branches the iframe emits
+    # Branches the host consumes from the iframe.
     assert 'data.type === "notify"' in source
     assert 'data.type === "error"' in source
-    assert 'data.type === "log"' in source
+    assert 'data.type === "ready"' in source
     # Reload affordance for the error banner — remounts the iframe via key
     assert "setReloadNonce" in source
-    assert "widget-iframe-${reloadNonce}" in source
-    # Log branch feeds the Dev Panel Widget log subtab via the store.
-    # Route: iframe postMessage → pushWidgetLog({ts, level, message, pinId, …}).
-    assert "pushWidgetLog" in source
-    assert 'from "../../../stores/widgetLog"' in source
+    assert "<!-- reload:${reloadNonce} -->" in source
 
 
 # ── Phase B.5: widget_reload auto-subscription wiring ────────────────

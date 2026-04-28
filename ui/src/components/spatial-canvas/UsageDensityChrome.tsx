@@ -88,7 +88,7 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
 };
 
 const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; icon: ReactNode }> = [
-  { id: "hub", label: "Command Center", eyebrow: "Assignments and scheduled work", icon: <Home size={15} /> },
+  { id: "hub", label: "Mission Control", eyebrow: "Missions, bot lanes, and progress", icon: <Home size={15} /> },
   { id: "attention", label: "Attention", eyebrow: "Issues and assignments", icon: <Radar size={15} /> },
   { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", icon: <Plus size={15} /> },
   { id: "health", label: "Daily Health", eyebrow: "Server rollup", icon: <Activity size={15} /> },

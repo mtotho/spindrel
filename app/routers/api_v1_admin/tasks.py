@@ -20,7 +20,7 @@ ALLOWED_TASK_TYPES = {"scheduled", "agent", "pipeline"}
 # These are fired programmatically and aren't user-managed — surfacing them in the
 # main list crowds the view with rows nobody acts on. Pass include_internal=true
 # to see them (power-user / debugging).
-INTERNAL_HIDDEN_TASK_TYPES = {"exec", "api", "delegation", "callback", "claude_code"}
+INTERNAL_HIDDEN_TASK_TYPES = {"exec", "api", "delegation", "callback", "claude_code", "mission_kickoff", "mission_tick"}
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attributes
 

@@ -28,6 +28,7 @@ from app.routers.api_v1_tools import router as tools_router
 from app.routers.api_v1_widgets import router as dashboard_router
 from app.routers.api_v1_workspace_attention import router as workspace_attention_router
 from app.routers.api_v1_workspace_command_center import router as workspace_command_center_router
+from app.routers.api_v1_workspace_missions import router as workspace_missions_router
 from app.routers.api_v1_workspace_spatial import router as workspace_spatial_router
 from app.routers.api_v1_system_health import router as system_health_router
 from app.routers.api_v1_push import router as push_router, presence_router
@@ -66,6 +67,7 @@ router.include_router(tools_router)
 router.include_router(dashboard_router)
 router.include_router(workspace_attention_router)
 router.include_router(workspace_command_center_router)
+router.include_router(workspace_missions_router)
 router.include_router(workspace_spatial_router)
 router.include_router(system_health_router)
 router.include_router(push_router)

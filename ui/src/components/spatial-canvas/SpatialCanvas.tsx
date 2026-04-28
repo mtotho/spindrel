@@ -47,6 +47,7 @@ import {
   type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
 import { useWorkspaceAttention, useMarkAttentionResponded, isActiveAttentionItem, type WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import { useWorkspaceMissions } from "../../api/hooks/useWorkspaceMissions";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useUsageBreakdown } from "../../api/hooks/useUsage";
 import { useBots } from "../../api/hooks/useBots";
@@ -79,6 +80,7 @@ import {
   LensHint,
 } from "./SpatialCanvasChrome";
 import { MovementTraceLayer } from "./MovementTraceLayer";
+import { SpatialMissionLayer } from "./SpatialMissionLayer";
 import type { SpatialInteractionMode } from "./spatialInteraction";
 import {
   MemoryObservationPanel,
@@ -249,6 +251,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const attentionHubPos = landmarkPositionFromNodes(nodes, "attention_hub", ATTENTION_HUB_X, ATTENTION_HUB_Y);
   const dailyHealthPos = landmarkPositionFromNodes(nodes, "daily_health", HEALTH_SUMMARY_X, HEALTH_SUMMARY_Y);
   const { data: attentionItems } = useWorkspaceAttention();
+  const { data: missions } = useWorkspaceMissions();
   const markAttentionResponded = useMarkAttentionResponded();
   const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
   const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
@@ -399,6 +402,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   }, [closeAttentionHub, openStarboard]);
   const openStarboardLaunch = useCallback(() => {
     openStarboard("launch");
+  }, [openStarboard]);
+  const openStarboardHub = useCallback(() => {
+    openStarboard("hub");
   }, [openStarboard]);
   const openStarboardHealth = useCallback(() => {
     openStarboard("health");
@@ -1470,9 +1476,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
 
   // Register the channel-pick + widget-pick overrides + the active surface
   // on the palette. While the canvas is mounted, ⌘K renders in canvas mode
-  // (Canvas + On the map groups at top) and picking a tile flies the camera
-  // instead of routing away. Everything clears on unmount so default palette
-  // behavior is restored elsewhere in the app.
+  // (Canvas + On the map groups at top); Enter opens routes while the
+  // secondary action can fly the camera to mapped channels/widgets.
   useEffect(() => {
     const o = usePaletteOverrides.getState();
     o.setChannelPick(flyToChannel);
@@ -3000,6 +3005,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             />
           )}
           <MovementTraceLayer nodes={nodes ?? []} viewportBbox={viewportBbox} />
+          <SpatialMissionLayer
+            missions={missions ?? []}
+            nodes={nodes ?? []}
+            scale={camera.scale}
+            viewportBbox={viewportBbox}
+            onOpenMissionControl={openStarboardHub}
+          />
           <LandmarkWrapper
             kind="now_well"
             scale={ambientZoom}

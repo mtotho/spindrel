@@ -667,6 +667,120 @@ class WorkspaceAttentionItem(Base):
     )
 
 
+class WorkspaceMission(Base):
+    """Long-running workspace work tracked independently of chat/task plumbing.
+
+    Missions are the user-facing object. Execution still happens through
+    ``Task`` rows so tracing, sessions, provider overrides, and tool policy stay
+    on the existing path.
+    """
+
+    __tablename__ = "workspace_missions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    directive: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    scope: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'workspace'"))
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    play_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    interval_kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'preset'"))
+    recurrence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fallback_models: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list)
+    harness_effort: Mapped[str | None] = mapped_column(Text, nullable=True)
+    history_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    history_recent_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kickoff_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    schedule_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_update_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'paused', 'completed', 'cancelled')", name="ck_workspace_missions_status"),
+        CheckConstraint("scope IN ('workspace', 'channel')", name="ck_workspace_missions_scope"),
+        CheckConstraint("interval_kind IN ('manual', 'preset', 'custom')", name="ck_workspace_missions_interval_kind"),
+        CheckConstraint("history_mode IS NULL OR history_mode IN ('none', 'recent', 'full')", name="ck_workspace_missions_history_mode"),
+        Index("ix_workspace_missions_status_updated", "status", "updated_at"),
+        Index("ix_workspace_missions_channel_status", "channel_id", "status"),
+        Index("ix_workspace_missions_schedule_task", "schedule_task_id"),
+    )
+
+
+class WorkspaceMissionAssignment(Base):
+    __tablename__ = "workspace_mission_assignments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    mission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspace_missions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'owner'"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    target_channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    last_update_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'support')", name="ck_workspace_mission_assignments_role"),
+        CheckConstraint("status IN ('active', 'paused', 'completed', 'cancelled')", name="ck_workspace_mission_assignments_status"),
+        UniqueConstraint("mission_id", "bot_id", name="uq_workspace_mission_assignments_mission_bot"),
+        Index("ix_workspace_mission_assignments_bot_status", "bot_id", "status"),
+        Index("ix_workspace_mission_assignments_target_channel", "target_channel_id"),
+    )
+
+
+class WorkspaceMissionUpdate(Base):
+    __tablename__ = "workspace_mission_updates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    mission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspace_missions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'progress'"))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    next_actions: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('created', 'kickoff', 'tick', 'progress', 'result', 'error', 'manual')", name="ck_workspace_mission_updates_kind"),
+        Index("ix_workspace_mission_updates_mission_created", "mission_id", "created_at"),
+        Index("ix_workspace_mission_updates_correlation", "correlation_id"),
+    )
+
+
 class UsageLimit(Base):
     __tablename__ = "usage_limits"
 

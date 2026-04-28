@@ -140,7 +140,7 @@ def _intersects_view(node: WorkspaceSpatialNode, camera: Camera, viewport_w: int
 
 
 def _channel_label(channel: Channel) -> str:
-    return channel.display_name or channel.name
+    return getattr(channel, "display_name", None) or channel.name
 
 
 def _pin_label(pin: WidgetDashboardPin | None) -> str:

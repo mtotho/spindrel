@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-27 (Command Center replaces default Starboard Hub.)
+updated: 2026-04-27 (Mission Control replaces Command Center as the Starboard coordination surface.)
 ---
 
 # Track — Spatial Canvas
@@ -44,6 +44,15 @@ upcoming work and recent heartbeat/task/report activity, and keeps quick-add
 channel intake in the same surface. `core/command_center_native` is available
 as an optional removable world widget from Launch Bay; the fixed landmark opens
 the built-in Command Center surface directly.
+
+Same-day Mission Control follow-up: Command Center evolved into Mission
+Control. The Starboard fixed station now owns mission creation, bot-lane
+assignment, run-now/pause/resume controls, recent progress, and task/trace
+links. Missions are rendered back onto the spatial map as anchored markers
+tethered to the assigned bot or scoped channel, so bot position now carries
+coordination meaning instead of being only decorative. `Cmd/Ctrl+K` opens
+channel/session destinations by default; the canvas fly-to action remains
+available as the secondary `Cmd/Ctrl+Enter` action.
 
 | Phase | Status | Description |
 |---|---|---|
@@ -139,6 +148,8 @@ the built-in Command Center surface directly.
 - Attention Items are domain state, not spatial nodes. `workspace_attention_items` owns lifecycle, dedupe, evidence, and future assignment shape; Beacons are the canvas rendering attached to existing channel/bot/widget/system targets. `workspace_spatial_nodes` remains position-only.
 - Bot-authored Attention Beacons are opt-in per channel bot policy via `allow_attention_beacons`; source bots may update/resolve only their own items, while humans can override.
 - User-authored Attention Items are first-class work-intake items, visible to normal channel viewers, and can be assigned from the Command Center.
+- Workspace Missions are the long-lived coordination layer for bot work. They are visible in Mission Control and on the map, but execution stays task-backed so runs keep the existing scheduler, model overrides, tracing, and task result surfaces.
+- Mission cadence is separate from channel heartbeat cadence. Assigning a mission to a channel does not mutate or override `ChannelHeartbeat`; mission intervals create their own `mission_tick` task rows and can be paused/resumed independently.
 - System Attention Beacons come from structured persisted failures and are admin-only. Raw server logs are evidence/follow-up material, not a direct v1 source.
 - Command Center assignments are investigate/report only. `next_heartbeat` injects at most one compact assignment block into the channel heartbeat bot's heartbeat; `run_now` creates an `attention_assignment` task with the narrow report tool.
 - Attention signals must be anchored in world space to their bound target or cluster and render above neighboring node chrome; the overlay must follow pan/zoom/drag without visual detachment or widget clipping. Map signals are severity/attention cues only: one rim signal per target, no idle count text, with counts/actions/evidence owned by the Hub.

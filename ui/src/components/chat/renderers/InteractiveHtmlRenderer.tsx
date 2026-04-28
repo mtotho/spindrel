@@ -9,13 +9,13 @@
  * read from the app's own `/api/v1/...` endpoints.
  *
  * Sandbox model:
- * - `sandbox="allow-scripts allow-same-origin allow-forms"` — scripts run,
+ * - `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"` — scripts run,
  *   the iframe keeps the page's origin so fetch('/api/v1/...') carries the
  *   session cookie, and native `<form>` elements submit without the
  *   "Blocked form submission" warning (widgets still call preventDefault
  *   and dispatch through `sp.callHandler`; allow-forms just silences the
- *   browser's default-action probe). No `allow-top-navigation`, no
- *   `allow-popups`.
+ *   browser's default-action probe). External `_blank` links can open in
+ *   a new tab, but there is still no `allow-top-navigation`.
  * - CSP `default-src 'self'; script-src 'unsafe-inline' 'self'; style-src
  *   'unsafe-inline' 'self'; img-src data: blob: 'self'; connect-src
  *   'self'` — cross-origin network is blocked.
@@ -3289,7 +3289,10 @@ export function InteractiveHtmlRenderer({
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
-    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
+    iframe.setAttribute(
+      "sandbox",
+      "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox",
+    );
     iframe.setAttribute("title", iframeTitle);
     iframe.style.width = "100%";
     iframe.style.height = fillHeight ? "100%" : `${height}px`;

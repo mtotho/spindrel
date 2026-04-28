@@ -266,24 +266,8 @@ export function CommandPaletteContent({
         item.onSelect();
         return;
       }
-      // Channel-pick override: when the spatial canvas is the active surface,
-      // picking a channel flies the camera instead of navigating away. The
-      // canvas registers the handler on mount and clears it on unmount.
-      if (item.href && item.href.startsWith("/channels/")) {
-        const tail = item.href.slice("/channels/".length);
-        const isPureChannelHref = tail.length > 0 && !tail.includes("/");
-        if (isPureChannelHref) {
-          const handler = usePaletteOverrides.getState().channelPick;
-          if (handler && handler(tail)) {
-            onAfterSelect?.(item);
-            closeMobileSidebar();
-            return;
-          }
-        }
-      }
-      // Widget-pick override: same shape as channelPick. Items contributed by
-      // the canvas use `routeKind: "spatial-widget"` and encode the spatial
-      // node id in the item id (`widget-<nodeId>`).
+      // Widget items contributed by the canvas have no standalone route, so
+      // selecting them still flies the camera to the tile.
       if (item.routeKind === "spatial-widget") {
         const nodeId = item.id.startsWith("widget-") ? item.id.slice("widget-".length) : null;
         const handler = usePaletteOverrides.getState().widgetPick;
@@ -298,12 +282,29 @@ export function CommandPaletteContent({
     [closeMobileSidebar, go, onAfterSelect],
   );
 
-  /** Secondary action — "Open the page" path. Bypasses the canvas fly-to
-   *  override so the user can always reach the standalone route from the
-   *  palette via Cmd/Ctrl+Enter. Pure commands without an `href` (canvas
-   *  toggles) fall back to their primary `onSelect`. */
+  /** Secondary action — "fly to map" path for canvas-owned results. Enter
+   *  opens exact destinations; Cmd/Ctrl+Enter gives spatial focus. */
   const selectItemSecondary = useCallback(
     (item: PaletteItem) => {
+      if (surface === "canvas" && item.href?.startsWith("/channels/")) {
+        const tail = item.href.slice("/channels/".length);
+        const isPureChannelHref = tail.length > 0 && !tail.includes("/");
+        const handler = usePaletteOverrides.getState().channelPick;
+        if (isPureChannelHref && handler && handler(tail)) {
+          onAfterSelect?.(item);
+          closeMobileSidebar();
+          return;
+        }
+      }
+      if (item.routeKind === "spatial-widget") {
+        const nodeId = item.id.startsWith("widget-") ? item.id.slice("widget-".length) : null;
+        const handler = usePaletteOverrides.getState().widgetPick;
+        if (nodeId && handler && handler(nodeId)) {
+          onAfterSelect?.(item);
+          closeMobileSidebar();
+          return;
+        }
+      }
       if (item.href) {
         go(item, item.href);
         return;
@@ -314,7 +315,7 @@ export function CommandPaletteContent({
         item.onSelect();
       }
     },
-    [closeMobileSidebar, go, onAfterSelect],
+    [closeMobileSidebar, go, onAfterSelect, surface],
   );
 
   const itemHasSecondary = useCallback(
@@ -325,7 +326,7 @@ export function CommandPaletteContent({
         const tail = item.href.slice("/channels/".length);
         return tail.length > 0 && !tail.includes("/");
       }
-      return item.routeKind === "spatial-widget";
+      return false;
     },
     [surface],
   );
@@ -365,8 +366,8 @@ export function CommandPaletteContent({
           return;
         }
         if (entry.kind === "item") {
-          // Cmd/Ctrl+Enter forces the secondary action ("open page") even when
-          // the canvas's fly-to override would otherwise consume Enter.
+          // Enter opens exact destinations. Cmd/Ctrl+Enter takes the canvas
+          // secondary path when present, such as flying to a channel tile.
           if (e.metaKey || e.ctrlKey) selectItemSecondary(entry.scored.item);
           else selectItem(entry.scored.item);
         }
@@ -575,7 +576,7 @@ export function CommandPaletteContent({
                         e.stopPropagation();
                         selectItemSecondary(item);
                       }}
-                      title="Open the page (Cmd/Ctrl+Enter)"
+                      title="Fly to map (Cmd/Ctrl+Enter)"
                       style={{
                         flexShrink: 0,
                         display: "flex",
@@ -591,7 +592,7 @@ export function CommandPaletteContent({
                       }}
                     >
                       <kbd style={{ fontFamily: "inherit", fontSize: 10 }}>⌘↵</kbd>
-                      <span>Open</span>
+                      <span>Fly</span>
                     </span>
                   )}
                   {selected && (

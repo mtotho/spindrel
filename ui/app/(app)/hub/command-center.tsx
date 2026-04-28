@@ -18,8 +18,8 @@ export default function HubCommandCenterPage() {
       <PageHeader
         variant="detail"
         parentLabel="Hub"
-        title="Command Center"
-        subtitle="Assignments, heartbeats, and upcoming work"
+        title="Mission Control"
+        subtitle="Missions, bot lanes, progress, and traceable runs"
         backTo="/"
         chrome="flow"
         showMenuWithBack

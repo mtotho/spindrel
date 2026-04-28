@@ -10,6 +10,18 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Workspace Missions are task-backed coordination, separate from channel heartbeats
+**Decided 2026-04-27.** Mission Control is the user-facing layer for longer-lived bot work. Missions own directive, scope, assigned bot, cadence, status, and progress history; execution remains on the existing `Task` pipeline so model selection, provider overrides, fallback models, tracing, scheduling, and result capture are reused instead of rebuilt.
+
+**Load-bearing invariants.**
+- Missions are not a parallel agent runtime. Kickoffs, ticks, and manual runs are `Task` rows with mission metadata in `callback_config` / `execution_config`.
+- Mission cadence does not mutate `ChannelHeartbeat`. A channel can have a normal heartbeat and a mission interval at the same time; pausing/resuming one does not implicitly change the other.
+- Mission plan/model configuration is explicit per mission. Leaving the model blank means "use the assigned bot default"; selecting a model stamps the task execution config.
+- Bot-authored mission progress uses the `report_mission_progress` tool, and task completion still records a fallback update so Mission Control has a durable progress trail.
+- Admin task lists hide mission-internal task types by default, but every run remains inspectable by direct task/trace links.
+
+**Why.** The product need is a cohesive coordination surface, not another scheduler or chat stack. Keeping execution on the existing task backbone preserves observability and avoids confusing heartbeats, scheduled prompts, pipelines, and missions into one overloaded control.
+
 ### Notifications reuse existing delivery paths instead of defining a provider stack
 **Decided 2026-04-26.** Core notifications are admin-managed targets over existing primitives: PWA Web Push, channel outbox delivery, direct integration binding rendering, and best-effort groups.
 

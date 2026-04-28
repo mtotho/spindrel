@@ -221,7 +221,7 @@ export default function WidgetPinPage() {
             </button>
           </div>
         ) : (
-          <div className="mx-auto flex min-h-0 w-full flex-1 flex-col md:h-[min(780px,calc(100vh-170px))] md:max-w-[1180px] md:flex-none">
+          <div className="mx-auto flex min-h-0 w-full flex-1 flex-col md:max-w-[1180px]">
             <PinnedToolWidget
               widget={asPinnedWidget(pin)}
               scope={{ kind: "dashboard", channelId: pin.source_channel_id ?? undefined }}
