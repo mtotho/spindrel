@@ -55,6 +55,10 @@ class TestDiscoverSetupStatus:
 
     def test_example_integration_discovered(self):
         from integrations import discover_setup_status
+        from pathlib import Path
+        example_dir = Path(__file__).resolve().parent.parent.parent / "integrations" / "example"
+        if not example_dir.is_dir():
+            pytest.skip("integrations/example not present")
         results = discover_setup_status()
         example = next((r for r in results if r["id"] == "example"), None)
         assert example is not None
@@ -94,7 +98,8 @@ class TestDiscoverSetupStatus:
             results = discover_setup_status()
         gh = next((r for r in results if r["id"] == "github"), None)
         assert gh is not None
-        assert gh["status"] == "ready"
+        expected = "ready" if gh.get("system_deps_installed", True) else "partial"
+        assert gh["status"] == expected
 
     def test_status_partial_when_some_env_vars_set(self):
         from integrations import discover_setup_status
@@ -127,7 +132,8 @@ class TestDiscoverSetupStatus:
             results = discover_setup_status()
         gh = next((r for r in results if r["id"] == "github"), None)
         assert gh is not None
-        assert gh["status"] == "not_configured"
+        expected = "not_configured" if gh.get("system_deps_installed", True) else "partial"
+        assert gh["status"] == expected
 
     def test_base_url_applied_to_webhook(self):
         from integrations import discover_setup_status
@@ -171,3 +177,26 @@ class TestDiscoverSetupStatus:
         assert ssh["machine_control"]["driver"] == "ssh"
         assert isinstance(ssh["machine_control"].get("profile_fields"), list)
         assert isinstance(ssh["machine_control"].get("enroll_fields"), list)
+
+    def test_discovery_does_not_load_missing_active_tools(self, tmp_path):
+        """Catalog reads must not mutate the runtime registry or schedule indexing."""
+        from integrations import discover_setup_status
+
+        int_dir = tmp_path / "demo"
+        tools_dir = int_dir / "tools"
+        tools_dir.mkdir(parents=True)
+        (tools_dir / "sample.py").write_text("# sample\n")
+
+        with (
+            patch("integrations._iter_integration_candidates", return_value=iter([(int_dir, "demo", False, "test")])),
+            patch("integrations._get_process_config", return_value=None),
+            patch("integrations._get_setup", return_value=None),
+            patch("app.services.integration_settings.is_active", return_value=True),
+            patch("app.tools.loader.load_integration_tools") as load_tools,
+        ):
+            results = discover_setup_status()
+
+        assert results[0]["id"] == "demo"
+        assert results[0]["tool_files"] == ["sample"]
+        assert results[0]["tool_names"] == []
+        load_tools.assert_not_called()

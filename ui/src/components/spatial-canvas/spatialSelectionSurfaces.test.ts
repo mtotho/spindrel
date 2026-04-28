@@ -22,3 +22,18 @@ test("attention signal keeps the ring visual-only and makes only the badge click
   assert.match(source, /<AlertTriangle size=\{12\}/);
 });
 
+test("Map Brief jump frames targets left of an open Starboard panel", () => {
+  const source = readFileSync(resolve(SPATIAL_DIR, "useSpatialNavigation.tsx"), "utf8");
+  assert.match(source, /spatialVisibleCenterX/);
+  assert.match(source, /querySelector\("\[data-starboard-panel='true'\]"\)/);
+  assert.match(source, /panelRect\?\.left/);
+  assert.match(source, /rect\.left/);
+});
+
+test("selected objects get a world anchor and suppress competing hover cards", () => {
+  const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
+  assert.match(source, /data-spatial-selected-anchor/);
+  assert.match(source, /SelectedObjectAnchor/);
+  assert.match(source, /!starboardOpen \|\| !selectedSpatialObject/);
+  assert.match(source, /setTimeout\(\(\) => setHoverCardNodeId/);
+});

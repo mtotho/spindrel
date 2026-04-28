@@ -566,6 +566,10 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
     Returns list of dicts with id, name, capabilities, env var status,
     webhook info, overall status, and README contents.
     """
+    from app.services.integration_catalog import discover_setup_status as _discover_setup_status
+
+    return _discover_setup_status(base_url)
+
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():

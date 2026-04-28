@@ -25,6 +25,32 @@ function titleForSignal(signal?: WorkspaceMapSignal | null): string | null {
   return signal.title || signal.kind || null;
 }
 
+function signalKey(signal: WorkspaceMapSignal): string {
+  return [
+    signal.id,
+    signal.kind,
+    signal.title,
+    signal.task_id,
+    signal.bot_id,
+    signal.channel_id,
+    signal.created_at,
+    signal.last_seen_at,
+    signal.error,
+  ].filter(Boolean).join("|");
+}
+
+function dedupeSignals(signals: WorkspaceMapSignal[]): WorkspaceMapSignal[] {
+  const seen = new Set<string>();
+  const out: WorkspaceMapSignal[] = [];
+  for (const signal of signals) {
+    const key = signalKey(signal);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(signal);
+  }
+  return out;
+}
+
 function relativeTime(value?: string | null, now = Date.now()): string | null {
   if (!value) return null;
   const ts = Date.parse(value);
@@ -79,8 +105,9 @@ function sourceLinesFor(state: WorkspaceMapObjectState): string[] {
 
 export function buildSpatialObjectBrief(state?: WorkspaceMapObjectState | null, now = Date.now()): SpatialObjectBrief | null {
   if (!state) return null;
-  const warnings = state.warnings?.slice(0, 4) ?? [];
-  const recent = state.recent?.slice(0, 4) ?? [];
+  const warnings = dedupeSignals(state.warnings ?? []).slice(0, 4);
+  const warningKeys = new Set(warnings.map(signalKey));
+  const recent = dedupeSignals(state.recent ?? []).filter((signal) => !warningKeys.has(signalKey(signal))).slice(0, 4);
   const next = state.next ?? null;
   const nextTitle = titleForSignal(next);
   const recentTitle = titleForSignal(recent[0]);
@@ -126,4 +153,3 @@ export function buildSpatialObjectBrief(state?: WorkspaceMapObjectState | null, 
 export function formatSignalTime(signal: WorkspaceMapSignal): string | null {
   return relativeTime(signal.scheduled_at || signal.completed_at || signal.created_at || signal.last_seen_at || null);
 }
-

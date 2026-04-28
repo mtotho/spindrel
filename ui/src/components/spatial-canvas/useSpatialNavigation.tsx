@@ -35,6 +35,18 @@ const DIVE_MS = 300;
 
 type UseSpatialNavigationArgs = Record<string, any>;
 
+export function spatialVisibleCenterX(viewportWidth: number, starboardPanelLeft?: number | null, viewportLeft = 0): number {
+  if (
+    typeof starboardPanelLeft === "number"
+    && Number.isFinite(starboardPanelLeft)
+    && starboardPanelLeft > viewportLeft
+    && starboardPanelLeft < viewportLeft + viewportWidth
+  ) {
+    return Math.max(140, (starboardPanelLeft - viewportLeft) / 2);
+  }
+  return viewportWidth / 2;
+}
+
 export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
   const {
     viewportRectRef,
@@ -397,7 +409,9 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       if (!rect.width || !rect.height) return;
       const currentScale = cameraRef.current.scale;
       const targetScale = Math.min(MAX_SCALE, Math.max(currentScale, 0.42));
-      const targetX = rect.width / 2 - wx * targetScale;
+      const panelRect = typeof document === "undefined" ? null : document.querySelector("[data-starboard-panel='true']")?.getBoundingClientRect() ?? null;
+      const targetCenterX = spatialVisibleCenterX(rect.width, panelRect?.left ?? null, rect.left);
+      const targetX = targetCenterX - wx * targetScale;
       const targetY = rect.height / 2 - wy * targetScale;
       if (lensEngaged) {
         setLensEngaged(false);

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type React from "react";
 import { DndContext } from "@dnd-kit/core";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
@@ -112,6 +113,8 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     widgetOverviewOpacity,
     setSelectedSpatialObject,
     setContextMenu,
+    selectedSpatialObject,
+    starboardOpen,
     diveToChannel,
     attentionByNodeId,
     setSelectedAttentionId,
@@ -142,6 +145,28 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
   } = props;
   const hoveredNode = hoveredNodeId ? (nodes ?? []).find((node: SpatialNode) => node.id === hoveredNodeId) : null;
   const hoveredState = hoveredNode ? mapState?.objects_by_node_id?.[hoveredNode.id] ?? null : null;
+  const hoverCardAllowed = Boolean(hoveredNode && hoveredState && draggingNodeId !== hoveredNode.id && (!starboardOpen || !selectedSpatialObject));
+  const [hoverCardNodeId, setHoverCardNodeId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hoverCardAllowed || !hoveredNode) {
+      setHoverCardNodeId(null);
+      return;
+    }
+    const id = window.setTimeout(() => setHoverCardNodeId(hoveredNode.id), 220);
+    return () => window.clearTimeout(id);
+  }, [hoverCardAllowed, hoveredNode?.id]);
+  const hoverCardNode = hoverCardNodeId ? (nodes ?? []).find((node: SpatialNode) => node.id === hoverCardNodeId) : null;
+  const hoverCardState = hoverCardNode ? mapState?.objects_by_node_id?.[hoverCardNode.id] ?? null : null;
+  const selectedAnchor = buildSelectedAnchor({
+    selectedSpatialObject,
+    nodes,
+    mapState,
+    channelsById,
+    wellPos,
+    memoryObsPos,
+    attentionHubPos,
+    dailyHealthPos,
+  });
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -564,10 +589,10 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             </DraggableNode>
           );
         })}
-        {hoveredNode && hoveredState && draggingNodeId !== hoveredNode.id && (
+        {hoverCardNode && hoverCardState && (
           <ObjectHoverCard
-            node={hoveredNode}
-            state={hoveredState}
+            node={hoverCardNode}
+            state={hoverCardState}
             scale={camera.scale}
           />
         )}
@@ -626,8 +651,132 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             </div>
           );
         })}
+        {selectedAnchor && (
+          <SelectedObjectAnchor
+            x={selectedAnchor.x}
+            y={selectedAnchor.y}
+            worldW={selectedAnchor.worldW}
+            worldH={selectedAnchor.worldH}
+            label={selectedAnchor.label}
+            tone={selectedAnchor.tone}
+            scale={camera.scale}
+          />
+        )}
       </div>
     </DndContext>
+  );
+}
+
+function buildSelectedAnchor({
+  selectedSpatialObject,
+  nodes,
+  mapState,
+  channelsById,
+  wellPos,
+  memoryObsPos,
+  attentionHubPos,
+  dailyHealthPos,
+}: {
+  selectedSpatialObject: any;
+  nodes: SpatialNode[] | undefined;
+  mapState: any;
+  channelsById: Map<string, any>;
+  wellPos: { x: number; y: number };
+  memoryObsPos: { x: number; y: number };
+  attentionHubPos: { x: number; y: number };
+  dailyHealthPos: { x: number; y: number };
+}) {
+  if (!selectedSpatialObject) return null;
+  if (selectedSpatialObject.kind === "channel" || selectedSpatialObject.kind === "bot" || selectedSpatialObject.kind === "widget") {
+    const node = (nodes ?? []).find((item) => item.id === selectedSpatialObject.nodeId);
+    if (!node) return null;
+    const state = mapState?.objects_by_node_id?.[node.id] ?? null;
+    const channel = node.channel_id ? channelsById.get(node.channel_id) : null;
+    const label =
+      state?.label
+      ?? (channel ? `#${channel.name}` : null)
+      ?? node.bot?.display_name
+      ?? node.bot?.name
+      ?? node.bot_id
+      ?? node.pin?.panel_title
+      ?? node.pin?.display_label
+      ?? node.pin?.tool_name
+      ?? "Selected";
+    return {
+      x: node.world_x + node.world_w / 2,
+      y: node.world_y + node.world_h / 2,
+      worldW: node.world_w,
+      worldH: node.world_h,
+      label,
+      tone: selectedTone(state),
+    };
+  }
+  if (selectedSpatialObject.kind !== "landmark") return null;
+  const landmark = selectedSpatialObject.id === "memory_observatory"
+    ? { x: memoryObsPos.x, y: memoryObsPos.y, label: "Memory Observatory" }
+    : selectedSpatialObject.id === "attention_hub"
+      ? { x: attentionHubPos.x, y: attentionHubPos.y, label: "Attention Hub" }
+      : selectedSpatialObject.id === "daily_health"
+        ? { x: dailyHealthPos.x, y: dailyHealthPos.y, label: "Daily Health" }
+        : { x: wellPos.x, y: wellPos.y, label: "Now Well" };
+  const state = mapState?.objects?.find((item: any) => item.kind === "landmark" && item.target_id === selectedSpatialObject.id) ?? null;
+  return { ...landmark, worldW: 180, worldH: 120, tone: selectedTone(state) };
+}
+
+function selectedTone(state: any): "danger" | "warning" | "active" | "muted" {
+  if (state?.status === "error" || state?.severity === "critical" || state?.severity === "error") return "danger";
+  if (state?.status === "warning" || state?.severity === "warning") return "warning";
+  if (state?.status === "running" || state?.status === "scheduled" || state?.status === "active") return "active";
+  return "muted";
+}
+
+function SelectedObjectAnchor({
+  x,
+  y,
+  worldW,
+  worldH,
+  label,
+  tone,
+  scale,
+}: {
+  x: number;
+  y: number;
+  worldW: number;
+  worldH: number;
+  label: string;
+  tone: "danger" | "warning" | "active" | "muted";
+  scale: number;
+}) {
+  const inverseScale = 1 / Math.max(scale, 0.2);
+  const width = Math.max(74, Math.min(220, worldW * scale + 24));
+  const height = Math.max(54, Math.min(160, worldH * scale + 24));
+  const toneClass =
+    tone === "danger"
+      ? "ring-danger/70 bg-danger/[0.08] text-danger"
+      : tone === "warning"
+        ? "ring-warning/65 bg-warning/[0.08] text-warning"
+        : tone === "active"
+          ? "ring-accent/65 bg-accent/[0.08] text-accent"
+          : "ring-accent/55 bg-accent/[0.055] text-accent";
+  return (
+    <div
+      data-spatial-selected-anchor="true"
+      className="pointer-events-none absolute z-[4998]"
+      style={{
+        left: x,
+        top: y,
+        transform: `translate(-50%, -50%) scale(${inverseScale})`,
+        transformOrigin: "center center",
+      }}
+    >
+      <div
+        className={`rounded-md ring-2 ring-offset-2 ring-offset-surface ${toneClass}`}
+        style={{ width, height }}
+      />
+      <div className="absolute left-1/2 top-full mt-1 max-w-[220px] -translate-x-1/2 truncate rounded-md bg-surface-raised/90 px-2 py-1 text-xs font-medium text-text ring-1 ring-surface-border backdrop-blur">
+        {label}
+      </div>
+    </div>
   );
 }
 

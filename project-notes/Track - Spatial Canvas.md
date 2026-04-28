@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-28 (Existing-primitives map state surfaced on canvas.)
+updated: 2026-04-28 (Map Brief cohesion and selected-object wayfinding.)
 ---
 
 # Track — Spatial Canvas
@@ -102,6 +102,14 @@ surface for channels, bots, widgets, and landmarks; the rail remains only for
 aggregate cluster affordances. Attention rings are visual-only, with a small
 explicit alert badge as the click target so warning selection cannot steal
 ordinary channel/bot/widget clicks.
+
+Same-day Map Brief cohesion pass: selected channels, bots, widgets, and
+landmarks now get a persistent world anchor distinct from attention rings.
+Starboard-aware jump framing centers targets in the visible canvas area to the
+left of an open/resized panel. Map Brief now groups objects into attention,
+nearby, and all buckets, dedupes repeated warning/recent signals, trims panel
+width/padding pressure, and delays/suppresses hover cards while a selected
+object inspector is open.
 
 | Phase | Status | Description |
 |---|---|---|

@@ -24,6 +24,19 @@ class ChatResponse:
     raw: dict = field(default_factory=dict)
 
 
+def replay_lapsed_resume_cursor(payload: dict[str, Any]) -> str | None:
+    """Return a safe SSE cursor to resume after a replay_lapsed event."""
+    value = payload.get("oldest_available")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value) if value >= 0 else None
+    if isinstance(value, str):
+        value = value.strip()
+        return value if value.isdigit() else None
+    return None
+
+
 class E2EClient:
     """Async HTTP client for E2E testing against a running agent-server."""
 
@@ -226,120 +239,131 @@ class E2EClient:
 
         sse_url = f"/api/v1/channels/{chan_id}/events"
         sse_params = {"since": "0"}
+        replay_lapsed_retries = 0
 
-        try:
-            async with self._client.stream(
-                "GET", sse_url, params=sse_params,
-                timeout=httpx.Timeout(timeout or self.config.request_timeout),
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    raw_lines.append(line)
-                    if time.monotonic() > deadline:
-                        legacy_events.append(("error", {"reason": "harness_timeout"}))
-                        final_error = "harness_timeout"
-                        break
-                    stripped = line.strip()
-                    if not stripped or stripped.startswith(":"):
-                        continue
-                    if stripped.startswith("data: "):
-                        stripped = stripped[6:]
-                    try:
-                        evt = json.loads(stripped)
-                    except json.JSONDecodeError:
-                        continue
+        while time.monotonic() <= deadline:
+            reconnect_since: str | None = None
+            try:
+                async with self._client.stream(
+                    "GET", sse_url, params=sse_params,
+                    timeout=httpx.Timeout(timeout or self.config.request_timeout),
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        raw_lines.append(line)
+                        if time.monotonic() > deadline:
+                            legacy_events.append(("error", {"reason": "harness_timeout"}))
+                            final_error = "harness_timeout"
+                            break
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith(":"):
+                            continue
+                        if stripped.startswith("data: "):
+                            stripped = stripped[6:]
+                        try:
+                            evt = json.loads(stripped)
+                        except json.JSONDecodeError:
+                            continue
 
-                    kind = evt.get("kind", "")
-                    epayload = evt.get("payload") or {}
-                    ep_turn_id = epayload.get("turn_id")
-                    is_my_turn = ep_turn_id == turn_id
+                        kind = evt.get("kind", "")
+                        epayload = evt.get("payload") or {}
+                        ep_turn_id = epayload.get("turn_id")
+                        is_my_turn = ep_turn_id == turn_id
 
-                    # Map typed bus events into legacy StreamEvent shape so
-                    # scenarios that introspect ``result.events`` /
-                    # ``result.event_types`` keep matching.
-                    if kind == "turn_started" and is_my_turn:
-                        legacy_events.append(("start", {"bot_id": epayload.get("bot_id")}))
-                    elif kind == "turn_stream_token" and is_my_turn:
-                        # ``TurnStreamTokenPayload.delta`` is the canonical
-                        # field name on the wire (see app/domain/payloads.py).
-                        text_chunk = epayload.get("delta") or epayload.get("text", "")
-                        if text_chunk:
-                            accumulated_text.append(text_chunk)
-                        legacy_events.append((
-                            "text_delta",
-                            {"text": text_chunk, "delta": text_chunk},
-                        ))
-                    elif kind == "turn_stream_tool_start" and is_my_turn:
-                        tname = epayload.get("tool_name") or epayload.get("tool", "")
-                        if tname and tname not in tools_used:
-                            tools_used.append(tname)
-                        legacy_events.append(("tool_start", {
-                            "tool": tname,
-                            "name": tname,
-                            **epayload,
-                        }))
-                    elif kind == "turn_stream_tool_result" and is_my_turn:
-                        tname = epayload.get("tool_name") or epayload.get("tool", "")
-                        if tname and tname not in tools_used:
-                            tools_used.append(tname)
-                        legacy_events.append(("tool_result", {
-                            "tool": tname,
-                            "name": tname,
-                            **epayload,
-                        }))
-                    elif kind == "approval_requested":
-                        legacy_events.append(("approval_request", dict(epayload)))
-                    elif kind == "approval_resolved":
-                        legacy_events.append(("approval_resolved", dict(epayload)))
-                    elif kind == "context_budget":
-                        # Metadata snapshot bridged by `turn_event_emit.py` —
-                        # surfaces the budget bar in the UI and lets
-                        # `test_stream_reports_context_injection` read it.
-                        legacy_events.append(("context_budget", dict(epayload)))
-                    elif kind == "memory_scheme_bootstrap":
-                        legacy_events.append(("memory_scheme_bootstrap", dict(epayload)))
-                    elif kind == "delivery_failed":
-                        legacy_events.append(("error", dict(epayload)))
-                    elif kind == "new_message":
-                        # Pass through new_message events for tests that
-                        # introspect message ordering.
-                        legacy_events.append(("message", dict(epayload)))
-                    elif kind == "turn_ended" and is_my_turn:
-                        result_text = epayload.get("result")
-                        if result_text:
-                            final_response_text = result_text
-                        elif accumulated_text:
-                            final_response_text = "".join(accumulated_text)
-                        final_error = epayload.get("error")
-                        final_client_actions = list(epayload.get("client_actions") or [])
-                        legacy_events.append(("response", {
-                            "text": final_response_text,
-                            "session_id": session_id,
-                            "turn_id": turn_id,
-                            "error": final_error,
-                            "client_actions": final_client_actions,
-                        }))
-                        if final_error:
-                            legacy_events.append(("error", {
-                                "message": final_error,
+                        # Map typed bus events into legacy StreamEvent shape so
+                        # scenarios that introspect ``result.events`` /
+                        # ``result.event_types`` keep matching.
+                        if kind == "turn_started" and is_my_turn:
+                            legacy_events.append(("start", {"bot_id": epayload.get("bot_id")}))
+                        elif kind == "turn_stream_token" and is_my_turn:
+                            # ``TurnStreamTokenPayload.delta`` is the canonical
+                            # field name on the wire (see app/domain/payloads.py).
+                            text_chunk = epayload.get("delta") or epayload.get("text", "")
+                            if text_chunk:
+                                accumulated_text.append(text_chunk)
+                            legacy_events.append((
+                                "text_delta",
+                                {"text": text_chunk, "delta": text_chunk},
+                            ))
+                        elif kind == "turn_stream_tool_start" and is_my_turn:
+                            tname = epayload.get("tool_name") or epayload.get("tool", "")
+                            if tname and tname not in tools_used:
+                                tools_used.append(tname)
+                            legacy_events.append(("tool_start", {
+                                "tool": tname,
+                                "name": tname,
+                                **epayload,
                             }))
-                        break
-                    elif kind == "replay_lapsed":
-                        # Buffer rolled over before we connected — break
-                        # out so the test sees what's available rather
-                        # than spinning indefinitely.
-                        legacy_events.append(("error", {
-                            "reason": "replay_lapsed",
-                            **dict(epayload),
-                        }))
-                        final_error = "replay_lapsed"
-                        break
-        except httpx.HTTPError as exc:
-            legacy_events.append(("error", {"message": str(exc)}))
-            final_error = str(exc)
-        except asyncio.TimeoutError:
-            legacy_events.append(("error", {"reason": "sse_timeout"}))
-            final_error = "sse_timeout"
+                        elif kind == "turn_stream_tool_result" and is_my_turn:
+                            tname = epayload.get("tool_name") or epayload.get("tool", "")
+                            if tname and tname not in tools_used:
+                                tools_used.append(tname)
+                            legacy_events.append(("tool_result", {
+                                "tool": tname,
+                                "name": tname,
+                                **epayload,
+                            }))
+                        elif kind == "approval_requested":
+                            legacy_events.append(("approval_request", dict(epayload)))
+                        elif kind == "approval_resolved":
+                            legacy_events.append(("approval_resolved", dict(epayload)))
+                        elif kind == "context_budget":
+                            # Metadata snapshot bridged by `turn_event_emit.py` —
+                            # surfaces the budget bar in the UI and lets
+                            # `test_stream_reports_context_injection` read it.
+                            legacy_events.append(("context_budget", dict(epayload)))
+                        elif kind == "memory_scheme_bootstrap":
+                            legacy_events.append(("memory_scheme_bootstrap", dict(epayload)))
+                        elif kind == "delivery_failed":
+                            legacy_events.append(("error", dict(epayload)))
+                        elif kind == "new_message":
+                            # Pass through new_message events for tests that
+                            # introspect message ordering.
+                            legacy_events.append(("message", dict(epayload)))
+                        elif kind == "turn_ended" and is_my_turn:
+                            result_text = epayload.get("result")
+                            if result_text:
+                                final_response_text = result_text
+                            elif accumulated_text:
+                                final_response_text = "".join(accumulated_text)
+                            final_error = epayload.get("error")
+                            final_client_actions = list(epayload.get("client_actions") or [])
+                            legacy_events.append(("response", {
+                                "text": final_response_text,
+                                "session_id": session_id,
+                                "turn_id": turn_id,
+                                "error": final_error,
+                                "client_actions": final_client_actions,
+                            }))
+                            if final_error:
+                                legacy_events.append(("error", {
+                                    "message": final_error,
+                                }))
+                            break
+                        elif kind == "replay_lapsed":
+                            resume_cursor = replay_lapsed_resume_cursor(dict(epayload))
+                            if resume_cursor is not None and replay_lapsed_retries < 2:
+                                reconnect_since = resume_cursor
+                                replay_lapsed_retries += 1
+                                break
+                            legacy_events.append(("error", {
+                                "reason": "replay_lapsed",
+                                **dict(epayload),
+                            }))
+                            final_error = "replay_lapsed"
+                            break
+            except httpx.HTTPError as exc:
+                legacy_events.append(("error", {"message": str(exc)}))
+                final_error = str(exc)
+                break
+            except asyncio.TimeoutError:
+                legacy_events.append(("error", {"reason": "sse_timeout"}))
+                final_error = "sse_timeout"
+                break
+
+            if reconnect_since is None:
+                break
+            sse_params["since"] = reconnect_since
 
         if not final_response_text and accumulated_text:
             final_response_text = "".join(accumulated_text)
@@ -446,6 +470,11 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_runtime_capabilities(self, runtime: str) -> dict:
+        resp = await self._client.get(f"/api/v1/runtimes/{runtime}/capabilities")
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_context_budget(self, channel_id: str, *, session_id: str | None = None) -> dict:
         params = {"session_id": session_id} if session_id else None
         resp = await self._client.get(
@@ -467,6 +496,11 @@ class E2EClient:
 
     async def get_session_harness_settings(self, session_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/sessions/{session_id}/harness-settings")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_session_harness_status(self, session_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/sessions/{session_id}/harness-status")
         resp.raise_for_status()
         return resp.json()
 

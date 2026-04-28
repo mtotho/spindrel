@@ -901,6 +901,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         widgetOverviewOpacity={widgetOverviewOpacity}
         setSelectedSpatialObject={setSelectedSpatialObject}
         setContextMenu={setContextMenu}
+        selectedSpatialObject={selectedSpatialObject}
+        starboardOpen={starboardOpen}
         diveToChannel={diveToChannel}
         attentionByNodeId={attentionByNodeId}
         setSelectedAttentionId={setSelectedAttentionId}

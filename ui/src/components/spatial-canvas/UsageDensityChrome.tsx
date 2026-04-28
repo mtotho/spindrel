@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { Activity, AlertTriangle, Bot, Box, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
@@ -86,8 +86,8 @@ const INTENSITY_HINT: Record<DensityIntensity, string> = {
 const STARBOARD_TAB_KEY = "spatial.starboard.activeTab";
 const STARBOARD_DEFAULT_MIGRATION_KEY = "spatial.starboard.mapBriefDefault.v1";
 const STARBOARD_WIDTH_KEY = "spatial.starboard.width";
-const DEFAULT_STARBOARD_WIDTH = 680;
-const MIN_STARBOARD_WIDTH = 460;
+const DEFAULT_STARBOARD_WIDTH = 600;
+const MIN_STARBOARD_WIDTH = 420;
 
 const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   channel: "Channel",
@@ -105,6 +105,12 @@ const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; gr
   { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", group: "Tools", icon: <Plus size={15} /> },
   { id: "controls", label: "Controls", eyebrow: "Canvas behavior", group: "Tools", icon: <Settings2 size={15} /> },
 ];
+
+type ObjectGroup = {
+  id: "attention" | "nearby" | "all";
+  label: string;
+  items: StarboardObjectItem[];
+};
 
 export function loadStarboardStation(): StarboardStation {
   try {
@@ -196,6 +202,7 @@ export function UsageDensityChrome({
     if (!normalizedQuery) return true;
     return `${item.label} ${item.subtitle ?? ""} ${item.workState?.primary_signal ?? ""} ${KIND_LABEL[item.kind]}`.toLowerCase().includes(normalizedQuery);
   });
+  const objectGroups = buildObjectGroups(visibleObjects, selectedObject);
 
   useEffect(() => {
     if (!stationMenuOpen) return;
@@ -501,13 +508,13 @@ export function UsageDensityChrome({
                       }}
                     />
                   )}
-                  <div className="mb-4">
+                  <div className="mb-3">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">{selectedObject ? "Nearby" : "Map Brief"}</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">{selectedObject ? "Related Objects" : "Map Objects"}</div>
                       <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{visibleObjects.length}</span>
                     </div>
                     <div className="mt-1 text-sm text-text-muted">
-                      {selectedObject ? "Other positioned items from the current view." : "Select an object to inspect source, recent activity, warnings, and actions."}
+                      {selectedObject ? "Warnings first, then nearest useful neighbors." : "Select an object to inspect source, recent activity, warnings, and actions."}
                     </div>
                   </div>
                   <label className="mb-3 flex items-center gap-2 rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text">
@@ -519,38 +526,23 @@ export function UsageDensityChrome({
                       placeholder="Search objects"
                     />
                   </label>
-                  <div className="space-y-1">
-                    {visibleObjects.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleObjectClick(item)}
-                        onDoubleClick={() => handleObjectDoubleClick(item)}
-                        onContextMenu={(event) => {
+                  <div className="space-y-3">
+                    {objectGroups.map((group) => (
+                      <ObjectListGroup
+                        key={group.id}
+                        group={group}
+                        selectedId={selectedObject?.id ?? null}
+                        onClick={handleObjectClick}
+                        onDoubleClick={handleObjectDoubleClick}
+                        onContextMenu={(event, item) => {
                           event.preventDefault();
                           event.stopPropagation();
                           setObjectMenu({ x: event.clientX, y: event.clientY, item });
                         }}
-                        className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-surface-overlay/60"
-                      >
-                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
-                          {kindIcon(item.kind)}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate text-sm font-medium text-text">{item.label}</span>
-                            <ObjectStatusPill state={item.workState} compact />
-                            <span className="shrink-0 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim">
-                              {KIND_LABEL[item.kind]}
-                            </span>
-                          </span>
-                          <span className="block truncate text-xs text-text-dim">{item.subtitle ?? mapStateMeta(item.workState) ?? KIND_LABEL[item.kind]}</span>
-                        </span>
-                        <span className="shrink-0 text-xs text-text-dim">{formatDistance(item.distance)}</span>
-                      </button>
+                      />
                     ))}
-                    {!visibleObjects.length && (
-                      <div className="rounded-md bg-surface-overlay/30 px-3 py-6 text-center text-sm text-text-dim">
+                    {!objectGroups.length && (
+                      <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-3 py-6 text-center text-sm text-text-dim">
                         No positioned objects match.
                       </div>
                     )}
@@ -618,6 +610,85 @@ function clampStarboardWidth(width: number, maxWidth = Math.max(MIN_STARBOARD_WI
   return Math.round(Math.min(maxWidth, Math.max(MIN_STARBOARD_WIDTH, width)));
 }
 
+function buildObjectGroups(objects: StarboardObjectItem[], selectedObject?: StarboardObjectItem | null): ObjectGroup[] {
+  const selectedId = selectedObject?.id ?? null;
+  const candidates = objects.filter((item) => item.id !== selectedId);
+  const attention = candidates.filter((item) => objectNeedsAttention(item));
+  const used = new Set(attention.map((item) => item.id));
+  const byDistance = candidates
+    .filter((item) => !used.has(item.id))
+    .slice()
+    .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label));
+  const nearby = byDistance.slice(0, selectedObject ? 10 : 8);
+  for (const item of nearby) used.add(item.id);
+  const rest = candidates.filter((item) => !used.has(item.id));
+  const groups: ObjectGroup[] = [];
+  if (attention.length) groups.push({ id: "attention", label: "Needs attention", items: attention });
+  if (nearby.length) groups.push({ id: "nearby", label: selectedObject ? "Nearby" : "Near view", items: nearby });
+  if (rest.length) groups.push({ id: "all", label: "All", items: rest });
+  return groups;
+}
+
+function objectNeedsAttention(item: StarboardObjectItem): boolean {
+  const status = item.workState?.status;
+  return status === "error" || status === "warning" || item.workState?.severity === "critical" || item.workState?.severity === "error" || item.workState?.severity === "warning";
+}
+
+function ObjectListGroup({
+  group,
+  selectedId,
+  onClick,
+  onDoubleClick,
+  onContextMenu,
+}: {
+  group: ObjectGroup;
+  selectedId: string | null;
+  onClick: (item: StarboardObjectItem) => void;
+  onDoubleClick: (item: StarboardObjectItem) => void;
+  onContextMenu: (event: ReactPointerEvent<HTMLButtonElement> | ReactMouseEvent<HTMLButtonElement>, item: StarboardObjectItem) => void;
+}) {
+  return (
+    <section>
+      <div className="mb-1.5 flex items-center justify-between gap-3 px-1">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">{group.label}</div>
+        <span className="text-[11px] text-text-dim">{group.items.length}</span>
+      </div>
+      <div className="space-y-1">
+        {group.items.map((item) => {
+          const selected = item.id === selectedId;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onClick(item)}
+              onDoubleClick={() => onDoubleClick(item)}
+              onContextMenu={(event) => onContextMenu(event, item)}
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left ${
+                selected ? "bg-accent/[0.08] text-accent" : "hover:bg-surface-overlay/55"
+              }`}
+            >
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
+                {kindIcon(item.kind)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-sm font-medium text-text">{item.label}</span>
+                  <ObjectStatusPill state={item.workState} compact />
+                  <span className="shrink-0 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+                    {KIND_LABEL[item.kind]}
+                  </span>
+                </span>
+                <span className="block truncate text-xs text-text-dim">{item.subtitle ?? mapStateMeta(item.workState) ?? KIND_LABEL[item.kind]}</span>
+              </span>
+              <span className="shrink-0 text-xs text-text-dim">{formatDistance(item.distance)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function SelectedObjectInspector({
   item,
   selectedAttentionId,
@@ -627,21 +698,21 @@ function SelectedObjectInspector({
   selectedAttentionId?: string | null;
   onOpenAttentionWarning: (id: string) => void;
 }) {
-  const primary = item.actions[0];
+  const primary = item.actions.find((action) => action.icon !== "jump") ?? item.actions[0];
   const state = item.workState;
   const brief = buildSpatialObjectBrief(state);
-  const usefulActions = item.actions.slice(0, 4);
+  const usefulActions = item.actions.filter((action) => action !== primary).slice(0, 4);
   const attentionWarning = brief?.warnings.find((signal) => signal.kind === "attention" && signal.id) ?? null;
   const toneClass =
     brief?.tone === "danger"
-      ? "border-danger/35 bg-danger/[0.045]"
+      ? "ring-danger/35 bg-danger/[0.045]"
       : brief?.tone === "warning"
-        ? "border-warning/35 bg-warning/[0.045]"
+        ? "ring-warning/35 bg-warning/[0.045]"
         : brief?.tone === "active"
-          ? "border-accent/25 bg-accent/[0.04]"
-          : "border-surface-border bg-surface-overlay/25";
+          ? "ring-accent/25 bg-accent/[0.04]"
+          : "ring-surface-border bg-surface-overlay/25";
   return (
-    <section className={`mb-4 rounded-md border px-3 py-3 ${toneClass}`}>
+    <section className={`mb-4 rounded-md px-3 py-3 ring-1 ${toneClass}`}>
       <div className="flex items-center gap-2">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
           {kindIcon(item.kind)}
@@ -658,7 +729,7 @@ function SelectedObjectInspector({
           <button
             type="button"
             disabled={primary.disabled}
-            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:cursor-not-allowed disabled:text-text-dim"
+            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:cursor-not-allowed disabled:text-text-dim"
             onClick={primary.onSelect}
           >
             {actionIcon(primary.icon)}
@@ -670,7 +741,7 @@ function SelectedObjectInspector({
         {brief?.summary ?? "No live map state is attached to this object yet."}
       </div>
       {brief && (
-        <div className="mt-3 grid gap-3">
+        <div className="mt-3 grid gap-2">
           {!!brief.sourceLines.length && (
             <InspectorSection icon={<Info size={13} />} title="What this is">
               {brief.sourceLines.map((line) => (
@@ -711,22 +782,20 @@ function SelectedObjectInspector({
             </InspectorSection>
           )}
           {!!usefulActions.length && (
-            <InspectorSection icon={<MapPin size={13} />} title="Actions">
-              <div className="flex flex-wrap gap-1.5">
-                {usefulActions.map((action) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    disabled={action.disabled}
-                    onClick={action.onSelect}
-                    className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text disabled:cursor-not-allowed disabled:text-text-dim/50"
-                  >
-                    {actionIcon(action.icon)}
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            </InspectorSection>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {usefulActions.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  disabled={action.disabled}
+                  onClick={action.onSelect}
+                  className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text disabled:cursor-not-allowed disabled:text-text-dim/50"
+                >
+                  {actionIcon(action.icon)}
+                  {action.label}
+                </button>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -736,7 +805,7 @@ function SelectedObjectInspector({
 
 function InspectorSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="rounded-md bg-surface-overlay/35 px-2.5 py-2">
+    <div className="rounded-md bg-surface-overlay/25 px-2.5 py-2">
       <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-dim">
         {icon}
         {title}

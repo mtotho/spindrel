@@ -1,56 +1,34 @@
 """Integration setup status, settings management, process control, and dependency management."""
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
-import sys
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.errors import DomainError
 from app.db.models import Task
 from app.dependencies import get_db, require_scopes
-from app.services.integration_processes import process_manager
+from app.services import integration_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _raise_http(exc: DomainError) -> None:
+    raise HTTPException(status_code=exc.http_status, detail=exc.detail) from exc
+
+
 def _get_setup_vars(integration_id: str) -> list[dict]:
-    """Load the SETUP env_vars list for an integration.
+    """Compatibility wrapper for older callers; use integration_admin directly."""
+    return integration_admin.get_setup_vars(integration_id)
 
-    Checks the manifest cache first (supports integration.yaml),
-    then falls back to setup.py.  Auto-injects a ``SIDEBAR_ENABLED``
-    setting for integrations that declare a ``sidebar_section``.
-    """
-    from integrations import _iter_integration_candidates, _get_setup
 
-    for candidate, iid, is_external, source in _iter_integration_candidates():
-        if iid != integration_id:
-            continue
-        setup = _get_setup(candidate, iid, is_external, source)
-        if not setup:
-            return []
-        env_vars = list(setup.get("env_vars", []))
-
-        # Auto-inject SIDEBAR_ENABLED for integrations with sidebar_section
-        sidebar = setup.get("sidebar_section")
-        if sidebar and isinstance(sidebar, dict) and sidebar.get("items"):
-            existing_keys = {v["key"] for v in env_vars}
-            if "SIDEBAR_ENABLED" not in existing_keys:
-                env_vars.append({
-                    "key": "SIDEBAR_ENABLED",
-                    "required": False,
-                    "type": "boolean",
-                    "description": "Show this integration's sidebar section in the navigation",
-                    "default": "true",
-                })
-
-        return env_vars
-    return []
+def _get_api_permissions(integration_id: str) -> str | list[str] | None:
+    """Compatibility wrapper for older callers; use integration_admin directly."""
+    return integration_admin.get_api_permissions(integration_id)
 
 
 @router.get("/integrations")
@@ -111,26 +89,8 @@ class StatusBody(BaseModel):
 
 
 async def _load_enabled_integration(integration_id: str) -> int:
-    try:
-        from app.services.integration_deps import ensure_one_integration_deps
-
-        await ensure_one_integration_deps(integration_id)
-    except Exception:
-        logger.warning(
-            "Dependency install on enable failed for %s; tools may not load",
-            integration_id, exc_info=True,
-        )
-
-    from integrations import _iter_integration_candidates
-    from app.tools.loader import load_integration_tools
-
-    loaded: list[str] = []
-    for candidate, iid, _is_external, _source in _iter_integration_candidates():
-        if iid == integration_id:
-            loaded = load_integration_tools(candidate)
-            break
-    await _sync_docker_compose_stack(integration_id)
-    return len(loaded)
+    """Compatibility wrapper for old tests; use integration_admin directly."""
+    return await integration_admin._load_enabled_integration(integration_id)
 
 
 @router.put("/integrations/{integration_id}/status")
@@ -143,163 +103,20 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
     process simply won't auto-start. Readiness is derived from
     ``is_configured`` in the callers that care (auto-start, sidebar gating).
     """
-    from app.services.integration_settings import get_status, set_status
-
-    target = body.status.strip().lower()
-    if target not in ("available", "enabled"):
-        raise HTTPException(status_code=400, detail=f"Invalid status: {body.status!r}")
-
-    previous = get_status(integration_id)
-    if previous == target:
-        return {"integration_id": integration_id, "status": target}
-
-    # Persist the new state first so downstream reads see it.
-    await set_status(integration_id, target)  # type: ignore[arg-type]
-
-    if target == "available":
-        # Tear down: stop process, unregister tools, drop embeddings.
-        # IntegrationSetting rows stay so re-adding restores the old config.
-        try:
-            await process_manager.stop(integration_id)
-        except Exception:
-            logger.debug("No process to stop for %s", integration_id, exc_info=True)
-        from app.tools.registry import unregister_integration_tools
-        removed = unregister_integration_tools(integration_id)
-        from app.agent.tools import remove_integration_embeddings
-        embed_count = await remove_integration_embeddings(integration_id)
-        await _sync_docker_compose_stack(integration_id)
-        # Drop any harness runtime this integration registered. The runtime
-        # name isn't always the integration id, so we re-scan after the
-        # ``HARNESS_REGISTRY`` snapshot below to remove the entries that
-        # came from this integration's harness.py.
-        try:
-            from app.services.agent_harnesses import HARNESS_REGISTRY, unregister_runtime
-            from integrations import _iter_integration_candidates
-
-            harness_path = None
-            for candidate, iid, _is_external, _source in _iter_integration_candidates():
-                if iid == integration_id:
-                    harness_path = candidate / "harness.py"
-                    break
-            if harness_path and harness_path.is_file():
-                # Remove every runtime whose adapter module path matches this
-                # integration's harness.py file.
-                import inspect
-
-                drop = []
-                for runtime_name, runtime in list(HARNESS_REGISTRY.items()):
-                    try:
-                        src = inspect.getsourcefile(type(runtime))
-                    except Exception:
-                        src = None
-                    if src and str(harness_path) == src:
-                        drop.append(runtime_name)
-                for runtime_name in drop:
-                    unregister_runtime(runtime_name)
-        except Exception:
-            logger.debug("Could not unregister harness for %s", integration_id, exc_info=True)
-        logger.info(
-            "Integration %s → available: removed %d tool(s), %d embedding(s)",
-            integration_id, len(removed), embed_count,
-        )
-    else:  # enabled
-        # Enable runtime providers first so consumers such as web_search can
-        # reuse a shared sidecar without duplicating containers.
-        provider_loaded_count = 0
-        try:
-            from app.services.runtime_services import ensure_required_providers_enabled
-
-            provider_ids = await ensure_required_providers_enabled(integration_id)
-            for provider_id in provider_ids:
-                provider_loaded_count += await _load_enabled_integration(provider_id)
-        except Exception:
-            logger.warning(
-                "Runtime provider enablement failed for %s",
-                integration_id,
-                exc_info=True,
-            )
-
-        # Install per-integration deps (npm/pip/system) before tool loading
-        # so freshly added integrations don't need a process restart to get
-        # their CLI binaries onto PATH.
-        # Load tools and index. Process start is deferred — auto-start loop
-        # handles it once is_configured becomes true. Manual start button on
-        # the UI remains available.
-        loaded_count = await _load_enabled_integration(integration_id)
-        from app.agent.tools import index_local_tools
-        await index_local_tools()
-        # Re-sync file-managed assets after the integration flips active.
-        # File sync skips inactive integrations, so enablement needs a refresh
-        # pass here for newly available skills, prompts, and workflows.
-        from app.services import file_sync
-        await file_sync.sync_all_files()
-        # If the integration ships a harness adapter, register it now so the
-        # new runtime appears without a server restart.
-        try:
-            from app.services.agent_harnesses import discover_and_load_harnesses
-
-            discover_and_load_harnesses()
-        except Exception:
-            logger.debug("Harness discovery on enable failed for %s", integration_id, exc_info=True)
-        logger.info(
-            "Integration %s → enabled: loaded %d tool(s), provider tools %d",
-            integration_id,
-            loaded_count,
-            provider_loaded_count,
-        )
-
-    # MCP servers honor the new active state.
-    from app.services.mcp_servers import load_mcp_servers
-    await load_mcp_servers()
-
-    return {"integration_id": integration_id, "status": target}
+    try:
+        return await integration_admin.set_integration_status(integration_id, body.status)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.get("/integrations/{integration_id}/settings")
 async def get_integration_settings(integration_id: str, _auth=Depends(require_scopes("integrations:read"))):
-    from app.services.integration_settings import get_all_for_integration
-
-    setup_vars = _get_setup_vars(integration_id)
-    settings = get_all_for_integration(integration_id, setup_vars)
-    return {"settings": settings}
+    return {"settings": integration_admin.get_integration_settings(integration_id)}
 
 
 async def _sync_docker_compose_stack(integration_id: str) -> None:
-    """If this integration declares a docker_compose stack, start/stop it based on enabled_setting."""
-    from integrations import discover_docker_compose_stacks
-    from app.services.docker_stacks import stack_service
-    from app.services.integration_settings import get_value as _get_int_setting
-    from app.services.integration_settings import is_active as _is_integration_active
-
-    for dc_info in discover_docker_compose_stacks():
-        if dc_info["integration_id"] != integration_id:
-            continue
-        try:
-            enabled = False
-            if _is_integration_active(integration_id):
-                enabled_callable = dc_info.get("enabled_callable")
-                if enabled_callable is not None:
-                    try:
-                        enabled = bool(enabled_callable())
-                    except Exception:
-                        logger.exception("enabled_callable failed for %s", integration_id)
-                        enabled = False
-                elif dc_info["enabled_setting"]:
-                    default = dc_info.get("enabled_default", "false")
-                    val = _get_int_setting(integration_id, dc_info["enabled_setting"], default)
-                    enabled = val.lower() in ("true", "1", "yes")
-            await stack_service.apply_integration_stack(
-                integration_id=integration_id,
-                name=dc_info["description"] or integration_id,
-                compose_definition=dc_info["compose_definition"],
-                project_name=dc_info["project_name"],
-                enabled=enabled,
-                description=dc_info["description"],
-                config_files=dc_info["config_files"],
-            )
-        except Exception:
-            logger.exception("Failed to sync docker stack for %s", integration_id)
-        break
+    """Compatibility wrapper; use integration_admin directly."""
+    await integration_admin.sync_docker_compose_stack(integration_id)
 
 
 class UpdateSettingsBody(BaseModel):
@@ -313,51 +130,10 @@ async def update_integration_settings(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("integrations:write")),
 ):
-    from app.services.integration_settings import update_settings
-
-    setup_vars = _get_setup_vars(integration_id)
-    valid_keys = {v["key"] for v in setup_vars}
-    bad_keys = set(body.settings.keys()) - valid_keys
-    if bad_keys:
-        raise HTTPException(status_code=422, detail=f"Unknown setting keys: {', '.join(sorted(bad_keys))}")
-
-    applied = await update_settings(integration_id, body.settings, setup_vars, db)
-
     try:
-        from app.services.integration_settings import is_active
-        from app.services.runtime_services import ensure_required_providers_enabled
-
-        if is_active(integration_id):
-            for provider_id in await ensure_required_providers_enabled(integration_id):
-                await _load_enabled_integration(provider_id)
-    except Exception:
-        logger.warning("Runtime provider sync after settings update failed for %s", integration_id, exc_info=True)
-
-    # If a docker_compose.enabled_setting was toggled, start/stop the stack immediately
-    await _sync_docker_compose_stack(integration_id)
-
-    # Auto-provision API key if integration declares api_permissions and doesn't have one yet
-    api_permissions = _get_api_permissions(integration_id)
-    if api_permissions:
-        from app.services.api_keys import get_integration_api_key as _get_key, provision_integration_api_key, resolve_scopes
-        existing = await _get_key(db, integration_id)
-        if not existing:
-            try:
-                scopes = resolve_scopes(api_permissions)
-                await provision_integration_api_key(db, integration_id, scopes)
-                logger.info("Auto-provisioned API key for integration %s", integration_id)
-            except Exception:
-                logger.warning("Failed to auto-provision API key for %s", integration_id, exc_info=True)
-
-    # Refresh MCP servers — configuration change may activate/deactivate
-    # servers or rotate api keys resolved from integration settings. Clear
-    # the tools/list cache so the next fetch picks up the new auth.
-    from app.services.mcp_servers import load_mcp_servers
-    from app.tools.mcp import _cache as _mcp_tools_cache
-    await load_mcp_servers()
-    _mcp_tools_cache.clear()
-
-    return {"applied": applied}
+        return await integration_admin.update_integration_settings(integration_id, body.settings, db)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.delete("/integrations/{integration_id}/settings/{key}")
@@ -380,50 +156,31 @@ async def delete_integration_setting(
 
 @router.get("/integrations/{integration_id}/process")
 async def get_process_status(integration_id: str, _auth=Depends(require_scopes("integrations:read"))):
-    return process_manager.status(integration_id)
+    return integration_admin.get_process_status(integration_id)
 
 
 @router.post("/integrations/{integration_id}/process/start")
 async def start_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
-    from app.services.integration_settings import get_status, is_configured
-    if get_status(integration_id) != "enabled":
-        raise HTTPException(status_code=400, detail="Integration is not enabled")
-    if not is_configured(integration_id):
-        raise HTTPException(status_code=400, detail="Integration is missing required settings")
-    ok = await process_manager.start(integration_id)
-    if not ok:
-        status = process_manager.status(integration_id)
-        if status["status"] == "running":
-            raise HTTPException(status_code=409, detail="Process is already running")
-        # Try to give a more specific error
-        state = process_manager._states.get(integration_id)
-        if state and state.required_env:
-            from app.services.integration_settings import get_value as _get_int_val
-            missing = [k for k in state.required_env
-                       if not os.environ.get(k) and not _get_int_val(integration_id, k)]
-            if missing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Missing required settings: {', '.join(missing)}",
-                )
-        raise HTTPException(status_code=400, detail="Failed to start process (check server logs)")
-    return process_manager.status(integration_id)
+    try:
+        return await integration_admin.start_process(integration_id)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.post("/integrations/{integration_id}/process/stop")
 async def stop_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
-    ok = await process_manager.stop(integration_id)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Process is not running")
-    return process_manager.status(integration_id)
+    try:
+        return await integration_admin.stop_process(integration_id)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.post("/integrations/{integration_id}/process/restart")
 async def restart_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
-    ok = await process_manager.restart(integration_id)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Failed to restart process")
-    return process_manager.status(integration_id)
+    try:
+        return await integration_admin.restart_process(integration_id)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 class AutoStartBody(BaseModel):
@@ -432,14 +189,12 @@ class AutoStartBody(BaseModel):
 
 @router.put("/integrations/{integration_id}/process/auto-start")
 async def set_auto_start(integration_id: str, body: AutoStartBody, _auth=Depends(require_scopes("integrations:write"))):
-    await process_manager.set_auto_start(integration_id, body.enabled)
-    return {"integration_id": integration_id, "auto_start": body.enabled}
+    return await integration_admin.set_auto_start(integration_id, body.enabled)
 
 
 @router.get("/integrations/{integration_id}/process/auto-start")
 async def get_auto_start(integration_id: str, _auth=Depends(require_scopes("integrations:read"))):
-    enabled = await process_manager.get_auto_start(integration_id)
-    return {"integration_id": integration_id, "auto_start": enabled}
+    return await integration_admin.get_auto_start(integration_id)
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +209,7 @@ async def get_process_logs(
     _auth=Depends(require_scopes("integrations:read")),
 ):
     """Return buffered stdout lines from the integration's process."""
-    return process_manager.get_recent_logs(integration_id, after=after)
+    return integration_admin.get_process_logs(integration_id, after=after)
 
 
 # ---------------------------------------------------------------------------
@@ -500,205 +255,29 @@ async def install_deps(integration_id: str, _auth=Depends(require_scopes("integr
     Uses the YAML-declared package names as the source of truth.  Falls back
     to requirements.txt if the manifest has no dependency declarations.
     """
-    from integrations import _iter_integration_candidates, _get_setup
-
-    # Find the integration directory and its declared packages
-    packages: list[str] = []
-    req_path: str | None = None
-    for candidate, iid, is_external, source in _iter_integration_candidates():
-        if iid == integration_id:
-            setup = _get_setup(candidate, iid, is_external, source)
-            if setup:
-                for dep in setup.get("python_dependencies", []):
-                    packages.append(dep["package"])
-            rp = candidate / "requirements.txt"
-            if rp.exists():
-                req_path = str(rp)
-            break
-
-    if not packages and req_path is None:
-        raise HTTPException(status_code=404, detail=f"No Python dependencies found for integration {integration_id!r}")
-
     try:
-        # ``-U`` so pressing the button on already-satisfied deps actually
-        # bumps them to the latest version that fits the spec (no-op on fresh
-        # installs). Without it, `pip install foo>=0.1.0` would print
-        # "already satisfied" against an existing 0.1.5 even when 0.1.10 is
-        # out — defeats the "Reinstall (upgrade)" use case.
-        if packages:
-            # Install from YAML-declared package names (always complete)
-            cmd = [sys.executable, "-m", "pip", "install", "-q", "-U", *packages]
-        else:
-            # Fallback to requirements.txt
-            cmd = [sys.executable, "-m", "pip", "install", "-q", "-U", "-r", req_path]
-
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-
-        if proc.returncode != 0:
-            err = (stderr or stdout or b"").decode(errors="replace").strip()
-            logger.error("pip install failed for %s: %s", integration_id, err)
-            raise HTTPException(status_code=500, detail=f"pip install failed: {err[:500]}")
-
-        logger.info("Installed dependencies for integration %s: %s", integration_id, packages or req_path)
-
-        # Reload the integration's harness module (if any) in-process so the
-        # admin doesn't have to restart the server to start using a freshly
-        # installed runtime. Tools are still restart-only — they're loaded
-        # via a separate scanner at startup.
-        harness_loaded = False
-        try:
-            from pathlib import Path as _P
-            from app.services.agent_harnesses import _import_harness_module
-            for candidate, iid, _is_external, _source in _iter_integration_candidates():
-                if iid != integration_id:
-                    continue
-                harness_file = _P(candidate) / "harness.py"
-                if harness_file.is_file():
-                    _import_harness_module(harness_file, integration_id)
-                    harness_loaded = True
-                break
-        except Exception:
-            logger.exception("post-install harness reload failed for %s", integration_id)
-
-        return {
-            "integration_id": integration_id,
-            "installed": True,
-            "harness_reloaded": harness_loaded,
-            "message": (
-                "Dependencies installed. Harness reloaded — ready to use."
-                if harness_loaded
-                else "Dependencies installed. Restart the server to activate new tools."
-            ),
-        }
-
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="pip install timed out after 120s")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to install deps for %s", integration_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+        return await integration_admin.install_python_dependencies(integration_id)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.post("/integrations/{integration_id}/install-npm-deps")
 async def install_npm_deps(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
     """Install npm dependencies declared in the integration manifest."""
-    from integrations import _iter_integration_candidates, _get_setup
-
-    # Find the integration and read its manifest
-    npm_deps = None
-    for candidate, iid, is_external, source in _iter_integration_candidates():
-        if iid == integration_id:
-            setup = _get_setup(candidate, iid, is_external, source)
-            if setup:
-                npm_deps = setup.get("npm_dependencies", [])
-            break
-
-    if not npm_deps:
-        raise HTTPException(status_code=404, detail=f"No npm_dependencies found for integration {integration_id!r}")
-
-    # Check if any dep declares a local install directory (package.json in that dir)
-    local_install_dir = None
-    for dep in npm_deps:
-        if dep.get("local_install_dir"):
-            import os
-            d = dep["local_install_dir"]
-            if not os.path.isabs(d):
-                d = os.path.join(str(candidate), d)
-            local_install_dir = d
-            break
-
-    packages = [dep["package"] for dep in npm_deps]
     try:
-        if local_install_dir:
-            # Install from the integration's own package.json
-            proc = await asyncio.create_subprocess_exec(
-                "npm", "install", "--no-audit", "--no-fund",
-                cwd=local_install_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        else:
-            # Global install into the user's home directory
-            import os
-            npm_prefix = os.path.expanduser("~/.local")
-            proc = await asyncio.create_subprocess_exec(
-                "npm", "install", "-g", f"--prefix={npm_prefix}", *packages,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-
-        if proc.returncode != 0:
-            err = (stderr or stdout or b"").decode(errors="replace").strip()
-            logger.error("npm install failed for %s: %s", integration_id, err)
-            raise HTTPException(status_code=500, detail=f"npm install failed: {err[:500]}")
-
-        logger.info("Installed npm dependencies for integration %s: %s", integration_id, packages)
-        return {
-            "integration_id": integration_id,
-            "installed": True,
-            "message": "npm packages installed. Restart the server if needed.",
-        }
-
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="npm install timed out after 120s")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to install npm deps for %s", integration_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+        return await integration_admin.install_npm_dependencies(integration_id)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.post("/integrations/{integration_id}/install-system-deps")
 async def install_system_deps(integration_id: str, request: Request, _auth=Depends(require_scopes("integrations:write"))):
     """Install a system dependency (apt package) for an integration."""
-    from app.services.integration_deps import install_system_package
-
     body = await request.json()
-    apt_package = body.get("apt_package")
-    if not apt_package or not isinstance(apt_package, str):
-        raise HTTPException(status_code=400, detail="apt_package is required")
-
-    # Basic validation — only allow simple package names
-    import re
-    if not re.match(r"^[a-z0-9][a-z0-9.+\-]+$", apt_package):
-        raise HTTPException(status_code=400, detail=f"Invalid package name: {apt_package!r}")
-
-    success = await install_system_package(apt_package)
-    if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to install {apt_package}")
-
-    return {
-        "integration_id": integration_id,
-        "apt_package": apt_package,
-        "installed": True,
-        "message": f"System package '{apt_package}' installed successfully.",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Integration API key endpoints
-# ---------------------------------------------------------------------------
-
-
-def _get_api_permissions(integration_id: str) -> str | list[str] | None:
-    """Load the api_permissions from an integration's manifest or setup.py."""
-    from integrations import _iter_integration_candidates, _get_setup
-
-    for candidate, iid, is_external, source in _iter_integration_candidates():
-        if iid != integration_id:
-            continue
-        setup = _get_setup(candidate, iid, is_external, source)
-        if not setup:
-            return None
-        return setup.get("api_permissions")
-    return None
+    try:
+        return await integration_admin.install_system_dependency(integration_id, body.get("apt_package"))
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 @router.get("/integrations/{integration_id}/api-key")
@@ -708,18 +287,7 @@ async def get_integration_api_key(
     _auth=Depends(require_scopes("integrations:read")),
 ):
     """Get API key metadata for an integration."""
-    from app.services.api_keys import get_integration_api_key as _get_key
-
-    api_key = await _get_key(db, integration_id)
-    if not api_key:
-        return {"provisioned": False}
-    return {
-        "provisioned": True,
-        "key_prefix": api_key.key_prefix,
-        "scopes": api_key.scopes,
-        "created_at": api_key.created_at.isoformat() if api_key.created_at else None,
-        "last_used_at": api_key.last_used_at.isoformat() if api_key.last_used_at else None,
-    }
+    return await integration_admin.get_integration_api_key(integration_id, db)
 
 
 @router.post("/integrations/{integration_id}/api-key")
@@ -729,31 +297,10 @@ async def provision_or_regenerate_integration_api_key(
     _auth=Depends(require_scopes("integrations:write")),
 ):
     """Provision a new API key or regenerate an existing one for an integration."""
-    from app.services.api_keys import (
-        provision_integration_api_key,
-        resolve_scopes,
-        revoke_integration_api_key,
-    )
-
-    api_permissions = _get_api_permissions(integration_id)
-    if not api_permissions:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Integration {integration_id!r} does not declare api_permissions",
-        )
-
-    scopes = resolve_scopes(api_permissions)
-
-    # If regenerating, revoke the old key first
-    await revoke_integration_api_key(db, integration_id)
-
-    key, full_value = await provision_integration_api_key(db, integration_id, scopes)
-    return {
-        "key_prefix": key.key_prefix,
-        "key_value": full_value,
-        "scopes": key.scopes,
-        "created_at": key.created_at.isoformat() if key.created_at else None,
-    }
+    try:
+        return await integration_admin.provision_or_regenerate_integration_api_key(integration_id, db)
+    except DomainError as exc:
+        _raise_http(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -949,9 +496,7 @@ async def revoke_integration_api_key_endpoint(
     _auth=Depends(require_scopes("integrations:write")),
 ):
     """Revoke an integration's API key."""
-    from app.services.api_keys import revoke_integration_api_key
-
-    revoked = await revoke_integration_api_key(db, integration_id)
-    if not revoked:
-        raise HTTPException(status_code=404, detail="No API key found for this integration")
-    return {"revoked": True}
+    try:
+        return await integration_admin.revoke_integration_api_key(integration_id, db)
+    except DomainError as exc:
+        _raise_http(exc)

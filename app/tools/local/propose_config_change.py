@@ -213,8 +213,8 @@ async def _apply_integration(target_id: str, field: str, new_value: Any, rationa
     # Pull setup_vars from the integration manifest so the secret flag is honoured.
     setup_vars: list[dict] = []
     try:
-        from app.routers.api_v1_admin.integrations import _get_setup_vars
-        setup_vars = _get_setup_vars(target_id)
+        from app.services.integration_admin import get_setup_vars
+        setup_vars = get_setup_vars(target_id)
     except Exception:
         logger.debug("setup_vars lookup failed for integration %s", target_id, exc_info=True)
 

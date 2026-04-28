@@ -56,6 +56,27 @@ test("buildSpatialObjectBrief prioritizes warnings for error objects", () => {
   );
   assert.equal(brief?.tone, "danger");
   assert.equal(brief?.headline, "mermaid_to_excalidraw failed");
-  assert.match(brief?.summary ?? "", /Recent: mermaid_to_excalidraw failed/);
   assert.match(brief?.summary ?? "", /1 warning/);
+  assert.equal(brief?.recent.length, 0);
+});
+
+test("buildSpatialObjectBrief dedupes repeated recent signals", () => {
+  const signal = {
+    kind: "task",
+    title: "Heartbeat",
+    task_id: "task-1",
+    bot_id: "bot-1",
+    created_at: "2026-04-28T11:50:00Z",
+  };
+  const brief = buildSpatialObjectBrief(
+    {
+      ...base,
+      status: "recent",
+      counts: { ...base.counts, recent: 2 },
+      recent: [signal, { ...signal }],
+    },
+    Date.parse("2026-04-28T12:00:00Z"),
+  );
+  assert.equal(brief?.recent.length, 1);
+  assert.match(brief?.summary ?? "", /Recent: Heartbeat/);
 });
