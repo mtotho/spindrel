@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from integrations import utils
-from integrations.sdk import get_db, resolve_all_channels_by_client_id, ensure_active_session
+from integrations.sdk import (
+    ensure_active_session,
+    get_db,
+    record_inbound_webhook_delivery,
+    resolve_all_channels_by_client_id,
+)
 from integrations.github.config import settings
 from integrations.github.handlers import parse_event
 from integrations.github.validator import validate_signature
@@ -96,6 +101,17 @@ async def github_webhook(
     event_type = request.headers.get("X-GitHub-Event", "")
     if not event_type:
         raise HTTPException(status_code=400, detail="Missing X-GitHub-Event header")
+    delivery_id = request.headers.get("X-GitHub-Delivery", "").strip()
+    if not delivery_id:
+        raise HTTPException(status_code=400, detail="Missing X-GitHub-Delivery header")
+    first_delivery = await record_inbound_webhook_delivery(
+        db,
+        surface="github",
+        dedupe_key=delivery_id,
+        metadata={"event": event_type},
+    )
+    if not first_delivery:
+        return {"status": "ignored", "reason": "duplicate_delivery", "event": event_type}
 
     if not body:
         logger.error("GitHub webhook received empty body (event=%s, content-length=%s)",

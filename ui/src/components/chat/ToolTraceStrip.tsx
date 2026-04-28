@@ -19,14 +19,17 @@ export function ToolTraceStrip({
   ticks,
   onExpand,
   t,
+  chatMode = "default",
 }: {
   ticks: TraceTick[];
   onExpand: () => void;
   t: ThemeTokens;
+  chatMode?: "default" | "terminal";
 }) {
   if (ticks.length === 0) return null;
   const total = ticks.length;
   const errors = ticks.filter((x) => x.isError).length;
+  const isTerminalMode = chatMode === "terminal";
 
   return (
     <div
@@ -42,14 +45,15 @@ export function ToolTraceStrip({
       }}
       className="inline-flex items-center gap-2 self-start mt-1.5 cursor-pointer rounded-md border px-2 py-1 transition-colors duration-150 outline-none focus-visible:ring-1"
       style={{
-        backgroundColor: t.surfaceRaised,
-        borderColor: t.surfaceBorder,
+        backgroundColor: isTerminalMode ? "transparent" : t.surfaceRaised,
+        borderColor: isTerminalMode ? "transparent" : t.surfaceBorder,
+        fontFamily: isTerminalMode ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
       }}
       onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.textDim; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = isTerminalMode ? "transparent" : t.surfaceBorder; }}
     >
       <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: t.textDim }}>
-        {total} {total === 1 ? "step" : "steps"}
+        {total} {total === 1 ? "tool call" : "tool calls"}
         {errors > 0 && (
           <span style={{ color: t.dangerMuted, marginLeft: 4 }}>
             · {errors} err

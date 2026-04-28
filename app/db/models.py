@@ -355,6 +355,44 @@ class Session(Base):
     )
 
 
+class MachineTargetLease(Base):
+    __tablename__ = "machine_target_leases"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    lease_id: Mapped[str] = mapped_column(Text, nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    capabilities: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
+    handle_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connection_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    session: Mapped["Session"] = relationship("Session")
+    user: Mapped["User"] = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", name="uq_machine_target_leases_session"),
+        UniqueConstraint("provider_id", "target_id", name="uq_machine_target_leases_target"),
+        UniqueConstraint("lease_id", name="uq_machine_target_leases_lease_id"),
+        Index("ix_machine_target_leases_expires_at", "expires_at"),
+        Index("ix_machine_target_leases_user_id", "user_id"),
+    )
+
+
 class Message(Base):
     __tablename__ = "messages"
 
@@ -1862,6 +1900,22 @@ class WebhookDelivery(Base):
         Index("ix_webhook_deliveries_endpoint_id", "endpoint_id"),
         Index("ix_webhook_deliveries_created_at", "created_at"),
         Index("ix_webhook_deliveries_endpoint_event", "endpoint_id", "event"),
+    )
+
+
+class InboundWebhookReplay(Base):
+    __tablename__ = "inbound_webhook_replays"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    surface: Mapped[str] = mapped_column(Text, nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("surface", "dedupe_key", name="uq_inbound_webhook_replays_surface_key"),
+        Index("ix_inbound_webhook_replays_expires_at", "expires_at"),
     )
 
 

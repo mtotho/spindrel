@@ -9,9 +9,9 @@ the router-level contract in ``app/routers/api_v1_admin/machines.py``:
         endpoints share this shape; a silent swap to a different
         exception type would bypass the intended status code.
   QM.2  ``delete_machine_target`` returning False → 404 (not silent 200).
-  QM.3  Scope gate — GET ``/machines`` requires ``integrations:read``;
-        write routes require ``integrations:write``. A read-only scope
-        MUST NOT reach the write endpoints.
+  QM.3  Admin gate — every machine-control admin route requires
+        admin-equivalent auth. Integration-scoped keys MUST NOT reach local
+        machine control.
   QM.4  No-body POST /enroll is accepted (both ``body`` and ``body.label``
         / ``body.config`` default cleanly). Drift here would surface as a
         422 from Pydantic.
@@ -49,7 +49,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.dependencies import ApiKeyAuth, get_db, verify_auth_or_user
+from app.dependencies import ApiKeyAuth, get_db, verify_admin_auth
 from app.routers.api_v1_admin import machines as machines_router_module
 
 
@@ -78,11 +78,11 @@ def _build_app(*, scopes: list[str]) -> FastAPI:
     async def _override_get_db():
         yield object()
 
-    async def _override_auth_or_user():
+    async def _override_admin_auth():
         return auth
 
     app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[verify_auth_or_user] = _override_auth_or_user
+    app.dependency_overrides[verify_admin_auth] = _override_admin_auth
     return app
 
 
@@ -179,7 +179,7 @@ class TestExceptionToHttpMapping:
             raise KeyError("unknown provider 'nope'")
 
         monkeypatch.setattr(machines_router_module, "enroll_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/nope/enroll", json={}
         )
         assert resp.status_code == 404
@@ -190,7 +190,7 @@ class TestExceptionToHttpMapping:
             raise ValueError("provider does not support enrollment")
 
         monkeypatch.setattr(machines_router_module, "enroll_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/readonly/enroll", json={}
         )
         assert resp.status_code == 400
@@ -201,7 +201,7 @@ class TestExceptionToHttpMapping:
             raise RuntimeError("already enrolled")
 
         monkeypatch.setattr(machines_router_module, "enroll_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll", json={}
         )
         assert resp.status_code == 409
@@ -212,7 +212,7 @@ class TestExceptionToHttpMapping:
             raise KeyError("unknown provider 'missing'")
 
         monkeypatch.setattr(machines_router_module, "probe_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/missing/targets/t1/probe"
         )
         assert resp.status_code == 404
@@ -222,7 +222,7 @@ class TestExceptionToHttpMapping:
             raise ValueError("Unknown machine target.")
 
         monkeypatch.setattr(machines_router_module, "probe_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/targets/ghost/probe"
         )
         assert resp.status_code == 400
@@ -232,7 +232,7 @@ class TestExceptionToHttpMapping:
             raise KeyError("unknown provider")
 
         monkeypatch.setattr(machines_router_module, "get_machine_target_setup", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/nope/targets/t1/setup"
         )
         assert resp.status_code == 404
@@ -242,7 +242,7 @@ class TestExceptionToHttpMapping:
             raise ValueError("Unknown machine target.")
 
         monkeypatch.setattr(machines_router_module, "get_machine_target_setup", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/targets/ghost/setup"
         )
         assert resp.status_code == 400
@@ -252,7 +252,7 @@ class TestExceptionToHttpMapping:
             raise KeyError("unknown provider")
 
         monkeypatch.setattr(machines_router_module, "delete_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/nope/targets/t1"
         )
         assert resp.status_code == 404
@@ -262,7 +262,7 @@ class TestExceptionToHttpMapping:
             raise ValueError("provider does not support target removal")
 
         monkeypatch.setattr(machines_router_module, "delete_machine_target", _raise)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/ro/targets/t1"
         )
         assert resp.status_code == 400
@@ -284,14 +284,14 @@ class TestDeleteNotFound:
             return False
 
         monkeypatch.setattr(machines_router_module, "delete_machine_target", _fake_delete)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/local_companion/targets/ghost"
         )
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()
 
     def test_delete_success_returns_ok_envelope(self, calls):
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/local_companion/targets/t1"
         )
         assert resp.status_code == 200
@@ -305,18 +305,23 @@ class TestDeleteNotFound:
 
 
 # ---------------------------------------------------------------------------
-# QM.3 — Scope gate (read vs write)
+# QM.3 — Admin gate
 # ---------------------------------------------------------------------------
 
 
 class TestScopeGate:
-    def test_read_scope_can_list_providers(self, calls):
-        resp = _client(scopes=["integrations:read"]).get("/admin/machines")
+    def test_admin_scope_can_list_providers(self, calls):
+        resp = _client(scopes=["admin"]).get("/admin/machines")
         assert resp.status_code == 200
         assert len(calls.providers) == 1
 
-    def test_read_only_scope_cannot_enroll(self, calls):
-        resp = _client(scopes=["integrations:read"]).post(
+    def test_integration_scope_cannot_list_providers(self, calls):
+        resp = _client(scopes=["integrations:read"]).get("/admin/machines")
+        assert resp.status_code == 403
+        assert calls.providers == []
+
+    def test_integration_scope_cannot_enroll(self, calls):
+        resp = _client(scopes=["integrations:write"]).post(
             "/admin/machines/providers/local_companion/enroll", json={}
         )
         assert resp.status_code == 403
@@ -367,7 +372,7 @@ class TestScopeGate:
 
 class TestEnrollBodyOptional:
     def test_post_enroll_without_body_succeeds(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll"
         )
         assert resp.status_code == 200
@@ -381,7 +386,7 @@ class TestEnrollBodyOptional:
         ]
 
     def test_post_enroll_with_null_body_fields_succeeds(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll",
             json={"label": None, "config": None},
         )
@@ -392,7 +397,7 @@ class TestEnrollBodyOptional:
     def test_post_enroll_with_unknown_body_field_is_tolerated(self, calls):
         """Extra fields in the request body should not 422 — Pydantic's
         default ``extra = 'ignore'`` is the forward-compat contract."""
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll",
             json={"label": "x", "future_field": True},
         )
@@ -406,7 +411,7 @@ class TestEnrollBodyOptional:
 
 class TestEnrollBodyPassthrough:
     def test_label_and_config_forwarded_verbatim(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll",
             json={"label": "Desk", "config": {"nested": {"room": "office"}}},
         )
@@ -420,7 +425,7 @@ class TestEnrollBodyPassthrough:
         if a future client smuggles a ``provider_id`` into the body, the
         router must not let it override the path parameter.
         """
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll",
             json={"label": "Desk", "provider_id": "rogue"},
         )
@@ -439,7 +444,7 @@ class TestProbeDisconnectedShape:
         service layer returns a normal envelope and the router must pass
         it through with 200 so the admin UI can render ``status: offline``.
         """
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/targets/t1/probe"
         )
         assert resp.status_code == 200
@@ -463,7 +468,7 @@ class TestServerBaseUrlPassthrough:
         base_url as a string; the launch command the UI builds depends
         on that exact host+scheme.
         """
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/enroll",
             json={"label": "Desk"},
         )
@@ -474,7 +479,7 @@ class TestServerBaseUrlPassthrough:
         assert sent.startswith("http://testserver")
 
     def test_setup_forwards_request_base_url(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/targets/t1/setup",
         )
         assert resp.status_code == 200
@@ -492,7 +497,7 @@ class TestServerBaseUrlPassthrough:
 
 class TestProfileRoutesHappyPath:
     def test_create_profile_forwards_label_and_config(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/ssh/profiles",
             json={"label": "LAN", "config": {"private_key": "KEY"}},
         )
@@ -502,7 +507,7 @@ class TestProfileRoutesHappyPath:
         ]
 
     def test_update_profile_uses_path_profile_id(self, calls):
-        resp = _client(scopes=["integrations:write"]).put(
+        resp = _client(scopes=["admin"]).put(
             "/admin/machines/providers/ssh/profiles/profile-1",
             json={"label": "Renamed", "config": {"known_hosts": "host"}},
         )
@@ -517,7 +522,7 @@ class TestProfileRoutesHappyPath:
         ]
 
     def test_delete_profile_returns_ok_envelope(self, calls):
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/ssh/profiles/profile-1"
         )
         assert resp.status_code == 200
@@ -535,7 +540,7 @@ class TestProfileExceptionToHttpMapping:
             raise KeyError("unknown provider 'nope'")
 
         monkeypatch.setattr(machines_router_module, "create_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/nope/profiles", json={}
         )
         assert resp.status_code == 404
@@ -545,7 +550,7 @@ class TestProfileExceptionToHttpMapping:
             raise ValueError("Provider 'local_companion' does not support profiles.")
 
         monkeypatch.setattr(machines_router_module, "create_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/local_companion/profiles", json={}
         )
         assert resp.status_code == 400
@@ -556,7 +561,7 @@ class TestProfileExceptionToHttpMapping:
             raise RuntimeError("profile label already exists")
 
         monkeypatch.setattr(machines_router_module, "create_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/ssh/profiles", json={"label": "dup"}
         )
         assert resp.status_code == 409
@@ -566,7 +571,7 @@ class TestProfileExceptionToHttpMapping:
             raise KeyError("unknown profile 'ghost'")
 
         monkeypatch.setattr(machines_router_module, "update_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).put(
+        resp = _client(scopes=["admin"]).put(
             "/admin/machines/providers/ssh/profiles/ghost", json={}
         )
         assert resp.status_code == 404
@@ -576,7 +581,7 @@ class TestProfileExceptionToHttpMapping:
             raise ValueError("invalid config field")
 
         monkeypatch.setattr(machines_router_module, "update_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).put(
+        resp = _client(scopes=["admin"]).put(
             "/admin/machines/providers/ssh/profiles/p1", json={"config": {"bad": 1}}
         )
         assert resp.status_code == 400
@@ -586,7 +591,7 @@ class TestProfileExceptionToHttpMapping:
             raise RuntimeError("profile is in use by 2 active targets")
 
         monkeypatch.setattr(machines_router_module, "update_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).put(
+        resp = _client(scopes=["admin"]).put(
             "/admin/machines/providers/ssh/profiles/p1", json={}
         )
         assert resp.status_code == 409
@@ -596,7 +601,7 @@ class TestProfileExceptionToHttpMapping:
             raise KeyError("unknown provider")
 
         monkeypatch.setattr(machines_router_module, "delete_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/nope/profiles/p1"
         )
         assert resp.status_code == 404
@@ -606,7 +611,7 @@ class TestProfileExceptionToHttpMapping:
             raise ValueError("provider does not support profiles")
 
         monkeypatch.setattr(machines_router_module, "delete_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/local_companion/profiles/p1"
         )
         assert resp.status_code == 400
@@ -621,7 +626,7 @@ class TestProfileExceptionToHttpMapping:
             raise RuntimeError("profile has 3 bound targets; remove them first")
 
         monkeypatch.setattr(machines_router_module, "delete_machine_profile", _raise)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/ssh/profiles/p1"
         )
         assert resp.status_code == 409
@@ -638,7 +643,7 @@ class TestProfileDeleteNotFound:
             return False
 
         monkeypatch.setattr(machines_router_module, "delete_machine_profile", _fake_delete)
-        resp = _client(scopes=["integrations:write"]).delete(
+        resp = _client(scopes=["admin"]).delete(
             "/admin/machines/providers/ssh/profiles/ghost"
         )
         assert resp.status_code == 404
@@ -670,7 +675,7 @@ class TestProfileScopeGate:
 
 class TestProfileBodyOptional:
     def test_post_create_profile_without_body_succeeds(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/ssh/profiles"
         )
         assert resp.status_code == 200
@@ -679,7 +684,7 @@ class TestProfileBodyOptional:
         ]
 
     def test_put_update_profile_without_body_succeeds(self, calls):
-        resp = _client(scopes=["integrations:write"]).put(
+        resp = _client(scopes=["admin"]).put(
             "/admin/machines/providers/ssh/profiles/p1"
         )
         assert resp.status_code == 200
@@ -688,7 +693,7 @@ class TestProfileBodyOptional:
         ]
 
     def test_create_profile_with_unknown_body_field_is_tolerated(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/ssh/profiles",
             json={"label": "x", "future_field": True},
         )
@@ -701,7 +706,7 @@ class TestProfilePathWinsOverBody:
         URL path parameter. Same contract as the enroll route for
         ``provider_id``.
         """
-        resp = _client(scopes=["integrations:write"]).put(
+        resp = _client(scopes=["admin"]).put(
             "/admin/machines/providers/ssh/profiles/real-id",
             json={"label": "x", "profile_id": "rogue"},
         )
@@ -709,7 +714,7 @@ class TestProfilePathWinsOverBody:
         assert calls.update_profile[0]["profile_id"] == "real-id"
 
     def test_create_path_provider_id_wins_over_body(self, calls):
-        resp = _client(scopes=["integrations:write"]).post(
+        resp = _client(scopes=["admin"]).post(
             "/admin/machines/providers/ssh/profiles",
             json={"label": "x", "provider_id": "rogue"},
         )

@@ -22,7 +22,7 @@ from app.services.machine_control import (
     DEFAULT_LEASE_TTL_SECONDS,
     MAX_LEASE_TTL_SECONDS,
     build_session_machine_target_payload,
-    clear_session_lease,
+    clear_session_lease_row,
     grant_session_lease,
 )
 from app.services.plan_semantic_review import review_plan_adherence
@@ -1054,7 +1054,7 @@ async def clear_session_machine_target_lease(
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    clear_session_lease(session)
+    await clear_session_lease_row(db, session)
     await db.commit()
     await db.refresh(session)
     payload = await build_session_machine_target_payload(db, session=session)

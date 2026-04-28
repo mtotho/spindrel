@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import platform as py_platform
@@ -76,13 +78,14 @@ def _trim(data: bytes, max_output_bytes: int) -> tuple[str, bool]:
 
 
 def _build_ws_url(server_url: str, *, target_id: str, token: str) -> str:
+    _ = token
     parsed = urlsplit(server_url.rstrip("/"))
     scheme_map = {"http": "ws", "https": "wss", "ws": "ws", "wss": "wss"}
     scheme = scheme_map.get(parsed.scheme)
     if scheme is None:
         raise ValueError("--server-url must use http, https, ws, or wss")
     path = f"{parsed.path.rstrip('/')}/integrations/local_companion/ws"
-    query = urlencode({"target_id": target_id, "token": token})
+    query = urlencode({"target_id": target_id})
     return urlunsplit((scheme, parsed.netloc, path, query, ""))
 
 
@@ -186,6 +189,16 @@ async def _run_client(args: argparse.Namespace) -> int:
         ) from exc
 
     async with websockets.connect(ws_url, max_size=2**22) as ws:
+        challenge = json.loads(await ws.recv())
+        if challenge.get("type") != "challenge" or challenge.get("target_id") != args.target_id:
+            raise RuntimeError("server did not issue a valid challenge")
+        nonce = str(challenge.get("nonce") or "")
+        signature = hmac.new(
+            args.token.encode("utf-8"),
+            f"{args.target_id}.{nonce}".encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        await ws.send(json.dumps({"type": "auth", "signature": f"sha256={signature}"}))
         await ws.send(json.dumps({
             "type": "hello",
             "label": args.label,

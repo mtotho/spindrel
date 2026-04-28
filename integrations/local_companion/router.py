@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import hmac
 import secrets
 from pathlib import Path
 
@@ -28,24 +30,37 @@ def _target_token(target_id: str) -> str:
     return str((target or {}).get("token") or "")
 
 
+def _challenge_signature(token: str, *, target_id: str, nonce: str) -> str:
+    payload = f"{target_id}.{nonce}".encode("utf-8")
+    return hmac.new(token.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
 @router.websocket("/ws")
 async def companion_ws(
     websocket: WebSocket,
     target_id: str = Query(...),
-    token: str = Query(...),
 ):
     expected = _target_token(target_id)
     if not expected:
         await websocket.close(code=4404, reason="unknown target")
         return
-    if not secrets.compare_digest(token, expected):
-        await websocket.close(code=4401, reason="invalid target token")
-        return
 
     await websocket.accept()
+    nonce = secrets.token_urlsafe(32)
+    await websocket.send_json({"type": "challenge", "target_id": target_id, "nonce": nonce})
+    auth = await websocket.receive_json()
+    if not isinstance(auth, dict) or auth.get("type") != "auth":
+        await websocket.close(code=4400, reason="first frame must be auth")
+        return
+    signature = str(auth.get("signature") or "").removeprefix("sha256=")
+    expected_signature = _challenge_signature(expected, target_id=target_id, nonce=nonce)
+    if not secrets.compare_digest(signature, expected_signature):
+        await websocket.close(code=4401, reason="invalid challenge response")
+        return
+
     hello = await websocket.receive_json()
     if not isinstance(hello, dict) or hello.get("type") != "hello":
-        await websocket.close(code=4400, reason="first frame must be hello")
+        await websocket.close(code=4400, reason="second frame must be hello")
         return
 
     target = get_target_by_id("local_companion", target_id) or {}

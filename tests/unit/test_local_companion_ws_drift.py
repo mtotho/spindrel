@@ -162,8 +162,21 @@ def client(app) -> TestClient:
     return TestClient(app)
 
 
-def _url(target_id: str, token: str) -> str:
-    return f"/integrations/local_companion/ws?target_id={target_id}&token={token}"
+def _url(target_id: str, token: str = "") -> str:
+    _ = token
+    return f"/integrations/local_companion/ws?target_id={target_id}"
+
+
+def _authenticate(ws, *, target_id: str = "target-1", token: str = "secret-token-abc") -> None:
+    challenge = ws.receive_json()
+    assert challenge["type"] == "challenge"
+    assert challenge["target_id"] == target_id
+    sig = local_companion_router._challenge_signature(
+        token,
+        target_id=target_id,
+        nonce=challenge["nonce"],
+    )
+    ws.send_json({"type": "auth", "signature": f"sha256={sig}"})
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +211,7 @@ class TestWrongToken:
     def test_wrong_token_closes_4401(self, client, stub_bridge, stub_provider):
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(_url("target-1", "WRONG-token")) as ws:
+                _authenticate(ws, token="WRONG-token")
                 ws.receive_text()
         assert exc_info.value.code == 4401
         assert stub_bridge.register_calls == []
@@ -237,6 +251,7 @@ class TestHelloFrameShape:
     def test_non_dict_first_frame_closes_4400(self, client, stub_bridge):
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws:
+                _authenticate(ws)
                 ws.send_json(["not", "a", "dict"])
                 ws.receive_text()
         assert exc_info.value.code == 4400
@@ -245,6 +260,7 @@ class TestHelloFrameShape:
     def test_dict_without_hello_type_closes_4400(self, client, stub_bridge):
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws:
+                _authenticate(ws)
                 ws.send_json({"type": "result", "payload": "ignored"})
                 ws.receive_text()
         assert exc_info.value.code == 4400
@@ -253,6 +269,7 @@ class TestHelloFrameShape:
     def test_wrong_type_field_closes_4400(self, client, stub_bridge):
         with pytest.raises(WebSocketDisconnect) as exc_info:
             with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws:
+                _authenticate(ws)
                 ws.send_json({"type": "HELLO"})  # case-sensitive
                 ws.receive_text()
         assert exc_info.value.code == 4400
@@ -276,6 +293,7 @@ class TestSuccessfulHandshake:
             "capabilities": ["shell", "fs"],
         }
         with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws:
+            _authenticate(ws)
             ws.send_json(hello)
             server_hello = ws.receive_json()
             assert server_hello["type"] == "hello"
@@ -308,6 +326,7 @@ class TestSuccessfulHandshake:
         leave the registry saying the companion has no capabilities.
         """
         with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws:
+            _authenticate(ws)
             ws.send_json({"type": "hello", "capabilities": []})
             ws.receive_json()
 
@@ -318,6 +337,7 @@ class TestSuccessfulHandshake:
         self, client, stub_bridge, stub_provider
     ):
         with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws:
+            _authenticate(ws)
             ws.send_json({"type": "hello"})
             ws.receive_json()
             # Exit the context — raises WebSocketDisconnect server-side,
@@ -346,12 +366,14 @@ class TestMultiConnectContention:
         first — both register calls must happen.
         """
         with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws1:
+            _authenticate(ws1)
             ws1.send_json({"type": "hello", "label": "first"})
             ws1.receive_json()
 
             with client.websocket_connect(
                 _url("target-1", "secret-token-abc")
             ) as ws2:
+                _authenticate(ws2)
                 ws2.send_json({"type": "hello", "label": "second"})
                 ws2.receive_json()
 
@@ -366,12 +388,14 @@ class TestMultiConnectContention:
         self, client, stub_bridge, stub_provider
     ):
         with client.websocket_connect(_url("target-1", "secret-token-abc")) as ws1:
+            _authenticate(ws1)
             ws1.send_json({"type": "hello"})
             first_conn_id = ws1.receive_json()["connection_id"]
 
             with client.websocket_connect(
                 _url("target-1", "secret-token-abc")
             ) as ws2:
+                _authenticate(ws2)
                 ws2.send_json({"type": "hello"})
                 second_conn_id = ws2.receive_json()["connection_id"]
 

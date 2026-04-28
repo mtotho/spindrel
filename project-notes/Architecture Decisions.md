@@ -917,3 +917,18 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 **Why.**
 - The user must be able to answer runtime-native questions from the same chat transcript, after refresh, and from scratch/split panes without accidentally targeting `channel.active_session_id`.
 - A message-backed card gives the web UI one interaction model and preserves an audit trail without adding a separate harness-interactions table yet.
+
+### Machine leases and webhook replay state are table-backed safety contracts
+**Decided 2026-04-28.** Safety-sensitive exclusivity/replay checks must be persisted behind unique database constraints instead of inferred from mutable JSON metadata or body-only signatures.
+
+**What this means.**
+- Machine-control leases live in `machine_target_leases`, with uniqueness on `session_id`, `(provider_id, target_id)`, and `lease_id`. `Session.metadata["machine_target_lease"]` is legacy fallback only.
+- Machine admin lifecycle routes require admin-equivalent auth; generic `integrations:*` scopes are not enough to inspect or mutate machine targets.
+- Inbound webhook replay keys live in `inbound_webhook_replays`. GitHub uses `X-GitHub-Delivery` as the dedupe key after signature validation.
+- Outbound Spindrel webhook signatures bind `X-Spindrel-Timestamp` and the body; consumers reject stale timestamps.
+- Local Companion proves target-token possession with a server nonce HMAC before sending hello metadata.
+
+**Why.**
+- A Python scan over session metadata cannot enforce one-target-one-session under concurrent grants.
+- Body-only signatures and static query tokens make captured traffic replayable.
+- These are security boundaries; tests should exercise concrete persistence/signature contracts rather than trusting comments or operator discipline.

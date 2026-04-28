@@ -38,6 +38,14 @@ def _clean_cache():
     mod._cache_loaded = saved_loaded
 
 
+@pytest.fixture(autouse=True)
+def _allow_public_urls(monkeypatch):
+    async def _ok(_url: str) -> None:
+        return None
+
+    monkeypatch.setattr("app.services.webhooks.assert_public_url", _ok)
+
+
 def _make_endpoint(events=None, url="https://example.com/hook", secret="testsecret"):
     return {
         "id": uuid.uuid4(),
@@ -55,18 +63,31 @@ class TestHMACSigning:
     def test_sign_and_verify_roundtrip(self):
         secret = generate_secret()
         body = b'{"event":"test"}'
-        sig = sign_payload(body, secret)
-        assert verify_signature(body, secret, sig)
+        timestamp = "1800000000"
+        sig = sign_payload(body, secret, timestamp)
+        with patch("app.services.webhooks.time.time", return_value=1800000000):
+            assert verify_signature(body, secret, sig, timestamp)
 
     def test_wrong_secret_fails(self):
         body = b'{"event":"test"}'
-        sig = sign_payload(body, "secret-a")
-        assert not verify_signature(body, "secret-b", sig)
+        timestamp = "1800000000"
+        sig = sign_payload(body, "secret-a", timestamp)
+        with patch("app.services.webhooks.time.time", return_value=1800000000):
+            assert not verify_signature(body, "secret-b", sig, timestamp)
 
     def test_tampered_body_fails(self):
         secret = "my-secret"
-        sig = sign_payload(b'{"event":"test"}', secret)
-        assert not verify_signature(b'{"event":"tampered"}', secret, sig)
+        timestamp = "1800000000"
+        sig = sign_payload(b'{"event":"test"}', secret, timestamp)
+        with patch("app.services.webhooks.time.time", return_value=1800000000):
+            assert not verify_signature(b'{"event":"tampered"}', secret, sig, timestamp)
+
+    def test_stale_timestamp_fails(self):
+        secret = "my-secret"
+        body = b'{"event":"test"}'
+        sig = sign_payload(body, secret, "1800000000")
+        with patch("app.services.webhooks.time.time", return_value=1800000400):
+            assert not verify_signature(body, secret, sig, "1800000000")
 
     def test_generate_secret_length(self):
         s = generate_secret()
@@ -168,11 +189,12 @@ class TestDelivery:
 
         mock_session = AsyncMock()
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_db)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         with patch("app.services.webhooks._get_http_client", return_value=mock_client), \
-             patch("app.db.engine.async_session", return_value=mock_session):
+             patch("app.services.webhooks.async_session", return_value=mock_session):
             await _deliver(ep, "test", payload)
 
         mock_client.post.assert_called_once()
@@ -180,6 +202,7 @@ class TestDelivery:
         call_kwargs = mock_client.post.call_args
         headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
         assert "X-Spindrel-Signature" in headers
+        assert "X-Spindrel-Timestamp" in headers
         assert headers["X-Spindrel-Event"] == "test"
 
     @pytest.mark.asyncio
@@ -202,6 +225,7 @@ class TestDelivery:
 
         mock_session = AsyncMock()
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_db)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
@@ -227,6 +251,7 @@ class TestDelivery:
 
         mock_session = AsyncMock()
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_db)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
@@ -256,6 +281,7 @@ class TestDelivery:
 
         mock_session = AsyncMock()
         mock_db = AsyncMock()
+        mock_db.add = MagicMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_db)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
@@ -272,43 +298,38 @@ class TestDelivery:
 # ---------------------------------------------------------------------------
 
 class TestURLValidation:
-    def test_valid_https_url(self):
-        validate_webhook_url("https://example.com/hook")  # should not raise
+    @pytest.mark.asyncio
+    async def test_valid_https_url(self, monkeypatch):
+        called: list[str] = []
 
-    def test_valid_http_url(self):
-        validate_webhook_url("http://example.com/hook")  # should not raise
+        async def _ok(url: str) -> None:
+            called.append(url)
 
-    def test_reject_localhost(self):
-        with pytest.raises(ValueError, match="localhost"):
-            validate_webhook_url("https://localhost/hook")
+        monkeypatch.setattr("app.services.webhooks.assert_public_url", _ok)
+        await validate_webhook_url("https://example.com/hook")
+        assert called == ["https://example.com/hook"]
 
-    def test_reject_127(self):
-        with pytest.raises(ValueError, match="localhost"):
-            validate_webhook_url("https://127.0.0.1/hook")
+    @pytest.mark.asyncio
+    async def test_valid_http_url(self, monkeypatch):
+        called: list[str] = []
 
-    def test_reject_private_10(self):
-        with pytest.raises(ValueError, match="private"):
-            validate_webhook_url("https://10.0.0.1/hook")
+        async def _ok(url: str) -> None:
+            called.append(url)
 
-    def test_reject_private_192(self):
-        with pytest.raises(ValueError, match="private"):
-            validate_webhook_url("https://192.168.1.1/hook")
+        monkeypatch.setattr("app.services.webhooks.assert_public_url", _ok)
+        await validate_webhook_url("http://example.com/hook")
+        assert called == ["http://example.com/hook"]
 
-    def test_allow_172_non_private(self):
-        """Domains starting with 172 that aren't private IPs should be allowed."""
-        validate_webhook_url("https://172solutions.com/hook")  # should not raise
+    @pytest.mark.asyncio
+    async def test_reject_unsafe_url(self, monkeypatch):
+        from app.services.url_safety import UnsafePublicURLError
 
-    def test_reject_172_16_private(self):
-        with pytest.raises(ValueError, match="private"):
-            validate_webhook_url("https://172.16.0.1/hook")
+        async def _blocked(url: str) -> None:
+            raise UnsafePublicURLError("Host resolves to non-public address: 127.0.0.1")
 
-    def test_reject_ftp_scheme(self):
-        with pytest.raises(ValueError, match="http"):
-            validate_webhook_url("ftp://example.com/hook")
-
-    def test_reject_no_hostname(self):
-        with pytest.raises(ValueError):
-            validate_webhook_url("https:///path")
+        monkeypatch.setattr("app.services.webhooks.assert_public_url", _blocked)
+        with pytest.raises(ValueError, match="non-public"):
+            await validate_webhook_url("https://127.0.0.1/hook")
 
 
 # ---------------------------------------------------------------------------

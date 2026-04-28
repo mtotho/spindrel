@@ -256,6 +256,7 @@ from app.services.machine_control import (  # noqa: E402, F401
     get_provider,
     get_target_by_id,
 )
+from app.services.webhook_replay import record_inbound_webhook_delivery  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Agent context (runtime ContextVars available inside tool/hook callbacks)

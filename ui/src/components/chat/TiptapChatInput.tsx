@@ -317,6 +317,14 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         priority: 1000,
         addKeyboardShortcuts() {
           return {
+            "Mod-Enter": () => {
+              onSubmitRef.current();
+              return true;
+            },
+            "Ctrl-Enter": () => {
+              onSubmitRef.current();
+              return true;
+            },
             // Enter outside code block → submit (code block Enter handled by raw plugin below)
             Enter: ({ editor: ed }) => {
               if (ed.isActive("codeBlock")) return false;

@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-26 (command output restored to LLM-visible result)
+updated: 2026-04-28 (lease/replay safety hardening)
 ---
 # Track — Local Machine Control
 
@@ -18,7 +18,8 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Cross-provider readiness is based on a fresh provider probe or live-status check, not a companion-specific connection concept.
 - One session can lease one target at a time. One target can be leased by only one session at a time.
 - Lease-gated tools are denied unless there is a live JWT user, active presence, and a valid session lease for the same user.
-- Lease state lives in `Session.metadata_["machine_target_lease"]`.
+- Lease state lives in the `machine_target_leases` table; legacy session metadata is read only as a migration fallback.
+- Machine admin routes require admin-equivalent auth, not generic integration scopes.
 - Core owns the machine tools, admin APIs, session APIs, transcript/result UX, and admin machine center.
 - Integrations implement a typed machine-control provider contract and may expose provider-specific transport/settings surfaces, but they do not own machine CRUD UX.
 - Provider-level credentials and trust material live in app-managed integration settings so setup survives container rebuilds.
@@ -177,6 +178,12 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `machine_inspect_command` and `machine_exec_command` now include bounded stdout/stderr in their `llm` field, along with target, command, working directory, exit code, duration, and provider truncation status.
 - Root cause: `_extract_embedded_payloads()` intentionally hands the assistant only the `llm` field for tools that return `_envelope`; the full stdout/stderr were persisted in trace/UI JSON but omitted from the model-visible tool message.
 - Regression coverage pins the `dmesg | tail -100` shape where a shell pipeline can report exit code 0 while stderr contains the real permission failure.
+
+### Follow-up fix — Lease and Companion Replay Safety
+
+- Session/target lease uniqueness is now enforced by `machine_target_leases` with unique constraints on `session_id`, `(provider_id, target_id)`, and `lease_id`; grant/clear/delete flows use that table as source of truth.
+- `/api/v1/admin/machines` no longer accepts `integrations:*` scoped callers; machine provider and target lifecycle routes require admin-equivalent auth.
+- Local Companion no longer authenticates by replayable query token. The server issues a per-connection nonce, the client signs it with the target token, and only then sends hello metadata.
 
 ## Current Architecture Shape
 

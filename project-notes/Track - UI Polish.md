@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-27 (harness context prompt clarity)
+updated: 2026-04-28 (chat transcript UX polish)
 ---
 # Track — UI Polish
 
@@ -522,8 +522,11 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Removed session navigation implementation leakage: split/session chrome no longer labels previous-channel sessions as `WEB-ONLY`; integration mirroring remains a primary-session concern rather than picker copy.
 - [x] Clarified Memory tab conversation-history scope: current-session archive is the default/runtime mirror, all-sessions is an explicit grouped inventory view, and section search/index preview no longer imply the bot sees a flattened channel archive.
 - [x] Tightened `/settings/system` constrained-width header behavior: sticky domain tabs stay single-line in a horizontal scroller, and the Save cluster drops to a clean second row until there is enough width to share the toolbar.
+- [x] Polished default/terminal chat transcript ergonomics: terminal mode now gets a wider inner content lane without changing side-panel layout math, adjacent lightweight tool transcript rows collapse into one expandable trace strip, approval rows stay visible, global shortcuts ignore editable targets, and Cmd/Ctrl+Enter submits from the composer while mobile Enter still inserts a newline.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node --test .chat-test-dist/src/components/chat/orderedTranscriptGrouping.test.js .chat-test-dist/src/components/chat/chatKeyboard.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false`
 
 ## Pass 4e: Admin Tasks + pipeline builder cleanup (2026-04-25)
 

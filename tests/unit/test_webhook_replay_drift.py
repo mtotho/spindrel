@@ -31,18 +31,12 @@ QREPLAY.3  ``integrations/slack/router.py`` has NO inbound webhook endpoint —
            should pin the signature/timestamp contract.
 
 QREPLAY.4  ``integrations/local_companion/router.py::companion_ws``
-           Static per-target token via ``?token=<target_token>`` over the WS
-           query string, constant-time compared via ``secrets.compare_digest``.
-           No challenge/response in the hello handshake. Pin: a leaked token
-           replays as a full reconnect — the client proves nothing beyond
-           static-token possession.
+           Server nonce + HMAC challenge/response before hello metadata.
+           Pin: static query-token replay is no longer the auth contract.
 
 QREPLAY.5  ``app/services/webhooks.py::sign_payload`` / ``verify_signature``
            Outbound webhook signature generator (Spindrel→third-party). HMAC
-           over the body only; no timestamp attached. Pin: third-party
-           consumers that re-sign the captured body with the shared secret
-           cannot detect a replay on their side either — replay defense is
-           the consumer's responsibility, not Spindrel's.
+           binds timestamp + body and verification enforces a freshness window.
 """
 from __future__ import annotations
 
@@ -248,52 +242,33 @@ class TestSlackHasNoInboundWebhook:
 
 
 # ===========================================================================
-# QREPLAY.4 — local_companion WS static-token replay
+# QREPLAY.4 — local_companion WS challenge response
 # ===========================================================================
 
 
-class TestLocalCompanionWsStaticTokenReplay:
-    """``companion_ws`` accepts the WebSocket if ``?token=`` matches the
-    target's stored token (``secrets.compare_digest``). There is no
-    challenge/response; the client's hello frame is not bound to a server
-    nonce. A leaked token replays as a full reconnect with identical privilege.
-    """
+class TestLocalCompanionWsChallengeResponse:
+    """``companion_ws`` binds auth to a per-connection server nonce."""
 
-    def test_auth_is_compare_digest_on_static_token(self):
+    def test_auth_uses_hmac_challenge_not_query_token_compare(self):
         from pathlib import Path
 
         src = (Path(__file__).resolve().parents[2]
                / "integrations/local_companion/router.py").read_text()
-        # Current shape: `secrets.compare_digest(token, expected)`
-        assert "secrets.compare_digest(token, expected)" in src, (
-            "local_companion WS auth shape changed — audit the new path."
-        )
-        # Negative: no HMAC / challenge helper imported.
-        assert "hmac" not in src, (
-            "local_companion router now imports hmac — challenge/response "
-            "may have landed. Flip the test to assert the positive contract."
-        )
+        assert "import hmac" in src
+        assert "_challenge_signature" in src
+        assert "secrets.compare_digest(signature, expected_signature)" in src
 
-    def test_hello_frame_has_no_server_nonce(self):
-        """The WS contract is: accept → client sends hello → server sends hello
-        back with target_id + connection_id. The server does NOT issue a
-        random nonce the client must echo, so the hello sequence is entirely
-        client-controlled given a valid token.
-        """
+    def test_server_sends_challenge_before_hello(self):
         from pathlib import Path
 
         src = (Path(__file__).resolve().parents[2]
                / "integrations/local_companion/router.py").read_text()
-        # The server's hello payload is deterministic: target_id + connection_id.
-        # connection_id is server-generated but is a REGISTRATION id, not a
-        # challenge the client proves knowledge of. Pin the shape.
+        challenge_block = src.split('{"type": "challenge"', 1)[1][:200]
+        assert '"nonce": nonce' in challenge_block
+        assert 'auth.get("type") != "auth"' in src
         assert '"type": "hello",' in src
         assert '"target_id": target_id,' in src
         assert '"connection_id": conn.connection_id,' in src
-        # Negative: no "challenge" / "nonce" key in the outbound hello.
-        outbound_hello_block = src.split('await websocket.send_json(', 1)[1][:300]
-        assert "challenge" not in outbound_hello_block.lower()
-        assert "nonce" not in outbound_hello_block.lower()
 
 
 # ===========================================================================
@@ -301,52 +276,31 @@ class TestLocalCompanionWsStaticTokenReplay:
 # ===========================================================================
 
 
-class TestOutboundWebhookSignatureReplayable:
-    """``app/services/webhooks.py::sign_payload`` is HMAC(body, secret). No
-    timestamp, no nonce. Consumers that only verify the signature cannot
-    distinguish a replay from a legitimate delivery. This is a third-party-
-    contract detail, but we still pin it so a future hardening (e.g.
-    attaching ``X-Spindrel-Timestamp`` and including it in the HMAC input)
-    flips here in one place.
-    """
+class TestOutboundWebhookSignatureTimestampBound:
+    """Outbound webhook signatures bind timestamp + body."""
 
-    def test_same_body_same_secret_same_sig_always(self):
+    def test_same_body_same_secret_different_timestamp_changes_sig(self):
         body = b'{"event":"x","id":"123"}'
         secret = "shared-with-consumer"
-        t0_sig = sign_payload(body, secret)
-        time.sleep(0.01)  # any elapsed time
-        t1_sig = sign_payload(body, secret)
-        assert t0_sig == t1_sig, (
-            "sign_payload output changed across calls with identical inputs — "
-            "a time/nonce component may have landed. Flip this test to pin "
-            "the new contract."
-        )
+        t0_sig = sign_payload(body, secret, "1800000000")
+        t1_sig = sign_payload(body, secret, "1800000001")
+        assert t0_sig != t1_sig
 
-    def test_verify_signature_accepts_captured_sig_forever(self):
+    def test_verify_signature_rejects_captured_sig_after_window(self):
         body = b'{"event":"x","id":"123"}'
         secret = "shared-with-consumer"
-        captured_sig = sign_payload(body, secret)
-        # Replay N times — always valid.
-        for _ in range(5):
-            assert verify_signature(body, secret, captured_sig) is True
+        captured_sig = sign_payload(body, secret, "1800000000")
+        with patch("app.services.webhooks.time.time", return_value=1800000001):
+            assert verify_signature(body, secret, captured_sig, "1800000000") is True
+        with patch("app.services.webhooks.time.time", return_value=1800000400):
+            assert verify_signature(body, secret, captured_sig, "1800000000") is False
 
-    def test_deliver_does_not_attach_timestamp_header(self):
-        """Pin the header set: ``X-Spindrel-Signature`` + ``X-Spindrel-Event``,
-        no timestamp. Source inspection (the helper is async and opens an
-        httpx client — easier to pin via text than to drive end-to-end).
-        """
+    def test_deliver_attaches_timestamp_header(self):
         from pathlib import Path
 
         src = (Path(__file__).resolve().parents[2]
                / "app/services/webhooks.py").read_text()
-        # Current headers:
         assert "X-Spindrel-Signature" in src
         assert "X-Spindrel-Event" in src
-        # Negative: no timestamp header appended in _deliver.
         deliver_block = src.split("async def _deliver", 1)[1].split("async def ", 1)[0]
-        assert "X-Spindrel-Timestamp" not in deliver_block, (
-            "_deliver now sets X-Spindrel-Timestamp — update this test to "
-            "assert the positive contract (timestamp in HMAC input, window "
-            "check on consumer side)."
-        )
-        assert "X-Webhook-Timestamp" not in deliver_block
+        assert "X-Spindrel-Timestamp" in deliver_block

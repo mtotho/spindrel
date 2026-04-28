@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
@@ -7,6 +7,7 @@ import { WidgetCard } from "./WidgetCard";
 import { RichToolResult } from "./RichToolResult";
 import type { ToolResultEnvelope } from "../../types/api";
 import type { OrderedTurnBodyItem } from "./toolTranscriptModel";
+import { groupAdjacentTranscriptItems } from "./orderedTranscriptGrouping";
 
 export function OrderedTranscript({
   items,
@@ -31,8 +32,9 @@ export function OrderedTranscript({
 }) {
   const decideApproval = useDecideApproval();
   const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [expandedItems, setExpandedItems] = useState<Map<string, number>>(new Map());
   const isTerminalMode = chatMode === "terminal";
+  const groupedItems = useMemo(() => groupAdjacentTranscriptItems(items), [items]);
 
   const handleDecide = (
     approvalId: string,
@@ -65,7 +67,7 @@ export function OrderedTranscript({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {items.map((item, index) => {
+      {groupedItems.map((item, index) => {
         if (item.kind === "text") {
           return (
             <div key={item.key} style={{ contain: "content" }}>
@@ -79,12 +81,12 @@ export function OrderedTranscript({
             <DefaultToolRows
               key={item.key}
               entries={item.entries}
-              expandedIdx={expandedItems.has(item.key) ? 0 : null}
+              expandedIdx={expandedItems.get(item.key) ?? null}
               setExpandedIdx={(value) => {
                 setExpandedItems((prev) => {
-                  const next = new Set(prev);
+                  const next = new Map(prev);
                   if (value == null) next.delete(item.key);
-                  else next.add(item.key);
+                  else next.set(item.key, value);
                   return next;
                 });
               }}
@@ -100,7 +102,7 @@ export function OrderedTranscript({
         }
 
         if (item.kind === "widget") {
-          const nextItem = items[index + 1];
+          const nextItem = groupedItems[index + 1];
           const defaultCollapsed = nextItem?.kind === "widget" && nextItem.widget.toolName === item.widget.toolName;
           return (
             <WidgetCard

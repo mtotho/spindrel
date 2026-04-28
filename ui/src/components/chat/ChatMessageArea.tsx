@@ -13,6 +13,9 @@ import {
 } from "./renderers/FindResultsRenderer";
 import { loadUntilMessageVisible } from "./findJump";
 
+const DEFAULT_CHAT_CONTENT_MAX_WIDTH = 820;
+const TERMINAL_CHAT_CONTENT_MAX_WIDTH = 1120;
+
 function cssEscape(s: string): string {
   // Safe wrapper for browsers that support CSS.escape; fallback strips the
   // handful of characters that would break an attribute selector. Message
@@ -313,6 +316,7 @@ export function ChatMessageArea({
     return s;
   }, [chatState.turns]);
   const isTerminalMode = chatMode === "terminal";
+  const contentMaxWidth = isTerminalMode ? TERMINAL_CHAT_CONTENT_MAX_WIDTH : DEFAULT_CHAT_CONTENT_MAX_WIDTH;
   const errorBanner = chatState.error ? (
     <div
       role="status"
@@ -365,16 +369,16 @@ export function ChatMessageArea({
         }}
       >
         {/* Each column-reverse child is centered within the full-width scroll
-            container and capped at 820px. The scroll container itself spans
+            container and capped by chat mode. The scroll container itself spans
             edge-to-edge so the scrollbar sits at the right edge of the chat
-            column, not at the right edge of the 820px content area. */}
+            column, not at the right edge of the content area. */}
         {/* DOM first == visual BOTTOM — streaming / processing indicators +
             a Spindrel brand mark tucked below the newest message. Scrolls
             with the content so it slips off when the user scrolls up. */}
         <div
           className="w-full mx-auto"
           style={{
-            maxWidth: 820,
+            maxWidth: contentMaxWidth,
             paddingLeft: 16,
             paddingRight: 16,
           }}
@@ -392,7 +396,7 @@ export function ChatMessageArea({
           <div
             className="w-full mx-auto px-4"
             style={{
-              maxWidth: 820,
+              maxWidth: contentMaxWidth,
               display: "flex",
               flexDirection: "column",
               justifyContent: isLoading ? "flex-end" : "center",
@@ -412,7 +416,7 @@ export function ChatMessageArea({
             )}
           </div>
         ) : (
-          <div className="w-full mx-auto px-4" style={{ maxWidth: 820 }}>
+          <div className="w-full mx-auto px-4" style={{ maxWidth: contentMaxWidth }}>
             {Array.from({ length: invertedData.length }, (_, i) => {
               const chronIdx = invertedData.length - 1 - i;
               const item = invertedData[chronIdx];
@@ -445,11 +449,11 @@ export function ChatMessageArea({
 
       {showFab && (
         // Anchor the FAB to the COMPOSER's right edge, not the chat column's.
-        // The composer is `max-w-[820px] mx-auto`, so on wide viewports its
+        // The composer is a centered, mode-sized container, so on wide viewports its
         // right edge sits far inboard of the column edge — a FAB pinned to
         // the column edge lands in the right-margin gap; on narrow viewports
         // the composer stretches to the column edge and the same FAB sits
-        // on top of the input. Mirror the composer's max-w-820 centered
+        // on top of the input. Mirror the composer's centered
         // container so the FAB always tracks the composer's right edge.
         // `pointer-events: none` on the wrapper lets clicks fall through
         // the empty areas to the chat behind; the button itself re-enables
@@ -469,7 +473,7 @@ export function ChatMessageArea({
           <div
             style={{
               width: "100%",
-              maxWidth: 820,
+              maxWidth: contentMaxWidth,
               padding: "0 16px",
               display: "flex",
               justifyContent: "flex-end",

@@ -174,7 +174,7 @@ async def admin_create_webhook(
         raise HTTPException(status_code=422, detail="url is required")
 
     try:
-        validate_webhook_url(body.url.strip())
+        await validate_webhook_url(body.url.strip())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -234,7 +234,7 @@ async def admin_update_webhook(
         if not body.url.strip():
             raise HTTPException(status_code=422, detail="url cannot be empty")
         try:
-            validate_webhook_url(body.url.strip())
+            await validate_webhook_url(body.url.strip())
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         row.url = body.url.strip()

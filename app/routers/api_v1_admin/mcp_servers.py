@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, MCPServer as MCPServerRow
 from app.dependencies import get_db, require_scopes
+from app.services.url_safety import UnsafePublicURLError, assert_public_url
 
 router = APIRouter()
 
@@ -255,7 +256,8 @@ async def _test_mcp_connection(url: str, api_key: str) -> MCPServerTestResult:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        await assert_public_url(url)
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             resp = await client.post(
                 url,
                 json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
@@ -282,6 +284,8 @@ async def _test_mcp_connection(url: str, api_key: str) -> MCPServerTestResult:
                 tool_count=len(tools),
                 tools=tool_names,
             )
+    except UnsafePublicURLError as exc:
+        return MCPServerTestResult(ok=False, message=str(exc))
     except Exception as exc:
         import logging as _log
         _log.getLogger(__name__).warning("MCP connection test failed: %s", exc)

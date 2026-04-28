@@ -9,12 +9,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.agent.context import current_run_origin, current_session_id, current_user_id
-from app.db.models import Session, User
+from app.db.models import MachineTargetLease, Session, User
 from app.services import presence
 from app.services.integration_manifests import get_manifest
 from app.services.integration_settings import get_status, is_configured
@@ -486,6 +487,12 @@ def get_target_by_id(provider_id: str, target_id: str) -> dict[str, Any] | None:
 
 
 def get_session_lease(session: Session | None) -> dict[str, Any] | None:
+    """Return a legacy metadata lease.
+
+    New code should prefer ``get_active_session_lease`` so the DB lease table
+    is the source of truth. This function remains for old metadata rows and
+    lightweight unit fakes that do not model SQLAlchemy persistence.
+    """
     if session is None:
         return None
     meta = session.metadata_ or {}
@@ -513,8 +520,78 @@ def get_session_lease(session: Session | None) -> dict[str, Any] | None:
     }
 
 
+def _db_supports_lease_table(db: AsyncSession) -> bool:
+    return hasattr(db, "add") and hasattr(db, "flush") and hasattr(db, "rollback")
+
+
+def _row_lease_payload(row: MachineTargetLease | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "lease_id": row.lease_id,
+        "provider_id": row.provider_id,
+        "target_id": row.target_id,
+        "user_id": str(row.user_id),
+        "granted_at": row.granted_at.isoformat(),
+        "expires_at": row.expires_at.isoformat(),
+        "capabilities": [str(v) for v in (row.capabilities or []) if str(v).strip()],
+        "handle_id": row.handle_id,
+        "connection_id": row.connection_id,
+    }
+
+
+async def get_active_session_lease(
+    db: AsyncSession,
+    session: Session | None,
+) -> dict[str, Any] | None:
+    if session is None:
+        return None
+    if not _db_supports_lease_table(db):
+        return get_session_lease(session)
+    now = _utc_now()
+    row = (
+        await db.execute(
+            select(MachineTargetLease).where(MachineTargetLease.session_id == session.id)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return get_session_lease(session)
+    if row.expires_at <= now:
+        await db.delete(row)
+        await db.commit()
+        return None
+    return _row_lease_payload(row)
+
+
+async def clear_session_lease_row(db: AsyncSession, session: Session) -> None:
+    clear_session_lease(session)
+    if _db_supports_lease_table(db):
+        await db.execute(
+            delete(MachineTargetLease).where(MachineTargetLease.session_id == session.id)
+        )
+
+
 def session_lease_payload(session: Session | None) -> dict[str, Any] | None:
     lease = get_session_lease(session)
+    if lease is None:
+        return None
+    provider = get_provider(lease["provider_id"])
+    target = get_target_by_id(lease["provider_id"], lease["target_id"]) or {}
+    return {
+        **lease,
+        "ready": bool(target.get("ready")),
+        "status": target.get("status"),
+        "status_label": target.get("status_label"),
+        "reason": target.get("reason"),
+        "checked_at": target.get("checked_at"),
+        "handle_id": target.get("handle_id") or lease.get("handle_id"),
+        "connected": bool(target.get("ready")),
+        "provider_label": _provider_label(lease["provider_id"], provider),
+        "target_label": target.get("label") or lease["target_id"],
+    }
+
+
+def enrich_lease_payload(lease: dict[str, Any] | None) -> dict[str, Any] | None:
     if lease is None:
         return None
     provider = get_provider(lease["provider_id"])
@@ -548,6 +625,20 @@ async def _find_conflicting_lease(
     target_id: str,
     exclude_session_id: uuid.UUID | None = None,
 ) -> Session | None:
+    if _db_supports_lease_table(db):
+        now = _utc_now()
+        query = select(MachineTargetLease).where(
+            MachineTargetLease.provider_id == provider_id,
+            MachineTargetLease.target_id == target_id,
+            MachineTargetLease.expires_at > now,
+        )
+        if exclude_session_id is not None:
+            query = query.where(MachineTargetLease.session_id != exclude_session_id)
+        row = (await db.execute(query)).scalar_one_or_none()
+        if row is None:
+            return None
+        return await db.get(Session, row.session_id)
+
     result = await db.execute(select(Session))
     for session in result.scalars():
         if exclude_session_id is not None and session.id == exclude_session_id:
@@ -563,27 +654,17 @@ async def _find_conflicting_lease(
     return None
 
 
-async def grant_session_lease(
+async def _grant_session_lease_legacy(
     db: AsyncSession,
     *,
     session: Session,
     user: User,
     provider_id: str,
     target_id: str,
-    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+    ttl_seconds: int,
+    probed: dict[str, Any],
+    target: dict[str, Any],
 ) -> dict[str, Any]:
-    ttl_seconds = max(30, min(int(ttl_seconds), MAX_LEASE_TTL_SECONDS))
-    provider = get_provider(provider_id)
-    target = provider.get_target(target_id)
-    if target is None:
-        raise ValueError("Unknown machine target.")
-    probed = _normalize_target_status(
-        await provider.probe_target(db, target_id=target_id),
-        driver=_provider_driver(provider_id, provider),
-        last_seen_at=target.get("last_seen_at"),
-    )
-    if not probed["ready"]:
-        raise ValueError(str(probed["reason"] or "Selected machine target is not ready."))
     conflict = await _find_conflicting_lease(
         db,
         provider_id=provider_id,
@@ -612,24 +693,95 @@ async def grant_session_lease(
     return session_lease_payload(session) or lease
 
 
+async def grant_session_lease(
+    db: AsyncSession,
+    *,
+    session: Session,
+    user: User,
+    provider_id: str,
+    target_id: str,
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+) -> dict[str, Any]:
+    ttl_seconds = max(30, min(int(ttl_seconds), MAX_LEASE_TTL_SECONDS))
+    provider = get_provider(provider_id)
+    target = provider.get_target(target_id)
+    if target is None:
+        raise ValueError("Unknown machine target.")
+    probed = _normalize_target_status(
+        await provider.probe_target(db, target_id=target_id),
+        driver=_provider_driver(provider_id, provider),
+        last_seen_at=target.get("last_seen_at"),
+    )
+    if not probed["ready"]:
+        raise ValueError(str(probed["reason"] or "Selected machine target is not ready."))
+
+    if not _db_supports_lease_table(db):
+        return await _grant_session_lease_legacy(
+            db,
+            session=session,
+            user=user,
+            provider_id=provider_id,
+            target_id=target_id,
+            ttl_seconds=ttl_seconds,
+            probed=probed,
+            target=target,
+        )
+
+    now = _utc_now()
+    lease = MachineTargetLease(
+        session_id=session.id,
+        user_id=user.id,
+        provider_id=provider_id,
+        target_id=target_id,
+        lease_id=str(uuid.uuid4()),
+        granted_at=now,
+        expires_at=now + timedelta(seconds=ttl_seconds),
+        capabilities=[str(v) for v in (target.get("capabilities") or []) if str(v).strip()],
+        handle_id=probed.get("handle_id"),
+        connection_id=probed.get("handle_id"),
+        metadata_={},
+    )
+    await db.execute(delete(MachineTargetLease).where(MachineTargetLease.expires_at <= now))
+    await db.execute(delete(MachineTargetLease).where(MachineTargetLease.session_id == session.id))
+    clear_session_lease(session)
+    db.add(lease)
+    try:
+        await db.flush()
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        conflict = await _find_conflicting_lease(
+            db,
+            provider_id=provider_id,
+            target_id=target_id,
+            exclude_session_id=session.id,
+        )
+        if conflict is not None:
+            raise RuntimeError(f"Machine target is already leased by session {conflict.id}.") from exc
+        raise RuntimeError("Machine target is already leased.") from exc
+    await db.refresh(session)
+    return enrich_lease_payload(_row_lease_payload(lease)) or _row_lease_payload(lease) or {}
+
+
 async def build_session_machine_target_payload(
     db: AsyncSession,
     *,
     session: Session,
 ) -> dict[str, Any]:
-    lease = get_session_lease(session)
+    lease = await get_active_session_lease(db, session)
     if lease is not None:
         expires_at = _parse_iso(lease["expires_at"])
         target = get_target_by_id(lease["provider_id"], lease["target_id"])
         if expires_at is None or expires_at <= _utc_now() or target is None:
-            clear_session_lease(session)
+            await clear_session_lease_row(db, session)
             await db.commit()
             await db.refresh(session)
+            lease = None
     targets = build_targets_status()
     ready_target_count = sum(1 for target in targets if target.get("ready"))
     return {
         "session_id": str(session.id),
-        "lease": session_lease_payload(session),
+        "lease": enrich_lease_payload(lease),
         "targets": targets,
         "ready_target_count": ready_target_count,
         "connected_target_count": ready_target_count,
@@ -729,7 +881,7 @@ async def validate_current_execution_policy(
                 allowed=False,
                 reason="The active session could not be resolved for machine control.",
             )
-        lease = get_session_lease(session)
+        lease = await get_active_session_lease(db, session)
         if lease is None:
             return ExecutionPolicyResolution(
                 allowed=False,
@@ -919,6 +1071,13 @@ async def delete_machine_target(
     removed = await provider.remove_target(db, target_id)
     if not removed:
         return False
+    if _db_supports_lease_table(db):
+        await db.execute(
+            delete(MachineTargetLease).where(
+                MachineTargetLease.provider_id == provider_id,
+                MachineTargetLease.target_id == target_id,
+            )
+        )
     result = await db.execute(select(Session))
     changed = False
     for session in result.scalars():

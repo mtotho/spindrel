@@ -8,6 +8,18 @@ import pytest
 from integrations.github.router import github_webhook
 
 
+@pytest.fixture(autouse=True)
+def _disable_integration_event_emit(monkeypatch):
+    def _safe_create_task(coro):
+        coro.close()
+
+    async def _emit_integration_event(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("integrations.sdk.safe_create_task", _safe_create_task)
+    monkeypatch.setattr("integrations.sdk.emit_integration_event", _emit_integration_event)
+
+
 def _make_request(event_type: str = "push", body: bytes = b'{}', signature: str = "sha256=abc"):
     """Build a mock FastAPI Request."""
     req = AsyncMock()
@@ -15,6 +27,7 @@ def _make_request(event_type: str = "push", body: bytes = b'{}', signature: str 
     req.headers = {
         "X-Hub-Signature-256": signature,
         "X-GitHub-Event": event_type,
+        "X-GitHub-Delivery": str(uuid.uuid4()),
     }
     req.json.return_value = {}
     return req
@@ -69,6 +82,7 @@ class TestMultiChannelFanOut:
 
         request = _make_request("push")
         db = AsyncMock()
+        db.add = MagicMock()
 
         with patch("integrations.github.router.validate_signature", return_value=True), \
              patch("integrations.github.router.parse_event", return_value=parsed), \
@@ -102,6 +116,7 @@ class TestMultiChannelFanOut:
 
         request = _make_request("issue_comment")
         db = AsyncMock()
+        db.add = MagicMock()
 
         with patch("integrations.github.router.validate_signature", return_value=True), \
              patch("integrations.github.router.parse_event", return_value=parsed), \
@@ -131,6 +146,7 @@ class TestMultiChannelFanOut:
 
         request = _make_request("push")
         db = AsyncMock()
+        db.add = MagicMock()
 
         with patch("integrations.github.router.validate_signature", return_value=True), \
              patch("integrations.github.router.parse_event", return_value=parsed), \
@@ -157,6 +173,7 @@ class TestMultiChannelFanOut:
 
         request = _make_request("issues")
         db = AsyncMock()
+        db.add = MagicMock()
 
         with patch("integrations.github.router.validate_signature", return_value=True), \
              patch("integrations.github.router.parse_event", return_value=parsed), \
@@ -178,6 +195,7 @@ class TestMultiChannelFanOut:
         parsed = _make_parsed()
         request = _make_request("push")
         db = AsyncMock()
+        db.add = MagicMock()
         session_id = uuid.uuid4()
 
         with patch("integrations.github.router.validate_signature", return_value=True), \
@@ -211,6 +229,7 @@ class TestMultiChannelFanOut:
 
         request = _make_request("issue_comment")
         db = AsyncMock()
+        db.add = MagicMock()
 
         with patch("integrations.github.router.validate_signature", return_value=True), \
              patch("integrations.github.router.parse_event", return_value=parsed), \

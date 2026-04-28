@@ -208,7 +208,7 @@ export function ToolBadges({
 
   const stripMode = striped ?? (resolvedEntries.length >= TRACE_STRIP_THRESHOLD);
   if (stripMode) {
-    return <ToolTraceStrip ticks={ticks} onExpand={() => setStriped(false)} t={t} />;
+    return <ToolTraceStrip ticks={ticks} onExpand={() => setStriped(false)} t={t} chatMode={chatMode} />;
   }
 
   return (
@@ -249,6 +249,24 @@ export function DefaultToolRows({
   decidingIds?: Set<string>;
 }) {
   const isTerminalMode = chatMode === "terminal";
+  const [groupExpanded, setGroupExpanded] = useState(false);
+  const hasApproval = entries.some((entry) => !!entry.approval);
+  const ticks: TraceTick[] = entries.map((entry) => ({
+    toolName: entry.label,
+    target: entry.target ?? undefined,
+    isError: entry.isError,
+  }));
+
+  if (!hasApproval && !groupExpanded && entries.length >= TRACE_STRIP_THRESHOLD) {
+    return (
+      <ToolTraceStrip
+        ticks={ticks}
+        onExpand={() => setGroupExpanded(true)}
+        t={t}
+        chatMode={chatMode}
+      />
+    );
+  }
 
   return (
     <div

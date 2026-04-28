@@ -46,6 +46,7 @@ import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCa
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
+import { isEditableKeyboardTarget } from "@/src/components/chat/chatKeyboard";
 import {
   requestScrollToMessage,
   type ScrollToMessageDetail,
@@ -1258,6 +1259,7 @@ export default function ChatScreen() {
   // Keyboard shortcuts for explorer/split/file viewer/browse
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.altKey && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
@@ -1282,10 +1284,7 @@ export default function ChatScreen() {
         return;
       }
       if (e.key === "Escape" && activeFile) {
-        const tag = (e.target as HTMLElement)?.tagName;
-        if (tag !== "INPUT" && tag !== "TEXTAREA") {
-          setActiveFile(null);
-        }
+        setActiveFile(null);
       }
     };
     window.addEventListener("keydown", handler);
@@ -1354,8 +1353,7 @@ export default function ChatScreen() {
     if (!overlayPanelOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (isEditableKeyboardTarget(e.target)) return;
       closeOverlayPanels();
     };
     window.addEventListener("keydown", handler);

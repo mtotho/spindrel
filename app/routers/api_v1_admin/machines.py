@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, require_scopes
+from app.dependencies import ApiKeyAuth, get_db, verify_admin_auth
 from app.services.machine_control import (
     build_providers_status,
     create_machine_profile,
@@ -21,6 +21,16 @@ from app.services.machine_control import (
 router = APIRouter()
 
 
+async def _machine_admin_auth(auth=Depends(verify_admin_auth)):
+    if isinstance(auth, ApiKeyAuth):
+        if "admin" in (auth.scopes or []):
+            return auth
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if getattr(auth, "is_admin", False):
+        return auth
+    raise HTTPException(status_code=403, detail="Admin access required")
+
+
 class MachineEnrollRequest(BaseModel):
     label: str | None = None
     config: dict[str, Any] | None = None
@@ -32,7 +42,7 @@ class MachineProfileRequest(BaseModel):
 
 
 @router.get("/machines")
-async def list_machine_providers(_auth=Depends(require_scopes("integrations:read"))):
+async def list_machine_providers(_auth=Depends(_machine_admin_auth)):
     return {"providers": build_providers_status()}
 
 
@@ -42,7 +52,7 @@ async def enroll_machine_provider_target(
     request: Request,
     body: MachineEnrollRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ):
     try:
         return await enroll_machine_target(
@@ -65,7 +75,7 @@ async def probe_machine_provider_target(
     provider_id: str,
     target_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ):
     try:
         return await probe_machine_target(db, provider_id=provider_id, target_id=target_id)
@@ -83,7 +93,7 @@ async def get_machine_provider_target_setup(
     target_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ):
     try:
         return await get_machine_target_setup(
@@ -105,7 +115,7 @@ async def create_machine_provider_profile(
     provider_id: str,
     body: MachineProfileRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ):
     try:
         return await create_machine_profile(
@@ -128,7 +138,7 @@ async def update_machine_provider_profile(
     profile_id: str,
     body: MachineProfileRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ):
     try:
         return await update_machine_profile(
@@ -151,7 +161,7 @@ async def delete_machine_provider_profile(
     provider_id: str,
     profile_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ) -> dict[str, Any]:
     try:
         removed = await delete_machine_profile(db, provider_id=provider_id, profile_id=profile_id)
@@ -171,7 +181,7 @@ async def delete_machine_provider_target(
     provider_id: str,
     target_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("integrations:write")),
+    _auth=Depends(_machine_admin_auth),
 ) -> dict[str, Any]:
     try:
         removed = await delete_machine_target(db, provider_id=provider_id, target_id=target_id)

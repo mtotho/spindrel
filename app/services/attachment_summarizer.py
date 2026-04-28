@@ -121,6 +121,9 @@ async def summarize_attachment(
                         text_content = att.file_data.decode("utf-8", errors="replace")[:text_max_chars]
                     elif att.url:
                         import httpx
+                        from app.services.url_safety import assert_public_url
+
+                        await assert_public_url(att.url)
                         async with httpx.AsyncClient(timeout=30) as client:
                             resp = await client.get(att.url)
                             resp.raise_for_status()

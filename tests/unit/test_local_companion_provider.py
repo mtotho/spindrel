@@ -101,7 +101,7 @@ def test_local_companion_client_converts_http_server_url_to_ws_url():
 
     assert url == (
         "ws://10.10.30.208:8000/integrations/local_companion/ws?"
-        "target_id=target-123&token=token-123"
+        "target_id=target-123"
     )
 
 
@@ -114,7 +114,7 @@ def test_local_companion_client_converts_https_server_url_to_wss_url():
 
     assert url == (
         "wss://spindrel.example.com/base/integrations/local_companion/ws?"
-        "target_id=target-123&token=token-123"
+        "target_id=target-123"
     )
 
 

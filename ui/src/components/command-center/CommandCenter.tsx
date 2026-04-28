@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, Bot, CheckCircle2, Clock, ExternalLink, ListChecks, Pause, Play, Radar, Route, Settings2, Sparkles, Zap } from "lucide-react";
 
 import { useBots } from "../../api/hooks/useBots";
@@ -17,6 +17,7 @@ import { ChannelPicker } from "../shared/ChannelPicker";
 import { LlmModelDropdown } from "../shared/LlmModelDropdown";
 import { StatusBadge } from "../shared/SettingsControls";
 import { openTraceInspector } from "../../stores/traceInspector";
+import { useRuntimeCapabilities } from "../../api/hooks/useRuntimes";
 
 function formatRelative(value?: string | null): string {
   if (!value) return "unscheduled";
@@ -132,9 +133,35 @@ function MissionComposer() {
   const [advanced, setAdvanced] = useState(false);
   const [model, setModel] = useState("");
   const [providerId, setProviderId] = useState<string | null>(null);
+  const [harnessEffort, setHarnessEffort] = useState("");
   const botList = bots ?? [];
   const channelList = channels ?? [];
   const effectiveBotId = botId || channelList.find((channel) => channel.id === channelId)?.bot_id || botList[0]?.id || "";
+  const selectedBot = botList.find((bot) => bot.id === effectiveBotId);
+  const harnessRuntime = selectedBot?.harness_runtime ?? null;
+  const { data: harnessCaps } = useRuntimeCapabilities(harnessRuntime);
+  const harnessModelOptions = harnessCaps?.model_options ?? [];
+  const harnessModels = harnessCaps?.available_models?.length
+    ? harnessCaps.available_models
+    : harnessCaps?.supported_models ?? [];
+  const harnessEffortValues = (
+    harnessModelOptions.find((option) => option.id === model)?.effort_values
+    ?? harnessCaps?.effort_values
+    ?? []
+  );
+
+  useEffect(() => {
+    setModel("");
+    setProviderId(null);
+    setHarnessEffort("");
+  }, [effectiveBotId]);
+
+  useEffect(() => {
+    if (!harnessEffort || !harnessEffortValues.length) return;
+    if (!harnessEffortValues.includes(harnessEffort)) {
+      setHarnessEffort("");
+    }
+  }, [harnessEffort, harnessEffortValues]);
 
   const submit = () => {
     const cleanTitle = title.trim();
@@ -149,7 +176,8 @@ function MissionComposer() {
       interval_kind: recurrence ? (["+1h", "+4h", "+1d"].includes(recurrence) ? "preset" : "custom") : "manual",
       recurrence: recurrence || null,
       model_override: model || null,
-      model_provider_id_override: providerId ?? null,
+      model_provider_id_override: harnessRuntime ? null : providerId ?? null,
+      harness_effort: harnessRuntime ? harnessEffort || null : null,
       history_mode: "recent",
       history_recent_count: 8,
     }, {
@@ -258,17 +286,31 @@ function MissionComposer() {
         Advanced model
       </button>
       {advanced && (
-        <div className="mt-2">
-          <LlmModelDropdown
-            value={model}
-            selectedProviderId={providerId}
-            allowClear
-            placeholder="Bot default model"
-            onChange={(nextModel, nextProvider) => {
-              setModel(nextModel);
-              setProviderId(nextProvider ?? null);
-            }}
-          />
+        <div className="mt-2 space-y-2">
+          {harnessRuntime ? (
+            <HarnessMissionControls
+              runtimeLabel={harnessCaps?.display_name ?? harnessRuntime}
+              model={model}
+              onModelChange={setModel}
+              modelOptions={harnessModelOptions}
+              models={harnessModels}
+              modelIsFreeform={harnessCaps?.model_is_freeform ?? false}
+              effort={harnessEffort}
+              onEffortChange={setHarnessEffort}
+              effortValues={harnessEffortValues}
+            />
+          ) : (
+            <LlmModelDropdown
+              value={model}
+              selectedProviderId={providerId}
+              allowClear
+              placeholder="Bot default model"
+              onChange={(nextModel, nextProvider) => {
+                setModel(nextModel);
+                setProviderId(nextProvider ?? null);
+              }}
+            />
+          )}
         </div>
       )}
       <div className="mt-3 flex justify-end">
@@ -283,6 +325,68 @@ function MissionComposer() {
         </button>
       </div>
     </section>
+  );
+}
+
+function HarnessMissionControls({
+  runtimeLabel,
+  model,
+  onModelChange,
+  modelOptions,
+  models,
+  modelIsFreeform,
+  effort,
+  onEffortChange,
+  effortValues,
+}: {
+  runtimeLabel: string;
+  model: string;
+  onModelChange: (value: string) => void;
+  modelOptions: Array<{ id: string; label?: string | null; effort_values: string[]; default_effort?: string | null }>;
+  models: string[];
+  modelIsFreeform: boolean;
+  effort: string;
+  onEffortChange: (value: string) => void;
+  effortValues: string[];
+}) {
+  const modelLabel = (id: string) => modelOptions.find((option) => option.id === id)?.label ?? id;
+  const optionIds = Array.from(new Set([...(model ? [model] : []), ...models]));
+  return (
+    <div className="rounded-md border border-surface-border bg-surface-overlay/30 p-2">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+        {runtimeLabel} harness
+      </div>
+      {modelIsFreeform ? (
+        <input
+          className="h-9 w-full rounded-md border border-input-border bg-input px-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent"
+          placeholder="Harness default model"
+          value={model}
+          onChange={(event) => onModelChange(event.target.value)}
+        />
+      ) : (
+        <select
+          className="h-9 w-full rounded-md border border-input-border bg-input px-2 text-sm text-text outline-none focus:border-accent"
+          value={model}
+          onChange={(event) => onModelChange(event.target.value)}
+        >
+          <option value="">Harness default model</option>
+          {optionIds.map((id) => (
+            <option key={id} value={id}>{modelLabel(id)}</option>
+          ))}
+        </select>
+      )}
+      <select
+        className="mt-2 h-9 w-full rounded-md border border-input-border bg-input px-2 text-sm text-text outline-none focus:border-accent disabled:opacity-60"
+        value={effort}
+        disabled={!effortValues.length}
+        onChange={(event) => onEffortChange(event.target.value)}
+      >
+        <option value="">Harness default effort</option>
+        {effortValues.map((value) => (
+          <option key={value} value={value}>{value}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
