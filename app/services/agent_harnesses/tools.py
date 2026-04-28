@@ -65,12 +65,25 @@ async def apply_tool_bridge(
     Returns ``(exported_tool_names, ignored_client_tool_names)``.
     """
     runtime_name = getattr(runtime, "name", None) or runtime.__class__.__name__
+    bridge_namespace = _bridge_namespace(runtime_name)
     if ctx.channel_id is None:
+        from app.services.agent_harnesses.session_state import set_bridge_status
+
+        async with ctx.db_session_factory() as db:
+            await set_bridge_status(
+                db,
+                ctx.spindrel_session_id,
+                status="no_channel",
+                error="Spindrel bridge tools require a channel-scoped harness turn.",
+                namespace=bridge_namespace,
+            )
         return [], []
     from app.services.agent_harnesses.session_state import set_bridge_status
 
     ignored_client_tools: tuple[str, ...] = ()
     inventory_errors: tuple[str, ...] = ()
+    required_baseline_tools: tuple[str, ...] = ()
+    missing_baseline_tools: tuple[str, ...] = ()
     specs: tuple[HarnessToolSpec, ...] = ()
     try:
         async with ctx.db_session_factory() as db:
@@ -83,6 +96,8 @@ async def apply_tool_bridge(
         specs = inventory.specs
         ignored_client_tools = inventory.ignored_client_tools
         inventory_errors = inventory.errors
+        required_baseline_tools = inventory.required_baseline_tools
+        missing_baseline_tools = inventory.missing_baseline_tools
     except Exception:
         logger.exception("%s: failed to list Spindrel bridge tools", runtime_name)
         async with ctx.db_session_factory() as db:
@@ -91,6 +106,7 @@ async def apply_tool_bridge(
                 ctx.spindrel_session_id,
                 status="error",
                 ignored_client_tools=ignored_client_tools,
+                namespace=bridge_namespace,
                 error="failed to list Spindrel bridge tools",
             )
         return [], list(ignored_client_tools)
@@ -105,6 +121,9 @@ async def apply_tool_bridge(
                 explicit_tool_names=ctx.ephemeral_tool_names,
                 tagged_skill_ids=ctx.tagged_skill_ids,
                 inventory_errors=inventory_errors,
+                required_baseline_tools=required_baseline_tools,
+                missing_baseline_tools=missing_baseline_tools,
+                namespace=bridge_namespace,
                 error="; ".join(inventory_errors) if inventory_errors else None,
             )
         return [], list(ignored_client_tools)
@@ -123,6 +142,9 @@ async def apply_tool_bridge(
                 explicit_tool_names=ctx.ephemeral_tool_names,
                 tagged_skill_ids=ctx.tagged_skill_ids,
                 inventory_errors=inventory_errors,
+                required_baseline_tools=required_baseline_tools,
+                missing_baseline_tools=missing_baseline_tools,
+                namespace=bridge_namespace,
                 error=str(exc) or "bridge attach failed",
             )
         return [], list(ignored_client_tools)
@@ -138,6 +160,9 @@ async def apply_tool_bridge(
                 explicit_tool_names=ctx.ephemeral_tool_names,
                 tagged_skill_ids=ctx.tagged_skill_ids,
                 inventory_errors=inventory_errors,
+                required_baseline_tools=required_baseline_tools,
+                missing_baseline_tools=missing_baseline_tools,
+                namespace=bridge_namespace,
                 error="runtime did not export any bridge tools",
             )
         return [], list(ignored_client_tools)
@@ -152,8 +177,19 @@ async def apply_tool_bridge(
             explicit_tool_names=ctx.ephemeral_tool_names,
             tagged_skill_ids=ctx.tagged_skill_ids,
             inventory_errors=inventory_errors,
+            required_baseline_tools=required_baseline_tools,
+            missing_baseline_tools=missing_baseline_tools,
+            namespace=bridge_namespace,
         )
     return list(exported), list(ignored_client_tools)
+
+
+def _bridge_namespace(runtime_name: str) -> str:
+    if runtime_name == "codex":
+        return "spindrel"
+    if runtime_name == "claude-code":
+        return "spindrel"
+    return runtime_name
 
 
 def _spec_from_schema(schema: dict[str, Any]) -> HarnessToolSpec | None:
@@ -207,11 +243,38 @@ async def resolve_harness_bridge_inventory(
     if channel is not None:
         await _attach_channel_skill_ids(db, channel)
     eff = apply_auto_injections(resolve_effective_tools(bot, channel), bot)
+    spec_names = {spec.name for spec in specs}
+    required_baseline_tools = tuple(
+        name for name in _required_baseline_candidates(bot)
+        if name in set(eff.local_tools) or name in set(eff.pinned_tools or ())
+    )
+    missing_baseline_tools = tuple(
+        name for name in required_baseline_tools if name not in spec_names
+    )
     return HarnessBridgeInventory(
         specs=specs,
         ignored_client_tools=tuple(eff.client_tools),
         errors=errors,
+        required_baseline_tools=required_baseline_tools,
+        missing_baseline_tools=missing_baseline_tools,
     )
+
+
+def _required_baseline_candidates(bot: Any) -> tuple[str, ...]:
+    names = [
+        "list_channels",
+        "read_conversation_history",
+        "list_sub_sessions",
+        "read_sub_session",
+    ]
+    if getattr(bot, "memory_scheme", None) == "workspace-files":
+        try:
+            from app.services.memory_scheme import MEMORY_SCHEME_TOOLS
+
+            names.extend(MEMORY_SCHEME_TOOLS)
+        except Exception:
+            names.extend(["search_memory", "get_memory_file", "file", "manage_bot_skill"])
+    return tuple(dict.fromkeys(names))
 
 
 async def list_harness_spindrel_tools_for(

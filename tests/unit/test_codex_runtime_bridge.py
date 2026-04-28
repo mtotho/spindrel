@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from integrations.codex import schema
 from integrations.codex.harness import (
+    _dynamic_tool_entry,
+    _dynamic_tools_changed,
     _dynamic_tools_signature,
     _extract_thread_id,
     _extract_turn_id,
@@ -53,12 +55,9 @@ def test_thread_start_dynamic_tools_entry_uses_input_schema():
         parameters={"type": "object", "properties": {"query": {"type": "string"}}},
         schema={},
     )
-    entry = {
-        "name": spec.name,
-        "description": spec.description or spec.name,
-        "inputSchema": spec.parameters or {"type": "object", "properties": {}},
-    }
+    entry = _dynamic_tool_entry(spec)
     assert "inputSchema" in entry
+    assert entry["namespace"] == "spindrel"
     assert "parameters" not in entry
     assert "query" in entry["inputSchema"]["properties"]
 
@@ -100,6 +99,29 @@ def test_dynamic_tools_signature_is_order_insensitive():
     ])
 
     assert left == right
+
+
+def test_dynamic_tools_change_detects_add_remove_and_schema_drift():
+    assert _dynamic_tools_changed(
+        harness_session_id=None,
+        current_signature="next",
+        prior_signature="prior",
+    ) is False
+    assert _dynamic_tools_changed(
+        harness_session_id="thread-1",
+        current_signature="next",
+        prior_signature="prior",
+    ) is True
+    assert _dynamic_tools_changed(
+        harness_session_id="thread-1",
+        current_signature=None,
+        prior_signature="prior",
+    ) is True
+    assert _dynamic_tools_changed(
+        harness_session_id="thread-1",
+        current_signature=None,
+        prior_signature="",
+    ) is False
 
 
 def test_extract_thread_id_reads_nested_thread_object():

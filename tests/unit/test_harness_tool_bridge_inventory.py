@@ -24,6 +24,10 @@ def _schema(name: str) -> dict:
     }
 
 
+def _schemas_for(names: list[str]) -> list[dict]:
+    return [_schema(name) for name in names]
+
+
 def test_bridge_inventory_exports_selected_local_tools():
     bot = BotConfig(
         id="harness-bot",
@@ -204,3 +208,86 @@ def test_bridge_inventory_enrolls_explicit_tool_tags():
     assert enroll.call_args.kwargs["source"] == "manual"
     assert schemas.call_args.args[0] == ["create_excalidraw"]
     assert [spec.name for spec in inventory.specs] == ["create_excalidraw"]
+
+
+def test_bridge_inventory_tracks_auto_injected_history_baseline():
+    bot = BotConfig(
+        id="harness-bot",
+        name="Harness Bot",
+        model="claude-sonnet-4-6",
+        system_prompt="",
+    )
+
+    with (
+        patch("app.services.agent_harnesses.tools.get_bot", return_value=bot),
+        patch(
+            "app.services.agent_harnesses.tools.resolve_effective_tools",
+            return_value=EffectiveTools(),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.get_local_tool_schemas",
+            side_effect=_schemas_for,
+        ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
+    ):
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+            )
+        )
+
+    assert set(inventory.required_baseline_tools) == {
+        "list_channels",
+        "read_conversation_history",
+        "list_sub_sessions",
+        "read_sub_session",
+    }
+    assert inventory.missing_baseline_tools == ()
+    assert "read_conversation_history" in [spec.name for spec in inventory.specs]
+
+
+def test_bridge_inventory_reports_missing_memory_baseline_tool():
+    bot = BotConfig(
+        id="harness-bot",
+        name="Harness Bot",
+        model="claude-sonnet-4-6",
+        system_prompt="",
+        memory_scheme="workspace-files",
+    )
+
+    def _without_search_memory(names: list[str]) -> list[dict]:
+        return [_schema(name) for name in names if name != "search_memory"]
+
+    with (
+        patch("app.services.agent_harnesses.tools.get_bot", return_value=bot),
+        patch(
+            "app.services.agent_harnesses.tools.resolve_effective_tools",
+            return_value=EffectiveTools(),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.get_local_tool_schemas",
+            side_effect=_without_search_memory,
+        ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
+    ):
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+            )
+        )
+
+    assert "search_memory" in inventory.required_baseline_tools
+    assert inventory.missing_baseline_tools == ("search_memory",)
+    assert "local tools not registered: search_memory" in inventory.errors

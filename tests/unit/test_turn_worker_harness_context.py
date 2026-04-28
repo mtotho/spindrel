@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.agent_harnesses.base import TurnResult
-from app.services.turn_worker import _run_harness_turn
+from app.services.turn_worker import (
+    _codex_plan_evidence,
+    _metadata_has_codex_plan_signal,
+    _run_harness_turn,
+    _tool_calls_include_exit_plan_mode,
+)
 
 
 pytestmark = pytest.mark.asyncio
@@ -56,6 +61,30 @@ class _RuntimeNeverCompletes:
         except asyncio.CancelledError:
             self.cancelled = True
             raise
+
+
+async def test_codex_plan_metadata_detection_and_evidence():
+    metadata = {
+        "codex_native_plan": [
+            {"status": "pending", "step": "Inspect bridge state"},
+            {"status": "inProgress", "step": "Patch dynamic tools"},
+        ]
+    }
+
+    assert _metadata_has_codex_plan_signal(metadata) is True
+    assert _codex_plan_evidence(metadata) == [
+        "Codex native plan steps: pending: Inspect bridge state; inProgress: Patch dynamic tools"
+    ]
+
+
+async def test_claude_exit_plan_mode_tool_detection():
+    assert _tool_calls_include_exit_plan_mode([
+        {"function": {"name": "Read", "arguments": {}}},
+        {"function": {"name": "ExitPlanMode", "arguments": {"plan": "Ship it"}}},
+    ]) is True
+    assert _tool_calls_include_exit_plan_mode([
+        {"function": {"name": "Read", "arguments": {}}},
+    ]) is False
 
 
 async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch):

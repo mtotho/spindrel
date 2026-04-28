@@ -192,6 +192,8 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(messageInput, /ComposerModelControl/);
   assert.match(messageInput, /ComposerPlanControl/);
   assert.match(messageInput, /ComposerApprovalModeControl/);
+  assert.match(messageInput, /const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;/);
+  assert.doesNotMatch(messageInput, /!isHarness && canTogglePlanMode/);
   assert.doesNotMatch(messageInput, /useDraftsStore/);
   assert.doesNotMatch(messageInput, /type DraftFile/);
   assert.doesNotMatch(messageInput, /function fileToBase64/);

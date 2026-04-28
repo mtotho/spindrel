@@ -207,6 +207,12 @@ def _metadata_for_state(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _session_bus_key(session: Session | None) -> uuid.UUID | None:
+    if session is None:
+        return None
+    return session.channel_id or session.parent_channel_id or session.id
+
+
 async def create_harness_question(
     *,
     db: AsyncSession,
@@ -251,8 +257,9 @@ async def publish_harness_question(interaction_id: str) -> None:
         if row is None:
             return
         session = await db.get(Session, row.session_id)
-        if session and session.channel_id:
-            publish_message(session.channel_id, row)
+        bus_key = _session_bus_key(session)
+        if bus_key:
+            publish_message(bus_key, row)
 
 
 def create_question_pending(interaction_id: str) -> asyncio.Future[HarnessQuestionResult]:
@@ -350,9 +357,10 @@ async def answer_harness_question(
     await db.refresh(row)
     await db.refresh(answer_row)
 
-    if session and session.channel_id:
-        publish_message_updated(session.channel_id, row)
-        publish_message(session.channel_id, answer_row)
+    bus_key = _session_bus_key(session)
+    if bus_key:
+        publish_message_updated(bus_key, row)
+        publish_message(bus_key, answer_row)
 
     result = HarnessQuestionResult(
         interaction_id=interaction_id,
@@ -381,8 +389,9 @@ async def expire_harness_question(interaction_id: str, *, status: str) -> None:
         await db.commit()
         await db.refresh(row)
         session = await db.get(Session, row.session_id)
-        if session and session.channel_id:
-            publish_message_updated(session.channel_id, row)
+        bus_key = _session_bus_key(session)
+        if bus_key:
+            publish_message_updated(bus_key, row)
     _resolve_pending(interaction_id, TimeoutError(status))
 
 

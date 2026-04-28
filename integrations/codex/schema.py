@@ -160,6 +160,7 @@ class CodexDynamicToolSpec:
     name: str
     description: str
     inputSchema: dict
+    namespace: str | None = None
     deferLoading: bool = False
 
 

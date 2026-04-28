@@ -849,6 +849,9 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             f"Spindrel bridge tools: {len(bridge_tool_items)}",
             f"Bridge status: {bridge_status.get('status') or ('enabled' if bridge_tool_items else 'none_selected')}",
         ]
+        missing_baseline = bridge_status.get("missing_baseline_tools")
+        if isinstance(missing_baseline, list) and missing_baseline:
+            lines.append("Missing baseline tools: " + ", ".join(str(name) for name in missing_baseline))
         if last_turn_at:
             lines.append(f"Last harness turn: {last_turn_at.isoformat()}")
         if isinstance(reset_at, str):

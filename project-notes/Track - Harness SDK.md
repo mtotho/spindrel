@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-27 (Claude bridge tool results)
+updated: 2026-04-28 (Codex bridge/plan hardening)
 ---
 # Track - Harness SDK
 
@@ -82,7 +82,7 @@ What landed:
 - REST endpoints `GET/POST /api/v1/sessions/{id}/harness-settings` (`approvals:read` / `approvals:write` scopes — same tier as approval-mode; explicitly noted as v1 expedience that may move to a dedicated `harness:write` later) + `GET /api/v1/runtimes/{name}/capabilities` (user auth).
 - Header chrome: `HarnessHeaderChrome` now renders model pill (freeform popover when `model_is_freeform`, dropdown cycle when `model_options`/`supported_models` are set) + effort pill (model-scoped where available) + Phase 3 approval-mode pill. All target the surface's own `sessionId`.
 - Slash commands: `/model` server-handled (drop `local_only=True`); channel-surface slash POSTs now carry `current_session_id` for the UI-current pane/session, validated against the channel, with `channel.active_session_id` only as the primary fallback. Harness `/model`, future harness `/effort`, `/stop`, `/compact`, `/plan`, `/context`, and default `/find` resolve through that current-session helper. `/effort` harness branch returns a friendly no-op when runtime declares no effort knob and **never** writes `channel.config['effort_override']`; `/help` and the catalog endpoint share one bot-id-aware filter via `useSlashCommandList(botId)` plumbed through 5 callers.
-- Claude allowlist (conservative): `help, rename, stop, style, theme, clear, sessions, scratch, split, focus, model`; Phase 5 adds harness-aware `compact` and `context`. Excluded: `plan, find, effort, skills` (Spindrel-loop or runtime-conflicting semantics).
+- Claude allowlist (conservative): `help, rename, stop, style, theme, clear, sessions, scratch, split, focus, model`; Phase 5 adds harness-aware `compact`, `context`, and `plan`. Excluded: `find, skills` (Spindrel-loop or runtime-conflicting semantics).
 
 Tests:
 
@@ -205,6 +205,9 @@ Approval mapping intent (final values from schema):
 - Fixed the shared harness turn worker regression where `build_turn_context(..., harness_metadata=harness_meta)` referenced an undefined local. The worker now loads latest persisted harness metadata before constructing `TurnContext`, so Claude Code turns no longer crash and Codex can still compare prior dynamic-tool signatures.
 - Fixed Codex native-compact context status: Codex compact telemetry can report cumulative thread totals, so latest completed compacts now prefer post-compact `last_total_tokens` when present and otherwise treat oversized totals as historical reset telemetry instead of showing `0% left`.
 - Fixed the related auto-compact loop: generic harness context pressure now prefers explicit current/context totals (`context_tokens`, `context_total_tokens`, `last_total_tokens`) before cumulative `total_tokens`, so Codex no longer retriggers native compaction after every response simply because the native thread's historical token counter exceeds the model window.
+- 2026-04-28 hardening pass: Codex dynamic tools are explicitly namespaced as `spindrel`, dynamic-tool additions/removals/schema drift force a fresh native thread, exported history/memory bridge tools inject a short host-tool guidance block, and bridge status now records required/missing baseline tools so `/context` can explain why Codex cannot see expected Spindrel affordances.
+- 2026-04-28 plan-mode pass: harness sessions expose the normal composer plan control again; `/plan` is allowed for Claude Code and Codex harness sessions; Spindrel planning maps to Claude native `permission_mode="plan"` and Codex `collaborationMode=plan`; Codex native plan metadata is mirrored back into Spindrel session plan state; Claude `ExitPlanMode` mirrors back to chat mode.
+- 2026-04-28 harness-question live-update fix: durable harness question publish/update events now use the best available session bus key (`channel_id`, then `parent_channel_id`, then `session.id`) so parent-channel sub-sessions and channel-less harness sessions update live instead of requiring refresh.
 
 ## Later - Skill Bridge
 

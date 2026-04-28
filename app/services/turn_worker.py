@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
 import re
 import uuid
@@ -380,6 +381,12 @@ async def _run_harness_turn(
     final_text = _redact_secrets(result.final_text)
     persisted_tool_calls = emitter.persisted_tool_calls()
     assistant_turn_body = emitter.assistant_turn_body(text=final_text)
+    await _mirror_harness_native_plan_state(
+        session_id=session_id,
+        runtime_name=bot.harness_runtime,
+        result_metadata=result.metadata or {},
+        persisted_tool_calls=persisted_tool_calls,
+    )
     if runtime_accepted_turn and context_hints:
         try:
             async with async_session() as db:
@@ -442,6 +449,101 @@ async def _run_harness_turn(
     # channels. See `_load_prior_harness_session_id`.
 
     return final_text, None
+
+
+async def _mirror_harness_native_plan_state(
+    *,
+    session_id: uuid.UUID,
+    runtime_name: str | None,
+    result_metadata: dict,
+    persisted_tool_calls: list[dict],
+) -> None:
+    """Reflect runtime-native plan signals into Spindrel session plan state."""
+    if not result_metadata and not persisted_tool_calls:
+        return
+    try:
+        async with async_session() as db:
+            session = await db.get(SessionRow, session_id)
+            if session is None:
+                return
+            changed = False
+            if runtime_name == "codex" and _metadata_has_codex_plan_signal(result_metadata):
+                from app.services.session_plan_mode import (
+                    enter_session_plan_mode,
+                    get_session_plan_mode,
+                    publish_session_plan_event,
+                    update_planning_state,
+                )
+
+                if get_session_plan_mode(session) == "chat":
+                    enter_session_plan_mode(session)
+                    changed = True
+                evidence = _codex_plan_evidence(result_metadata)
+                if evidence:
+                    update_planning_state(
+                        session,
+                        evidence=evidence,
+                        reason="codex_native_plan",
+                    )
+                    changed = True
+                if changed:
+                    await db.commit()
+                    await db.refresh(session)
+                    publish_session_plan_event(session, "codex_native_plan")
+                return
+
+            if runtime_name == "claude-code" and _tool_calls_include_exit_plan_mode(persisted_tool_calls):
+                from app.services.session_plan_mode import (
+                    exit_session_plan_mode,
+                    get_session_plan_mode,
+                    publish_session_plan_event,
+                )
+
+                if get_session_plan_mode(session) != "chat":
+                    exit_session_plan_mode(session)
+                    await db.commit()
+                    await db.refresh(session)
+                    publish_session_plan_event(session, "claude_exit_plan_mode")
+    except Exception:
+        logger.exception("harness native plan mirroring failed for session %s", session_id)
+
+
+def _metadata_has_codex_plan_signal(metadata: dict) -> bool:
+    return any(
+        key in metadata
+        for key in ("codex_native_plan", "codex_native_plan_text", "codex_native_plan_delta")
+    )
+
+
+def _codex_plan_evidence(metadata: dict) -> list[str]:
+    text = metadata.get("codex_native_plan_text")
+    if isinstance(text, str) and text.strip():
+        return [f"Codex native plan: {text.strip()[:2000]}"]
+    delta = metadata.get("codex_native_plan_delta")
+    if isinstance(delta, str) and delta.strip():
+        return [f"Codex native plan draft: {delta.strip()[:2000]}"]
+    plan = metadata.get("codex_native_plan")
+    if isinstance(plan, list):
+        steps = []
+        for item in plan[:8]:
+            if isinstance(item, dict):
+                step = str(item.get("step") or item.get("text") or "").strip()
+                status = str(item.get("status") or "").strip()
+                if step:
+                    steps.append(f"{status}: {step}" if status else step)
+        if steps:
+            return ["Codex native plan steps: " + "; ".join(steps)]
+    if isinstance(plan, dict):
+        return [f"Codex native plan updated: {json.dumps(plan, sort_keys=True)[:2000]}"]
+    return []
+
+
+def _tool_calls_include_exit_plan_mode(tool_calls: list[dict]) -> bool:
+    for call in tool_calls:
+        fn = call.get("function") if isinstance(call, dict) else None
+        if isinstance(fn, dict) and fn.get("name") == "ExitPlanMode":
+            return True
+    return False
 
 
 async def _start_harness_turn_with_cancel(

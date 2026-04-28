@@ -65,6 +65,8 @@ class HarnessBridgeInventory:
     specs: tuple[HarnessToolSpec, ...]
     ignored_client_tools: tuple[str, ...]
     errors: tuple[str, ...] = ()
+    required_baseline_tools: tuple[str, ...] = ()
+    missing_baseline_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

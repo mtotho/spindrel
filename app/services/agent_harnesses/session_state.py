@@ -101,6 +101,9 @@ async def set_bridge_status(
     explicit_tool_names: list[str] | tuple[str, ...] = (),
     tagged_skill_ids: list[str] | tuple[str, ...] = (),
     inventory_errors: list[str] | tuple[str, ...] = (),
+    required_baseline_tools: list[str] | tuple[str, ...] = (),
+    missing_baseline_tools: list[str] | tuple[str, ...] = (),
+    namespace: str | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
     session = await db.get(Session, session_id)
@@ -115,6 +118,9 @@ async def set_bridge_status(
         "explicit_tool_names": list(explicit_tool_names),
         "tagged_skill_ids": list(tagged_skill_ids),
         "inventory_errors": list(inventory_errors),
+        "required_baseline_tools": list(required_baseline_tools),
+        "missing_baseline_tools": list(missing_baseline_tools),
+        "namespace": namespace,
         "error": error,
         "updated_at": _now_iso(),
     }

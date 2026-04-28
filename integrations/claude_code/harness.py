@@ -75,10 +75,15 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
     return list(_BYPASS_ALLOWED) if mode == "bypassPermissions" else list(_RESTRICTED_ALLOWED)
 
 
+def _effective_permission_mode(ctx: TurnContext) -> str:
+    if ctx.session_plan_mode == "planning":
+        return "plan"
+    return ctx.permission_mode
+
+
 # Conservative v1 slash-command allowlist for harness sessions on this runtime.
 # Excluded by intent (re-add only with documented harness behavior):
 #   compact  — harness-aware: triggers Claude native compaction
-#   plan     — Spindrel chat-mode toggle; conflicts with Claude's native plan
 #   context  — harness-aware: shows native resume/status summary
 #   find     — channel-scoped keyword search; Spindrel-only semantics
 #   skills + any Spindrel-tool-control commands — runtime owns tools
@@ -89,7 +94,7 @@ def _allowed_tools_for_mode(mode: str) -> list[str]:
 _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
     "sessions", "scratch", "split", "focus", "model", "effort",
-    "compact", "context", "new",
+    "compact", "context", "plan", "new",
 })
 
 
@@ -198,10 +203,11 @@ class ClaudeCodeRuntime:
                 "Create it (mkdir + git clone your repo) before sending a message."
             )
 
+        permission_mode = _effective_permission_mode(ctx)
         options_kwargs: dict[str, Any] = {
             "cwd": ctx.workdir,
-            "allowed_tools": _allowed_tools_for_mode(ctx.permission_mode),
-            "permission_mode": ctx.permission_mode,
+            "allowed_tools": _allowed_tools_for_mode(permission_mode),
+            "permission_mode": permission_mode,
             # ``can_use_tool`` is set unconditionally — even in bypassPermissions
             # the helper short-circuits in O(1). This is defensive: if a future
             # SDK change surfaces a tool through the prompter despite the full

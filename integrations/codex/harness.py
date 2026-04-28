@@ -57,7 +57,7 @@ _CODEX_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset(
     {
         "help", "rename", "stop", "style", "theme", "clear",
         "sessions", "scratch", "split", "focus", "model", "effort",
-        "compact", "context", "new",
+        "compact", "context", "plan", "new",
     }
 )
 
@@ -148,14 +148,7 @@ class CodexRuntime:
                 nonlocal dynamic_tools_signature
                 if not _server_supports_dynamic_tools(client):
                     return []
-                entries = [
-                    {
-                        "name": spec.name,
-                        "description": spec.description or spec.name,
-                        "inputSchema": spec.parameters or {"type": "object", "properties": {}},
-                    }
-                    for spec in specs
-                ]
+                entries = [_dynamic_tool_entry(spec) for spec in specs]
                 params["dynamicTools"] = entries
                 dynamic_tools_signature = _dynamic_tools_signature(entries)
                 return [spec.name for spec in specs]
@@ -165,10 +158,10 @@ class CodexRuntime:
             prior_dynamic_tools_signature = str(
                 ctx.harness_metadata.get("codex_dynamic_tools_signature") or ""
             )
-            dynamic_tools_changed = (
-                bool(ctx.harness_session_id)
-                and bool(dynamic_tools_signature)
-                and dynamic_tools_signature != prior_dynamic_tools_signature
+            dynamic_tools_changed = _dynamic_tools_changed(
+                harness_session_id=ctx.harness_session_id,
+                current_signature=dynamic_tools_signature,
+                prior_signature=prior_dynamic_tools_signature,
             )
 
             if ctx.harness_session_id and not dynamic_tools_changed:
@@ -183,7 +176,7 @@ class CodexRuntime:
 
             turn_params = _build_turn_start_params(
                 thread_id=thread_id,
-                prompt=prompt,
+                prompt=_prompt_with_bridge_guidance(prompt, exported),
                 ctx=ctx,
             )
             turn_resp = await client.request(schema.METHOD_TURN_START, turn_params)
@@ -268,11 +261,11 @@ class CodexRuntime:
                 cost_usd=result_meta.get("total_cost_usd"),
                 usage=result_meta.get("usage"),
                 metadata={
-                    "codex_dynamic_tools_signature": dynamic_tools_signature,
+                    "codex_dynamic_tools_signature": dynamic_tools_signature or "",
                     "codex_dynamic_tools": list(exported),
+                    "codex_dynamic_tools_namespace": "spindrel",
+                    **_native_plan_metadata(result_meta),
                 }
-                if dynamic_tools_signature
-                else {},
             )
 
     async def compact_session(
@@ -390,11 +383,72 @@ def _build_thread_start_params(ctx: TurnContext) -> dict[str, Any]:
     return params
 
 
+def _dynamic_tool_entry(spec: HarnessToolSpec) -> dict[str, Any]:
+    return {
+        "name": spec.name,
+        "namespace": "spindrel",
+        "description": spec.description or spec.name,
+        "inputSchema": spec.parameters or {"type": "object", "properties": {}},
+    }
+
+
 def _dynamic_tools_signature(entries: list[dict[str, Any]]) -> str:
     """Stable signature for Codex thread-start-scoped dynamic tools."""
     ordered = sorted(entries, key=lambda item: str(item.get("name") or ""))
     payload = json.dumps(ordered, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _dynamic_tools_changed(
+    *,
+    harness_session_id: str | None,
+    current_signature: str | None,
+    prior_signature: str | None,
+) -> bool:
+    if not harness_session_id:
+        return False
+    return (current_signature or "") != (prior_signature or "")
+
+
+def _prompt_with_bridge_guidance(prompt: str, exported_tools: list[str]) -> str:
+    exported = set(exported_tools)
+    guidance_tools = [
+        name for name in (
+            "read_conversation_history",
+            "search_memory",
+            "get_memory_file",
+            "file",
+            "manage_bot_skill",
+        )
+        if name in exported
+    ]
+    if not guidance_tools:
+        return prompt
+    return "\n\n".join([
+        "<spindrel_tool_guidance>",
+        (
+            "Spindrel host tools are available through the spindrel dynamic-tool "
+            "namespace. Prefer these tools for host-tracked memory, conversation "
+            "history, and durable state instead of reading or editing those records "
+            "with shell commands."
+        ),
+        "Available tracking tools: " + ", ".join(guidance_tools),
+        "</spindrel_tool_guidance>",
+        prompt,
+    ])
+
+
+def _native_plan_metadata(result_meta: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if isinstance(result_meta.get("plan"), (dict, list)):
+        out["codex_native_plan"] = result_meta["plan"]
+    text = result_meta.get("native_plan_text")
+    if isinstance(text, str) and text.strip():
+        out["codex_native_plan_text"] = text.strip()
+    parts = result_meta.get("native_plan_delta_parts")
+    if isinstance(parts, list) and parts:
+        out["codex_native_plan_delta"] = "".join(str(part) for part in parts)
+    return out
 
 
 def _build_turn_start_params(

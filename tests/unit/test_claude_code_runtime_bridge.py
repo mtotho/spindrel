@@ -66,7 +66,7 @@ class _RecordingEmitter:
         }))
 
 
-def _ctx(*, mode: str = "default") -> TurnContext:
+def _ctx(*, mode: str = "default", session_plan_mode: str = "chat") -> TurnContext:
     """Build a TurnContext for bridge tests. Default mode suppresses the
     bypass-mode audit pair so existing tests stay focused on the primary
     emit path. The bypass-mode test passes ``mode='bypassPermissions'``."""
@@ -79,6 +79,7 @@ def _ctx(*, mode: str = "default") -> TurnContext:
         harness_session_id=None,
         permission_mode=mode,
         db_session_factory=async_session,
+        session_plan_mode=session_plan_mode,
     )
 
 
@@ -370,3 +371,14 @@ def test_runtime_autoapprove_in_plan_only_for_exit_plan_mode():
     assert rt.autoapprove_in_plan("ExitPlanMode") is True
     assert rt.autoapprove_in_plan("Bash") is False
     assert rt.autoapprove_in_plan("Edit") is False
+
+
+def test_spindrel_plan_mode_maps_to_claude_native_plan_permission():
+    from integrations.claude_code.harness import _effective_permission_mode
+
+    assert _effective_permission_mode(
+        _ctx(mode="bypassPermissions", session_plan_mode="planning")
+    ) == "plan"
+    assert _effective_permission_mode(
+        _ctx(mode="default", session_plan_mode="chat")
+    ) == "default"
