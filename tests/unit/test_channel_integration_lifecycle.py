@@ -16,11 +16,17 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.db.models import Channel, ChannelIntegration
-from app.routers.api_v1_channels import activate_integration, deactivate_integration
+from app.domain.errors import ConflictError, NotFoundError, ValidationError
+from app.services.channel_integrations import (
+    adopt_channel_integration,
+    activate_channel_integration,
+    bind_channel_integration,
+    deactivate_channel_integration,
+    update_activation_config,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -61,15 +67,84 @@ async def _all_rows(db_session, channel_id: uuid.UUID) -> list[ChannelIntegratio
     return list(rows)
 
 
+class TestBindingContracts:
+    async def test_bind_duplicate_client_id_raises_conflict(self, db_session):
+        channel_id = await _seed_channel(db_session)
+        await bind_channel_integration(
+            db_session,
+            channel_id=channel_id,
+            integration_type="slack",
+            client_id="slack:C123",
+        )
+        await db_session.commit()
+
+        with pytest.raises(ConflictError) as exc:
+            await bind_channel_integration(
+                db_session,
+                channel_id=channel_id,
+                integration_type="slack",
+                client_id="slack:C123",
+            )
+        assert exc.value.http_status == 409
+
+    async def test_bind_missing_channel_raises_not_found(self, db_session):
+        with pytest.raises(NotFoundError) as exc:
+            await bind_channel_integration(
+                db_session,
+                channel_id=uuid.uuid4(),
+                integration_type="slack",
+                client_id="slack:C123",
+            )
+        assert exc.value.http_status == 404
+
+    async def test_adopt_missing_target_raises_validation(self, db_session):
+        channel_id = await _seed_channel(db_session)
+        binding = await bind_channel_integration(
+            db_session,
+            channel_id=channel_id,
+            integration_type="slack",
+            client_id="slack:C123",
+        )
+        await db_session.commit()
+
+        with pytest.raises(ValidationError) as exc:
+            await adopt_channel_integration(
+                db_session,
+                channel_id=channel_id,
+                binding_id=binding.id,
+                target_channel_id=uuid.uuid4(),
+            )
+        assert exc.value.http_status == 400
+
+    async def test_update_activation_config_merges_existing_values(self, db_session):
+        channel_id = await _seed_channel(db_session)
+        db_session.add(ChannelIntegration(
+            channel_id=channel_id,
+            integration_type="simple-int",
+            client_id=f"mc-activated:simple-int:{channel_id}",
+            activated=True,
+            activation_config={"keep": True, "replace": "old"},
+        ))
+        await db_session.commit()
+
+        out = await update_activation_config(
+            db_session,
+            channel_id=channel_id,
+            integration_type="simple-int",
+            config={"replace": "new", "add": 1},
+        )
+
+        assert out["activation_config"] == {"keep": True, "replace": "new", "add": 1}
+
+
 class TestActivateContracts:
     async def test_activate_creates_new_row_when_none_exists(self, db_session):
         channel_id = await _seed_channel(db_session)
         with _mock_manifests():
-            out = await activate_integration(
+            out = await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
         assert out.activated is True
         rows = await _active_rows(db_session, channel_id)
@@ -86,11 +161,10 @@ class TestActivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            out = await activate_integration(
+            out = await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
 
         assert out.activated is True
@@ -108,11 +182,10 @@ class TestActivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            await activate_integration(
+            await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
 
         rows = await _all_rows(db_session, channel_id)
@@ -133,11 +206,10 @@ class TestActivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            await activate_integration(
+            await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
 
         rows = await _all_rows(db_session, channel_id)
@@ -147,25 +219,23 @@ class TestActivateContracts:
     async def test_activate_unknown_integration_raises_404(self, db_session):
         channel_id = await _seed_channel(db_session)
         with _mock_manifests():
-            with pytest.raises(HTTPException) as exc:
-                await activate_integration(
+            with pytest.raises(NotFoundError) as exc:
+                await activate_channel_integration(
                     channel_id=channel_id,
                     integration_type="nonexistent-int",
                     db=db_session,
-                    _auth=None,
                 )
-        assert exc.value.status_code == 404
+        assert exc.value.http_status == 404
 
     async def test_activate_cascades_to_included_integrations(self, db_session):
         """Activating a parent with ``includes: [child-int]`` must also create
         an active ChannelIntegration row for child-int."""
         channel_id = await _seed_channel(db_session)
         with _mock_manifests():
-            out = await activate_integration(
+            out = await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="parent-int",
                 db=db_session,
-                _auth=None,
             )
         assert out.activated is True
         rows = await _active_rows(db_session, channel_id)
@@ -186,11 +256,10 @@ class TestActivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            await activate_integration(
+            await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="parent-int",
                 db=db_session,
-                _auth=None,
             )
 
         rows = await _all_rows(db_session, channel_id)
@@ -210,11 +279,10 @@ class TestDeactivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            out = await deactivate_integration(
+            out = await deactivate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
 
         assert out["activated"] is False
@@ -238,11 +306,10 @@ class TestDeactivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            await deactivate_integration(
+            await deactivate_channel_integration(
                 channel_id=channel_id,
                 integration_type="parent-int",
                 db=db_session,
-                _auth=None,
             )
 
         rows = await _active_rows(db_session, channel_id)
@@ -268,11 +335,10 @@ class TestDeactivateContracts:
         await db_session.commit()
 
         with _mock_manifests():
-            await deactivate_integration(
+            await deactivate_channel_integration(
                 channel_id=channel_id,
                 integration_type="parent-int",
                 db=db_session,
-                _auth=None,
             )
 
         rows = await _active_rows(db_session, channel_id)
@@ -286,11 +352,10 @@ class TestDeactivateContracts:
         not an error — callers must be able to deactivate idempotently."""
         channel_id = await _seed_channel(db_session)
         with _mock_manifests():
-            out = await deactivate_integration(
+            out = await deactivate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",  # No row exists for this channel
                 db=db_session,
-                _auth=None,
             )
         assert out["ok"] is True
         assert out["activated"] is False
@@ -300,17 +365,15 @@ class TestDeactivateContracts:
         activate should reuse the existing row, not create a new one."""
         channel_id = await _seed_channel(db_session)
         with _mock_manifests():
-            await activate_integration(
+            await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
-            await deactivate_integration(
+            await deactivate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
 
         all_rows = await _all_rows(db_session, channel_id)
@@ -320,11 +383,10 @@ class TestDeactivateContracts:
 
         # Reactivate — must reuse, not duplicate.
         with _mock_manifests():
-            await activate_integration(
+            await activate_channel_integration(
                 channel_id=channel_id,
                 integration_type="simple-int",
                 db=db_session,
-                _auth=None,
             )
 
         all_rows = await _all_rows(db_session, channel_id)

@@ -26,8 +26,8 @@ from app.dependencies import (
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
     create_detached_channel_session, reset_channel_session, switch_channel_session,
-    bind_integration, unbind_integration, adopt_integration,
 )
+from app.services import channel_integrations as channel_integration_service
 from app.services import session_locks
 from app.services.sessions import store_passive_message
 from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
@@ -445,53 +445,11 @@ async def create_channel(
         channel.metadata_ = meta
 
     # Activation warnings (collected but don't fail creation)
-    activation_warnings: list[dict] = []
-    if body.activate_integrations:
-        from integrations import get_activation_manifests
-        manifests = get_activation_manifests()
-        for int_type in body.activate_integrations:
-            manifest = manifests.get(int_type)
-            if not manifest:
-                activation_warnings.append({"code": "unknown_integration", "message": f"No activation manifest for '{int_type}'"})
-                continue
-            # Check if already activated
-            existing = (await db.execute(
-                select(ChannelIntegration).where(
-                    ChannelIntegration.channel_id == channel.id,
-                    ChannelIntegration.integration_type == int_type,
-                    ChannelIntegration.activated == True,  # noqa: E712
-                )
-            )).scalar_one_or_none()
-            if existing:
-                continue
-            # Resolve proper client_id from binding config if available
-            act_client_id = f"mc-activated:{int_type}:{channel.id}"
-            try:
-                act_client_id = _resolve_activation_client_id(int_type, channel.id)
-            except Exception:
-                pass
-
-            # Re-activate existing deactivated row if present
-            inactive = (await db.execute(
-                select(ChannelIntegration).where(
-                    ChannelIntegration.channel_id == channel.id,
-                    ChannelIntegration.integration_type == int_type,
-                    ChannelIntegration.activated == False,  # noqa: E712
-                )
-            )).scalar_one_or_none()
-            if inactive:
-                inactive.activated = True
-                inactive.client_id = act_client_id
-                db.add(inactive)
-            else:
-                ci = ChannelIntegration(
-                    channel_id=channel.id,
-                    integration_type=int_type,
-                    client_id=act_client_id,
-                    activated=True,
-                )
-                db.add(ci)
-
+    _activation_warnings = await channel_integration_service.activate_channel_integrations_for_create(
+        db,
+        channel=channel,
+        integration_types=body.activate_integrations,
+    )
 
     # Add member bots if specified
     if body.member_bot_ids:
@@ -1879,15 +1837,7 @@ async def list_channel_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List integration bindings for a channel."""
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    bindings = (await db.execute(
-        select(ChannelIntegration)
-        .where(ChannelIntegration.channel_id == channel_id)
-        .order_by(ChannelIntegration.created_at)
-    )).scalars().all()
+    bindings = await channel_integration_service.list_channel_bindings(db, channel_id)
     return [IntegrationBindingOut.model_validate(b) for b in bindings]
 
 
@@ -1899,24 +1849,7 @@ async def bind_channel_integration(
     _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Bind an integration to a channel."""
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    # Check for duplicate binding within the same channel
-    existing = (await db.execute(
-        select(ChannelIntegration).where(
-            ChannelIntegration.client_id == body.client_id,
-            ChannelIntegration.channel_id == channel_id,
-        )
-    )).scalar_one_or_none()
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"client_id '{body.client_id}' is already bound to this channel",
-        )
-
-    binding = await bind_integration(
+    binding = await channel_integration_service.bind_channel_integration(
         db,
         channel_id=channel_id,
         integration_type=body.integration_type,
@@ -1937,11 +1870,11 @@ async def unbind_channel_integration(
     _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Remove an integration binding from a channel."""
-    binding = await db.get(ChannelIntegration, binding_id)
-    if not binding or binding.channel_id != channel_id:
-        raise HTTPException(status_code=404, detail="Binding not found")
-
-    await unbind_integration(db, binding_id)
+    await channel_integration_service.unbind_channel_integration(
+        db,
+        channel_id=channel_id,
+        binding_id=binding_id,
+    )
     await db.commit()
 
 
@@ -1954,15 +1887,12 @@ async def adopt_channel_integration(
     _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Move an integration binding to another channel."""
-    binding = await db.get(ChannelIntegration, binding_id)
-    if not binding or binding.channel_id != channel_id:
-        raise HTTPException(status_code=404, detail="Binding not found")
-
-    try:
-        binding = await adopt_integration(db, binding_id, body.target_channel_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+    binding = await channel_integration_service.adopt_channel_integration(
+        db,
+        channel_id=channel_id,
+        binding_id=binding_id,
+        target_channel_id=body.target_channel_id,
+    )
     await db.commit()
     await db.refresh(binding)
     return IntegrationBindingOut.model_validate(binding)
@@ -1993,41 +1923,6 @@ class AvailableIntegrationOut(BaseModel):
     included_by: list[str] = []
 
 
-def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) -> str:
-    """Resolve a proper client_id for activation from the integration's binding config.
-
-    If the integration declares ``auto_client_id`` in its binding config (e.g.
-    ``"gmail:{GMAIL_EMAIL}"``), substitute setting values and return the result.
-    Falls back to ``mc-activated:{channel_id}`` if no auto_client_id or the
-    required settings aren't configured.
-    """
-    from integrations import discover_binding_metadata
-    from app.services.integration_settings import get_value
-
-    binding = discover_binding_metadata().get(integration_type)
-    if not binding:
-        return f"mc-activated:{integration_type}:{channel_id}"
-
-    template = binding.get("auto_client_id")
-    if not template:
-        return f"mc-activated:{integration_type}:{channel_id}"
-
-    # Substitute {VAR_NAME} placeholders with setting values
-    import re
-    def _sub(m: re.Match) -> str:
-        return get_value(integration_type, m.group(1))
-
-    resolved = re.sub(r"\{(\w+)\}", _sub, template)
-
-    # If any placeholder resolved to empty, fall back
-    prefix = binding.get("client_id_prefix", "")
-    if resolved == prefix or not resolved or resolved == template:
-        return f"mc-activated:{integration_type}:{channel_id}"
-
-    return resolved
-
-
-
 @router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
 async def activate_integration(
     channel_id: uuid.UUID,
@@ -2036,137 +1931,16 @@ async def activate_integration(
     _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Activate an integration on a channel. Creates/updates ChannelIntegration with activated=true."""
-    from integrations import get_activation_manifests
-
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    manifests = get_activation_manifests()
-    manifest = manifests.get(integration_type)
-    if not manifest:
-        raise HTTPException(status_code=404, detail=f"No activation manifest for '{integration_type}'")
-
-    # Find or create ChannelIntegration row
-    existing = (await db.execute(
-        select(ChannelIntegration).where(
-            ChannelIntegration.channel_id == channel_id,
-            ChannelIntegration.integration_type == integration_type,
-            ChannelIntegration.activated == True,  # noqa: E712
-        )
-    )).scalar_one_or_none()
-
-    if existing:
-        # Already activated
-        return ActivationOut(
-            integration_type=integration_type,
-            activated=True,
-            manifest=manifest,
-            warnings=[],
-        )
-
-    # Check for existing inactive rows we can reuse. Prefer a binding
-    # with a real integration prefix (e.g. bb:, slack:) over an
-    # mc-activated: stub — the real binding has the correct client_id
-    # for dispatch resolution and must not be overwritten.
-    inactive_rows = (await db.execute(
-        select(ChannelIntegration).where(
-            ChannelIntegration.channel_id == channel_id,
-            ChannelIntegration.integration_type == integration_type,
-            ChannelIntegration.activated == False,  # noqa: E712
-        )
-    )).scalars().all()
-
-    # Pick the best row: real-prefix binding > mc-activated stub
-    real_binding = next(
-        (r for r in inactive_rows if not r.client_id.startswith("mc-activated:")),
-        None,
-    )
-    inactive = real_binding or (inactive_rows[0] if inactive_rows else None)
-
-    if inactive:
-        inactive.activated = True
-        # Only set client_id on mc-activated stubs — never overwrite a
-        # real binding's client_id (e.g. bb:chat_guid).
-        if inactive.client_id.startswith("mc-activated:"):
-            client_id = f"mc-activated:{integration_type}:{channel_id}"
-            try:
-                client_id = _resolve_activation_client_id(integration_type, channel_id)
-            except Exception:
-                pass
-            inactive.client_id = client_id
-        db.add(inactive)
-    else:
-        new_client_id = f"mc-activated:{integration_type}:{channel_id}"
-        try:
-            new_client_id = _resolve_activation_client_id(integration_type, channel_id)
-        except Exception:
-            pass
-        ci = ChannelIntegration(
-            channel_id=channel_id,
-            integration_type=integration_type,
-            client_id=new_client_id,
-            activated=True,
-        )
-        db.add(ci)
-
-    await db.commit()
-
-    # Auto-activate included integrations
-    for included_id in manifest.get("includes", []):
-        included_manifest = manifests.get(included_id)
-        if not included_manifest:
-            continue
-        already = (await db.execute(
-            select(ChannelIntegration).where(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.integration_type == included_id,
-                ChannelIntegration.activated == True,  # noqa: E712
-            )
-        )).scalar_one_or_none()
-        if already:
-            continue
-        inc_client_id = f"mc-activated:{included_id}:{channel_id}"
-        try:
-            inc_client_id = _resolve_activation_client_id(included_id, channel_id)
-        except Exception:
-            pass
-        inc_inactive = (await db.execute(
-            select(ChannelIntegration).where(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.integration_type == included_id,
-                ChannelIntegration.activated == False,  # noqa: E712
-            )
-        )).scalar_one_or_none()
-        if inc_inactive:
-            inc_inactive.activated = True
-            inc_inactive.client_id = inc_client_id
-            db.add(inc_inactive)
-        else:
-            db.add(ChannelIntegration(
-                channel_id=channel_id,
-                integration_type=included_id,
-                client_id=inc_client_id,
-                activated=True,
-            ))
-
-    if manifest.get("includes"):
-        await db.commit()
-
-    # Run feature validation
-    warnings: list[dict] = []
-    try:
-        from app.services.feature_validation import validate_activation
-        ws = await validate_activation(channel.bot_id, integration_type)
-        warnings = [w.to_dict() for w in ws]
-    except Exception:
-        pass
-
-    return ActivationOut(
+    result = await channel_integration_service.activate_channel_integration(
+        db,
+        channel_id=channel_id,
         integration_type=integration_type,
-        activated=True,
-        manifest=manifest,
-        warnings=warnings,
+    )
+    return ActivationOut(
+        integration_type=result.integration_type,
+        activated=result.activated,
+        manifest=result.manifest,
+        warnings=result.warnings,
     )
 
 
@@ -2178,63 +1952,11 @@ async def deactivate_integration(
     _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Deactivate an integration on a channel."""
-    from integrations import get_activation_manifests
-
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    manifests = get_activation_manifests()
-
-    result = await db.execute(
-        select(ChannelIntegration).where(
-            ChannelIntegration.channel_id == channel_id,
-            ChannelIntegration.integration_type == integration_type,
-            ChannelIntegration.activated == True,  # noqa: E712
-        )
+    return await channel_integration_service.deactivate_channel_integration(
+        db,
+        channel_id=channel_id,
+        integration_type=integration_type,
     )
-    rows = result.scalars().all()
-    for row in rows:
-        row.activated = False
-        db.add(row)
-
-    # Flush so the "still_needed" queries below see the deactivated rows
-    await db.flush()
-
-    # Deactivate included integrations if no other active integration still includes them
-    manifest = manifests.get(integration_type, {})
-    for included_id in manifest.get("includes", []):
-        # Check if any OTHER active integration still includes this one
-        still_needed = False
-        for other_type, other_manifest in manifests.items():
-            if other_type == integration_type:
-                continue
-            if included_id not in other_manifest.get("includes", []):
-                continue
-            other_active = (await db.execute(
-                select(ChannelIntegration).where(
-                    ChannelIntegration.channel_id == channel_id,
-                    ChannelIntegration.integration_type == other_type,
-                    ChannelIntegration.activated == True,  # noqa: E712
-                )
-            )).scalar_one_or_none()
-            if other_active:
-                still_needed = True
-                break
-        if not still_needed:
-            inc_result = await db.execute(
-                select(ChannelIntegration).where(
-                    ChannelIntegration.channel_id == channel_id,
-                    ChannelIntegration.integration_type == included_id,
-                    ChannelIntegration.activated == True,  # noqa: E712
-                )
-            )
-            for inc_row in inc_result.scalars().all():
-                inc_row.activated = False
-                db.add(inc_row)
-
-    await db.commit()
-    return {"ok": True, "integration_type": integration_type, "activated": False}
 
 
 @router.get("/{channel_id}/integrations/available", response_model=list[AvailableIntegrationOut])
@@ -2244,54 +1966,13 @@ async def list_available_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List all integrations that declare activation blocks, with current status."""
-    from integrations import get_activation_manifests
-
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    manifests = get_activation_manifests()
-
-    # Load full ChannelIntegration rows to get activated status + activation_config
-    ci_result = await db.execute(
-        select(ChannelIntegration).where(
-            ChannelIntegration.channel_id == channel_id,
-            ChannelIntegration.activated == True,  # noqa: E712
+    return [
+        AvailableIntegrationOut(**item)
+        for item in await channel_integration_service.list_activation_options(
+            db,
+            channel_id=channel_id,
         )
-    )
-    ci_rows = {ci.integration_type: ci for ci in ci_result.scalars().all()}
-
-    result = []
-    for itype, manifest in manifests.items():
-        tool_names = list(manifest.get("tools", []) or [])
-        has_system_prompt = bool(manifest.get("system_prompt"))
-
-        ci_row = ci_rows.get(itype)
-        activation_config = (ci_row.activation_config or {}) if ci_row else {}
-
-        result.append(AvailableIntegrationOut(
-            integration_type=itype,
-            description=manifest.get("description", ""),
-            requires_workspace=manifest.get("requires_workspace", False),
-            activated=itype in ci_rows,
-            tools=tool_names,
-            has_system_prompt=has_system_prompt,
-            version=manifest.get("version"),
-            includes=manifest.get("includes", []),
-            activation_config=activation_config,
-            config_fields=manifest.get("config_fields", []),
-        ))
-
-    # Second pass: populate included_by — for each integration that has
-    # includes, mark each included integration as included_by the parent.
-    by_type = {r.integration_type: r for r in result}
-    for r in result:
-        for included_id in r.includes:
-            included = by_type.get(included_id)
-            if included:
-                included.included_by.append(r.integration_type)
-
-    return result
+    ]
 
 
 class ActivationConfigUpdate(BaseModel):
@@ -2307,26 +1988,12 @@ async def update_activation_config(
     _auth=Depends(require_admin_and_scope("channels.integrations:write")),
 ):
     """Merge values into the activation_config JSONB of a ChannelIntegration row."""
-    ci = (await db.execute(
-        select(ChannelIntegration).where(
-            ChannelIntegration.channel_id == channel_id,
-            ChannelIntegration.integration_type == integration_type,
-            ChannelIntegration.activated == True,  # noqa: E712
-        )
-    )).scalar_one_or_none()
-
-    if not ci:
-        raise HTTPException(status_code=404, detail="Activated integration not found on this channel")
-
-    import copy
-    from sqlalchemy.orm.attributes import flag_modified
-
-    merged = copy.deepcopy(ci.activation_config or {})
-    merged.update(body.config)
-    ci.activation_config = merged
-    flag_modified(ci, "activation_config")
-    await db.commit()
-    return {"ok": True, "activation_config": merged}
+    return await channel_integration_service.update_activation_config(
+        db,
+        channel_id=channel_id,
+        integration_type=integration_type,
+        config=body.config,
+    )
 
 
 # ---------------------------------------------------------------------------

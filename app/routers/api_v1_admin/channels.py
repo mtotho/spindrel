@@ -566,6 +566,7 @@ class ChannelSettingsOut(BaseModel):
     # channel.config["header_backdrop_mode"]; unset/default resolves to glass.
     header_backdrop_mode: str = "glass"
     widget_theme_ref: Optional[str] = None
+    pinned_widget_context_enabled: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -641,6 +642,7 @@ class ChannelSettingsUpdate(BaseModel):
     # Stored inside channel.config JSONB.
     header_backdrop_mode: Optional[str] = None
     widget_theme_ref: Optional[str] = None
+    pinned_widget_context_enabled: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -823,6 +825,7 @@ async def admin_channel_settings(
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
+    out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
     _fill_channel_project_settings(out, channel)
     return out
 
@@ -984,6 +987,16 @@ async def admin_channel_settings_update(
         channel.config = cfg
         flag_modified(channel, "config")
 
+    if "pinned_widget_context_enabled" in updates:
+        enabled = updates.pop("pinned_widget_context_enabled")
+        cfg = dict(channel.config or {})
+        if enabled in (None, True):
+            cfg.pop("pinned_widget_context_enabled", None)
+        else:
+            cfg["pinned_widget_context_enabled"] = False
+        channel.config = cfg
+        flag_modified(channel, "config")
+
     # Validate model tier override names
     if updates.get("model_tier_overrides"):
         from app.services.server_config import VALID_TIER_NAMES
@@ -1024,6 +1037,7 @@ async def admin_channel_settings_update(
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
+    out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
     _fill_channel_project_settings(out, channel)
     return out
 
@@ -2627,22 +2641,9 @@ async def list_activatable_integrations_global(
     Used by the channel creation wizard to show what can be activated.
     All items returned with activated=False since there's no channel yet.
     """
-    from integrations import get_activation_manifests
+    from app.services.channel_integrations import list_global_activation_options
 
-    manifests = get_activation_manifests()
-    result = []
-    for itype, manifest in manifests.items():
-        result.append({
-            "integration_type": itype,
-            "description": manifest.get("description", ""),
-            "requires_workspace": manifest.get("requires_workspace", False),
-            "activated": False,
-            "tools": list(manifest.get("tools", []) or []),
-            "has_system_prompt": bool(manifest.get("system_prompt")),
-            "version": manifest.get("version"),
-            "includes": manifest.get("includes", []),
-        })
-    return result
+    return list_global_activation_options()
 
 
 # ---------------------------------------------------------------------------
@@ -2654,29 +2655,6 @@ async def available_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List registered integration types with binding metadata."""
-    from app.integrations import renderer_registry
-    from integrations import discover_binding_metadata, discover_integrations
+    from app.services.channel_integrations import list_bindable_integrations
 
-    # Collect from renderer registry — Phase G replaced the legacy
-    # dispatcher registry. The "core" renderers (none/web/webhook/
-    # internal) are infrastructure, not user-facing integration types,
-    # so they're filtered out the same way the legacy code did.
-    types = set(renderer_registry.all_renderers().keys()) - {
-        "none", "web", "webhook", "internal",
-    }
-
-    # Collect from integration discovery (an integration may have a
-    # router/hooks but no renderer yet — still surface it).
-    for integration_id, _ in discover_integrations():
-        types.add(integration_id)
-
-    # Attach binding metadata from setup.py
-    binding_meta = discover_binding_metadata()
-
-    return [
-        {
-            "type": t,
-            "binding": binding_meta.get(t),
-        }
-        for t in sorted(types)
-    ]
+    return list_bindable_integrations()

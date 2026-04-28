@@ -19,6 +19,32 @@ import pytest
 from scripts.screenshots import config
 from scripts.screenshots.capture.specs import FLAGSHIP_SPECS, resolve_specs
 from scripts.screenshots.stage import envelopes
+from scripts.screenshots.stage.scenarios.harness import stage_harness
+
+
+class _HarnessDryRunClient:
+    def __init__(self) -> None:
+        self.polled_channel = False
+
+    def ensure_bot(self, *, bot_id, name, model, system_prompt=""):
+        return {"id": bot_id, "name": name, "model": model}
+
+    def update_bot(self, bot_id, **fields):
+        return {"id": bot_id, **fields}
+
+    def _get(self, path):
+        class _Resp:
+            def json(self):
+                return {"runtimes": [{"name": "demo"}]}
+
+        return _Resp()
+
+    def ensure_channel(self, *, client_id, bot_id="default", name=None, private=False, category=None):
+        return {"id": "dry-run-channel", "client_id": client_id}
+
+    def get_active_session_id(self, channel_id):
+        self.polled_channel = True
+        raise AssertionError("dry-run should not poll channel state")
 
 
 def test_native_content_type_on_every_helper():
@@ -73,7 +99,7 @@ def test_resolve_specs_preserves_wait_strategy():
     }
     resolved = {s.name: s for s in resolve_specs(FLAGSHIP_SPECS, staged)}
     assert resolved["home"].wait_kind == "function"
-    assert 'channel-row' in str(resolved["home"].wait_arg)
+    assert 'a[href^="/channels/"]' in str(resolved["home"].wait_arg)
     assert resolved["widget-dashboard"].wait_kind == "function"
     assert resolved["chat-pipeline-live"].wait_kind == "function"
 
@@ -99,3 +125,17 @@ def test_config_accepts_e2e_url():
         cfg = config.load()
         assert cfg.api_url.endswith(":18000")
         assert cfg.ssh_alias  # has a default
+
+
+def test_harness_stage_dry_run_stops_before_polling_channel_state():
+    client = _HarnessDryRunClient()
+
+    state = stage_harness(
+        client,
+        ssh_alias="unused",
+        ssh_container="unused",
+        dry_run=True,
+    )
+
+    assert state.channels["harness_chat"] == "dry-run-channel"
+    assert client.polled_channel is False

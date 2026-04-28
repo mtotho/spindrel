@@ -411,58 +411,6 @@ def apply_channel_visibility(stmt, user):
     )
 
 
-async def bind_integration(
-    db: AsyncSession,
-    channel_id: uuid.UUID,
-    integration_type: str,
-    client_id: str,
-    dispatch_config: dict | None = None,
-    display_name: str | None = None,
-) -> ChannelIntegration:
-    """Bind an integration to a channel. Raises on duplicate client_id."""
-    binding = ChannelIntegration(
-        channel_id=channel_id,
-        integration_type=integration_type,
-        client_id=client_id,
-        dispatch_config=dispatch_config,
-        display_name=display_name,
-    )
-    db.add(binding)
-    await db.flush()
-    return binding
-
-
-async def unbind_integration(
-    db: AsyncSession,
-    binding_id: uuid.UUID,
-) -> bool:
-    """Delete an integration binding. Returns True if found and deleted."""
-    binding = await db.get(ChannelIntegration, binding_id)
-    if binding is None:
-        return False
-    await db.delete(binding)
-    await db.flush()
-    return True
-
-
-async def adopt_integration(
-    db: AsyncSession,
-    binding_id: uuid.UUID,
-    target_channel_id: uuid.UUID,
-) -> ChannelIntegration:
-    """Move a binding from its current channel to target_channel_id."""
-    binding = await db.get(ChannelIntegration, binding_id)
-    if binding is None:
-        raise ValueError(f"Binding {binding_id} not found")
-    target = await db.get(Channel, target_channel_id)
-    if target is None:
-        raise ValueError(f"Target channel {target_channel_id} not found")
-    binding.channel_id = target_channel_id
-    binding.updated_at = datetime.now(timezone.utc)
-    await db.flush()
-    return binding
-
-
 async def resolve_integration_user(
     db: AsyncSession,
     integration: str,

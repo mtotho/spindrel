@@ -144,6 +144,13 @@ def stage_harness(
     channel_id = str(ch["id"])
     state.channels["harness_chat"] = channel_id
 
+    if dry_run:
+        print(
+            f"DRY-RUN: would ensure harness chat channel {HARNESS_CHAT_CHANNEL_CLIENT_ID!r} "
+            f"and seed prompt={HARNESS_CHAT_PROMPT[:60]!r}..."
+        )
+        return state
+
     # 4. Trigger a turn — only if the channel has no recent harness reply.
     # Idempotent across reruns: if the demo replay already ran, skip the
     # chat post (the messages already there are the capture target).

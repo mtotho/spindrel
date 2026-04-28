@@ -117,6 +117,47 @@ class TestChannelCreationWizard:
         assert len(rows) == 1
         assert rows[0].integration_type == "test_integration"
 
+    async def test_create_with_activation_cascades_includes(self, client, db_session):
+        """Wizard activation uses the same include cascade as explicit activation."""
+        from unittest.mock import patch
+
+        fake_manifests = {
+            "parent_integration": {
+                "description": "Parent",
+                "requires_workspace": False,
+                "tools": [],
+                "includes": ["child_integration"],
+            },
+            "child_integration": {
+                "description": "Child",
+                "requires_workspace": False,
+                "tools": [],
+            },
+        }
+
+        with patch("integrations.get_activation_manifests", return_value=fake_manifests):
+            status, data = await _create_channel(
+                client,
+                name="activation-cascade-channel",
+                activate_integrations=["parent_integration"],
+            )
+
+        assert status == 201
+
+        from app.db.models import ChannelIntegration
+        from sqlalchemy import select
+
+        rows = (await db_session.execute(
+            select(ChannelIntegration).where(
+                ChannelIntegration.channel_id == uuid.UUID(data["id"]),
+                ChannelIntegration.activated == True,  # noqa: E712
+            )
+        )).scalars().all()
+        assert {row.integration_type for row in rows} == {
+            "parent_integration",
+            "child_integration",
+        }
+
     async def test_create_all_wizard_fields(self, client, db_session):
         """All wizard fields together in one call."""
         from app.db.models import PromptTemplate

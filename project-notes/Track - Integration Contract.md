@@ -58,6 +58,7 @@ Full detail lives in the plan file. One-line-per-phase summary:
 
 - **2026-04-25 — Marp Slides relocation:** moved the lone `packages/slides` bundle into first-party integration shape at `integrations/marp_slides` with a manifest (`name: Marp Slides`), tool + skill under the integration namespace, and no remaining tracked `packages/` example.
 - **2026-04-28 — Shared browser runtime:** added the `runtime_services` manifest surface so integrations can provide/require shared sidecar capabilities without duplicating Docker services. `browser_automation` owns the shared headless Chromium runtime and headless browser tools; `web_search` now owns only SearXNG and resolves `browser.playwright` via explicit `PLAYWRIGHT_WS_URL` or the shared provider.
+- **2026-04-28 — Channel integration lifecycle surface:** moved channel binding/activation host policy behind `app/services/channel_integrations.py`. Routers now delegate binding CRUD, activation/deactivation, activation config merge, bindable/activatable projections, and activation client-id resolution to one service seam. Channel creation now uses the same activation include cascade as explicit activation, so parent activations no longer strand included integrations.
 
 ## References
 

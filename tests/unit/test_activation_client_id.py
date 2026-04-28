@@ -1,10 +1,10 @@
-"""Tests for _resolve_activation_client_id — auto-fill binding client_id on activation."""
+"""Tests for activation client_id resolution."""
 import uuid
 from unittest.mock import patch
 
 import pytest
 
-from app.routers.api_v1_channels import _resolve_activation_client_id
+from app.services.channel_integrations import resolve_activation_client_id
 
 
 CHANNEL_ID = uuid.uuid4()
@@ -22,7 +22,7 @@ def test_auto_client_id_from_settings():
         patch("integrations.discover_binding_metadata", return_value=binding_meta),
         patch("app.services.integration_settings.get_value", return_value="user@gmail.com"),
     ):
-        result = _resolve_activation_client_id("gmail", CHANNEL_ID)
+        result = resolve_activation_client_id("gmail", CHANNEL_ID)
 
     assert result == "gmail:user@gmail.com"
 
@@ -39,7 +39,7 @@ def test_falls_back_when_setting_empty():
         patch("integrations.discover_binding_metadata", return_value=binding_meta),
         patch("app.services.integration_settings.get_value", return_value=""),
     ):
-        result = _resolve_activation_client_id("gmail", CHANNEL_ID)
+        result = resolve_activation_client_id("gmail", CHANNEL_ID)
 
     assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 
@@ -47,7 +47,7 @@ def test_falls_back_when_setting_empty():
 def test_falls_back_when_no_binding():
     """Integration without binding config uses mc-activated."""
     with patch("integrations.discover_binding_metadata", return_value={}):
-        result = _resolve_activation_client_id("excalidraw", CHANNEL_ID)
+        result = resolve_activation_client_id("excalidraw", CHANNEL_ID)
 
     assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 
@@ -61,7 +61,7 @@ def test_falls_back_when_no_auto_client_id():
         }
     }
     with patch("integrations.discover_binding_metadata", return_value=binding_meta):
-        result = _resolve_activation_client_id("slack", CHANNEL_ID)
+        result = resolve_activation_client_id("slack", CHANNEL_ID)
 
     assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 
@@ -82,6 +82,6 @@ def test_multiple_placeholders():
         patch("integrations.discover_binding_metadata", return_value=binding_meta),
         patch("app.services.integration_settings.get_value", side_effect=mock_get_value),
     ):
-        result = _resolve_activation_client_id("custom", CHANNEL_ID)
+        result = resolve_activation_client_id("custom", CHANNEL_ID)
 
     assert result == "custom:example.com:8080"
