@@ -520,18 +520,9 @@ async def _mirror_harness_native_plan_state(
                     publish_session_plan_event(session, "codex_native_plan")
                 return
 
-            if runtime_name == "claude-code" and _tool_calls_include_exit_plan_mode(persisted_tool_calls):
-                from app.services.session_plan_mode import (
-                    exit_session_plan_mode,
-                    get_session_plan_mode,
-                    publish_session_plan_event,
-                )
-
-                if get_session_plan_mode(session) != "chat":
-                    exit_session_plan_mode(session)
-                    await db.commit()
-                    await db.refresh(session)
-                    publish_session_plan_event(session, "claude_exit_plan_mode")
+            # Claude's native ExitPlanMode is the CLI's plan-submission tool,
+            # not a durable Spindrel instruction to leave session plan mode.
+            # Keep Spindrel's workflow state under explicit /plan controls.
     except Exception:
         logger.exception("harness native plan mirroring failed for session %s", session_id)
 

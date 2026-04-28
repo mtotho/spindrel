@@ -161,3 +161,31 @@ test("tool detail rows stay out of typed search while the tools page matches too
   assert.ok(results.some((result) => result.item.href === "/admin/tools"));
   assert.equal(results.some((result) => result.item.href?.startsWith("/admin/tools/")), false);
 });
+
+test("recent channel sessions outrank the generic channel hit when searching a channel", () => {
+  const genericChannel = {
+    id: "channel-chat-channel-1",
+    label: "#quality-assurance",
+    href: "/channels/channel-1",
+    icon: () => null,
+    category: "Channels",
+    searchText: "chat #quality-assurance quality-assurance",
+  };
+  const recentSession = {
+    id: "recent-/channels/channel-1/session/session-2?surface=channel",
+    label: "Session · Inbox cleanup",
+    href: "/channels/channel-1/session/session-2?surface=channel",
+    hint: "#quality-assurance",
+    icon: () => null,
+    category: "Recent",
+  };
+
+  const results = scorePaletteSearchItems(
+    [genericChannel, recentSession],
+    "quality",
+    new Map([[recentSession.href, 20]]),
+    10,
+  );
+
+  assert.equal(results[0]?.item.href, recentSession.href);
+});

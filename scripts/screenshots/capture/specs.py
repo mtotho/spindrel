@@ -1169,9 +1169,6 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ],
         assert_js=(
             "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
-        ),
-        assert_js=(
-            "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
             "const afterMatch = String(world?.style.transform || '').match(/scale\\(([^)]+)\\)/);"
             "const afterScale = afterMatch ? Number(afterMatch[1]) : 0;"
             "if (!(afterScale > window.__spatialClusterScaleBefore + 0.05)) throw new Error(`cluster double-click did not zoom toward the cluster: ${window.__spatialClusterScaleBefore} -> ${afterScale}`);"

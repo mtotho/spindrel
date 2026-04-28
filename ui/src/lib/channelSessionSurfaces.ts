@@ -539,7 +539,6 @@ export function buildChannelSessionPickerEntries({
   if (channelSessions && channelSessions.length > 0) {
     const seen = new Set<string>();
     const rows: ChannelSessionPickerEntry[] = [];
-    let hasPrimary = false;
     for (const base of channelSessions) {
       const row = deepById.get(base.session_id) ?? base;
       seen.add(row.session_id);
@@ -554,17 +553,6 @@ export function buildChannelSessionPickerEntries({
           selected: selectedSessionId === row.session_id,
           matches: row.matches ?? [],
         });
-      } else if (row.is_active) {
-        hasPrimary = true;
-        rows.push({
-          kind: "primary",
-          id: "primary",
-          surface: { kind: "primary" },
-          label: "Primary session",
-          meta: getChannelSessionMeta(row),
-          selected: !selectedSessionId,
-          matches: row.matches ?? [],
-        });
       } else {
         rows.push({
           kind: "channel",
@@ -573,21 +561,10 @@ export function buildChannelSessionPickerEntries({
           row,
           label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
           meta: getChannelSessionMeta(row),
-          selected: selectedSessionId === row.session_id,
+          selected: selectedSessionId === row.session_id || (!selectedSessionId && row.is_active),
           matches: row.matches ?? [],
         });
       }
-    }
-    if (!hasPrimary) {
-      rows.unshift({
-        kind: "primary",
-        id: "primary",
-        surface: { kind: "primary" },
-        label: "Primary session",
-        meta: channelLabel ? `Default conversation for #${channelLabel}` : "Default channel conversation",
-        selected: !selectedSessionId,
-        matches: [],
-      });
     }
     for (const row of deepMatches ?? []) {
       if (seen.has(row.session_id)) continue;
@@ -623,15 +600,6 @@ export function buildChannelSessionPickerEntries({
     return [...filtered].sort((a, b) => (b.matches?.length ?? 0) - (a.matches?.length ?? 0));
   }
 
-  const primary: ChannelSessionPickerEntry = {
-    kind: "primary",
-    id: "primary",
-    surface: { kind: "primary" },
-    label: "Primary session",
-    meta: channelLabel ? `Default conversation for #${channelLabel}` : "Default channel conversation",
-    selected: !selectedSessionId,
-    matches: [],
-  };
   const scratchRows = (history ?? [])
     .filter((row): row is ScratchSessionLike & { session_id: string } =>
       typeof row.session_id === "string" && row.session_id.length > 0,
@@ -647,7 +615,7 @@ export function buildChannelSessionPickerEntries({
       matches: [],
     }));
 
-  const entries = [primary, ...scratchRows];
+  const entries = scratchRows;
   const q = query?.trim().toLowerCase();
   if (!q) return entries;
   return entries.filter((entry) => `${entry.label} ${entry.meta}`.toLowerCase().includes(q));
@@ -661,13 +629,11 @@ export function buildChannelSessionPickerGroups(
     return [{ id: "results", label: "Results", entries: [...entries] }];
   }
   const current = entries.filter((entry) => entry.selected);
-  const primary = entries.filter((entry) => entry.kind === "primary" && !entry.selected);
   const recent = entries
     .filter((entry) => (entry.kind === "channel" || entry.kind === "scratch") && !entry.selected)
     .sort((a, b) => recentEntryTimestamp(b) - recentEntryTimestamp(a));
   const groups: ChannelSessionPickerGroup[] = [
     { id: "current", label: "This chat", entries: current },
-    { id: "primary", label: "Primary", entries: primary },
     { id: "recent", label: "Recent sessions", entries: recent },
   ];
   return groups.filter((group) => group.entries.length > 0);

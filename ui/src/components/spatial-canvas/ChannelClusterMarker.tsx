@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { dotColor } from "./spatialIdentity";
 import type { ChannelCluster } from "./spatialClustering";
 
@@ -26,6 +27,7 @@ export function ChannelClusterMarker({
   widgetOpacity = 0,
   onFocus,
 }: ChannelClusterMarkerProps) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const winner = cluster.winner;
   const hiddenCount = cluster.hiddenMembers.length;
   const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom);
@@ -37,27 +39,41 @@ export function ChannelClusterMarker({
     : 0;
   const widgetSatelliteCount = Math.min(widgetCount, 5);
   const focusCluster = () => onFocus();
+  const focusPrimaryCluster = (e: { stopPropagation: () => void; button?: number }) => {
+    e.stopPropagation();
+    if (e.button === undefined || e.button === 0) focusCluster();
+  };
+
+  useEffect(() => {
+    const el = buttonRef.current;
+    if (!el) return;
+    const focusFromNativeEvent = (event: MouseEvent | PointerEvent) => {
+      event.stopPropagation();
+      if (event.button === 0) onFocus();
+    };
+    el.addEventListener("pointerdown", focusFromNativeEvent);
+    el.addEventListener("mousedown", focusFromNativeEvent);
+    el.addEventListener("dblclick", focusFromNativeEvent);
+    return () => {
+      el.removeEventListener("pointerdown", focusFromNativeEvent);
+      el.removeEventListener("mousedown", focusFromNativeEvent);
+      el.removeEventListener("dblclick", focusFromNativeEvent);
+    };
+  }, [onFocus]);
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       data-tile-kind="channel-cluster"
       title={`Zoom to ${cluster.members.length} nearby channels`}
       className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3 border-0 bg-transparent p-0 text-text"
       style={{ width: 270, minHeight: 170 }}
-      onPointerDown={(e) => e.stopPropagation()}
-      onPointerUp={(e) => {
-        e.stopPropagation();
-        focusCluster();
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        focusCluster();
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        focusCluster();
-      }}
+      onPointerDown={focusPrimaryCluster}
+      onMouseDown={focusPrimaryCluster}
+      onPointerUp={focusPrimaryCluster}
+      onClick={focusPrimaryCluster}
+      onDoubleClick={focusPrimaryCluster}
     >
       <div
         className="relative flex h-[104px] w-[104px] items-center justify-center"

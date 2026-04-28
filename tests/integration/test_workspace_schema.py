@@ -105,6 +105,41 @@ class TestAdminChannelSettingsWorkspaceSchema:
         assert resp.status_code == 200
         assert resp.json()["workspace_schema_template_id"] == str(tpl.id)
 
+    async def test_plan_mode_control_round_trips_through_channel_config(self, client, db_session):
+        ch = await _create_channel(client)
+
+        resp = await client.put(
+            f"/api/v1/admin/channels/{ch['id']}/settings",
+            json={"plan_mode_control": "hide"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["plan_mode_control"] == "hide"
+
+        row = await db_session.get(Channel, uuid.UUID(ch["id"]))
+        assert row.config["plan_mode_control"] == "hide"
+
+        resp = await client.put(
+            f"/api/v1/admin/channels/{ch['id']}/settings",
+            json={"plan_mode_control": "auto"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["plan_mode_control"] == "auto"
+
+        await db_session.refresh(row)
+        assert "plan_mode_control" not in row.config
+
+    async def test_plan_mode_control_rejects_unknown_values(self, client, db_session):
+        ch = await _create_channel(client)
+
+        resp = await client.put(
+            f"/api/v1/admin/channels/{ch['id']}/settings",
+            json={"plan_mode_control": "sometimes"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # Admin settings: workspace_schema_content (per-channel override)

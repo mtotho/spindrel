@@ -10,6 +10,7 @@ import pytest
 from app.services.agent_harnesses.base import TurnResult
 from app.services.turn_worker import (
     _codex_plan_evidence,
+    _mirror_harness_native_plan_state,
     _metadata_has_codex_plan_signal,
     _run_harness_turn,
     _tool_calls_include_exit_plan_mode,
@@ -30,6 +31,30 @@ class _FakeSessionFactory:
         return None
 
     async def get(self, *args, **kwargs):
+        return None
+
+
+class _FakePlanSessionFactory:
+    def __init__(self, session) -> None:
+        self.session = session
+        self.commits = 0
+
+    def __call__(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get(self, *args, **kwargs):
+        return self.session
+
+    async def commit(self):
+        self.commits += 1
+
+    async def refresh(self, session):
         return None
 
 
@@ -85,6 +110,24 @@ async def test_claude_exit_plan_mode_tool_detection():
     assert _tool_calls_include_exit_plan_mode([
         {"function": {"name": "Read", "arguments": {}}},
     ]) is False
+
+
+async def test_claude_exit_plan_mode_tool_does_not_leave_spindrel_plan_mode(monkeypatch):
+    session = SimpleNamespace(metadata_={"plan_mode": "planning"})
+    factory = _FakePlanSessionFactory(session)
+    monkeypatch.setattr("app.services.turn_worker.async_session", factory)
+
+    await _mirror_harness_native_plan_state(
+        session_id=uuid.uuid4(),
+        runtime_name="claude-code",
+        result_metadata={},
+        persisted_tool_calls=[
+            {"function": {"name": "ExitPlanMode", "arguments": {"plan": "Ship it"}}},
+        ],
+    )
+
+    assert session.metadata_["plan_mode"] == "planning"
+    assert factory.commits == 0
 
 
 async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch):

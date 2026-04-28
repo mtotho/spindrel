@@ -25,8 +25,10 @@ test("channel clusters focus the map instead of opening selection chrome", () =>
   assert.doesNotMatch(worldSource, /onDiveWinner/);
   assert.doesNotMatch(worldSource, /diveToChannel\(cluster\.winner\.channel\.id/);
   assert.doesNotMatch(markerSource, /onDiveWinner/);
-  assert.match(markerSource, /onPointerUp=\{\(e\) => \{[\s\S]*focusCluster\(\);[\s\S]*\}\}/);
-  assert.match(markerSource, /onDoubleClick=\{\(e\) => \{[\s\S]*focusCluster\(\);[\s\S]*\}\}/);
+  assert.match(markerSource, /focusPrimaryCluster/);
+  assert.match(markerSource, /onPointerDown=\{focusPrimaryCluster\}/);
+  assert.match(markerSource, /onMouseDown=\{focusPrimaryCluster\}/);
+  assert.match(markerSource, /onDoubleClick=\{focusPrimaryCluster\}/);
   assert.doesNotMatch(canvasSource, /kind: "channel-cluster"/);
 });
 
