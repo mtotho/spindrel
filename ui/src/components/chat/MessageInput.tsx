@@ -35,8 +35,10 @@ interface Props {
   currentBotId?: string;
   /** When true (multi-bot channel), primary bot is NOT excluded from @-mentions */
   isMultiBot?: boolean;
-  /** Channel ID for persisting drafts across navigation */
+  /** Channel/session key for persisting drafts across navigation */
   channelId?: string;
+  /** Parent channel used to resolve contextual tools/skills in session views. */
+  toolContextChannelId?: string;
   /** Handler for slash commands typed in the input */
   onSlashCommand?: (id: string, args?: string[]) => void;
   slashSurface?: SlashCommandSurface;
@@ -102,7 +104,7 @@ function tapHaptic(pattern: number | number[] = 8) {
   try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -110,6 +112,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   // Phase 4: scope slash catalog by bot id so harness sessions get the
   // runtime-allowlisted set automatically (picker + /help share one source).
   const slashCatalog = useSlashCommandList(currentBotId);
+  const toolChannelId = toolContextChannelId ?? channelId;
 
   const {
     text,
@@ -621,7 +624,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
             >
               {addMenuVisible ? (
                 <ComposerAddMenu
-                  channelId={channelId}
+                  channelId={toolChannelId}
                   botId={currentBotId}
                   composerText={text}
                   onInsertSkillTag={(skillId) => {

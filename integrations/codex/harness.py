@@ -235,7 +235,11 @@ class CodexRuntime:
             async def _consume_server_requests() -> None:
                 async for req in client.server_requests():
                     await handle_server_request(
-                        ctx, self, req, allowed_tool_names=allowed_tool_names,
+                        ctx,
+                        self,
+                        req,
+                        allowed_tool_names=allowed_tool_names,
+                        emit=emit,
                     )
                     if result_meta.get("completed") or result_meta.get("is_error"):
                         return

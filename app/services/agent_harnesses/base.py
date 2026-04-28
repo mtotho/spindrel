@@ -194,6 +194,11 @@ class ChannelEventEmitter:
     ) -> None:
         call_id = tool_call_id or f"harness:{len(self._tool_entries) + 1}"
         redacted_args = _redact_value(arguments or {})
+        for entry in self._tool_entries:
+            if entry.id == call_id:
+                entry.name = tool_name
+                entry.arguments = redacted_args if isinstance(redacted_args, dict) else {}
+                return
         self._tool_entries.append(
             HarnessToolTranscriptEntry(
                 id=call_id,

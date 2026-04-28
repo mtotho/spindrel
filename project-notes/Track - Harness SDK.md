@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-28 (Codex bridge/plan hardening)
+updated: 2026-04-28 (native compaction cleanup ownership documented)
 ---
 # Track - Harness SDK
 
@@ -135,6 +135,12 @@ Open verification:
 - Keep improving native context telemetry. Claude Code now has a best-effort context-window estimate and native compact event visibility, but runtime-provided pressure data would be better than deriving remaining percent from the latest usage payload.
 - Smoke test Claude `AskUserQuestion` with the installed SDK and confirm `PermissionResultAllow(updated_input=...)` is accepted by the runtime version in the harness image.
 
+Native compaction cleanup handoff (2026-04-28):
+
+- Ownership lives in this Harness SDK track, not the ambient Code Quality track. The known issue is also listed in `Loose Ends.md` as "Codex harness native compact cards repeat and context budget can show 0%".
+- Cleanup scope: make persisted native-compaction result messages the display source of truth, prevent duplicate optimistic transcript cards, and centralize context-remaining derivation from latest turn usage plus latest native compact metadata in `app/services/agent_harnesses/session_state.py`.
+- Another active session is handling this harness-specific cleanup. Architecture/code-quality scans should skip it as a next target unless the harness session hands it back.
+
 ## Phase 6 - Codex App-Server Harness V1 — shipped 2026-04-27
 
 Plan file: `~/.claude/plans/partitioned-conjuring-finch.md`. Implemented the same day; see session log `vault/Sessions/agent-server/2026-04-27-N-codex-harness-integration.md` for the execution record.
@@ -210,6 +216,7 @@ Approval mapping intent (final values from schema):
 - 2026-04-28 harness-question live-update fix: durable harness question publish/update events now use the best available session bus key (`channel_id`, then `parent_channel_id`, then `session.id`) so parent-channel sub-sessions and channel-less harness sessions update live instead of requiring refresh.
 - 2026-04-28 native command bridge pass: `RuntimeCapabilities` now advertises whitelisted `native_commands`, `/runtime <command>` dispatches through the selected harness with a session-scoped `TurnContext`, and result cards render inspectable runtime payloads. Codex v1 probes map to app-server `config/read`, `mcpServerStatus/list`, `plugin/list`, `skills/list`, and `experimentalFeature/list`; Claude Code exposes lightweight `auth` and `version` probes. This is the first parity lane for native CLI diagnostics without making arbitrary shell commands available.
 - 2026-04-28 trace bug fix from live Codex bridge testing: tool-result JSON serialization now tolerates `Decimal` values in both memory search formatting and the generic local-tool registry fallback, so bridged `search_memory` calls cannot fail before the runtime sees the result.
+- 2026-04-28 live Codex bridge UI fix: `item/tool/call` server requests now emit a canonical harness tool transcript pair around `execute_harness_spindrel_tool`, so Spindrel dynamic tool calls persist as visible `tool_calls` / `assistant_turn_body` rows after refresh. Repeated tool ids are treated as idempotent to avoid duplicate rows if the Codex app-server also reports an item notification, and fixed/ephemeral session composers now use the parent channel id for tool/skill discovery menus.
 
 ## Later - Skill Bridge
 

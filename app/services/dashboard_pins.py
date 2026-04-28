@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from app.domain.errors import DomainError, NotFoundError, ValidationError
@@ -25,6 +26,7 @@ from app.services.native_app_widgets import (
 )
 from app.services.pin_contract import (
     ContractSnapshot,
+    PinMetadataView,
     compute_pin_metadata,
     reconcile_pin_metadata,
     render_pin_metadata,
@@ -350,24 +352,34 @@ async def _next_position(
     return (max_pos + 1) if max_pos is not None else 0
 
 
-async def create_pin(
-    db: AsyncSession,
+@dataclass(frozen=True)
+class _PinDashboardContext:
+    dashboard_key: str
+    is_channel: bool
+    preset_name: str
+    position: int
+
+
+@dataclass(frozen=True)
+class _ResolvedNativePinPayload:
+    envelope: dict
+    widget_instance_id: uuid.UUID | None
+
+
+@dataclass(frozen=True)
+class _PinMetadataLayout:
+    view: PinMetadataView
+    source_stamp: str | None
+    resolved_zone: str
+    grid_layout: dict
+
+
+def _validate_pin_create_input(
     *,
     source_kind: str,
     tool_name: str,
     envelope: dict,
-    source_channel_id: uuid.UUID | None = None,
-    source_bot_id: str | None = None,
-    tool_args: dict | None = None,
-    widget_config: dict | None = None,
-    widget_origin: dict | None = None,
-    display_label: str | None = None,
-    dashboard_key: str = DEFAULT_DASHBOARD_KEY,
-    zone: str | None = None,
-    grid_layout: dict | None = None,
-    override_widget_instance: "WidgetInstance | None" = None,
-    commit: bool = True,
-) -> WidgetDashboardPin:
+) -> None:
     if source_kind not in ("channel", "adhoc"):
         raise ValidationError(f"Invalid source_kind: {source_kind}")
     if not tool_name:
@@ -375,6 +387,18 @@ async def create_pin(
     if not isinstance(envelope, dict) or not envelope:
         raise ValidationError("envelope must be a non-empty object")
 
+
+def _validate_explicit_pin_zone(zone: str | None) -> None:
+    if zone is not None and zone not in VALID_ZONES:
+        raise ValidationError(f"Invalid zone: {zone}")
+
+
+async def _resolve_pin_bot_identity(
+    db: AsyncSession,
+    *,
+    envelope: dict,
+    source_bot_id: str | None,
+) -> str | None:
     # Pin identity rule: the envelope's source_bot_id is stamped from
     # current_bot_id at emission time — that's the authoritative bot. Any
     # source_bot_id arg passed separately is a UI signal that can lag
@@ -411,8 +435,15 @@ async def create_pin(
                     "widgets need one to mint iframe tokens. Re-enable under "
                     f"Admin → Bots → {bot_label} → Permissions.",
                 )
-    source_bot_id = resolved_bot_id
+    return resolved_bot_id
 
+
+async def _resolve_pin_dashboard_context(
+    db: AsyncSession,
+    *,
+    dashboard_key: str,
+    source_channel_id: uuid.UUID | None,
+) -> _PinDashboardContext:
     # Validate dashboard exists so we get a clean 404 (not an FK violation).
     # Imported lazily to avoid a module-level cycle with app.services.dashboards
     # which depends on us for DEFAULT_DASHBOARD_KEY.
@@ -433,43 +464,75 @@ async def create_pin(
             )
         await ensure_channel_dashboard(db, source_channel_id)
     dashboard = await get_dashboard(db, dashboard_key)
-    preset_name = _resolve_dashboard_preset_name(getattr(dashboard, "grid_config", None))
+    return _PinDashboardContext(
+        dashboard_key=dashboard_key,
+        is_channel=is_channel,
+        preset_name=_resolve_dashboard_preset_name(
+            getattr(dashboard, "grid_config", None),
+        ),
+        position=await _next_position(db, dashboard_key=dashboard_key),
+    )
 
-    position = await _next_position(db, dashboard_key=dashboard_key)
-    widget_config = _seed_widget_config(tool_name, envelope, widget_config)
-    if zone is not None and zone not in VALID_ZONES:
-        raise ValidationError(f"Invalid zone: {zone}")
-    widget_instance_id: uuid.UUID | None = None
-    if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
-        widget_ref = extract_native_widget_ref_from_envelope(envelope)
-        if not widget_ref:
-            raise ValidationError("native widget envelope is missing widget_ref")
-        if override_widget_instance is not None:
-            # Caller already created a WidgetInstance (e.g. Standing Orders,
-            # which need multiple instances per channel with unique scope_ref).
-            # Skip the singleton get-or-create path and use the supplied one.
-            instance = override_widget_instance
-        else:
-            instance = await get_or_create_native_widget_instance(
-                db,
-                widget_ref=widget_ref,
-                dashboard_key=dashboard_key,
-                source_channel_id=source_channel_id,
-                config=widget_config or {},
-            )
-        widget_instance_id = instance.id
-        envelope = build_envelope_for_native_instance(
+
+async def _resolve_native_pin_payload(
+    db: AsyncSession,
+    *,
+    envelope: dict,
+    widget_config: dict,
+    display_label: str | None,
+    source_bot_id: str | None,
+    dashboard_key: str,
+    source_channel_id: uuid.UUID | None,
+    override_widget_instance: "WidgetInstance | None",
+) -> _ResolvedNativePinPayload:
+    if envelope.get("content_type") != NATIVE_APP_CONTENT_TYPE:
+        return _ResolvedNativePinPayload(envelope=envelope, widget_instance_id=None)
+
+    widget_ref = extract_native_widget_ref_from_envelope(envelope)
+    if not widget_ref:
+        raise ValidationError("native widget envelope is missing widget_ref")
+    if override_widget_instance is not None:
+        # Caller already created a WidgetInstance (e.g. Standing Orders,
+        # which need multiple instances per channel with unique scope_ref).
+        # Skip the singleton get-or-create path and use the supplied one.
+        instance = override_widget_instance
+    else:
+        instance = await get_or_create_native_widget_instance(
+            db,
+            widget_ref=widget_ref,
+            dashboard_key=dashboard_key,
+            source_channel_id=source_channel_id,
+            config=widget_config or {},
+        )
+    return _ResolvedNativePinPayload(
+        widget_instance_id=instance.id,
+        envelope=build_envelope_for_native_instance(
             instance,
             display_label=display_label or envelope.get("display_label"),
             source_bot_id=source_bot_id,
-        )
+        ),
+    )
+
+
+def _resolve_pin_metadata_layout(
+    *,
+    tool_name: str,
+    envelope: dict,
+    source_bot_id: str | None,
+    widget_origin: dict | None,
+    zone: str | None,
+    grid_layout: dict | None,
+    dashboard: _PinDashboardContext,
+) -> _PinMetadataLayout:
+    _validate_explicit_pin_zone(zone)
+
     # Phase 3: single compute call produces origin/confidence/snapshots AND
     # the source_stamp in one pass. We need the resolved view BEFORE
     # constructing the row so layout_hints can drive initial zone seeding.
     view, source_stamp = compute_pin_metadata(
         tool_name=tool_name,
         envelope=envelope,
-        source_bot_id=resolved_bot_id,
+        source_bot_id=source_bot_id,
         caller_origin=widget_origin,
     )
     widget_presentation = view.widget_presentation
@@ -482,13 +545,53 @@ async def create_pin(
     resolved_zone = zone or hinted_zone or "grid"
     if resolved_zone not in VALID_ZONES:
         raise ValidationError(f"Invalid zone: {resolved_zone}")
-    pin = WidgetDashboardPin(
-        dashboard_key=dashboard_key,
-        position=position,
+
+    resolved_grid_layout = (
+        _normalize_coords_for_zone(
+            grid_layout,
+            resolved_zone,
+            preset_name=dashboard.preset_name,
+        )
+        if isinstance(grid_layout, dict)
+        else _seed_layout_from_hints(
+            dashboard.position,
+            resolved_zone=resolved_zone,
+            layout_hints=layout_hints,
+            channel=dashboard.is_channel,
+            preset_name=dashboard.preset_name,
+            apply_size_hints=zone is None or zone == hinted_zone,
+        )
+    )
+    return _PinMetadataLayout(
+        view=view,
+        source_stamp=source_stamp,
+        resolved_zone=resolved_zone,
+        grid_layout=resolved_grid_layout,
+    )
+
+
+def _build_pin_row(
+    *,
+    dashboard: _PinDashboardContext,
+    source_kind: str,
+    source_channel_id: uuid.UUID | None,
+    native_payload: _ResolvedNativePinPayload,
+    source_bot_id: str | None,
+    tool_name: str,
+    tool_args: dict | None,
+    widget_config: dict,
+    display_label: str | None,
+    metadata_layout: _PinMetadataLayout,
+) -> WidgetDashboardPin:
+    view = metadata_layout.view
+    envelope = native_payload.envelope
+    return WidgetDashboardPin(
+        dashboard_key=dashboard.dashboard_key,
+        position=dashboard.position,
         source_kind=source_kind,
         source_channel_id=source_channel_id,
-        widget_instance_id=widget_instance_id,
-        source_bot_id=resolved_bot_id,
+        widget_instance_id=native_payload.widget_instance_id,
+        source_bot_id=source_bot_id,
         tool_name=tool_name,
         tool_args=tool_args or {},
         widget_config=widget_config or {},
@@ -503,40 +606,18 @@ async def create_pin(
         widget_presentation_snapshot=copy.deepcopy(view.widget_presentation)
         if view.widget_presentation is not None
         else None,
-        source_stamp=source_stamp,
+        source_stamp=metadata_layout.source_stamp,
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
-        grid_layout=(
-            _normalize_coords_for_zone(
-                grid_layout,
-                resolved_zone,
-                preset_name=preset_name,
-            )
-            if isinstance(grid_layout, dict)
-            else _seed_layout_from_hints(
-                position,
-                resolved_zone=resolved_zone,
-                layout_hints=layout_hints,
-                channel=is_channel,
-                preset_name=preset_name,
-                apply_size_hints=zone is None or zone == hinted_zone,
-            )
-        ),
-        zone=resolved_zone,
+        grid_layout=metadata_layout.grid_layout,
+        zone=metadata_layout.resolved_zone,
     )
-    db.add(pin)
-    await db.flush()
-    if commit:
-        await db.commit()
-        await db.refresh(pin)
-    # When commit=False the caller composes a wider transaction (e.g. pin a
-    # widget AND create its workspace_spatial_nodes row atomically). Caller
-    # is responsible for the final commit + refresh and for invoking the
-    # post-commit cron/event registration once the row is durable.
 
-    if not commit:
-        return pin
 
+async def _register_pin_post_commit_hooks(
+    db: AsyncSession,
+    pin: WidgetDashboardPin,
+) -> None:
     # Register any @on_cron handlers declared in the bundle's widget.yaml.
     # Best-effort: a bundle with no manifest or no cron entries is a no-op.
     try:
@@ -553,6 +634,87 @@ async def create_pin(
     except Exception:
         logger.exception("register_pin_events failed for pin %s", pin.id)
 
+
+async def create_pin(
+    db: AsyncSession,
+    *,
+    source_kind: str,
+    tool_name: str,
+    envelope: dict,
+    source_channel_id: uuid.UUID | None = None,
+    source_bot_id: str | None = None,
+    tool_args: dict | None = None,
+    widget_config: dict | None = None,
+    widget_origin: dict | None = None,
+    display_label: str | None = None,
+    dashboard_key: str = DEFAULT_DASHBOARD_KEY,
+    zone: str | None = None,
+    grid_layout: dict | None = None,
+    override_widget_instance: "WidgetInstance | None" = None,
+    commit: bool = True,
+) -> WidgetDashboardPin:
+    _validate_pin_create_input(
+        source_kind=source_kind,
+        tool_name=tool_name,
+        envelope=envelope,
+    )
+    source_bot_id = await _resolve_pin_bot_identity(
+        db,
+        envelope=envelope,
+        source_bot_id=source_bot_id,
+    )
+    dashboard = await _resolve_pin_dashboard_context(
+        db,
+        dashboard_key=dashboard_key,
+        source_channel_id=source_channel_id,
+    )
+    widget_config = _seed_widget_config(tool_name, envelope, widget_config)
+    _validate_explicit_pin_zone(zone)
+    native_payload = await _resolve_native_pin_payload(
+        db,
+        envelope=envelope,
+        widget_config=widget_config,
+        display_label=display_label,
+        source_bot_id=source_bot_id,
+        dashboard_key=dashboard_key,
+        source_channel_id=source_channel_id,
+        override_widget_instance=override_widget_instance,
+    )
+    metadata_layout = _resolve_pin_metadata_layout(
+        tool_name=tool_name,
+        envelope=native_payload.envelope,
+        source_bot_id=source_bot_id,
+        widget_origin=widget_origin,
+        zone=zone,
+        grid_layout=grid_layout,
+        dashboard=dashboard,
+    )
+    pin = _build_pin_row(
+        dashboard=dashboard,
+        source_kind=source_kind,
+        source_channel_id=source_channel_id,
+        native_payload=native_payload,
+        source_bot_id=source_bot_id,
+        tool_name=tool_name,
+        tool_args=tool_args,
+        widget_config=widget_config,
+        display_label=display_label,
+        metadata_layout=metadata_layout,
+    )
+    db.add(pin)
+    await db.flush()
+    if commit:
+        await db.commit()
+        await db.refresh(pin)
+    # When commit=False the caller composes a wider transaction (e.g. pin a
+    # widget AND create its workspace_spatial_nodes row atomically). Caller
+    # is responsible for the final commit + refresh and for invoking the
+    # post-commit cron/event registration once the row is durable.
+
+    if not commit:
+        return pin
+
+    await _register_pin_post_commit_hooks(db, pin)
     return pin
 
 

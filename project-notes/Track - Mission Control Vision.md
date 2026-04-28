@@ -112,6 +112,21 @@ The feed is not the only surface. Mission Control can also appear as:
 - canvas marker/overlay for a mission, draft, warning, or operator suggestion;
 - native widget snapshot pinned to the world.
 
+### Reality Check - 2026-04-28
+
+The mission-oriented roadmap is not yet validated product direction. Do not
+make the spatial canvas, Starboard, or channel room UX depend on a mission
+system that does not exist yet or may be redesigned. Near-term implementation
+should use existing primitives as source of truth: spatial nodes, channels,
+bots, widgets/pins, heartbeats, scheduler tasks, sessions/traces/tool calls,
+integration bindings, and Attention as a warning/evidence overlay.
+
+The current durable substrate is `/api/v1/workspace/spatial/map-state`: a
+read-only object-state model that tells the UI what each channel/bot/widget/
+landmark is doing now, what is scheduled next, what happened recently, and what
+warnings are attached. Mission Control can later consume this model, but it
+must not own the basic map semantics until the product direction is proven.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

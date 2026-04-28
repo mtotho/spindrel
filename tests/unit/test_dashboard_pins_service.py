@@ -5,8 +5,9 @@ import uuid
 
 import pytest
 
-from app.db.models import WidgetInstance
+from app.db.models import WidgetDashboardPin, WidgetInstance
 from app.domain.errors import DomainError, NotFoundError, ValidationError
+from app.services import dashboard_pins as dashboard_pins_mod
 from app.services.dashboard_pins import (
     apply_dashboard_pin_config_patch,
     apply_layout_bulk,
@@ -18,7 +19,10 @@ from app.services.dashboard_pins import (
     serialize_pin,
     update_pin_envelope,
 )
-from app.services.native_app_widgets import build_native_widget_preview_envelope
+from app.services.native_app_widgets import (
+    build_native_widget_preview_envelope,
+    create_unique_native_widget_instance,
+)
 from tests.factories import build_channel
 
 
@@ -199,6 +203,75 @@ async def test_create_pin_seeds_ha_entity_id_widget_config(db_session):
         envelope=_env("light.office_desk_led_strip"),
     )
     assert pin.widget_config == {"entity_id": "light.office_desk_led_strip"}
+
+
+@pytest.mark.asyncio
+async def test_create_pin_commit_true_runs_post_commit_hooks(db_session, monkeypatch):
+    called: list[uuid.UUID] = []
+
+    async def _record_hooks(_db, pin):
+        called.append(pin.id)
+
+    monkeypatch.setattr(
+        dashboard_pins_mod,
+        "_register_pin_post_commit_hooks",
+        _record_hooks,
+    )
+
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="t",
+        envelope=_env(),
+    )
+
+    assert called == [pin.id]
+
+
+@pytest.mark.asyncio
+async def test_create_pin_commit_false_skips_post_commit_hooks(db_session, monkeypatch):
+    async def _fail_hooks(_db, _pin):
+        raise AssertionError("commit=False must leave hook registration to caller")
+
+    monkeypatch.setattr(
+        dashboard_pins_mod,
+        "_register_pin_post_commit_hooks",
+        _fail_hooks,
+    )
+
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="t",
+        envelope=_env(),
+        commit=False,
+    )
+
+    assert pin.id is not None
+    assert await db_session.get(WidgetDashboardPin, pin.id) is pin
+
+
+@pytest.mark.asyncio
+async def test_create_pin_override_widget_instance_wins(db_session):
+    instance = await create_unique_native_widget_instance(
+        db_session,
+        widget_ref="core/notes_native",
+    )
+    envelope = build_native_widget_preview_envelope(
+        "core/notes_native",
+        state=instance.state,
+        widget_instance_id=instance.id,
+    )
+
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="core/notes_native",
+        envelope=envelope,
+        override_widget_instance=instance,
+    )
+
+    assert pin.widget_instance_id == instance.id
 
 
 @pytest.mark.asyncio

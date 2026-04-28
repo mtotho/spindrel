@@ -225,6 +225,18 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(approvalModeControl, /getHarnessApprovalModeControlState/);
 });
 
+test("session composers use the parent channel for tool discovery menus", () => {
+  const messageInput = readChatFile("MessageInput.tsx");
+  const fixedSession = readChatFile("ChatSessionFixed.tsx");
+  const ephemeralSession = readChatFile("ChatSessionEphemeral.tsx");
+
+  assert.match(messageInput, /toolContextChannelId\?:\s*string/);
+  assert.match(messageInput, /const toolChannelId = toolContextChannelId \?\? channelId;/);
+  assert.match(messageInput, /<ComposerAddMenu\s+channelId=\{toolChannelId\}/);
+  assert.match(fixedSession, /channelId=\{sessionId\}\s+toolContextChannelId=\{parentChannelId\}/);
+  assert.match(ephemeralSession, /toolContextChannelId=\{scratchBoundChannelId \?\? parentChannelId\}/);
+});
+
 test("chat sends thread a stable client-local id through optimistic rows and requests", () => {
   const channelHook = readFileSync(
     resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelChat.ts"),

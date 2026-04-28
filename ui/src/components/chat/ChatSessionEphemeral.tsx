@@ -649,6 +649,7 @@ export function EphemeralChatSession({
                     isStreaming={isSending}
                     currentBotId={botId || undefined}
                     channelId={sessionId ?? undefined}
+                    toolContextChannelId={scratchBoundChannelId ?? parentChannelId}
                     onSlashCommand={handleSessionSlashCommand}
                     slashSurface="session"
                     availableSlashCommands={sessionAvailableSlashCommands}
@@ -707,6 +708,7 @@ export function EphemeralChatSession({
                     isStreaming={isSending}
                     currentBotId={botId || undefined}
                     channelId={sessionId ?? undefined}
+                    toolContextChannelId={scratchBoundChannelId ?? parentChannelId}
                     slashSurface="session"
                     availableSlashCommands={[]}
                     modelOverride={modelOverride}
@@ -747,6 +749,7 @@ export function EphemeralChatSession({
                 isStreaming={isSending}
                 currentBotId={botId || undefined}
                 channelId={sessionId ?? undefined}
+                toolContextChannelId={scratchBoundChannelId ?? parentChannelId}
                 onSlashCommand={handleSessionSlashCommand}
                 slashSurface="session"
                 availableSlashCommands={sessionAvailableSlashCommands}
@@ -826,5 +829,4 @@ export function EphemeralChatSession({
     </>
   );
 }
-
 

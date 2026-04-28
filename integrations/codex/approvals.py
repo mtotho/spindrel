@@ -21,6 +21,7 @@ from integrations.codex import schema
 from integrations.codex.app_server import ServerRequest
 from integrations.sdk import (
     AllowDeny,
+    ChannelEventEmitter,
     HarnessQuestionResult,
     TurnContext,
     execute_harness_spindrel_tool,
@@ -204,6 +205,7 @@ async def _route_tool_call(
     request: ServerRequest,
     *,
     allowed_tool_names: set[str] | frozenset[str],
+    emit: ChannelEventEmitter | None = None,
 ) -> None:
     params = request.params or {}
     tool_name = str(params.get(schema.TOOL_CALL_REQUEST_TOOL_FIELD) or "")
@@ -216,17 +218,39 @@ async def _route_tool_call(
             )
         )
         return
+    tool_call_id = _tool_call_id_for_request(request)
+    tool_args = arguments if isinstance(arguments, dict) else {}
+    if emit is not None:
+        emit.tool_start(
+            tool_name=tool_name,
+            arguments=tool_args,
+            tool_call_id=tool_call_id,
+        )
     try:
         text = await execute_harness_spindrel_tool(
             ctx,
             tool_name=tool_name,
-            arguments=arguments if isinstance(arguments, dict) else {},
+            arguments=tool_args,
             allowed_tool_names=allowed_tool_names,
         )
     except Exception as exc:
         logger.exception("codex: dynamicTool dispatch failed for %s", tool_name)
+        if emit is not None:
+            emit.tool_result(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                result_summary=str(exc),
+                is_error=True,
+            )
         await request.respond(schema.dynamic_tool_text_result(str(exc), success=False))
         return
+    if emit is not None:
+        emit.tool_result(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            result_summary=_summarize_dynamic_tool_text(text),
+            is_error=False,
+        )
     await request.respond(schema.dynamic_tool_text_result(text, success=True))
 
 
@@ -236,6 +260,7 @@ async def handle_server_request(
     request: ServerRequest,
     *,
     allowed_tool_names: set[str] | frozenset[str],
+    emit: ChannelEventEmitter | None = None,
 ) -> None:
     """Route one server-initiated request through Spindrel's primitives."""
     method = request.method
@@ -252,10 +277,31 @@ async def handle_server_request(
         # Bridged Spindrel tool. Spindrel's dispatch_tool_call already runs
         # policy + approval + audit — do NOT also call request_harness_approval
         # here, that would double-prompt.
-        await _route_tool_call(ctx, request, allowed_tool_names=allowed_tool_names)
+        await _route_tool_call(
+            ctx,
+            request,
+            allowed_tool_names=allowed_tool_names,
+            emit=emit,
+        )
         return
 
     logger.warning("codex: unsupported server request method %r", method)
     await request.respond_error(
         "not_supported", f"server request method {method!r} is not supported"
     )
+
+
+def _tool_call_id_for_request(request: ServerRequest) -> str:
+    params = request.params or {}
+    raw = params.get(schema.TOOL_CALL_REQUEST_CALL_ID_FIELD) or params.get("id")
+    if raw is None:
+        raw = request.id
+    value = str(raw).strip()
+    return value or "codex-dynamic-tool"
+
+
+def _summarize_dynamic_tool_text(text: str) -> str:
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= 700:
+        return normalized
+    return normalized[:697].rstrip() + "..."

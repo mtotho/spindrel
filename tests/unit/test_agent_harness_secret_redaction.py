@@ -63,3 +63,51 @@ def test_harness_emitter_redacts_nested_tool_arguments():
         "command": "echo [REDACTED]",
         "env": {"GITHUB_TOKEN": "[REDACTED]"},
     }
+
+
+def test_harness_emitter_deduplicates_repeated_tool_start_ids():
+    events = []
+
+    with patch("app.services.agent_harnesses.base.publish_typed") as publish:
+        publish.side_effect = lambda _channel_id, event: events.append(event)
+        emitter = ChannelEventEmitter(
+            channel_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot_id="bot",
+            session_id=uuid.uuid4(),
+        )
+
+        emitter.tool_start(
+            tool_name="dynamicTool",
+            tool_call_id="call-1",
+            arguments={},
+        )
+        emitter.tool_start(
+            tool_name="search_memory",
+            tool_call_id="call-1",
+            arguments={"query": "Bennie"},
+        )
+        emitter.tool_result(
+            tool_name="search_memory",
+            tool_call_id="call-1",
+            result_summary="ok",
+        )
+
+    assert [event.payload.tool_name for event in events] == ["dynamicTool", "search_memory"]
+    assert emitter.persisted_tool_calls() == [
+        {
+            "id": "call-1",
+            "type": "function",
+            "function": {
+                "name": "search_memory",
+                "arguments": {"query": "Bennie"},
+            },
+            "surface": "transcript",
+            "summary": {
+                "kind": "result",
+                "subject_type": "tool",
+                "label": "search_memory",
+                "preview_text": "ok",
+            },
+        }
+    ]

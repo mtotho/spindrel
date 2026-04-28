@@ -280,6 +280,7 @@ export function FixedSessionChatSession({
           isStreaming={isSending}
           currentBotId={botId || undefined}
           channelId={sessionId}
+          toolContextChannelId={parentChannelId}
           onSlashCommand={handleSlashCommand}
           slashSurface="session"
           availableSlashCommands={availableSlashCommands}
@@ -386,5 +387,4 @@ export function FixedSessionChatSession({
 
   return <div className="flex h-full min-h-0 w-full flex-col">{body}</div>;
 }
-
 

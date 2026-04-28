@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-28 (Spatial widget body interactions restored.)
+updated: 2026-04-28 (Existing-primitives map state surfaced on canvas.)
 ---
 
 # Track — Spatial Canvas
@@ -75,6 +75,18 @@ the body owns widget interaction. The old transparent iframe activation shield
 was removed, and body pointer/click events stop before the canvas drag/selection
 layer so embedded buttons, links, scroll regions, and iframes work directly.
 Double-click on the tile wrapper still opens the full widget page.
+
+2026-04-28 existing-primitives map-state pass: added a read-only spatial map
+state model for current workspace primitives, independent of the speculative
+Mission Control/missions roadmap. The map now rolls up channels, bots, world
+widgets, landmarks, upcoming heartbeats/tasks, recent task/error activity, widget
+cron/event sources, and active Attention warnings into object state. Canvas
+tiles, the selected-object rail, and Starboard object rows show compact
+status/meta so selecting any channel/bot/widget/landmark starts to answer what
+it is, what source owns it, what happened recently, what is scheduled next, and
+whether it needs attention. This is intentionally substrate work: future
+operator/mission surfaces may consume it, but the spatial canvas must remain
+useful with the workspace primitives that exist today.
 
 | Phase | Status | Description |
 |---|---|---|
@@ -171,6 +183,10 @@ Double-click on the tile wrapper still opens the full widget page.
 - Bot-authored Attention Beacons are opt-in per channel bot policy via `allow_attention_beacons`; source bots may update/resolve only their own items, while humans can override.
 - User-authored Attention Items are first-class work-intake items, visible to normal channel viewers, and can be assigned from Mission Control / the compatibility Command Center intake API.
 - Workspace Missions are the long-lived coordination layer for bot work. They are visible in Mission Control and on the map, but execution stays task-backed so runs keep the existing scheduler, model overrides, tracing, and task result surfaces.
+- Spatial object state is sourced from existing primitives first. The canvas may
+  render mission/run state when that system is proven, but it must not depend on
+  missions to explain channels, bots, widgets, landmarks, upcoming work, recent
+  activity, or warnings.
 - Mission Control AI is a suggestion layer over the same mission system: it persists operator briefs and editable drafts, grounds suggestions in tasks/missions/channels/bots/spatial state, treats Attention as weak signal, and requires human approval before creating any mission.
 - Mission cadence is separate from channel heartbeat cadence. Assigning a mission to a channel does not mutate or override `ChannelHeartbeat`; mission intervals create their own `mission_tick` task rows and can be paused/resumed independently.
 - System Attention Beacons come from structured persisted failures and are admin-only. Raw server logs are evidence/follow-up material, not a direct v1 source.

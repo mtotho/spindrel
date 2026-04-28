@@ -73,6 +73,17 @@ class _FakeRuntime:
     name = "codex"
 
 
+class _FakeEmitter:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def tool_start(self, **kwargs: Any) -> None:
+        self.calls.append(("tool_start", kwargs))
+
+    def tool_result(self, **kwargs: Any) -> None:
+        self.calls.append(("tool_result", kwargs))
+
+
 @pytest.fixture
 def fake_ctx():
     class _Ctx:
@@ -197,6 +208,44 @@ async def test_dynamic_tool_call_reads_tool_field(monkeypatch, fake_ctx):
     assert items[0]["type"] == schema.DYNAMIC_TOOL_CONTENT_ITEM_KIND_TEXT
     assert "search_channel_knowledge" in items[0]["text"]
     assert req.response[schema.DYNAMIC_TOOL_RESULT_SUCCESS] is True
+
+
+async def test_dynamic_tool_call_emits_transcript_pair(monkeypatch, fake_ctx):
+    async def _fake_execute(ctx, *, tool_name, arguments, allowed_tool_names):
+        return "x" * 900
+
+    monkeypatch.setattr(
+        "integrations.codex.approvals.execute_harness_spindrel_tool",
+        _fake_execute,
+    )
+
+    req = _FakeServerRequest(
+        method=schema.SERVER_REQUEST_TOOL_CALL,
+        params={
+            "callId": "call-123",
+            "tool": "bennie_loggins_health_summary",
+            "arguments": {"recent_count": 2},
+        },
+    )
+    emit = _FakeEmitter()
+    await handle_server_request(
+        fake_ctx,
+        _FakeRuntime(),
+        req,
+        allowed_tool_names={"bennie_loggins_health_summary"},
+        emit=emit,
+    )
+
+    assert [kind for kind, _payload in emit.calls] == ["tool_start", "tool_result"]
+    assert emit.calls[0][1] == {
+        "tool_name": "bennie_loggins_health_summary",
+        "arguments": {"recent_count": 2},
+        "tool_call_id": "call-123",
+    }
+    assert emit.calls[1][1]["tool_name"] == "bennie_loggins_health_summary"
+    assert emit.calls[1][1]["tool_call_id"] == "call-123"
+    assert emit.calls[1][1]["is_error"] is False
+    assert len(emit.calls[1][1]["result_summary"]) <= 700
 
 
 async def test_dynamic_tool_call_missing_tool_field_returns_failure(fake_ctx):
