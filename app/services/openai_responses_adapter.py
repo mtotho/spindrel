@@ -56,6 +56,8 @@ _ORIGINATOR_HEADER_VALUE = "codex_cli_rs"
 # Keep this in sync with ``openai_oauth._CODEX_USER_AGENT``.
 _CODEX_USER_AGENT = f"{_ORIGINATOR_HEADER_VALUE}/0.45.0 (linux; x86_64) spindrel"
 
+_MODELS_REJECTING_MAX_OUTPUT_TOKENS: set[tuple[str, str]] = set()
+
 
 # ---------------------------------------------------------------------------
 # Exception translation: httpx / Responses API → openai.*
@@ -122,6 +124,24 @@ def _log_error_body(request_body: dict, status_code: int, response_body: Any) ->
     except Exception:
         # Logging must never mask the original exception.
         logger.warning("Responses API %s rejected request (summary unavailable)", status_code)
+
+
+def _bad_request_rejects_parameter(exc: Exception, parameter: str) -> bool:
+    """Return true when the Responses API rejects a specific request parameter."""
+    if not isinstance(exc, openai.BadRequestError):
+        return False
+    body = getattr(exc, "body", None)
+    fragments: list[str] = [str(exc)]
+    if isinstance(body, dict):
+        fragments.extend(str(v) for v in body.values())
+    elif body is not None:
+        fragments.append(str(body))
+    needle = f"Unsupported parameter: {parameter}"
+    return any(needle in fragment for fragment in fragments)
+
+
+def _token_cap_cache_key(base_url: str, model: str) -> tuple[str, str]:
+    return (base_url.rstrip("/"), model)
 
 
 # ---------------------------------------------------------------------------
@@ -906,6 +926,9 @@ class _Completions:
             stream=True,
             extra=kwargs,
         )
+        token_cap_cache_key = _token_cap_cache_key(self._adapter._base_url, model)
+        if token_cap_cache_key in _MODELS_REJECTING_MAX_OUTPUT_TOKENS:
+            body.pop("max_output_tokens", None)
 
         tokens = await self._adapter._tokens_source()
         headers = self._adapter._build_headers(tokens)
@@ -913,7 +936,19 @@ class _Completions:
 
         client = self._adapter._http_client
 
-        stream_adapter = await _ResponsesStreamAdapter.create(client, url, headers, body, model)
+        try:
+            stream_adapter = await _ResponsesStreamAdapter.create(client, url, headers, body, model)
+        except Exception as exc:
+            if "max_output_tokens" not in body or not _bad_request_rejects_parameter(exc, "max_output_tokens"):
+                raise
+            retry_body = dict(body)
+            retry_body.pop("max_output_tokens", None)
+            _MODELS_REJECTING_MAX_OUTPUT_TOKENS.add(token_cap_cache_key)
+            logger.warning(
+                "Responses API rejected max_output_tokens for model=%s; retrying without output-token cap",
+                model,
+            )
+            stream_adapter = await _ResponsesStreamAdapter.create(client, url, headers, retry_body, model)
         if caller_wants_stream:
             return stream_adapter
         return await _stream_to_completion(stream_adapter, model)

@@ -47,10 +47,6 @@ import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
 import { isEditableKeyboardTarget } from "@/src/components/chat/chatKeyboard";
-import {
-  requestScrollToMessage,
-  type ScrollToMessageDetail,
-} from "@/src/components/chat/renderers/FindResultsRenderer";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
@@ -64,7 +60,6 @@ import {
   clampChannelPanelWidth,
   resolveChannelPanelLayout,
 } from "@/src/lib/channelPanelLayout";
-import { useScratchReturnStore } from "@/src/stores/scratchReturn";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
 import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
@@ -72,6 +67,11 @@ import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import { useSessionPlanMode } from "./useSessionPlanMode";
+import {
+  useChannelSessionOverlayController,
+  useChannelRouteSessionSurface,
+  useChannelSessionPaneController,
+} from "./useChannelSessionPaneController";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionPickerOverlay } from "@/src/components/chat/SessionPickerOverlay";
@@ -94,28 +94,9 @@ import {
   readChannelFileIntent,
 } from "@/src/lib/channelFileNavigation";
 import {
-  addChannelChatPane,
-  buildChannelSessionRoute,
-  maximizeChannelChatPane,
-  minimizeChannelChatPane,
-  moveChannelChatPane,
-  defaultChannelChatPaneLayout,
-  paneIdForSurface,
-  removeChannelChatPane,
-  restoreMiniChannelChatPane,
-  restoreChannelChatPanes,
-  splitChannelChatPaneLayout,
-  buildChannelSessionChatSource,
-  buildScratchChatSource,
-  type ChannelChatPane,
-  type ChannelSessionCatalogItem,
-  type ChannelSessionSurface,
-} from "@/src/lib/channelSessionSurfaces";
-import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
-import { channelSessionCatalogKey, useChannelSessionCatalog, usePromoteScratchSession } from "@/src/api/hooks/useChannelSessions";
 import { useMarkRead, useMarkSessionVisible } from "@/src/api/hooks/useUnread";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
@@ -144,26 +125,6 @@ type PanelSpineAction = {
 const COLLAPSED_PANEL_SPINE_WIDTH_PX = 44;
 const HEADER_RAIL_EDGE_INSET_PX = 12;
 const CENTER_PANEL_GUTTER_PX = 6;
-
-function labelMiniChatPane(
-  pane: ChannelChatPane | null,
-  catalog: ChannelSessionCatalogItem[] | undefined,
-): { title: string; subtitle: string } {
-  if (!pane) return { title: "Session", subtitle: "Mini chat" };
-  if (pane.surface.kind === "primary") {
-    const row = catalog?.find((item) => item.is_active) ?? null;
-    return {
-      title: row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim() || "Primary session",
-      subtitle: "Primary session",
-    };
-  }
-  const surface = pane.surface;
-  const row = catalog?.find((item) => item.session_id === surface.sessionId) ?? null;
-  return {
-    title: row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim() || "Untitled session",
-    subtitle: surface.kind === "scratch" ? "Scratch session" : row?.is_active ? "Primary session" : "Previous chat",
-  };
-}
 
 /** Collapsed panel spine: the closed panel still occupies an honest slot in
  *  the row instead of relying on hidden edge hover or floating grabbers. */
@@ -279,12 +240,6 @@ export default function ChatScreen() {
   }, [channel?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const scratchLayoutRestoreRef = useRef<{
-    explorerOpen: boolean;
-    rightDockHidden: boolean;
-    activeFile: string | null;
-    splitMode: boolean;
-  } | null>(null);
   const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
   const isSystemChannel = channel?.client_id === "orchestrator:home";
@@ -306,35 +261,21 @@ export default function ChatScreen() {
   // channel is pipeline-aware (otherwise nothing can render an awaiting-input
   // widget here).
   const { count: findingsCount } = useFindings(launchpadVisible ? channelId : undefined);
-  const [sessionsOverlayOpen, setSessionsOverlayOpen] = useState(false);
-  const [sessionsOverlayMode, setSessionsOverlayMode] = useState<"switch" | "split">("switch");
-  const [pendingSplitSurface, setPendingSplitSurface] = useState<ChannelSessionSurface | null>(null);
-  const openSessionsOverlay = useCallback(() => {
-    setSessionsOverlayMode("switch");
-    setSessionsOverlayOpen(true);
-  }, []);
-  const openSplitOverlay = useCallback(() => {
-    setSessionsOverlayMode("split");
-    setSessionsOverlayOpen(true);
-  }, []);
-
   // ---- Single-session route mode (URL-driven) ----
   // Route: /channels/:channelId/session/:sessionId?scratch=true|surface=channel
   // Swaps the main chat column with the URL-provided session. Keep this
   // above useChannelChat so the hidden primary channel transcript can stop
   // its own state/messages/SSE subscriptions while a routed session is the
   // visible chat surface.
-  const sessionMatch = useMatch("/channels/:channelId/session/:sessionId");
-  const [scratchSearch] = useSearchParams();
-  const routeSessionId = sessionMatch?.params.sessionId ?? null;
-  const isChannelSessionRoute = !!sessionMatch && scratchSearch.get("surface") === "channel";
-  const isScratchRoute = !!sessionMatch && !isChannelSessionRoute;
-  const routeSessionSurface: ChannelSessionSurface | null = routeSessionId
-    ? isScratchRoute
-      ? { kind: "scratch", sessionId: routeSessionId }
-      : { kind: "channel", sessionId: routeSessionId }
-    : null;
-  const scratchUrlSessionId = isScratchRoute ? routeSessionId : null;
+  const channelRouteSession = useChannelRouteSessionSurface();
+  const {
+    routeSessionId,
+    isScratchRoute,
+    routeSessionSurface,
+    scratchUrlSessionId,
+  } = channelRouteSession;
+  const channelSessionOverlay = useChannelSessionOverlayController();
+  const { openSessionsOverlay, openSplitOverlay } = channelSessionOverlay;
 
   const {
     chatState,
@@ -453,8 +394,6 @@ export default function ChatScreen() {
     [threadSummaries, invertedData, channel?.bot_id],
   );
 
-  const setScratchReturn = useScratchReturnStore((s) => s.setScratchReturn);
-  const clearScratchReturn = useScratchReturnStore((s) => s.clearScratchReturn);
   const scratchSessionState = useChatStore((s) =>
     scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
   );
@@ -479,39 +418,6 @@ export default function ChatScreen() {
   }, [channelId, channel?.active_session_id, routeSessionId]);
   const { data: savedBudget } = useChannelContextBudget(channelId, currentBudgetSessionId);
   const { data: sessionHeaderStats } = useSessionHeaderStats(channelId, currentBudgetSessionId);
-  const handleExitSessionRoute = useCallback(() => {
-    if (!channelId) return;
-    clearScratchReturn(channelId);
-    setScratchPinnedSessionId(null);
-    setScratchOpen(false);
-    const restore = scratchLayoutRestoreRef.current;
-    if (restore) {
-      const uiState = useUIStore.getState();
-      uiState.setFileExplorerOpen(restore.explorerOpen);
-      uiState.setRightDockHidden(restore.rightDockHidden);
-      setActiveFile(restore.activeFile);
-      if (restore.splitMode !== uiState.fileExplorerSplit) {
-        uiState.toggleFileExplorerSplit();
-      }
-      scratchLayoutRestoreRef.current = null;
-    }
-    navigate(`/channels/${channelId}`);
-  }, [channelId, clearScratchReturn, navigate]);
-
-  // Track "last scratch session per channel" so a widget-dashboard detour
-  // can bring the user back to the same scratch context. Archive deep
-  // links should not hijack the return target — only the live scratch
-  // does. Explicit exit is the banner's "minimize" click.
-  useEffect(() => {
-    if (isScratchRoute && scratchUrlSessionId && channelId) {
-      setScratchReturn(channelId, scratchUrlSessionId);
-    }
-  }, [
-    isScratchRoute,
-    scratchUrlSessionId,
-    channelId,
-    setScratchReturn,
-  ]);
 
   const channelDashboardHref = useMemo(() => {
     if (!channelId) return "/widgets";
@@ -526,9 +432,6 @@ export default function ChatScreen() {
     return `/widgets/channel/${channelId}${suffix ? `?${suffix}` : ""}`;
   }, [channelId, isScratchRoute, scratchUrlSessionId, loc.search]);
 
-  // ---- Scratch chat (in-channel ephemeral) state ----
-  const [scratchOpen, setScratchOpen] = useState(false);
-  const [scratchPinnedSessionId, setScratchPinnedSessionId] = useState<string | null>(null);
   const effectiveContextBudget = (
     currentBudgetSessionId
       ? scratchSessionState?.contextBudget
@@ -545,36 +448,6 @@ export default function ChatScreen() {
     } : null
   );
 
-  // Memoize the scratch chat source so EphemeralChatSession doesn't see a
-  // new `context`/`source` reference on every channel re-render. Without
-  // this, `handleSend` (which closes over `context`) is rebuilt every
-  // render, churning MessageInput and downstream effects — the chain that
-  // triggers React #185 ("Maximum update depth exceeded") on FAB click.
-  const scratchSource = useMemo(
-    () =>
-      channelId
-        ? ({
-            kind: "ephemeral" as const,
-            sessionStorageKey: `channel:${channelId}:scratch`,
-            parentChannelId: channelId,
-            defaultBotId: channel?.bot_id,
-            context: {
-              page_name: "channel_scratch",
-              payload: { channel_id: channelId },
-            },
-            // Cross-device continuity — resolves (user, channel, bot)
-            // via /sessions/scratch/current instead of localStorage.
-            scratchBoundChannelId: channelId,
-            pinnedSessionId: scratchPinnedSessionId ?? undefined,
-          })
-        : null,
-    [channelId, channel?.bot_id, scratchPinnedSessionId],
-  );
-
-  const handleScratchClose = useCallback(() => {
-    setScratchOpen(false);
-    setScratchPinnedSessionId(null);
-  }, []);
   const handleSetActiveThreadSpawned = useCallback(
     (sid: string) =>
       setActiveThread((curr) => (curr ? { ...curr, sessionId: sid } : curr)),
@@ -857,68 +730,51 @@ export default function ChatScreen() {
     ensureChannelPanelPrefs(channelId, channelPanelDefaults);
   }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
   const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
-  const promoteScratch = usePromoteScratchSession();
-  const { data: channelSessionCatalog } = useChannelSessionCatalog(channelId);
-  const miniPane = panelPrefs.chatPaneLayout.miniPane;
-  const miniPaneSource = useMemo(() => {
-    if (!channelId || !miniPane) return null;
-    if (miniPane.surface.kind === "primary") {
-      return { kind: "channel" as const, channelId };
-    }
-    if (miniPane.surface.kind === "scratch") {
-      return buildScratchChatSource({
-        channelId,
-        botId: channel?.bot_id,
-        sessionId: miniPane.surface.sessionId,
-      });
-    }
-    return buildChannelSessionChatSource({
-      channelId,
-      botId: channel?.bot_id,
-      sessionId: miniPane.surface.sessionId,
-    });
-  }, [channel?.bot_id, channelId, miniPane]);
-  const miniPaneLabel = useMemo(
-    () => labelMiniChatPane(miniPane, channelSessionCatalog),
-    [channelSessionCatalog, miniPane],
-  );
-  const handleCloseMiniPane = useCallback(() => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: {
-        ...current.chatPaneLayout,
-        miniPane: null,
-      },
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
-  const restoreMiniPane = useCallback(() => {
-    if (!channelId || !miniPane) return;
-    const currentSurface: ChannelSessionSurface = routeSessionSurface ?? { kind: "primary" };
-    const shouldStartSplitFromRoute = !!routeSessionSurface || panelPrefs.chatPaneLayout.panes.length <= 1;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: shouldStartSplitFromRoute
-        ? splitChannelChatPaneLayout(currentSurface, miniPane.surface)
-        : restoreMiniChannelChatPane(current.chatPaneLayout),
-    }));
-    if (shouldStartSplitFromRoute) {
-      navigate(`/channels/${channelId}`);
-    }
-  }, [channelId, miniPane, navigate, panelPrefs.chatPaneLayout.panes.length, patchChannelPanelPrefs, routeSessionSurface]);
-  const visibleChatPanes = useMemo(() => {
-    const layout = panelPrefs.chatPaneLayout;
-    return layout.maximizedPaneId
-      ? layout.panes.filter((pane) => pane.id === layout.maximizedPaneId)
-      : layout.panes;
-  }, [panelPrefs.chatPaneLayout]);
-  const canvasActive = !routeSessionSurface && panelPrefs.chatPaneLayout.panes.length > 1;
-  const headerPane = routeSessionSurface
-    ? { id: paneIdForSurface(routeSessionSurface), surface: routeSessionSurface }
-    : canvasActive && visibleChatPanes.length === 1
-      ? visibleChatPanes[0] ?? null
-      : { id: "primary", surface: { kind: "primary" } as ChannelSessionSurface };
-  const headerPaneSessionId = headerPane?.surface.kind === "primary"
-    ? channel?.active_session_id ?? null
-    : headerPane?.surface.sessionId ?? null;
+  const {
+    scratchSource,
+    scratchOpen,
+    handleScratchClose,
+    sessionsOverlayOpen,
+    setSessionsOverlayOpen,
+    sessionsOverlayMode,
+    pendingSplitSurface,
+    setPendingSplitSurface,
+    channelSessionCatalog,
+    miniPaneSource,
+    miniPaneLabel,
+    handleCloseMiniPane,
+    restoreMiniPane,
+    visibleChatPanes,
+    canvasActive,
+    headerPaneSessionId,
+    headerPaneMeta,
+    channelHeaderChromeMode,
+    headerBudgetSessionId,
+    selectedPickerSessionId,
+    pickerHiddenSurfaces,
+    focusPane,
+    closePane,
+    maximizePane,
+    restorePanes,
+    minimizePane,
+    movePane,
+    commitPaneWidths,
+    activateChannelSessionSurface,
+    handleOpenFindResultSession,
+    replacePaneWithPendingSplit,
+    makePanePrimary,
+    handleExitSessionRoute,
+    routeSessionSource,
+  } = useChannelSessionPaneController({
+    channelId,
+    channel,
+    routeSession: channelRouteSession,
+    overlay: channelSessionOverlay,
+    panelPrefs,
+    patchChannelPanelPrefs,
+    isMobile,
+    setActiveFile,
+  });
   const { data: harnessSettings } = useSessionHarnessSettings(
     bot?.harness_runtime ? headerPaneSessionId : null,
   );
@@ -938,24 +794,6 @@ export default function ChatScreen() {
     sessionApprovalMode?.mode,
     setApprovalMode,
   ]);
-  const headerPaneCatalogRow = headerPaneSessionId
-    ? channelSessionCatalog?.find((item) => item.session_id === headerPaneSessionId) ?? null
-    : null;
-  const headerPaneMeta = headerPane
-    ? headerPane.surface.kind === "primary"
-      ? "Primary"
-      : headerPane.surface.kind === "scratch"
-        ? "Scratch"
-        : headerPaneCatalogRow?.is_active
-          ? "Primary"
-          : "Previous"
-    : null;
-  const channelHeaderChromeMode = canvasActive && visibleChatPanes.length > 1
-    ? "canvas"
-    : routeSessionSurface || canvasActive
-      ? "session"
-      : "primary";
-  const headerBudgetSessionId = channelHeaderChromeMode === "canvas" ? null : headerPaneSessionId;
   const { data: headerSavedBudget } = useChannelContextBudget(
     channelHeaderChromeMode !== "canvas" ? channelId : undefined,
     headerBudgetSessionId,
@@ -980,191 +818,6 @@ export default function ChatScreen() {
         } : null
       )
     : null;
-  const selectedPickerSessionId = useMemo(() => {
-    if (routeSessionId) return routeSessionId;
-    const layout = panelPrefs.chatPaneLayout;
-    const focusedPane = layout.panes.find((pane) => pane.id === layout.focusedPaneId) ?? layout.panes[0] ?? null;
-    if (!focusedPane || focusedPane.surface.kind === "primary") return null;
-    return focusedPane.surface.sessionId;
-  }, [panelPrefs.chatPaneLayout, routeSessionId]);
-  const pickerHiddenSurfaces = useMemo(() => {
-    const visibleSurfaces = routeSessionSurface
-      ? [routeSessionSurface]
-      : canvasActive
-        ? panelPrefs.chatPaneLayout.panes.map((pane) => pane.surface)
-        : [{ kind: "primary" } as ChannelSessionSurface];
-    return [
-      ...visibleSurfaces,
-      ...(miniPane ? [miniPane.surface] : []),
-    ];
-  }, [canvasActive, miniPane, panelPrefs.chatPaneLayout.panes, routeSessionSurface]);
-  const leaveScratchSurface = useCallback(() => {
-    setScratchPinnedSessionId(null);
-    setScratchOpen(false);
-  }, []);
-  const focusPane = useCallback((paneId: string) => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: { ...current.chatPaneLayout, focusedPaneId: paneId },
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
-  const closePane = useCallback((paneId: string) => {
-    if (!channelId) return;
-    let remainingSurface: ChannelSessionSurface | null = null;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: (() => {
-        const next = removeChannelChatPane(current.chatPaneLayout, paneId);
-        if (next.panes.length === 1) {
-          remainingSurface = next.panes[0]?.surface ?? { kind: "primary" };
-          return {
-            ...defaultChannelChatPaneLayout(),
-            miniPane: next.miniPane,
-          };
-        }
-        return next;
-      })(),
-    }));
-    if (remainingSurface) {
-      navigate(buildChannelSessionRoute(channelId, remainingSurface));
-    }
-  }, [channelId, navigate, patchChannelPanelPrefs]);
-  const maximizePane = useCallback((paneId: string) => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: maximizeChannelChatPane(current.chatPaneLayout, paneId),
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
-  const restorePanes = useCallback(() => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: restoreChannelChatPanes(current.chatPaneLayout),
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
-  const minimizePane = useCallback((paneId: string) => {
-    if (!channelId) return;
-    setScratchOpen(false);
-    setScratchPinnedSessionId(null);
-    let remainingSurface: ChannelSessionSurface | null = null;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: (() => {
-        const next = minimizeChannelChatPane(current.chatPaneLayout, paneId);
-        if (next.panes.length === 1) {
-          remainingSurface = next.panes[0]?.surface ?? { kind: "primary" };
-          return {
-            ...defaultChannelChatPaneLayout(),
-            miniPane: next.miniPane,
-          };
-        }
-        return next;
-      })(),
-    }));
-    if (remainingSurface) {
-      navigate(buildChannelSessionRoute(channelId, remainingSurface));
-    }
-  }, [channelId, navigate, patchChannelPanelPrefs]);
-  const movePane = useCallback((paneId: string, direction: "left" | "right") => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: moveChannelChatPane(current.chatPaneLayout, paneId, direction),
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
-  const commitPaneWidths = useCallback((widths: Record<string, number>) => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: {
-        ...current.chatPaneLayout,
-        widths,
-      },
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
-  const activateChannelSessionSurface = useCallback((surface: ChannelSessionSurface, intent: "switch" | "split") => {
-    if (!channelId) return;
-    leaveScratchSurface();
-    if (intent === "switch") {
-      patchChannelPanelPrefs(channelId, (current) => ({
-        chatPaneLayout: {
-          ...defaultChannelChatPaneLayout(),
-          miniPane: current.chatPaneLayout.miniPane,
-        },
-      }));
-      navigate(buildChannelSessionRoute(channelId, surface));
-      return;
-    }
-    const currentSurface: ChannelSessionSurface = routeSessionSurface ?? { kind: "primary" };
-    const currentLayout = panelPrefs.chatPaneLayout;
-    const shouldStartSplitFromRoute = !!routeSessionSurface || currentLayout.panes.length <= 1;
-    if (intent === "split") {
-      const id = paneIdForSurface(surface);
-      const alreadyOpen = currentLayout.panes.some((pane) => pane.id === id);
-      if (!shouldStartSplitFromRoute && !alreadyOpen && currentLayout.panes.length >= 3) {
-        setPendingSplitSurface(surface);
-        return;
-      }
-    }
-    patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: shouldStartSplitFromRoute
-        ? splitChannelChatPaneLayout(currentSurface, surface)
-        : addChannelChatPane(current.chatPaneLayout, surface),
-    }));
-    navigate(`/channels/${channelId}`);
-  }, [channelId, leaveScratchSurface, navigate, panelPrefs.chatPaneLayout, patchChannelPanelPrefs, routeSessionSurface]);
-  const [pendingFindJump, setPendingFindJump] = useState<ScrollToMessageDetail | null>(null);
-  const handleOpenFindResultSession = useCallback((detail: ScrollToMessageDetail) => {
-    if (!channelId || !detail.sessionId) return;
-    setPendingFindJump(detail);
-    if (isMobile) {
-      navigate(buildChannelSessionRoute(channelId, { kind: "channel", sessionId: detail.sessionId }));
-      return;
-    }
-    activateChannelSessionSurface({ kind: "channel", sessionId: detail.sessionId }, "split");
-  }, [activateChannelSessionSurface, channelId, isMobile, navigate]);
-  useEffect(() => {
-    if (!pendingFindJump?.sessionId) return;
-    const routeReady = routeSessionId === pendingFindJump.sessionId;
-    const paneReady = panelPrefs.chatPaneLayout.panes.some(
-      (pane) => pane.surface.kind !== "primary" && pane.surface.sessionId === pendingFindJump.sessionId,
-    );
-    if (!routeReady && !paneReady) return;
-    const timeout = window.setTimeout(() => {
-      requestScrollToMessage(pendingFindJump);
-      setPendingFindJump(null);
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [panelPrefs.chatPaneLayout.panes, pendingFindJump, routeSessionId]);
-  const replacePaneWithPendingSplit = useCallback((paneId: string) => {
-    if (!channelId || !pendingSplitSurface) return;
-    patchChannelPanelPrefs(channelId, (current) => {
-      const nextPanes = current.chatPaneLayout.panes.map((pane) =>
-        pane.id === paneId ? { id: paneIdForSurface(pendingSplitSurface), surface: pendingSplitSurface } : pane,
-      );
-      return {
-        chatPaneLayout: {
-          ...current.chatPaneLayout,
-          panes: nextPanes,
-          focusedPaneId: paneIdForSurface(pendingSplitSurface),
-        },
-      };
-    });
-    setPendingSplitSurface(null);
-  }, [channelId, patchChannelPanelPrefs, pendingSplitSurface]);
-  const makePanePrimary = useCallback((pane: ChannelChatPane) => {
-    if (!channelId || pane.surface.kind === "primary") return;
-    if (pane.surface.kind === "scratch") {
-      promoteScratch.mutate({
-        session_id: pane.surface.sessionId,
-        parent_channel_id: channelId,
-        bot_id: channel?.bot_id,
-      });
-      return;
-    }
-    void apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
-      method: "POST",
-      body: JSON.stringify({ session_id: pane.surface.sessionId }),
-    }).then(() => {
-      void queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
-      void queryClient.invalidateQueries({ queryKey: channelSessionCatalogKey(channelId) });
-    });
-  }, [channel?.bot_id, channelId, promoteScratch, queryClient]);
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
     if (tab === "files") {
@@ -1915,25 +1568,6 @@ export default function ChatScreen() {
   // A selected previous/scratch session is the page, not a pane. This keeps
   // the channel header and the chat surface from presenting competing session
   // identities.
-  const routeSessionSource = useMemo(() => {
-    if (!routeSessionSurface || !channelId) return null;
-    if (routeSessionSurface.kind === "scratch") {
-      return buildScratchChatSource({
-        channelId,
-        botId: channel?.bot_id,
-        sessionId: routeSessionSurface.sessionId,
-      });
-    }
-    if (routeSessionSurface.kind === "channel") {
-      return buildChannelSessionChatSource({
-        channelId,
-        botId: channel?.bot_id,
-        sessionId: routeSessionSurface.sessionId,
-      });
-    }
-    return null;
-  }, [channel?.bot_id, channelId, routeSessionSurface]);
-
   const sessionColumnNode =
     routeSessionSource && channelId ? (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>

@@ -11,6 +11,7 @@ import pytest
 
 from app.services.openai_responses_adapter import (
     OpenAIResponsesAdapter,
+    _MODELS_REJECTING_MAX_OUTPUT_TOKENS,
     _build_request_body,
     _exc_for_status,
     _response_to_completion,
@@ -721,3 +722,76 @@ class TestAdapterHeaders:
         assert "responses=experimental" in headers["OpenAI-Beta"]
         assert headers["originator"] == "codex_cli_rs"
         await adapter.aclose()
+
+    @pytest.mark.asyncio
+    async def test_retries_without_max_output_tokens_when_codex_rejects_it(self):
+        _MODELS_REJECTING_MAX_OUTPUT_TOKENS.clear()
+
+        async def tokens():
+            return {"access_token": "tok", "account_id": "acct_123"}
+
+        bad_request = openai.BadRequestError(
+            message='Responses API returned 400: {"detail": "Unsupported parameter: max_output_tokens"}',
+            response=httpx.Response(
+                400,
+                request=httpx.Request("POST", "https://chatgpt.com/backend-api/codex/responses"),
+            ),
+            body={"detail": "Unsupported parameter: max_output_tokens"},
+        )
+        retry_stream = object()
+        adapter = OpenAIResponsesAdapter(tokens_source=tokens)
+
+        with patch(
+            "app.services.openai_responses_adapter._ResponsesStreamAdapter.create",
+            new=AsyncMock(side_effect=[bad_request, retry_stream]),
+        ) as create:
+            result = await adapter.chat.completions.create(
+                model="gpt-5.3-codex-spark",
+                messages=[{"role": "user", "content": "summarize"}],
+                stream=True,
+                max_tokens=256,
+            )
+
+        assert result is retry_stream
+        assert create.await_count == 2
+        first_body = create.await_args_list[0].args[3]
+        retry_body = create.await_args_list[1].args[3]
+        assert first_body["max_output_tokens"] == 256
+        assert "max_output_tokens" not in retry_body
+        assert (
+            "https://chatgpt.com/backend-api/codex",
+            "gpt-5.3-codex-spark",
+        ) in _MODELS_REJECTING_MAX_OUTPUT_TOKENS
+        await adapter.aclose()
+
+    @pytest.mark.asyncio
+    async def test_omits_max_output_tokens_after_model_rejection_is_cached(self):
+        _MODELS_REJECTING_MAX_OUTPUT_TOKENS.clear()
+        _MODELS_REJECTING_MAX_OUTPUT_TOKENS.add((
+            "https://chatgpt.com/backend-api/codex",
+            "gpt-5.3-codex-spark",
+        ))
+
+        async def tokens():
+            return {"access_token": "tok", "account_id": "acct_123"}
+
+        retry_stream = object()
+        adapter = OpenAIResponsesAdapter(tokens_source=tokens)
+
+        with patch(
+            "app.services.openai_responses_adapter._ResponsesStreamAdapter.create",
+            new=AsyncMock(return_value=retry_stream),
+        ) as create:
+            result = await adapter.chat.completions.create(
+                model="gpt-5.3-codex-spark",
+                messages=[{"role": "user", "content": "summarize"}],
+                stream=True,
+                max_tokens=256,
+            )
+
+        assert result is retry_stream
+        assert create.await_count == 1
+        body = create.await_args.args[3]
+        assert "max_output_tokens" not in body
+        await adapter.aclose()
+        _MODELS_REJECTING_MAX_OUTPUT_TOKENS.clear()

@@ -141,6 +141,8 @@ test("MessageInput delegates draft files and submit decision policy", () => {
     assert.match(messageInput, /ComposerModelControl/);
     assert.match(messageInput, /ComposerPlanControl/);
     assert.match(messageInput, /ComposerApprovalModeControl/);
+    assert.match(messageInput, /const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;/);
+    assert.doesNotMatch(messageInput, /!isHarness && canTogglePlanMode/);
     assert.doesNotMatch(messageInput, /useDraftsStore/);
     assert.doesNotMatch(messageInput, /type DraftFile/);
     assert.doesNotMatch(messageInput, /function fileToBase64/);
@@ -178,4 +180,21 @@ test("chat sends thread a stable client-local id through optimistic rows and req
     assert.match(channelHook, /local_status:\s*"queued"/);
     assert.match(channelEvents, /incomingClientLocalId/);
     assert.match(chatMessageArea, /meta\.client_local_id/);
+});
+test("channel route delegates session pane orchestration to its local controller", () => {
+    const channelRoute = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"), "utf8");
+    const paneController = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelSessionPaneController.ts"), "utf8");
+    assert.match(channelRoute, /useChannelRouteSessionSurface/);
+    assert.match(channelRoute, /useChannelSessionOverlayController/);
+    assert.match(channelRoute, /useChannelSessionPaneController/);
+    assert.doesNotMatch(channelRoute, /const focusPane = useCallback/);
+    assert.doesNotMatch(channelRoute, /const minimizePane = useCallback/);
+    assert.doesNotMatch(channelRoute, /const replacePaneWithPendingSplit = useCallback/);
+    assert.doesNotMatch(channelRoute, /const activateChannelSessionSurface = useCallback/);
+    assert.doesNotMatch(channelRoute, /usePromoteScratchSession/);
+    assert.match(paneController, /const focusPane = useCallback/);
+    assert.match(paneController, /const minimizePane = useCallback/);
+    assert.match(paneController, /const replacePaneWithPendingSplit = useCallback/);
+    assert.match(paneController, /const activateChannelSessionSurface = useCallback/);
+    assert.match(paneController, /usePromoteScratchSession/);
 });

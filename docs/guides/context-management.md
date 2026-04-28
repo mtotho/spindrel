@@ -331,6 +331,8 @@ The kept live window and the summarized window should never overlap.
 
 Manual and automatic compaction both persist a visible assistant-owned operation row with `metadata.kind == "compaction_run"` and status metadata (`queued`, `running`, `completed`, or `failed`). That row is UI state only: it is delivered over the normal message event path and survives refresh, but it is not replayed to the model, summarized into future compactions, counted as live history, or used as an extra "you were compacted" instruction. The agent learns about compaction through the existing session summary / section history plus post-watermark live history.
 
+If a provider rejects an optional output-token cap during section generation, the ChatGPT subscription Responses adapter records that provider/model capability in-process and retries the request once without that cap. Later calls for the same endpoint/model omit the cap immediately instead of failing once per compaction. Deterministic fallback remains the final escape hatch, but fallback sections record the provider error in the compaction log and are not appended to the rolling executive summary, so low-signal `Auto-archived conversation segment.` text does not pollute future context.
+
 ---
 
 ## Tool Result Lifecycle

@@ -103,7 +103,36 @@ class TestGenerateSectionUsage:
         assert usage_info["tier"] == "deterministic"
         assert usage_info["prompt_tokens"] is None
         assert usage_info["completion_tokens"] is None
+        assert "LLM fail" in usage_info["error"]
         assert "Hello world" in title
+
+
+class TestExecutiveSummaryAppend:
+    def test_deterministic_fallback_section_is_not_appended(self):
+        from app.services.compaction import _append_section_to_executive_summary
+
+        result = _append_section_to_executive_summary(
+            "Existing useful summary.",
+            section_sequence=12,
+            section_title="Push to development",
+            section_summary="Auto-archived conversation segment.",
+            section_tier="deterministic",
+        )
+
+        assert result == "Existing useful summary."
+
+    def test_signal_section_is_appended(self):
+        from app.services.compaction import _append_section_to_executive_summary
+
+        result = _append_section_to_executive_summary(
+            "Existing useful summary.",
+            section_sequence=13,
+            section_title="Provider Retry",
+            section_summary="Fixed compaction request retries.",
+            section_tier="normal",
+        )
+
+        assert result.endswith("[Section 13] Provider Retry: Fixed compaction request retries.")
 
 
 # ---------------------------------------------------------------------------
@@ -314,17 +343,21 @@ class TestPeriodDateFix:
     def test_stream_path_captures_prev_watermark(self):
         """run_compaction_stream captures prev_watermark_id and uses it as lower bound."""
         import inspect
-        from app.services.compaction import run_compaction_stream
+        from app.services.compaction import _compute_compaction_watermark, run_compaction_stream
 
-        source = inspect.getsource(run_compaction_stream)
-        assert "prev_watermark_id = session.summary_message_id" in source
-        assert "Message.created_at > prev_wm_msg.created_at" in source
+        stream_source = inspect.getsource(run_compaction_stream)
+        helper_source = inspect.getsource(_compute_compaction_watermark)
+        assert "prev_watermark_id = session.summary_message_id" in stream_source
+        assert "prev_wm_msg = await db.get(Message, prev_watermark_id)" in helper_source
+        assert "prev_watermark_dt = prev_wm_msg.created_at" in helper_source
 
     def test_forced_path_captures_prev_watermark(self):
         """run_compaction_forced captures prev_watermark_id and uses it as lower bound."""
         import inspect
-        from app.services.compaction import run_compaction_forced
+        from app.services.compaction import _compute_compaction_watermark, run_compaction_forced
 
-        source = inspect.getsource(run_compaction_forced)
-        assert "prev_watermark_id = session.summary_message_id" in source
-        assert "Message.created_at > prev_wm_msg.created_at" in source
+        forced_source = inspect.getsource(run_compaction_forced)
+        helper_source = inspect.getsource(_compute_compaction_watermark)
+        assert "prev_watermark_id = session.summary_message_id" in forced_source
+        assert "prev_wm_msg = await db.get(Message, prev_watermark_id)" in helper_source
+        assert "prev_watermark_dt = prev_wm_msg.created_at" in helper_source

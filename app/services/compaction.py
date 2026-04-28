@@ -927,12 +927,18 @@ async def _generate_section(
     section_count = 0
     prev_title: str | None = None
     prev_summary: str | None = None
+    section_scope = None
     if session_id:
+        section_scope = ConversationSection.session_id == session_id
+    elif channel_id:
+        section_scope = ConversationSection.channel_id == channel_id
+
+    if section_scope is not None:
         async with async_session() as db:
             count_result = await db.execute(
                 select(func.count())
                 .select_from(ConversationSection)
-                .where(ConversationSection.session_id == session_id)
+                .where(section_scope)
             )
             section_count = count_result.scalar() or 0
 
@@ -940,7 +946,7 @@ async def _generate_section(
                 from sqlalchemy.orm import defer as _defer_col
                 prev_result = await db.execute(
                     select(ConversationSection)
-                    .where(ConversationSection.session_id == session_id)
+                    .where(section_scope)
                     .order_by(ConversationSection.sequence.desc())
                     .limit(1)
                     .options(_defer_col(ConversationSection.transcript), _defer_col(ConversationSection.embedding))
@@ -964,6 +970,7 @@ async def _generate_section(
 
     # --- Phase 3: Three-tier fallback escalation ---
     from app.services.providers import get_llm_client
+    last_error: str | None = None
 
     # Tier 1: Normal
     try:
@@ -994,11 +1001,13 @@ async def _generate_section(
             _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
             return (title, summary, transcript, tags, usage_info)
         # Non-JSON response — fall through to aggressive
+        last_error = f"normal tier returned non-JSON: {raw[:200]}"
         logger.error(
             "Section LLM returned non-JSON (tier normal) model=%s provider=%s raw=%s",
             model, provider_id, raw[:500],
         )
-    except Exception:
+    except Exception as exc:
+        last_error = f"normal tier failed: {exc}"
         logger.error(
             "Section LLM failed (tier normal) model=%s provider=%s, escalating to aggressive",
             model, provider_id, exc_info=True,
@@ -1033,11 +1042,13 @@ async def _generate_section(
                 tags = []
             _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
             return (title, summary, transcript, tags, usage_info)
+        last_error = f"aggressive tier returned non-JSON: {raw[:200]}"
         logger.error(
             "Section LLM returned non-JSON (tier aggressive) model=%s provider=%s raw=%s",
             model, provider_id, raw[:500],
         )
-    except Exception:
+    except Exception as exc:
+        last_error = f"aggressive tier failed: {exc}"
         logger.error(
             "Section LLM failed (tier aggressive) model=%s provider=%s, escalating to deterministic",
             model, provider_id, exc_info=True,
@@ -1057,7 +1068,12 @@ async def _generate_section(
             break
     det_title = (first_user_msg[:80] + "…") if len(first_user_msg) > 80 else (first_user_msg or "Conversation")
     _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
-    usage_info = {"tier": compaction_tier, "prompt_tokens": None, "completion_tokens": None}
+    usage_info = {
+        "tier": compaction_tier,
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "error": last_error or "Section LLM did not produce usable JSON.",
+    }
     return (det_title, "Auto-archived conversation segment.", transcript, ["auto-truncated"], usage_info)
 
 
@@ -1120,6 +1136,24 @@ async def _regenerate_executive_summary(
     )
 
     return (response.choices[0].message.content or "").strip()
+
+
+def _append_section_to_executive_summary(
+    existing_summary: str | None,
+    *,
+    section_sequence: int,
+    section_title: str,
+    section_summary: str,
+    section_tier: str,
+) -> str:
+    """Append only signal-bearing sections to the rolling executive summary."""
+    existing = existing_summary or ""
+    if section_tier == "deterministic" or section_summary == "Auto-archived conversation segment.":
+        return existing
+    section_line = f"[Section {section_sequence}] {section_title}: {section_summary}"
+    if existing:
+        return f"{existing}\n\n{section_line}"
+    return section_line
 
 
 async def _record_compaction_log(
@@ -1370,10 +1404,13 @@ async def _persist_section_and_summary(
         except Exception:
             logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
 
-    if existing_summary:
-        exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
-    else:
-        exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+    exec_summary = _append_section_to_executive_summary(
+        existing_summary,
+        section_sequence=max_seq + 1,
+        section_title=sec_title,
+        section_summary=sec_summary,
+        section_tier=str(sec_usage.get("tier") or "normal"),
+    )
 
     _EXEC_SUMMARY_REGEN_CHARS = 2000
     _EXEC_SUMMARY_REGEN_SECTIONS = 15
@@ -1436,6 +1473,7 @@ def _record_compaction_completion(
     duration_ms: int,
     section_id: uuid.UUID | None,
     flush_result: str | None,
+    error: str | None = None,
 ) -> None:
     """Fire-and-forget compaction_done trace + compaction log row insert."""
     trace_data: dict[str, Any] = {
@@ -1467,6 +1505,7 @@ def _record_compaction_completion(
         completion_tokens=completion_tokens,
         duration_ms=duration_ms,
         section_id=section_id,
+        error=error,
         correlation_id=correlation_id,
         flush_result=flush_result,
     ))
@@ -1648,6 +1687,7 @@ async def run_compaction_stream(
             completion_tokens=usage.get("completion_tokens"),
             duration_ms=_duration_ms, section_id=section_id,
             flush_result=flush_result,
+            error=usage.get("error"),
         )
         yield {"type": "compaction_done", "title": title, "summary": summary}
     except Exception as exc:
@@ -2054,6 +2094,7 @@ async def run_compaction_forced(
         completion_tokens=usage.get("completion_tokens"),
         duration_ms=_duration_ms, section_id=section_id,
         flush_result=flush_result,
+        error=usage.get("error"),
     )
     return (title, summary)
 
