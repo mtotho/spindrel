@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import time
 import uuid
 
 from app.utils import safe_create_task
@@ -45,6 +44,7 @@ from app.agent.loop_helpers import (
 from app.agent.loop_exit import schedule_loop_error_cleanup, stream_loop_exit_finalization
 from app.agent.loop_llm import LoopLlmIterationDone, stream_loop_llm_iteration
 from app.agent.loop_pre_llm import LoopPreLlmIterationDone, stream_loop_pre_llm_iteration
+from app.agent.loop_setup import LoopSetupDone, stream_loop_setup
 from app.agent.loop_state import LoopRunContext, LoopRunState
 from app.agent.loop_tool_iteration import LoopToolIterationDone, stream_loop_tool_iteration
 from app.agent.message_utils import (
@@ -53,7 +53,7 @@ from app.agent.message_utils import (
     _extract_transcript,
     _merge_tool_schemas,
 )
-from app.agent.prompt_sizing import estimate_chars_to_tokens, message_prompt_chars
+from app.agent.prompt_sizing import message_prompt_chars
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, extract_xml_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import detect_cycle
@@ -99,76 +99,6 @@ async def run_agent_tool_loop(
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
-    _loop_config = _resolve_loop_config(
-        bot,
-        max_iterations=max_iterations,
-        model_override=model_override,
-        provider_id_override=provider_id_override,
-        context_profile_name=context_profile_name,
-        settings_obj=settings,
-    )
-    effective_max_iterations = _loop_config.effective_max_iterations
-    _max_iterations_source = _loop_config.max_iterations_source
-    model = _loop_config.model
-    provider_id = _loop_config.provider_id
-    _effective_model_params = _loop_config.effective_model_params
-    summarize_settings = _loop_config.summarize_settings
-    _in_loop_keep_iterations = _loop_config.in_loop_keep_iterations
-
-    _tool_state = await _resolve_loop_tools(
-        bot,
-        pre_selected_tools=pre_selected_tools,
-        authorized_tool_names=authorized_tool_names,
-        compaction=compaction,
-        get_local_tool_schemas_fn=get_local_tool_schemas,
-        fetch_mcp_tools_fn=fetch_mcp_tools,
-        get_client_tool_schemas_fn=get_client_tool_schemas,
-        merge_tool_schemas_fn=_merge_tool_schemas,
-    )
-    all_tools = _tool_state.all_tools
-    tools_param = _tool_state.tools_param
-    tool_choice = _tool_state.tool_choice
-    _effective_allowed = _tool_state.effective_allowed
-    _activated_list = _tool_state.activated_list
-    _run_control_policy = run_control_policy or {}
-    _soft_max_llm_calls = int(_run_control_policy.get("soft_max_llm_calls") or 0)
-    _hard_max_llm_calls = int(_run_control_policy.get("hard_max_llm_calls") or 0)
-    _soft_current_prompt_tokens = int(_run_control_policy.get("soft_current_prompt_tokens") or 0)
-    _target_seconds = int(_run_control_policy.get("target_seconds") or 0)
-    _run_started_at = time.monotonic()
-    if _hard_max_llm_calls > 0:
-        if context_profile_name == "heartbeat" and _max_iterations_source == "global":
-            effective_max_iterations = _hard_max_llm_calls
-        else:
-            effective_max_iterations = min(effective_max_iterations, _hard_max_llm_calls)
-
-    logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
-
-    if context_profile_name == "heartbeat":
-        import json as _json
-        _tool_schema_chars = sum(len(_json.dumps(t, default=str)) for t in (tools_param or []))
-        _tool_surface_event = {
-            "type": "tool_surface_summary",
-            "context_profile": context_profile_name,
-            "tool_count": len(tools_param or []),
-            "tool_schema_tokens_estimate": estimate_chars_to_tokens(_tool_schema_chars),
-            "tools": [(t.get("function") or {}).get("name") for t in (tools_param or [])],
-            "tool_surface": _run_control_policy.get("tool_surface") or "unknown",
-            "continuation_mode": _run_control_policy.get("continuation_mode") or "stateless",
-            "max_iterations_source": _max_iterations_source,
-            "effective_max_iterations": effective_max_iterations,
-        }
-        yield _event_with_compaction_tag(_tool_surface_event, compaction)
-        if correlation_id is not None:
-            safe_create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="tool_surface_summary",
-                data={k: v for k, v in _tool_surface_event.items() if k != "type"},
-            ))
-
     ctx = LoopRunContext(
         bot=bot,
         session_id=session_id,
@@ -190,19 +120,59 @@ async def run_agent_tool_loop(
         from app.services.providers import resolve_provider_for_model
         from app.services.secret_registry import redact as _redact_secrets
 
-        # Resolve provider once — used for rate limiting AND the actual LLM call.
-        effective_provider_id = provider_id
-        if effective_provider_id is None:
-            effective_provider_id = resolve_provider_for_model(model)
-
-        # --- Opening-turn skill nudges (one-shot, before first LLM call) ---
-        _has_manage_bot_skill = _tool_state.has_manage_bot_skill
-        await _inject_opening_skill_nudges(
-            bot=bot,
+        _setup_done: LoopSetupDone | None = None
+        async for _setup_event in stream_loop_setup(
             messages=messages,
-            has_manage_bot_skill=_has_manage_bot_skill,
+            bot=bot,
+            session_id=session_id,
+            client_id=client_id,
             correlation_id=correlation_id,
-        )
+            channel_id=channel_id,
+            compaction=compaction,
+            native_audio=native_audio,
+            user_msg_index=user_msg_index,
+            turn_start=turn_start,
+            max_iterations=max_iterations,
+            model_override=model_override,
+            provider_id_override=provider_id_override,
+            context_profile_name=context_profile_name,
+            run_control_policy=run_control_policy,
+            pre_selected_tools=pre_selected_tools,
+            authorized_tool_names=authorized_tool_names,
+            settings_obj=settings,
+            resolve_loop_config_fn=_resolve_loop_config,
+            resolve_loop_tools_fn=_resolve_loop_tools,
+            get_local_tool_schemas_fn=get_local_tool_schemas,
+            fetch_mcp_tools_fn=fetch_mcp_tools,
+            get_client_tool_schemas_fn=get_client_tool_schemas,
+            merge_tool_schemas_fn=_merge_tool_schemas,
+            resolve_provider_for_model_fn=resolve_provider_for_model,
+            inject_opening_skill_nudges_fn=_inject_opening_skill_nudges,
+            record_trace_event_fn=_record_trace_event,
+            safe_create_task_fn=safe_create_task,
+            monotonic_fn=_time.monotonic,
+        ):
+            if isinstance(_setup_event, LoopSetupDone):
+                _setup_done = _setup_event
+                continue
+            yield _setup_event
+        if _setup_done is None:
+            return
+
+        ctx = _setup_done.ctx
+        state = _setup_done.state
+        effective_max_iterations = _setup_done.effective_max_iterations
+        model = _setup_done.model
+        effective_provider_id = _setup_done.effective_provider_id
+        _effective_model_params = _setup_done.effective_model_params
+        summarize_settings = _setup_done.summarize_settings
+        _in_loop_keep_iterations = _setup_done.in_loop_keep_iterations
+        tools_param = _setup_done.tools_param
+        tool_choice = _setup_done.tool_choice
+        _effective_allowed = _setup_done.effective_allowed
+        _activated_list = _setup_done.activated_list
+        _has_manage_bot_skill = _setup_done.has_manage_bot_skill
+        _run_control = _setup_done.run_control
 
         for iteration in range(effective_max_iterations):
             _pre_llm_done: LoopPreLlmIterationDone | None = None
@@ -217,10 +187,10 @@ async def run_agent_tool_loop(
                 activated_list=_activated_list,
                 effective_allowed=_effective_allowed,
                 context_profile_name=context_profile_name,
-                run_started_at=_run_started_at,
-                soft_max_llm_calls=_soft_max_llm_calls,
-                soft_current_prompt_tokens=_soft_current_prompt_tokens,
-                target_seconds=_target_seconds,
+                run_started_at=_run_control.run_started_at,
+                soft_max_llm_calls=_run_control.soft_max_llm_calls,
+                soft_current_prompt_tokens=_run_control.soft_current_prompt_tokens,
+                target_seconds=_run_control.target_seconds,
                 in_loop_keep_iterations=_in_loop_keep_iterations,
                 settings_obj=settings,
                 session_lock_manager=session_locks,
