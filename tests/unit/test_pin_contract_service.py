@@ -4,7 +4,6 @@ Pins:
 - ``render_pin_metadata`` is snapshot-only — never touches deps.
 - ``compute_pin_metadata`` walks the resolver chain and folds with snapshot.
 - ``apply_to_pin`` mutates only the columns that drift; reports dirty bool.
-- ``compute_pin_source_stamp`` returns the matching resolver's stamp.
 - Caller-supplied origin sets ``provenance_confidence == authoritative``.
 """
 from __future__ import annotations
@@ -22,7 +21,6 @@ from app.services.pin_contract import (
     PinMetadataView,
     apply_to_pin,
     compute_pin_metadata,
-    compute_pin_source_stamp,
     reconcile_pin_metadata,
     render_pin_metadata,
 )
@@ -229,32 +227,6 @@ class TestApplyToPin:
         apply_to_pin(pin, view, stamp=None)
         contract["actions"].append("from outside")
         assert pin.widget_contract_snapshot == {"actions": []}
-
-
-# ── compute_pin_source_stamp ────────────────────────────────────────
-
-
-class TestComputeStamp:
-    def test_runtime_emit_returns_none(self):
-        stamp = compute_pin_source_stamp(
-            tool_name="html_widget",
-            envelope={"content_type": "application/vnd.spindrel.html+interactive"},
-            source_bot_id=None,
-        )
-        # No source_path / library_ref / preset → falls into runtime_emit
-        # catch-all → stamp None.
-        assert stamp is None
-
-    def test_native_returns_non_none(self):
-        stamp = compute_pin_source_stamp(
-            tool_name="native",
-            envelope={
-                "content_type": "application/vnd.spindrel.native-app+json",
-                "body": {"widget_ref": "core/notes_native"},
-            },
-            source_bot_id=None,
-        )
-        assert stamp is not None and isinstance(stamp, str)
 
 
 # ── reconcile_pin_metadata ─────────────────────────────────────────

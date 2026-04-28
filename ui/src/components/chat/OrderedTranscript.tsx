@@ -32,6 +32,7 @@ export function OrderedTranscript({
 }) {
   const decideApproval = useDecideApproval();
   const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
+  const [decidedApprovalIds, setDecidedApprovalIds] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Map<string, number>>(new Map());
   const isTerminalMode = chatMode === "terminal";
   const groupedItems = useMemo(() => groupAdjacentTranscriptItems(items), [items]);
@@ -50,6 +51,9 @@ export function OrderedTranscript({
     decideApproval.mutate(
       { approvalId, data },
       {
+        onSuccess: () => {
+          setDecidedApprovalIds((prev) => new Set(prev).add(approvalId));
+        },
         onSettled: () => {
           setDecidingIds((prev) => {
             const next = new Set(prev);
@@ -77,10 +81,14 @@ export function OrderedTranscript({
         }
 
         if (item.kind === "transcript") {
+          const visibleEntries = item.entries.filter(
+            (entry) => !entry.approval || !decidedApprovalIds.has(entry.approval.approvalId),
+          );
+          if (visibleEntries.length === 0) return null;
           return (
             <DefaultToolRows
               key={item.key}
-              entries={item.entries}
+              entries={visibleEntries}
               expandedIdx={expandedItems.get(item.key) ?? null}
               setExpandedIdx={(value) => {
                 setExpandedItems((prev) => {

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildAssistantTurnBodyItems,
   buildLegacyAssistantTurnBody,
+  buildLiveToolEntries,
 } from "./toolTranscriptModel.js";
 
 test("canonical assistant turn body preserves ordered multi-tool turns", () => {
@@ -168,6 +169,25 @@ test("file tool paths stay in the shrinkable target field", () => {
     items[0].entries[0]?.target,
     "/workspace/channels/d0cb2ce8-b7b8-5f9d-b02f-392ba81e281f/data/channel_heartbeat.md",
   );
+});
+
+test("live transcript entries use tool call ids as stable unique row ids", () => {
+  const entries = buildLiveToolEntries([
+    {
+      id: "call-file-1",
+      name: "file",
+      args: JSON.stringify({ operation: "read", path: "a.md" }),
+      status: "done",
+    },
+    {
+      id: "call-file-2",
+      name: "file",
+      args: JSON.stringify({ operation: "read", path: "b.md" }),
+      status: "done",
+    },
+  ]);
+
+  assert.deepEqual(entries.map((entry) => entry.id), ["stream:call-file-1", "stream:call-file-2"]);
 });
 
 test("diff results stay rich inline in the canonical builder", () => {

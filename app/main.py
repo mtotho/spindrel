@@ -664,6 +664,8 @@ async def lifespan(application: FastAPI):
     _workers.append(safe_create_task(attachment_retention_worker(), name="attachment_retention"))
     from app.services.data_retention import data_retention_worker
     _workers.append(safe_create_task(data_retention_worker(), name="data_retention"))
+    from app.services.pin_contract import pin_contract_drift_worker
+    _workers.append(safe_create_task(pin_contract_drift_worker(), name="pin_contract_drift"))
     if settings.CONFIG_STATE_FILE:
         from app.services.config_export import config_export_worker
         _workers.append(safe_create_task(config_export_worker(), name="config_export"))

@@ -279,7 +279,7 @@ export function DefaultToolRows({
         const isExpanded = expandedIdx === idx;
 
         return (
-          <div key={entry.id} className="flex flex-col">
+          <div key={`${entry.id}:${idx}`} className="flex flex-col">
             <div
               role={expandable ? "button" : undefined}
               tabIndex={expandable ? 0 : undefined}
@@ -555,9 +555,10 @@ function HarnessAwareApprovalRow({
   const isHarness = approval.toolType === "harness";
   const isTerminalMode = chatMode === "terminal";
   const busy = !!decidingIds?.has(approval.approvalId);
+  const summary = describeApprovalRequest(approval);
   return (
     <div
-      className={isTerminalMode ? "overflow-hidden" : "rounded-b-lg border border-t-0 overflow-hidden"}
+      className={isTerminalMode ? "overflow-hidden" : "rounded-lg border overflow-hidden"}
       style={{
         borderColor: isTerminalMode ? "transparent" : t.surfaceBorder,
         backgroundColor: isTerminalMode ? "transparent" : t.surfaceRaised,
@@ -577,12 +578,33 @@ function HarnessAwareApprovalRow({
       <div
         className="flex items-center gap-2 flex-wrap"
         style={{
-          padding: isTerminalMode ? "2px 0 0 0" : "8px 12px",
+          padding: isTerminalMode ? "2px 0 0 0" : "10px 12px",
         }}
       >
-        <span className="text-[11px]" style={{ color: t.textMuted, flex: 1, minWidth: 120 }}>
-          {approval.reason || "Tool policy requires approval before execution"}
-        </span>
+        <div className="min-w-0" style={{ flex: "1 1 220px" }}>
+          <div
+            className="flex items-baseline gap-1.5 min-w-0"
+            style={{ color: isTerminalMode ? t.text : t.text }}
+          >
+            <span
+              className="text-[12px] font-semibold"
+              style={{ fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}
+            >
+              {summary.action}
+            </span>
+            {summary.target && (
+              <EndTruncatedPath
+                value={summary.target}
+                color={t.textMuted}
+                fontFamily={isTerminalMode ? TERMINAL_FONT_STACK : CODE_FONT_STACK}
+                fontSize={11}
+              />
+            )}
+          </div>
+          <div className="text-[11px] mt-0.5" style={{ color: t.textMuted }}>
+            {approval.reason || "Tool policy requires approval before execution"}
+          </div>
+        </div>
         <button
           type="button"
           disabled={busy}
@@ -597,7 +619,7 @@ function HarnessAwareApprovalRow({
             fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
           }}
         >
-          Approve
+          {busy ? "Working..." : "Approve"}
         </button>
         {isHarness && (
           <button
@@ -637,6 +659,58 @@ function HarnessAwareApprovalRow({
       </div>
     </div>
   );
+}
+
+function describeApprovalRequest(
+  approval: NonNullable<SharedToolTranscriptEntry["approval"]>,
+): { action: string; target: string | null } {
+  const args = approval.arguments ?? {};
+  const rawToolName = approval.toolName || "tool";
+  const toolName = rawToolName.toLowerCase();
+  const stringArg = (...keys: string[]): string | null => {
+    for (const key of keys) {
+      const value = args[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  };
+
+  if (toolName === "file") {
+    const operation = stringArg("operation")?.toLowerCase() ?? "run";
+    const target = stringArg("path", "file_path", "target_path", "destination");
+    const actionByOperation: Record<string, string> = {
+      overwrite: "Overwrite file",
+      delete: "Delete file",
+      edit: "Edit file",
+      write: "Write file",
+      create: "Create file",
+      append: "Append file",
+      move: "Move file",
+      restore: "Restore file",
+    };
+    return {
+      action: actionByOperation[operation] ?? `${operation.charAt(0).toUpperCase()}${operation.slice(1)} file`,
+      target,
+    };
+  }
+
+  if (rawToolName === "Bash") {
+    return { action: "Run command", target: stringArg("description", "command") };
+  }
+  if (rawToolName === "Edit") {
+    return { action: "Edit file", target: stringArg("file_path", "path") };
+  }
+  if (rawToolName === "Write") {
+    return { action: "Write file", target: stringArg("file_path", "path") };
+  }
+  if (rawToolName === "ExitPlanMode") {
+    return { action: "Exit plan mode", target: null };
+  }
+
+  return {
+    action: `Run ${rawToolName}`,
+    target: stringArg("path", "file_path", "target_path", "name", "id"),
+  };
 }
 
 function HarnessToolPreview({

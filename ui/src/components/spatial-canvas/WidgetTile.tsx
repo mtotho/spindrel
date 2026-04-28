@@ -30,14 +30,12 @@ import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedW
  *     can't see (P3b culling). The 0.6 threshold doubles as the live-iframe
  *     activation threshold and the cull threshold — one boundary, fewer knobs.
  *
- * Gesture shield (P3b):
- *   - Top chrome strip is always pannable / drag-handle for canvas pan +
- *     dnd-kit reposition.
- *   - Iframe body is covered by a transparent shield until the tile is
- *     "activated" (click). Shield click → activate; canvas pan still works
- *     via the chrome strip. When activated the shield is removed and the
- *     iframe takes pointer events directly. Esc / click-outside (handled
- *     by the parent canvas) deactivates.
+ * Interaction split:
+ *   - Top chrome strip owns spatial selection and tile repositioning.
+ *   - Widget body owns widget interaction. Pointer/click events in the body
+ *     stop before the canvas/dnd layer so embedded buttons, links, iframes,
+ *     and scroll regions remain usable.
+ *   - Double-click is still handled by the parent node wrapper.
  */
 
 interface WidgetTileProps {
@@ -373,10 +371,6 @@ function CardView({
   return (
     <div
       data-tile-kind="widget"
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect?.();
-      }}
       className={`group relative w-full h-full text-text flex flex-col overflow-hidden ${
         isFramelessNative
           ? "pointer-events-none"
@@ -421,7 +415,14 @@ function CardView({
       {/* Drag-handle chrome strip — always pannable / dnd-kit drag handle.
           The unpin "X" is hover-reveal so calm tiles stay calm. */}
       {!isFramelessNative && (
-      <div className="flex flex-row items-center gap-1.5 px-3 py-2 border-b border-surface-border bg-surface-raised flex-shrink-0">
+      <div
+        data-spatial-widget-header="true"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect?.();
+        }}
+        className="flex flex-row items-center gap-1.5 px-3 py-2 border-b border-surface-border bg-surface-raised flex-shrink-0"
+      >
         <Box size={11} className="text-text-dim" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
           Widget
@@ -449,48 +450,32 @@ function CardView({
       )}
 
       {/* Body — branches on widget content type. */}
-      <div className={`flex-1 relative min-h-0 overflow-hidden ${isFramelessNative ? "" : "bg-surface"}`}>
+      <div
+        data-spatial-widget-body="true"
+        className={`flex-1 relative min-h-0 overflow-hidden ${isFramelessNative ? "" : "bg-surface"}`}
+        onPointerDown={(e) => {
+          if (!isFramelessNative) {
+            e.stopPropagation();
+            onActivate(nodeId);
+          }
+        }}
+        onClick={(e) => {
+          if (!isFramelessNative) e.stopPropagation();
+        }}
+      >
         {!live ? (
           <StaticBody pin={pin} />
         ) : isHtmlWidget ? (
-          <>
-            {/* When activated, stop pointerdown from reaching dnd-kit so the
-                user can interact with the iframe (drag inside it, scroll,
-                etc.) without starting a tile reposition. */}
-            <div
-              className="absolute inset-0"
-              onPointerDown={
-                activated ? (e) => e.stopPropagation() : undefined
-              }
-            >
-              <InteractiveHtmlRenderer
-                envelope={currentEnvelope}
-                channelId={channelId}
-                dashboardPinId={pin.id}
-                fillHeight
-                hostSurface="plain"
-                t={t}
-              />
-            </div>
-
-            {/* Transparent shield — blocks iframe pointer events until the
-                tile is activated. Click → activate. Pointerdown stopped to
-                avoid starting a dnd-kit drag on a clean tap (4px activation
-                distance handles drag intent). */}
-            {!activated && (
-              <button
-                type="button"
-                aria-label="Select widget"
-                title="Select widget"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect?.();
-                }}
-                onDoubleClick={(e) => e.stopPropagation()}
-                className="absolute inset-0 cursor-pointer bg-transparent border-0 p-0 m-0"
-              />
-            )}
-          </>
+          <div className="absolute inset-0">
+            <InteractiveHtmlRenderer
+              envelope={currentEnvelope}
+              channelId={channelId}
+              dashboardPinId={pin.id}
+              fillHeight
+              hostSurface="plain"
+              t={t}
+            />
+          </div>
         ) : isNativeWidget ? (
           // Native widgets (Notes, Todo, …) own their dispatch via
           // useNativeEnvelopeState; we just give them the right host props.
@@ -510,6 +495,9 @@ function CardView({
             onPointerDown={
               isFramelessNative ? undefined : (e) => e.stopPropagation()
             }
+            onClick={(e) => {
+              if (!isFramelessNative) e.stopPropagation();
+            }}
           >
             {renderNativeWidget({
               envelope: currentEnvelope,
@@ -525,6 +513,7 @@ function CardView({
           <div
             className="absolute inset-0 overflow-y-auto px-3 py-2"
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             {actionCtx ? (
               <WidgetActionContext.Provider value={actionCtx}>
@@ -546,12 +535,6 @@ function CardView({
           </div>
         )}
       </div>
-
-      {!activated && live && isHtmlWidget && (
-        <div className="text-[10px] text-text-dim text-center py-1 border-t border-surface-border flex-shrink-0">
-          Click to interact · Esc to release
-        </div>
-      )}
 
       <ResizeHandle nodeId={nodeId} zoom={zoom} />
     </div>

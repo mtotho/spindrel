@@ -712,7 +712,7 @@ export function buildLiveToolEntries(toolCalls) {
         }
         return {
             ...base,
-            id: `stream:${toolName}:${tc.status}:${index}`,
+            id: tc.id ? `stream:${tc.id}` : `stream:${toolName}:${tc.status}:${index}`,
             kind: tc.status === "awaiting_approval" && tc.approvalId ? "approval" : base.kind,
             label: tc.status === "awaiting_approval"
                 ? `Approval required: ${toolName}`

@@ -101,7 +101,7 @@ def _materialize_html(origin, ident, deps) -> LiveFields:
 
 def _origin_envelope(envelope: dict[str, Any], origin: WidgetOrigin) -> dict[str, Any]:
     """Project origin scope hints back onto the envelope for manifest lookup
-    (mirrors ``widget_contracts._merge_origin_into_envelope``).
+    so manifest resolution does not depend on caller-specific envelope shape.
     """
     import copy
 

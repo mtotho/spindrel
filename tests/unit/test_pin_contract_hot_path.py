@@ -142,30 +142,14 @@ class TestSerializePinHotPath:
         assert data["panel_title"] == "Test Native"
         assert data["show_panel_title"] is True
 
-    def test_stamped_pin_does_not_invoke_legacy_build(self) -> None:
-        """The legacy compute path must not be called for stamped rows.
+    def test_legacy_pin_metadata_helpers_are_removed(self) -> None:
+        """Phase 4 removes the legacy parity oracle from widget_contracts."""
+        from app.services import widget_contracts
 
-        ``build_pin_contract_metadata`` is kept around as the parity oracle
-        for the Phase 2.5 fixture suite; it should NEVER be invoked on a
-        ``serialize_pin`` read of a stamped row.
-        """
-        pin = _stamped_native_pin()
-
-        def boom(*args, **kwargs):  # pragma: no cover - sentinel
-            raise AssertionError(
-                "legacy build_pin_contract_metadata called on stamped pin "
-                "read path; Phase 3 flip regressed"
-            )
-
-        with patch(
-            "app.services.widget_contracts.build_pin_contract_metadata",
-            side_effect=boom,
-        ), patch(
-            "app.services.widget_contracts.build_public_fields_for_pin",
-            side_effect=boom,
-        ):
-            data = serialize_pin(pin)
-        assert data["id"] == str(pin.id)
+        assert not hasattr(widget_contracts, "build_public_fields_for_pin")
+        assert not hasattr(widget_contracts, "build_pin_contract_metadata")
+        assert not hasattr(widget_contracts, "infer_pin_origin")
+        assert not hasattr(widget_contracts, "build_public_fields_from_origin")
 
     def test_unstamped_pin_falls_back_to_compute(self) -> None:
         """Un-stamped rows (legacy / hand-edited / restored from backup)

@@ -16,6 +16,7 @@ Invariants pinned here:
 3. Idempotency — a second call after a successful refresh returns
    ``False`` without additional writes.
 4. Inferred origin when the pin's ``widget_origin`` is None.
+5. ``source_stamp`` is refreshed through the same pin_contract Module.
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from unittest.mock import patch
 
 from app.db.models import WidgetDashboardPin
 from app.services.dashboard_pins import _refresh_pin_contract_metadata
-from app.services.widget_contracts import build_pin_contract_metadata
+from app.services.pin_contract import compute_expected_pin_contract
 
 
 def _make_bare_pin(**overrides: Any) -> WidgetDashboardPin:
@@ -50,22 +51,22 @@ def _make_bare_pin(**overrides: Any) -> WidgetDashboardPin:
         "widget_contract_snapshot": None,
         "config_schema_snapshot": None,
         "widget_presentation_snapshot": None,
+        "source_stamp": None,
     }
     base.update(overrides)
     return WidgetDashboardPin(**base)
 
 
 def _canonical_metadata(pin: WidgetDashboardPin) -> dict[str, Any]:
-    return build_pin_contract_metadata(
-        tool_name=pin.tool_name,
-        envelope=pin.envelope or {},
-        source_bot_id=pin.source_bot_id,
-        widget_origin=pin.widget_origin,
-        provenance_confidence=pin.provenance_confidence,
-        widget_contract_snapshot=pin.widget_contract_snapshot,
-        config_schema_snapshot=pin.config_schema_snapshot,
-        widget_presentation_snapshot=pin.widget_presentation_snapshot,
-    )
+    expected = compute_expected_pin_contract(pin)
+    return {
+        "widget_origin": expected.view.widget_origin or None,
+        "provenance_confidence": expected.view.provenance_confidence,
+        "widget_contract_snapshot": expected.view.widget_contract,
+        "config_schema_snapshot": expected.view.config_schema,
+        "widget_presentation_snapshot": expected.view.widget_presentation,
+        "source_stamp": expected.source_stamp,
+    }
 
 
 class TestRefreshPinContractMetadata:
@@ -77,7 +78,7 @@ class TestRefreshPinContractMetadata:
         changed = _refresh_pin_contract_metadata(pin)
 
         assert changed is True
-        # ``infer_pin_origin`` runs because pin.widget_origin was None.
+        # Resolver-chain origin inference runs because pin.widget_origin was None.
         assert isinstance(pin.widget_origin, dict)
         assert pin.provenance_confidence == "inferred"
         # widget_presentation_snapshot should get the default-merged shape.
@@ -102,6 +103,7 @@ class TestRefreshPinContractMetadata:
         pin.widget_contract_snapshot = canonical["widget_contract_snapshot"]
         pin.config_schema_snapshot = canonical["config_schema_snapshot"]
         pin.widget_presentation_snapshot = canonical["widget_presentation_snapshot"]
+        pin.source_stamp = canonical["source_stamp"]
 
         assert _refresh_pin_contract_metadata(pin) is False
 
@@ -121,6 +123,7 @@ class TestRefreshPinContractMetadata:
         pin.widget_contract_snapshot = canonical["widget_contract_snapshot"]
         pin.config_schema_snapshot = canonical["config_schema_snapshot"]
         pin.widget_presentation_snapshot = canonical["widget_presentation_snapshot"]
+        pin.source_stamp = canonical["source_stamp"]
         pin.widget_origin = None
         pin.provenance_confidence = canonical["provenance_confidence"]
 
@@ -150,6 +153,7 @@ class TestRefreshPinContractMetadata:
         pin.widget_contract_snapshot = canonical["widget_contract_snapshot"]
         pin.config_schema_snapshot = canonical["config_schema_snapshot"]
         pin.widget_presentation_snapshot = canonical["widget_presentation_snapshot"]
+        pin.source_stamp = canonical["source_stamp"]
         pin.provenance_confidence = None
 
         with patch(
@@ -172,6 +176,7 @@ class TestRefreshPinContractMetadata:
         canonical = _canonical_metadata(pin)
         pin.widget_origin = canonical["widget_origin"]
         pin.provenance_confidence = canonical["provenance_confidence"]
+        pin.source_stamp = canonical["source_stamp"]
         # Set all three snapshot fields to stale placeholders.
         pin.widget_contract_snapshot = {"stale": "contract"}
         pin.config_schema_snapshot = {"stale": "config"}
@@ -194,6 +199,32 @@ class TestRefreshPinContractMetadata:
                 "SQLAlchemy will silently skip the UPDATE for this JSONB field"
             )
 
+    def test_source_stamp_drift_refreshes_without_flag_modified(self) -> None:
+        pin = _make_bare_pin(
+            tool_name="native",
+            envelope={
+                "content_type": "application/vnd.spindrel.native-app+json",
+                "body": {"widget_ref": "core/notes_native"},
+            },
+        )
+        canonical = _canonical_metadata(pin)
+        pin.widget_origin = canonical["widget_origin"]
+        pin.provenance_confidence = canonical["provenance_confidence"]
+        pin.widget_contract_snapshot = canonical["widget_contract_snapshot"]
+        pin.config_schema_snapshot = canonical["config_schema_snapshot"]
+        pin.widget_presentation_snapshot = canonical["widget_presentation_snapshot"]
+        pin.source_stamp = "stale"
+
+        with patch(
+            "app.services.pin_contract.service.flag_modified"
+        ) as flag_modified_spy:
+            changed = _refresh_pin_contract_metadata(pin)
+
+        assert changed is True
+        assert pin.source_stamp == canonical["source_stamp"]
+        flagged_attrs = {call.args[1] for call in flag_modified_spy.call_args_list}
+        assert "source_stamp" not in flagged_attrs
+
     def test_no_writes_when_metadata_matches_partial_fields(self) -> None:
         """Regression guard: fields that already match must NOT trigger
         flag_modified (no spurious JSONB rewrites)."""
@@ -205,6 +236,7 @@ class TestRefreshPinContractMetadata:
         pin.widget_contract_snapshot = canonical["widget_contract_snapshot"]
         pin.config_schema_snapshot = canonical["config_schema_snapshot"]
         pin.widget_presentation_snapshot = canonical["widget_presentation_snapshot"]
+        pin.source_stamp = canonical["source_stamp"]
 
         with patch(
             "app.services.pin_contract.service.flag_modified"

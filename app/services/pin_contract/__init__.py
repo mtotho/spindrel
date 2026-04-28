@@ -26,9 +26,15 @@ from app.services.pin_contract.service import (
     PinMetadataView,
     apply_to_pin,
     compute_pin_metadata,
-    compute_pin_source_stamp,
     reconcile_pin_metadata,
     render_pin_metadata,
+)
+from app.services.pin_contract.drift import (
+    PinContractDrift,
+    compute_expected_pin_contract,
+    detect_pin_contract_drift,
+    pin_contract_drift_worker,
+    scan_pin_contract_drift,
 )
 
 __all__ = [
@@ -42,8 +48,12 @@ __all__ = [
     "TemplateNotFound",
     "apply_to_pin",
     "compute_pin_metadata",
-    "compute_pin_source_stamp",
+    "compute_expected_pin_contract",
+    "detect_pin_contract_drift",
+    "PinContractDrift",
+    "pin_contract_drift_worker",
     "reconcile_pin_metadata",
     "render_pin_metadata",
+    "scan_pin_contract_drift",
     "wire_pin_contract",
 ]

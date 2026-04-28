@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-28 (Mission Control read model adds spatial readiness.)
+updated: 2026-04-28 (Spatial widget body interactions restored.)
 ---
 
 # Track — Spatial Canvas
@@ -62,6 +62,13 @@ global canvas node, the mission/assignment target channel node, and the
 channel-scoped spatial-bot policy; workspace missions without a channel target
 stay `unknown` and still show nearby mapped objects. `/hub/mission-control` is
 the durable route, while `/hub/command-center` remains a compatibility alias.
+
+2026-04-28 widget interaction follow-up: framed spatial widget tiles now split
+ownership explicitly. The header owns spatial selection and drag/open affordances;
+the body owns widget interaction. The old transparent iframe activation shield
+was removed, and body pointer/click events stop before the canvas drag/selection
+layer so embedded buttons, links, scroll regions, and iframes work directly.
+Double-click on the tile wrapper still opens the full widget page.
 
 | Phase | Status | Description |
 |---|---|---|

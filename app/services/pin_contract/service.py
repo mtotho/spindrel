@@ -190,43 +190,6 @@ def apply_to_pin(
     return changed
 
 
-def compute_pin_source_stamp(
-    *,
-    tool_name: str,
-    envelope: dict,
-    source_bot_id: str | None,
-    caller_origin: dict | None = None,
-    deps: ContractDeps | None = None,
-) -> str | None:
-    """Compute just the source_stamp without touching the contract path.
-
-    Used during Phase 1 of the rollout where ``build_pin_contract_metadata``
-    is still the contract source of truth: write paths populate
-    ``source_stamp`` via this helper while the legacy snapshots are written
-    through the existing flow. Phase 3 will collapse both paths.
-    """
-    deps = deps or get_deps()
-    ident = PinIdentity(
-        tool_name=tool_name,
-        envelope=envelope,
-        source_bot_id=source_bot_id,
-    )
-    if isinstance(caller_origin, dict) and caller_origin:
-        resolver = _resolver_for_origin(caller_origin) or _claim_resolver(ident, deps)
-        origin: dict = caller_origin
-    else:
-        resolver = _claim_resolver(ident, deps)
-        if resolver is None:
-            return None
-        claimed = resolver.claim(ident, deps)
-        if claimed is None:
-            return None
-        origin = claimed
-    if resolver is None:
-        return None
-    return resolver.stamp(origin, ident, deps)
-
-
 def reconcile_pin_metadata(
     pin: WidgetDashboardPin,
     *,
@@ -311,22 +274,18 @@ def _fold_with_snapshot(
         if snapshot.widget_contract is not None
         else None
     )
-    # Match legacy ``build_pin_contract_metadata``: when falling back to the
-    # cached snapshot, run it through ``normalize_config_schema`` to fill in
-    # missing ``type`` / ``properties`` / ``required`` defaults. Hand-edited
-    # rows or pre-Phase-1 backfills can have raw shapes that legacy would
-    # canonicalize on every read.
+    # Preserve the public config-schema contract when falling back to cached
+    # snapshots: fill in missing ``type`` / ``properties`` / ``required``
+    # defaults for hand-edited or pre-stamped rows.
     if live.config_schema is not None:
         config_schema = live.config_schema
     elif snapshot.config_schema is not None:
         config_schema = normalize_config_schema(snapshot.config_schema)
     else:
         config_schema = None
-    # Match legacy ``build_pin_contract_metadata``: when neither live nor
-    # snapshot supplies presentation, fall back to a defaults-merged dict
-    # rather than ``None`` so downstream renderers always see a populated
-    # ``presentation_family`` + ``layout_hints``. Fallback layout hints come
-    # from the contract snapshot's ``layout_hints`` key when present.
+    # Preserve the public presentation contract: downstream renderers always
+    # see a populated ``presentation_family`` + ``layout_hints``. Fallback
+    # layout hints come from the contract snapshot's ``layout_hints`` key.
     if live.widget_presentation is not None:
         widget_presentation = live.widget_presentation
     elif snapshot.widget_presentation is not None:
