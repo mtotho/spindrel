@@ -207,6 +207,8 @@ const activeSessionEntries = buildChannelSessionPickerEntries({
 assert.equal(activeSessionEntries[0]?.kind, "channel");
 assert.deepEqual(activeSessionEntries[0]?.surface, { kind: "channel", sessionId: "active" });
 assert.equal(activeSessionEntries[0]?.selected, true);
+assert.match(activeSessionEntries[0]?.meta ?? "", /5 msgs/);
+assert.doesNotMatch(activeSessionEntries[0]?.meta ?? "", /Primary|Previous/);
 const activeSessionGroups = buildChannelSessionPickerGroups(activeSessionEntries, "");
 assert.deepEqual(activeSessionGroups.map((group) => group.id), ["current"]);
 

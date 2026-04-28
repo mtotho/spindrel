@@ -12,7 +12,7 @@ from typing import Any
 
 from integrations.codex import schema
 from integrations.codex.app_server import Notification
-from integrations.sdk import ChannelEventEmitter, build_diff_tool_result
+from integrations.sdk import ChannelEventEmitter, build_diff_tool_result, build_text_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,17 @@ def translate_notification(
                 )
                 surface = "rich_result"
                 result_summary = envelope["plain_body"]
+        elif kind == "commandExecution":
+            command_output = _pop_codex_command_output_for_item(result_meta, tool_id)
+            if command_output:
+                envelope, summary = build_text_tool_result(
+                    tool_name=tool_name,
+                    tool_call_id=tool_id or None,
+                    body=command_output,
+                    label=result_summary or None,
+                )
+                surface = "rich_result"
+                result_summary = result_summary or envelope["plain_body"]
         emit.tool_result(
             tool_name=tool_name,
             tool_call_id=tool_id or None,
@@ -111,7 +122,7 @@ def translate_notification(
         return
 
     if method == schema.ITEM_COMMAND_OUTPUT_DELTA:
-        # Per-command output streams. v1 does not emit a per-chunk bus event.
+        _append_codex_command_output_delta(result_meta, params)
         return
 
     if method == schema.ITEM_PLAN_DELTA:
@@ -193,6 +204,43 @@ def _append_codex_file_change_delta(result_meta: dict[str, Any], params: dict[st
     by_item = result_meta.setdefault("codex_file_change_deltas", {})
     if isinstance(by_item, dict):
         by_item[item_id] = str(by_item.get(item_id) or "") + delta
+
+
+def _append_codex_command_output_delta(result_meta: dict[str, Any], params: dict[str, Any]) -> None:
+    item_id = _item_id(params)
+    delta = _extract_command_output_delta(params)
+    if not item_id or not delta:
+        return
+    by_item = result_meta.setdefault("codex_command_output_deltas", {})
+    if isinstance(by_item, dict):
+        by_item[item_id] = str(by_item.get(item_id) or "") + delta
+
+
+def _pop_codex_command_output_for_item(result_meta: dict[str, Any], item_id: str) -> str | None:
+    if not item_id:
+        return None
+    by_item = result_meta.get("codex_command_output_deltas")
+    if not isinstance(by_item, dict):
+        return None
+    value = by_item.pop(item_id, None)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _extract_command_output_delta(params: dict[str, Any]) -> str:
+    direct = _extract_text_delta(params)
+    if direct:
+        return direct
+    for key in ("chunk", "output"):
+        value = params.get(key)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            nested = _extract_text_delta(value)
+            if nested:
+                return nested
+    return ""
 
 
 def _record_codex_diff_update(result_meta: dict[str, Any], params: dict[str, Any]) -> None:

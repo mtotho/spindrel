@@ -129,10 +129,10 @@ objects.
 
 Same-day cluster interaction correction: channel clusters now behave as
 ambiguous groups, not hidden channel targets. Single click focuses immediately
-with no delayed timer, double-click also focuses instead of diving into the
-winner, and the focus-lens hint is hidden during clustered overview. Direct
-channel opening remains available once an individual channel tile is visible or
-from the explicit context menu action.
+with no delayed timer, double-click also focuses/zooms toward the group instead
+of diving into the winner, and the old focus-lens hint no longer competes with
+cluster wayfinding. Direct channel opening remains available once an individual
+channel tile is visible or from the explicit context menu action.
 
 | Phase | Status | Description |
 |---|---|---|

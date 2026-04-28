@@ -12,6 +12,38 @@ from typing import Any
 
 
 DIFF_CONTENT_TYPE = "application/vnd.spindrel.diff+text"
+TEXT_CONTENT_TYPE = "text/plain"
+
+
+def build_text_tool_result(
+    *,
+    tool_name: str,
+    body: str,
+    label: str | None = None,
+    tool_call_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return ``(envelope, summary)`` for runtime-supplied plain output."""
+    text = body.strip("\n")
+    plain = label or first_nonempty_line(text) or "Command output"
+    envelope: dict[str, Any] = {
+        "content_type": TEXT_CONTENT_TYPE,
+        "body": text,
+        "plain_body": plain,
+        "display": "inline",
+        "truncated": False,
+        "record_id": None,
+        "byte_size": len(text.encode("utf-8")),
+        "tool_name": tool_name,
+    }
+    if tool_call_id:
+        envelope["tool_call_id"] = tool_call_id
+    summary: dict[str, Any] = {
+        "kind": "result",
+        "subject_type": "generic",
+        "label": plain,
+        "preview_text": plain,
+    }
+    return envelope, summary
 
 
 def build_diff_tool_result(
@@ -82,3 +114,11 @@ def diff_stats(diff_body: str) -> tuple[int, int]:
         elif line.startswith("-"):
             deletions += 1
     return additions, deletions
+
+
+def first_nonempty_line(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:160]
+    return ""

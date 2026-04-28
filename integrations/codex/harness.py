@@ -497,8 +497,12 @@ def _dynamic_tools_changed(
 
 def _prompt_with_bridge_guidance(prompt: str, exported_tools: list[str]) -> str:
     exported = set(exported_tools)
-    guidance_tools = [
+    if not exported:
+        return prompt
+    tool_list = ", ".join(sorted(exported))
+    preferred_tools = [
         name for name in (
+            "get_tool_info",
             "read_conversation_history",
             "search_memory",
             "get_memory_file",
@@ -507,20 +511,24 @@ def _prompt_with_bridge_guidance(prompt: str, exported_tools: list[str]) -> str:
         )
         if name in exported
     ]
-    if not guidance_tools:
-        return prompt
-    return "\n\n".join([
+    guidance_parts = [
         "<spindrel_tool_guidance>",
         (
             "Spindrel host tools are available through the spindrel dynamic-tool "
-            "namespace. Prefer these tools for host-tracked memory, conversation "
-            "history, and durable state instead of reading or editing those records "
-            "with shell commands."
+            "namespace. When asked to call one of these host tools, invoke the "
+            "dynamic tool by its exact name. Do not emulate it with shell commands, "
+            "MCP helper probes, or text-only JSON."
         ),
-        "Available tracking tools: " + ", ".join(guidance_tools),
-        "</spindrel_tool_guidance>",
-        prompt,
-    ])
+        "Callable Spindrel dynamic tools this turn: " + tool_list,
+    ]
+    if preferred_tools:
+        guidance_parts.append(
+            "Prefer these tools for host-tracked memory, conversation history, "
+            "and durable state instead of reading or editing those records with "
+            "shell commands."
+        )
+    guidance_parts.extend(["</spindrel_tool_guidance>", prompt])
+    return "\n\n".join(guidance_parts)
 
 
 def _native_plan_metadata(result_meta: dict[str, Any]) -> dict[str, Any]:

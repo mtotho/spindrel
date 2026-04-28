@@ -349,6 +349,7 @@ from app.services.agent_harnesses.tools import (  # noqa: E402, F401
 )
 from app.services.agent_harnesses.tool_results import (  # noqa: E402, F401
     build_diff_tool_result,
+    build_text_tool_result,
     unified_diff_from_strings,
 )
 

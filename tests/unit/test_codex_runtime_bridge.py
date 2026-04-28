@@ -13,6 +13,7 @@ from integrations.codex.harness import (
     _dynamic_tools_signature,
     _extract_thread_id,
     _extract_turn_id,
+    _prompt_with_bridge_guidance,
     _server_supports_dynamic_tools,
     _summarize_native_command_result,
 )
@@ -123,6 +124,18 @@ def test_dynamic_tools_change_detects_add_remove_and_schema_drift():
         current_signature=None,
         prior_signature="",
     ) is False
+
+
+def test_bridge_guidance_names_exact_callable_dynamic_tools():
+    prompt = _prompt_with_bridge_guidance(
+        "Call get_tool_info for list_channels.",
+        ["list_channels", "get_tool_info"],
+    )
+
+    assert "Callable Spindrel dynamic tools this turn: get_tool_info, list_channels" in prompt
+    assert "invoke the dynamic tool by its exact name" in prompt
+    assert "Do not emulate it with shell commands" in prompt
+    assert prompt.endswith("Call get_tool_info for list_channels.")
 
 
 def test_extract_thread_id_reads_nested_thread_object():

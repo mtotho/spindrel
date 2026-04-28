@@ -25,7 +25,7 @@ export interface ChannelChatPaneLayout {
 }
 
 export interface ChannelSessionPickerGroup {
-  id: "current" | "primary" | "recent" | "results";
+  id: "current" | "recent" | "results";
   label: string;
   entries: ChannelSessionPickerEntry[];
 }
@@ -501,7 +501,6 @@ export function getScratchSessionMeta(session: ScratchSessionLike): string {
 
 export function getChannelSessionMeta(session: ChannelSessionCatalogItem): string {
   const bits = [
-    session.is_active ? "Primary" : "Previous",
     formatScratchSessionTimestamp(session.last_active || session.created_at),
     `${session.message_count ?? 0} msg${session.message_count === 1 ? "" : "s"}`,
     typeof session.section_count === "number"

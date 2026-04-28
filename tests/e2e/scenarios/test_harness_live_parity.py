@@ -195,6 +195,37 @@ def _has_persisted_tool_transcript(message: dict) -> bool:
     )
 
 
+def _has_persisted_tool_result_envelope(message: dict) -> bool:
+    meta = message.get("metadata") or {}
+    tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
+    return any(
+        isinstance(result, dict) and isinstance(result.get("content_type"), str)
+        for result in (tool_results or [])
+    )
+
+
+def _has_get_tool_info_schema_envelope(message: dict, tool_name: str) -> bool:
+    meta = message.get("metadata") or {}
+    tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
+    for result in tool_results or []:
+        if not isinstance(result, dict):
+            continue
+        if result.get("tool_name") != "get_tool_info":
+            continue
+        body = result.get("body")
+        if not isinstance(body, str):
+            continue
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        schema = parsed.get("schema") if isinstance(parsed, dict) else None
+        fn = schema.get("function") if isinstance(schema, dict) else None
+        if isinstance(fn, dict) and fn.get("name") == tool_name:
+            return True
+    return False
+
+
 def _assert_bridge_baseline(
     status: dict,
     *,
@@ -373,12 +404,15 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
     tool_name = _bridge_tool_name()
     tool_args = _bridge_tool_args()
     visible_names = _bridge_visible_names(tool_name)
+    discovery_args = json.dumps({"tool_name": tool_name}, sort_keys=True)
 
     discovery = await client.chat_session_stream(
         (
-            f"Bridge parity diagnostic. Call the host-provided get_tool_info tool now "
-            f"with tool_name {tool_name!r}. Do not use shell commands. Do not modify files. "
-            "Briefly say whether the schema loaded."
+            f"Bridge parity diagnostic. You must call exactly the host-provided "
+            f"get_tool_info tool now with JSON arguments "
+            f"{discovery_args}. Do not call {tool_name} in this turn. "
+            "Do not use shell commands. Do not modify files. Briefly say whether "
+            "get_tool_info returned a callable schema."
         ),
         session_id=session_id,
         channel_id=channel_id,
@@ -403,11 +437,20 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
 
     messages = await client.get_session_messages(session_id, limit=30)
     assistants = _assistant_messages(messages)
+    assert any(_has_get_tool_info_schema_envelope(message, tool_name) for message in assistants), (
+        f"get_tool_info did not persist a callable schema envelope for {tool_name!r}"
+    )
     assert any(_message_mentions_any_tool(message, visible_names) for message in assistants), (
         f"{visible_names} was not visible in persisted assistant messages for {session_id}"
     )
     assert any(_has_persisted_tool_transcript(message) for message in assistants), (
         "bridge tool calls did not persist canonical tool_calls + assistant_turn_body"
+    )
+    bridge_messages = [
+        message for message in assistants if _message_mentions_any_tool(message, visible_names)
+    ]
+    assert any(_has_persisted_tool_result_envelope(message) for message in bridge_messages), (
+        "bridge tool calls did not persist ToolResultEnvelope metadata for UI rendering"
     )
     status = await client.get_session_harness_status(session_id)
     _assert_bridge_baseline(status)

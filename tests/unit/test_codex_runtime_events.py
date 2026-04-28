@@ -106,6 +106,50 @@ def test_item_completed_emits_tool_result_with_recovered_name():
     assert emitter.calls[0][1]["is_error"] is False
 
 
+def test_command_completed_uses_buffered_command_output_envelope():
+    emitter, ids, parts, meta = _harness()
+    ids["cmd1"] = "bash -lc cat file.txt"
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMMAND_OUTPUT_DELTA,
+            params={"itemId": "cmd1", "delta": "hello "},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMMAND_OUTPUT_DELTA,
+            params={"itemId": "cmd1", "chunk": {"text": "world\n"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "cmd1", "kind": "commandExecution"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    result = emitter.calls[0][1]
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["content_type"] == "text/plain"
+    assert result["envelope"]["body"] == "hello world"
+    assert result["envelope"]["tool_call_id"] == "cmd1"
+    assert result["summary"]["kind"] == "result"
+    assert result["result_summary"] == "hello world"
+
+
 def test_file_change_completed_emits_inline_diff_envelope_from_item():
     emitter, ids, parts, meta = _harness()
     ids["fc1"] = "fileChange"
