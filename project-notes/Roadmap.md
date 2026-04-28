@@ -93,7 +93,7 @@ _None load-bearing right now._
 Template onboarding, workflow visual builder, new retrieval mechanisms, multi-tenancy.
 
 ## Next Phase: Integration Depth — remaining integrations
-Discord audit next (following the playbook), then BlueBubbles, then GitHub's distinct surface (issues / PRs / check runs). Onboarding polish (`docker compose up` → working agent), progressive disclosure in admin UI, docs refresh, Flynn Thoughts test case remain queued.
+Discord audit next (following the playbook), then BlueBubbles. GitHub distinct surface v1 shipped as the repo dashboard preset/widget (issues / PRs / check runs + confirmed issue close/reopen); remaining GitHub depth should build on that surface rather than start a parallel one. Onboarding polish (`docker compose up` → working agent), progressive disclosure in admin UI, docs refresh, Flynn Thoughts test case remain queued.
 
 ## Principles
 - If the user has to choose, we failed
