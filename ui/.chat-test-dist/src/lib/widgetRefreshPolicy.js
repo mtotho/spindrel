@@ -14,6 +14,9 @@ export function shouldRunWidgetAutoRefresh(input) {
         return false;
     return true;
 }
+export function shouldRenderPinnedWidgetLoadShell(input) {
+    return !input.hasRenderableBody;
+}
 export function widgetRefreshJitterMs(key, maxMs = 1_500) {
     if (maxMs <= 0)
         return 0;

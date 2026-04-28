@@ -204,6 +204,17 @@ def _has_persisted_tool_result_envelope(message: dict) -> bool:
     )
 
 
+def _has_persisted_text_tool_result_containing(message: dict, expected: str) -> bool:
+    meta = message.get("metadata") or {}
+    tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
+    return any(
+        isinstance(result, dict)
+        and result.get("content_type") == "text/plain"
+        and expected in str(result.get("body") or result.get("plain_body") or "")
+        for result in (tool_results or [])
+    )
+
+
 def _has_get_tool_info_schema_envelope(message: dict, tool_name: str) -> bool:
     meta = message.get("metadata") or {}
     tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
@@ -344,8 +355,8 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         marker = uuid.uuid4().hex[:12]
         result = await client.chat_session_stream(
             (
-                f"Harness parity core check. Remember marker {marker}. "
-                "Include the exact phrase: parity core ok"
+                f"Harness parity core check. Store this test marker for the next turn: {marker}. "
+                "For this turn only, reply exactly: parity core ready"
             ),
             session_id=session_id,
             channel_id=channel_id,
@@ -353,11 +364,11 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             timeout=_timeout(),
         )
         _assert_clean_turn(result)
-        assert "parity core ok" in result.response_text.lower()
+        assert "parity core ready" in result.response_text.lower()
         await _assert_trace_has_turn_context(client, result)
 
         resumed = await client.chat_session_stream(
-            "Reply with the exact marker I asked you to remember in the previous turn.",
+            "Reply with only the stored test marker from the previous turn. Do not repeat any other prior phrase.",
             session_id=session_id,
             channel_id=channel_id,
             bot_id=bot_id,
@@ -521,6 +532,12 @@ async def test_live_harness_safe_workspace_write_read_delete(
         _assert_clean_turn(result)
         assert marker in result.response_text
         assert result.tool_events, "no live tool events were emitted for the write turn"
+        messages = await client.get_session_messages(session_id, limit=20)
+        assistants = _assistant_messages(messages)
+        assert any(
+            _has_persisted_text_tool_result_containing(message, exact_content)
+            for message in assistants
+        ), "native write/read turn did not persist a text/plain tool-result envelope"
     finally:
         cleanup = await client.chat_session_stream(
             (

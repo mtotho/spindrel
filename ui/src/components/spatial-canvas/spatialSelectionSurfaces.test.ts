@@ -65,8 +65,20 @@ test("selected objects get a world anchor and suppress competing hover cards", (
   const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
   assert.match(source, /data-spatial-selected-anchor/);
   assert.match(source, /SelectedObjectAnchor/);
+  assert.match(source, /ring-1 ring-offset-2/);
   assert.match(source, /!starboardOpen \|\| !selectedSpatialObject/);
   assert.match(source, /!channelClusterMode/);
   assert.match(source, /interactiveZoom >= 0\.65/);
   assert.match(source, /setTimeout\(\(\) => setHoverCardNodeId/);
+});
+
+test("Map Brief selected object uses quiet triage instead of side-stripe chrome", () => {
+  const source = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+  assert.match(source, /data-brief-tone=\{tone\}/);
+  assert.match(source, /SelectedObjectMetaChips/);
+  assert.match(source, /selectedInspectorToneClass/);
+  assert.doesNotMatch(source, /border-l-2/);
+  assert.doesNotMatch(source, /border-l-danger/);
+  assert.doesNotMatch(source, /border-l-warning/);
+  assert.doesNotMatch(source, /border-l-accent/);
 });

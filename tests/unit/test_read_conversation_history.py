@@ -1,12 +1,14 @@
 """Tests for the read_conversation_history tool."""
+import ast
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.tools.local.conversation_history import read_conversation_history, _read_section_transcript
+from app.tools.local.conversation_history import read_conversation_history, _parse_section, _read_section_transcript
 
 
 def _mock_section(**kwargs):
@@ -127,6 +129,8 @@ class TestNonUuidChannelId:
         mock_channel.bot_id = "test_bot"
 
         # Mock the sections query
+        mock_nearby_result = MagicMock()
+        mock_nearby_result.scalars.return_value.all.return_value = []
         mock_sections_result = MagicMock()
         mock_sections_result.scalars.return_value.all.return_value = sections
 
@@ -135,8 +139,12 @@ class TestNonUuidChannelId:
              patch("app.tools.local.conversation_history.async_session") as mock_session:
             mock_bot_id.get.return_value = "test_bot"
             mock_db = AsyncMock()
-            # First call: client_id lookup; second call: Channel.get; third call: sections query
-            mock_db.execute = AsyncMock(side_effect=[mock_lookup_result, mock_sections_result])
+            # client_id lookup, nearby scratch-session query, sections query
+            mock_db.execute = AsyncMock(side_effect=[
+                mock_lookup_result,
+                mock_nearby_result,
+                mock_sections_result,
+            ])
             mock_db.get = AsyncMock(return_value=mock_channel)
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -451,3 +459,70 @@ class TestMultiChannelFanout:
             channel_ids=[str(uuid.uuid4()), str(uuid.uuid4())],
         )
         assert "tool:<id>" in out or "single channel_id" in out
+
+    @pytest.mark.asyncio
+    async def test_fanout_uses_private_single_channel_path(self):
+        channel_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+        with patch(
+            "app.tools.local.conversation_history._read_single_channel_history",
+            new_callable=AsyncMock,
+            side_effect=["one", "two"],
+        ) as mock_single:
+            out = await read_conversation_history(section="index", channel_ids=channel_ids)
+
+        assert "### Channel" in out
+        assert "one" in out
+        assert "two" in out
+        assert mock_single.await_count == 2
+        assert [call.kwargs["channel_id"] for call in mock_single.await_args_list] == channel_ids
+
+
+class TestConversationHistoryParsing:
+    @pytest.mark.parametrize(
+        ("section", "kind", "value"),
+        [
+            ("index", "index", None),
+            ("recent", "recent", None),
+            ("RECENT", "recent", None),
+            ("search: database migration ", "search", "database migration"),
+            ("tool: 9e89dd4b-5977-4763-9c3a-b57f61e15ad1 ", "tool", "9e89dd4b-5977-4763-9c3a-b57f61e15ad1"),
+            ("12", "section", 12),
+            ("not-a-section", "invalid", None),
+        ],
+    )
+    def test_parse_section_classifies_supported_forms(self, section, kind, value):
+        parsed = _parse_section(section)
+
+        assert parsed.kind == kind
+        assert parsed.value == value
+        assert parsed.raw == section
+
+    @pytest.mark.asyncio
+    async def test_tool_lookup_does_not_require_channel_context(self):
+        out = await read_conversation_history(section="tool:not-a-uuid")
+
+        assert "Invalid tool call ID" in out
+
+    @pytest.mark.asyncio
+    async def test_empty_search_does_not_require_channel_context(self):
+        out = await read_conversation_history(section="search:")
+
+        assert "Please provide a search query" in out
+
+
+class TestConversationHistoryArchitecture:
+    def test_registered_tool_remains_dispatcher_sized(self):
+        source_path = Path(__file__).parents[2] / "app/tools/local/conversation_history.py"
+        tree = ast.parse(source_path.read_text())
+        tool_fn = next(
+            node for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "read_conversation_history"
+        )
+
+        assert tool_fn.end_lineno is not None
+        assert tool_fn.end_lineno - tool_fn.lineno + 1 <= 12
+        nested_functions = [
+            node for node in ast.walk(tool_fn)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not tool_fn
+        ]
+        assert nested_functions == []

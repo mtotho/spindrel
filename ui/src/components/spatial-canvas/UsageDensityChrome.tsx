@@ -656,6 +656,7 @@ function ObjectListGroup({
       <div className="space-y-1">
         {group.items.map((item) => {
           const selected = item.id === selectedId;
+          const needsAttention = objectNeedsAttention(item);
           return (
             <button
               key={item.id}
@@ -665,8 +666,12 @@ function ObjectListGroup({
               onClick={() => onClick(item)}
               onDoubleClick={() => onDoubleClick(item)}
               onContextMenu={(event) => onContextMenu(event, item)}
-              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left ${
-                selected ? "bg-accent/[0.08] text-accent" : "hover:bg-surface-overlay/55"
+              className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors duration-100 ${
+                selected
+                  ? "bg-accent/[0.08] text-accent"
+                  : needsAttention
+                    ? "bg-surface-raised/30 hover:bg-surface-overlay/55"
+                    : "hover:bg-surface-overlay/55"
               }`}
             >
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
@@ -705,31 +710,22 @@ function SelectedObjectInspector({
   const brief = buildSpatialObjectBrief(state);
   const usefulActions = item.actions.filter((action) => action !== primary).slice(0, 4);
   const attentionWarning = brief?.warnings.find((signal) => signal.kind === "attention" && signal.id) ?? null;
-  const toneClass =
-    brief?.tone === "danger"
-      ? "border-l-danger bg-danger/[0.035]"
-      : brief?.tone === "warning"
-        ? "border-l-warning bg-warning/[0.035]"
-        : brief?.tone === "active"
-          ? "border-l-accent bg-accent/[0.035]"
-          : "border-l-surface-border bg-surface-overlay/25";
+  const tone = brief?.tone ?? "muted";
+  const toneClass = selectedInspectorToneClass(tone);
   return (
     <section
       data-testid="map-brief-selected-object"
       data-starboard-object-id={item.id}
-      className={`mb-4 rounded-md border-l-2 px-3 py-3 ${toneClass}`}
+      data-brief-tone={tone}
+      className={`mb-4 rounded-md px-3 py-3 ring-1 ${toneClass}`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-start gap-2.5">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
           {kindIcon(item.kind)}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 pt-0.5">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Selected {KIND_LABEL[item.kind]}</div>
           <div className="truncate text-base font-semibold text-text">{item.label}</div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2">
-            <ObjectStatusPill state={item.workState} compact />
-            <div className="truncate text-xs text-text-dim">{brief?.headline ?? item.subtitle ?? KIND_LABEL[item.kind]}</div>
-          </div>
         </div>
         {primary && (
           <button
@@ -744,6 +740,13 @@ function SelectedObjectInspector({
             {primary.label}
           </button>
         )}
+      </div>
+      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+        <ObjectStatusPill state={item.workState} compact />
+        <span className="min-w-0 truncate rounded-full bg-surface-overlay/50 px-2 py-0.5 text-[11px] text-text-dim">
+          {brief?.headline ?? item.subtitle ?? KIND_LABEL[item.kind]}
+        </span>
+        <SelectedObjectMetaChips brief={brief} />
       </div>
       <div className="mt-2.5 text-sm leading-relaxed text-text-muted">
         {brief?.summary ?? "No live map state is attached to this object yet."}
@@ -814,6 +817,32 @@ function SelectedObjectInspector({
         </div>
       )}
     </section>
+  );
+}
+
+function selectedInspectorToneClass(tone: "danger" | "warning" | "active" | "muted"): string {
+  if (tone === "danger") return "bg-danger/[0.025] ring-danger/20";
+  if (tone === "warning") return "bg-warning/[0.025] ring-warning/20";
+  if (tone === "active") return "bg-accent/[0.025] ring-accent/20";
+  return "bg-surface-overlay/25 ring-surface-border/50";
+}
+
+function SelectedObjectMetaChips({ brief }: { brief: ReturnType<typeof buildSpatialObjectBrief> }) {
+  if (!brief) return null;
+  const chips = [
+    brief.next ? "next" : null,
+    brief.warnings.length ? `${brief.warnings.length} warning${brief.warnings.length === 1 ? "" : "s"}` : null,
+    brief.recent.length ? `${brief.recent.length} recent` : null,
+  ].filter(Boolean);
+  if (!chips.length) return null;
+  return (
+    <>
+      {chips.map((chip) => (
+        <span key={chip} className="rounded-full bg-surface-overlay/40 px-2 py-0.5 text-[11px] text-text-dim">
+          {chip}
+        </span>
+      ))}
+    </>
   );
 }
 

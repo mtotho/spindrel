@@ -754,12 +754,12 @@ function SelectedObjectAnchor({
   const height = Math.max(54, Math.min(160, worldH * scale + 24));
   const toneClass =
     tone === "danger"
-      ? "ring-danger/70 bg-danger/[0.08] text-danger"
+      ? "ring-danger/45 bg-danger/[0.045] text-danger"
       : tone === "warning"
-        ? "ring-warning/65 bg-warning/[0.08] text-warning"
+        ? "ring-warning/40 bg-warning/[0.045] text-warning"
         : tone === "active"
-          ? "ring-accent/65 bg-accent/[0.08] text-accent"
-          : "ring-accent/55 bg-accent/[0.055] text-accent";
+          ? "ring-accent/45 bg-accent/[0.055] text-accent"
+          : "ring-accent/35 bg-accent/[0.04] text-accent";
   return (
     <div
       data-spatial-selected-anchor="true"
@@ -772,7 +772,7 @@ function SelectedObjectAnchor({
       }}
     >
       <div
-        className={`rounded-md ring-2 ring-offset-2 ring-offset-surface ${toneClass}`}
+        className={`rounded-md ring-1 ring-offset-2 ring-offset-surface ${toneClass}`}
         style={{ width, height }}
       />
       <div className="absolute left-1/2 top-full mt-1 max-w-[220px] -translate-x-1/2 truncate rounded-md bg-surface-raised/90 px-2 py-1 text-xs font-medium text-text ring-1 ring-surface-border backdrop-blur">

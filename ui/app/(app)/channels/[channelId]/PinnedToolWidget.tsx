@@ -32,6 +32,7 @@ import {
 import { requestWidgetRefresh } from "@/src/lib/widgetRefreshBatcher";
 import {
   isWidgetRefreshCapable,
+  shouldRenderPinnedWidgetLoadShell,
   shouldRunWidgetAutoRefresh,
   widgetRefreshJitterMs,
 } from "@/src/lib/widgetRefreshPolicy";
@@ -594,10 +595,15 @@ export function PinnedToolWidget({
   // moments later when the poll returns). Skeleton avoids that flash.
   const awaitingFirstPollForRefreshable =
     !hasCompletedInitialRefresh && refreshCapable && autoRefreshAllowed;
+  const hasRenderableBody = !!currentEnvelope && body != null;
+  const showRefreshSkeletonOverlay = awaitingFirstPollForRefreshable && hasRenderableBody;
 
   // Show skeleton placeholder on initial load (before first poll/hydration)
-  if (!currentEnvelope || body == null || awaitingFirstPollForRefreshable) {
-    if (!hasEverLoadedRef.current || awaitingFirstPollForRefreshable) {
+  if (shouldRenderPinnedWidgetLoadShell({
+    hasRenderableBody,
+    awaitingFirstPollForRefreshable,
+  })) {
+    if (!hasEverLoadedRef.current) {
       if (bodyOnly) {
         return (
           <div
@@ -983,7 +989,7 @@ export function PinnedToolWidget({
           without carving dedicated vertical space out of the tile. */}
       {overlayChrome && (
         <div
-          className="absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-md bg-surface-raised/85 backdrop-blur-sm px-0.5 py-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity border border-surface-border/40"
+          className="absolute top-1 right-1 z-20 flex items-center gap-0.5 rounded-md bg-surface-raised/85 backdrop-blur-sm px-0.5 py-0.5 opacity-90 group-hover:opacity-100 focus-within:opacity-100 transition-opacity border border-surface-border/40"
           // Prevent pointer events inside the overlay from falling through
           // to the iframe body during drag initiation.
           onPointerDown={(e) => e.stopPropagation()}
@@ -1102,6 +1108,21 @@ export function PinnedToolWidget({
               flushInteractiveHtmlBody
                 ? "absolute inset-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
                 : "absolute inset-0 px-2 pb-2 pt-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
+            }
+            style={{ background: showWrapperBackground ? t.surface : "transparent" }}
+            aria-hidden
+          >
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "90%" }} />
+            <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "60%" }} />
+            <div className="flex-1 rounded bg-skeleton/[0.03] mt-1" />
+          </div>
+        )}
+        {showRefreshSkeletonOverlay && !showIframeSkeleton && (
+          <div
+            className={
+              flushInteractiveHtmlBody
+                ? "pointer-events-none absolute inset-0 flex flex-col gap-1.5 animate-pulse"
+                : "pointer-events-none absolute inset-0 px-2 pb-2 pt-0 flex flex-col gap-1.5 animate-pulse"
             }
             style={{ background: showWrapperBackground ? t.surface : "transparent" }}
             aria-hidden

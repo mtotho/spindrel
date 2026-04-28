@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   isWidgetRefreshCapable,
+  shouldRenderPinnedWidgetLoadShell,
   shouldRunWidgetAutoRefresh,
   widgetRefreshJitterMs,
 } from "./widgetRefreshPolicy.js";
@@ -20,6 +21,23 @@ test("auto refresh is gated by collapsed and visibility state", () => {
   assert.equal(shouldRunWidgetAutoRefresh({ refreshCapable: true, documentVisible: false }), false);
   assert.equal(shouldRunWidgetAutoRefresh({ refreshCapable: true, elementVisible: false }), false);
   assert.equal(shouldRunWidgetAutoRefresh({ refreshCapable: true, skipHtmlAutoRefresh: true }), false);
+});
+
+test("refreshable pinned widgets keep chrome available while first poll runs", () => {
+  assert.equal(
+    shouldRenderPinnedWidgetLoadShell({
+      hasRenderableBody: true,
+      awaitingFirstPollForRefreshable: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRenderPinnedWidgetLoadShell({
+      hasRenderableBody: false,
+      awaitingFirstPollForRefreshable: true,
+    }),
+    true,
+  );
 });
 
 test("refresh jitter is deterministic and bounded", () => {

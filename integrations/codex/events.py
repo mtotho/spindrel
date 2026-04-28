@@ -52,6 +52,8 @@ def translate_notification(
             tool_id = str(item.get("id") or item.get("itemId") or "")
             if tool_id:
                 tool_name_by_id[tool_id] = tool_name
+                if kind == "commandExecution":
+                    _record_codex_command_item(result_meta, tool_id, tool_name)
             emit.tool_start(
                 tool_name=tool_name,
                 tool_call_id=tool_id or None,
@@ -73,6 +75,8 @@ def translate_notification(
             return
         tool_id = str(item.get("id") or item.get("itemId") or "")
         tool_name = tool_name_by_id.get(tool_id, str(item.get("name") or item.get("kind") or "tool"))
+        if kind == "commandExecution" and tool_id:
+            _record_codex_command_item(result_meta, tool_id, tool_name)
         result_summary = _summarize_item_result(item)
         is_error = bool(item.get("isError") or item.get("is_error") or item.get("error"))
         envelope = None
@@ -106,6 +110,9 @@ def translate_notification(
                 )
                 surface = "rich_result"
                 result_summary = result_summary or envelope["plain_body"]
+                _mark_codex_command_result_enveloped(result_meta, tool_id)
+            else:
+                _record_codex_command_without_envelope(result_meta, tool_id)
         emit.tool_result(
             tool_name=tool_name,
             tool_call_id=tool_id or None,
@@ -149,6 +156,11 @@ def translate_notification(
             (turn or {}).get("text")
             or params.get("text")
             or "".join(final_text_parts)
+        )
+        _maybe_emit_final_text_command_envelope(
+            emit=emit,
+            result_meta=result_meta,
+            final_text=str(result_meta.get("final_text") or ""),
         )
         cost = (turn or {}).get("costUsd") or params.get("costUsd")
         if cost is not None:
@@ -214,6 +226,94 @@ def _append_codex_command_output_delta(result_meta: dict[str, Any], params: dict
     by_item = result_meta.setdefault("codex_command_output_deltas", {})
     if isinstance(by_item, dict):
         by_item[item_id] = str(by_item.get(item_id) or "") + delta
+
+
+def _record_codex_command_item(result_meta: dict[str, Any], item_id: str, tool_name: str) -> None:
+    if not item_id:
+        return
+    by_item = result_meta.setdefault("codex_command_items", {})
+    if isinstance(by_item, dict):
+        by_item[item_id] = tool_name
+
+
+def _mark_codex_command_result_enveloped(result_meta: dict[str, Any], item_id: str) -> None:
+    if not item_id:
+        return
+    emitted = result_meta.setdefault("codex_command_enveloped_items", set())
+    if isinstance(emitted, set):
+        emitted.add(item_id)
+
+
+def _record_codex_command_without_envelope(result_meta: dict[str, Any], item_id: str) -> None:
+    if not item_id:
+        return
+    pending = result_meta.setdefault("codex_command_items_without_envelope", set())
+    if isinstance(pending, set):
+        pending.add(item_id)
+
+
+def _maybe_emit_final_text_command_envelope(
+    *,
+    emit: ChannelEventEmitter,
+    result_meta: dict[str, Any],
+    final_text: str,
+) -> None:
+    """Use final answer text as a narrow fallback for single command output.
+
+    Codex CLI 0.125 can report native commandExecution items without the
+    matching outputDelta payload that the schema advertises. When the turn has
+    exactly one command and the final answer is the command's reported output,
+    persist a text/plain envelope on the existing tool call so refresh keeps a
+    useful inline result.
+    """
+    command_items = result_meta.get("codex_command_items")
+    if not isinstance(command_items, dict) or len(command_items) != 1:
+        return
+    tool_id, tool_name = next(iter(command_items.items()))
+    if not isinstance(tool_id, str) or not isinstance(tool_name, str):
+        return
+    pending = result_meta.get("codex_command_items_without_envelope")
+    if not isinstance(pending, set) or tool_id not in pending:
+        return
+    emitted = result_meta.get("codex_command_enveloped_items")
+    if isinstance(emitted, set) and tool_id in emitted:
+        return
+    buffered_output = _pop_codex_command_output_for_item(result_meta, tool_id)
+    body = (buffered_output or final_text).strip()
+    if not body:
+        return
+    if buffered_output is None and _looks_like_generic_command_status(body):
+        return
+    envelope, summary = build_text_tool_result(
+        tool_name=tool_name,
+        tool_call_id=tool_id,
+        body=body,
+        label=None,
+    )
+    emit.tool_result(
+        tool_name=tool_name,
+        tool_call_id=tool_id,
+        result_summary=envelope["plain_body"],
+        is_error=False,
+        envelope=envelope,
+        surface="rich_result",
+        summary=summary,
+    )
+    _mark_codex_command_result_enveloped(result_meta, tool_id)
+
+
+def _looks_like_generic_command_status(text: str) -> bool:
+    normalized = text.strip().lower().rstrip(".")
+    return normalized in {
+        "done",
+        "completed",
+        "complete",
+        "ok",
+        "success",
+        "succeeded",
+        "deleted",
+        "removed",
+    }
 
 
 def _pop_codex_command_output_for_item(result_meta: dict[str, Any], item_id: str) -> str | None:

@@ -8,6 +8,11 @@ export interface WidgetRefreshPolicyInput {
   skipHtmlAutoRefresh?: boolean;
 }
 
+export interface PinnedWidgetLoadShellInput {
+  hasRenderableBody: boolean;
+  awaitingFirstPollForRefreshable?: boolean;
+}
+
 export function isWidgetRefreshCapable(
   envelope: Pick<ToolResultEnvelope, "refreshable"> | null | undefined,
   contract?: Pick<WidgetContract, "refresh_model"> | null,
@@ -22,6 +27,10 @@ export function shouldRunWidgetAutoRefresh(input: WidgetRefreshPolicyInput): boo
   if (input.documentVisible === false) return false;
   if (input.elementVisible === false) return false;
   return true;
+}
+
+export function shouldRenderPinnedWidgetLoadShell(input: PinnedWidgetLoadShellInput): boolean {
+  return !input.hasRenderableBody;
 }
 
 export function widgetRefreshJitterMs(key: string, maxMs = 1_500): number {

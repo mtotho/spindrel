@@ -150,6 +150,208 @@ def test_command_completed_uses_buffered_command_output_envelope():
     assert result["result_summary"] == "hello world"
 
 
+def test_single_command_without_output_delta_falls_back_to_final_text_envelope():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "command": "bash -lc cat file.txt",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "cmd1", "kind": "commandExecution"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_TURN_COMPLETED,
+            params={"turn": {"text": "file contents\n"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert [call[0] for call in emitter.calls] == [
+        "tool_start",
+        "tool_result",
+        "tool_result",
+    ]
+    fallback = emitter.calls[-1][1]
+    assert fallback["tool_call_id"] == "cmd1"
+    assert fallback["surface"] == "rich_result"
+    assert fallback["envelope"]["content_type"] == "text/plain"
+    assert fallback["envelope"]["body"] == "file contents"
+    assert fallback["result_summary"] == "file contents"
+
+
+def test_command_final_text_fallback_skips_generic_status():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "command": "bash -lc rm file.txt",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "cmd1", "kind": "commandExecution"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_TURN_COMPLETED,
+            params={"turn": {"text": "Done."}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert [call[0] for call in emitter.calls] == ["tool_start", "tool_result"]
+    assert emitter.calls[-1][1]["envelope"] is None
+
+
+def test_command_final_text_fallback_prefers_late_buffered_output_delta():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "command": "bash -lc printf actual-output",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "cmd1", "kind": "commandExecution"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMMAND_OUTPUT_DELTA,
+            params={"itemId": "cmd1", "delta": "actual-output"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_TURN_COMPLETED,
+            params={"turn": {"text": "assistant summary"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    fallback = emitter.calls[-1][1]
+    assert fallback["envelope"]["body"] == "actual-output"
+    assert fallback["result_summary"] == "actual-output"
+
+
+def test_command_final_text_fallback_skips_multi_command_turns():
+    emitter, ids, parts, meta = _harness()
+
+    for item_id, command in (("cmd1", "printf one"), ("cmd2", "printf two")):
+        translate_notification(
+            Notification(
+                method=schema.ITEM_STARTED,
+                params={
+                    "item": {
+                        "id": item_id,
+                        "kind": "commandExecution",
+                        "command": command,
+                    },
+                },
+            ),
+            emit=emitter,
+            tool_name_by_id=ids,
+            final_text_parts=parts,
+            result_meta=meta,
+        )
+        translate_notification(
+            Notification(
+                method=schema.ITEM_COMPLETED,
+                params={"item": {"id": item_id, "kind": "commandExecution"}},
+            ),
+            emit=emitter,
+            tool_name_by_id=ids,
+            final_text_parts=parts,
+            result_meta=meta,
+        )
+    translate_notification(
+        Notification(
+            method=schema.NOTIFICATION_TURN_COMPLETED,
+            params={"turn": {"text": "one\ntwo"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert [call[0] for call in emitter.calls] == [
+        "tool_start",
+        "tool_result",
+        "tool_start",
+        "tool_result",
+    ]
+    assert all(call[1].get("envelope") is None for call in emitter.calls if call[0] == "tool_result")
+
+
 def test_file_change_completed_emits_inline_diff_envelope_from_item():
     emitter, ids, parts, meta = _harness()
     ids["fc1"] = "fileChange"
