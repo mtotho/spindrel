@@ -155,10 +155,14 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
     setProfileConfigDraft(initialDraft(provider.profile_fields));
   }
 
-  function handleCancelEditProfile() {
+  function handleStartCreateProfile() {
     setEditingProfileId(null);
     setProfileLabelDraft("");
     setProfileConfigDraft(initialDraft(provider.profile_fields));
+  }
+
+  function handleCancelEditProfile() {
+    handleStartCreateProfile();
   }
 
   async function handleRemove(targetId: string, label: string) {
@@ -170,7 +174,13 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   }
 
   async function handleDeleteProfile(profile: MachineProviderProfile) {
-    if (profile.target_count > 0) return;
+    if (profile.target_count > 0) {
+      await confirm(
+        `${profile.label} is still assigned to ${profile.target_count} target${profile.target_count === 1 ? "" : "s"}. Remove or reassign those targets before deleting the profile.`,
+        { title: "Profile still in use", confirmLabel: "OK", variant: "warning" },
+      );
+      return;
+    }
     const accepted = await confirm(
       `Delete profile ${profile.label}? Targets using this profile will no longer be able to connect until a replacement profile is assigned.`,
       { title: "Delete machine profile?", confirmLabel: "Delete", variant: "danger" },
@@ -229,7 +239,23 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
 
           {provider.supports_profiles && (
             <div className="flex flex-col gap-3">
-              <SettingsGroupLabel label="Profiles" count={profiles.length} icon={<KeyRound size={13} className="text-text-dim" />} />
+              <SettingsGroupLabel
+                label="Profiles"
+                count={profiles.length}
+                icon={<KeyRound size={13} className="text-text-dim" />}
+                action={
+                  profiles.length > 0 ? (
+                    <ActionButton
+                      label="Add profile"
+                      onPress={handleStartCreateProfile}
+                      variant="secondary"
+                      size="small"
+                      disabled={pending || !provider.config_ready}
+                      icon={<KeyRound size={12} />}
+                    />
+                  ) : undefined
+                }
+              />
               {profiles.length === 0 ? (
                 <EmptyState message="No profiles exist yet. Create one before enrolling targets for this provider." />
               ) : (
@@ -269,7 +295,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                               onPress={() => void handleDeleteProfile(profile)}
                               variant="danger"
                               size="small"
-                              disabled={pending || profile.target_count > 0}
+                              disabled={pending}
                               icon={<Trash2 size={12} />}
                             />
                           </div>
@@ -285,7 +311,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                   {editingProfile ? `Edit profile: ${editingProfile.label}` : "Create profile"}
                 </div>
                 <div className="flex flex-col gap-3">
-                  {!editingProfile && provider.profile_setup_guide && (
+                  {provider.profile_setup_guide && (
                     <ProfileSetupGuide guide={provider.profile_setup_guide} />
                   )}
                   <TextInput

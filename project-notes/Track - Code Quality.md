@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Heartbeat runtime lifecycle seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Spatial canvas architecture split shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -27,6 +27,7 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 
 ## Maintenance pass (2026-04-28)
 
+- **Spatial canvas architecture split shipped.** `ui/src/components/spatial-canvas/SpatialCanvas.tsx` was reduced from 3,721 LOC to 980 LOC by extracting behavior-preserving data, camera, navigation, interaction, drag/viewport, context-menu, selection-rail, starboard-model, world-render, overlay, and landmark modules. Public props, localStorage keys, route behavior, spatial gestures, and UI copy were preserved; no new spatial-canvas module exceeds 1,000 LOC. Verification: `cd agent-server/ui && npx tsc --noEmit --pretty false` passed.
 - **Context preview consolidation shipped.** `admin_channel_context_preview` no longer rebuilds prompt composition in the router. It now validates channel existence, calls runtime `assemble_for_preview`, and delegates response shaping to `app.services.context_preview.build_context_preview_response`. The adapter may split the already-assembled base system prompt for display labels, but does not reconstruct prompt policy.
 - **Context breakdown runtime seam shipped.** `compute_context_breakdown` now gets static/runtime-injected categories from `assemble_for_preview` via the shared preview-block adapter instead of manually reconstructing global/workspace/bot prompts, memory files, skills, tools, widgets, section indexes, and workspace RAG estimates. The breakdown module still owns DB diagnostics: gross conversation size, pruning savings, compaction state, reranking state, effective settings, and last-turn API usage reconciliation. `assemble_for_preview` accepts optional `session_id`/`db` so scratch-session breakdowns can use the same runtime path without leaving the request DB context.
 - **`run_task` Wave C shipped.** The deferred agent-run-path extraction proved viable as an internal typed seam instead of a broad new public interface. `run_task` remains the task worker coordinator, but the hidden implementation now has locality around task-run preparation, harness-backed execution, and normal-agent persistence/dispatch/follow-up behavior.

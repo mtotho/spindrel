@@ -374,6 +374,7 @@ function isWidgetEnvelope(env: ToolResultEnvelope | undefined): boolean {
   return !!(
     env &&
     env.display === "inline" &&
+    !env.view_key &&
     (env.content_type === "application/vnd.spindrel.components+json"
       || env.content_type === "application/vnd.spindrel.html+interactive")
   );

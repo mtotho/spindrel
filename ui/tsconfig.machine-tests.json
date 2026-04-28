@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "noEmit": false,
+    "outDir": "./.machine-test-dist",
+    "types": ["node"]
+  },
+  "include": [
+    "app/(app)/admin/machines/profileControls.test.ts"
+  ]
+}

@@ -501,6 +501,58 @@ test("terminal mode demotes widget-owned rows into the generic rich-result path"
     assert.equal(terminalItems[0].envelope.record_id, "widget-search");
     assert.equal(terminalItems[0].envelope.content_type, "application/vnd.spindrel.html+interactive");
 });
+test("custom view-key component envelopes use rich-result renderer instead of widget shell", () => {
+    const items = buildAssistantTurnBodyItems({
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-machine", kind: "tool_call", toolCallId: "call-machine" }],
+        },
+        toolCalls: [
+            {
+                id: "call-machine",
+                name: "machine_status",
+                arguments: "{}",
+            },
+        ],
+        toolResults: [
+            {
+                tool_call_id: "call-machine",
+                content_type: "application/vnd.spindrel.components+json",
+                body: JSON.stringify({
+                    v: 1,
+                    components: [{ type: "heading", text: "Machine Control", level: 3 }],
+                }),
+                plain_body: "Machine control status",
+                display: "inline",
+                truncated: false,
+                record_id: "machine-status-result",
+                byte_size: 72,
+                display_label: "Machine Control",
+                view_key: "core.machine_target_status",
+                data: {
+                    session_id: "session-1",
+                    lease: null,
+                    targets: [
+                        {
+                            provider_id: "ssh",
+                            target_id: "mac-mini",
+                            label: "Mac mini",
+                            hostname: "mac-mini.local",
+                            platform: "darwin",
+                            ready: true,
+                            connected: true,
+                            capabilities: ["shell"],
+                        },
+                    ],
+                },
+            },
+        ],
+    });
+    assert.equal(items[0]?.kind, "rich_result");
+    if (items[0]?.kind !== "rich_result")
+        throw new Error("expected rich_result item");
+    assert.equal(items[0].envelope.view_key, "core.machine_target_status");
+});
 test("canonical tool surfaces are not re-inferred from envelopes", () => {
     const items = buildAssistantTurnBodyItems({
         assistantTurnBody: {

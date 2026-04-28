@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-28 (lease/replay safety hardening)
+updated: 2026-04-28 (machine status renderer regression fix)
 ---
 # Track — Local Machine Control
 
@@ -185,6 +185,20 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `/api/v1/admin/machines` no longer accepts `integrations:*` scoped callers; machine provider and target lifecycle routes require admin-equivalent auth.
 - Local Companion no longer authenticates by replayable query token. The server issues a per-connection nonce, the client signs it with the target token, and only then sends hello metadata.
 
+### Follow-up fix — Admin machine profile controls
+
+- `/admin/machines` now keeps provider setup guidance visible while editing SSH profiles, not only during first-profile creation.
+- The profile group exposes an explicit Add profile action after profiles already exist, clearing edit state and resetting the create form.
+- Profile delete clicks are no longer silently swallowed for bound profiles; in-use profiles show an explanatory warning, while unbound profiles still enter the destructive confirm and DELETE path.
+- Added a focused UI source invariant test for the profile guide, add action, and non-silent delete behavior.
+
+### Follow-up fix — Machine status rich-result rendering
+
+- `machine_status` cards no longer render as blank generic component widgets.
+- Root cause: transcript surface inference treated every inline `application/vnd.spindrel.components+json` envelope as a widget, bypassing the semantic `view_key` registry. `core.machine_target_status` then only displayed its placeholder heading component instead of the machine-control renderer body.
+- Inline component/html envelopes that carry an explicit `view_key` now route through `RichToolResult`; generic component/html envelopes without a semantic view still use `WidgetCard`.
+- Added a regression in `toolTranscriptModel.test.ts` for `machine_status` / `core.machine_target_status`.
+
 ## Current Architecture Shape
 
 - Core:
@@ -231,3 +245,8 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `pytest tests/unit/test_api_v1_machine_target_routes.py -q`
 - `pytest tests/unit/test_machine_target_sessions.py tests/unit/test_api_v1_machine_target_routes.py -q`
 - `pytest tests/unit/test_local_machine_control_phase5a.py -q` (LLM-visible stdout/stderr regression)
+- `cd agent-server/ui && npx tsc -p tsconfig.machine-tests.json --pretty false`
+- `cd agent-server/ui && node --test .machine-test-dist/profileControls.test.js`
+- `cd agent-server/ui && npx tsc --noEmit --pretty false`
+- `cd agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false`
+- `cd agent-server/ui && node --test .chat-test-dist/src/components/chat/toolTranscriptModel.test.js .chat-test-dist/src/components/chat/renderArchitecture.test.js`
