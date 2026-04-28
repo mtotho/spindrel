@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 
 import zoneinfo
@@ -447,26 +448,47 @@ async def _fire_heartbeat_workflow(hb: ChannelHeartbeat, now: datetime) -> None:
         await db.commit()
 
 
-async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
-    """Execute a heartbeat directly (no Task row) and record history.
+@dataclass(frozen=True)
+class _PreparedHeartbeatRun:
+    channel: Channel
+    run_id: uuid.UUID
+    bot_id: str
+    client_id: str | None
+    session_id: uuid.UUID | None
+    channel_id: uuid.UUID
+    prompt: str
+    heartbeat_preamble: str
+    dispatch_mode: str
+    dispatch_type: str
+    dispatch_config: dict | None
+    injected_tools: list[dict] | None
+    model_override: str | None
+    provider_id_override: str | None
+    fallback_models: list | None
+    execution_policy: object
+    trigger_rag_loop: bool
+    repetition_detected: bool
+    next_run_at: datetime | None
 
-    If ``workflow_id`` is set, triggers the workflow instead of running the
-    agent prompt.  The heartbeat run record still tracks the outcome.
-    """
-    now = datetime.now(timezone.utc)
 
-    # --- Workflow mode: trigger workflow instead of agent prompt ---
-    if hb.workflow_id:
-        await _fire_heartbeat_workflow(hb, now)
-        return
+@dataclass(frozen=True)
+class _HeartbeatExecutionResult:
+    correlation_id: uuid.UUID
+    result_text: str | None
+    error_text: str | None
 
+
+async def _prepare_heartbeat_run(
+    hb: ChannelHeartbeat,
+    now: datetime,
+) -> _PreparedHeartbeatRun | None:
     async with async_session() as db:
         channel = await db.get(Channel, hb.channel_id)
         if not channel:
             logger.warning("Heartbeat %s: channel %s not found, skipping", hb.id, hb.channel_id)
-            return
+            return None
 
-        _dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
+        dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
         dispatch_type, dispatch_config, injected_tools = _build_dispatch_setup(hb, channel)
 
         # Resolve prompt: workspace file > template > inline
@@ -493,12 +515,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 overview = None
             if overview:
                 prompt = "\n\n".join(part for part in [prompt.strip(), overview] if part)
-        # Per-heartbeat pinned-widget block. The "heartbeat" context profile
-        # has ``allow_pinned_widgets=False`` so the chat-profile injection
-        # never fires here; this opt-in is structurally symmetric with the
-        # spatial heartbeat blocks above (composed before the agent loop runs)
-        # but routes through the system_preamble below instead of the user
-        # prompt so the bot reads it as ambient state, not as an instruction.
+
         pinned_widget_preamble: str | None = None
         if getattr(hb, "include_pinned_widgets", False):
             try:
@@ -507,11 +524,11 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                     fetch_channel_pin_dicts,
                 )
 
-                _pins = await fetch_channel_pin_dicts(db, channel.id)
-                if _pins:
+                pins = await fetch_channel_pin_dicts(db, channel.id)
+                if pins:
                     snapshot = await build_pinned_widget_context_snapshot(
                         db,
-                        _pins,
+                        pins,
                         bot_id=channel.bot_id,
                         channel_id=str(channel.id),
                     )
@@ -546,10 +563,6 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             except Exception:
                 logger.exception("Heartbeat %s: failed to inject invoke_widget_action tool", hb.id)
 
-        # --- Build heartbeat metadata header ---
-        # NOTE: This is injected as a system_preamble right before the user message.
-        # It MUST be forceful enough to override conversational mode — small models
-        # will otherwise just acknowledge the heartbeat prompt instead of executing it.
         metadata_lines = [
             "=== SCHEDULED HEARTBEAT TASK ===",
             "IMPORTANT: This is NOT a conversation. This is an automated task you must EXECUTE NOW.",
@@ -562,7 +575,6 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             f"Run number: {(hb.run_count or 0) + 1}",
         ]
 
-        # Fetch last 5 completed runs (newest first)
         recent_runs_stmt = (
             select(HeartbeatRun)
             .where(
@@ -581,46 +593,43 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         else:
             metadata_lines.append("Last heartbeat: none (this is the first run)")
 
-        # Activity since last heartbeat — count user and assistant messages
-        _since = last_run.completed_at if (last_run and last_run.completed_at) else (now - timedelta(minutes=hb.interval_minutes))
+        since = last_run.completed_at if (last_run and last_run.completed_at) else (now - timedelta(minutes=hb.interval_minutes))
         if channel.active_session_id:
             from app.db.models import Message as _Msg
             from sqlalchemy import func as _func
-            _activity_stmt = (
+            activity_stmt = (
                 select(_Msg.role, _func.count(_Msg.id))
                 .where(
                     _Msg.session_id == channel.active_session_id,
-                    _Msg.created_at > _since,
+                    _Msg.created_at > since,
                     _Msg.role.in_(["user", "assistant"]),
                 )
                 .group_by(_Msg.role)
             )
-            _activity_rows = (await db.execute(_activity_stmt)).all()
-            _counts = {role: count for role, count in _activity_rows}
-            user_msgs = _counts.get("user", 0)
-            assistant_msgs = _counts.get("assistant", 0)
+            activity_rows = (await db.execute(activity_stmt)).all()
+            counts = {role: count for role, count in activity_rows}
+            user_msgs = counts.get("user", 0)
+            assistant_msgs = counts.get("assistant", 0)
 
-            # Subtract heartbeat messages from counts
-            _hb_msg_stmt = (
+            hb_msg_stmt = (
                 select(_func.count(_Msg.id))
                 .where(
                     _Msg.session_id == channel.active_session_id,
-                    _Msg.created_at > _since,
+                    _Msg.created_at > since,
                     _Msg.role == "user",
                     _Msg.metadata_["is_heartbeat"].astext == "true",
                 )
             )
-            _hb_count = (await db.execute(_hb_msg_stmt)).scalar() or 0
-            user_msgs -= _hb_count
+            hb_count = (await db.execute(hb_msg_stmt)).scalar() or 0
+            user_msgs -= hb_count
 
             if user_msgs > 0 or assistant_msgs > 0:
                 metadata_lines.append(f"Activity since last heartbeat: {user_msgs} user message(s), {assistant_msgs} assistant response(s)")
             else:
                 metadata_lines.append("Activity since last heartbeat: none (channel has been idle)")
 
-            # Last user message timestamp
             if user_msgs > 0:
-                _last_user_stmt = (
+                last_user_stmt = (
                     select(_Msg.created_at)
                     .where(
                         _Msg.session_id == channel.active_session_id,
@@ -630,35 +639,28 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                     .order_by(_Msg.created_at.desc())
                     .limit(1)
                 )
-                _last_user_ts = (await db.execute(_last_user_stmt)).scalar()
-                if _last_user_ts:
-                    _user_elapsed = now - _last_user_ts
-                    _mins = int(_user_elapsed.total_seconds() // 60)
-                    if _mins > 60:
-                        _user_ago = f"{_mins // 60}h {_mins % 60}m ago"
-                    else:
-                        _user_ago = f"{_mins}m ago"
-                    metadata_lines.append(f"Last user message: {_user_ago}")
+                last_user_ts = (await db.execute(last_user_stmt)).scalar()
+                if last_user_ts:
+                    user_elapsed = now - last_user_ts
+                    mins = int(user_elapsed.total_seconds() // 60)
+                    user_ago = f"{mins // 60}h {mins % 60}m ago" if mins > 60 else f"{mins}m ago"
+                    metadata_lines.append(f"Last user message: {user_ago}")
 
-        # Previous result — truncated at sentence boundary to avoid mid-sentence cuts
         if last_run and last_run.result:
-            _prev_max = hb.previous_result_max_chars if hb.previous_result_max_chars is not None else settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
-            if _prev_max == 0:
-                # 0 = no truncation, include full result
+            prev_max = hb.previous_result_max_chars if hb.previous_result_max_chars is not None else settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
+            if prev_max == 0:
                 metadata_lines.append(f"Previous heartbeat conclusion: {last_run.result}")
             else:
-                conclusion = _truncate_at_sentence(last_run.result, _prev_max)
+                conclusion = _truncate_at_sentence(last_run.result, prev_max)
                 metadata_lines.append(f"Previous heartbeat conclusion: {conclusion}")
-                if len(last_run.result) > _prev_max:
+                if len(last_run.result) > prev_max:
                     metadata_lines.append("(Use get_last_heartbeat tool for full previous output if needed)")
 
-        # Recent run digest + repetition detection
-        _rep_enabled = hb.repetition_detection if hb.repetition_detection is not None else settings.HEARTBEAT_REPETITION_DETECTION
-        _repetition_detected = False
+        rep_enabled = hb.repetition_detection if hb.repetition_detection is not None else settings.HEARTBEAT_REPETITION_DETECTION
+        repetition_detected = False
         tool_calls_by_corr: dict[uuid.UUID, list[str]] = {}
         if len(recent_runs) >= 2:
-            # Fetch tool calls for recent runs (for digest display + repetition detection)
-            if _rep_enabled:
+            if rep_enabled:
                 corr_ids = [r.correlation_id for r in recent_runs if r.correlation_id]
                 if corr_ids:
                     tc_rows = (await db.execute(
@@ -670,26 +672,25 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                         tool_calls_by_corr.setdefault(cid, []).append(name)
 
             digest_lines = ["", "Recent heartbeat outputs (newest first):"]
-            for i, r in enumerate(recent_runs[:5]):
-                if r.result:
-                    first_line = r.result.strip().split("\n")[0][:120]
-                    ago = int((now - r.completed_at).total_seconds() // 60) if r.completed_at else 0
-                    tools = tool_calls_by_corr.get(r.correlation_id, [])
+            for i, run in enumerate(recent_runs[:5]):
+                if run.result:
+                    first_line = run.result.strip().split("\n")[0][:120]
+                    ago = int((now - run.completed_at).total_seconds() // 60) if run.completed_at else 0
+                    tools = tool_calls_by_corr.get(run.correlation_id, [])
                     tool_str = f" [tools: {', '.join(tools)}]" if tools else ""
                     digest_lines.append(f"  #{i + 1} ({ago}m ago): {first_line}{tool_str}")
-                elif r.error:
+                elif run.error:
                     digest_lines.append(f"  #{i + 1}: [error]")
             metadata_lines.extend(digest_lines)
 
-            if _rep_enabled and _detect_repetition(
+            if rep_enabled and _detect_repetition(
                 recent_runs, tool_calls_by_corr, settings.HEARTBEAT_REPETITION_THRESHOLD
             ):
-                _repetition_detected = True
+                repetition_detected = True
                 logger.warning("Heartbeat %s: repetition detected across recent runs", hb.id)
                 metadata_lines.append(_build_repetition_preamble(recent_runs))
 
-        # Dispatch mode guidance
-        if _dispatch_mode == "optional":
+        if dispatch_mode == "optional":
             metadata_lines.append(
                 "OUTPUT MODE: Your text response will NOT be posted anywhere — it is internal only. "
                 "To post to the channel, you MUST call the post_heartbeat_to_channel tool. "
@@ -699,11 +700,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         elif hb.dispatch_results:
             metadata_lines.append("Dispatch: Your response will be posted to the channel.")
 
-        metadata_header = "\n".join(metadata_lines)
-        # The metadata is injected as a system_preamble (not part of the user message).
-        # This keeps RAG retrieval clean — skills, tools, and memory are retrieved based
-        # on the actual heartbeat prompt, not the metadata noise.
-        heartbeat_preamble = metadata_header
+        heartbeat_preamble = "\n".join(metadata_lines)
         try:
             from app.services.workspace_attention import build_attention_assignment_block
             assignment_block = await build_attention_assignment_block(db, channel_id=channel.id, bot_id=channel.bot_id)
@@ -719,7 +716,6 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         if pinned_widget_preamble:
             heartbeat_preamble = "\n\n".join(part for part in [heartbeat_preamble, pinned_widget_preamble] if part)
 
-        # Create a heartbeat_run record
         run_record = HeartbeatRun(
             heartbeat_id=hb.id,
             run_at=now,
@@ -727,23 +723,18 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         )
         db.add(run_record)
 
-        # Advance schedule — use effective interval (may be extended during quiet hours)
+        next_run_at = None
         heartbeat = await db.get(ChannelHeartbeat, hb.id)
         if heartbeat:
             effective = get_effective_interval(heartbeat.interval_minutes, heartbeat)
             heartbeat.last_run_at = now
             heartbeat.next_run_at = next_aligned_time(now, effective if effective > 0 else heartbeat.interval_minutes)
             heartbeat.updated_at = now
+            next_run_at = heartbeat.next_run_at
 
         await db.commit()
         await db.refresh(run_record)
 
-        # Capture what we need before leaving the DB session
-        run_id = run_record.id
-        bot_id = channel.bot_id
-        client_id = channel.client_id
-        session_id = channel.active_session_id
-        channel_id = channel.id
         model_override = hb.model or None
         provider_id_override = hb.model_provider_id or None
         if model_override and not provider_id_override:
@@ -753,145 +744,193 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 provider_id_override = resolve_provider_for_model(model_override)
             except Exception:
                 logger.debug("Heartbeat %s: failed to infer provider for model %s", hb.id, model_override, exc_info=True)
-        _hb_fallback_models = hb.fallback_models or None
         from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
-        _hb_execution_policy = normalize_heartbeat_execution_policy(getattr(hb, "execution_policy", None))
-        trigger_rag_loop = hb.trigger_response
 
-    logger.info(
-        "Heartbeat %s fired directly for channel %s (bot=%s, next=%s)",
-        hb.id, channel_id, bot_id,
-        heartbeat.next_run_at.strftime("%H:%M:%S") if heartbeat and heartbeat.next_run_at else "?",
-    )
+        return _PreparedHeartbeatRun(
+            channel=channel,
+            run_id=run_record.id,
+            bot_id=channel.bot_id,
+            client_id=channel.client_id,
+            session_id=channel.active_session_id,
+            channel_id=channel.id,
+            prompt=prompt,
+            heartbeat_preamble=heartbeat_preamble,
+            dispatch_mode=dispatch_mode,
+            dispatch_type=dispatch_type,
+            dispatch_config=dispatch_config,
+            injected_tools=injected_tools,
+            model_override=model_override,
+            provider_id_override=provider_id_override,
+            fallback_models=hb.fallback_models or None,
+            execution_policy=normalize_heartbeat_execution_policy(getattr(hb, "execution_policy", None)),
+            trigger_rag_loop=hb.trigger_response,
+            repetition_detected=repetition_detected,
+            next_run_at=next_run_at,
+        )
 
-    # Run the agent directly (same path run_task uses)
-    correlation_id = uuid.uuid4()
+
+async def _finalize_heartbeat_run(
+    hb: ChannelHeartbeat,
+    prepared: _PreparedHeartbeatRun,
+    *,
+    correlation_id: uuid.UUID,
+    result_text: str | None,
+    error_text: str | None,
+) -> None:
+    async with async_session() as db:
+        run_rec = await db.get(HeartbeatRun, prepared.run_id)
+        if run_rec:
+            run_rec.completed_at = datetime.now(timezone.utc)
+            run_rec.result = result_text
+            run_rec.error = error_text
+            run_rec.correlation_id = correlation_id
+            run_rec.status = "complete" if error_text is None else "failed"
+            run_rec.repetition_detected = prepared.repetition_detected
+
+        heartbeat = await db.get(ChannelHeartbeat, hb.id)
+        if heartbeat:
+            heartbeat.last_result = result_text
+            heartbeat.last_error = error_text
+            heartbeat.run_count = (heartbeat.run_count or 0) + 1
+            heartbeat.updated_at = datetime.now(timezone.utc)
+
+        await db.commit()
+
+
+async def _run_harness_heartbeat_if_needed(
+    hb: ChannelHeartbeat,
+    prepared: _PreparedHeartbeatRun,
+    *,
+    correlation_id: uuid.UUID,
+    now: datetime,
+) -> bool:
+    if not _is_harness_heartbeat_runner(hb, prepared.channel):
+        return False
+
     result_text = None
     error_text = None
-    if _is_harness_heartbeat_runner(hb, channel):
-        lock_acquired = False
-        try:
-            if session_id is None:
-                raise RuntimeError("Harness heartbeat has no primary session to run")
-            from app.domain.channel_events import ChannelEvent, ChannelEventKind
-            from app.domain.payloads import TurnEndedPayload, TurnStartedPayload
-            from app.services import session_locks
-            from app.services.channel_events import publish_typed
-            from app.services.turn_worker import _run_harness_turn
-            from app.agent.bots import get_bot
+    lock_acquired = False
+    try:
+        if prepared.session_id is None:
+            raise RuntimeError("Harness heartbeat has no primary session to run")
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.payloads import TurnEndedPayload, TurnStartedPayload
+        from app.services import session_locks
+        from app.services.channel_events import publish_typed
+        from app.services.turn_worker import _run_harness_turn
+        from app.agent.bots import get_bot
 
-            if not session_locks.acquire(session_id):
-                async with async_session() as db:
-                    heartbeat = await db.get(ChannelHeartbeat, hb.id)
-                    if heartbeat:
-                        heartbeat.next_run_at = now + timedelta(minutes=1)
-                        heartbeat.updated_at = datetime.now(timezone.utc)
-                    run_rec = await db.get(HeartbeatRun, run_id)
-                    if run_rec:
-                        run_rec.completed_at = datetime.now(timezone.utc)
-                        run_rec.result = "Harness heartbeat deferred because the primary session is busy."
-                        run_rec.correlation_id = correlation_id
-                        run_rec.status = "deferred"
-                    await db.commit()
-                return
-            lock_acquired = True
+        if not session_locks.acquire(prepared.session_id):
+            async with async_session() as db:
+                heartbeat = await db.get(ChannelHeartbeat, hb.id)
+                if heartbeat:
+                    heartbeat.next_run_at = now + timedelta(minutes=1)
+                    heartbeat.updated_at = datetime.now(timezone.utc)
+                run_rec = await db.get(HeartbeatRun, prepared.run_id)
+                if run_rec:
+                    run_rec.completed_at = datetime.now(timezone.utc)
+                    run_rec.result = "Harness heartbeat deferred because the primary session is busy."
+                    run_rec.correlation_id = correlation_id
+                    run_rec.status = "deferred"
+                await db.commit()
+            return True
+        lock_acquired = True
 
-            harness_prompt = "\n\n".join(
-                part
-                for part in [
-                    heartbeat_preamble,
-                    "TASK PROMPT:\n" + prompt.strip(),
-                ]
-                if part and part.strip()
-            )
-            bot = get_bot(bot_id)
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.TURN_STARTED,
-                    payload=TurnStartedPayload(
-                        bot_id=bot.id,
-                        turn_id=correlation_id,
-                        reason="heartbeat",
-                        session_id=session_id,
-                    ),
+        harness_prompt = "\n\n".join(
+            part
+            for part in [
+                prepared.heartbeat_preamble,
+                "TASK PROMPT:\n" + prepared.prompt.strip(),
+            ]
+            if part and part.strip()
+        )
+        bot = get_bot(prepared.bot_id)
+        publish_typed(
+            prepared.channel_id,
+            ChannelEvent(
+                channel_id=prepared.channel_id,
+                kind=ChannelEventKind.TURN_STARTED,
+                payload=TurnStartedPayload(
+                    bot_id=bot.id,
+                    turn_id=correlation_id,
+                    reason="heartbeat",
+                    session_id=prepared.session_id,
                 ),
-            )
-            result_text, error_text = await _run_harness_turn(
-                channel_id=channel_id,
-                bus_key=channel_id,
-                session_id=session_id,
-                turn_id=correlation_id,
-                bot=bot,
-                user_message=harness_prompt,
-                correlation_id=correlation_id,
-                msg_metadata={
-                    "source": "heartbeat",
-                    "heartbeat_id": str(hb.id),
-                    "heartbeat_run_id": str(run_id),
-                    "is_heartbeat": True,
-                },
-                pre_user_msg_id=None,
-                suppress_outbox=not bool(hb.dispatch_results),
-                harness_model_override=(hb.model or None),
-                harness_effort_override=(getattr(hb, "harness_effort", None) or None),
-            )
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.TURN_ENDED,
-                    payload=TurnEndedPayload(
-                        bot_id=bot.id,
-                        turn_id=correlation_id,
-                        result=result_text,
-                        error=error_text,
-                        kind_hint="heartbeat",
-                        session_id=session_id,
-                    ),
+            ),
+        )
+        result_text, error_text = await _run_harness_turn(
+            channel_id=prepared.channel_id,
+            bus_key=prepared.channel_id,
+            session_id=prepared.session_id,
+            turn_id=correlation_id,
+            bot=bot,
+            user_message=harness_prompt,
+            correlation_id=correlation_id,
+            msg_metadata={
+                "source": "heartbeat",
+                "heartbeat_id": str(hb.id),
+                "heartbeat_run_id": str(prepared.run_id),
+                "is_heartbeat": True,
+            },
+            pre_user_msg_id=None,
+            suppress_outbox=not bool(hb.dispatch_results),
+            harness_model_override=(hb.model or None),
+            harness_effort_override=(getattr(hb, "harness_effort", None) or None),
+        )
+        publish_typed(
+            prepared.channel_id,
+            ChannelEvent(
+                channel_id=prepared.channel_id,
+                kind=ChannelEventKind.TURN_ENDED,
+                payload=TurnEndedPayload(
+                    bot_id=bot.id,
+                    turn_id=correlation_id,
+                    result=result_text,
+                    error=error_text,
+                    kind_hint="heartbeat",
+                    session_id=prepared.session_id,
                 ),
-            )
-        except Exception as exc:
-            logger.exception("Heartbeat %s harness run failed", hb.id)
-            error_text = str(exc)[:4000]
-        finally:
-            if lock_acquired and session_id is not None:
-                session_locks.release(session_id)
+            ),
+        )
+    except Exception as exc:
+        logger.exception("Heartbeat %s harness run failed", hb.id)
+        error_text = str(exc)[:4000]
+    finally:
+        if lock_acquired and prepared.session_id is not None:
+            session_locks.release(prepared.session_id)
 
-        async with async_session() as db:
-            run_rec = await db.get(HeartbeatRun, run_id)
-            if run_rec:
-                run_rec.completed_at = datetime.now(timezone.utc)
-                run_rec.result = result_text
-                run_rec.error = error_text
-                run_rec.correlation_id = correlation_id
-                run_rec.status = "complete" if error_text is None else "failed"
-                run_rec.repetition_detected = _repetition_detected
+    await _finalize_heartbeat_run(
+        hb,
+        prepared,
+        correlation_id=correlation_id,
+        result_text=result_text,
+        error_text=error_text,
+    )
+    return True
 
-            heartbeat = await db.get(ChannelHeartbeat, hb.id)
-            if heartbeat:
-                heartbeat.last_result = result_text
-                heartbeat.last_error = error_text
-                heartbeat.run_count = (heartbeat.run_count or 0) + 1
-                heartbeat.updated_at = datetime.now(timezone.utc)
 
-            await db.commit()
-        return
+async def _run_spindrel_heartbeat(
+    hb: ChannelHeartbeat,
+    prepared: _PreparedHeartbeatRun,
+    *,
+    correlation_id: uuid.UUID,
+) -> _HeartbeatExecutionResult:
+    result_text = None
+    error_text = None
+    _hb_timeout = resolve_heartbeat_timeout(hb)
 
     try:
         from app.agent.loop import run
         from app.agent.bots import get_bot
-        from app.agent.persona import get_persona
-        from app.services.sessions import _effective_system_prompt, load_or_create
+        from app.services.sessions import load_or_create
 
-        bot = get_bot(bot_id)
+        bot = get_bot(prepared.bot_id)
         async with async_session() as db:
             eff_session_id, messages = await load_or_create(
                 db,
-                session_id,
-                client_id or "heartbeat",
-                bot_id,
+                prepared.session_id,
+                prepared.client_id or "heartbeat",
+                prepared.bot_id,
                 context_profile_name="heartbeat",
             )
 
@@ -901,7 +940,6 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         messages = _trim_history_for_task(messages, settings.HEARTBEAT_MAX_HISTORY_TURNS)
 
         messages_start = len(messages)
-        _hb_timeout = resolve_heartbeat_timeout(hb)
         # Mark this run as a heartbeat so policy rules can target autonomous
         # contexts (e.g. require approval for file(overwrite) on heartbeats
         # even when interactive chat allows it).
@@ -909,22 +947,22 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         current_run_origin.set("heartbeat")
         run_result = await asyncio.wait_for(
             run(
-                messages, bot, prompt,
+                messages, bot, prepared.prompt,
                 session_id=eff_session_id,
-                client_id=client_id or "heartbeat",
+                client_id=prepared.client_id or "heartbeat",
                 correlation_id=correlation_id,
-                dispatch_type=dispatch_type,
-                dispatch_config=dispatch_config,
-                channel_id=channel_id,
-                model_override=model_override,
-                provider_id_override=provider_id_override,
-                fallback_models=_hb_fallback_models,
-                injected_tools=injected_tools,
-                system_preamble=heartbeat_preamble,
+                dispatch_type=prepared.dispatch_type,
+                dispatch_config=prepared.dispatch_config,
+                channel_id=prepared.channel_id,
+                model_override=prepared.model_override,
+                provider_id_override=prepared.provider_id_override,
+                fallback_models=prepared.fallback_models,
+                injected_tools=prepared.injected_tools,
+                system_preamble=prepared.heartbeat_preamble,
                 skip_tool_policy=hb.skip_tool_approval,
                 task_mode=True,
                 context_profile_name="heartbeat",
-                run_control_policy=_hb_execution_policy,
+                run_control_policy=prepared.execution_policy,
             ),
             timeout=_hb_timeout,
         )
@@ -932,38 +970,38 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
 
         # Persist turn
         from app.services.sessions import persist_turn
-        _dispatched = hb.dispatch_results and _dispatch_mode != "optional"
+        dispatched = hb.dispatch_results and prepared.dispatch_mode != "optional"
         async with async_session() as db:
             await persist_turn(
                 db, eff_session_id, bot, messages, messages_start,
-                correlation_id=correlation_id, channel_id=channel_id,
+                correlation_id=correlation_id, channel_id=prepared.channel_id,
                 is_heartbeat=True,
-                msg_metadata={"trigger": "heartbeat", "dispatched": _dispatched},
+                msg_metadata={"trigger": "heartbeat", "dispatched": dispatched},
                 suppress_outbox=True,
             )
 
-        if _dispatched and channel_id is not None:
+        if dispatched and prepared.channel_id is not None:
             await _enqueue_persisted_heartbeat_result(
-                channel_id=channel_id,
+                channel_id=prepared.channel_id,
                 session_id=eff_session_id,
                 correlation_id=correlation_id,
             )
 
         # Publish heartbeat result to the bus. Renderers consume TURN_ENDED
         # with kind_hint="heartbeat" and prepend the 💓 prefix themselves.
-        if _dispatch_mode != "optional" and channel_id is not None:
+        if prepared.dispatch_mode != "optional" and prepared.channel_id is not None:
             _proxy_task_id = uuid.uuid4()
             from app.domain.channel_events import ChannelEvent, ChannelEventKind
             from app.domain.payloads import TurnEndedPayload
             from app.services.channel_events import publish_typed
 
             publish_typed(
-                channel_id,
+                prepared.channel_id,
                 ChannelEvent(
-                    channel_id=channel_id,
+                    channel_id=prepared.channel_id,
                     kind=ChannelEventKind.TURN_ENDED,
                     payload=TurnEndedPayload(
-                        bot_id=bot_id,
+                        bot_id=prepared.bot_id,
                         turn_id=correlation_id,
                         result=result_text,
                         client_actions=list(run_result.client_actions or []),
@@ -973,17 +1011,17 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 ),
             )
 
-        # trigger_rag_loop: create a follow-up Task so the bot can react
-        if trigger_rag_loop and result_text:
+        # trigger_response creates a follow-up Task so the bot can react.
+        if prepared.trigger_rag_loop and result_text:
             _trl_task = Task(
-                bot_id=bot_id,
-                client_id=client_id,
+                bot_id=prepared.bot_id,
+                client_id=prepared.client_id,
                 session_id=eff_session_id,
                 prompt=f"[Your scheduled heartbeat just ran and posted to the channel. The output was:]\n\n{result_text}",
                 status="pending",
                 task_type="callback",
-                dispatch_type=dispatch_type,
-                dispatch_config=dict(dispatch_config or {}),
+                dispatch_type=prepared.dispatch_type,
+                dispatch_config=dict(prepared.dispatch_config or {}),
                 callback_config={"trigger_rag_loop": False},
                 created_at=datetime.now(timezone.utc),
             )
@@ -1000,25 +1038,57 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         logger.exception("Heartbeat %s execution failed", hb.id)
         error_text = str(exc)[:4000]
 
-    # Update heartbeat_run record and heartbeat tracking columns
-    async with async_session() as db:
-        run_rec = await db.get(HeartbeatRun, run_id)
-        if run_rec:
-            run_rec.completed_at = datetime.now(timezone.utc)
-            run_rec.result = result_text
-            run_rec.error = error_text
-            run_rec.correlation_id = correlation_id
-            run_rec.status = "complete" if error_text is None else "failed"
-            run_rec.repetition_detected = _repetition_detected
+    return _HeartbeatExecutionResult(
+        correlation_id=correlation_id,
+        result_text=result_text,
+        error_text=error_text,
+    )
 
-        heartbeat = await db.get(ChannelHeartbeat, hb.id)
-        if heartbeat:
-            heartbeat.last_result = result_text
-            heartbeat.last_error = error_text
-            heartbeat.run_count = (heartbeat.run_count or 0) + 1
-            heartbeat.updated_at = datetime.now(timezone.utc)
 
-        await db.commit()
+async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
+    """Execute a heartbeat directly (no Task row) and record history.
+
+    If ``workflow_id`` is set, triggers the workflow instead of running the
+    agent prompt.  The heartbeat run record still tracks the outcome.
+    """
+    now = datetime.now(timezone.utc)
+
+    # --- Workflow mode: trigger workflow instead of agent prompt ---
+    if hb.workflow_id:
+        await _fire_heartbeat_workflow(hb, now)
+        return
+
+    prepared = await _prepare_heartbeat_run(hb, now)
+    if prepared is None:
+        return
+
+    logger.info(
+        "Heartbeat %s fired directly for channel %s (bot=%s, next=%s)",
+        hb.id, prepared.channel_id, prepared.bot_id,
+        prepared.next_run_at.strftime("%H:%M:%S") if prepared.next_run_at else "?",
+    )
+
+    correlation_id = uuid.uuid4()
+    if await _run_harness_heartbeat_if_needed(
+        hb,
+        prepared,
+        correlation_id=correlation_id,
+        now=now,
+    ):
+        return
+
+    result = await _run_spindrel_heartbeat(
+        hb,
+        prepared,
+        correlation_id=correlation_id,
+    )
+    await _finalize_heartbeat_run(
+        hb,
+        prepared,
+        correlation_id=result.correlation_id,
+        result_text=result.result_text,
+        error_text=result.error_text,
+    )
 
 
 _heartbeat_semaphore = asyncio.Semaphore(3)
