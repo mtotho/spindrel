@@ -183,15 +183,28 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   const messageInput = readChatFile("MessageInput.tsx");
   const draftFiles = readChatFile("useComposerDraftFiles.ts");
   const composerSubmit = readChatFile("composerSubmit.ts");
+  const modelControl = readChatFile("ComposerModelControl.tsx");
+  const planControl = readChatFile("ComposerPlanControl.tsx");
+  const approvalModeControl = readChatFile("ComposerApprovalModeControl.tsx");
 
   assert.match(messageInput, /useComposerDraftFiles/);
   assert.match(messageInput, /resolveComposerSubmitIntent/);
+  assert.match(messageInput, /ComposerModelControl/);
+  assert.match(messageInput, /ComposerPlanControl/);
+  assert.match(messageInput, /ComposerApprovalModeControl/);
   assert.doesNotMatch(messageInput, /useDraftsStore/);
   assert.doesNotMatch(messageInput, /type DraftFile/);
   assert.doesNotMatch(messageInput, /function fileToBase64/);
   assert.doesNotMatch(messageInput, /function draftFilesToPending/);
   assert.doesNotMatch(messageInput, /resolveSlashCommand/);
   assert.doesNotMatch(messageInput, /detectMissingSlashArgs/);
+  assert.doesNotMatch(messageInput, /function HarnessModelPickerContent/);
+  assert.doesNotMatch(messageInput, /LlmModelDropdownContent/);
+  assert.doesNotMatch(messageInput, /getComposerPlanControlState/);
+  assert.doesNotMatch(messageInput, /getHarnessApprovalModeControlState/);
+  assert.doesNotMatch(messageInput, /createPortal/);
+  assert.doesNotMatch(messageInput, /ListTodo/);
+  assert.doesNotMatch(messageInput, /ChevronDown/);
 
   assert.match(draftFiles, /useDraftsStore/);
   assert.match(draftFiles, /function fileToBase64/);
@@ -199,6 +212,15 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(composerSubmit, /resolveSlashCommand/);
   assert.match(composerSubmit, /detectMissingSlashArgs/);
   assert.doesNotMatch(composerSubmit, /toast/);
+
+  assert.match(modelControl, /LlmModelDropdownContent/);
+  assert.match(modelControl, /function HarnessModelPickerContent/);
+  assert.match(modelControl, /spindrel:open-model-picker/);
+  assert.match(planControl, /getComposerPlanControlState/);
+  assert.match(planControl, /createPortal/);
+  assert.match(planControl, /ListTodo/);
+  assert.match(planControl, /ChevronDown/);
+  assert.match(approvalModeControl, /getHarnessApprovalModeControlState/);
 });
 
 test("chat sends thread a stable client-local id through optimistic rows and requests", () => {
