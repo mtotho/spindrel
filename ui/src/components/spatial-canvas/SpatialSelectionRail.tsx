@@ -31,6 +31,7 @@ export function SpatialSelectionRail({
 
   return (
     <div
+      data-testid="spatial-selection-rail"
       className="pointer-events-auto absolute z-[7000] -translate-x-1/2 -translate-y-full"
       style={{ left: clampedX, top: clampedY }}
       onPointerDown={(e) => e.stopPropagation()}

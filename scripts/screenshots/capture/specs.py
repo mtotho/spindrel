@@ -965,12 +965,18 @@ _SELECT_QA_CHANNEL_JS = (
 _ASSERT_MAP_BRIEF_SELECTION_JS = (
     "const panel = document.querySelector('[data-starboard-panel=\"true\"]');"
     "const brief = document.querySelector('[data-testid=\"starboard-map-brief\"]');"
+    "const body = document.querySelector('[data-testid=\"starboard-scroll-body\"]');"
     "const selected = document.querySelector('[data-testid=\"map-brief-selected-object\"]');"
     "const anchor = document.querySelector('[data-spatial-selected-anchor=\"true\"]');"
     "if (!panel) throw new Error('Starboard panel did not open');"
     "if (!brief) throw new Error('Map Brief station did not render');"
     "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected in Map Brief');"
     "if (!anchor) throw new Error('selected spatial anchor did not render');"
+    "if (body) {"
+    "  const bodyRect = body.getBoundingClientRect();"
+    "  const selectedRect = selected.getBoundingClientRect();"
+    "  if (selectedRect.top < bodyRect.top + 2) throw new Error(`selected brief clipped at top: ${selectedRect.top} < ${bodyRect.top}`);"
+    "}"
 )
 
 
@@ -1081,6 +1087,55 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) {"
             "  throw new Error('hover card rendered while Map Brief selection is active');"
             "}"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-overview-hover-calm",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-check-overview-hover-calm.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.32}),
+        ],
+        pre_capture_js=(
+            "const tile = document.querySelector('[data-tile-kind=\"channel\"]');"
+            " if (!tile) throw new Error('overview channel tile not found');"
+            " tile.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));"
+            " await new Promise(r => setTimeout(r, 650));"
+        ),
+        assert_js=(
+            "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) {"
+            "  throw new Error('overview hover card rendered at low zoom');"
+            "}"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-cluster-focus-calm",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
+            ' && !!document.querySelector(\'[data-tile-kind="channel-cluster"]\')'
+        ),
+        output="spatial-check-cluster-focus-calm.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.18}),
+        ],
+        pre_capture_js=(
+            "const cluster = document.querySelector('[data-tile-kind=\"channel-cluster\"]');"
+            " if (!cluster) throw new Error('channel cluster not found');"
+            " cluster.click();"
+            " await new Promise(r => setTimeout(r, 900));"
+        ),
+        assert_js=(
+            "if (document.querySelector('[data-testid=\"spatial-selection-rail\"]')) throw new Error('cluster click opened floating selection rail');"
+            "if (document.querySelector('[data-spatial-selected-anchor=\"true\"]')) throw new Error('cluster click created a selected-object anchor');"
+            "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) throw new Error('cluster click created a hover card');"
         ),
     ),
     ScreenshotSpec(

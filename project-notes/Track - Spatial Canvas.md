@@ -111,6 +111,22 @@ nearby, and all buckets, dedupes repeated warning/recent signals, trims panel
 width/padding pressure, and delays/suppresses hover cards while a selected
 object inspector is open.
 
+Same-day feedback-loop pass: `scripts/screenshots --only spatial-checks` now
+stages the e2e spatial + attention scenario and runs browser-level canvas
+checks against the configured UI, including local `localhost:5173` during
+development. The checks capture Map Brief selection, Starboard-aware Jump
+framing, attention badge selection, hover suppression while Map Brief is open,
+and density smoke. Selected-object actions now remain visible even when an
+object has no rich map-state brief, so `Jump here` is always available.
+
+Same-day fundamentals sweep: Map Brief selected-object content now has explicit
+top clearance under the Starboard station selector and flatter inspector chrome
+using state pills plus a subtle left edge instead of a heavy warning card.
+Zoomed-out clusters are navigation-only: click focuses cluster bounds,
+double-click dives into the winner, and the old floating selection rail no
+longer appears. Hover cards are suppressed during overview/cluster zoom so the
+map stays calm until the user zooms into inspectable objects.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

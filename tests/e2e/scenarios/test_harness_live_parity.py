@@ -428,7 +428,7 @@ async def test_live_harness_plan_mode_round_trip(
     assert command_result["payload"]["effect"] == "plan"
 
     plan_status = await client.get_session_harness_status(session_id)
-    assert plan_status["permission_mode"] == "plan"
+    assert plan_status["session_plan_mode"] == "planning"
 
     result = await client.chat_session_stream(
         (
@@ -445,6 +445,7 @@ async def test_live_harness_plan_mode_round_trip(
     await _assert_trace_has_turn_context(client, result)
 
     after_status = await client.get_session_harness_status(session_id)
+    assert after_status["session_plan_mode"] == "planning"
     assert after_status["runtime"] == case.runtime
     _assert_bridge_baseline(after_status)
 

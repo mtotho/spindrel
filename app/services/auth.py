@@ -20,15 +20,40 @@ logger = logging.getLogger(__name__)
 
 _http = httpx.AsyncClient(timeout=15.0)
 
-# Auto-generate JWT secret on first import if not configured
+# Auto-generate a no-lifespan fallback for tests and direct imports. Production
+# startup replaces this with the persisted value via ``configure_jwt_secret``.
 if not settings.JWT_SECRET:
     _jwt_secret = secrets.token_hex(32)
+    _jwt_secret_is_ephemeral = True
+else:
+    _jwt_secret = settings.JWT_SECRET
+    _jwt_secret_is_ephemeral = False
+_jwt_secret_warning_logged = False
+
+
+def configure_jwt_secret(secret: str) -> str:
+    """Install the JWT signing secret resolved by startup.
+
+    Tests and no-lifespan fixtures may still use the import-time fallback above;
+    production startup calls this after settings/env persistence has run.
+    """
+    global _jwt_secret
+    global _jwt_secret_is_ephemeral
+    _jwt_secret = secret
+    _jwt_secret_is_ephemeral = False
+    settings.JWT_SECRET = secret
+    return _jwt_secret
+
+
+def _warn_if_ephemeral_jwt_secret() -> None:
+    global _jwt_secret_warning_logged
+    if not _jwt_secret_is_ephemeral or _jwt_secret_warning_logged:
+        return
     logger.warning(
         "JWT_SECRET not configured — using ephemeral secret. "
         "Tokens will be invalidated on server restart. Set JWT_SECRET in .env for persistence."
     )
-else:
-    _jwt_secret = settings.JWT_SECRET
+    _jwt_secret_warning_logged = True
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +73,7 @@ def verify_password(password: str, hashed: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def create_access_token(user: User) -> str:
+    _warn_if_ephemeral_jwt_secret()
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user.id),
@@ -76,6 +102,7 @@ async def create_refresh_token(user: User, db: AsyncSession) -> str:
 
 def decode_access_token(token: str) -> dict:
     """Decode and validate a JWT access token. Raises jwt.InvalidTokenError on failure."""
+    _warn_if_ephemeral_jwt_secret()
     return jwt.decode(token, _jwt_secret, algorithms=["HS256"])
 
 
@@ -102,6 +129,7 @@ def create_widget_token(
     own within ``WIDGET_TOKEN_TTL_SECONDS``). Acceptable trade-off for
     simpler verification.
     """
+    _warn_if_ephemeral_jwt_secret()
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(seconds=WIDGET_TOKEN_TTL_SECONDS)
     payload = {

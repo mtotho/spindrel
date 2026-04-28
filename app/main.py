@@ -219,80 +219,15 @@ async def lifespan(application: FastAPI):
     from app.services.providers import seed_provider_from_file, load_providers
     await seed_provider_from_file()
     await load_providers()
-    # Sync SPINDREL_HOME → HOME_HOST_DIR in .env so docker-compose can mount it.
-    # This runs inside the container after DB settings are loaded.  The value
-    # takes effect on the NEXT container restart (compose re-reads .env).
-    if settings.SPINDREL_HOME and not os.environ.get("HOME_HOST_DIR"):
-        _env_path_home = os.path.join(os.getcwd(), ".env")
-        try:
-            import re as _re_home
-            _home_val = settings.SPINDREL_HOME
-            if os.path.isfile(_env_path_home):
-                with open(_env_path_home) as f:
-                    _env_content_home = f.read()
-                if "HOME_HOST_DIR=" in _env_content_home:
-                    _env_content_home = _re_home.sub(
-                        r"^#?\s*HOME_HOST_DIR=.*$",
-                        f"HOME_HOST_DIR={_home_val}",
-                        _env_content_home,
-                        count=1,
-                        flags=_re_home.MULTILINE,
-                    )
-                else:
-                    _env_content_home += f"\nHOME_HOST_DIR={_home_val}\n"
-                with open(_env_path_home, "w") as f:
-                    f.write(_env_content_home)
-            else:
-                with open(_env_path_home, "a") as f:
-                    f.write(f"\nHOME_HOST_DIR={_home_val}\n")
-            logger.info("Synced SPINDREL_HOME=%s to .env as HOME_HOST_DIR (takes effect on next restart)", _home_val)
-        except OSError:
-            logger.warning("Could not sync SPINDREL_HOME to .env — set HOME_HOST_DIR manually")
-
-    # Auto-generate ENCRYPTION_KEY on first boot if not set and no encrypted
-    # secrets exist yet.  Writes the key to .env so it persists across restarts.
-    from app.services.encryption import is_encryption_enabled, generate_key, reset as _reset_encryption
-    if not is_encryption_enabled():
-        from app.services.providers import has_encrypted_secrets
-        if await has_encrypted_secrets():
-            raise RuntimeError(
-                "ENCRYPTION_KEY is not set but the database contains encrypted secrets (enc: prefix). "
-                "These values cannot be decrypted without the original key. "
-                "Set ENCRYPTION_KEY in .env to the key used to encrypt them."
-            )
-        # No encrypted secrets — safe to generate a new key
-        import re as _re
-        new_key = generate_key()
-        settings.ENCRYPTION_KEY = new_key
-        _reset_encryption()  # clear cached state so next check picks up the new key
-        # Persist to .env file
-        _env_path = os.path.join(os.getcwd(), ".env")
-        try:
-            if os.path.isfile(_env_path):
-                with open(_env_path) as f:
-                    _env_content = f.read()
-                if "ENCRYPTION_KEY=" in _env_content:
-                    _env_content = _re.sub(
-                        r"^#?\s*ENCRYPTION_KEY=.*$",
-                        f"ENCRYPTION_KEY={new_key}",
-                        _env_content,
-                        count=1,
-                        flags=_re.MULTILINE,
-                    )
-                else:
-                    _env_content += f"\nENCRYPTION_KEY={new_key}\n"
-                with open(_env_path, "w") as f:
-                    f.write(_env_content)
-            else:
-                with open(_env_path, "w") as f:
-                    f.write(f"ENCRYPTION_KEY={new_key}\n")
-            logger.info("Auto-generated ENCRYPTION_KEY and saved to .env — back this up!")
-        except OSError:
-            logger.warning(
-                "Auto-generated ENCRYPTION_KEY but could not write to .env. "
-                "Add the key from the running config to your environment to persist it."
-            )
-    _t = _tlog("Config loading (settings, integrations, providers, encryption)", _t)
+    from app.services.startup_env import (
+        ensure_encryption_key,
+        ensure_jwt_secret,
+        sync_home_host_dir_from_spindrel_home,
+    )
+    sync_home_host_dir_from_spindrel_home()
+    await ensure_encryption_key()
+    ensure_jwt_secret()
+    _t = _tlog("Config loading (settings, integrations, providers, startup secrets)", _t)
     logger.info("Loading usage limits...")
     from app.services.usage_limits import load_limits, start_refresh_task
     await load_limits()

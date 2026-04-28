@@ -10,6 +10,17 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Startup-owned secrets are configured after settings load
+**Decided 2026-04-28.** First-boot environment persistence lives in `app/services/startup_env.py`, not inline in `app/main.py` or import-time auth module code. Startup loads DB-backed settings/providers, then persists missing process-critical env values and configures runtime modules with the resolved values.
+
+**Load-bearing invariants.**
+- `.env` mutation uses one helper that replaces existing or commented assignments and keeps file mode `0600`.
+- `ENCRYPTION_KEY` still refuses to auto-generate when encrypted DB secrets already exist.
+- `JWT_SECRET` is generated and persisted on first boot when unset, then installed into `app.services.auth` via `configure_jwt_secret`.
+- `app.services.auth` may keep an ephemeral no-lifespan fallback for tests/direct imports, but production startup must replace it before normal token mint/verify paths.
+
+**Why.** Secrets are process-critical startup policy, not router or token-call policy. Centralizing this keeps restart-stability behavior testable and prevents future env keys from copying ad hoc `.env` rewrite logic back into `lifespan`.
+
 ### Workspace Missions are task-backed coordination, separate from channel heartbeats
 **Decided 2026-04-27. Updated 2026-04-28.** Mission Control is the user-facing layer for longer-lived bot work. Missions own directive, scope, assigned bot, cadence, status, and progress history; execution remains on the existing `Task` pipeline so model selection, provider overrides, fallback models, tracing, scheduling, and result capture are reused instead of rebuilt.
 

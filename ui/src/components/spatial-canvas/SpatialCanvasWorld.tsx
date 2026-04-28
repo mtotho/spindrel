@@ -108,6 +108,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     firePulses,
     dismissPulse,
     channelClusters,
+    flyToWorldBounds,
     maxClusterTokens,
     widgetSatellitesByClusterId,
     widgetOverviewOpacity,
@@ -145,7 +146,14 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
   } = props;
   const hoveredNode = hoveredNodeId ? (nodes ?? []).find((node: SpatialNode) => node.id === hoveredNodeId) : null;
   const hoveredState = hoveredNode ? mapState?.objects_by_node_id?.[hoveredNode.id] ?? null : null;
-  const hoverCardAllowed = Boolean(hoveredNode && hoveredState && draggingNodeId !== hoveredNode.id && (!starboardOpen || !selectedSpatialObject));
+  const hoverCardAllowed = Boolean(
+    hoveredNode
+      && hoveredState
+      && draggingNodeId !== hoveredNode.id
+      && !channelClusterMode
+      && interactiveZoom >= 0.65
+      && (!starboardOpen || !selectedSpatialObject),
+  );
   const [hoverCardNodeId, setHoverCardNodeId] = useState<string | null>(null);
   useEffect(() => {
     if (!hoverCardAllowed || !hoveredNode) {
@@ -402,8 +410,9 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 widgetCount={widgetSatellitesByClusterId.get(cluster.id)?.length ?? 0}
                 widgetOpacity={widgetOverviewOpacity}
                 onFocus={() => {
-                  setSelectedSpatialObject({ kind: "channel-cluster", id: cluster.id });
+                  setSelectedSpatialObject(null);
                   setContextMenu(null);
+                  flyToWorldBounds(cluster.worldBounds);
                 }}
                 onDiveWinner={() =>
                   diveToChannel(cluster.winner.channel.id, {

@@ -377,7 +377,7 @@ export function UsageDensityChrome({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3">
+          <div data-testid="starboard-scroll-body" className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-2">
               {station === "hub" ? (
                 <CommandCenter embedded />
               ) : station === "controls" ? (
@@ -707,17 +707,17 @@ function SelectedObjectInspector({
   const attentionWarning = brief?.warnings.find((signal) => signal.kind === "attention" && signal.id) ?? null;
   const toneClass =
     brief?.tone === "danger"
-      ? "ring-danger/35 bg-danger/[0.045]"
+      ? "border-l-danger bg-danger/[0.035]"
       : brief?.tone === "warning"
-        ? "ring-warning/35 bg-warning/[0.045]"
+        ? "border-l-warning bg-warning/[0.035]"
         : brief?.tone === "active"
-          ? "ring-accent/25 bg-accent/[0.04]"
-          : "ring-surface-border bg-surface-overlay/25";
+          ? "border-l-accent bg-accent/[0.035]"
+          : "border-l-surface-border bg-surface-overlay/25";
   return (
     <section
       data-testid="map-brief-selected-object"
       data-starboard-object-id={item.id}
-      className={`mb-4 rounded-md px-3 py-3 ring-1 ${toneClass}`}
+      className={`mb-4 rounded-md border-l-2 px-3 py-3 ${toneClass}`}
     >
       <div className="flex items-center gap-2">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
@@ -745,11 +745,11 @@ function SelectedObjectInspector({
           </button>
         )}
       </div>
-      <div className="mt-3 text-sm leading-relaxed text-text-muted">
+      <div className="mt-2.5 text-sm leading-relaxed text-text-muted">
         {brief?.summary ?? "No live map state is attached to this object yet."}
       </div>
       {(brief || usefulActions.length > 0) && (
-        <div className="mt-3 grid gap-2">
+        <div className="mt-2.5 grid gap-1.5">
           {brief && (
             <>
               {!!brief.sourceLines.length && (
@@ -819,7 +819,7 @@ function SelectedObjectInspector({
 
 function InspectorSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="rounded-md bg-surface-overlay/25 px-2.5 py-2">
+    <div className="rounded-md bg-surface-raised/35 px-2.5 py-2">
       <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-dim">
         {icon}
         {title}

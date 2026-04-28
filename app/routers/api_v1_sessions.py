@@ -929,6 +929,7 @@ class HarnessStatusOut(BaseModel):
     model: str | None = None
     effort: str | None = None
     permission_mode: str | None = None
+    session_plan_mode: str | None = None
     pending_hint_count: int = 0
     last_compacted_at: str | None = None
     last_turn_at: str | None = None
@@ -981,6 +982,7 @@ async def get_harness_status(
 ):
     """Return lightweight native-harness state for the current session surface."""
     from app.services.agent_harnesses.approvals import load_session_mode
+    from app.services.session_plan_mode import get_session_plan_mode
     from app.services.agent_harnesses.session_state import (
         HARNESS_RESUME_RESET_AT_KEY,
         context_window_from_usage,
@@ -1006,6 +1008,7 @@ async def get_harness_status(
         raise HTTPException(status_code=404, detail="Session not found")
     await _authorize_session_read(db, session, auth)
     mode = await load_session_mode(db, session_id)
+    session_plan_mode = get_session_plan_mode(session)
     settings = await load_session_settings(db, session_id)
     hints = await load_context_hints(db, session_id)
     bridge_status = await load_bridge_status(db, session_id)
@@ -1091,6 +1094,7 @@ async def get_harness_status(
         model=settings.model,
         effort=settings.effort,
         permission_mode=mode,
+        session_plan_mode=session_plan_mode,
         pending_hint_count=len(hints),
         last_compacted_at=meta.get(HARNESS_RESUME_RESET_AT_KEY)
         if isinstance(meta.get(HARNESS_RESUME_RESET_AT_KEY), str)

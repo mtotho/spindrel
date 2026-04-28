@@ -28,6 +28,8 @@ from app.services.agent_harnesses.settings import (
     HARNESS_SETTINGS_KEY,
     load_session_settings,
 )
+from app.services.agent_harnesses.approvals import load_session_mode
+from app.services.session_plan_mode import get_session_plan_mode
 from app.services.slash_commands import (
     execute_slash_command,
     list_supported_slash_commands,
@@ -296,6 +298,23 @@ async def test_normal_model_writes_channel_override(db_session):
     # Harness settings must NOT be touched for non-harness bots.
     fresh = await load_session_settings(db_session, session.id)
     assert fresh.model is None
+
+
+async def test_harness_plan_sets_session_plan_mode_not_approval_mode(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="plan",
+        channel_id=None,
+        session_id=session.id,
+        db=db_session,
+        args=[],
+    )
+
+    assert result.command_id == "plan"
+    await db_session.refresh(session)
+    assert get_session_plan_mode(session) == "planning"
+    assert await load_session_mode(db_session, session.id) == "bypassPermissions"
 
 
 async def test_harness_model_rejects_oversized(db_session):

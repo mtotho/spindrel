@@ -231,6 +231,7 @@ export interface HarnessStatus {
   model: string | null;
   effort: string | null;
   permission_mode: string | null;
+  session_plan_mode: string | null;
   pending_hint_count: number;
   last_compacted_at: string | null;
   last_turn_at: string | null;
