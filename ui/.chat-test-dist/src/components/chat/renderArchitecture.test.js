@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 const CHAT_DIR = resolve(process.cwd(), "src/components/chat");
+const CHAT_SESSION_SOURCE_FILES = [
+    "ChatSessionChannel.tsx",
+    "ChatSessionFixed.tsx",
+    "ChatSessionEphemeral.tsx",
+    "ChatSessionThread.tsx",
+];
 function readChatFile(name) {
     return readFileSync(resolve(CHAT_DIR, name), "utf8");
+}
+function readChatSessionSourceModes() {
+    return CHAT_SESSION_SOURCE_FILES.map(readChatFile).join("\n");
 }
 test("assistant turn rows use one canonical renderer path across streaming and persisted views", () => {
     const messageBubble = readChatFile("MessageBubble.tsx");
@@ -22,17 +31,17 @@ test("assistant turn rows use one canonical renderer path across streaming and p
 });
 test("default-mode composer width is centralized through ChatComposerShell", () => {
     const channelPage = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"), "utf8");
-    const chatSession = readChatFile("ChatSession.tsx");
+    const chatSessionModes = readChatSessionSourceModes();
     assert.match(channelPage, /ChatComposerShell/);
-    assert.match(chatSession, /ChatComposerShell/);
+    assert.match(chatSessionModes, /ChatComposerShell/);
 });
 test("chat modes centralize composer placement and rich result mode conventions", () => {
     const chatModes = readChatFile("chatModes.ts");
-    const chatSession = readChatFile("ChatSession.tsx");
+    const chatSessionModes = readChatSessionSourceModes();
     const richToolResult = readChatFile("RichToolResult.tsx");
     assert.match(chatModes, /composerPlacement:\s*"viewport-overlay"/);
     assert.match(chatModes, /composerPlacement:\s*"transcript-flow"/);
-    assert.match(chatSession, /isTranscriptFlowComposer/);
+    assert.match(chatSessionModes, /isTranscriptFlowComposer/);
     assert.match(richToolResult, /resultViews\.resolve\(viewKey, renderMode\)/);
     assert.match(richToolResult, /SafeFallbackResult/);
     assert.match(richToolResult, /core\.search_results/);
@@ -55,6 +64,30 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
     assert.match(orderedTranscript, /chatMode=\{chatMode\}/);
     assert.match(widgetCard, /chatMode\?:\s*"default"\s*\|\s*"terminal"/);
     assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
+});
+test("ChatSession stays a source router over dedicated source-mode modules", () => {
+    const chatSession = readChatFile("ChatSession.tsx");
+    assert.match(chatSession, /ChannelChatSession/);
+    assert.match(chatSession, /FixedSessionChatSession/);
+    assert.match(chatSession, /EphemeralChatSession/);
+    assert.match(chatSession, /ThreadChatSession/);
+    assert.match(chatSession, /props\.source\.kind === "channel"/);
+    assert.match(chatSession, /props\.source\.kind === "thread"/);
+    assert.match(chatSession, /props\.source\.kind === "session"/);
+    assert.match(chatSession, /EphemeralChatSession/);
+    assert.match(chatSession, /export type \{ ChatSessionProps, ChatSource, EphemeralContextPayload \}/);
+    assert.doesNotMatch(chatSession, /useSubmitChat/);
+    assert.doesNotMatch(chatSession, /useSlashCommandExecutor/);
+    assert.doesNotMatch(chatSession, /MessageInput/);
+    assert.doesNotMatch(chatSession, /ChatComposerShell/);
+    assert.doesNotMatch(chatSession, /function ChannelChatSession/);
+    assert.doesNotMatch(chatSession, /function FixedSessionChatSession/);
+    assert.doesNotMatch(chatSession, /function EphemeralChatSession/);
+    assert.doesNotMatch(chatSession, /function ThreadChatSession/);
+    assert.match(readChatFile("ChatSessionChannel.tsx"), /export function ChannelChatSession/);
+    assert.match(readChatFile("ChatSessionFixed.tsx"), /export function FixedSessionChatSession/);
+    assert.match(readChatFile("ChatSessionEphemeral.tsx"), /export function EphemeralChatSession/);
+    assert.match(readChatFile("ChatSessionThread.tsx"), /export function ThreadChatSession/);
 });
 test("EditPinDrawer keeps its hooks above the open-state early return", () => {
     const editPinDrawer = readFileSync(resolve(process.cwd(), "app/(app)/widgets/EditPinDrawer.tsx"), "utf8");
@@ -85,12 +118,12 @@ test("machine-control rich-result views are extracted into dedicated renderer fi
 });
 test("chat copy actions share one assistant-response bundle primitive for text and json", () => {
     const channelPage = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"), "utf8");
-    const chatSession = readChatFile("ChatSession.tsx");
+    const chatSessionModes = readChatSessionSourceModes();
     const sessionChatView = readChatFile("SessionChatView.tsx");
     const messageBubble = readChatFile("MessageBubble.tsx");
     const messageActions = readChatFile("MessageActions.tsx");
     assert.match(channelPage, /getTurnMessages/);
-    assert.match(chatSession, /getTurnMessages/);
+    assert.match(chatSessionModes, /getTurnMessages/);
     assert.match(sessionChatView, /getTurnMessages/);
     assert.match(messageBubble, /fullTurnMessages\?:\s*Message\[\]/);
     assert.match(messageBubble, /fullTurnMessages=\{fullTurnMessages\}/);

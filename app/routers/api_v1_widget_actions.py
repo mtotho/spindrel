@@ -1005,7 +1005,10 @@ class WidgetRefreshBatchResponse(BaseModel):
 async def _load_refresh_pin_contexts(
     requests: list[WidgetRefreshRequest],
 ) -> dict[uuid.UUID, tuple[str | None, uuid.UUID | None]]:
-    pin_ids = sorted({req.dashboard_pin_id for req in requests if req.dashboard_pin_id is not None})
+    pin_ids = sorted(
+        {req.dashboard_pin_id for req in requests if req.dashboard_pin_id is not None},
+        key=str,
+    )
     if not pin_ids:
         return {}
     from sqlalchemy import select
