@@ -923,9 +923,37 @@ async def reindex_workspace(
         if ws.indexing_config is not None:
             bot._ws_indexing_config = ws.indexing_config
         try:
-            stats = await reindex_bot(bot, force=True, cleanup_orphans=True)
-            if stats:
-                results[swb.bot_id] = stats
+            bot_result = {}
+            cleanup_stats = await reindex_bot(
+                bot,
+                include_workspace=False,
+                include_memory=False,
+                force=True,
+                cleanup_orphans=True,
+            )
+            if cleanup_stats and cleanup_stats.get("stale_roots_cleaned"):
+                bot_result["stale_roots_cleaned"] = cleanup_stats["stale_roots_cleaned"]
+
+            memory_stats = await reindex_bot(
+                bot,
+                include_workspace=False,
+                include_memory=True,
+                force=True,
+            )
+            if memory_stats:
+                bot_result["memory"] = memory_stats
+
+            indexing_stats = await reindex_bot(
+                bot,
+                include_workspace=True,
+                include_memory=False,
+                force=True,
+            )
+            if indexing_stats:
+                bot_result["indexing"] = indexing_stats
+
+            if bot_result:
+                results[swb.bot_id] = bot_result
         except Exception as exc:
             results.setdefault(swb.bot_id, {})["error"] = str(exc)
 
@@ -966,7 +994,7 @@ async def get_workspace_indexing(
     """Full indexing visibility: global defaults, workspace defaults, and per-bot resolved config."""
     from app.agent.fs_indexer import _SKIP_EXTENSIONS, _SKIP_DIRS
     from app.config import settings
-    from app.services.workspace_indexing import resolve_indexing
+    from app.services.bot_indexing import plan_to_resolved_config, resolve_for
 
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -992,14 +1020,19 @@ async def get_workspace_indexing(
         bot = bot_map.get(swb.bot_id)
         if not bot:
             continue
+        if ws.indexing_config is not None:
+            bot._ws_indexing_config = ws.indexing_config
         raw_idx = bot._workspace_raw.get("indexing", {})
         # Detect which keys were explicitly set on the bot
         explicit = {}
         for key in ("patterns", "similarity_threshold", "top_k", "watch", "cooldown_seconds", "enabled", "include_bots", "embedding_model", "segments"):
             if key in raw_idx:
                 explicit[key] = raw_idx[key]
-        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
-        resolved["enabled"] = bot.workspace.indexing.enabled
+        plan = resolve_for(bot, scope="workspace")
+        resolved = (
+            plan_to_resolved_config(plan, enabled=bot.workspace.indexing.enabled)
+            if plan is not None else {"enabled": bot.workspace.indexing.enabled}
+        )
         bots_out.append({
             "bot_id": swb.bot_id,
             "bot_name": bot.name,
@@ -1080,12 +1113,17 @@ async def update_bot_indexing(
     await reload_bots()
 
     # Return resolved config for this bot
-    from app.services.workspace_indexing import resolve_indexing
+    from app.services.bot_indexing import plan_to_resolved_config, resolve_for
     bot = next((b for b in list_bots() if b.id == bot_id), None)
     resolved = {}
     if bot:
-        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
-        resolved["enabled"] = bot.workspace.indexing.enabled
+        if ws.indexing_config is not None:
+            bot._ws_indexing_config = ws.indexing_config
+        plan = resolve_for(bot, scope="workspace")
+        resolved = (
+            plan_to_resolved_config(plan, enabled=bot.workspace.indexing.enabled)
+            if plan is not None else {"enabled": bot.workspace.indexing.enabled}
+        )
 
     return {
         "bot_id": bot_id,

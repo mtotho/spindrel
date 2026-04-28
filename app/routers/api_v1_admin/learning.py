@@ -400,9 +400,8 @@ async def _search_channel_knowledge_source(
     from pathlib import Path
 
     from app.agent.bots import get_bot
-    from app.services.bot_indexing import resolve_for
+    from app.services.bot_indexing import channel_index_bot_id, resolve_for
     from app.services.channel_workspace import _get_ws_root, get_channel_knowledge_base_index_prefix
-    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
     results: list[LearningSearchResult] = []
@@ -415,7 +414,7 @@ async def _search_channel_knowledge_source(
             ch_id = str(channel.id)
             hits = await hybrid_memory_search(
                 query=query,
-                bot_id=_get_channel_index_bot_id(ch_id),
+                bot_id=channel_index_bot_id(ch_id),
                 roots=[str(Path(_get_ws_root(bot)).resolve())],
                 memory_prefix=get_channel_knowledge_base_index_prefix(ch_id),
                 embedding_model=plan.embedding_model,
@@ -912,8 +911,8 @@ async def learning_knowledge_library(
 ):
     """Inventory convention-based bot and channel knowledge-base indexes."""
     from app.agent.bots import get_bot, list_bots
+    from app.services.bot_indexing import channel_index_bot_id
     from app.services.channel_workspace import get_channel_knowledge_base_index_prefix
-    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
     from app.services.workspace import workspace_service
 
     items: list[KnowledgeLibraryItem] = []
@@ -952,7 +951,7 @@ async def learning_knowledge_library(
                 func.max(FilesystemChunk.indexed_at),
             )
             .where(
-                FilesystemChunk.bot_id == _get_channel_index_bot_id(str(channel.id)),
+                FilesystemChunk.bot_id == channel_index_bot_id(str(channel.id)),
                 FilesystemChunk.file_path.like(f"{prefix.rstrip('/')}/%"),
             )
         )).first()

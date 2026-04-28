@@ -7,12 +7,14 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 
 - ``core`` (default): runtime controls, trace, status, basic context telemetry.
 - ``bridge``: core plus Spindrel bridge discovery/invocation persistence.
-- ``writes``: bridge plus safe temporary workspace write/read/delete.
+- ``plan``: bridge plus native plan-mode round-trip checks.
+- ``writes``: plan plus safe temporary workspace write/read/delete.
 - ``context``: writes plus context-pressure and native compaction checks.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from dataclasses import dataclass
@@ -30,9 +32,19 @@ pytestmark = pytest.mark.e2e
 TIER_ORDER = {
     "core": 0,
     "bridge": 1,
-    "writes": 2,
-    "context": 3,
+    "plan": 2,
+    "writes": 3,
+    "context": 4,
 }
+
+
+CORE_BRIDGE_BASELINE_TOOLS = (
+    "get_tool_info",
+    "list_channels",
+    "read_conversation_history",
+    "list_sub_sessions",
+    "read_sub_session",
+)
 
 
 @dataclass(frozen=True)
@@ -43,7 +55,6 @@ class HarnessCase:
     bot_env: str
     default_bot_id: str
     native_commands: tuple[str, ...]
-    bridge_visible_names: tuple[str, ...]
     model_candidates: tuple[str, ...]
     effort_env: str
     model_env: str
@@ -56,8 +67,7 @@ HARNESSES = (
         channel_env="HARNESS_PARITY_CODEX_CHANNEL_ID",
         bot_env="HARNESS_PARITY_CODEX_BOT_ID",
         default_bot_id="codex-bot",
-        native_commands=("config", "mcp-status", "skills"),
-        bridge_visible_names=("bennie_loggins_health_summary",),
+        native_commands=("config", "mcp-status", "plugins", "skills", "features"),
         model_candidates=(
             "gpt-5.3-codex-spark",
             "gpt-5.4-mini",
@@ -72,10 +82,6 @@ HARNESSES = (
         bot_env="HARNESS_PARITY_CLAUDE_BOT_ID",
         default_bot_id="claude-code-bot",
         native_commands=("version", "auth"),
-        bridge_visible_names=(
-            "mcp__spindrel__bennie_loggins_health_summary",
-            "bennie_loggins_health_summary",
-        ),
         model_candidates=("claude-haiku-4-5",),
         effort_env="HARNESS_PARITY_CLAUDE_EFFORT",
         model_env="HARNESS_PARITY_CLAUDE_MODEL",
@@ -108,6 +114,27 @@ def _requires_tier(required: str) -> None:
 
 def _timeout() -> float:
     return float(os.environ.get("HARNESS_PARITY_TIMEOUT", "300"))
+
+
+def _bridge_tool_name() -> str:
+    return os.environ.get("HARNESS_PARITY_BRIDGE_TOOL", "list_channels").strip() or "list_channels"
+
+
+def _bridge_tool_args() -> dict[str, Any]:
+    raw = os.environ.get("HARNESS_PARITY_BRIDGE_TOOL_ARGS", "{}")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"HARNESS_PARITY_BRIDGE_TOOL_ARGS is not JSON: {exc}") from exc
+    assert isinstance(parsed, dict), "HARNESS_PARITY_BRIDGE_TOOL_ARGS must be a JSON object"
+    return parsed
+
+
+def _bridge_visible_names(tool_name: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys((
+        tool_name,
+        f"mcp__spindrel__{tool_name}",
+    )))
 
 
 def _configured_case(case: HarnessCase) -> tuple[str, str]:
@@ -166,6 +193,22 @@ def _has_persisted_tool_transcript(message: dict) -> bool:
         isinstance(item, dict) and item.get("kind") == "tool_call"
         for item in (items or [])
     )
+
+
+def _assert_bridge_baseline(
+    status: dict,
+    *,
+    required: tuple[str, ...] = CORE_BRIDGE_BASELINE_TOOLS,
+) -> None:
+    bridge = status.get("bridge_status") or {}
+    exported = set(str(name) for name in bridge.get("exported_tools") or [])
+    required_seen = set(str(name) for name in bridge.get("required_baseline_tools") or [])
+    missing = set(str(name) for name in bridge.get("missing_baseline_tools") or [])
+    assert not missing, f"missing harness bridge baseline tools: {sorted(missing)}"
+    for tool_name in required:
+        assert tool_name in exported or tool_name in required_seen, (
+            f"{tool_name!r} was not visible in harness bridge status: {bridge}"
+        )
 
 
 def _model_option_map(caps: dict) -> dict[str, dict]:
@@ -267,8 +310,12 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         assert context["result_type"] == "harness_context_summary"
         assert context["payload"]["runtime"] == case.runtime
 
+        marker = uuid.uuid4().hex[:12]
         result = await client.chat_session_stream(
-            "Harness parity core check. Include the exact phrase: parity core ok",
+            (
+                f"Harness parity core check. Remember marker {marker}. "
+                "Include the exact phrase: parity core ok"
+            ),
             session_id=session_id,
             channel_id=channel_id,
             bot_id=bot_id,
@@ -278,9 +325,22 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         assert "parity core ok" in result.response_text.lower()
         await _assert_trace_has_turn_context(client, result)
 
+        resumed = await client.chat_session_stream(
+            "Reply with the exact marker I asked you to remember in the previous turn.",
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(resumed)
+        assert marker in resumed.response_text
+        await _assert_trace_has_turn_context(client, resumed)
+
         status = await client.get_session_harness_status(session_id)
         assert status["runtime"] == case.runtime
+        assert status["harness_session_id"], "native harness session id was not persisted"
         assert status["usage"], "harness status did not expose latest runtime usage"
+        _assert_bridge_baseline(status)
         if model:
             assert status["model"] == model
         if effort:
@@ -310,12 +370,15 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
     _requires_tier("bridge")
     channel_id, session_id, bot_id = await _fresh_session(client, case)
     await _configure_low_cost_session(client, case, session_id)
-    tool_name = "bennie_loggins_health_summary"
+    tool_name = _bridge_tool_name()
+    tool_args = _bridge_tool_args()
+    visible_names = _bridge_visible_names(tool_name)
 
     discovery = await client.chat_session_stream(
         (
-            f"Bridge parity diagnostic. If get_tool_info is available, call it for {tool_name!r}. "
-            "Do not modify files. Briefly say whether the schema loaded."
+            f"Bridge parity diagnostic. Call the host-provided get_tool_info tool now "
+            f"with tool_name {tool_name!r}. Do not use shell commands. Do not modify files. "
+            "Briefly say whether the schema loaded."
         ),
         session_id=session_id,
         channel_id=channel_id,
@@ -326,7 +389,8 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
 
     invocation = await client.chat_session_stream(
         (
-            f"Now call {tool_name} with recent_count 2 if it is available. "
+            f"Now call the host-provided {tool_name} tool with this exact JSON object as "
+            f"arguments: {json.dumps(tool_args, sort_keys=True)}. Do not use shell commands. "
             "Do not modify files. Summarize whether the call succeeded."
         ),
         session_id=session_id,
@@ -339,12 +403,50 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
 
     messages = await client.get_session_messages(session_id, limit=30)
     assistants = _assistant_messages(messages)
-    assert any(_message_mentions_any_tool(message, case.bridge_visible_names) for message in assistants), (
-        f"{case.bridge_visible_names} was not visible in persisted assistant messages for {session_id}"
+    assert any(_message_mentions_any_tool(message, visible_names) for message in assistants), (
+        f"{visible_names} was not visible in persisted assistant messages for {session_id}"
     )
     assert any(_has_persisted_tool_transcript(message) for message in assistants), (
         "bridge tool calls did not persist canonical tool_calls + assistant_turn_body"
     )
+    status = await client.get_session_harness_status(session_id)
+    _assert_bridge_baseline(status)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_plan_mode_round_trip(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("plan")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+
+    command_result = await client.execute_slash_command("plan", session_id=session_id)
+    assert command_result["result_type"] == "side_effect"
+    assert command_result["payload"]["effect"] == "plan"
+
+    plan_status = await client.get_session_harness_status(session_id)
+    assert plan_status["permission_mode"] == "plan"
+
+    result = await client.chat_session_stream(
+        (
+            "In native plan mode, give a two-step plan for checking harness diagnostics. "
+            "Do not modify files."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "plan" in result.response_text.lower() or "step" in result.response_text.lower()
+    await _assert_trace_has_turn_context(client, result)
+
+    after_status = await client.get_session_harness_status(session_id)
+    assert after_status["runtime"] == case.runtime
+    _assert_bridge_baseline(after_status)
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

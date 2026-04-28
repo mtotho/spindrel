@@ -603,7 +603,9 @@ async def admin_bot_update(
 
     await reload_bots()
 
-    bot = get_bot(bot_id)
+    from app.agent.bots import _bot_row_to_config
+    await db.refresh(row)
+    bot = _bot_row_to_config(row)
 
     # Bootstrap memory directories when memory_scheme is set via PUT/PATCH
     if updates.get("memory_scheme") == "workspace-files":
@@ -1284,8 +1286,8 @@ async def admin_bot_enable_memory_scheme(
 
     # Trigger filesystem reindex for the memory directory
     try:
-        from app.services.memory_indexing import index_memory_for_bot
-        await index_memory_for_bot(bot, force=True)
+        from app.services.bot_indexing import reindex_bot
+        await reindex_bot(bot, include_memory=True, include_workspace=False, force=True)
     except Exception:
         pass  # non-fatal; will be indexed on next natural cycle
 

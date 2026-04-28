@@ -30,6 +30,7 @@ from scripts.screenshots.capture.specs import (
     INTEGRATIONS_SPECS,
     MOBILE_HOME_SPECS,
     NOTIFICATIONS_SPECS,
+    SPATIAL_CHECK_SPECS,
     SPATIAL_SPECS,
     STARBOARD_SPECS,
     WIDGET_PIN_SPECS,
@@ -79,7 +80,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -182,6 +183,25 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
     if only == "starboard":
         print("staged (starboard): no-op — reuses spatial + attention state")
         return None
+    if only == "spatial-checks":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_spatial(
+                client,
+                ssh_alias=cfg.ssh_alias,
+                ssh_container=cfg.ssh_container,
+                dry_run=dry_run,
+            )
+            if not dry_run:
+                attention_state = stage_attention(client, dry_run=dry_run)
+                state.tasks.update(attention_state.tasks)
+        print("staged (spatial-checks): spatial canvas + attention beacons")
+        from dataclasses import asdict as _asdict
+        for k, v in _asdict(state).items():
+            if isinstance(v, dict) and len(v) > 6:
+                print(f"  {k}: {len(v)} entries")
+            else:
+                print(f"  {k}: {v}")
+        return state
     if only == "spatial":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             state = stage_spatial(
@@ -279,6 +299,8 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             # each spec seeds via ``extra_init_scripts``. No route
             # placeholders needed.
             spec_list = SPATIAL_SPECS
+        elif only == "spatial-checks":
+            spec_list = SPATIAL_CHECK_SPECS
         elif only == "notifications":
             # /admin/notifications is static — staging populates DB rows the
             # page reads back. No route placeholders.
@@ -494,6 +516,12 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_attention(client)
         print("teardown (attention): resolved seeded attention items")
+        return
+    if only == "spatial-checks":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_attention(client)
+            teardown_spatial(client)
+        print("teardown (spatial-checks): removed attention beacons and spatial canvas records")
         return
     if only in ("widget-pin", "mobile-home", "starboard"):
         print(f"teardown ({only}): no-op — reuses other bundles' state")

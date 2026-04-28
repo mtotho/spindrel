@@ -1,11 +1,7 @@
-"""Boundary tests for app.services.bot_indexing.
-
-Commit 1 scope: resolve_for(scope="workspace") pins that the new public
-surface preserves the semantics of workspace_indexing.resolve_indexing +
-get_all_roots. Memory + channel scopes arrive in later commits and are
-pinned here as NotImplementedError so the boundary stays stable.
-"""
+"""Boundary tests for app.services.bot_indexing."""
+import ast
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,7 +9,11 @@ import pytest
 from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
 from app.services.bot_indexing import (
     BotIndexPlan,
+    channel_index_bot_id,
+    get_memory_patterns,
     iter_watch_targets,
+    plan_to_resolved_config,
+    reindex_channel,
     reindex_bot,
     resolve_for,
 )
@@ -137,21 +137,126 @@ class TestResolveForWorkspace:
             plan.bot_id = "other"  # type: ignore[misc]
 
 
-class TestUnimplementedScopes:
-    def test_memory_scope_raises_not_implemented(self):
-        bot = _make_bot(enabled=True)
-        with pytest.raises(NotImplementedError):
-            resolve_for(bot, scope="memory")
+class TestResolveForMemory:
+    def test_memory_patterns_helper_returns_new_list(self):
+        a = get_memory_patterns()
+        b = get_memory_patterns()
+        assert a == ["memory/**/*.md"]
+        assert a == b
+        assert a is not b
 
-    def test_channel_scope_raises_not_implemented(self):
+    def test_returns_none_for_non_workspace_files_bot(self):
         bot = _make_bot(enabled=True)
-        with pytest.raises(NotImplementedError):
+        bot.memory_scheme = None
+        assert resolve_for(bot, scope="memory") is None
+
+    def test_returns_none_when_workspace_disabled(self):
+        bot = _make_bot(enabled=False)
+        bot.memory_scheme = "workspace-files"
+        assert resolve_for(bot, scope="memory") is None
+
+    def test_returns_memory_plan_for_workspace_files_bot(self):
+        bot = _make_bot(enabled=True)
+        bot.memory_scheme = "workspace-files"
+        with patch("app.services.workspace.workspace_service") as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/data/test-bot"
+            plan = resolve_for(bot, scope="memory")
+        assert plan is not None
+        assert plan.scope == "memory"
+        assert plan.bot_id == "test-bot"
+        assert plan.roots == ("/data/test-bot",)
+        assert plan.patterns == ["memory/**/*.md"]
+        assert plan.embedding_model
+        assert plan.watch is True
+        assert plan.segments is None
+        assert plan.skip_stale_cleanup is True
+
+
+class TestResolveForChannel:
+    def test_channel_index_bot_id(self):
+        assert channel_index_bot_id("abc") == "channel:abc"
+
+    def test_requires_channel_id(self):
+        bot = _make_bot(enabled=True)
+        with pytest.raises(ValueError):
             resolve_for(bot, scope="channel")
+
+    def test_returns_none_when_workspace_disabled(self):
+        bot = _make_bot(enabled=False)
+        assert resolve_for(bot, scope="channel", channel_id="abc") is None
+
+    def test_returns_channel_plan_without_segments(self):
+        bot = _make_bot(enabled=True)
+        with patch("app.services.workspace.workspace_service") as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/tmp/ws/test-bot"
+            plan = resolve_for(bot, scope="channel", channel_id="abc")
+        assert plan is not None
+        assert plan.scope == "channel"
+        assert plan.bot_id == "channel:abc"
+        assert plan.roots == ("/tmp/ws/test-bot",)
+        assert plan.patterns == ["channels/abc/**/*.md"]
+        assert plan.segments is None
+        assert plan.skip_stale_cleanup is True
+
+    def test_returns_channel_plan_with_segments(self):
+        bot = _make_bot(enabled=True)
+        channel_segments = [
+            {"path_prefix": "knowledge-base", "patterns": ["**/*.md"]},
+            {"path_prefix": "/data", "embedding_model": "custom/embed"},
+        ]
+        with patch("app.services.workspace.workspace_service") as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/tmp/ws/test-bot"
+            plan = resolve_for(
+                bot,
+                scope="channel",
+                channel_id="abc",
+                channel_segments=channel_segments,
+            )
+        assert plan is not None
+        assert plan.skip_stale_cleanup is False
+        assert plan.segments == [
+            {
+                "path_prefix": "channels/abc",
+                "patterns": ["**/*.md"],
+                "embedding_model": plan.embedding_model,
+            },
+            {
+                "path_prefix": "channels/abc/knowledge-base",
+                "patterns": ["**/*.md"],
+                "embedding_model": plan.embedding_model,
+            },
+            {
+                "path_prefix": "channels/abc/data",
+                "patterns": ["**/*"],
+                "embedding_model": "custom/embed",
+            },
+        ]
 
     def test_unknown_scope_raises_value_error(self):
         bot = _make_bot(enabled=True)
         with pytest.raises(ValueError):
             resolve_for(bot, scope="garbage")  # type: ignore[arg-type]
+
+
+class TestPlanToResolvedConfig:
+    def test_preserves_legacy_resolved_shape(self):
+        bot = _make_bot(
+            enabled=True,
+            ws_indexing_config={
+                "include_bots": ["other"],
+                "segments": [{"path_prefix": "docs/", "patterns": ["**/*.md"]}],
+            },
+        )
+        with patch("app.services.workspace.workspace_service") as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/data/test-bot"
+            plan = resolve_for(bot, scope="workspace")
+        assert plan is not None
+        resolved = plan_to_resolved_config(plan, enabled=True)
+        assert resolved["enabled"] is True
+        assert resolved["patterns"] == ["**/*.py", "**/*.md", "**/*.yaml"]
+        assert resolved["include_bots"] == []
+        assert resolved["segments"][0]["path_prefix"] == "docs/"
+        assert resolved["segments_source"] == "workspace"
 
 
 class TestReindexBot:
@@ -294,6 +399,28 @@ class TestReindexBot:
         assert out["indexed"] == 1
 
 
+class TestReindexChannel:
+    @pytest.mark.asyncio
+    async def test_indexes_using_channel_plan(self):
+        bot = _make_bot(enabled=True)
+        with patch(
+            "app.agent.fs_indexer.index_directory",
+            new=AsyncMock(return_value={"indexed": 4, "skipped": 0, "removed": 0, "errors": 0}),
+        ) as idx_mock, patch(
+            "app.services.workspace.workspace_service"
+        ) as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/tmp/ws/test-bot"
+            out = await reindex_channel("abc", bot, force=False)
+
+        idx_mock.assert_awaited_once()
+        args, kwargs = idx_mock.await_args
+        assert args[:3] == ("/tmp/ws/test-bot", "channel:abc", ["channels/abc/**/*.md"])
+        assert kwargs["force"] is False
+        assert kwargs["skip_stale_cleanup"] is True
+        assert out is not None
+        assert out["indexed"] == 4
+
+
 class TestIterWatchTargets:
     def test_skips_shared_workspace_bots(self):
         bot = _make_bot(enabled=True, shared_workspace_id="ws-123")
@@ -342,3 +469,36 @@ class TestIterWatchTargets:
         assert plan.segments is None
         assert plan.skip_stale_cleanup is True
         assert root == "/data/test-bot"
+
+
+class TestBotIndexingBoundaryDrift:
+    def test_production_callers_do_not_import_old_indexing_shims(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        app_root = repo_root / "app"
+        allowed = {
+            app_root / "services" / "bot_indexing.py",
+            app_root / "services" / "memory_indexing.py",
+            app_root / "services" / "channel_workspace_indexing.py",
+            app_root / "services" / "workspace_indexing.py",
+        }
+        banned_modules = {
+            "app.services.workspace_indexing",
+            "app.services.memory_indexing",
+            "app.services.channel_workspace_indexing",
+        }
+
+        offenders: list[str] = []
+        for path in app_root.rglob("*.py"):
+            if path in allowed:
+                continue
+            tree = ast.parse(path.read_text(), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    if node.module in banned_modules:
+                        offenders.append(f"{path.relative_to(repo_root)}:{node.lineno}")
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in banned_modules:
+                            offenders.append(f"{path.relative_to(repo_root)}:{node.lineno}")
+
+        assert offenders == []

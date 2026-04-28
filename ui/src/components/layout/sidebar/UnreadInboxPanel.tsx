@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useChannels } from "../../../api/hooks/useChannels";
 import { useMarkRead, useUnreadState, type SessionReadState } from "../../../api/hooks/useUnread";
 import { cn } from "../../../lib/cn";
+import { unreadStateHref } from "../../../lib/unreadNavigation";
 
 interface UnreadInboxPanelProps {
   onClose: () => void;
@@ -132,7 +133,7 @@ export function UnreadInboxPanel({ onClose }: UnreadInboxPanelProps) {
               const channelName = row.channel_id
                 ? channelNameById.get(row.channel_id) ?? "Unknown channel"
                 : "Direct session";
-              const href = row.channel_id ? `/channels/${row.channel_id}` : undefined;
+              const href = unreadStateHref(row);
               const count = row.unread_agent_reply_count;
               const rowBody = (
                 <>

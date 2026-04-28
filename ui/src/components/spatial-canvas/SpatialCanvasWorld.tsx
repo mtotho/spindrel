@@ -784,6 +784,7 @@ function ObjectHoverCard({ node, state, scale }: { node: SpatialNode; state: any
   const brief = buildSpatialObjectBrief(state);
   return (
     <div
+      data-testid="spatial-object-hover-card"
       className="pointer-events-none absolute z-[70] w-[260px] rounded-md border border-surface-border bg-surface-raised/95 px-3 py-2 text-xs text-text shadow-[0_16px_40px_rgb(0_0_0/0.22)] backdrop-blur"
       style={{
         left: node.world_x + node.world_w / 2,

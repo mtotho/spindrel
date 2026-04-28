@@ -38,6 +38,8 @@
     "src/lib/widgetRefreshPolicy.test.ts",
     "src/lib/unreadStateCache.ts",
     "src/lib/unreadStateCache.test.ts",
+    "src/lib/unreadNavigation.ts",
+    "src/lib/unreadNavigation.test.ts",
     "src/lib/recentPages.ts",
     "src/lib/historyModeMeta.ts",
     "src/lib/historyModeMeta.test.ts",

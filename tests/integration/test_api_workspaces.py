@@ -727,13 +727,14 @@ class TestReindexWorkspace:
 
         with (
             patch("app.routers.api_v1_workspaces.list_bots", return_value=[mock_bot]),
-            patch("app.services.memory_indexing.index_memory_for_bot", new_callable=AsyncMock, return_value=mock_mem_stats) as mock_mem,
+            patch("app.agent.fs_indexer.index_directory", new_callable=AsyncMock, return_value=mock_mem_stats),
             patch("app.agent.fs_indexer.cleanup_stale_roots", new_callable=AsyncMock, return_value=0),
             patch("app.services.workspace_indexing.get_all_roots", return_value=["/ws/root"]),
             patch("app.services.workspace_indexing.resolve_indexing", return_value={
                 "patterns": ["**/*.md"], "embedding_model": "text-embedding-3-small",
                 "segments": None, "top_k": 5, "similarity_threshold": 0.3,
                 "cooldown_seconds": 300, "watch": True,
+                "include_bots": [], "segments_source": "default",
             }),
         ):
             resp = await client.post(f"/api/v1/workspaces/{ws_id}/reindex", headers=AUTH_HEADERS)
@@ -768,7 +769,6 @@ class TestReindexWorkspace:
 
         with (
             patch("app.routers.api_v1_workspaces.list_bots", return_value=[mock_bot]),
-            patch("app.services.memory_indexing.index_memory_for_bot", new_callable=AsyncMock, return_value={"files": 2}),
             patch("app.agent.fs_indexer.cleanup_stale_roots", new_callable=AsyncMock, return_value=0),
             patch("app.agent.fs_indexer.index_directory", new_callable=AsyncMock, return_value=mock_index_stats) as mock_idx,
             patch("app.services.workspace_indexing.get_all_roots", return_value=["/ws/root"]),
@@ -776,6 +776,7 @@ class TestReindexWorkspace:
                 "patterns": ["**/*.md"], "embedding_model": "text-embedding-3-small",
                 "segments": segments, "top_k": 5, "similarity_threshold": 0.3,
                 "cooldown_seconds": 300, "watch": True,
+                "include_bots": [], "segments_source": "workspace",
             }),
         ):
             resp = await client.post(f"/api/v1/workspaces/{ws_id}/reindex", headers=AUTH_HEADERS)
@@ -783,7 +784,7 @@ class TestReindexWorkspace:
         assert resp.status_code == 200
         body = resp.json()
         assert "indexing" in body["results"]["test-bot"]
-        mock_idx.assert_awaited_once()
+        assert mock_idx.await_count == 2
 
     async def test_reindex_cleanup_stale_roots(self, client, db_session):
         """Phase 0: cleanup_stale_roots should be called."""

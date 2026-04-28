@@ -146,8 +146,9 @@ class TestResolveIndexing:
 
     def test_embedding_model_defaults_to_global(self):
         """When no bot or workspace override, uses global EMBEDDING_MODEL."""
+        from app.config import settings
         result = resolve_indexing(self._defaults(), {}, None)
-        assert result["embedding_model"] == "text-embedding-3-small"
+        assert result["embedding_model"] == settings.EMBEDDING_MODEL
 
     def test_embedding_model_workspace_overrides_global(self):
         """Workspace embedding_model overrides global."""

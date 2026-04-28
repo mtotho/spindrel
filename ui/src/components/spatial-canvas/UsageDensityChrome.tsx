@@ -496,7 +496,7 @@ export function UsageDensityChrome({
                   </PanelSection>
                 </>
               ) : station === "objects" ? (
-                <>
+                <div data-testid="starboard-map-brief">
                   {selectedObject && (
                     <SelectedObjectInspector
                       item={selectedObject}
@@ -547,7 +547,7 @@ export function UsageDensityChrome({
                       </div>
                     )}
                   </div>
-                </>
+                </div>
               ) : station === "attention" ? (
                 <AttentionHubContent
                   items={attentionItems}
@@ -660,6 +660,8 @@ function ObjectListGroup({
             <button
               key={item.id}
               type="button"
+              data-testid="map-brief-object-row"
+              data-starboard-object-id={item.id}
               onClick={() => onClick(item)}
               onDoubleClick={() => onDoubleClick(item)}
               onContextMenu={(event) => onContextMenu(event, item)}
@@ -712,7 +714,11 @@ function SelectedObjectInspector({
           ? "ring-accent/25 bg-accent/[0.04]"
           : "ring-surface-border bg-surface-overlay/25";
   return (
-    <section className={`mb-4 rounded-md px-3 py-3 ring-1 ${toneClass}`}>
+    <section
+      data-testid="map-brief-selected-object"
+      data-starboard-object-id={item.id}
+      className={`mb-4 rounded-md px-3 py-3 ring-1 ${toneClass}`}
+    >
       <div className="flex items-center gap-2">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
           {kindIcon(item.kind)}
@@ -728,6 +734,8 @@ function SelectedObjectInspector({
         {primary && (
           <button
             type="button"
+            data-testid="map-brief-action"
+            data-action-label={primary.label}
             disabled={primary.disabled}
             className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:cursor-not-allowed disabled:text-text-dim"
             onClick={primary.onSelect}
@@ -740,46 +748,50 @@ function SelectedObjectInspector({
       <div className="mt-3 text-sm leading-relaxed text-text-muted">
         {brief?.summary ?? "No live map state is attached to this object yet."}
       </div>
-      {brief && (
+      {(brief || usefulActions.length > 0) && (
         <div className="mt-3 grid gap-2">
-          {!!brief.sourceLines.length && (
-            <InspectorSection icon={<Info size={13} />} title="What this is">
-              {brief.sourceLines.map((line) => (
-                <div key={line} className="truncate text-text-muted">{line}</div>
-              ))}
-            </InspectorSection>
-          )}
-          {brief.next && (
-            <InspectorSection icon={<Clock size={13} />} title="Next">
-              <SignalLine signal={brief.next} />
-            </InspectorSection>
-          )}
-          {!!brief.warnings.length && (
-            <InspectorSection icon={<AlertTriangle size={13} />} title="Warnings">
-              {brief.warnings.map((signal, index) => (
-                <SignalLine
-                  key={`${signal.kind}-${signal.id ?? index}`}
-                  signal={signal}
-                  danger
-                  highlighted={Boolean(signal.id && signal.id === selectedAttentionId)}
-                />
-              ))}
-              {attentionWarning?.id && (
-                <button
-                  type="button"
-                  className="mt-1 inline-flex min-h-7 w-fit items-center gap-1.5 rounded-md bg-surface-overlay/55 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text"
-                  onClick={() => onOpenAttentionWarning(attentionWarning.id!)}
-                >
-                  <ExternalLink size={13} />
-                  Open in Attention
-                </button>
+          {brief && (
+            <>
+              {!!brief.sourceLines.length && (
+                <InspectorSection icon={<Info size={13} />} title="What this is">
+                  {brief.sourceLines.map((line) => (
+                    <div key={line} className="truncate text-text-muted">{line}</div>
+                  ))}
+                </InspectorSection>
               )}
-            </InspectorSection>
-          )}
-          {!!brief.recent.length && (
-            <InspectorSection icon={<History size={13} />} title="Recent">
-              {brief.recent.map((signal, index) => <SignalLine key={`${signal.kind}-${signal.id ?? index}`} signal={signal} />)}
-            </InspectorSection>
+              {brief.next && (
+                <InspectorSection icon={<Clock size={13} />} title="Next">
+                  <SignalLine signal={brief.next} />
+                </InspectorSection>
+              )}
+              {!!brief.warnings.length && (
+                <InspectorSection icon={<AlertTriangle size={13} />} title="Warnings">
+                  {brief.warnings.map((signal, index) => (
+                    <SignalLine
+                      key={`${signal.kind}-${signal.id ?? index}`}
+                      signal={signal}
+                      danger
+                      highlighted={Boolean(signal.id && signal.id === selectedAttentionId)}
+                    />
+                  ))}
+                  {attentionWarning?.id && (
+                    <button
+                      type="button"
+                      className="mt-1 inline-flex min-h-7 w-fit items-center gap-1.5 rounded-md bg-surface-overlay/55 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text"
+                      onClick={() => onOpenAttentionWarning(attentionWarning.id!)}
+                    >
+                      <ExternalLink size={13} />
+                      Open in Attention
+                    </button>
+                  )}
+                </InspectorSection>
+              )}
+              {!!brief.recent.length && (
+                <InspectorSection icon={<History size={13} />} title="Recent">
+                  {brief.recent.map((signal, index) => <SignalLine key={`${signal.kind}-${signal.id ?? index}`} signal={signal} />)}
+                </InspectorSection>
+              )}
+            </>
           )}
           {!!usefulActions.length && (
             <div className="flex flex-wrap gap-1.5 pt-1">
@@ -787,6 +799,8 @@ function SelectedObjectInspector({
                 <button
                   key={action.label}
                   type="button"
+                  data-testid="map-brief-action"
+                  data-action-label={action.label}
                   disabled={action.disabled}
                   onClick={action.onSelect}
                   className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text disabled:cursor-not-allowed disabled:text-text-dim/50"

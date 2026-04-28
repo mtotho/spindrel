@@ -41,8 +41,8 @@ def _get_bot(bot_id: str):
 
 def _schedule_reindex(channel_id: str, bot):
     """Fire-and-forget background re-index for channel workspace."""
-    from app.services.channel_workspace_indexing import index_channel_workspace
-    asyncio.create_task(index_channel_workspace(channel_id, bot))
+    from app.services.bot_indexing import reindex_channel
+    asyncio.create_task(reindex_channel(channel_id, bot))
 
 
 async def _require_channel_workspace(

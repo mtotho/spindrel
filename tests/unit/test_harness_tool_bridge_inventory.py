@@ -28,13 +28,27 @@ def _schemas_for(names: list[str]) -> list[dict]:
     return [_schema(name) for name in names]
 
 
+def test_core_harness_bridge_fixture_tools_are_registered():
+    import app.tools.local  # noqa: F401
+    from app.tools.registry import _tools
+
+    for tool_name in (
+        "get_tool_info",
+        "list_channels",
+        "read_conversation_history",
+        "list_sub_sessions",
+        "read_sub_session",
+    ):
+        assert tool_name in _tools
+
+
 def test_bridge_inventory_exports_selected_local_tools():
     bot = BotConfig(
         id="harness-bot",
         name="Harness Bot",
         model="claude-sonnet-4-6",
         system_prompt="",
-        local_tools=["bennie_loggins_health_summary"],
+        local_tools=["list_channels"],
     )
 
     with (
@@ -49,7 +63,7 @@ def test_bridge_inventory_exports_selected_local_tools():
         ),
         patch(
             "app.services.agent_harnesses.tools.get_local_tool_schemas",
-            return_value=[_schema("bennie_loggins_health_summary")],
+            return_value=[_schema("list_channels")],
         ),
         patch(
             "app.services.tool_enrollment.get_enrolled_tool_names",
@@ -65,7 +79,7 @@ def test_bridge_inventory_exports_selected_local_tools():
             )
         )
 
-    assert [spec.name for spec in inventory.specs] == ["bennie_loggins_health_summary"]
+    assert [spec.name for spec in inventory.specs] == ["list_channels"]
     assert inventory.errors == ()
 
 
@@ -75,7 +89,7 @@ def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():
         name="Harness Bot",
         model="claude-sonnet-4-6",
         system_prompt="",
-        local_tools=["bennie_loggins_health_summary", "missing_tool"],
+        local_tools=["list_channels", "definitely_not_registered_tool"],
     )
 
     with (
@@ -90,7 +104,7 @@ def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():
         ),
         patch(
             "app.services.agent_harnesses.tools.get_local_tool_schemas",
-            return_value=[_schema("bennie_loggins_health_summary")],
+            return_value=[_schema("list_channels")],
         ),
         patch(
             "app.services.tool_enrollment.get_enrolled_tool_names",
@@ -106,8 +120,8 @@ def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():
             )
         )
 
-    assert [spec.name for spec in inventory.specs] == ["bennie_loggins_health_summary"]
-    assert inventory.errors == ("local tools not registered: missing_tool",)
+    assert [spec.name for spec in inventory.specs] == ["list_channels"]
+    assert inventory.errors == ("local tools not registered: definitely_not_registered_tool",)
 
 
 def test_bridge_inventory_includes_pinned_and_enrolled_tools():

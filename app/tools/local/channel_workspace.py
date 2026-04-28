@@ -139,10 +139,10 @@ async def search_channel_archive(query: str) -> str:
         return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.channel_workspace import get_channel_workspace_index_prefix
-    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
+    from app.services.bot_indexing import channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
-    sentinel = _get_channel_index_bot_id(ch_id)
+    sentinel = channel_index_bot_id(ch_id)
     prefix = get_channel_workspace_index_prefix(ch_id) + "/archive"
 
     try:
@@ -160,8 +160,8 @@ async def search_channel_archive(query: str) -> str:
 
     if not results:
         import asyncio
-        from app.services.channel_workspace_indexing import index_channel_workspace
-        asyncio.create_task(index_channel_workspace(ch_id, bot))
+        from app.services.bot_indexing import reindex_channel
+        asyncio.create_task(reindex_channel(ch_id, bot))
         return json.dumps({"count": 0, "results": [], "message": "No matching archived content found."}, ensure_ascii=False)
 
     return _format_search_results(results)
@@ -203,10 +203,10 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
         return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.channel_workspace import get_channel_workspace_index_prefix
-    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
+    from app.services.bot_indexing import channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
-    sentinel = _get_channel_index_bot_id(ch_id)
+    sentinel = channel_index_bot_id(ch_id)
     prefix = get_channel_workspace_index_prefix(ch_id)
 
     try:
@@ -263,10 +263,10 @@ async def search_channel_knowledge(query: str) -> str:
         return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
     from app.services.channel_workspace import get_channel_knowledge_base_index_prefix
-    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
+    from app.services.bot_indexing import channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
-    sentinel = _get_channel_index_bot_id(ch_id)
+    sentinel = channel_index_bot_id(ch_id)
     prefix = get_channel_knowledge_base_index_prefix(ch_id)
 
     try:

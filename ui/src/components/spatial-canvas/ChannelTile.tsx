@@ -335,6 +335,8 @@ function DotView({
   return (
     <div
       data-tile-kind="channel"
+      data-spatial-object-id={channel.id}
+      data-spatial-object-label={name}
       onClick={(e) => {
         e.stopPropagation();
         onSelect?.();
@@ -387,6 +389,8 @@ function PreviewView({
   return (
     <div
       data-tile-kind="channel"
+      data-spatial-object-id={channel.id}
+      data-spatial-object-label={name}
       onClick={(e) => {
         e.stopPropagation();
         onSelect?.();
@@ -436,6 +440,8 @@ function SnapshotView({
   return (
     <div
       data-tile-kind="channel"
+      data-spatial-object-id={channel.id}
+      data-spatial-object-label={name}
       onClick={(e) => {
         e.stopPropagation();
         onSelect?.();

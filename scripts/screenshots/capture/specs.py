@@ -40,6 +40,7 @@ class ScreenshotSpec:
     output: str                                # relative to docs_images_dir
     color_scheme: Literal["light", "dark"] = "light"
     pre_capture_js: str | None = None          # JS run after nav, before screenshot
+    assert_js: str | None = None               # JS assertion run before screenshot; throw on failure
     extra_init_scripts: list[str] = field(default_factory=list)
     full_page: bool = False
     actions: list[Action] = field(default_factory=list)  # pre-capture interactions
@@ -931,6 +932,183 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
 ]
 
 
+_OPEN_STARBOARD_OBJECTS_JS = (
+    "localStorage.setItem('spatial.starboard.activeTab', 'objects');"
+    "localStorage.setItem('spatial.starboard.width', '600');"
+    "const btn = document.querySelector('button[title=\"Open Starboard\"]');"
+    " if (btn && btn.getAttribute('aria-expanded') !== 'true') btn.click();"
+    " const t0 = Date.now();"
+    " while (Date.now() - t0 < 5000) {"
+    "   if (document.querySelector('[data-starboard-panel=\"true\"]')"
+    "       && document.querySelector('[data-testid=\"starboard-map-brief\"]')) break;"
+    "   await new Promise(r => setTimeout(r, 100));"
+    " }"
+)
+
+
+_SELECT_QA_CHANNEL_JS = (
+    "const channel = document.querySelector('[data-spatial-object-label=\"#quality-assurance\"], [data-spatial-object-label=\"quality-assurance\"]');"
+    "const row = Array.from(document.querySelectorAll('[data-testid=\"map-brief-object-row\"]'))"
+    "  .find((el) => /#?quality-assurance/.test(el.textContent || ''));"
+    "const target = channel || row;"
+    " if (!target) throw new Error('quality-assurance map object not found');"
+    " target.click();"
+    " const t1 = Date.now();"
+    " while (Date.now() - t1 < 5000) {"
+    "   if (document.querySelector('[data-testid=\"map-brief-selected-object\"]')"
+    "       && /#quality-assurance/.test(document.body.innerText)) break;"
+    "   await new Promise(r => setTimeout(r, 100));"
+    " }"
+)
+
+
+_ASSERT_MAP_BRIEF_SELECTION_JS = (
+    "const panel = document.querySelector('[data-starboard-panel=\"true\"]');"
+    "const brief = document.querySelector('[data-testid=\"starboard-map-brief\"]');"
+    "const selected = document.querySelector('[data-testid=\"map-brief-selected-object\"]');"
+    "const anchor = document.querySelector('[data-spatial-selected-anchor=\"true\"]');"
+    "if (!panel) throw new Error('Starboard panel did not open');"
+    "if (!brief) throw new Error('Map Brief station did not render');"
+    "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected in Map Brief');"
+    "if (!anchor) throw new Error('selected spatial anchor did not render');"
+)
+
+
+_ASSERT_JUMP_LEFT_OF_STARBOARD_JS = (
+    "const jump = document.querySelector('[data-testid=\"map-brief-action\"][data-action-label=\"Jump here\"]')"
+    "  || Array.from(document.querySelectorAll('button')).find((el) => (el.textContent || '').includes('Jump here'));"
+    "if (!jump) throw new Error('Jump here action not found');"
+    "jump.click();"
+    "await new Promise(r => setTimeout(r, 900));"
+    "const panel = document.querySelector('[data-starboard-panel=\"true\"]');"
+    "const anchor = document.querySelector('[data-spatial-selected-anchor=\"true\"]');"
+    "if (!panel || !anchor) throw new Error('panel or selected anchor missing after jump');"
+    "const panelRect = panel.getBoundingClientRect();"
+    "const anchorRect = anchor.getBoundingClientRect();"
+    "if (!(anchorRect.right < panelRect.left - 24)) {"
+    "  throw new Error(`jump target is under Starboard: anchor.right=${anchorRect.right}, panel.left=${panelRect.left}`);"
+    "}"
+)
+
+
+SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="spatial-check-map-brief-selection",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-check-map-brief-selection.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+        ],
+        pre_capture_js=_OPEN_STARBOARD_OBJECTS_JS + _SELECT_QA_CHANNEL_JS,
+        assert_js=_ASSERT_MAP_BRIEF_SELECTION_JS,
+    ),
+    ScreenshotSpec(
+        name="spatial-check-jump-starboard-framing",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-check-jump-starboard-framing.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.7}),
+        ],
+        pre_capture_js=_OPEN_STARBOARD_OBJECTS_JS + _SELECT_QA_CHANNEL_JS,
+        assert_js=_ASSERT_JUMP_LEFT_OF_STARBOARD_JS,
+    ),
+    ScreenshotSpec(
+        name="spatial-check-attention-badge",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            _SPATIAL_READY
+            + ' && !!document.querySelector(\'[data-testid="spatial-attention-badge"]\')'
+        ),
+        output="spatial-check-attention-badge.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+            "(() => { localStorage.setItem('spatial.starboard.activeTab', 'objects'); localStorage.setItem('spatial.starboard.width', '600'); })();",
+        ],
+        pre_capture_js=(
+            "const badge = document.querySelector('[data-testid=\"spatial-attention-badge\"]');"
+            " if (!badge) throw new Error('attention badge not found');"
+            " badge.click();"
+            " const t0 = Date.now();"
+            " while (Date.now() - t0 < 5000) {"
+            "   if (document.querySelector('[data-starboard-panel=\"true\"]')"
+            "       && document.querySelector('[data-testid=\"map-brief-selected-object\"]')) break;"
+            "   await new Promise(r => setTimeout(r, 100));"
+            " }"
+        ),
+        assert_js=(
+            "const panel = document.querySelector('[data-starboard-panel=\"true\"]');"
+            "const selected = document.querySelector('[data-testid=\"map-brief-selected-object\"]');"
+            "const attention = document.querySelector('[data-testid=\"spatial-attention-badge\"]');"
+            "if (!panel) throw new Error('Starboard did not open from attention badge');"
+            "if (!selected) throw new Error('attention badge did not select its map object');"
+            "if (!attention) throw new Error('attention badge disappeared unexpectedly');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-hover-suppression",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-check-hover-suppression.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+        ],
+        pre_capture_js=(
+            _OPEN_STARBOARD_OBJECTS_JS
+            + _SELECT_QA_CHANNEL_JS
+            + "const other = Array.from(document.querySelectorAll('[data-tile-kind=\"channel\"]'))"
+            + "  .find((el) => !/#?quality-assurance/.test(el.getAttribute('data-spatial-object-label') || el.textContent || ''));"
+            + " if (!other) throw new Error('second visible channel tile not found');"
+            + " other.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true }));"
+            + " await new Promise(r => setTimeout(r, 650));"
+        ),
+        assert_js=(
+            "const selected = document.querySelector('[data-testid=\"map-brief-selected-object\"]');"
+            "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected before hover check');"
+            "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) {"
+            "  throw new Error('hover card rendered while Map Brief selection is active');"
+            "}"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-density-smoke",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
+            ' && document.querySelectorAll(\'[data-tile-kind="channel"]\').length >= 4'
+            ' && document.querySelectorAll(\'[data-tile-kind="bot"]\').length >= 2'
+            ' && document.querySelectorAll(\'[data-tile-kind="widget"]\').length >= 2'
+        ),
+        output="spatial-check-density-smoke.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+        ],
+        assert_js=(
+            "const canvas = document.querySelector('[data-spatial-canvas=\"true\"]');"
+            "if (!canvas) throw new Error('spatial canvas missing');"
+            "const rect = canvas.getBoundingClientRect();"
+            "if (rect.width < 900 || rect.height < 650) throw new Error(`canvas too small: ${rect.width}x${rect.height}`);"
+        ),
+    ),
+]
+
+
 # ---------------------------------------------------------------------------
 # Integration-chat captures — heroes that show the integration *delivering*,
 # not the admin page. Each spec routes to a channel where the agent loop
@@ -1326,6 +1504,7 @@ def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[S
                 output=s.output,
                 color_scheme=s.color_scheme,
                 pre_capture_js=s.pre_capture_js,
+                assert_js=s.assert_js,
                 extra_init_scripts=init_scripts,
                 full_page=s.full_page,
                 actions=list(s.actions),

@@ -5,7 +5,8 @@ const catalog = [
     { id: "help", label: "/help", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
     { id: "context", label: "/context", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
     { id: "find", label: "/find", description: "", surfaces: ["channel"], local_only: false, args: [] },
-    { id: "effort", label: "/effort", description: "", surfaces: ["channel"], local_only: false, args: [] },
+    { id: "effort", label: "/effort", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
+    { id: "style", label: "/style", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
     { id: "clear", label: "/clear", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
     { id: "new", label: "/new", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
     { id: "scratch", label: "/scratch", description: "", surfaces: ["channel"], local_only: true, args: [] },
@@ -22,7 +23,7 @@ describe("resolveAvailableSlashCommandIds", () => {
             surface: "channel",
             enabled: true,
             capabilities: ["clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
-        }), ["help", "context", "find", "effort", "clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"]);
+        }), ["help", "context", "find", "effort", "style", "clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"]);
     });
     it("keeps session surfaces off channel-only commands", () => {
         assert.deepEqual(resolveAvailableSlashCommandIds({
@@ -30,7 +31,7 @@ describe("resolveAvailableSlashCommandIds", () => {
             surface: "session",
             enabled: true,
             capabilities: ["clear", "new", "model", "theme", "sessions", "split", "focus"],
-        }), ["help", "context", "clear", "new", "model", "theme", "sessions", "split", "focus"]);
+        }), ["help", "context", "effort", "style", "clear", "new", "model", "theme", "sessions", "split", "focus"]);
     });
     it("omits local commands when the caller does not provide the capability", () => {
         assert.deepEqual(resolveAvailableSlashCommandIds({
@@ -38,7 +39,7 @@ describe("resolveAvailableSlashCommandIds", () => {
             surface: "session",
             enabled: true,
             capabilities: ["model", "theme"],
-        }), ["help", "context", "model", "theme"]);
+        }), ["help", "context", "effort", "style", "model", "theme"]);
     });
     it("returns no commands for disabled surfaces", () => {
         assert.deepEqual(resolveAvailableSlashCommandIds({

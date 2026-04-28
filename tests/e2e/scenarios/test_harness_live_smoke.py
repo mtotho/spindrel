@@ -39,8 +39,8 @@ HARNESSES = (
         channel_env="HARNESS_SMOKE_CODEX_CHANNEL_ID",
         bot_env="HARNESS_SMOKE_CODEX_BOT_ID",
         default_bot_id="codex-bot",
-        native_commands=("config", "mcp-status", "skills"),
-        bridge_tool_visible_name="bennie_loggins_health_summary",
+        native_commands=("config", "mcp-status", "plugins", "skills", "features"),
+        bridge_tool_visible_name="list_channels",
         light_model=os.environ.get("HARNESS_SMOKE_CODEX_LIGHT_MODEL", "gpt-5.4-mini"),
         light_effort=os.environ.get("HARNESS_SMOKE_CODEX_LIGHT_EFFORT", "low"),
     ),
@@ -50,7 +50,7 @@ HARNESSES = (
         bot_env="HARNESS_SMOKE_CLAUDE_BOT_ID",
         default_bot_id="claude-code-bot",
         native_commands=("version", "auth"),
-        bridge_tool_visible_name="mcp__spindrel__bennie_loggins_health_summary",
+        bridge_tool_visible_name="mcp__spindrel__list_channels",
         light_model=os.environ.get("HARNESS_SMOKE_CLAUDE_LIGHT_MODEL", "claude-haiku-4-5"),
         light_effort=os.environ.get("HARNESS_SMOKE_CLAUDE_LIGHT_EFFORT", "low"),
     ),
@@ -307,12 +307,13 @@ async def test_live_harness_spindrel_tool_bridge_invocation_is_visible(
     case: HarnessCase,
 ) -> None:
     channel_id, session_id, bot_id = await _fresh_session(client, case)
-    tool_name = "bennie_loggins_health_summary"
+    tool_name = "list_channels"
 
     discovery = await client.chat_session_stream(
         (
-            f"Bridge diagnostic. If get_tool_info is available, call it for tool name {tool_name!r}. "
-            "Do not modify files. Briefly say whether the schema loaded."
+            f"Bridge diagnostic. Call the host-provided get_tool_info tool now "
+            f"with tool_name {tool_name!r}. Do not use shell commands. Do not modify files. "
+            "Briefly say whether the schema loaded."
         ),
         session_id=session_id,
         channel_id=channel_id,
@@ -323,8 +324,8 @@ async def test_live_harness_spindrel_tool_bridge_invocation_is_visible(
 
     invocation = await client.chat_session_stream(
         (
-            f"If {tool_name} is now available, call it with recent_count 2. "
-            "Do not modify files. Summarize whether the tool call succeeded."
+            f"Now call the host-provided {tool_name} tool with no arguments. "
+            "Do not use shell commands. Do not modify files. Summarize whether the tool call succeeded."
         ),
         session_id=session_id,
         channel_id=channel_id,

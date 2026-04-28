@@ -1699,8 +1699,8 @@ async def admin_channel_reindex_segments(
 
     bot = get_bot(channel.bot_id)
 
-    from app.services.channel_workspace_indexing import index_channel_workspace
-    stats = await index_channel_workspace(
+    from app.services.bot_indexing import reindex_channel
+    stats = await reindex_channel(
         str(channel_id), bot, force=True, channel_segments=segments,
     )
     return {"status": "ok", "stats": stats}

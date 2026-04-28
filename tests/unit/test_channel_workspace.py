@@ -619,9 +619,20 @@ class TestChannelWorkspaceIndexing:
         from app.services.channel_workspace_indexing import index_channel_workspace
         bot = _make_bot()
         mock_stats = {"indexed": 2, "skipped": 0, "removed": 0, "errors": 0}
+        resolved_indexing = {
+            "patterns": ["**/*.md"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+            "cooldown_seconds": 300,
+            "include_bots": [],
+            "embedding_model": "text-embedding-3-small",
+            "segments": [],
+            "segments_source": "default",
+        }
         with patch("app.agent.fs_indexer.index_directory", new_callable=AsyncMock, return_value=mock_stats) as mock_idx, \
              patch("app.services.channel_workspace._get_ws_root", return_value="/data/shared/ws-1"), \
-             patch("app.services.workspace_indexing.resolve_indexing", return_value={"embedding_model": "text-embedding-3-small"}):
+             patch("app.services.workspace_indexing.resolve_indexing", return_value=resolved_indexing):
             stats = await index_channel_workspace("ch-1", bot)
             assert stats == mock_stats
             mock_idx.assert_called_once()

@@ -2554,9 +2554,9 @@ async def _inject_channel_workspace(
             _mark_injection_decision(inject_decisions, "channel_workspace", "skipped_by_profile")
 
         # Background re-index
-        from app.services.channel_workspace_indexing import index_channel_workspace
+        from app.services.bot_indexing import reindex_channel
         cw_segments = getattr(ch_row, "index_segments", None) or []
-        asyncio.create_task(index_channel_workspace(ch_id, bot, channel_segments=cw_segments if cw_segments else None))
+        asyncio.create_task(reindex_channel(ch_id, bot, channel_segments=cw_segments if cw_segments else None))
 
         # Channel index segment RAG retrieval.
         # Always include the implicit channels/{id}/knowledge-base/ segment so the

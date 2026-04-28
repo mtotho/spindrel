@@ -26,7 +26,7 @@ WAIT_TIMEOUT_MS = 15_000
 class CaptureResult:
     name: str
     output: Path
-    status: str                    # "ok" | "wait-timeout" | "nav-error" | "other"
+    status: str                    # "ok" | "wait-timeout" | "nav-error" | "assertion-failed" | "other"
     detail: str | None = None
 
 
@@ -79,6 +79,24 @@ async def _wait_for(page, spec: ScreenshotSpec) -> None:
         )
     else:  # pragma: no cover
         raise ValueError(f"unknown wait_kind: {spec.wait_kind}")
+
+
+async def _run_assertion(page, spec: ScreenshotSpec) -> None:
+    if not spec.assert_js:
+        return
+    result = await page.evaluate(f"(async () => {{ {spec.assert_js} }})()")
+    if result is False:
+        raise AssertionError("assert_js returned false")
+    if isinstance(result, dict) and result.get("ok") is False:
+        detail = result.get("detail") or result.get("message") or "assert_js returned ok=false"
+        raise AssertionError(str(detail))
+
+
+async def _screenshot_best_effort(page, out_path: Path, *, full_page: bool) -> None:
+    try:
+        await page.screenshot(path=str(out_path), full_page=full_page)
+    except Exception:  # pragma: no cover
+        logger.exception("failed to capture assertion artifact at %s", out_path)
 
 
 async def capture_batch(
@@ -142,6 +160,18 @@ async def capture_batch(
                             )
                             await page.wait_for_timeout(250)  # settle after synthetic click
                         except Exception as e:  # pragma: no cover
+                            if spec.assert_js:
+                                await _screenshot_best_effort(page, out_path, full_page=spec.full_page)
+                                results.append(
+                                    CaptureResult(
+                                        name=spec.name,
+                                        output=out_path,
+                                        status="assertion-failed",
+                                        detail=f"pre_capture_js: {e}",
+                                    )
+                                )
+                                await page.close()
+                                continue
                             logger.warning("pre_capture_js failed for %s: %s", spec.name, e)
 
                     if spec.actions:
@@ -158,6 +188,21 @@ async def capture_batch(
                             )
                             await page.close()
                             continue
+
+                    try:
+                        await _run_assertion(page, spec)
+                    except Exception as e:
+                        await _screenshot_best_effort(page, out_path, full_page=spec.full_page)
+                        results.append(
+                            CaptureResult(
+                                name=spec.name,
+                                output=out_path,
+                                status="assertion-failed",
+                                detail=str(e),
+                            )
+                        )
+                        await page.close()
+                        continue
 
                     await page.screenshot(path=str(out_path), full_page=spec.full_page)
                     results.append(CaptureResult(name=spec.name, output=out_path, status="ok"))

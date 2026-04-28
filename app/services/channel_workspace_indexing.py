@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
 def _get_channel_index_bot_id(channel_id: str) -> str:
     """Sentinel bot_id used when storing channel-scoped filesystem chunks."""
-    return f"channel:{channel_id}"
+    from app.services.bot_indexing import channel_index_bot_id
+    return channel_index_bot_id(channel_id)
 
 
 async def index_channel_workspace(

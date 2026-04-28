@@ -7,8 +7,8 @@ previously reached into `workspace_indexing.resolve_indexing()` +
 memory/segment gating logic at every location.
 
 This module is the single ownership boundary. `memory_indexing` and
-`channel_workspace_indexing` are absorbed in later commits; for now
-`reindex_bot()` composes them behind one stable entry point.
+`channel_workspace_indexing` remain as compatibility adapters; indexing policy
+lives here.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 Scope = Literal["workspace", "memory", "channel"]
+MEMORY_PATTERNS = ["memory/**/*.md"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,8 @@ class BotIndexPlan:
     scope: Scope
     shared_workspace: bool
     skip_stale_cleanup: bool
+    include_bots: list[str] | None = None
+    segments_source: str | None = None
 
 
 def resolve_for(
@@ -60,11 +63,47 @@ def resolve_for(
     """
     if scope == "workspace":
         return _resolve_workspace(bot)
-    if scope in ("memory", "channel"):
-        raise NotImplementedError(
-            f"bot_indexing.resolve_for(scope={scope!r}) arrives in a later commit"
+    if scope == "memory":
+        return _resolve_memory(bot)
+    if scope == "channel":
+        return _resolve_channel(
+            bot,
+            channel_id=channel_id,
+            channel_segments=channel_segments,
         )
     raise ValueError(f"unknown scope: {scope!r}")
+
+
+def get_memory_patterns() -> list[str]:
+    """Return workspace-root-relative memory watcher patterns."""
+    return list(MEMORY_PATTERNS)
+
+
+def channel_index_bot_id(channel_id: str) -> str:
+    """Return the sentinel bot_id used for channel-scoped filesystem chunks."""
+    return f"channel:{channel_id}"
+
+
+def plan_to_resolved_config(
+    plan: BotIndexPlan,
+    *,
+    enabled: bool | None = None,
+) -> dict:
+    """Convert a plan back to the legacy resolved-indexing response shape."""
+    resolved = {
+        "patterns": list(plan.patterns),
+        "similarity_threshold": plan.similarity_threshold,
+        "top_k": plan.top_k,
+        "watch": plan.watch,
+        "cooldown_seconds": plan.cooldown_seconds,
+        "embedding_model": plan.embedding_model,
+        "segments": plan.segments or [],
+        "include_bots": plan.include_bots or [],
+        "segments_source": plan.segments_source or "default",
+    }
+    if enabled is not None:
+        resolved["enabled"] = enabled
+    return resolved
 
 
 def _resolve_workspace(bot: "BotConfig") -> BotIndexPlan | None:
@@ -85,10 +124,97 @@ def _resolve_workspace(bot: "BotConfig") -> BotIndexPlan | None:
         top_k=resolved["top_k"],
         watch=resolved["watch"],
         cooldown_seconds=resolved["cooldown_seconds"],
-        segments=resolved["segments"] or None,
+        segments=resolved.get("segments") or None,
         scope="workspace",
         shared_workspace=bool(bot.shared_workspace_id),
         skip_stale_cleanup=False,
+        include_bots=resolved.get("include_bots") or [],
+        segments_source=resolved.get("segments_source") or "default",
+    )
+
+
+def _resolve_memory(bot: "BotConfig") -> BotIndexPlan | None:
+    if getattr(bot, "memory_scheme", None) != "workspace-files":
+        return None
+    plan = _resolve_workspace(bot)
+    if plan is None:
+        return None
+    return BotIndexPlan(
+        bot_id=plan.bot_id,
+        roots=plan.roots,
+        patterns=get_memory_patterns(),
+        embedding_model=plan.embedding_model,
+        similarity_threshold=plan.similarity_threshold,
+        top_k=plan.top_k,
+        watch=True,
+        cooldown_seconds=plan.cooldown_seconds,
+        segments=None,
+        scope="memory",
+        shared_workspace=plan.shared_workspace,
+        skip_stale_cleanup=True,
+        include_bots=plan.include_bots,
+        segments_source=plan.segments_source,
+    )
+
+
+def _resolve_channel(
+    bot: "BotConfig",
+    *,
+    channel_id: str | None,
+    channel_segments: list[dict] | None = None,
+) -> BotIndexPlan | None:
+    if not channel_id:
+        raise ValueError("channel_id is required for channel indexing")
+
+    plan = _resolve_workspace(bot)
+    if plan is None:
+        return None
+
+    from pathlib import Path
+
+    from app.services.channel_workspace import _get_ws_root
+
+    ch_id = str(channel_id)
+    root = str(Path(_get_ws_root(bot)).resolve())
+    base_prefix = f"channels/{ch_id}"
+    patterns = [f"{base_prefix}/**/*.md"]
+
+    segments = None
+    skip_stale = True
+    if channel_segments:
+        segments = [
+            {
+                "path_prefix": base_prefix,
+                "patterns": ["**/*.md"],
+                "embedding_model": plan.embedding_model,
+            }
+        ]
+        for seg in channel_segments:
+            path_prefix = str(seg["path_prefix"]).strip("/")
+            segments.append(
+                {
+                    "path_prefix": f"{base_prefix}/{path_prefix}",
+                    "patterns": seg.get("patterns") or ["**/*"],
+                    "embedding_model": seg.get("embedding_model") or plan.embedding_model,
+                }
+            )
+        skip_stale = False
+
+    return BotIndexPlan(
+        bot_id=channel_index_bot_id(ch_id),
+        roots=(root,),
+        patterns=patterns,
+        embedding_model=plan.embedding_model,
+        similarity_threshold=plan.similarity_threshold,
+        top_k=plan.top_k,
+        watch=plan.watch,
+        cooldown_seconds=plan.cooldown_seconds,
+        segments=segments,
+        scope="channel",
+        shared_workspace=plan.shared_workspace,
+        skip_stale_cleanup=skip_stale,
+        include_bots=plan.include_bots,
+        segments_source=plan.segments_source,
     )
 
 
@@ -127,6 +253,8 @@ async def reindex_bot(
         try:
             removed = await cleanup_stale_roots(bot.id, list(plan.roots))
             if removed:
+                merged["stale_roots_cleaned"] = removed
+                touched = True
                 logger.info("Cleaned up %d stale chunks for bot %s", removed, bot.id)
         except Exception:
             logger.exception("Failed to clean up stale roots for bot %s", bot.id)
@@ -232,53 +360,31 @@ async def reindex_channel(
     don't collide with the bot's own workspace chunks. Root = shared
     workspace root (or bot's own workspace root).
 
-    Only needs the resolved ``embedding_model`` from the cascade; the root
-    and patterns are channel-derived, so this bypasses ``BotIndexPlan``
-    and reads the cascade directly.
+    The channel flavor uses a sentinel bot id and channel-derived patterns,
+    but still inherits embedding/search defaults from the bot workspace
+    cascade through ``resolve_for(scope="channel")``.
     """
-    from pathlib import Path
-
     from app.agent.fs_indexer import index_directory
-    from app.services.channel_workspace import _get_ws_root
-    from app.services.workspace_indexing import resolve_indexing
 
-    resolved = resolve_indexing(
-        bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config,
+    plan = resolve_for(
+        bot,
+        scope="channel",
+        channel_id=channel_id,
+        channel_segments=channel_segments,
     )
-    embedding_model = resolved["embedding_model"]
-
-    ws_root = _get_ws_root(bot)
-    root = str(Path(ws_root).resolve())
-    sentinel_bot_id = f"channel:{channel_id}"
-    base_prefix = f"channels/{channel_id}"
-    patterns = [f"{base_prefix}/**/*.md"]
-
-    segments = None
-    skip_stale = True
-    if channel_segments:
-        segments = [{
-            "path_prefix": base_prefix,
-            "patterns": ["**/*.md"],
-            "embedding_model": embedding_model,
-        }]
-        for seg in channel_segments:
-            segments.append({
-                "path_prefix": f"{base_prefix}/{seg['path_prefix'].strip('/')}",
-                "patterns": seg.get("patterns") or ["**/*"],
-                "embedding_model": seg.get("embedding_model") or embedding_model,
-            })
-        skip_stale = False
+    if plan is None:
+        return None
 
     try:
         stats = await index_directory(
-            root, sentinel_bot_id, patterns, force=force,
-            embedding_model=embedding_model,
-            segments=segments,
-            skip_stale_cleanup=skip_stale,
+            plan.roots[0], plan.bot_id, plan.patterns, force=force,
+            embedding_model=plan.embedding_model,
+            segments=plan.segments,
+            skip_stale_cleanup=plan.skip_stale_cleanup,
         )
         logger.info(
             "Channel workspace index for channel %s (model=%s, segments=%d): %s",
-            channel_id, embedding_model, len(channel_segments or []), stats,
+            channel_id, plan.embedding_model, len(channel_segments or []), stats,
         )
         return stats
     except Exception:
@@ -312,22 +418,9 @@ def iter_watch_targets(
             for root in plan.roots:
                 yield (plan, root)
         elif getattr(bot, "memory_scheme", None) == "workspace-files":
-            from app.services.memory_indexing import get_memory_patterns
-
-            mem_plan = BotIndexPlan(
-                bot_id=plan.bot_id,
-                roots=plan.roots,
-                patterns=get_memory_patterns(),
-                embedding_model=plan.embedding_model,
-                similarity_threshold=plan.similarity_threshold,
-                top_k=plan.top_k,
-                watch=True,
-                cooldown_seconds=plan.cooldown_seconds,
-                segments=None,
-                scope="memory",
-                shared_workspace=plan.shared_workspace,
-                skip_stale_cleanup=True,
-            )
+            mem_plan = _resolve_memory(bot)
+            if mem_plan is None:
+                continue
             for root in plan.roots:
                 yield (mem_plan, root)
 

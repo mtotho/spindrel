@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from scripts.screenshots import config
-from scripts.screenshots.capture.specs import FLAGSHIP_SPECS, resolve_specs
+from scripts.screenshots.capture.specs import FLAGSHIP_SPECS, SPATIAL_CHECK_SPECS, resolve_specs
 from scripts.screenshots.stage import envelopes
 from scripts.screenshots.stage.scenarios.harness import stage_harness
 
@@ -102,6 +102,21 @@ def test_resolve_specs_preserves_wait_strategy():
     assert 'a[href^="/channels/"]' in str(resolved["home"].wait_arg)
     assert resolved["widget-dashboard"].wait_kind == "function"
     assert resolved["chat-pipeline-live"].wait_kind == "function"
+
+
+def test_spatial_checks_have_assertions_and_artifacts():
+    assert len(SPATIAL_CHECK_SPECS) >= 5
+    for spec in SPATIAL_CHECK_SPECS:
+        assert spec.output.startswith("spatial-check-")
+        assert spec.assert_js or spec.name == "spatial-check-density-smoke"
+    assert any("data-starboard-panel" in str(spec.assert_js) for spec in SPATIAL_CHECK_SPECS)
+
+
+def test_resolve_specs_preserves_assertions():
+    resolved = {s.name: s for s in resolve_specs(SPATIAL_CHECK_SPECS, {})}
+    original = {s.name: s for s in SPATIAL_CHECK_SPECS}
+    for name, spec in resolved.items():
+        assert spec.assert_js == original[name].assert_js
 
 
 def test_config_rejects_production_looking_url(tmp_path):

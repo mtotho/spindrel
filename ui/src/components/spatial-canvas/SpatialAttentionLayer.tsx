@@ -108,6 +108,7 @@ export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) 
       </div>
       <button
         type="button"
+        data-testid="spatial-attention-badge"
         className={`pointer-events-auto absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-surface-raised bg-surface-raised ${signalClass(primary)} shadow-[0_6px_16px_rgb(0_0_0/0.28)] hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
         title={label}
         aria-label={label}
