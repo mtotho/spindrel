@@ -43,6 +43,7 @@ import { upcomingOrbit, upcomingReactKey } from "./spatialActivity";
 import { AttentionHubLandmark, OriginMarker } from "./SpatialCanvasLandmarks";
 
 const DIVE_MS = 300;
+const CHANNEL_CLUSTER_FOCUS_MIN_SCALE = 0.42;
 
 type SpatialCanvasWorldProps = Record<string, any> & {
   setHoveredNodeId: React.Dispatch<React.SetStateAction<any>>;
@@ -178,7 +179,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div ref={worldRef} className="absolute inset-0" style={worldStyle}>
+      <div ref={worldRef} data-testid="spatial-world" className="absolute inset-0" style={worldStyle}>
         <OriginMarker />
         {densityIntensity !== "off" && (
           <UsageDensityLayer
@@ -412,16 +413,8 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 onFocus={() => {
                   setSelectedSpatialObject(null);
                   setContextMenu(null);
-                  flyToWorldBounds(cluster.worldBounds);
+                  flyToWorldBounds(cluster.worldBounds, CHANNEL_CLUSTER_FOCUS_MIN_SCALE);
                 }}
-                onDiveWinner={() =>
-                  diveToChannel(cluster.winner.channel.id, {
-                    x: winnerNode.world_x,
-                    y: winnerNode.world_y,
-                    w: winnerNode.world_w,
-                    h: winnerNode.world_h,
-                  })
-                }
               />
               {attentionSignalsVisible && (
                 <SpatialAttentionSignal

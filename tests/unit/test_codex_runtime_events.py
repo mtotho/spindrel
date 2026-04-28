@@ -106,6 +106,84 @@ def test_item_completed_emits_tool_result_with_recovered_name():
     assert emitter.calls[0][1]["is_error"] is False
 
 
+def test_file_change_completed_emits_inline_diff_envelope_from_item():
+    emitter, ids, parts, meta = _harness()
+    ids["fc1"] = "fileChange"
+    diff_body = "\n".join([
+        "--- a/app.py",
+        "+++ b/app.py",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+    ])
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "fc1",
+                    "kind": "fileChange",
+                    "path": "app.py",
+                    "summary": "Edited app.py",
+                    "diff": diff_body,
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    result = emitter.calls[0][1]
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["content_type"] == "application/vnd.spindrel.diff+text"
+    assert result["envelope"]["body"] == diff_body
+    assert result["summary"]["kind"] == "diff"
+    assert result["summary"]["path"] == "app.py"
+
+
+def test_file_change_completed_uses_buffered_file_change_delta_diff():
+    emitter, ids, parts, meta = _harness()
+    ids["fc2"] = "fileChange"
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_FILE_CHANGE_OUTPUT_DELTA,
+            params={"itemId": "fc2", "delta": "--- a/app.py\n+++ b/app.py\n"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_FILE_CHANGE_OUTPUT_DELTA,
+            params={"itemId": "fc2", "delta": "@@ -1 +1 @@\n-old\n+new\n"},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "fc2", "kind": "fileChange", "path": "app.py"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert [call[0] for call in emitter.calls] == ["tool_result"]
+    assert "-old" in emitter.calls[0][1]["envelope"]["body"]
+    assert "+new" in emitter.calls[0][1]["envelope"]["body"]
+
+
 def test_item_completed_marks_errors():
     emitter, ids, parts, meta = _harness()
     translate_notification(

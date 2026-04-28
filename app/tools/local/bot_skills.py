@@ -5,7 +5,9 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from app.agent.context import current_bot_id
 from app.tools.registry import register
@@ -224,6 +226,625 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
     lines.append("")
     lines.append(content)
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class _SkillActionContext:
+    bot_id: str
+    prefix: str
+    async_session: Any
+    skill_row_model: Any
+
+
+def _json(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _error(message: str) -> str:
+    return _json({"error": message})
+
+
+def _triggers_list(triggers: str) -> list[str]:
+    return [t.strip() for t in triggers.split(",") if t.strip()] if triggers else []
+
+
+def _skill_payload(row: Any) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "content": row.content,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "scripts": _summarize_scripts(row.scripts),
+    }
+
+
+def _summarize_skill_row(row: Any) -> dict[str, Any]:
+    fm = _extract_frontmatter(row.content) if row.content else {}
+    body_preview = _extract_body(row.content)[:120].strip() if row.content else ""
+    stale = _is_stale(row.created_at, row.last_surfaced_at, row.surface_count)
+    return {
+        "id": row.id,
+        "name": row.name,
+        "category": fm.get("category", ""),
+        "preview": body_preview,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "last_surfaced_at": row.last_surfaced_at.isoformat() if row.last_surfaced_at else None,
+        "surface_count": row.surface_count,
+        "stale": stale,
+        "script_count": len(row.scripts or []),
+        "scripts": _summarize_scripts(row.scripts),
+    }
+
+
+def _editable_skill_error(
+    row: Any,
+    prefix: str,
+    source_verb: str,
+    *,
+    ownership_verb: str | None = None,
+) -> str | None:
+    if row.source_type not in ("tool", "manual"):
+        return f"Cannot {source_verb} a file-managed or integration skill."
+    if not row.id.startswith(prefix):
+        return f"Cannot {ownership_verb or source_verb} another bot's skill."
+    return None
+
+
+def _scripts_edit_error(row: Any) -> str | None:
+    if row.source_type not in ("tool", "manual"):
+        return "Cannot edit scripts on a file-managed or integration skill."
+    return None
+
+
+def _sync_row_from_full_content(row: Any, full_content: str) -> None:
+    patched_fm = _extract_frontmatter(full_content)
+    patched_body = _extract_body(full_content)
+    row.name = patched_fm.get("name", row.name)
+    row.description = patched_body[:200].strip() if patched_body else row.description
+    patched_triggers = patched_fm.get("triggers", "")
+    row.triggers = _triggers_list(patched_triggers) if patched_triggers else (row.triggers or [])
+    patched_category = patched_fm.get("category", "")
+    if patched_category:
+        row.category = patched_category.strip()
+
+
+async def _resolve_upsert_action(ctx: _SkillActionContext, name: str) -> str | None:
+    if not name:
+        return _error("name is required for upsert action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+    async with ctx.async_session() as db:
+        existing = await db.get(ctx.skill_row_model, skill_id)
+    return "update" if existing else "create"
+
+
+async def _handle_list_skills(ctx: _SkillActionContext, *, limit: int, offset: int) -> str:
+    from sqlalchemy import func, select
+
+    clamped_limit = max(1, min(limit, 100))
+    clamped_offset = max(0, offset)
+    async with ctx.async_session() as db:
+        total = (await db.execute(
+            select(func.count()).select_from(ctx.skill_row_model)
+            .where(ctx.skill_row_model.id.like(f"{ctx.prefix}%"), ctx.skill_row_model.archived_at.is_(None))
+        )).scalar_one()
+        rows = (await db.execute(
+            select(ctx.skill_row_model).where(
+                ctx.skill_row_model.id.like(f"{ctx.prefix}%"),
+                ctx.skill_row_model.archived_at.is_(None),
+            )
+            .order_by(ctx.skill_row_model.updated_at.desc())
+            .limit(clamped_limit).offset(clamped_offset)
+        )).scalars().all()
+    if not rows and clamped_offset == 0:
+        return _json({"skills": [], "total": 0, "message": "No self-authored skills yet."})
+
+    summary = [_summarize_skill_row(row) for row in rows]
+    stale_count = sum(1 for row in summary if row["stale"])
+    result: dict[str, Any] = {
+        "skills": summary,
+        "total": total,
+        "limit": clamped_limit,
+        "offset": clamped_offset,
+    }
+    if stale_count > 0:
+        noun = "skill" if stale_count == 1 else "skills"
+        verb = "has" if stale_count == 1 else "have"
+        result["hint"] = (
+            f"{stale_count} {noun} {verb} never been surfaced or "
+            f"{verb}n't been surfaced in 30+ days. Consider reviewing "
+            f"trigger phrases or deleting stale skills."
+        )
+    return _json(result)
+
+
+async def _handle_get_skill(ctx: _SkillActionContext, *, name: str, names: list[str] | None) -> str:
+    if names:
+        if len(names) > 50:
+            return _error(f"Too many names ({len(names)}). Cap is 50 for batch get.")
+        async with ctx.async_session() as db:
+            out: list[dict] = []
+            missing: list[str] = []
+            for n in names:
+                sid, err = _safe_skill_id(ctx.bot_id, n)
+                if err or sid is None:
+                    missing.append(n)
+                    continue
+                row = await db.get(ctx.skill_row_model, sid)
+                if row is None:
+                    missing.append(n)
+                    continue
+                out.append(_skill_payload(row))
+        return _json({"skills": out, "missing": missing})
+
+    if not name:
+        return _error("name is required for get action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+    if not row:
+        return _error(f"Skill '{skill_id}' not found.")
+    return _json(_skill_payload(row))
+
+
+async def _handle_get_script(ctx: _SkillActionContext, *, name: str, script_name: str) -> str:
+    if not name or not script_name:
+        return _error("name and script_name are required for get_script action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+    if not row:
+        return _error(f"Skill '{skill_id}' not found.")
+    script_row = _get_script_by_name(row.scripts, script_name)
+    if not script_row:
+        return _error(f"Script '{_normalize_script_name(script_name)}' not found on '{skill_id}'.")
+    return _json({
+        "ok": True,
+        "id": row.id,
+        "script_name": script_row["name"],
+        "script_description": script_row.get("description", ""),
+        "script_body": script_row.get("script", ""),
+        "script_timeout_s": script_row.get("timeout_s"),
+    })
+
+
+async def _handle_create_skill(
+    ctx: _SkillActionContext,
+    *,
+    name: str,
+    title: str,
+    content: str,
+    triggers: str,
+    category: str,
+    scripts: list[dict] | None,
+    force: bool,
+) -> str:
+    if not name or not title or not content:
+        return _error("name, title, and content are required for create.")
+    name_err = _validate_name(name)
+    if name_err:
+        return _error(name_err)
+    content_err = _validate_content(content)
+    if content_err:
+        return _error(content_err)
+    normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
+    if scripts_err:
+        return _error(scripts_err)
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+
+    if not force:
+        dedup_result = await _check_skill_dedup(ctx.bot_id, content, ctx.prefix)
+        if dedup_result:
+            return dedup_result
+
+    full_content = _build_content(title, content, triggers, category)
+    content_hash = hashlib.sha256(full_content.encode()).hexdigest()
+    async with ctx.async_session() as db:
+        existing = await db.get(ctx.skill_row_model, skill_id)
+        if existing:
+            return _error(f"Skill '{skill_id}' already exists. Use update or patch.")
+
+        now = datetime.now(timezone.utc)
+        row = ctx.skill_row_model(
+            id=skill_id,
+            name=title.strip(),
+            description=content[:200].strip() if content else None,
+            category=category.strip() if category else None,
+            triggers=_triggers_list(triggers),
+            scripts=normalized_scripts,
+            content=full_content,
+            content_hash=content_hash,
+            source_type="tool",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        await db.commit()
+
+    embedded = await _embed_skill_safe(skill_id)
+    _invalidate_cache(ctx.bot_id)
+    warning = await _check_count_warning(ctx.bot_id, ctx.prefix)
+    msg = f"Skill '{skill_id}' created."
+    if not embedded:
+        msg += " Warning: embedding failed — skill saved but won't appear in RAG until re-embedded."
+    if warning:
+        msg += f" {warning}"
+    return _json({"ok": True, "id": skill_id, "embedded": embedded, "message": msg})
+
+
+async def _handle_update_skill(
+    ctx: _SkillActionContext,
+    *,
+    name: str,
+    title: str,
+    content: str,
+    triggers: str,
+    category: str,
+    scripts: list[dict] | None,
+) -> str:
+    if not name:
+        return _error("name is required for update action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        editable_error = _editable_skill_error(row, ctx.prefix, "edit", ownership_verb="update")
+        if editable_error:
+            return _error(editable_error)
+        if not title and not content and not triggers and not category and scripts is None:
+            return _error("Provide at least one of: title, content, triggers, category, scripts.")
+        if content:
+            content_err = _validate_content(content)
+            if content_err:
+                return _error(content_err)
+        normalized_scripts: list[dict] | None = None
+        if scripts is not None:
+            normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
+            if scripts_err:
+                return _error(scripts_err)
+
+        existing_fm = _extract_frontmatter(row.content)
+        new_title = title.strip() if title else row.name
+        new_triggers = triggers if triggers else existing_fm.get("triggers", "")
+        new_category = category if category else existing_fm.get("category", "")
+        if title:
+            row.name = new_title
+        body = content if content else _extract_body(row.content)
+        full_content = _build_content(new_title, body, new_triggers, new_category)
+        row.content = full_content
+        row.content_hash = hashlib.sha256(full_content.encode()).hexdigest()
+        row.triggers = _triggers_list(new_triggers)
+        if new_category:
+            row.category = new_category.strip()
+        if content:
+            row.description = content[:200].strip()
+        if normalized_scripts is not None:
+            row.scripts = normalized_scripts
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    asyncio.create_task(_embed_skill_safe(skill_id))
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' updated."})
+
+
+async def _handle_delete_skill(ctx: _SkillActionContext, *, name: str) -> str:
+    if not name:
+        return _error("name is required for delete action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        editable_error = _editable_skill_error(row, ctx.prefix, "delete")
+        if editable_error:
+            return _error(editable_error)
+        if row.archived_at:
+            return _error(f"Skill '{skill_id}' is already archived.")
+        row.archived_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' archived. Use action='restore' to undo."})
+
+
+async def _handle_restore_skill(ctx: _SkillActionContext, *, name: str) -> str:
+    if not name:
+        return _error("name is required for restore action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        if not row.id.startswith(ctx.prefix):
+            return _error("Cannot restore another bot's skill.")
+        if not row.archived_at:
+            return _error(f"Skill '{skill_id}' is not archived.")
+        row.archived_at = None
+        await db.commit()
+
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' restored."})
+
+
+async def _handle_patch_skill(ctx: _SkillActionContext, *, name: str, old_text: str, new_text: str) -> str:
+    if not name:
+        return _error("name is required for patch action.")
+    if not old_text or not new_text:
+        return _error("old_text and new_text are required for patch action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        editable_error = _editable_skill_error(row, ctx.prefix, "patch")
+        if editable_error:
+            return _error(editable_error)
+        if old_text not in row.content:
+            return _error("old_text not found in skill content.")
+        patched = row.content.replace(old_text, new_text, 1)
+        body_err = _validate_content(_extract_body(patched))
+        if body_err:
+            return _error(f"Patch would produce invalid content: {body_err}")
+        row.content = patched
+        row.content_hash = hashlib.sha256(row.content.encode()).hexdigest()
+        _sync_row_from_full_content(row, patched)
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    asyncio.create_task(_embed_skill_safe(skill_id))
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' patched."})
+
+
+async def _handle_merge_skills(
+    ctx: _SkillActionContext,
+    *,
+    names: list[str] | None,
+    name: str,
+    title: str,
+    content: str,
+    triggers: str,
+    category: str,
+    scripts: list[dict] | None,
+) -> str:
+    if not names or len(names) < 2:
+        return _error("names must contain at least 2 skill names to merge.")
+    if not name or not title or not content:
+        return _error("name, title, and content are required for the merged result skill.")
+    name_err = _validate_name(name)
+    if name_err:
+        return _error(name_err)
+    content_err = _validate_content(content)
+    if content_err:
+        return _error(content_err)
+    normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
+    if scripts_err:
+        return _error(scripts_err)
+    merged_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or merged_id is None:
+        return err
+
+    from sqlalchemy import delete as sa_delete
+    from app.db.models import Document
+
+    source_ids: list[str] = []
+    seen: set[str] = set()
+    for src_name in names:
+        src_id, src_err = _safe_skill_id(ctx.bot_id, src_name)
+        if src_err or src_id is None:
+            return src_err
+        if src_id not in seen:
+            source_ids.append(src_id)
+            seen.add(src_id)
+    if len(source_ids) < 2:
+        return _error("names must contain at least 2 distinct skill names to merge.")
+
+    async with ctx.async_session() as db:
+        source_rows: list[Any] = []
+        for src_id in source_ids:
+            row = await db.get(ctx.skill_row_model, src_id)
+            if not row:
+                return _error(f"Source skill '{src_id}' not found.")
+            if row.source_type not in ("tool", "manual"):
+                return _error(f"Cannot merge file-managed skill '{src_id}'.")
+            if not row.id.startswith(ctx.prefix):
+                return _error(f"Cannot merge another bot's skill '{src_id}'.")
+            source_rows.append(row)
+
+        merged_scripts = normalized_scripts
+        if scripts is None:
+            merged_scripts = []
+            seen_script_names: set[str] = set()
+            for row in source_rows:
+                for attached in row.scripts or []:
+                    attached_name = attached.get("name", "")
+                    if attached_name in seen_script_names:
+                        return _error(
+                            "Cannot merge scripts automatically: duplicate attached script "
+                            f"name '{attached_name}'. Provide scripts=[...] on the merge action."
+                        )
+                    merged_scripts.append(attached)
+                    seen_script_names.add(attached_name)
+
+        existing = await db.get(ctx.skill_row_model, merged_id)
+        if existing and merged_id not in source_ids:
+            return _error(f"Target skill '{merged_id}' already exists and is not one of the source skills.")
+
+        deleted_names = []
+        for row in source_rows:
+            deleted_names.append(row.name)
+            await db.delete(row)
+            await db.execute(sa_delete(Document).where(Document.source == f"skill:{row.id}"))
+
+        full_content = _build_content(title, content, triggers, category)
+        now = datetime.now(timezone.utc)
+        merged_row = ctx.skill_row_model(
+            id=merged_id,
+            name=title.strip(),
+            description=content[:200].strip() if content else None,
+            category=category.strip() if category else None,
+            triggers=_triggers_list(triggers),
+            scripts=merged_scripts,
+            content=full_content,
+            content_hash=hashlib.sha256(full_content.encode()).hexdigest(),
+            source_type="tool",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(merged_row)
+        await db.commit()
+
+    embedded = await _embed_skill_safe(merged_id)
+    _invalidate_cache(ctx.bot_id)
+    return _json({
+        "ok": True,
+        "id": merged_id,
+        "embedded": embedded,
+        "deleted": source_ids,
+        "message": (
+            f"Merged {len(source_ids)} skills into '{merged_id}'. "
+            f"Deleted: {', '.join(deleted_names)}."
+        ),
+    })
+
+
+async def _handle_add_script(
+    ctx: _SkillActionContext,
+    *,
+    name: str,
+    script_name: str,
+    script_description: str,
+    script_body: str,
+    script_timeout_s: int | None,
+) -> str:
+    if not name or not script_name or not script_body or not script_description:
+        return _error("name, script_name, script_description, and script_body are required for add_script action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+    new_scripts, scripts_err = _validate_scripts_payload([{
+        "name": script_name,
+        "description": script_description,
+        "script": script_body,
+        "timeout_s": script_timeout_s,
+    }], require_description=True)
+    if scripts_err:
+        return _error(scripts_err)
+    new_script = new_scripts[0]
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        scripts_error = _scripts_edit_error(row)
+        if scripts_error:
+            return _error(scripts_error)
+        if _get_script_by_name(row.scripts, new_script["name"]):
+            return _error(f"Script '{new_script['name']}' already exists on '{skill_id}'.")
+        combined_scripts, combined_err = _validate_scripts_payload(
+            [*(row.scripts or []), new_script],
+            require_description=True,
+        )
+        if combined_err:
+            return _error(combined_err)
+        row.scripts = combined_scripts
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Script '{new_script['name']}' added to '{skill_id}'."})
+
+
+async def _handle_update_script(
+    ctx: _SkillActionContext,
+    *,
+    name: str,
+    script_name: str,
+    script_description: str,
+    script_body: str,
+    script_timeout_s: int | None,
+) -> str:
+    if not name or not script_name:
+        return _error("name and script_name are required for update_script action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+    normalized_name = _normalize_script_name(script_name)
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        scripts_error = _scripts_edit_error(row)
+        if scripts_error:
+            return _error(scripts_error)
+        current = _get_script_by_name(row.scripts, normalized_name)
+        if not current:
+            return _error(f"Script '{normalized_name}' not found on '{skill_id}'.")
+        next_name = current["name"]
+        next_description = script_description or current.get("description", "")
+        next_body = script_body or current.get("script", "")
+        next_timeout = script_timeout_s if script_timeout_s is not None else current.get("timeout_s")
+        new_scripts, scripts_err = _validate_scripts_payload([{
+            "name": next_name,
+            "description": next_description,
+            "script": next_body,
+            "timeout_s": next_timeout,
+        }], require_description=True)
+        if scripts_err:
+            return _error(scripts_err)
+        updated_script = new_scripts[0]
+        row.scripts = [
+            updated_script if attached.get("name") == normalized_name else attached
+            for attached in row.scripts or []
+        ]
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Script '{normalized_name}' updated on '{skill_id}'."})
+
+
+async def _handle_delete_script(ctx: _SkillActionContext, *, name: str, script_name: str) -> str:
+    if not name or not script_name:
+        return _error("name and script_name are required for delete_script action.")
+    skill_id, err = _safe_skill_id(ctx.bot_id, name)
+    if err or skill_id is None:
+        return err
+    normalized_name = _normalize_script_name(script_name)
+    async with ctx.async_session() as db:
+        row = await db.get(ctx.skill_row_model, skill_id)
+        if not row:
+            return _error(f"Skill '{skill_id}' not found.")
+        scripts_error = _scripts_edit_error(row)
+        if scripts_error:
+            return _error(scripts_error)
+        current_scripts = row.scripts or []
+        if not _get_script_by_name(current_scripts, normalized_name):
+            return _error(f"Script '{normalized_name}' not found on '{skill_id}'.")
+        row.scripts = [attached for attached in current_scripts if attached.get("name") != normalized_name]
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    _invalidate_cache(ctx.bot_id)
+    return _json({"ok": True, "id": skill_id, "message": f"Script '{normalized_name}' deleted from '{skill_id}'."})
 
 
 @register({
@@ -498,599 +1119,93 @@ async def manage_bot_skill(
 ) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context — cannot manage skills."}, ensure_ascii=False)
+        return _error("No bot context — cannot manage skills.")
 
     from app.db.engine import async_session
     from app.db.models import Skill as SkillRow
 
-    prefix = f"bots/{bot_id}/"
+    ctx = _SkillActionContext(
+        bot_id=bot_id,
+        prefix=f"bots/{bot_id}/",
+        async_session=async_session,
+        skill_row_model=SkillRow,
+    )
 
-    # --- LIST ---
-    if action == "list":
-        from sqlalchemy import func, select
-        clamped_limit = max(1, min(limit, 100))
-        clamped_offset = max(0, offset)
-        async with async_session() as db:
-            total = (await db.execute(
-                select(func.count()).select_from(SkillRow)
-                .where(SkillRow.id.like(f"{prefix}%"), SkillRow.archived_at.is_(None))
-            )).scalar_one()
-            rows = (await db.execute(
-                select(SkillRow).where(
-                    SkillRow.id.like(f"{prefix}%"), SkillRow.archived_at.is_(None),
-                )
-                .order_by(SkillRow.updated_at.desc())
-                .limit(clamped_limit).offset(clamped_offset)
-            )).scalars().all()
-        if not rows and clamped_offset == 0:
-            return json.dumps({"skills": [], "total": 0, "message": "No self-authored skills yet."}, ensure_ascii=False)
-        summary = []
-        stale_count = 0
-        for r in rows:
-            fm = _extract_frontmatter(r.content) if r.content else {}
-            body_preview = _extract_body(r.content)[:120].strip() if r.content else ""
-            stale = _is_stale(r.created_at, r.last_surfaced_at, r.surface_count)
-            if stale:
-                stale_count += 1
-            summary.append({
-                "id": r.id,
-                "name": r.name,
-                "category": fm.get("category", ""),
-                "preview": body_preview,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-                "last_surfaced_at": r.last_surfaced_at.isoformat() if r.last_surfaced_at else None,
-                "surface_count": r.surface_count,
-                "stale": stale,
-                "script_count": len(r.scripts or []),
-                "scripts": _summarize_scripts(r.scripts),
-            })
-        result: dict = {
-            "skills": summary,
-            "total": total,
-            "limit": clamped_limit,
-            "offset": clamped_offset,
-        }
-        if stale_count > 0:
-            noun = "skill" if stale_count == 1 else "skills"
-            verb = "has" if stale_count == 1 else "have"
-            result["hint"] = (
-                f"{stale_count} {noun} {verb} never been surfaced or "
-                f"{verb}n't been surfaced in 30+ days. Consider reviewing "
-                f"trigger phrases or deleting stale skills."
-            )
-        return json.dumps(result, ensure_ascii=False)
-
-    # --- GET ---
-    if action == "get":
-        # Batch form: action="get" + names=[...] — fetch several skills in
-        # one call so hygiene / skill-review runs don't burn an iteration
-        # per skill body. Single-name form below is preserved unchanged.
-        if names:
-            if len(names) > 50:
-                return json.dumps({
-                    "error": f"Too many names ({len(names)}). Cap is 50 for batch get.",
-                }, ensure_ascii=False)
-            async with async_session() as db:
-                out: list[dict] = []
-                missing: list[str] = []
-                for n in names:
-                    sid, err = _safe_skill_id(bot_id, n)
-                    if err or sid is None:
-                        missing.append(n)
-                        continue
-                    row = await db.get(SkillRow, sid)
-                    if row is None:
-                        missing.append(n)
-                        continue
-                    out.append({
-                        "id": row.id,
-                        "name": row.name,
-                        "content": row.content,
-                        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                        "scripts": _summarize_scripts(row.scripts),
-                    })
-            return json.dumps({"skills": out, "missing": missing}, ensure_ascii=False)
-
-        if not name:
-            return json.dumps({"error": "name is required for get action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-        if not row:
-            return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-        return json.dumps({
-            "id": row.id,
-            "name": row.name,
-            "content": row.content,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            "scripts": _summarize_scripts(row.scripts),
-        }, ensure_ascii=False)
-
-    # --- GET SCRIPT ---
-    if action == "get_script":
-        if not name or not script_name:
-            return json.dumps({"error": "name and script_name are required for get_script action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-        if not row:
-            return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-        script_row = _get_script_by_name(row.scripts, script_name)
-        if not script_row:
-            return json.dumps({"error": f"Script '{_normalize_script_name(script_name)}' not found on '{skill_id}'."}, ensure_ascii=False)
-        return json.dumps({
-            "ok": True,
-            "id": row.id,
-            "script_name": script_row["name"],
-            "script_description": script_row.get("description", ""),
-            "script_body": script_row.get("script", ""),
-            "script_timeout_s": script_row.get("timeout_s"),
-        }, ensure_ascii=False)
-
-    # --- UPSERT ---
-    # Resolves to create-or-update based on existence, so callers don't have
-    # to round-trip to check first. Falls through to the regular branches.
     if action == "upsert":
-        if not name:
-            return json.dumps({"error": "name is required for upsert action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-        async with async_session() as db:
-            existing = await db.get(SkillRow, skill_id)
-        action = "update" if existing else "create"
+        resolved_action = await _resolve_upsert_action(ctx, name)
+        if resolved_action not in {"create", "update"}:
+            return resolved_action or _error("name is required for upsert action.")
+        action = resolved_action
 
-    # --- CREATE ---
+    if action == "list":
+        return await _handle_list_skills(ctx, limit=limit, offset=offset)
+    if action == "get":
+        return await _handle_get_skill(ctx, name=name, names=names)
+    if action == "get_script":
+        return await _handle_get_script(ctx, name=name, script_name=script_name)
     if action == "create":
-        if not name or not title or not content:
-            return json.dumps({"error": "name, title, and content are required for create."}, ensure_ascii=False)
-        name_err = _validate_name(name)
-        if name_err:
-            return json.dumps({"error": name_err}, ensure_ascii=False)
-        content_err = _validate_content(content)
-        if content_err:
-            return json.dumps({"error": content_err}, ensure_ascii=False)
-        normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
-        if scripts_err:
-            return json.dumps({"error": scripts_err}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-
-        # Dedup check: find semantically similar existing skills
-        if not force:
-            dedup_result = await _check_skill_dedup(bot_id, content, prefix)
-            if dedup_result:
-                return dedup_result
-
-        full_content = _build_content(title, content, triggers, category)
-        content_hash = hashlib.sha256(full_content.encode()).hexdigest()
-
-        async with async_session() as db:
-            existing = await db.get(SkillRow, skill_id)
-            if existing:
-                return json.dumps({"error": f"Skill '{skill_id}' already exists. Use update or patch."}, ensure_ascii=False)
-
-            now = datetime.now(timezone.utc)
-            # Parse triggers into list for the DB column
-            _triggers_list = [t.strip() for t in triggers.split(",") if t.strip()] if triggers else []
-            row = SkillRow(
-                id=skill_id,
-                name=title.strip(),
-                description=content[:200].strip() if content else None,
-                category=category.strip() if category else None,
-                triggers=_triggers_list,
-                scripts=normalized_scripts,
-                content=full_content,
-                content_hash=content_hash,
-                source_type="tool",
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(row)
-            await db.commit()
-
-        # Synchronous embedding so the bot knows immediately if it worked
-        embedded = await _embed_skill_safe(skill_id)
-        _invalidate_cache(bot_id)
-
-        # Count warning
-        warning = await _check_count_warning(bot_id, prefix)
-        msg = f"Skill '{skill_id}' created."
-        if not embedded:
-            msg += " Warning: embedding failed — skill saved but won't appear in RAG until re-embedded."
-        if warning:
-            msg += f" {warning}"
-        return json.dumps({"ok": True, "id": skill_id, "embedded": embedded, "message": msg}, ensure_ascii=False)
-
-    # --- UPDATE ---
+        return await _handle_create_skill(
+            ctx,
+            name=name,
+            title=title,
+            content=content,
+            triggers=triggers,
+            category=category,
+            scripts=scripts,
+            force=force,
+        )
     if action == "update":
-        if not name:
-            return json.dumps({"error": "name is required for update action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot edit a file-managed or integration skill."}, ensure_ascii=False)
-            if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot update another bot's skill."}, ensure_ascii=False)
-
-            if not title and not content and not triggers and not category:
-                if scripts is None:
-                    return json.dumps({"error": "Provide at least one of: title, content, triggers, category, scripts."}, ensure_ascii=False)
-
-            if content:
-                content_err = _validate_content(content)
-                if content_err:
-                    return json.dumps({"error": content_err}, ensure_ascii=False)
-            normalized_scripts: list[dict] | None = None
-            if scripts is not None:
-                normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
-                if scripts_err:
-                    return json.dumps({"error": scripts_err}, ensure_ascii=False)
-
-            # Merge with existing frontmatter so partial updates don't drop fields
-            existing_fm = _extract_frontmatter(row.content)
-            new_title = title.strip() if title else row.name
-            new_triggers = triggers if triggers else existing_fm.get("triggers", "")
-            new_category = category if category else existing_fm.get("category", "")
-            if title:
-                row.name = new_title
-
-            body = content if content else _extract_body(row.content)
-            full_content = _build_content(new_title, body, new_triggers, new_category)
-            row.content = full_content
-            row.content_hash = hashlib.sha256(full_content.encode()).hexdigest()
-
-            # Keep DB columns in sync with frontmatter
-            _triggers_list = [t.strip() for t in new_triggers.split(",") if t.strip()] if new_triggers else []
-            row.triggers = _triggers_list
-            if new_category:
-                row.category = new_category.strip()
-            if content:
-                row.description = content[:200].strip()
-            if normalized_scripts is not None:
-                row.scripts = normalized_scripts
-
-            row.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-
-        # Fire-and-forget for updates (skill already in RAG, re-embed in background)
-        asyncio.create_task(_embed_skill_safe(skill_id))
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' updated."}, ensure_ascii=False)
-
-    # --- DELETE (archive) ---
+        return await _handle_update_skill(
+            ctx,
+            name=name,
+            title=title,
+            content=content,
+            triggers=triggers,
+            category=category,
+            scripts=scripts,
+        )
     if action == "delete":
-        if not name:
-            return json.dumps({"error": "name is required for delete action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot delete a file-managed or integration skill."}, ensure_ascii=False)
-            if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot delete another bot's skill."}, ensure_ascii=False)
-            if row.archived_at:
-                return json.dumps({"error": f"Skill '{skill_id}' is already archived."}, ensure_ascii=False)
-            row.archived_at = datetime.now(timezone.utc)
-            await db.commit()
-
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' archived. Use action='restore' to undo."}, ensure_ascii=False)
-
-    # --- RESTORE ---
+        return await _handle_delete_skill(ctx, name=name)
     if action == "restore":
-        if not name:
-            return json.dumps({"error": "name is required for restore action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot restore another bot's skill."}, ensure_ascii=False)
-            if not row.archived_at:
-                return json.dumps({"error": f"Skill '{skill_id}' is not archived."}, ensure_ascii=False)
-            row.archived_at = None
-            await db.commit()
-
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' restored."}, ensure_ascii=False)
-
-    # --- PATCH ---
+        return await _handle_restore_skill(ctx, name=name)
     if action == "patch":
-        if not name:
-            return json.dumps({"error": "name is required for patch action."}, ensure_ascii=False)
-        if not old_text or not new_text:
-            return json.dumps({"error": "old_text and new_text are required for patch action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot patch a file-managed or integration skill."}, ensure_ascii=False)
-            if not row.id.startswith(prefix):
-                return json.dumps({"error": "Cannot patch another bot's skill."}, ensure_ascii=False)
-
-            if old_text not in row.content:
-                return json.dumps({"error": "old_text not found in skill content."}, ensure_ascii=False)
-
-            patched = row.content.replace(old_text, new_text, 1)
-            # Validate resulting content (patch could shrink below min or expand above max)
-            body = _extract_body(patched)
-            body_err = _validate_content(body)
-            if body_err:
-                return json.dumps({"error": f"Patch would produce invalid content: {body_err}"}, ensure_ascii=False)
-
-            row.content = patched
-            row.content_hash = hashlib.sha256(row.content.encode()).hexdigest()
-
-            # Keep DB columns in sync with patched content
-            patched_fm = _extract_frontmatter(patched)
-            patched_body = _extract_body(patched)
-            row.name = patched_fm.get("name", row.name)
-            row.description = patched_body[:200].strip() if patched_body else row.description
-            _patched_triggers = patched_fm.get("triggers", "")
-            row.triggers = [t.strip() for t in _patched_triggers.split(",") if t.strip()] if _patched_triggers else (row.triggers or [])
-            _patched_category = patched_fm.get("category", "")
-            if _patched_category:
-                row.category = _patched_category.strip()
-
-            row.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-
-        asyncio.create_task(_embed_skill_safe(skill_id))
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' patched."}, ensure_ascii=False)
-
-    # --- MERGE ---
+        return await _handle_patch_skill(ctx, name=name, old_text=old_text, new_text=new_text)
     if action == "merge":
-        if not names or len(names) < 2:
-            return json.dumps({"error": "names must contain at least 2 skill names to merge."}, ensure_ascii=False)
-        if not name or not title or not content:
-            return json.dumps({
-                "error": "name, title, and content are required for the merged result skill.",
-            }, ensure_ascii=False)
-        name_err = _validate_name(name)
-        if name_err:
-            return json.dumps({"error": name_err}, ensure_ascii=False)
-        content_err = _validate_content(content)
-        if content_err:
-            return json.dumps({"error": content_err}, ensure_ascii=False)
-        normalized_scripts, scripts_err = _validate_scripts_payload(scripts, require_description=True)
-        if scripts_err:
-            return json.dumps({"error": scripts_err}, ensure_ascii=False)
-        merged_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-
-        from sqlalchemy import delete as sa_delete
-        from app.db.models import Document
-
-        # Resolve all source skill IDs and verify they exist + are owned
-        source_ids: list[str] = []
-        seen: set[str] = set()
-        for src_name in names:
-            src_id, src_err = _safe_skill_id(bot_id, src_name)
-            if src_err:
-                return src_err
-            if src_id not in seen:
-                source_ids.append(src_id)
-                seen.add(src_id)
-        if len(source_ids) < 2:
-            return json.dumps({"error": "names must contain at least 2 distinct skill names to merge."}, ensure_ascii=False)
-
-        async with async_session() as db:
-            # Load all source skills in one pass — validate and keep refs for deletion
-            source_rows: list = []
-            for src_id in source_ids:
-                row = await db.get(SkillRow, src_id)
-                if not row:
-                    return json.dumps({"error": f"Source skill '{src_id}' not found."}, ensure_ascii=False)
-                if row.source_type not in ("tool", "manual"):
-                    return json.dumps({"error": f"Cannot merge file-managed skill '{src_id}'."}, ensure_ascii=False)
-                if not row.id.startswith(prefix):
-                    return json.dumps({"error": f"Cannot merge another bot's skill '{src_id}'."}, ensure_ascii=False)
-                source_rows.append(row)
-
-            merged_scripts = normalized_scripts
-            if scripts is None:
-                merged_scripts = []
-                seen_script_names: set[str] = set()
-                for row in source_rows:
-                    for attached in row.scripts or []:
-                        attached_name = attached.get("name", "")
-                        if attached_name in seen_script_names:
-                            return json.dumps({
-                                "error": (
-                                    f"Cannot merge scripts automatically: duplicate attached script "
-                                    f"name '{attached_name}'. Provide scripts=[...] on the merge action."
-                                ),
-                            }, ensure_ascii=False)
-                        merged_scripts.append(attached)
-                        seen_script_names.add(attached_name)
-
-            # Check if merged target already exists (and isn't one of the sources)
-            existing = await db.get(SkillRow, merged_id)
-            if existing and merged_id not in source_ids:
-                return json.dumps({"error": f"Target skill '{merged_id}' already exists and is not one of the source skills."}, ensure_ascii=False)
-
-            # Delete source skills + their embeddings
-            deleted_names = []
-            for row in source_rows:
-                deleted_names.append(row.name)
-                await db.delete(row)
-                await db.execute(sa_delete(Document).where(Document.source == f"skill:{row.id}"))
-
-            # Create the merged skill
-            full_content = _build_content(title, content, triggers, category)
-            content_hash = hashlib.sha256(full_content.encode()).hexdigest()
-            now = datetime.now(timezone.utc)
-            _triggers_list = [t.strip() for t in triggers.split(",") if t.strip()] if triggers else []
-            merged_row = SkillRow(
-                id=merged_id,
-                name=title.strip(),
-                description=content[:200].strip() if content else None,
-                category=category.strip() if category else None,
-                triggers=_triggers_list,
-                scripts=merged_scripts,
-                content=full_content,
-                content_hash=content_hash,
-                source_type="tool",
-                created_at=now,
-                updated_at=now,
-            )
-            db.add(merged_row)
-            await db.commit()
-
-        embedded = await _embed_skill_safe(merged_id)
-        _invalidate_cache(bot_id)
-        return json.dumps({
-            "ok": True,
-            "id": merged_id,
-            "embedded": embedded,
-            "deleted": source_ids,
-            "message": (
-                f"Merged {len(source_ids)} skills into '{merged_id}'. "
-                f"Deleted: {', '.join(deleted_names)}."
-            ),
-        }, ensure_ascii=False)
-
-    # --- ADD SCRIPT ---
+        return await _handle_merge_skills(
+            ctx,
+            names=names,
+            name=name,
+            title=title,
+            content=content,
+            triggers=triggers,
+            category=category,
+            scripts=scripts,
+        )
     if action == "add_script":
-        if not name or not script_name or not script_body or not script_description:
-            return json.dumps({
-                "error": "name, script_name, script_description, and script_body are required for add_script action.",
-            }, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-        new_scripts, scripts_err = _validate_scripts_payload([{
-            "name": script_name,
-            "description": script_description,
-            "script": script_body,
-            "timeout_s": script_timeout_s,
-        }], require_description=True)
-        if scripts_err:
-            return json.dumps({"error": scripts_err}, ensure_ascii=False)
-        new_script = new_scripts[0]
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot edit scripts on a file-managed or integration skill."}, ensure_ascii=False)
-            if _get_script_by_name(row.scripts, new_script["name"]):
-                return json.dumps({"error": f"Script '{new_script['name']}' already exists on '{skill_id}'."}, ensure_ascii=False)
-            combined_scripts, combined_err = _validate_scripts_payload(
-                [*(row.scripts or []), new_script],
-                require_description=True,
-            )
-            if combined_err:
-                return json.dumps({"error": combined_err}, ensure_ascii=False)
-            row.scripts = combined_scripts
-            row.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Script '{new_script['name']}' added to '{skill_id}'."}, ensure_ascii=False)
-
-    # --- UPDATE SCRIPT ---
+        return await _handle_add_script(
+            ctx,
+            name=name,
+            script_name=script_name,
+            script_description=script_description,
+            script_body=script_body,
+            script_timeout_s=script_timeout_s,
+        )
     if action == "update_script":
-        if not name or not script_name:
-            return json.dumps({"error": "name and script_name are required for update_script action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-        normalized_name = _normalize_script_name(script_name)
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot edit scripts on a file-managed or integration skill."}, ensure_ascii=False)
-            current = _get_script_by_name(row.scripts, normalized_name)
-            if not current:
-                return json.dumps({"error": f"Script '{normalized_name}' not found on '{skill_id}'."}, ensure_ascii=False)
-            next_name = current["name"]
-            next_description = current.get("description", "")
-            next_body = current.get("script", "")
-            next_timeout = current.get("timeout_s")
-            if script_description:
-                next_description = script_description
-            if script_body:
-                next_body = script_body
-            if script_timeout_s is not None:
-                next_timeout = script_timeout_s
-            new_scripts, scripts_err = _validate_scripts_payload([{
-                "name": next_name,
-                "description": next_description,
-                "script": next_body,
-                "timeout_s": next_timeout,
-            }], require_description=True)
-            if scripts_err:
-                return json.dumps({"error": scripts_err}, ensure_ascii=False)
-            updated_script = new_scripts[0]
-            replaced = []
-            for attached in row.scripts or []:
-                replaced.append(updated_script if attached.get("name") == normalized_name else attached)
-            row.scripts = replaced
-            row.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Script '{normalized_name}' updated on '{skill_id}'."}, ensure_ascii=False)
-
-    # --- DELETE SCRIPT ---
+        return await _handle_update_script(
+            ctx,
+            name=name,
+            script_name=script_name,
+            script_description=script_description,
+            script_body=script_body,
+            script_timeout_s=script_timeout_s,
+        )
     if action == "delete_script":
-        if not name or not script_name:
-            return json.dumps({"error": "name and script_name are required for delete_script action."}, ensure_ascii=False)
-        skill_id, err = _safe_skill_id(bot_id, name)
-        if err:
-            return err
-        normalized_name = _normalize_script_name(script_name)
-        async with async_session() as db:
-            row = await db.get(SkillRow, skill_id)
-            if not row:
-                return json.dumps({"error": f"Skill '{skill_id}' not found."}, ensure_ascii=False)
-            if row.source_type not in ("tool", "manual"):
-                return json.dumps({"error": "Cannot edit scripts on a file-managed or integration skill."}, ensure_ascii=False)
-            current_scripts = row.scripts or []
-            if not _get_script_by_name(current_scripts, normalized_name):
-                return json.dumps({"error": f"Script '{normalized_name}' not found on '{skill_id}'."}, ensure_ascii=False)
-            row.scripts = [attached for attached in current_scripts if attached.get("name") != normalized_name]
-            row.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-        _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Script '{normalized_name}' deleted from '{skill_id}'."}, ensure_ascii=False)
+        return await _handle_delete_script(ctx, name=name, script_name=script_name)
 
-    return json.dumps({
-        "error": (
-            f"Unknown action: {action}. Use create, update, upsert, list, get, delete, "
-            "patch, merge, restore, get_script, add_script, update_script, or delete_script."
-        ),
-    }, ensure_ascii=False)
+    return _error(
+        f"Unknown action: {action}. Use create, update, upsert, list, get, delete, "
+        "patch, merge, restore, get_script, add_script, update_script, or delete_script."
+    )
 
 
 def _invalidate_cache(bot_id: str) -> None:

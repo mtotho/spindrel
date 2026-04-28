@@ -277,6 +277,7 @@ async def _run_harness_turn(
             revoke_turn_bypass(turn_id)
     except _HarnessTurnCancelled:
         persisted_tool_calls = emitter.persisted_tool_calls()
+        tool_envelopes = emitter.tool_envelopes()
         assistant_turn_body = emitter.assistant_turn_body(text="")
         cancelled_assistant_msg: dict = {
             "role": "assistant",
@@ -295,6 +296,8 @@ async def _run_harness_turn(
         }
         if persisted_tool_calls:
             cancelled_assistant_msg["tool_calls"] = persisted_tool_calls
+            if tool_envelopes:
+                cancelled_assistant_msg["_tool_envelopes"] = tool_envelopes
             cancelled_assistant_msg["_tools_used"] = [
                 call["function"]["name"] for call in persisted_tool_calls
             ]
@@ -327,6 +330,7 @@ async def _run_harness_turn(
         )
         error_text = _format_turn_exception(exc)
         persisted_tool_calls = emitter.persisted_tool_calls()
+        tool_envelopes = emitter.tool_envelopes()
         assistant_turn_body = emitter.assistant_turn_body(text="")
         # Persist the failure as the assistant message so the chat shows
         # what went wrong instead of a silent empty turn.
@@ -352,6 +356,8 @@ async def _run_harness_turn(
         }
         if persisted_tool_calls:
             error_assistant_msg["tool_calls"] = persisted_tool_calls
+            if tool_envelopes:
+                error_assistant_msg["_tool_envelopes"] = tool_envelopes
             error_assistant_msg["_tools_used"] = [
                 call["function"]["name"] for call in persisted_tool_calls
             ]
@@ -380,6 +386,7 @@ async def _run_harness_turn(
 
     final_text = _redact_secrets(result.final_text)
     persisted_tool_calls = emitter.persisted_tool_calls()
+    tool_envelopes = emitter.tool_envelopes()
     assistant_turn_body = emitter.assistant_turn_body(text=final_text)
     await _mirror_harness_native_plan_state(
         session_id=session_id,
@@ -415,6 +422,8 @@ async def _run_harness_turn(
     }
     if persisted_tool_calls:
         assistant_msg["tool_calls"] = persisted_tool_calls
+        if tool_envelopes:
+            assistant_msg["_tool_envelopes"] = tool_envelopes
         assistant_msg["_tools_used"] = [
             call["function"]["name"] for call in persisted_tool_calls
         ]

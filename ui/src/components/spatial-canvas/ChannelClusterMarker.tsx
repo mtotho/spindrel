@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { dotColor } from "./spatialIdentity";
 import type { ChannelCluster } from "./spatialClustering";
 
@@ -12,7 +11,6 @@ interface ChannelClusterMarkerProps {
   widgetCount?: number;
   widgetOpacity?: number;
   onFocus: () => void;
-  onDiveWinner: () => void;
 }
 
 function channelName(cluster: ChannelCluster): string {
@@ -27,15 +25,7 @@ export function ChannelClusterMarker({
   widgetCount = 0,
   widgetOpacity = 0,
   onFocus,
-  onDiveWinner,
 }: ChannelClusterMarkerProps) {
-  const clickTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    return () => {
-      if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
-    };
-  }, []);
-
   const winner = cluster.winner;
   const hiddenCount = cluster.hiddenMembers.length;
   const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom);
@@ -46,30 +36,27 @@ export function ChannelClusterMarker({
     ? 0.22 + Math.sqrt(ratio) * 0.34
     : 0;
   const widgetSatelliteCount = Math.min(widgetCount, 5);
+  const focusCluster = () => onFocus();
 
   return (
     <button
       type="button"
       data-tile-kind="channel-cluster"
-      title={`${channelName(cluster)} and ${hiddenCount} nearby channel${hiddenCount === 1 ? "" : "s"}`}
-      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-zoom-in flex-col items-center justify-center gap-3 border-0 bg-transparent p-0 text-text"
+      title={`Zoom to ${cluster.members.length} nearby channels`}
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3 border-0 bg-transparent p-0 text-text"
       style={{ width: 270, minHeight: 170 }}
       onPointerDown={(e) => e.stopPropagation()}
+      onPointerUp={(e) => {
+        e.stopPropagation();
+        focusCluster();
+      }}
       onClick={(e) => {
         e.stopPropagation();
-        if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
-        clickTimerRef.current = window.setTimeout(() => {
-          clickTimerRef.current = null;
-          onFocus();
-        }, 180);
+        focusCluster();
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        if (clickTimerRef.current !== null) {
-          window.clearTimeout(clickTimerRef.current);
-          clickTimerRef.current = null;
-        }
-        onDiveWinner();
+        focusCluster();
       }}
     >
       <div
@@ -137,13 +124,18 @@ export function ChannelClusterMarker({
         )}
       </div>
       <div
-        className="max-w-full truncate px-2 text-base font-semibold whitespace-nowrap"
+        className="flex max-w-full flex-col items-center gap-0.5 px-2 text-center"
         style={{
           transform: `scale(${labelScale})`,
           transformOrigin: "center top",
         }}
       >
-        {channelName(cluster)}
+        <span className="text-base font-semibold whitespace-nowrap">
+          {cluster.members.length} channels
+        </span>
+        <span className="max-w-full truncate text-xs font-medium text-text-muted whitespace-nowrap">
+          near {channelName(cluster)}
+        </span>
       </div>
     </button>
   );

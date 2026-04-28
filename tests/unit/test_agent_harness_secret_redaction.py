@@ -111,3 +111,46 @@ def test_harness_emitter_deduplicates_repeated_tool_start_ids():
             },
         }
     ]
+
+
+def test_harness_emitter_persists_rich_tool_result_envelope():
+    events = []
+
+    with patch("app.services.agent_harnesses.base.publish_typed") as publish:
+        publish.side_effect = lambda _channel_id, event: events.append(event)
+        emitter = ChannelEventEmitter(
+            channel_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot_id="bot",
+            session_id=uuid.uuid4(),
+        )
+
+        emitter.tool_start(
+            tool_name="Edit",
+            tool_call_id="tu_diff",
+            arguments={"file_path": "app.py"},
+        )
+        emitter.tool_result(
+            tool_name="Edit",
+            tool_call_id="tu_diff",
+            result_summary="Changed app.py: +1 -1 lines",
+            envelope={
+                "content_type": "application/vnd.spindrel.diff+text",
+                "body": "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new",
+                "plain_body": "Changed app.py: +1 -1 lines",
+                "display": "inline",
+                "truncated": False,
+                "record_id": None,
+                "byte_size": 48,
+                "tool_call_id": "tu_diff",
+            },
+            surface="rich_result",
+            summary={"kind": "diff", "subject_type": "file", "label": "Changed app.py", "path": "app.py"},
+        )
+
+    assert events[-1].payload.surface == "rich_result"
+    assert events[-1].payload.envelope["content_type"] == "application/vnd.spindrel.diff+text"
+    assert emitter.tool_envelopes()[0]["tool_call_id"] == "tu_diff"
+    persisted = emitter.persisted_tool_calls()[0]
+    assert persisted["surface"] == "rich_result"
+    assert persisted["summary"]["kind"] == "diff"

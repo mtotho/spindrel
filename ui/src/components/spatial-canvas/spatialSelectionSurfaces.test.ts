@@ -16,10 +16,23 @@ test("single spatial objects use Map Brief instead of the floating rail", () => 
 });
 
 test("channel clusters focus the map instead of opening selection chrome", () => {
-  const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
-  assert.match(source, /flyToWorldBounds\(cluster\.worldBounds\)/);
-  assert.match(source, /setSelectedSpatialObject\(null\)/);
-  assert.doesNotMatch(source, /kind: "channel-cluster"/);
+  const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
+  const markerSource = readFileSync(resolve(SPATIAL_DIR, "ChannelClusterMarker.tsx"), "utf8");
+  const canvasSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvas.tsx"), "utf8");
+  assert.match(worldSource, /CHANNEL_CLUSTER_FOCUS_MIN_SCALE = 0\.42/);
+  assert.match(worldSource, /flyToWorldBounds\(cluster\.worldBounds, CHANNEL_CLUSTER_FOCUS_MIN_SCALE\)/);
+  assert.match(worldSource, /setSelectedSpatialObject\(null\)/);
+  assert.doesNotMatch(worldSource, /onDiveWinner/);
+  assert.doesNotMatch(worldSource, /diveToChannel\(cluster\.winner\.channel\.id/);
+  assert.doesNotMatch(markerSource, /onDiveWinner/);
+  assert.match(markerSource, /onPointerUp=\{\(e\) => \{[\s\S]*focusCluster\(\);[\s\S]*\}\}/);
+  assert.match(markerSource, /onDoubleClick=\{\(e\) => \{[\s\S]*focusCluster\(\);[\s\S]*\}\}/);
+  assert.doesNotMatch(canvasSource, /kind: "channel-cluster"/);
+});
+
+test("cluster overview suppresses the focus lens hint", () => {
+  const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasOverlays.tsx"), "utf8");
+  assert.match(source, /!\s*channelClusterMode\s*&&\s*<LensHint/);
 });
 
 test("attention signal keeps the ring visual-only and makes only the badge clickable", () => {

@@ -122,10 +122,17 @@ object has no rich map-state brief, so `Jump here` is always available.
 Same-day fundamentals sweep: Map Brief selected-object content now has explicit
 top clearance under the Starboard station selector and flatter inspector chrome
 using state pills plus a subtle left edge instead of a heavy warning card.
-Zoomed-out clusters are navigation-only: click focuses cluster bounds,
-double-click dives into the winner, and the old floating selection rail no
-longer appears. Hover cards are suppressed during overview/cluster zoom so the
-map stays calm until the user zooms into inspectable objects.
+Zoomed-out clusters are navigation-only: click focuses cluster bounds, the old
+floating selection rail no longer appears, and hover cards are suppressed during
+overview/cluster zoom so the map stays calm until the user zooms into inspectable
+objects.
+
+Same-day cluster interaction correction: channel clusters now behave as
+ambiguous groups, not hidden channel targets. Single click focuses immediately
+with no delayed timer, double-click also focuses instead of diving into the
+winner, and the focus-lens hint is hidden during clustered overview. Direct
+channel opening remains available once an individual channel tile is visible or
+from the explicit context menu action.
 
 | Phase | Status | Description |
 |---|---|---|

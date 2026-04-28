@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.services.agent_harnesses.tool_results import build_diff_tool_result
 from integrations.codex import schema
 from integrations.codex.app_server import Notification
 from integrations.sdk import ChannelEventEmitter
@@ -75,17 +76,43 @@ def translate_notification(
         tool_name = tool_name_by_id.get(tool_id, str(item.get("name") or item.get("kind") or "tool"))
         result_summary = _summarize_item_result(item)
         is_error = bool(item.get("isError") or item.get("is_error") or item.get("error"))
+        envelope = None
+        surface = None
+        summary = None
+        if kind == "fileChange":
+            diff_body = (
+                _extract_diff_body(item)
+                or _pop_codex_diff_for_item(result_meta, tool_id)
+            )
+            if diff_body:
+                path = _extract_file_path(item)
+                label = result_summary or None
+                envelope, summary = build_diff_tool_result(
+                    tool_name=tool_name,
+                    tool_call_id=tool_id or None,
+                    diff_body=diff_body,
+                    path=path,
+                    label=label,
+                )
+                surface = "rich_result"
+                result_summary = envelope["plain_body"]
         emit.tool_result(
             tool_name=tool_name,
             tool_call_id=tool_id or None,
             result_summary=result_summary,
             is_error=is_error,
+            envelope=envelope,
+            surface=surface,
+            summary=summary,
         )
         return
 
-    if method in (schema.ITEM_COMMAND_OUTPUT_DELTA, schema.ITEM_FILE_CHANGE_OUTPUT_DELTA):
-        # Per-item output streams. v1 does not emit a per-chunk bus event;
-        # callers may extend tool transcripts in a follow-up.
+    if method == schema.ITEM_FILE_CHANGE_OUTPUT_DELTA:
+        _append_codex_file_change_delta(result_meta, params)
+        return
+
+    if method == schema.ITEM_COMMAND_OUTPUT_DELTA:
+        # Per-command output streams. v1 does not emit a per-chunk bus event.
         return
 
     if method == schema.ITEM_PLAN_DELTA:
@@ -96,6 +123,10 @@ def translate_notification(
 
     if method == schema.NOTIFICATION_PLAN_UPDATED:
         result_meta["plan"] = params.get("plan") or params
+        return
+
+    if method == schema.NOTIFICATION_DIFF_UPDATED:
+        _record_codex_diff_update(result_meta, params)
         return
 
     if method == schema.NOTIFICATION_TOKEN_USAGE_UPDATED:
@@ -153,6 +184,117 @@ def _summarize_item_result(item: dict[str, Any]) -> str:
     if isinstance(output, str):
         return output.strip()
     return ""
+
+
+def _append_codex_file_change_delta(result_meta: dict[str, Any], params: dict[str, Any]) -> None:
+    item_id = _item_id(params)
+    delta = _extract_text_delta(params)
+    if not item_id or not delta:
+        return
+    by_item = result_meta.setdefault("codex_file_change_deltas", {})
+    if isinstance(by_item, dict):
+        by_item[item_id] = str(by_item.get(item_id) or "") + delta
+
+
+def _record_codex_diff_update(result_meta: dict[str, Any], params: dict[str, Any]) -> None:
+    diff_body = _extract_diff_body(params)
+    if not diff_body:
+        return
+    item_id = _item_id(params)
+    if item_id:
+        by_item = result_meta.setdefault("codex_diff_by_item_id", {})
+        if isinstance(by_item, dict):
+            by_item[item_id] = diff_body
+    else:
+        result_meta["codex_latest_diff"] = diff_body
+
+
+def _pop_codex_diff_for_item(result_meta: dict[str, Any], item_id: str) -> str | None:
+    if item_id:
+        by_item = result_meta.get("codex_diff_by_item_id")
+        if isinstance(by_item, dict):
+            value = by_item.pop(item_id, None)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        deltas = result_meta.get("codex_file_change_deltas")
+        if isinstance(deltas, dict):
+            value = deltas.pop(item_id, None)
+            if isinstance(value, str) and _looks_like_diff(value):
+                return value.strip()
+    latest = result_meta.pop("codex_latest_diff", None)
+    if isinstance(latest, str) and latest.strip():
+        return latest.strip()
+    return None
+
+
+def _item_id(params: dict[str, Any]) -> str:
+    for key in ("itemId", "item_id", "id"):
+        value = params.get(key)
+        if isinstance(value, str) and value:
+            return value
+    item = params.get("item")
+    if isinstance(item, dict):
+        for key in ("id", "itemId", "item_id"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return ""
+
+
+def _extract_file_path(item: dict[str, Any]) -> str | None:
+    for key in ("path", "file", "filePath", "file_path"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for key in ("input", "arguments"):
+        value = item.get(key)
+        if isinstance(value, dict):
+            nested = _extract_file_path(value)
+            if nested:
+                return nested
+    return None
+
+
+def _extract_diff_body(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped if _looks_like_diff(stripped) else None
+    if isinstance(value, list):
+        for item in value:
+            found = _extract_diff_body(item)
+            if found:
+                return found
+        return None
+    if not isinstance(value, dict):
+        return None
+    for key in (
+        "diff",
+        "patch",
+        "unified_diff",
+        "unifiedDiff",
+        "diffText",
+        "body",
+        "output",
+    ):
+        found = _extract_diff_body(value.get(key))
+        if found:
+            return found
+    for key in ("changes", "files", "fileChanges", "data", "item"):
+        found = _extract_diff_body(value.get(key))
+        if found:
+            return found
+    return None
+
+
+def _looks_like_diff(value: str) -> bool:
+    text = value.lstrip()
+    return (
+        "\n@@" in text
+        or text.startswith("@@")
+        or text.startswith("diff --git")
+        or text.startswith("--- ")
+        or "\n--- " in text
+    )
 
 
 def normalize_token_usage(params: dict[str, Any]) -> dict[str, Any]:

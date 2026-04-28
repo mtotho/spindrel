@@ -125,6 +125,9 @@ class HarnessToolTranscriptEntry:
     arguments: dict
     result_summary: str | None = None
     is_error: bool = False
+    envelope: dict | None = None
+    surface: str | None = None
+    summary: dict | None = None
 
 
 class ChannelEventEmitter:
@@ -230,13 +233,25 @@ class ChannelEventEmitter:
         result_summary: str,
         is_error: bool = False,
         tool_call_id: str | None = None,
+        envelope: dict | None = None,
+        surface: str | None = None,
+        summary: dict | None = None,
     ) -> None:
         result_summary = _redact_text(result_summary)
+        redacted_envelope = _redact_value(envelope) if envelope else None
+        redacted_summary = _redact_value(summary) if summary else None
+        if not isinstance(redacted_envelope, dict):
+            redacted_envelope = None
+        if not isinstance(redacted_summary, dict):
+            redacted_summary = None
         if tool_call_id:
             for entry in reversed(self._tool_entries):
                 if entry.id == tool_call_id:
                     entry.result_summary = result_summary
                     entry.is_error = is_error
+                    entry.envelope = redacted_envelope
+                    entry.surface = surface
+                    entry.summary = redacted_summary
                     break
         publish_typed(
             self._channel_id,
@@ -250,7 +265,9 @@ class ChannelEventEmitter:
                     result_summary=result_summary,
                     tool_call_id=tool_call_id,
                     is_error=is_error,
-                    surface="harness",
+                    envelope=redacted_envelope,
+                    surface=surface or "harness",
+                    summary=redacted_summary,
                     session_id=self._session_id,
                 ),
             ),
@@ -268,8 +285,8 @@ class ChannelEventEmitter:
                         "name": entry.name,
                         "arguments": entry.arguments,
                     },
-                    "surface": "transcript",
-                    "summary": {
+                    "surface": entry.surface or "transcript",
+                    "summary": entry.summary or {
                         "kind": "error" if entry.is_error else "result",
                         "subject_type": "tool",
                         "label": entry.name,
@@ -278,6 +295,10 @@ class ChannelEventEmitter:
                 }
             )
         return calls
+
+    def tool_envelopes(self) -> list[dict[str, Any]]:
+        """Return rich result envelopes for persistence in message metadata."""
+        return [entry.envelope for entry in self._tool_entries if entry.envelope]
 
     def assistant_turn_body(self, *, text: str) -> dict[str, Any] | None:
         items: list[dict[str, Any]] = []

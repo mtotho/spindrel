@@ -12,7 +12,8 @@ Fixture format — one JSON object per line, dispatched in order with an
 
     {"type":"thinking",   "text":"...",                  "delay_ms": 700}
     {"type":"tool_call",  "name":"Read","args":{...},   "delay_ms": 250}
-    {"type":"tool_result","name":"Read","summary":"...","delay_ms": 450}
+    {"type":"tool_result","name":"Read","summary":"...","delay_ms": 450,
+      "surface":"rich_result","envelope":{...},"result_summary":{...}}
     {"type":"text",       "chunk":"...",                 "delay_ms":  80}
     {"type":"message_end",                                "delay_ms": 120}
 
@@ -175,11 +176,23 @@ class DemoHarnessRuntime:
                 summary = str(ev.get("summary", ""))
                 is_error = bool(ev.get("is_error", False))
                 call_id = str(ev.get("id") or tool_call_ids.get(name) or "")
+                envelope = ev.get("envelope")
+                if not isinstance(envelope, dict):
+                    envelope = None
+                result_summary = ev.get("result_summary")
+                if not isinstance(result_summary, dict):
+                    result_summary = None
+                surface = ev.get("surface")
+                if not isinstance(surface, str) or not surface:
+                    surface = None
                 emit.tool_result(
                     tool_name=name,
                     result_summary=summary,
                     is_error=is_error,
                     tool_call_id=call_id or None,
+                    envelope=envelope,
+                    surface=surface,
+                    summary=result_summary,
                 )
             elif kind == "text":
                 chunk = str(ev.get("chunk", ""))

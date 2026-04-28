@@ -90,11 +90,12 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     sessionPickerOpen,
     setSessionPickerOpen,
     navigate,
+    channelClusterMode,
   } = props;
 
   return (
     <>
-      <LensHint />
+      {!channelClusterMode && <LensHint />}
       {selectionRail && (
         <SpatialSelectionRail
           x={selectionRail.x}

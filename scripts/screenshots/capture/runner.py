@@ -42,6 +42,10 @@ async def _run_actions(page, actions: list[Action]) -> None:
             if not a.selector:
                 raise ValueError("action kind='click' requires selector")
             await page.click(a.selector, timeout=WAIT_TIMEOUT_MS)
+        elif a.kind == "dblclick":
+            if not a.selector:
+                raise ValueError("action kind='dblclick' requires selector")
+            await page.dblclick(a.selector, timeout=WAIT_TIMEOUT_MS)
         elif a.kind == "fill":
             if not a.selector or a.value is None:
                 raise ValueError("action kind='fill' requires selector and value")
@@ -57,6 +61,10 @@ async def _run_actions(page, actions: list[Action]) -> None:
             if not a.selector or a.value is None:
                 raise ValueError("action kind='select' requires selector and value")
             await page.select_option(a.selector, a.value, timeout=WAIT_TIMEOUT_MS)
+        elif a.kind == "wait":
+            if a.value is None:
+                raise ValueError("action kind='wait' requires value (milliseconds)")
+            await page.wait_for_timeout(int(a.value))
         elif a.kind == "wait_for":
             if not a.selector:
                 raise ValueError("action kind='wait_for' requires selector")

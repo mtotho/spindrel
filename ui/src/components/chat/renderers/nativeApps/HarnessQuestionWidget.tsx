@@ -178,13 +178,13 @@ export function HarnessQuestionWidget({
         ...shellStyle,
         display: "flex",
         flexDirection: "column",
-        gap: isTerminal ? 10 : 12,
+        gap: isTerminal ? 7 : 9,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-          <div style={{ fontSize: isTerminal ? 12 : 13, fontWeight: 650, color: t.text }}>{title}</div>
-          <div style={{ fontSize: isTerminal ? 11 : 12, color: t.textMuted }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+          <div style={{ fontSize: isTerminal ? 11.5 : 12.5, fontWeight: 650, color: t.text }}>{title}</div>
+          <div style={{ fontSize: isTerminal ? 10.5 : 11.5, color: t.textMuted }}>
             {state.runtime || "Harness"} paused for input.
           </div>
         </div>
@@ -194,9 +194,9 @@ export function HarnessQuestionWidget({
             border: `1px solid ${readonly ? t.surfaceBorder : t.accentBorder}`,
             background: readonly ? t.surfaceRaised : t.accentSubtle,
             color: readonly ? t.textMuted : t.accent,
-            borderRadius: 999,
-            padding: "3px 8px",
-            fontSize: isTerminal ? 10.5 : 11,
+            borderRadius: isTerminal ? 4 : 6,
+            padding: isTerminal ? "2px 5px" : "2px 7px",
+            fontSize: isTerminal ? 10 : 10.5,
             fontWeight: 650,
           }}
         >
@@ -210,20 +210,20 @@ export function HarnessQuestionWidget({
           : [];
         const chosen = selected[question.id] ?? [];
         return (
-          <div key={question.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div key={question.id} style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 6 : 7 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 2 : 3 }}>
               {question.header ? (
-                <div style={{ fontSize: isTerminal ? 10.5 : 11, color: t.textDim, fontWeight: 650, textTransform: "uppercase" }}>
+                <div style={{ fontSize: isTerminal ? 10 : 10.5, color: t.textDim, fontWeight: 650, textTransform: "uppercase" }}>
                   {question.header}
                 </div>
               ) : null}
-              <div style={{ fontSize: isTerminal ? 12 : 13, color: t.text, fontWeight: 600 }}>
+              <div style={{ fontSize: isTerminal ? 11.5 : 12.5, color: t.text, fontWeight: 600 }}>
                 {question.question}
                 {question.required === false ? null : <span style={{ color: t.danger }}> *</span>}
               </div>
             </div>
             {options.length ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: isTerminal ? 5 : 6 }}>
                 {options.map((option) => {
                   const active = chosen.includes(option.label);
                   return (
@@ -236,9 +236,9 @@ export function HarnessQuestionWidget({
                         border: `1px solid ${active ? t.accentBorder : t.surfaceBorder}`,
                         background: active ? t.accentSubtle : t.surfaceRaised,
                         color: active ? t.accent : t.text,
-                        borderRadius: isTerminal ? 5 : 8,
-                        padding: isTerminal ? "5px 7px" : "6px 9px",
-                        fontSize: isTerminal ? 11.5 : 12,
+                        borderRadius: isTerminal ? 4 : 6,
+                        padding: isTerminal ? "3px 6px" : "5px 8px",
+                        fontSize: isTerminal ? 11 : 11.5,
                         cursor: readonly ? "default" : "pointer",
                         opacity: readonly && !active ? 0.65 : 1,
                         fontFamily: isTerminal ? TERMINAL_FONT_STACK : undefined,
@@ -247,7 +247,7 @@ export function HarnessQuestionWidget({
                       <span style={{ display: "flex", flexDirection: "column", gap: 2, textAlign: "left" }}>
                         <span>{option.label}</span>
                         {option.description ? (
-                          <span style={{ color: active ? t.accent : t.textDim, fontSize: isTerminal ? 10.5 : 11, fontWeight: 400 }}>
+                          <span style={{ color: active ? t.accent : t.textDim, fontSize: isTerminal ? 10 : 10.5, fontWeight: 400 }}>
                             {option.description}
                           </span>
                         ) : null}
@@ -263,17 +263,17 @@ export function HarnessQuestionWidget({
                 disabled={readonly}
                 onChange={(event) => updateText(question.id, event.target.value)}
                 placeholder={options.length ? "Add details..." : "Type your answer..."}
-                rows={options.length ? 2 : 3}
+                rows={options.length ? 1 : 2}
                 style={{
                   width: "100%",
                   resize: "vertical",
                   border: `1px solid ${t.inputBorder}`,
                   background: t.inputBg,
                   color: t.text,
-                  borderRadius: 8,
-                  padding: "8px 10px",
-                  fontSize: isTerminal ? 12 : 13,
-                  lineHeight: 1.45,
+                  borderRadius: isTerminal ? 4 : 6,
+                  padding: isTerminal ? "5px 7px" : "7px 9px",
+                  fontSize: isTerminal ? 11.5 : 12.5,
+                  lineHeight: 1.4,
                   outline: "none",
                   fontFamily: isTerminal ? TERMINAL_FONT_STACK : undefined,
                 }}
@@ -289,25 +289,25 @@ export function HarnessQuestionWidget({
           disabled={readonly}
           onChange={(event) => setNotes(event.target.value)}
           placeholder="Optional notes..."
-          rows={2}
+          rows={1}
           style={{
             width: "100%",
             resize: "vertical",
             border: `1px solid ${t.inputBorder}`,
             background: t.inputBg,
             color: t.text,
-            borderRadius: 8,
-            padding: "8px 10px",
-            fontSize: isTerminal ? 12 : 13,
-            lineHeight: 1.45,
+            borderRadius: isTerminal ? 4 : 6,
+            padding: isTerminal ? "5px 7px" : "7px 9px",
+            fontSize: isTerminal ? 11.5 : 12.5,
+            lineHeight: 1.4,
             outline: "none",
             fontFamily: isTerminal ? TERMINAL_FONT_STACK : undefined,
           }}
         />
       ) : null}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ color: error ? t.danger : t.textDim, fontSize: isTerminal ? 11 : 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ color: error ? t.danger : t.textDim, fontSize: isTerminal ? 10.5 : 11.5 }}>
           {error || (readonly ? "Your response is stored in this session." : "Answering resumes the harness turn.")}
         </span>
         {isPending ? (
@@ -320,9 +320,9 @@ export function HarnessQuestionWidget({
               border: `1px solid ${t.accentBorder}`,
               background: t.accent,
               color: "#ffffff",
-              borderRadius: 8,
-              padding: "7px 11px",
-              fontSize: isTerminal ? 12 : 13,
+              borderRadius: isTerminal ? 4 : 6,
+              padding: isTerminal ? "5px 8px" : "6px 10px",
+              fontSize: isTerminal ? 11.5 : 12.5,
               fontWeight: 650,
               cursor: busy || readonly ? "default" : "pointer",
               opacity: busy || readonly ? 0.7 : 1,

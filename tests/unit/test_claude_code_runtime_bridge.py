@@ -57,12 +57,25 @@ class _RecordingEmitter:
             "tool_call_id": tool_call_id,
         }))
 
-    def tool_result(self, *, tool_name: str, result_summary: str, is_error=False, tool_call_id=None) -> None:
+    def tool_result(
+        self,
+        *,
+        tool_name: str,
+        result_summary: str,
+        is_error=False,
+        tool_call_id=None,
+        envelope=None,
+        surface=None,
+        summary=None,
+    ) -> None:
         self.calls.append(("tool_result", {
             "tool_name": tool_name,
             "result_summary": result_summary,
             "is_error": is_error,
             "tool_call_id": tool_call_id,
+            "envelope": envelope,
+            "surface": surface,
+            "summary": summary,
         }))
 
 
@@ -202,6 +215,9 @@ def test_tool_result_uses_lookup_to_resolve_tool_name():
             "result_summary": "file contents here",
             "is_error": False,
             "tool_call_id": "tu_1",
+            "envelope": None,
+            "surface": None,
+            "summary": None,
         }),
     ]
 
@@ -247,6 +263,54 @@ def test_tool_result_list_content_joins_text_items():
     )
 
     assert emitter.calls[0][1]["result_summary"] == "line one\nline two"
+
+
+def test_edit_tool_result_emits_runtime_supplied_diff_envelope():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    msg_start = AssistantMessage(
+        content=[
+            ToolUseBlock(
+                id="tu_edit",
+                name="Edit",
+                input={
+                    "file_path": "app.py",
+                    "old_string": "print('old')\n",
+                    "new_string": "print('new')\n",
+                },
+            )
+        ],
+        model="claude-sonnet-4-6",
+    )
+    msg_result = UserMessage(
+        content=[ToolResultBlock(tool_use_id="tu_edit", content="updated", is_error=False)],
+    )
+
+    _bridge_message(
+        msg_start,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={},
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+    _bridge_message(
+        msg_result,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={"tu_edit": "Edit"},
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    result = emitter.calls[-1][1]
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["content_type"] == "application/vnd.spindrel.diff+text"
+    assert "--- a/app.py" in result["envelope"]["body"]
+    assert "-print('old')" in result["envelope"]["body"]
+    assert "+print('new')" in result["envelope"]["body"]
+    assert result["summary"]["kind"] == "diff"
+    assert result["summary"]["path"] == "app.py"
 
 
 def test_result_message_populates_meta():

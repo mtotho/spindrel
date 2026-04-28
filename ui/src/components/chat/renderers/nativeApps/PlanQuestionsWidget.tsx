@@ -17,6 +17,7 @@ export function PlanQuestionsWidget({
   envelope,
   sessionId,
   gridDimensions,
+  hostSurface,
   layout,
   t,
 }: NativeAppRendererProps) {
@@ -40,6 +41,7 @@ export function PlanQuestionsWidget({
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showCompactForm, setShowCompactForm] = useState(false);
+  const isTerminal = hostSurface === "plain";
 
   if (!questions.length) {
     return <PreviewCard title={title} description="No questions were provided." t={t} />;
@@ -124,33 +126,33 @@ export function PlanQuestionsWidget({
 
   if (profile.compact && !showCompactForm) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 6 : 8, minHeight: "100%" }}>
         <div
           style={{
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 12,
-            background: t.surface,
-            padding: 12,
+            border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+            borderRadius: isTerminal ? 0 : 6,
+            background: isTerminal ? "transparent" : t.surface,
+            padding: isTerminal ? 0 : 9,
             display: "flex",
             flexDirection: "column",
-            gap: 8,
+            gap: isTerminal ? 4 : 6,
           }}
         >
           <div
             style={{
-              fontSize: 10,
-              letterSpacing: "0.08em",
+              fontSize: isTerminal ? 9.5 : 10,
+              letterSpacing: "0.04em",
               textTransform: "uppercase",
               color: t.textDim,
             }}
           >
             {questions.length} question{questions.length === 1 ? "" : "s"} pending
           </div>
-          <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>
+          <div style={{ color: t.text, fontSize: isTerminal ? 12 : 13, fontWeight: 600 }}>
             {title}
           </div>
-          {intro ? <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>{intro}</div> : null}
-          <div style={{ color: t.textMuted, fontSize: 12 }}>
+          {intro ? <div style={{ color: t.textMuted, fontSize: isTerminal ? 11 : 12, lineHeight: 1.4 }}>{intro}</div> : null}
+          <div style={{ color: t.textMuted, fontSize: isTerminal ? 11 : 12 }}>
             First prompt: {questions[0]?.label}
           </div>
         </div>
@@ -162,12 +164,12 @@ export function PlanQuestionsWidget({
             type="button"
             onClick={() => setShowCompactForm(true)}
             style={{
-              borderRadius: 999,
+              borderRadius: isTerminal ? 4 : 6,
               border: `1px solid ${t.accentBorder}`,
               background: t.accentSubtle,
               color: t.accent,
-              padding: "6px 10px",
-              fontSize: 12,
+              padding: isTerminal ? "4px 8px" : "5px 9px",
+              fontSize: isTerminal ? 11.5 : 12,
               fontWeight: 600,
               cursor: "pointer",
             }}
@@ -180,13 +182,13 @@ export function PlanQuestionsWidget({
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {intro ? <div style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.55 }}>{intro}</div> : null}
+    <div style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 8 : 10 }}>
+      {intro ? <div style={{ fontSize: isTerminal ? 11.5 : 12.5, color: t.textMuted, lineHeight: 1.45 }}>{intro}</div> : null}
       {!intro ? (
         <div
           style={{
-            fontSize: 10,
-            letterSpacing: "0.08em",
+            fontSize: isTerminal ? 9.5 : 10,
+            letterSpacing: "0.04em",
             textTransform: "uppercase",
             color: t.textDim,
           }}
@@ -194,28 +196,28 @@ export function PlanQuestionsWidget({
           {questions.length} question{questions.length === 1 ? "" : "s"}
         </div>
       ) : null}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 7 : 8 }}>
         {questions.map((question) => {
           const value = values[question.id] ?? "";
           return (
             <div
               key={question.id}
               style={{
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 10,
-                background: t.surface,
-                padding: 12,
+                border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+                borderRadius: isTerminal ? 0 : 6,
+                background: isTerminal ? "transparent" : t.surface,
+                padding: isTerminal ? 0 : 9,
                 display: "flex",
                 flexDirection: "column",
-                gap: 8,
+                gap: isTerminal ? 5 : 7,
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+                <div style={{ fontSize: isTerminal ? 11.5 : 12.5, fontWeight: 600, color: t.text }}>
                   {question.label}
                   {question.required ? <span style={{ color: t.danger }}> *</span> : null}
                 </div>
-                {question.help ? <div style={{ fontSize: 12, color: t.textDim }}>{question.help}</div> : null}
+                {question.help ? <div style={{ fontSize: isTerminal ? 10.5 : 11.5, color: t.textDim }}>{question.help}</div> : null}
               </div>
               {question.type === "select" ? (
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -227,12 +229,12 @@ export function PlanQuestionsWidget({
                         type="button"
                         onClick={() => updateValue(question.id, choice)}
                         style={{
-                          borderRadius: 999,
+                          borderRadius: isTerminal ? 4 : 6,
                           border: `1px solid ${active ? t.accentBorder : t.surfaceBorder}`,
                           background: active ? t.accentSubtle : t.surfaceRaised,
                           color: active ? t.accent : t.textMuted,
-                          padding: "6px 10px",
-                          fontSize: 12,
+                          padding: isTerminal ? "4px 7px" : "5px 8px",
+                          fontSize: isTerminal ? 11 : 11.5,
                           cursor: "pointer",
                         }}
                       >
@@ -247,16 +249,16 @@ export function PlanQuestionsWidget({
                   onChange={(e) => updateValue(question.id, e.target.value)}
                   placeholder={question.placeholder}
                   style={{
-                    minHeight: profile.compact ? 72 : 92,
+                    minHeight: isTerminal ? 58 : (profile.compact ? 68 : 84),
                     width: "100%",
                     resize: "vertical",
-                    borderRadius: 8,
+                    borderRadius: isTerminal ? 4 : 6,
                     border: `1px solid ${t.surfaceBorder}`,
                     background: t.surfaceRaised,
                     color: t.text,
-                    padding: 10,
-                    fontSize: 13,
-                    lineHeight: 1.5,
+                    padding: isTerminal ? 7 : 9,
+                    fontSize: isTerminal ? 11.5 : 12.5,
+                    lineHeight: 1.4,
                     outline: "none",
                   }}
                 />
@@ -267,12 +269,12 @@ export function PlanQuestionsWidget({
                   placeholder={question.placeholder}
                   style={{
                     width: "100%",
-                    borderRadius: 8,
+                    borderRadius: isTerminal ? 4 : 6,
                     border: `1px solid ${t.surfaceBorder}`,
                     background: t.surfaceRaised,
                     color: t.text,
-                    padding: "10px 12px",
-                    fontSize: 13,
+                    padding: isTerminal ? "6px 8px" : "8px 10px",
+                    fontSize: isTerminal ? 11.5 : 12.5,
                     outline: "none",
                   }}
                 />
@@ -281,8 +283,8 @@ export function PlanQuestionsWidget({
           );
         })}
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 12, color: error ? t.danger : t.textDim }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontSize: isTerminal ? 10.5 : 11.5, color: error ? t.danger : t.textDim }}>
           {error ?? (submitted ? "Saved to chat history and sent to the agent." : "Submitting saves these answers as a real user message in the chat history.")}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -295,7 +297,7 @@ export function PlanQuestionsWidget({
                 background: "transparent",
                 color: t.textDim,
                 padding: 0,
-                fontSize: 12,
+                fontSize: isTerminal ? 11 : 12,
                 cursor: "pointer",
               }}
             >
@@ -307,12 +309,12 @@ export function PlanQuestionsWidget({
             onClick={() => void submitAnswers()}
             disabled={busy}
             style={{
-              borderRadius: 999,
+              borderRadius: isTerminal ? 4 : 6,
               border: `1px solid ${t.accentBorder}`,
               background: t.accentSubtle,
               color: t.accent,
-              padding: "8px 14px",
-              fontSize: 12,
+              padding: isTerminal ? "5px 8px" : "6px 10px",
+              fontSize: isTerminal ? 11.5 : 12,
               fontWeight: 600,
               cursor: busy ? "wait" : "pointer",
               opacity: busy ? 0.7 : 1,

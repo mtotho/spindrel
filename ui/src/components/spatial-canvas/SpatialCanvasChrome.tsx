@@ -107,6 +107,7 @@ export function LensHint() {
   if (!visible) return null;
   return (
     <div
+      data-testid="spatial-lens-hint"
       className="absolute bottom-4 left-4 z-[2] flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md backdrop-blur border bg-surface-raised/85 border-surface-border text-text-dim text-xs select-none pointer-events-none"
       style={{ opacity, transition: "opacity 600ms ease-out" }}
       aria-live="polite"

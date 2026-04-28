@@ -243,8 +243,7 @@ type SpatialSelection =
   | { kind: "channel"; nodeId: string }
   | { kind: "bot"; nodeId: string }
   | { kind: "widget"; nodeId: string }
-  | { kind: "landmark"; id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health" }
-  | { kind: "channel-cluster"; id: string };
+  | { kind: "landmark"; id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health" };
 
 export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyToNodeId }: SpatialCanvasProps) {
   const navigate = useNavigate();
@@ -984,6 +983,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         setOpenBotChat={setOpenBotChat}
         sessionPickerOpen={sessionPickerOpen}
         setSessionPickerOpen={setSessionPickerOpen}
+        channelClusterMode={channelClusterMode}
         navigate={navigate}
       />
     </div>

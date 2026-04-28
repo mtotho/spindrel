@@ -1,5 +1,6 @@
 """Tests for the manage_bot_skill tool — bot self-authored skill CRUD."""
 
+import inspect
 import json
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -115,6 +116,15 @@ class TestBotSkillHelpers:
 
     def test_when_extract_frontmatter_has_no_frontmatter_then_returns_empty_dict(self):
         assert _extract_frontmatter("No frontmatter") == {}
+
+    def test_manage_bot_skill_stays_action_dispatcher_sized(self):
+        source_lines = inspect.getsource(manage_bot_skill).splitlines()
+        function_start = next(
+            idx for idx, line in enumerate(source_lines)
+            if line.startswith("async def manage_bot_skill(")
+        )
+
+        assert len(source_lines[function_start:]) <= 130
 
 
 # ---------------------------------------------------------------------------

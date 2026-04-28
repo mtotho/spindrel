@@ -11,7 +11,7 @@ from typing import Callable, Literal
 
 
 WaitKind = Literal["selector", "function", "network_idle", "pin_count"]
-ActionKind = Literal["click", "fill", "press", "select", "wait_for"]
+ActionKind = Literal["click", "dblclick", "fill", "press", "select", "wait", "wait_for"]
 
 
 @dataclass
@@ -20,9 +20,11 @@ class Action:
 
     Shape per kind:
       - click:     selector required; clicks the first match
+      - dblclick:  selector required; double-clicks the first match
       - fill:      selector + value; clears and types value into an input
       - press:     value required (e.g. "Escape", "Enter"); selector optional (page-level if omitted)
       - select:    selector + value; chooses an <option> by value
+      - wait:      value required; waits that many milliseconds
       - wait_for:  selector required; waits for it to attach (default) or match
     """
     kind: ActionKind
@@ -1136,6 +1138,48 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "if (document.querySelector('[data-testid=\"spatial-selection-rail\"]')) throw new Error('cluster click opened floating selection rail');"
             "if (document.querySelector('[data-spatial-selected-anchor=\"true\"]')) throw new Error('cluster click created a selected-object anchor');"
             "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) throw new Error('cluster click created a hover card');"
+            "if (document.querySelector('[data-testid=\"spatial-lens-hint\"]')) throw new Error('cluster overview showed the focus lens hint');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-cluster-doubleclick-focus",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
+            ' && !!document.querySelector(\'[data-tile-kind="channel-cluster"]\')'
+        ),
+        output="spatial-check-cluster-doubleclick-focus.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.18}),
+        ],
+        pre_capture_js=(
+            "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
+            " if (!world) throw new Error('spatial world not found');"
+            " const beforeMatch = String(world.style.transform || '').match(/scale\\(([^)]+)\\)/);"
+            " window.__spatialClusterScaleBefore = beforeMatch ? Number(beforeMatch[1]) : 0;"
+            "const before = location.pathname;"
+            " window.__spatialClusterPathBefore = before;"
+        ),
+        actions=[
+            Action(kind="dblclick", selector='[data-tile-kind="channel-cluster"]'),
+            Action(kind="wait", value="900"),
+        ],
+        assert_js=(
+            "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
+        ),
+        assert_js=(
+            "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
+            "const afterMatch = String(world?.style.transform || '').match(/scale\\(([^)]+)\\)/);"
+            "const afterScale = afterMatch ? Number(afterMatch[1]) : 0;"
+            "if (!(afterScale > window.__spatialClusterScaleBefore + 0.05)) throw new Error(`cluster double-click did not zoom toward the cluster: ${window.__spatialClusterScaleBefore} -> ${afterScale}`);"
+            "if (location.pathname !== window.__spatialClusterPathBefore) throw new Error('cluster double-click navigated directly to a channel');"
+            "if (document.querySelector('[data-testid=\"spatial-selection-rail\"]')) throw new Error('cluster double-click opened floating selection rail');"
+            "if (document.querySelector('[data-spatial-selected-anchor=\"true\"]')) throw new Error('cluster double-click created a selected-object anchor');"
+            "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) throw new Error('cluster double-click created a hover card');"
+            "if (document.querySelector('[data-testid=\"spatial-lens-hint\"]')) throw new Error('cluster overview showed the focus lens hint');"
         ),
     ),
     ScreenshotSpec(

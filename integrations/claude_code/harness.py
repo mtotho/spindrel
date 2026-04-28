@@ -23,6 +23,10 @@ import os
 import subprocess
 from typing import Any
 
+from app.services.agent_harnesses.tool_results import (
+    build_diff_tool_result,
+    unified_diff_from_strings,
+)
 from integrations.sdk import (
     AllowDeny,
     AuthStatus,
@@ -738,6 +742,9 @@ def _bridge_message(
                 emit.thinking(block.thinking)
             elif isinstance(block, ToolUseBlock):
                 tool_name_by_use_id[block.id] = block.name
+                tool_inputs = result_meta.setdefault("claude_tool_inputs", {})
+                if isinstance(tool_inputs, dict):
+                    tool_inputs[block.id] = block.input or {}
                 emit.tool_start(
                     tool_name=block.name,
                     tool_call_id=block.id,
@@ -769,11 +776,34 @@ def _bridge_message(
             for block in msg.content:
                 if isinstance(block, ToolResultBlock):
                     tool_name = tool_name_by_use_id.get(block.tool_use_id, "unknown")
+                    result_summary = _summarize_tool_result(block.content)
+                    envelope = None
+                    surface = None
+                    summary = None
+                    tool_inputs = result_meta.get("claude_tool_inputs")
+                    tool_input = (
+                        tool_inputs.get(block.tool_use_id)
+                        if isinstance(tool_inputs, dict)
+                        else None
+                    )
+                    if not block.is_error and isinstance(tool_input, dict):
+                        rich = _build_claude_file_change_result(
+                            tool_name=tool_name,
+                            tool_call_id=block.tool_use_id,
+                            tool_input=tool_input,
+                        )
+                        if rich:
+                            envelope, summary = rich
+                            surface = "rich_result"
+                            result_summary = envelope["plain_body"]
                     emit.tool_result(
                         tool_name=tool_name,
                         tool_call_id=block.tool_use_id,
-                        result_summary=_summarize_tool_result(block.content),
+                        result_summary=result_summary,
                         is_error=bool(block.is_error),
+                        envelope=envelope,
+                        surface=surface,
+                        summary=summary,
                     )
         return
 
@@ -842,6 +872,37 @@ def _summarize_tool_result(content: Any) -> str:
         return joined if len(joined) <= 4000 else joined[:4000] + "…"
     # Fallback for unexpected shapes.
     return str(content)[:4000]
+
+
+def _build_claude_file_change_result(
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    tool_input: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Build a diff envelope only from Claude tool-call arguments.
+
+    Claude's Edit tool carries both ``old_string`` and ``new_string`` in the
+    runtime event. That is enough to display the patch without reading the
+    workspace after the turn. Write/MultiEdit remain summary-only unless the
+    runtime starts supplying a complete diff payload.
+    """
+    if tool_name != "Edit":
+        return None
+    path = tool_input.get("file_path") or tool_input.get("path")
+    old = tool_input.get("old_string")
+    new = tool_input.get("new_string")
+    if not all(isinstance(value, str) for value in (path, old, new)):
+        return None
+    diff_body = unified_diff_from_strings(old=old, new=new, path=path)
+    if not diff_body.strip():
+        return None
+    return build_diff_tool_result(
+        tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        diff_body=diff_body,
+        path=path,
+    )
 
 
 # ----------------------------------------------------------------------------
