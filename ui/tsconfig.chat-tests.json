@@ -61,6 +61,8 @@
     "src/components/chat/orderedTranscriptGrouping.test.ts",
     "src/components/chat/chatKeyboard.ts",
     "src/components/chat/chatKeyboard.test.ts",
+    "src/components/chat/reverseScrollPinning.ts",
+    "src/components/chat/reverseScrollPinning.test.ts",
     "src/components/chat/renderArchitecture.test.ts",
     "src/components/chat/renderers/widgetTheme.ts",
     "src/components/chat/renderers/widgetTheme.test.ts",

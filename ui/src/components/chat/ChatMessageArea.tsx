@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { SpindrelLogo } from "@/src/components/layout/SpindrelLogo";
@@ -12,6 +12,10 @@ import {
   type ScrollToMessageDetail,
 } from "./renderers/FindResultsRenderer";
 import { loadUntilMessageVisible } from "./findJump";
+import {
+  localUserMessageScrollKey,
+  preserveReverseScrollPositionOnBottomGrowth,
+} from "./reverseScrollPinning";
 
 const DEFAULT_CHAT_CONTENT_MAX_WIDTH = 820;
 const TERMINAL_CHAT_CONTENT_MAX_WIDTH = 1120;
@@ -160,6 +164,9 @@ export function ChatMessageArea({
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const footerHeightRef = useRef<number | null>(null);
+  const lastLocalUserScrollKeyRef = useRef<string | null>(null);
   const [showFab, setShowFab] = useState(false);
   const findJumpIdRef = useRef(0);
 
@@ -206,6 +213,34 @@ export function ChatMessageArea({
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
+  // In column-reverse, growing the visual bottom keeps the same distance from
+  // bottom by default. That is correct while pinned, but it drags the viewport
+  // downward after the user scrolls up to read a streaming response. Compensate
+  // for live footer growth only when the user is already away from the bottom.
+  useEffect(() => {
+    const root = scrollRef.current;
+    const footer = footerRef.current;
+    if (!root || !footer || typeof ResizeObserver === "undefined") return;
+    footerHeightRef.current = footer.getBoundingClientRect().height;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const previousBottomHeight = footerHeightRef.current ?? entry.contentRect.height;
+      const nextBottomHeight = entry.contentRect.height;
+      footerHeightRef.current = nextBottomHeight;
+      const nextScrollTop = preserveReverseScrollPositionOnBottomGrowth({
+        scrollTop: root.scrollTop,
+        previousBottomHeight,
+        nextBottomHeight,
+      });
+      if (nextScrollTop !== root.scrollTop) {
+        root.scrollTop = nextScrollTop;
+      }
+    });
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, []);
+
   // IntersectionObserver does not always re-fire if the sentinel was already
   // intersecting when an entry landed (short threads where page 1 doesn't
   // fill the viewport). After each page settles, re-check the sentinel and
@@ -226,6 +261,14 @@ export function ChatMessageArea({
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  useLayoutEffect(() => {
+    const key = localUserMessageScrollKey(invertedData[0]);
+    if (!key || lastLocalUserScrollKeyRef.current === key) return;
+    lastLocalUserScrollKeyRef.current = key;
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: 0, behavior: "auto" });
+  }, [invertedData]);
 
   // Listen for /find clicks requesting a jump to a specific message. If the
   // target is in this session but older than the mounted page, load older
@@ -376,6 +419,7 @@ export function ChatMessageArea({
             a Spindrel brand mark tucked below the newest message. Scrolls
             with the content so it slips off when the user scrolls up. */}
         <div
+          ref={footerRef}
           className="w-full mx-auto"
           style={{
             maxWidth: contentMaxWidth,
