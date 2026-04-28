@@ -3,6 +3,8 @@ import { Hash, Lock, MessageCircle } from "lucide-react";
 import { LucideIconByName } from "../IconPicker";
 import { useChannelReadStore } from "../../stores/channelRead";
 import type { Channel } from "../../types/api";
+import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import { ObjectStatusPill, statusRingClass } from "./SpatialObjectStatus";
 import { channelHue } from "./spatialIdentity";
 import {
   planetAtmosphereStops,
@@ -50,6 +52,7 @@ interface ChannelTileProps {
   /** Bot avatar lookup hoisted by the canvas so each visible channel tile
    *  does not subscribe to the same bots query independently. */
   botAvatarById?: Map<string, string>;
+  workState?: WorkspaceMapObjectState | null;
   onDive: () => void;
   onSelect?: () => void;
 }
@@ -59,12 +62,12 @@ const SNAPSHOT_THRESHOLD = 1.0;
 const OVERVIEW_MIN_DOT_SCREEN_PX = 22;
 const OVERVIEW_MIN_LABEL_SCREEN_PX = 13;
 
-export function ChannelTile({ channel, icon, zoom, extraScale = 1, botAvatarById, onDive, onSelect }: ChannelTileProps) {
+export function ChannelTile({ channel, icon, zoom, extraScale = 1, botAvatarById, workState, onDive, onSelect }: ChannelTileProps) {
   if (zoom < DOT_THRESHOLD)
-    return <DotView channel={channel} zoom={zoom} extraScale={extraScale} onDive={onDive} onSelect={onSelect} />;
+    return <DotView channel={channel} zoom={zoom} extraScale={extraScale} workState={workState} onDive={onDive} onSelect={onSelect} />;
   if (zoom < SNAPSHOT_THRESHOLD)
-    return <PreviewView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} onSelect={onSelect} />;
-  return <SnapshotView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} onSelect={onSelect} />;
+    return <PreviewView channel={channel} icon={icon} botAvatarById={botAvatarById} workState={workState} onDive={onDive} onSelect={onSelect} />;
+  return <SnapshotView channel={channel} icon={icon} botAvatarById={botAvatarById} workState={workState} onDive={onDive} onSelect={onSelect} />;
 }
 
 function ChannelGlyph({ icon, size, active }: { icon: string | null; size: number; active?: boolean }) {
@@ -313,12 +316,14 @@ function DotView({
   channel,
   zoom,
   extraScale,
+  workState,
   onDive,
   onSelect,
 }: {
   channel: Channel;
   zoom: number;
   extraScale: number;
+  workState?: WorkspaceMapObjectState | null;
   onDive: () => void;
   onSelect?: () => void;
 }) {
@@ -339,7 +344,7 @@ function DotView({
       style={{ width: 240, minHeight: 150 }}
     >
       <div
-        className="shadow-md ring-2 ring-text/10 rounded-full"
+        className={`shadow-md ring-2 ring-text/10 rounded-full ${statusRingClass(workState)}`}
         style={{
           width: 88,
           height: 88,
@@ -365,12 +370,14 @@ function PreviewView({
   channel,
   icon,
   botAvatarById,
+  workState,
   onDive,
   onSelect,
 }: {
   channel: Channel;
   icon: string | null;
   botAvatarById?: Map<string, string>;
+  workState?: WorkspaceMapObjectState | null;
   onDive: () => void;
   onSelect?: () => void;
 }) {
@@ -387,7 +394,7 @@ function PreviewView({
       onDoubleClick={onDive}
       className="relative w-full h-full cursor-pointer"
     >
-      <ChannelPlanet channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="preview" />
+      <ChannelPlanet channelId={channel.id} intensity={isUnread || workState?.status === "recent" ? "warm" : "normal"} tier="preview" />
       <div className="absolute inset-0 flex flex-col gap-1.5 p-3" >
         <div className="flex flex-row items-center gap-1.5 min-w-0">
           <ChannelGlyph icon={icon} size={14} />
@@ -396,6 +403,7 @@ function PreviewView({
         </div>
         <div className="flex flex-row items-center gap-2 mt-auto">
           <BotAvatarRow channel={channel} botAvatarById={botAvatarById} size={18} max={4} />
+          <ObjectStatusPill state={workState} compact />
           <div className="flex flex-row items-center gap-2 ml-auto">
             <RecentCountBadge count={recentCount} />
             {isUnread && <UnreadDot />}
@@ -410,12 +418,14 @@ function SnapshotView({
   channel,
   icon,
   botAvatarById,
+  workState,
   onDive,
   onSelect,
 }: {
   channel: Channel;
   icon: string | null;
   botAvatarById?: Map<string, string>;
+  workState?: WorkspaceMapObjectState | null;
   onDive: () => void;
   onSelect?: () => void;
 }) {
@@ -433,7 +443,7 @@ function SnapshotView({
       onDoubleClick={onDive}
       className="relative w-full h-full cursor-pointer"
     >
-      <ChannelPlanet channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="snapshot" />
+      <ChannelPlanet channelId={channel.id} intensity={isUnread || workState?.status === "recent" ? "warm" : "normal"} tier="snapshot" />
       <div className="absolute inset-0 flex flex-col gap-1.5 p-4" >
         <div className="flex flex-row items-center gap-2 min-w-0">
           <ChannelGlyph icon={icon} size={16} />
@@ -445,6 +455,7 @@ function SnapshotView({
             {preview}
           </div>
         )}
+        <ObjectStatusPill state={workState} />
         <div className="flex flex-row items-center gap-2 mt-auto">
           <BotAvatarRow channel={channel} botAvatarById={botAvatarById} size={20} max={4} />
           <div className="flex flex-row items-center gap-2 ml-auto">

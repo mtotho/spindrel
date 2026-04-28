@@ -19,9 +19,11 @@ from app.db.models import (
     ChannelHeartbeat,
     Task,
     TraceEvent,
+    WidgetCronSubscription,
     WidgetDashboard,
     WidgetDashboardPin,
     WidgetInstance,
+    WorkspaceAttentionItem,
     WorkspaceSpatialNode,
 )
 from app.services.dashboards import (
@@ -426,6 +428,113 @@ class TestPinWidgetToCanvas:
             )
         ).scalar_one_or_none()
         assert node_row is None
+
+
+class TestWorkspaceMapState:
+    async def test_map_state_uses_existing_room_actor_and_warning_primitives(self, client, db_session):
+        ch = await _create_channel(client, name="Ops")
+        channel_id = uuid.UUID(ch["id"])
+        now = datetime.now(timezone.utc)
+
+        # Seed channel + bot nodes. Map state should treat the
+        # bot as an actor, not require any Mission/Mission Control rows.
+        nodes_resp = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert nodes_resp.status_code == 200
+        channel_node = next(n for n in nodes_resp.json()["nodes"] if n["channel_id"] == ch["id"])
+        assert any(n["bot_id"] == "test-bot" for n in nodes_resp.json()["nodes"])
+        db_session.add(ChannelHeartbeat(
+            channel_id=channel_id,
+            enabled=True,
+            interval_minutes=30,
+            next_run_at=now + timedelta(minutes=30),
+            last_run_at=now - timedelta(hours=1),
+            run_count=3,
+        ))
+        failed = Task(
+            bot_id="test-bot",
+            channel_id=channel_id,
+            prompt="Check the deploy",
+            title="Deploy check",
+            status="failed",
+            task_type="scheduled",
+            error="deploy probe failed",
+            created_at=now - timedelta(minutes=10),
+            completed_at=now - timedelta(minutes=9),
+        )
+        db_session.add(failed)
+        db_session.add(WorkspaceAttentionItem(
+            source_type="system",
+            source_id="test",
+            channel_id=channel_id,
+            target_kind="channel",
+            target_id=str(channel_id),
+            dedupe_key="ops-warning",
+            severity="critical",
+            title="Ops needs attention",
+            message="critical signal",
+            status="open",
+            last_seen_at=now,
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/workspace/spatial/map-state", headers=AUTH_HEADERS)
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        by_node = payload["objects_by_node_id"]
+        room = by_node[channel_node["id"]]
+        actor = next(obj for obj in payload["objects"] if obj["kind"] == "bot" and obj["target_id"] == "test-bot")
+
+        assert payload["source"] == "existing_primitives"
+        assert room["kind"] == "channel"
+        assert room["source"]["primary_bot_id"] == "test-bot"
+        assert room["attached"]["heartbeat"]["enabled"] is True
+        assert room["counts"]["upcoming"] >= 1
+        assert room["counts"]["warnings"] >= 2
+        assert room["severity"] == "critical"
+        assert any(w["kind"] == "attention" for w in room["warnings"])
+        assert any(r["title"] == "Deploy check" for r in room["recent"])
+        assert actor["kind"] == "bot"
+        assert actor["source"]["bot_id"] == "test-bot"
+        assert any(r["title"] == "Deploy check" for r in actor["recent"])
+
+    async def test_map_state_describes_workspace_widget_sources_and_crons(self, client, db_session):
+        ch = await _create_channel(client, name="Widgets")
+        now = datetime.now(timezone.utc)
+        r = await client.post(
+            "/api/v1/workspace/spatial/widget-pins",
+            json={
+                "source_kind": "channel",
+                "tool_name": "core/test_widget",
+                "source_channel_id": ch["id"],
+                "display_label": "Widget Probe",
+                "envelope": _envelope("Widget Probe"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 201, r.text
+        pin_id = uuid.UUID(r.json()["pin"]["id"])
+        node_id = r.json()["node"]["id"]
+        db_session.add(WidgetCronSubscription(
+            pin_id=pin_id,
+            cron_name="refresh",
+            schedule="*/15 * * * *",
+            handler="refresh",
+            enabled=True,
+            next_fire_at=now + timedelta(minutes=15),
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/workspace/spatial/map-state", headers=AUTH_HEADERS)
+        assert resp.status_code == 200, resp.text
+        widget = resp.json()["objects_by_node_id"][node_id]
+        assert widget["kind"] == "widget"
+        assert widget["source"]["source_channel_id"] == ch["id"]
+        assert widget["source"]["source_channel_name"] == "Widgets"
+        assert widget["source"]["source_bot_id"] is None
+        assert widget["source"]["tool_name"] == "core/test_widget"
+        assert widget["attached"]["cron_count"] == 1
+        assert widget["next"]["kind"] == "widget_cron"
+        assert widget["status"] == "scheduled"
 
     async def test_channel_native_pin_projects_same_instance_to_canvas(self, client, db_session):
         from app.services.dashboard_pins import create_pin, list_pins

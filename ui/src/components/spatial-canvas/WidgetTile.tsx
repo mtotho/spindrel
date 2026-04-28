@@ -7,6 +7,7 @@ import { InteractiveHtmlRenderer } from "../chat/renderers/InteractiveHtmlRender
 import { ComponentRenderer, WidgetActionContext } from "../chat/renderers/ComponentRenderer";
 import { renderNativeWidget } from "../chat/renderers/nativeApps/registry";
 import type { ToolResultEnvelope } from "../../types/api";
+import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
 import {
   NODES_KEY,
   useDeleteSpatialNode,
@@ -17,6 +18,7 @@ import {
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
+import { ObjectStatusPill, statusRingClass } from "./SpatialObjectStatus";
 
 /**
  * Widget tile with three semantic-zoom levels (P3b — live).
@@ -54,6 +56,7 @@ interface WidgetTileProps {
   activated: boolean;
   /** Tile id (canvas uses this to set the activated tile). */
   nodeId: string;
+  workState?: WorkspaceMapObjectState | null;
   onActivate: (nodeId: string) => void;
   onSelect?: () => void;
 }
@@ -89,18 +92,20 @@ function WidgetTileInner({
   inViewport,
   activated,
   nodeId,
+  workState,
   onActivate,
   onSelect,
 }: WidgetTileProps) {
-  if (zoom < CHIP_THRESHOLD) return <ChipView zoom={zoom} extraScale={extraScale} onSelect={onSelect} />;
+  if (zoom < CHIP_THRESHOLD) return <ChipView zoom={zoom} extraScale={extraScale} workState={workState} onSelect={onSelect} />;
   if (zoom < TITLE_THRESHOLD)
-    return <ChipTitleView pin={pin} zoom={zoom} extraScale={extraScale} onSelect={onSelect} />;
+    return <ChipTitleView pin={pin} zoom={zoom} extraScale={extraScale} workState={workState} onSelect={onSelect} />;
   return (
     <CardView
       pin={pin}
       inViewport={inViewport}
       activated={activated}
       nodeId={nodeId}
+      workState={workState}
       onActivate={onActivate}
       onSelect={onSelect}
       zoom={zoom}
@@ -114,6 +119,7 @@ export const WidgetTile = memo(WidgetTileInner, (prev, next) => {
   if (prev.inViewport !== next.inViewport) return false;
   if (prev.activated !== next.activated) return false;
   if (prev.nodeId !== next.nodeId) return false;
+  if (prev.workState !== next.workState) return false;
   if (prev.onActivate !== next.onActivate) return false;
   if (prev.onSelect !== next.onSelect) return false;
 
@@ -135,10 +141,10 @@ export const WidgetTile = memo(WidgetTileInner, (prev, next) => {
  * channel `dot` so the user reads "widget" vs "channel" at any zoom level.
  * The icon counter-rotates to stay upright.
  */
-function WidgetGlyph({ size }: { size: number }) {
+function WidgetGlyph({ size, workState }: { size: number; workState?: WorkspaceMapObjectState | null }) {
   return (
     <div
-      className="bg-accent/15 border-2 border-accent shadow-md flex items-center justify-center text-accent"
+      className={`bg-accent/15 border-2 border-accent shadow-md flex items-center justify-center text-accent ${statusRingClass(workState)}`}
       style={{
         width: size,
         height: size,
@@ -153,7 +159,17 @@ function WidgetGlyph({ size }: { size: number }) {
   );
 }
 
-function ChipView({ zoom, extraScale, onSelect }: { zoom: number; extraScale: number; onSelect?: () => void }) {
+function ChipView({
+  zoom,
+  extraScale,
+  workState,
+  onSelect,
+}: {
+  zoom: number;
+  extraScale: number;
+  workState?: WorkspaceMapObjectState | null;
+  onSelect?: () => void;
+}) {
   const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom) * Math.max(0.05, extraScale);
   const glyphScale = Math.max(1, OVERVIEW_MIN_CHIP_SCREEN_PX / (64 * effectiveScale));
   return (
@@ -172,7 +188,7 @@ function ChipView({ zoom, extraScale, onSelect }: { zoom: number; extraScale: nu
           transformOrigin: "center center",
         }}
       >
-        <WidgetGlyph size={64} />
+        <WidgetGlyph size={64} workState={workState} />
       </div>
     </div>
   );
@@ -182,11 +198,13 @@ function ChipTitleView({
   pin,
   zoom,
   extraScale,
+  workState,
   onSelect,
 }: {
   pin: SpatialNodePin;
   zoom: number;
   extraScale: number;
+  workState?: WorkspaceMapObjectState | null;
   onSelect?: () => void;
 }) {
   // Counter-scale the title so it stays readable at chip+title zoom range
@@ -205,7 +223,7 @@ function ChipTitleView({
       className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3"
       style={{ width: 220, minHeight: 112 }}
     >
-      <WidgetGlyph size={56} />
+      <WidgetGlyph size={56} workState={workState} />
       <div
         className="text-base font-semibold text-text whitespace-nowrap max-w-full truncate px-2"
         style={{
@@ -215,6 +233,7 @@ function ChipTitleView({
       >
         {widgetTitle(pin)}
       </div>
+      <ObjectStatusPill state={workState} compact />
     </div>
   );
 }
@@ -224,6 +243,7 @@ function CardView({
   inViewport,
   activated,
   nodeId,
+  workState,
   onActivate,
   onSelect,
   zoom,
@@ -232,6 +252,7 @@ function CardView({
   inViewport: boolean;
   activated: boolean;
   nodeId: string;
+  workState?: WorkspaceMapObjectState | null;
   onActivate: (id: string) => void;
   onSelect?: () => void;
   zoom: number;
@@ -430,6 +451,7 @@ function CardView({
         <span className="text-sm font-semibold leading-tight truncate ml-1">
           {title}
         </span>
+        <ObjectStatusPill state={workState} compact />
         <span className="text-[10px] text-text-dim font-mono truncate ml-auto">
           {tool}
         </span>

@@ -739,6 +739,101 @@ async def _toggle_plan_mode(
     return _side_effect_result(payload, command_id="plan")
 
 
+async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if ctx.surface == "channel":
+        session = await _resolve_current_session(ctx)
+        scope_kind: Literal["channel", "session"] = "channel"
+        assert ctx.channel_id is not None
+        scope_id = ctx.channel_id
+    else:
+        assert ctx.session is not None and ctx.session_id is not None
+        session = ctx.session
+        scope_kind = "session"
+        scope_id = ctx.session_id
+
+    if not ctx.args:
+        raise ValueError("/runtime requires a whitelisted runtime command id")
+    command_id = ctx.args[0].strip()
+    command_args = tuple(ctx.args[1:])
+    if not command_id:
+        raise ValueError("/runtime requires a whitelisted runtime command id")
+
+    from app.agent.bots import get_bot
+    from app.services.agent_harnesses import HARNESS_REGISTRY
+    from app.services.agent_harnesses.approvals import load_session_mode
+    from app.services.agent_harnesses.context import build_turn_context
+    from app.services.agent_harnesses.project import resolve_harness_paths
+    from app.services.agent_harnesses.session_state import load_latest_harness_metadata
+    from app.services.agent_harnesses.settings import load_session_settings
+
+    bot = get_bot(session.bot_id)
+    runtime_name = getattr(bot, "harness_runtime", None)
+    if not runtime_name:
+        raise ValueError("/runtime is only available for harness-backed sessions")
+    runtime = HARNESS_REGISTRY.get(runtime_name)
+    if runtime is None:
+        raise ValueError(f"Harness runtime {runtime_name!r} is not registered")
+    caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
+    allowed = {spec.id for spec in getattr(caps, "native_commands", ())} if caps else set()
+    if command_id not in allowed:
+        raise ValueError(
+            f"Runtime command {command_id!r} is not available for {runtime_name}. "
+            f"Available: {', '.join(sorted(allowed)) or 'none'}"
+        )
+    if not hasattr(runtime, "execute_native_command"):
+        raise ValueError(f"Harness runtime {runtime_name!r} does not support native commands")
+
+    settings = await load_session_settings(ctx.db, session.id)
+    mode = await load_session_mode(ctx.db, session.id)
+    harness_meta, _last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
+    paths = await resolve_harness_paths(
+        ctx.db,
+        channel_id=session.channel_id or session.parent_channel_id,
+        bot=bot,
+    )
+    turn_ctx = build_turn_context(
+        spindrel_session_id=session.id,
+        bot_id=bot.id,
+        turn_id=uuid.uuid4(),
+        channel_id=session.channel_id or session.parent_channel_id,
+        workdir=paths.bot_workspace_dir,
+        harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
+        permission_mode=mode,
+        model=settings.model,
+        effort=settings.effort,
+        runtime_settings=settings.runtime_settings,
+        session_plan_mode=get_session_plan_mode(session),
+        harness_metadata=harness_meta or {},
+    )
+    result = await runtime.execute_native_command(
+        command_id=command_id,
+        args=command_args,
+        ctx=turn_ctx,
+    )
+    payload = {
+        "runtime": runtime_name,
+        "command": result.command_id,
+        "status": result.status,
+        "title": result.title,
+        "detail": result.detail,
+        "scope_kind": scope_kind,
+        "scope_id": str(scope_id),
+        "data": dict(result.payload or {}),
+    }
+    return SlashCommandResult(
+        command_id="runtime",
+        result_type="harness_runtime_command",
+        payload=payload,
+        fallback_text="\n".join(
+            part for part in (
+                f"{runtime_name} {result.command_id}: {result.title}",
+                result.detail,
+            )
+            if part
+        ),
+    )
+
+
 # ============================================================================
 # Handlers — thin ctx adapters over the shared helpers above
 # ============================================================================
@@ -1477,6 +1572,15 @@ _register(SlashCommandSpec(
     description="Toggle plan mode",
     surfaces=("channel", "session"),
     handler=_plan_handler,
+))
+
+_register(SlashCommandSpec(
+    id="runtime",
+    label="/runtime",
+    description="Run a whitelisted native harness command",
+    surfaces=("channel", "session"),
+    handler=_runtime_handler,
+    args=(SlashCommandArgSpec(name="command", source="free_text", required=True),),
 ))
 
 _register(SlashCommandSpec(

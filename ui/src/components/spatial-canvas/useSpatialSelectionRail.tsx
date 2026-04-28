@@ -19,6 +19,7 @@ import {
 import { widgetPinHref } from "../../lib/hubRoutes";
 import type { SpatialContextMenuItem } from "./SpatialContextMenu";
 import type { SpatialSelectionAction } from "./SpatialSelectionRail";
+import { mapStateLabel, mapStateMeta } from "./SpatialObjectStatus";
 
 type UseSpatialSelectionRailArgs = Record<string, any>;
 
@@ -52,6 +53,7 @@ export function useSpatialSelectionRail(args: UseSpatialSelectionRailArgs) {
     deleteNode,
     channelForBot,
     updateNode,
+    mapState,
   } = args;
 
   return useMemo(() => {
@@ -139,6 +141,8 @@ export function useSpatialSelectionRail(args: UseSpatialSelectionRailArgs) {
 
     const node = (nodes ?? []).find((entry: any) => entry.id === selectedSpatialObject.nodeId);
     if (!node) return null;
+    const objectState = mapState?.objects_by_node_id?.[node.id] ?? null;
+    const stateMeta = mapStateLabel(objectState) || mapStateMeta(objectState);
     const anchor = toScreen(node.world_x + node.world_w / 2, node.world_y - 12);
     const focus = () => focusNode(node);
 
@@ -163,7 +167,7 @@ export function useSpatialSelectionRail(args: UseSpatialSelectionRailArgs) {
         x: anchor.x,
         y: anchor.y,
         label: `#${channel.name}`,
-        meta: "Channel",
+        meta: stateMeta || "Channel",
         leading: <MessageCircle className="h-4 w-4" />,
         actions: [
           { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
@@ -198,7 +202,7 @@ export function useSpatialSelectionRail(args: UseSpatialSelectionRailArgs) {
         x: anchor.x,
         y: anchor.y,
         label: botName,
-        meta: "Bot",
+        meta: stateMeta || "Bot",
         leading: <Bot className="h-4 w-4" />,
         actions: [
           { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
@@ -227,7 +231,7 @@ export function useSpatialSelectionRail(args: UseSpatialSelectionRailArgs) {
         x: anchor.x,
         y: anchor.y,
         label: title,
-        meta: "Widget",
+        meta: stateMeta || "Widget",
         leading: <Box className="h-4 w-4" />,
         actions: [
           { id: "focus", label: "Focus", icon: Locate, onSelect: (event) => { event.stopPropagation(); focus(); } },
@@ -280,6 +284,7 @@ export function useSpatialSelectionRail(args: UseSpatialSelectionRailArgs) {
     canvasBackState,
     deleteNode,
     updateNode,
+    mapState,
     setContextMenu,
     setOpenBotChat,
   ]);

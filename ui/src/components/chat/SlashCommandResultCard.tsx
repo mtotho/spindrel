@@ -74,8 +74,47 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
     return <HarnessModelEffortPickerCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
   }
 
+  if (resultType === "harness_runtime_command") {
+    return <HarnessRuntimeCommandCard payload={rawPayload as Record<string, any>} chatMode={chatMode} />;
+  }
+
   // Default: context_summary (used by /context)
   return <ContextSummaryCard message={message} chatMode={chatMode} />;
+}
+
+function HarnessRuntimeCommandCard({
+  payload,
+  chatMode,
+}: {
+  payload: Record<string, any>;
+  chatMode: "default" | "terminal";
+}) {
+  const status = String(payload.status || "ok");
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/runtime"
+      meta={String(payload.runtime || "harness")}
+    >
+      <div className="grid gap-2 p-3 text-[12px] text-text-muted">
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-medium text-text">{String(payload.title || payload.command || "Runtime command")}</div>
+          <div className={status === "ok" ? "text-success-muted" : "text-warning-muted"}>
+            {status}
+          </div>
+        </div>
+        {payload.detail && <div className="whitespace-pre-wrap">{String(payload.detail)}</div>}
+        {payload.data && typeof payload.data === "object" && Object.keys(payload.data).length > 0 && (
+          <details className="rounded bg-surface-overlay/50 px-2 py-1">
+            <summary className="cursor-pointer text-[11px] text-text-dim">Runtime payload</summary>
+            <div className="mt-2 max-h-80 overflow-auto font-mono text-[11px] leading-5 text-text-muted whitespace-pre-wrap">
+              {JSON.stringify(payload.data, null, 2)}
+            </div>
+          </details>
+        )}
+      </div>
+    </SlashResultPanel>
+  );
 }
 
 function SlashPendingCard({

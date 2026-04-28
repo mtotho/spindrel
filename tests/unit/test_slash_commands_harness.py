@@ -19,6 +19,8 @@ import pytest
 from app.db.models import Bot as BotRow, Channel as ChannelRow, Session as SessionRow
 from app.services.agent_harnesses import HARNESS_REGISTRY, register_runtime, unregister_runtime
 from app.services.agent_harnesses.base import (
+    HarnessRuntimeCommandResult,
+    HarnessRuntimeCommandSpec,
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
 )
@@ -58,8 +60,23 @@ class _StubRuntime:
             model_is_freeform=True,
             effort_values=(),  # No effort — friendly no-op path
             slash_policy=HarnessSlashCommandPolicy(
-                allowed_command_ids=frozenset({"help", "stop", "rename", "model"}),
+                allowed_command_ids=frozenset({"help", "stop", "rename", "model", "runtime"}),
             ),
+            native_commands=(
+                HarnessRuntimeCommandSpec(
+                    id="status",
+                    label="status",
+                    description="Show test harness status.",
+                ),
+            ),
+        )
+
+    async def execute_native_command(self, *, command_id: str, args: tuple[str, ...], ctx):
+        return HarnessRuntimeCommandResult(
+            command_id=command_id,
+            title="Stub runtime status",
+            detail=f"session={ctx.spindrel_session_id}; args={','.join(args)}",
+            payload={"workdir": ctx.workdir},
         )
 
 
@@ -291,8 +308,8 @@ async def test_harness_help_lists_only_allowed_commands(db_session):
         args=[],
     )
     labels = {c["label"] for c in result.payload["top_categories"]}
-    # Allowlist for stub: {help, stop, rename, model}
-    assert labels == {"/help", "/stop", "/rename", "/model"}
+    # Allowlist for stub: {help, stop, rename, model, runtime}
+    assert labels == {"/help", "/stop", "/rename", "/model", "/runtime"}
 
 
 async def test_normal_help_lists_full_surface(db_session):
@@ -322,7 +339,38 @@ async def test_catalog_with_bot_id_intersects(db_session):
 
     catalog = await list_supported_slash_commands(db=db_session, bot_id=bot.id)
     ids = {c["id"] for c in catalog}
-    assert ids == {"help", "stop", "rename", "model"}
+    assert ids == {"help", "stop", "rename", "model", "runtime"}
+
+
+async def test_harness_runtime_command_dispatches_to_whitelisted_runtime(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="runtime",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=["status", "extra"],
+    )
+
+    assert result.result_type == "harness_runtime_command"
+    assert result.payload["runtime"] == _RUNTIME_NAME
+    assert result.payload["command"] == "status"
+    assert result.payload["status"] == "ok"
+    assert "args=extra" in result.payload["detail"]
+
+
+async def test_harness_runtime_command_rejects_unlisted_runtime_command(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    with pytest.raises(ValueError, match="not available"):
+        await execute_slash_command(
+            command_id="runtime",
+            channel_id=channel.id,
+            session_id=None,
+            db=db_session,
+            args=["shell"],
+        )
 
 
 async def test_catalog_without_bot_id_returns_full(db_session):

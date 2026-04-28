@@ -399,6 +399,27 @@ class HarnessModelOption:
 
 
 @dataclass(frozen=True)
+class HarnessRuntimeCommandSpec:
+    """One whitelisted runtime-native command exposed through Spindrel."""
+
+    id: str
+    label: str
+    description: str
+    readonly: bool = True
+
+
+@dataclass(frozen=True)
+class HarnessRuntimeCommandResult:
+    """Result returned by a runtime-native command handler."""
+
+    command_id: str
+    title: str
+    detail: str = ""
+    status: str = "ok"
+    payload: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class RuntimeCapabilities:
     """What a harness runtime exposes to the UI / slash dispatcher.
 
@@ -439,6 +460,8 @@ class RuntimeCapabilities:
     """True when the runtime can trigger or observe native context compaction."""
     context_window_tokens: int | None = None
     """Best-effort runtime context window for pressure estimates. None means unknown."""
+    native_commands: tuple[HarnessRuntimeCommandSpec, ...] = ()
+    """Whitelisted runtime-native commands available through ``/runtime``."""
 
 
 @runtime_checkable
@@ -534,3 +557,13 @@ class HarnessRuntime(Protocol):
         ``available_models``. Default: empty.
         """
         return ()
+
+    async def execute_native_command(
+        self,
+        *,
+        command_id: str,
+        args: tuple[str, ...],
+        ctx: TurnContext,
+    ) -> HarnessRuntimeCommandResult:
+        """Execute one whitelisted runtime-native command."""
+        raise NotImplementedError

@@ -11,6 +11,8 @@ import {
   MIN_SCALE,
   type LensTransform,
 } from "./spatialGeometry";
+import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import { ObjectStatusPill, statusRingClass } from "./SpatialObjectStatus";
 
 interface ManualBotNodeProps {
   node: SpatialNode;
@@ -119,12 +121,14 @@ export function BotTile({
   avatarEmoji,
   zoom,
   reduced,
+  workState,
 }: {
   name: string;
   botId: string;
   avatarEmoji: string | null;
   zoom: number;
   reduced: boolean;
+  workState?: WorkspaceMapObjectState | null;
 }) {
   const compact = zoom < 0.55;
   const avatar = avatarEmoji || "🤖";
@@ -140,7 +144,7 @@ export function BotTile({
       title={`${name} (${botId})`}
     >
       <div
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)]"
+        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)] ${statusRingClass(workState)}`}
         style={{ width: outerSize, height: outerSize, scale: markerScale }}
       />
       <div
@@ -160,6 +164,11 @@ export function BotTile({
         <div className={`truncate rounded-md bg-surface-raised/90 px-2.5 py-1 font-semibold leading-tight text-text shadow-sm ${compact ? "text-[14px]" : "text-[16px]"}`}>
           {name}
         </div>
+        {!compact && (
+          <div className="mt-1 flex justify-center">
+            <ObjectStatusPill state={workState} compact />
+          </div>
+        )}
       </div>
     </div>
   );

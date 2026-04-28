@@ -19,6 +19,7 @@ import asyncio
 import inspect
 import logging
 import os
+import subprocess
 from typing import Any
 
 from integrations.sdk import (
@@ -27,6 +28,8 @@ from integrations.sdk import (
     ChannelEventEmitter,
     HarnessCompactResult,
     HarnessModelOption,
+    HarnessRuntimeCommandResult,
+    HarnessRuntimeCommandSpec,
     HarnessSlashCommandPolicy,
     HarnessToolSpec,
     RuntimeCapabilities,
@@ -94,7 +97,7 @@ def _effective_permission_mode(ctx: TurnContext) -> str:
 _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
     "help", "rename", "stop", "style", "theme", "clear",
     "sessions", "scratch", "split", "focus", "model", "effort",
-    "compact", "context", "plan", "new",
+    "compact", "context", "plan", "runtime", "new",
 })
 
 
@@ -110,6 +113,18 @@ _CLAUDE_KNOWN_MODELS: tuple[str, ...] = (
     "claude-haiku-4-5",
 )
 _CLAUDE_EFFORT_VALUES: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+_CLAUDE_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
+    HarnessRuntimeCommandSpec(
+        id="version",
+        label="version",
+        description="Show the installed Claude Code CLI version.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="auth",
+        label="auth",
+        description="Show Spindrel's Claude Code auth probe result.",
+    ),
+)
 
 
 def _credential_path() -> str:
@@ -174,6 +189,7 @@ class ClaudeCodeRuntime:
             ),
             native_compaction=True,
             context_window_tokens=200_000,
+            native_commands=_CLAUDE_NATIVE_COMMANDS,
         )
 
     async def list_models(self) -> tuple[str, ...]:
@@ -364,6 +380,58 @@ class ClaudeCodeRuntime:
                 f"Spindrel container with the command pre-seeded."
             ),
             suggested_command="claude login",
+        )
+
+    async def execute_native_command(
+        self,
+        *,
+        command_id: str,
+        args: tuple[str, ...],
+        ctx: TurnContext,
+    ) -> HarnessRuntimeCommandResult:
+        del args, ctx
+        if command_id == "auth":
+            status = self.auth_status()
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Claude Code auth",
+                detail=status.detail,
+                status="ok" if status.ok else "error",
+                payload={
+                    "ok": status.ok,
+                    "detail": status.detail,
+                    "suggested_command": status.suggested_command,
+                },
+            )
+        if command_id == "version":
+            try:
+                proc = subprocess.run(
+                    ["claude", "--version"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            except Exception as exc:
+                return HarnessRuntimeCommandResult(
+                    command_id=command_id,
+                    title="Claude Code version failed",
+                    detail=str(exc),
+                    status="error",
+                )
+            detail = (proc.stdout or proc.stderr or "").strip()
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Claude Code version",
+                detail=detail or f"claude --version exited {proc.returncode}",
+                status="ok" if proc.returncode == 0 else "error",
+                payload={"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr},
+            )
+        return HarnessRuntimeCommandResult(
+            command_id=command_id,
+            title="Unsupported Claude Code command",
+            detail=f"Claude Code native command {command_id!r} is not whitelisted.",
+            status="unsupported",
         )
 
 

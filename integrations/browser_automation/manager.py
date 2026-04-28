@@ -6,8 +6,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.runtime_services import resolve_runtime_requirement
 from integrations.browser_automation.config import settings
+from integrations.sdk import resolve_runtime_requirement
 
 
 @dataclass
@@ -171,4 +171,3 @@ class HeadlessBrowserManager:
 
 
 manager = HeadlessBrowserManager()
-

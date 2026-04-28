@@ -56,8 +56,7 @@ class _Settings(_Base):
         if val:
             return val
         try:
-            from app.services.runtime_services import resolve_runtime_requirement
-            resolution = resolve_runtime_requirement("web_search", "browser.playwright")
+            resolution = sdk.resolve_runtime_requirement("web_search", "browser.playwright")
             return resolution.endpoint or ""
         except Exception:
             return ""
@@ -67,8 +66,7 @@ class _Settings(_Base):
         if self._get("PLAYWRIGHT_WS_URL", ""):
             return "auto"
         try:
-            from app.services.runtime_services import resolve_runtime_requirement
-            resolution = resolve_runtime_requirement("web_search", "browser.playwright")
+            resolution = sdk.resolve_runtime_requirement("web_search", "browser.playwright")
             return resolution.protocol or "auto"
         except Exception:
             return "auto"

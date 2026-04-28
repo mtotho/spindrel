@@ -34,6 +34,8 @@ from integrations.sdk import (
     ChannelEventEmitter,
     HarnessCompactResult,
     HarnessModelOption,
+    HarnessRuntimeCommandResult,
+    HarnessRuntimeCommandSpec,
     HarnessSlashCommandPolicy,
     HarnessToolSpec,
     RuntimeCapabilities,
@@ -57,8 +59,36 @@ _CODEX_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset(
     {
         "help", "rename", "stop", "style", "theme", "clear",
         "sessions", "scratch", "split", "focus", "model", "effort",
-        "compact", "context", "plan", "new",
+        "compact", "context", "plan", "runtime", "new",
     }
+)
+
+_CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
+    HarnessRuntimeCommandSpec(
+        id="config",
+        label="config",
+        description="Read Codex app-server configuration status.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="mcp-status",
+        label="mcp-status",
+        description="List Codex-visible MCP server status.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="plugins",
+        label="plugins",
+        description="List Codex plugins visible to the app-server.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="skills",
+        label="skills",
+        description="List Codex skills visible to the app-server.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="features",
+        label="features",
+        description="List Codex experimental feature flags.",
+    ),
 )
 
 
@@ -107,6 +137,7 @@ class CodexRuntime:
             ),
             native_compaction=True,
             context_window_tokens=None,
+            native_commands=_CODEX_NATIVE_COMMANDS,
         )
 
     async def list_models(self) -> tuple[str, ...]:
@@ -333,6 +364,56 @@ class CodexRuntime:
             usage=result_meta.get("usage"),
         )
 
+    async def execute_native_command(
+        self,
+        *,
+        command_id: str,
+        args: tuple[str, ...],
+        ctx: TurnContext,
+    ) -> HarnessRuntimeCommandResult:
+        del args, ctx
+        methods = {
+            "config": (schema.METHOD_CONFIG_READ, {}),
+            "mcp-status": (schema.METHOD_MCP_SERVER_STATUS_LIST, {}),
+            "plugins": (schema.METHOD_PLUGIN_LIST, {}),
+            "skills": (schema.METHOD_SKILLS_LIST, {}),
+            "features": (schema.METHOD_EXPERIMENTAL_FEATURE_LIST, {}),
+        }
+        if command_id not in methods:
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Unsupported Codex command",
+                detail=f"Codex native command {command_id!r} is not whitelisted.",
+                status="unsupported",
+            )
+        method, params = methods[command_id]
+        try:
+            async with CodexAppServer.spawn() as client:
+                await client.initialize()
+                result = await client.request(method, params, timeout=20.0)
+        except CodexBinaryNotFound as exc:
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Codex binary not found",
+                detail=str(exc),
+                status="error",
+            )
+        except Exception as exc:
+            logger.exception("codex native command failed: %s", command_id)
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Codex native command failed",
+                detail=str(exc),
+                status="error",
+            )
+        return HarnessRuntimeCommandResult(
+            command_id=command_id,
+            title=f"Codex {command_id}",
+            detail=_summarize_native_command_result(command_id, result),
+            status="ok",
+            payload=result if isinstance(result, dict) else {"result": result},
+        )
+
     def auth_status(self) -> AuthStatus:
         cached = _AUTH_STATUS_CACHE.get(self.name)
         if cached and (time.monotonic() - cached[0]) < _AUTH_STATUS_TTL:
@@ -515,6 +596,18 @@ def _parse_model_options(result: dict[str, Any] | None) -> tuple[HarnessModelOpt
             )
         )
     return tuple(options)
+
+
+def _summarize_native_command_result(command_id: str, result: Any) -> str:
+    if not isinstance(result, dict):
+        return "Runtime command completed."
+    for key in ("servers", "plugins", "skills", "features", "data", "items"):
+        value = result.get(key)
+        if isinstance(value, list):
+            return f"{command_id}: {len(value)} item(s)."
+    if result:
+        return f"{command_id}: returned {len(result)} top-level field(s)."
+    return f"{command_id}: no data returned."
 
 
 def _extract_thread_id(result: dict[str, Any] | None) -> str | None:

@@ -1,5 +1,6 @@
 """Unit tests for app.tools.registry."""
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -222,6 +223,14 @@ class TestCallLocalTool:
         _register_dummy("dict_tool", func=dict_tool)
         result = await registry.call_local_tool("dict_tool", "{}")
         assert json.loads(result) == {"key": "value"}
+
+    async def test_json_result_serializes_decimal_like_values(self):
+        async def dict_tool():
+            return {"score": Decimal("0.42")}
+
+        _register_dummy("decimal_dict_tool", func=dict_tool)
+        result = await registry.call_local_tool("decimal_dict_tool", "{}")
+        assert json.loads(result) == {"score": "0.42"}
 
     async def test_unicode_preserved_in_dict_result(self):
         async def weather_like():

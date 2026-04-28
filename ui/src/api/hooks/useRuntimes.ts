@@ -23,6 +23,12 @@ export interface RuntimeCapabilities {
   slash_policy: HarnessSlashCommandPolicy;
   native_compaction: boolean;
   context_window_tokens?: number | null;
+  native_commands?: Array<{
+    id: string;
+    label: string;
+    description: string;
+    readonly: boolean;
+  }>;
 }
 
 /**

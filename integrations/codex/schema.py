@@ -43,6 +43,11 @@ METHOD_TURN_INTERRUPT = "turn/interrupt"
 METHOD_ACCOUNT_READ = "account/read"
 METHOD_MODEL_LIST = "model/list"
 METHOD_COLLABORATION_MODE_LIST = "collaborationMode/list"
+METHOD_CONFIG_READ = "config/read"
+METHOD_MCP_SERVER_STATUS_LIST = "mcpServerStatus/list"
+METHOD_PLUGIN_LIST = "plugin/list"
+METHOD_SKILLS_LIST = "skills/list"
+METHOD_EXPERIMENTAL_FEATURE_LIST = "experimentalFeature/list"
 
 
 # ---------------------------------------------------------------------------

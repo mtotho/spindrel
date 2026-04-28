@@ -149,4 +149,7 @@ async def test_capabilities_returns_runtime_shape(client):
     ]
     allowed = set(body["slash_policy"]["allowed_command_ids"])
     assert "help" in allowed and "stop" in allowed
-    assert "compact" not in allowed and "find" not in allowed
+    assert "compact" in allowed and "runtime" in allowed
+    assert "find" not in allowed
+    native_commands = {cmd["id"] for cmd in body["native_commands"]}
+    assert native_commands >= {"auth", "version"}

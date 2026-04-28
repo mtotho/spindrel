@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from app.agent.context import current_bot_id
 from app.tools.registry import register
@@ -32,6 +33,10 @@ _SEARCH_RETURNS = {
 }
 
 
+def _json_default(value: Any) -> str:
+    return str(value)
+
+
 def _format_search_results(results) -> str:
     items = []
     for r in results:
@@ -40,8 +45,12 @@ def _format_search_results(results) -> str:
             first_nl = snippet.find("\n")
             if first_nl > 0:
                 snippet = snippet[first_nl + 1:]
-        items.append({"file_path": r.file_path, "score": round(r.score, 3), "snippet": snippet.strip()})
-    return json.dumps({"count": len(items), "results": items}, ensure_ascii=False)
+        items.append({
+            "file_path": r.file_path,
+            "score": round(float(r.score), 3),
+            "snippet": snippet.strip(),
+        })
+    return json.dumps({"count": len(items), "results": items}, ensure_ascii=False, default=_json_default)
 
 logger = logging.getLogger(__name__)
 

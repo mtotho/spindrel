@@ -14,6 +14,7 @@ from integrations.codex.harness import (
     _extract_thread_id,
     _extract_turn_id,
     _server_supports_dynamic_tools,
+    _summarize_native_command_result,
 )
 from integrations.sdk import HarnessToolSpec
 
@@ -150,3 +151,17 @@ def test_initialize_capabilities_carries_experimental_api():
     # Exercises the schema constants used in app_server.initialize().
     assert schema.METHOD_INITIALIZE == "initialize"
     assert schema.NOTIFICATION_INITIALIZED == "initialized"
+
+
+def test_codex_native_command_method_constants_are_current():
+    assert schema.METHOD_CONFIG_READ == "config/read"
+    assert schema.METHOD_MCP_SERVER_STATUS_LIST == "mcpServerStatus/list"
+    assert schema.METHOD_PLUGIN_LIST == "plugin/list"
+    assert schema.METHOD_SKILLS_LIST == "skills/list"
+    assert schema.METHOD_EXPERIMENTAL_FEATURE_LIST == "experimentalFeature/list"
+
+
+def test_summarize_native_command_result_counts_common_list_fields():
+    assert _summarize_native_command_result("mcp-status", {"servers": [{}, {}]}) == "mcp-status: 2 item(s)."
+    assert _summarize_native_command_result("config", {"cwd": "/tmp"}) == "config: returned 1 top-level field(s)."
+    assert _summarize_native_command_result("features", ["a"]) == "Runtime command completed."

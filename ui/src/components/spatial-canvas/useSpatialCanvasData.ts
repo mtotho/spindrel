@@ -12,6 +12,7 @@ import {
   type WorkspaceAttentionItem,
 } from "../../api/hooks/useWorkspaceAttention";
 import { useWorkspaceMissions } from "../../api/hooks/useWorkspaceMissions";
+import { useWorkspaceMapState } from "../../api/hooks/useWorkspaceMapState";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import type { Channel } from "../../types/api";
 import type { TasksResponse } from "../shared/TaskConstants";
@@ -40,6 +41,7 @@ export function useSpatialCanvasData() {
   const dailyHealthPos = landmarkPositionFromNodes(nodes, "daily_health", HEALTH_SUMMARY_X, HEALTH_SUMMARY_Y);
   const { data: attentionItems } = useWorkspaceAttention();
   const { data: missions } = useWorkspaceMissions();
+  const { data: mapState } = useWorkspaceMapState();
   const markAttentionResponded = useMarkAttentionResponded();
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
@@ -168,6 +170,7 @@ export function useSpatialCanvasData() {
     dailyHealthPos,
     attentionItems,
     missions,
+    mapState,
     markAttentionResponded,
     channels,
     bots,

@@ -261,6 +261,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     dailyHealthPos,
     attentionItems,
     missions,
+    mapState,
     markAttentionResponded,
     upcomingItems,
     taskDefinitions,
@@ -635,6 +636,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     flyToNodeById,
     botsVisible,
     selectedSpatialObject,
+    mapState,
   });
 
   const {
@@ -709,6 +711,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     deleteNode,
     channelForBot,
     updateNode,
+    mapState,
   });
 
   // Fire-pulse tracking — when an upcoming item's scheduled_at crosses
@@ -856,6 +859,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         trailsMode={trailsMode}
         interactiveZoom={interactiveZoom}
         missions={missions}
+        mapState={mapState}
         camera={camera}
         openStarboardHub={openStarboardHub}
         ambientZoom={ambientZoom}

@@ -38,6 +38,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     flyToNodeById,
     botsVisible,
     selectedSpatialObject,
+    mapState,
   } = args;
 
   const starboardObjects = useMemo<StarboardObjectItem[]>(() => {
@@ -51,12 +52,15 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
       icon: "jump",
       onSelect: () => flyToStarboardObject(worldX, worldY),
     });
+    const landmarkState = (kind: string) =>
+      mapState?.objects?.find((item: any) => item.kind === "landmark" && item.target_id === kind) ?? null;
     const items: StarboardObjectItem[] = [
       {
         id: "landmark-memory-observatory",
         label: "Memory Observatory",
         kind: "landmark",
         subtitle: "Landmark",
+        workState: landmarkState("memory_observatory"),
         worldX: memoryObsPos.x,
         worldY: memoryObsPos.y,
         distance: distanceFromFocus(memoryObsPos.x, memoryObsPos.y),
@@ -71,6 +75,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         label: "Now Well",
         kind: "landmark",
         subtitle: "Landmark",
+        workState: landmarkState("now_well"),
         worldX: wellPos.x,
         worldY: wellPos.y,
         distance: distanceFromFocus(wellPos.x, wellPos.y),
@@ -85,6 +90,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         label: "Attention Hub",
         kind: "landmark",
         subtitle: activeAttentionCount > 0 ? `${activeAttentionCount} active` : "Landmark",
+        workState: landmarkState("attention_hub"),
         worldX: attentionHubPos.x,
         worldY: attentionHubPos.y,
         distance: distanceFromFocus(attentionHubPos.x, attentionHubPos.y),
@@ -101,6 +107,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         label: "Daily Health",
         kind: "landmark",
         subtitle: "Landmark",
+        workState: landmarkState("daily_health"),
         worldX: dailyHealthPos.x,
         worldY: dailyHealthPos.y,
         distance: distanceFromFocus(dailyHealthPos.x, dailyHealthPos.y),
@@ -116,11 +123,13 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
       const worldY = node.world_y + node.world_h / 2;
       if (node.channel_id) {
         const channel = channelsById.get(node.channel_id);
+        const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
         items.push({
           id: `node-${node.id}`,
           label: channel ? `#${channel.name}` : "Channel",
           kind: "channel",
           subtitle: "Channel",
+          workState,
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
@@ -152,11 +161,13 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           ],
         });
       } else if (node.pin) {
+        const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
         items.push({
           id: `node-${node.id}`,
           label: node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget",
           kind: "widget",
           subtitle: node.pin.tool_name || "Widget",
+          workState,
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
@@ -179,11 +190,13 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         const botId = node.bot_id;
         const botName = node.bot?.display_name || node.bot?.name || botId;
         const channel = channelForBot(botId);
+        const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
         items.push({
           id: `node-${node.id}`,
           label: botName,
           kind: "bot",
           subtitle: "Bot",
+          workState,
           worldX,
           worldY,
           distance: distanceFromFocus(worldX, worldY),
@@ -211,7 +224,17 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         });
       }
     }
-    return items.sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label));
+    const rank = (item: StarboardObjectItem) => {
+      const status = item.workState?.status;
+      if (status === "error") return 6;
+      if (status === "warning") return 5;
+      if (status === "running") return 4;
+      if (status === "scheduled") return 3;
+      if (status === "active") return 2;
+      if (status === "recent") return 1;
+      return 0;
+    };
+    return items.sort((a, b) => rank(b) - rank(a) || a.distance - b.distance || a.label.localeCompare(b.label));
   }, [
     nodes,
     channelsById,
@@ -238,6 +261,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     wellPos.y,
     attentionHubPos.x,
     attentionHubPos.y,
+    mapState,
   ]);
 
   const edgeBeacons = useMemo(() => {

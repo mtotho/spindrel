@@ -33,6 +33,7 @@ from app.services.workspace_spatial import (
     update_node_position,
 )
 from app.services.upcoming_activity import list_upcoming_activity
+from app.services.workspace_map_state import build_workspace_map_state
 
 
 router = APIRouter(prefix="/workspace/spatial", tags=["workspace-spatial"])
@@ -135,6 +136,19 @@ async def get_upcoming_activity(
         include_channelless_tasks=True,
     )
     return {"items": items}
+
+
+@router.get("/map-state")
+async def get_map_state(
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a read-only object-state projection for the spatial canvas.
+
+    This is intentionally built from existing workspace primitives. It does
+    not use Mission Control or missions as source truth.
+    """
+    return await build_workspace_map_state(db, auth=auth)
 
 
 @router.get("/channels/{channel_id}/bots/{bot_id}/policy")

@@ -17,6 +17,10 @@ _current_load_source_file: str | None = None
 _current_source_integration: str | None = None
 
 
+def _json_default(value: Any) -> str:
+    return str(value)
+
+
 def get_settings():
     """Create a settings reader for the current integration. Call at module level.
 
@@ -288,7 +292,7 @@ async def call_local_tool(name: str, arguments: str) -> str:
         result = await entry["function"](**args)
         elapsed = time.monotonic() - t0
         logger.debug("Tool %s completed in %.1fms", name, elapsed * 1000)
-        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        return result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=_json_default)
     except Exception as e:
         logger.exception("Error executing local tool %s", name)
         from app.security.prompt_sanitize import sanitize_exception

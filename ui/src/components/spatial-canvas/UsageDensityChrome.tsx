@@ -8,6 +8,8 @@ import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import { ObjectStatusPill, mapStateMeta } from "./SpatialObjectStatus";
 import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
@@ -20,6 +22,7 @@ export interface StarboardObjectItem {
   distance: number;
   onSelect: () => void;
   onDoubleClick?: () => void;
+  workState?: WorkspaceMapObjectState | null;
   actions: StarboardObjectAction[];
 }
 
@@ -184,7 +187,7 @@ export function UsageDensityChrome({
   const normalizedQuery = objectQuery.trim().toLowerCase();
   const visibleObjects = objects.filter((item) => {
     if (!normalizedQuery) return true;
-    return `${item.label} ${item.subtitle ?? ""} ${KIND_LABEL[item.kind]}`.toLowerCase().includes(normalizedQuery);
+    return `${item.label} ${item.subtitle ?? ""} ${item.workState?.primary_signal ?? ""} ${KIND_LABEL[item.kind]}`.toLowerCase().includes(normalizedQuery);
   });
 
   useEffect(() => {
@@ -517,11 +520,12 @@ export function UsageDensityChrome({
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-2">
                             <span className="truncate text-sm font-medium text-text">{item.label}</span>
+                            <ObjectStatusPill state={item.workState} compact />
                             <span className="shrink-0 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim">
                               {KIND_LABEL[item.kind]}
                             </span>
                           </span>
-                          <span className="block truncate text-xs text-text-dim">{item.subtitle ?? KIND_LABEL[item.kind]}</span>
+                          <span className="block truncate text-xs text-text-dim">{item.subtitle ?? mapStateMeta(item.workState) ?? KIND_LABEL[item.kind]}</span>
                         </span>
                         <span className="shrink-0 text-xs text-text-dim">{formatDistance(item.distance)}</span>
                       </button>
@@ -597,6 +601,10 @@ function clampStarboardWidth(width: number, maxWidth = Math.max(MIN_STARBOARD_WI
 
 function SelectedObjectStrip({ item }: { item: StarboardObjectItem }) {
   const primary = item.actions[0];
+  const state = item.workState;
+  const next = state?.next;
+  const recent = state?.recent?.[0];
+  const warning = state?.warnings?.[0];
   return (
     <section className="mb-2 rounded-md bg-surface-overlay/35 px-2.5 py-2">
       <div className="flex items-center gap-2">
@@ -606,7 +614,12 @@ function SelectedObjectStrip({ item }: { item: StarboardObjectItem }) {
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Selected {KIND_LABEL[item.kind]}</div>
           <div className="truncate text-sm font-semibold text-text">{item.label}</div>
-          {item.subtitle && <div className="truncate text-xs text-text-dim">{item.subtitle}</div>}
+          <div className="flex min-w-0 items-center gap-2">
+            <ObjectStatusPill state={item.workState} compact />
+            {(item.subtitle || mapStateMeta(item.workState)) && (
+              <div className="truncate text-xs text-text-dim">{item.subtitle ?? mapStateMeta(item.workState)}</div>
+            )}
+          </div>
         </div>
         {primary && (
           <button
@@ -620,6 +633,28 @@ function SelectedObjectStrip({ item }: { item: StarboardObjectItem }) {
           </button>
         )}
       </div>
+      {state && (
+        <div className="mt-2 grid gap-1.5 text-xs text-text-muted">
+          {next && (
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <span className="text-text-dim">Next</span>
+              <span className="truncate text-text">{next.title || next.kind}</span>
+            </div>
+          )}
+          {recent && (
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <span className="text-text-dim">Recent</span>
+              <span className="truncate text-text">{recent.title || recent.kind}</span>
+            </div>
+          )}
+          {warning && (
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <span className="text-text-dim">Warning</span>
+              <span className="truncate text-danger">{warning.title || warning.message}</span>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

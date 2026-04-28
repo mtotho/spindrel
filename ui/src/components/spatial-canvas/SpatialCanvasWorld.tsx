@@ -74,6 +74,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     trailsMode,
     interactiveZoom,
     missions,
+    mapState,
     camera,
     openStarboardHub,
     ambientZoom,
@@ -461,6 +462,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                   zoom={interactiveZoom}
                   extraScale={lens?.sizeFactor ?? 1}
                   botAvatarById={botAvatarById}
+                  workState={mapState?.objects_by_node_id?.[node.id] ?? null}
                   onSelect={() => selectNode("channel", node)}
                   onDive={() =>
                     diveToChannel(channel.id, {
@@ -505,6 +507,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                   avatarEmoji={node.bot?.avatar_emoji ?? null}
                   zoom={interactiveZoom}
                   reduced={botsReduced}
+                  workState={mapState?.objects_by_node_id?.[node.id] ?? null}
                 />
               </ManualBotNode>
             );
@@ -550,6 +553,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 inViewport={isInViewport(node)}
                 activated={activatedTileId === node.id}
                 nodeId={node.id}
+                workState={mapState?.objects_by_node_id?.[node.id] ?? null}
                 onActivate={handleActivate}
                 onSelect={() => selectNode("widget", node)}
               />

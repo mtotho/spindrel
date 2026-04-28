@@ -14,7 +14,7 @@ rather than being publicly readable.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.dependencies import verify_auth_or_user
 from app.services.agent_harnesses import HARNESS_REGISTRY
@@ -33,6 +33,13 @@ class HarnessModelOptionOut(BaseModel):
     default_effort: str | None = None
 
 
+class HarnessRuntimeCommandOut(BaseModel):
+    id: str
+    label: str
+    description: str
+    readonly: bool = True
+
+
 class RuntimeCapabilitiesOut(BaseModel):
     name: str
     display_name: str
@@ -47,6 +54,7 @@ class RuntimeCapabilitiesOut(BaseModel):
     slash_policy: HarnessSlashCommandPolicyOut
     native_compaction: bool = False
     context_window_tokens: int | None = None
+    native_commands: list[HarnessRuntimeCommandOut] = Field(default_factory=list)
 
 
 @router.get("/{name}/capabilities", response_model=RuntimeCapabilitiesOut)
@@ -116,4 +124,13 @@ async def get_runtime_capabilities(
         ),
         native_compaction=bool(getattr(caps, "native_compaction", False)),
         context_window_tokens=getattr(caps, "context_window_tokens", None),
+        native_commands=[
+            HarnessRuntimeCommandOut(
+                id=cmd.id,
+                label=cmd.label,
+                description=cmd.description,
+                readonly=cmd.readonly,
+            )
+            for cmd in getattr(caps, "native_commands", ())
+        ],
     )

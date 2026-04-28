@@ -280,6 +280,7 @@ from app.config import settings as app_settings  # noqa: E402, F401
 from app.services.approval_suggestions import build_suggestions  # noqa: E402, F401
 from app.services.attachments import create_widget_backed_attachment  # noqa: E402, F401
 from app.services.prompt_resolution import resolve_prompt  # noqa: E402, F401
+from app.services.runtime_services import resolve_runtime_requirement  # noqa: E402, F401
 from app.services.sandbox import sandbox_service, workspace_to_sandbox_config  # noqa: E402, F401
 from app.services.sessions import load_or_create, store_passive_message  # noqa: E402, F401
 from app.services.time_coercion import to_iso_z_or_none  # noqa: E402, F401
@@ -301,6 +302,8 @@ from app.services.agent_harnesses.base import (  # noqa: E402, F401
     HarnessContextHint,
     HarnessModelOption,
     HarnessRuntime,
+    HarnessRuntimeCommandResult,
+    HarnessRuntimeCommandSpec,
     HarnessSlashCommandPolicy,
     HarnessToolSpec,
     RuntimeCapabilities,
