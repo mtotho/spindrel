@@ -90,7 +90,9 @@ RUN groupadd -g 1000 spindrel \
        > /etc/profile.d/spindrel-path.sh \
     && chmod 0644 /etc/profile.d/spindrel-path.sh \
     && printf 'source /etc/profile.d/spindrel-path.sh\n' >> /home/spindrel/.bashrc \
-    && chown spindrel:spindrel /home/spindrel/.bashrc
+    && chown spindrel:spindrel /home/spindrel/.bashrc \
+    && mkdir -p /var/log/spindrel \
+    && chown spindrel:spindrel /var/log/spindrel
 
 # Narrow sudoers rule: spindrel may run apt-get (and only apt-get) without a
 # password. Integrations declare system deps in their manifest; the server

@@ -267,11 +267,103 @@ async def _dispatch_tool(req: WidgetActionRequest, db: AsyncSession) -> WidgetAc
     # Resolve tool type and call it
     result: str | None = None
     error_msg: str | None = None
+    pin = None
+    if req.dashboard_pin_id is not None:
+        from app.services.dashboard_pins import get_pin
+
+        try:
+            pin = await get_pin(db, req.dashboard_pin_id)
+        except Exception:
+            logger.warning(
+                "Widget action pin lookup failed before tool dispatch: pin=%s",
+                req.dashboard_pin_id,
+                exc_info=True,
+            )
+
+    effective_bot_id = req.bot_id or (getattr(pin, "source_bot_id", None) if pin is not None else None)
+    effective_channel_id = req.channel_id or (getattr(pin, "source_channel_id", None) if pin is not None else None)
+
+    try:
+        if is_local_tool(resolved_name):
+            from app.tools.registry import get_tool_execution_policy, get_tool_safety_tier
+
+            execution_policy = get_tool_execution_policy(resolved_name)
+            if execution_policy != "normal":
+                from app.services.machine_control import validate_current_execution_policy
+
+                resolution = await validate_current_execution_policy(execution_policy)
+                if not resolution.allowed:
+                    return WidgetActionResponse(
+                        ok=False,
+                        error=resolution.reason or "This tool is not available from widget actions.",
+                        error_kind="forbidden",
+                    )
+
+            safety_tier = get_tool_safety_tier(resolved_name)
+            if effective_bot_id:
+                from app.agent.tool_dispatch import _check_tool_policy
+
+                correlation_id = str(req.source_record_id or req.dashboard_pin_id or uuid.uuid4())
+                decision = await _check_tool_policy(
+                    str(effective_bot_id),
+                    resolved_name,
+                    req.args or {},
+                    correlation_id=correlation_id,
+                )
+                if decision is not None:
+                    if decision.action == "deny":
+                        return WidgetActionResponse(
+                            ok=False,
+                            error=f"Denied by policy: {decision.reason or '(no reason)'}",
+                            error_kind="forbidden",
+                        )
+                    if decision.action == "require_approval":
+                        return WidgetActionResponse(
+                            ok=False,
+                            error=decision.reason or "This tool requires approval before it can run.",
+                            error_kind="conflict",
+                        )
+            elif safety_tier in {"exec_capable", "control_plane"}:
+                return WidgetActionResponse(
+                    ok=False,
+                    error="High-privilege widget actions require bot context.",
+                    error_kind="forbidden",
+                )
+        elif is_mcp_tool(resolved_name) and effective_bot_id:
+            from app.agent.tool_dispatch import _check_tool_policy
+
+            correlation_id = str(req.source_record_id or req.dashboard_pin_id or uuid.uuid4())
+            decision = await _check_tool_policy(
+                str(effective_bot_id),
+                resolved_name,
+                req.args or {},
+                correlation_id=correlation_id,
+            )
+            if decision is not None:
+                if decision.action == "deny":
+                    return WidgetActionResponse(
+                        ok=False,
+                        error=f"Denied by policy: {decision.reason or '(no reason)'}",
+                        error_kind="forbidden",
+                    )
+                if decision.action == "require_approval":
+                    return WidgetActionResponse(
+                        ok=False,
+                        error=decision.reason or "This tool requires approval before it can run.",
+                        error_kind="conflict",
+                    )
+    except Exception:
+        logger.exception("Widget action policy check failed for %s", resolved_name)
+        return WidgetActionResponse(
+            ok=False,
+            error="Policy evaluation error.",
+            error_kind="internal",
+        )
 
     from app.agent.context import current_bot_id, current_channel_id
 
-    bot_token = current_bot_id.set(req.bot_id) if req.bot_id else None
-    channel_token = current_channel_id.set(req.channel_id) if req.channel_id else None
+    bot_token = current_bot_id.set(str(effective_bot_id)) if effective_bot_id else None
+    channel_token = current_channel_id.set(effective_channel_id) if effective_channel_id else None
     try:
         if is_local_tool(resolved_name):
             try:
@@ -326,15 +418,16 @@ async def _dispatch_tool(req: WidgetActionRequest, db: AsyncSession) -> WidgetAc
     if req.dashboard_pin_id is not None:
         from app.services.dashboard_pins import get_pin, update_pin_envelope
 
-        try:
-            pin = await get_pin(db, req.dashboard_pin_id)
-        except Exception:
-            logger.warning(
-                "Widget action pin lookup failed: pin=%s",
-                req.dashboard_pin_id,
-                exc_info=True,
-            )
-        else:
+        if pin is None:
+            try:
+                pin = await get_pin(db, req.dashboard_pin_id)
+            except Exception:
+                logger.warning(
+                    "Widget action pin lookup failed: pin=%s",
+                    req.dashboard_pin_id,
+                    exc_info=True,
+                )
+        if pin is not None:
             pin_tool_name = _resolve_tool_name(pin.tool_name)
             pin_poll_cfg = get_state_poll_config(pin_tool_name)
             if pin_poll_cfg:

@@ -63,9 +63,16 @@ def install_jsonl_log_handler(
         target_dir = DEFAULT_LOG_DIR
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        # Volume not mounted (test envs / dev runs). Skip silently — the in-memory
-        # ring buffer + console output still cover the same data.
+    except OSError as exc:
+        # Test envs / dev runs without the volume mount land here. Production
+        # should never — log loud so a misconfigured deploy is visible the
+        # moment the daily summary first runs against an empty file.
+        logging.getLogger(__name__).warning(
+            "JSONL log handler disabled: cannot create log dir %s (%s). "
+            "Daily health summary will miss app errors. Set SPINDREL_LOG_DIR "
+            "to a writable path or chown the dir to the runtime user.",
+            target_dir, exc,
+        )
         return None
 
     path = target_dir / filename
@@ -76,7 +83,13 @@ def install_jsonl_log_handler(
             backupCount=backup_count,
             encoding="utf-8",
         )
-    except OSError:
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "JSONL log handler disabled: cannot open %s for write (%s). "
+            "Daily health summary will miss app errors. Check that %s is "
+            "writable by the runtime user.",
+            path, exc, target_dir,
+        )
         return None
     handler.setFormatter(JsonlFormatter())
     handler.setLevel(logging.DEBUG)

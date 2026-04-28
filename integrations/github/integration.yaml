@@ -76,6 +76,14 @@ provides:
   - tools
   - skills
 
+tool_families:
+  github:
+    label: GitHub
+    tools:
+      - github_repo_dashboard
+      - github_repo_options
+      - github_set_issue_state
+
 # Interactive widget buttons for GitHub tools.
 # These tools already emit _envelope with components from Python code —
 # the _envelope opt-in takes priority over these YAML templates.
@@ -85,6 +93,44 @@ provides:
 # are defined here so widget actions can dispatch to them.
 
 tool_widgets:
+  github_repo_dashboard:
+    runtime: react
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "GitHub — {{repository.full_name}}"
+    html_template:
+      path: widgets/repo_dashboard.html
+    default_config:
+      repository: ""
+      limit: 20
+      include_actions: true
+    config_schema:
+      type: object
+      properties:
+        repository:
+          type: string
+          title: Repository
+          description: GitHub repository in owner/repo form. Leave empty on a GitHub-bound channel to infer it.
+        limit:
+          type: integer
+          title: Result limit
+          description: Maximum commits, PRs, issues, and workflow runs to show.
+          minimum: 5
+          maximum: 50
+          default: 20
+        include_actions:
+          type: boolean
+          title: Include workflow runs
+          description: Include recent GitHub Actions workflow runs.
+          default: true
+    state_poll:
+      tool: github_repo_dashboard
+      args:
+        repository: "{{widget_config.repository}}"
+        limit: "{{widget_config.limit}}"
+        include_actions: "{{widget_config.include_actions}}"
+      refresh_interval_seconds: 300
+
   github_get_pr:
     content_type: application/vnd.spindrel.components+json
     display: inline
@@ -189,21 +235,72 @@ tool_widgets:
           when: "{{state == 'open'}}"
           action:
             dispatch: tool
-            tool: github_update_issue
+            tool: github_set_issue_state
             args:
-              owner: "{{repository.owner.login}}"
-              repo: "{{repository.name}}"
+              repository: "{{repository.owner.login}}/{{repository.name}}"
               issue_number: "{{number}}"
               state: closed
+              confirmed: true
         - type: button
           label: Reopen
           variant: default
           when: "{{state == 'closed'}}"
           action:
             dispatch: tool
-            tool: github_update_issue
+            tool: github_set_issue_state
             args:
-              owner: "{{repository.owner.login}}"
-              repo: "{{repository.name}}"
+              repository: "{{repository.owner.login}}/{{repository.name}}"
               issue_number: "{{number}}"
               state: open
+              confirmed: true
+
+widget_presets:
+  github-repo-dashboard:
+    name: GitHub Repo Dashboard
+    description: Repository command center with commits, PRs, issues, workflow runs, and issue triage.
+    icon: Github
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 6, h: 5}
+    tool_name: github_repo_dashboard
+    tool_family: github
+    tool_dependencies: [github_repo_dashboard, github_repo_options, github_set_issue_state]
+    binding_schema:
+      type: object
+      properties:
+        repository:
+          type: string
+          title: Repository
+          description: Select a bound repo or type owner/repo. Channel pins can leave this empty to infer the channel binding.
+          ui:
+            control: picker
+            source: github.repositories
+            allow_custom: true
+        limit:
+          type: integer
+          title: Result limit
+          description: Maximum commits, PRs, issues, and workflow runs to show.
+          minimum: 5
+          maximum: 50
+          default: 20
+        include_actions:
+          type: boolean
+          title: Include workflow runs
+          description: Include recent GitHub Actions workflow runs.
+          default: true
+          ui:
+            control: switch
+    binding_sources:
+      github.repositories:
+        tool: github_repo_options
+        args: {}
+        transform: "integrations.github.bindings:repo_options"
+    default_config:
+      repository: ""
+      limit: 20
+      include_actions: true
+    runtime:
+      tool_args:
+        repository: "{{config.repository}}"
+        limit: "{{config.limit}}"
+        include_actions: "{{config.include_actions}}"

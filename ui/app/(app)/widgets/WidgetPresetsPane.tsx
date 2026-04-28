@@ -706,6 +706,7 @@ function PresetField({
   onChange: (next: unknown) => void;
 }) {
   const control = field.ui?.control;
+  const allowCustom = field.ui?.allow_custom === true;
 
   return (
     <label className="flex flex-col gap-1.5">
@@ -720,6 +721,24 @@ function PresetField({
             placeholder="Enter id manually…"
             className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
           />
+        ) : allowCustom ? (
+          <div className="grid gap-2">
+            {options.length > 0 && (
+              <OptionPicker
+                value={typeof value === "string" ? value : ""}
+                options={options}
+                loading={loading}
+                placeholder={placeholder ?? "Select…"}
+                onChange={onChange}
+              />
+            )}
+            <input
+              value={typeof value === "string" ? value : ""}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder="Or type a value…"
+              className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
+            />
+          </div>
         ) : (
           <OptionPicker
             value={typeof value === "string" ? value : ""}

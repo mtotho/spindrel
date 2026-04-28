@@ -5,6 +5,7 @@ import type { WidgetConfigSchema, WidgetContract, WidgetLayoutHints, WidgetPrese
 export interface WidgetPresetFieldUi {
   control?: string;
   source?: string;
+  allow_custom?: boolean;
   options_from_field?: string;
   options_from_meta?: string;
 }

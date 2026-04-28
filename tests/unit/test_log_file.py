@@ -67,6 +67,35 @@ def test_install_returns_none_when_dir_unwritable(tmp_path: Path, monkeypatch):
     assert handler is None
 
 
+def test_install_warns_when_mkdir_fails(tmp_path: Path, monkeypatch, caplog):
+    """Silent failure here was a real production bug — the daily summary
+    silently reported 'clean' for weeks because nobody saw a warning."""
+    bogus = tmp_path / "nope"
+    monkeypatch.setattr(Path, "mkdir", lambda *a, **k: (_ for _ in ()).throw(OSError("permission denied")))
+    with caplog.at_level(logging.WARNING, logger="app.services.log_file"):
+        handler = log_file.install_jsonl_log_handler(log_dir=bogus)
+    assert handler is None
+    assert any(
+        "JSONL log handler disabled" in rec.getMessage() and "permission denied" in rec.getMessage()
+        for rec in caplog.records
+    ), f"expected a WARNING about the disabled handler; got {[r.getMessage() for r in caplog.records]}"
+
+
+def test_install_warns_when_open_fails(tmp_path: Path, monkeypatch, caplog):
+    """The dir exists (mkdir succeeds via exist_ok) but the file can't be
+    opened — exact production failure mode (root-owned dir, non-root runtime)."""
+    def _raise(*a, **k):
+        raise OSError("permission denied")
+    monkeypatch.setattr(logging.handlers, "RotatingFileHandler", _raise)
+    with caplog.at_level(logging.WARNING, logger="app.services.log_file"):
+        handler = log_file.install_jsonl_log_handler(log_dir=tmp_path)
+    assert handler is None
+    assert any(
+        "JSONL log handler disabled" in rec.getMessage() and "writable" in rec.getMessage()
+        for rec in caplog.records
+    ), f"expected a WARNING about the unwritable file; got {[r.getMessage() for r in caplog.records]}"
+
+
 def test_get_log_path_respects_env(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("SPINDREL_LOG_DIR", str(tmp_path))
     assert log_file.get_log_path() == tmp_path / log_file.DEFAULT_LOG_FILE

@@ -1,0 +1,599 @@
+<!--
+---
+name: GitHub Repo Dashboard
+description: Repository activity, triage, workflow runs, and issue actions.
+runtime: react
+tags: [github, repository, prs, issues, commits, actions]
+---
+-->
+<div id="root"></div>
+<script type="text/spindrel-react">
+  const { useMemo, useState } = React;
+
+  function sp() {
+    return window.spindrel || {};
+  }
+
+  function initialResult() {
+    const ctx = sp();
+    return ctx.result || ctx.toolResult || {};
+  }
+
+  function timeAgo(iso) {
+    if (!iso) return "unknown";
+    const t = new Date(iso).getTime();
+    if (!Number.isFinite(t)) return String(iso);
+    const diff = Date.now() - t;
+    const mins = Math.max(1, Math.round(diff / 60000));
+    if (mins < 60) return mins + "m ago";
+    const hours = Math.round(mins / 60);
+    if (hours < 48) return hours + "h ago";
+    return Math.round(hours / 24) + "d ago";
+  }
+
+  function shortDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function statusClass(value) {
+    if (value === "success" || value === "completed") return "sd-chip sd-chip-success";
+    if (value === "failure" || value === "cancelled" || value === "timed_out") return "sd-chip sd-chip-danger";
+    if (value === "in_progress" || value === "queued") return "sd-chip sd-chip-warning";
+    return "sd-chip sd-chip-muted";
+  }
+
+  function external(url, label) {
+    if (!url) return null;
+    return (
+      <a className="gh-link" href={url} target="_blank" rel="noreferrer">
+        {label}
+      </a>
+    );
+  }
+
+  function Stat({ label, value, detail }) {
+    return (
+      <div className="gh-stat">
+        <div className="gh-stat-value">{value}</div>
+        <div className="gh-stat-label">{label}</div>
+        {detail ? <div className="gh-stat-detail">{detail}</div> : null}
+      </div>
+    );
+  }
+
+  function TabButton({ id, active, onClick, children }) {
+    return (
+      <button
+        type="button"
+        className={"gh-tab" + (active === id ? " gh-tab-active" : "")}
+        onClick={() => onClick(id)}
+      >
+        {children}
+      </button>
+    );
+  }
+
+  function LabelList({ labels }) {
+    if (!Array.isArray(labels) || labels.length === 0) return null;
+    return (
+      <div className="gh-labels">
+        {labels.slice(0, 4).map((label) => (
+          <span key={label} className="sd-chip sd-chip-muted">{label}</span>
+        ))}
+      </div>
+    );
+  }
+
+  function Empty({ text }) {
+    return <div className="gh-empty">{text}</div>;
+  }
+
+  function CommitList({ commits }) {
+    if (!commits.length) return <Empty text="No recent commits returned." />;
+    return (
+      <div className="gh-list">
+        {commits.map((commit) => (
+          <div key={commit.sha + commit.message} className="gh-row">
+            <div className="gh-row-main">
+              <div className="gh-row-title">{external(commit.url, commit.message || commit.sha)}</div>
+              <div className="gh-row-meta">{commit.sha} by {commit.author} - {timeAgo(commit.date)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function PrList({ prs }) {
+    if (!prs.length) return <Empty text="No open pull requests." />;
+    return (
+      <div className="gh-list">
+        {prs.map((pr) => (
+          <div key={pr.number} className="gh-row">
+            <div className="gh-row-main">
+              <div className="gh-row-title">{external(pr.url, "#" + pr.number + " " + pr.title)}</div>
+              <div className="gh-row-meta">
+                {pr.draft ? "Draft - " : ""}{pr.head || "head"} into {pr.base || "base"} - updated {timeAgo(pr.updated_at)} by {pr.author}
+              </div>
+              <LabelList labels={pr.labels} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function IssueAction({ issue, repository, onDone }) {
+    const [open, setOpen] = useState(false);
+    const [comment, setComment] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const nextState = issue.state === "closed" ? "open" : "closed";
+    const label = nextState === "closed" ? "Close" : "Reopen";
+
+    async function submit() {
+      setBusy(true);
+      setError("");
+      try {
+        const env = await sp().callTool("github_set_issue_state", {
+          repository,
+          issue_number: issue.number,
+          state: nextState,
+          comment,
+          confirmed: true,
+        }, {
+          extra: {
+            dashboard_pin_id: sp().dashboardPinId,
+            widget_config: sp().widgetConfig || {},
+            display_label: repository,
+          },
+        });
+        setOpen(false);
+        setComment("");
+        onDone(env);
+      } catch (err) {
+        setError(err && err.message ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    if (!open) {
+      return (
+        <button type="button" className="gh-small-button" onClick={() => setOpen(true)}>
+          {label}
+        </button>
+      );
+    }
+
+    return (
+      <div className="gh-confirm">
+        <div className="gh-confirm-title">{label} issue #{issue.number}</div>
+        <textarea
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          placeholder="Optional comment"
+          rows={3}
+        />
+        {error ? <div className="gh-error">{error}</div> : null}
+        <div className="gh-confirm-actions">
+          <button type="button" className="gh-small-button" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+          <button type="button" className="gh-small-button gh-danger" onClick={submit} disabled={busy}>
+            {busy ? "Working..." : label}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function IssueList({ issues, repository, onDone }) {
+    if (!issues.length) return <Empty text="No open issues." />;
+    return (
+      <div className="gh-list">
+        {issues.map((issue) => (
+          <div key={issue.number} className="gh-row gh-row-with-action">
+            <div className="gh-row-main">
+              <div className="gh-row-title">{external(issue.url, "#" + issue.number + " " + issue.title)}</div>
+              <div className="gh-row-meta">
+                {issue.comments || 0} comments - updated {timeAgo(issue.updated_at)} by {issue.author}
+              </div>
+              <LabelList labels={issue.labels} />
+            </div>
+            <IssueAction issue={issue} repository={repository} onDone={onDone} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function ActionsList({ actions, error }) {
+    if (error) return <Empty text={error} />;
+    if (!actions.length) return <Empty text="No workflow runs returned." />;
+    return (
+      <div className="gh-list">
+        {actions.map((run) => {
+          const status = run.conclusion || run.status || "unknown";
+          return (
+            <div key={run.id || run.url} className="gh-row">
+              <div className="gh-row-main">
+                <div className="gh-row-title">{external(run.url, run.name || "Workflow run")}</div>
+                <div className="gh-row-meta">
+                  {run.branch || "branch"} - {run.event || "event"} - updated {timeAgo(run.updated_at || run.created_at)}
+                </div>
+              </div>
+              <span className={statusClass(status)}>{status}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function DashboardApp() {
+    sp().useTheme();
+    const [data, setData] = useState(initialResult());
+    const [activeTab, setActiveTab] = useState("activity");
+    const [refreshing, setRefreshing] = useState(false);
+    const [actionError, setActionError] = useState("");
+
+    const repo = data.repository || {};
+    const health = data.health || {};
+    const fullName = repo.full_name || (sp().widgetConfig && sp().widgetConfig.repository) || "GitHub repository";
+    const commits = Array.isArray(data.commits) ? data.commits : [];
+    const prs = Array.isArray(data.prs) ? data.prs : [];
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    const actions = Array.isArray(data.actions) ? data.actions : [];
+    const release = data.latest_release || health.latest_release || null;
+
+    function applyEnvelope(env) {
+      if (env && env.data && typeof env.data === "object") {
+        setData(env.data);
+      }
+    }
+
+    async function refresh() {
+      setRefreshing(true);
+      setActionError("");
+      try {
+        const env = await sp().callTool("github_repo_dashboard", {
+          repository: sp().widgetConfig && sp().widgetConfig.repository,
+          limit: sp().widgetConfig && sp().widgetConfig.limit,
+          include_actions: sp().widgetConfig ? sp().widgetConfig.include_actions !== false : true,
+        }, {
+          extra: {
+            dashboard_pin_id: sp().dashboardPinId,
+            widget_config: sp().widgetConfig || {},
+            display_label: fullName,
+          },
+        });
+        applyEnvelope(env);
+      } catch (err) {
+        setActionError(err && err.message ? err.message : String(err));
+      } finally {
+        setRefreshing(false);
+      }
+    }
+
+    function onIssueDone(env) {
+      applyEnvelope(env);
+      void refresh();
+    }
+
+    if (data.error) {
+      return (
+        <div className="gh-shell">
+          <div className="gh-error-card">
+            <div className="gh-error-title">GitHub dashboard unavailable</div>
+            <div>{String(data.error)}</div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="gh-shell">
+        <header className="gh-header">
+          <div className="gh-title-block">
+            <div className="gh-eyebrow">GitHub</div>
+            <div className="gh-title">{external(repo.html_url, fullName)}</div>
+            <div className="gh-subtitle">
+              {repo.description || "Repository activity and triage"}
+            </div>
+          </div>
+          <button type="button" className="gh-refresh" onClick={refresh} disabled={refreshing}>
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </header>
+
+        <section className="gh-stats">
+          <Stat label="Open PRs" value={prs.length} detail="ready for review" />
+          <Stat label="Open issues" value={issues.length} detail="triage queue" />
+          <Stat
+            label="Latest commit"
+            value={health.latest_commit ? timeAgo(health.latest_commit.date) : "none"}
+            detail={health.latest_commit ? health.latest_commit.sha : repo.default_branch}
+          />
+          <Stat
+            label="Workflow"
+            value={health.latest_workflow ? (health.latest_workflow.conclusion || health.latest_workflow.status || "unknown") : "none"}
+            detail={health.latest_workflow ? shortDate(health.latest_workflow.updated_at || health.latest_workflow.created_at) : "latest run"}
+          />
+          <Stat
+            label="Release"
+            value={release ? (release.tag_name || release.name) : "none"}
+            detail={release ? shortDate(release.published_at) : "latest release"}
+          />
+        </section>
+
+        {actionError ? <div className="gh-error">{actionError}</div> : null}
+
+        <nav className="gh-tabs">
+          <TabButton id="activity" active={activeTab} onClick={setActiveTab}>Activity</TabButton>
+          <TabButton id="prs" active={activeTab} onClick={setActiveTab}>PRs</TabButton>
+          <TabButton id="issues" active={activeTab} onClick={setActiveTab}>Issues</TabButton>
+          <TabButton id="actions" active={activeTab} onClick={setActiveTab}>Actions</TabButton>
+        </nav>
+
+        <main className="gh-panel">
+          {activeTab === "activity" ? (
+            <div className="gh-stack">
+              {release ? (
+                <div className="gh-release">
+                  <span className="sd-chip sd-chip-accent">Latest release</span>
+                  {external(release.url, release.name || release.tag_name)}
+                  <span>{shortDate(release.published_at)}</span>
+                </div>
+              ) : null}
+              <CommitList commits={commits} />
+            </div>
+          ) : null}
+          {activeTab === "prs" ? <PrList prs={prs} /> : null}
+          {activeTab === "issues" ? <IssueList issues={issues} repository={repo.full_name || fullName} onDone={onIssueDone} /> : null}
+          {activeTab === "actions" ? <ActionsList actions={actions} error={health.actions_error} /> : null}
+        </main>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<DashboardApp />);
+</script>
+<style>
+  :root {
+    color-scheme: dark light;
+  }
+  .gh-shell {
+    min-height: 100%;
+    padding: 12px;
+    color: var(--sd-text);
+    background: var(--sd-surface);
+    font: 13px/1.35 var(--sd-font-sans);
+  }
+  .gh-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+    margin-bottom: 12px;
+  }
+  .gh-title-block {
+    min-width: 0;
+  }
+  .gh-eyebrow {
+    color: var(--sd-text-dim);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .gh-title {
+    margin-top: 2px;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+  .gh-subtitle {
+    margin-top: 4px;
+    color: var(--sd-text-muted);
+    font-size: 12px;
+  }
+  .gh-link {
+    color: var(--sd-text);
+    text-decoration: none;
+  }
+  .gh-link:hover {
+    color: var(--sd-accent);
+    text-decoration: underline;
+  }
+  .gh-refresh,
+  .gh-small-button {
+    border: 1px solid var(--sd-border);
+    border-radius: 6px;
+    background: var(--sd-surface-overlay);
+    color: var(--sd-text);
+    cursor: pointer;
+    font: 600 12px/1 var(--sd-font-sans);
+    padding: 7px 9px;
+  }
+  .gh-refresh:disabled,
+  .gh-small-button:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+  .gh-danger {
+    border-color: color-mix(in srgb, var(--sd-danger) 45%, var(--sd-border));
+    color: var(--sd-danger);
+  }
+  .gh-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(110px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .gh-stat {
+    min-width: 0;
+    border: 1px solid var(--sd-border);
+    border-radius: 8px;
+    background: var(--sd-surface-overlay);
+    padding: 9px;
+  }
+  .gh-stat-value {
+    font-size: 16px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gh-stat-label {
+    margin-top: 2px;
+    color: var(--sd-text-muted);
+    font-size: 11px;
+  }
+  .gh-stat-detail {
+    margin-top: 2px;
+    color: var(--sd-text-dim);
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gh-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--sd-border);
+    margin-bottom: 10px;
+  }
+  .gh-tab {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--sd-text-muted);
+    cursor: pointer;
+    font: 600 12px/1 var(--sd-font-sans);
+    padding: 8px 9px;
+  }
+  .gh-tab-active {
+    border-bottom-color: var(--sd-accent);
+    color: var(--sd-text);
+  }
+  .gh-panel,
+  .gh-stack,
+  .gh-list {
+    min-width: 0;
+  }
+  .gh-stack,
+  .gh-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .gh-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    border: 1px solid var(--sd-border);
+    border-radius: 8px;
+    background: var(--sd-surface-overlay);
+    padding: 10px;
+  }
+  .gh-row-main {
+    min-width: 0;
+  }
+  .gh-row-title {
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gh-row-meta {
+    margin-top: 3px;
+    color: var(--sd-text-muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gh-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .gh-release {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid var(--sd-border);
+    border-radius: 8px;
+    background: var(--sd-surface-overlay);
+    padding: 10px;
+  }
+  .gh-confirm {
+    width: min(280px, 40vw);
+    min-width: 210px;
+  }
+  .gh-confirm-title {
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .gh-confirm textarea {
+    box-sizing: border-box;
+    width: 100%;
+    resize: vertical;
+    border: 1px solid var(--sd-border);
+    border-radius: 6px;
+    background: var(--sd-input);
+    color: var(--sd-text);
+    font: 12px/1.35 var(--sd-font-sans);
+    padding: 7px;
+  }
+  .gh-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .gh-empty,
+  .gh-error-card {
+    border: 1px solid var(--sd-border);
+    border-radius: 8px;
+    background: var(--sd-surface-overlay);
+    color: var(--sd-text-muted);
+    padding: 18px;
+    text-align: center;
+  }
+  .gh-error,
+  .gh-error-card {
+    color: var(--sd-danger);
+  }
+  .gh-error {
+    margin: 8px 0;
+    font-size: 12px;
+  }
+  .gh-error-title {
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  @media (max-width: 760px) {
+    .gh-header {
+      grid-template-columns: 1fr;
+    }
+    .gh-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .gh-row,
+    .gh-row-with-action {
+      grid-template-columns: 1fr;
+    }
+    .gh-confirm {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+</style>

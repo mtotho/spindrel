@@ -416,3 +416,170 @@ class TestGitHubTools:
         assert "Second PR" in result
         assert "@alice" in result
         assert "WIP" in result
+
+
+class TestGitHubRepoDashboard:
+    @pytest.mark.asyncio
+    async def test_dashboard_aggregates_repo_activity_and_filters_pr_issues(self):
+        from integrations.github.tools.repo_dashboard import github_repo_dashboard
+
+        def response(payload, status_code=200, headers=None):
+            mock = MagicMock()
+            mock.status_code = status_code
+            mock.headers = headers or {}
+            mock.json.return_value = payload
+            mock.raise_for_status = MagicMock()
+            return mock
+
+        async def mock_get(url, **kwargs):
+            if url.endswith("/repos/org/repo"):
+                return response(
+                    {
+                        "default_branch": "main",
+                        "description": "Test repo",
+                        "html_url": "https://github.com/org/repo",
+                        "stargazers_count": 3,
+                        "forks_count": 1,
+                    },
+                    headers={"x-ratelimit-remaining": "4999", "x-ratelimit-limit": "5000"},
+                )
+            if url.endswith("/commits"):
+                return response([
+                    {
+                        "sha": "abcdef1234567890",
+                        "html_url": "https://github.com/org/repo/commit/abcdef",
+                        "commit": {
+                            "message": "Ship dashboard\n\nbody",
+                            "author": {"name": "Alice", "date": "2026-04-27T10:00:00Z"},
+                        },
+                        "author": {"login": "alice"},
+                    }
+                ])
+            if url.endswith("/pulls"):
+                return response([
+                    {
+                        "number": 2,
+                        "title": "Open PR",
+                        "html_url": "https://github.com/org/repo/pull/2",
+                        "user": {"login": "bob"},
+                        "head": {"ref": "feature"},
+                        "base": {"ref": "main"},
+                        "labels": [{"name": "ui"}],
+                    }
+                ])
+            if url.endswith("/issues"):
+                return response([
+                    {
+                        "number": 3,
+                        "title": "Real issue",
+                        "html_url": "https://github.com/org/repo/issues/3",
+                        "user": {"login": "carol"},
+                        "labels": [{"name": "bug"}],
+                    },
+                    {
+                        "number": 2,
+                        "title": "PR issue shadow",
+                        "pull_request": {"url": "https://api.github.com/prs/2"},
+                    },
+                ])
+            if url.endswith("/actions/runs"):
+                return response({
+                    "workflow_runs": [{
+                        "id": 10,
+                        "name": "CI",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "html_url": "https://github.com/org/repo/actions/runs/10",
+                    }]
+                })
+            if url.endswith("/releases/latest"):
+                return response({
+                    "tag_name": "v1.0.0",
+                    "name": "v1.0.0",
+                    "html_url": "https://github.com/org/repo/releases/tag/v1.0.0",
+                })
+            raise AssertionError(f"Unexpected URL: {url}")
+
+        with patch("integrations.github.tools.repo_dashboard._http") as mock_http:
+            mock_http.get = AsyncMock(side_effect=mock_get)
+            result = json.loads(await github_repo_dashboard("org/repo", limit=20))
+
+        assert result["repository"]["full_name"] == "org/repo"
+        assert result["commits"][0]["message"] == "Ship dashboard"
+        assert result["prs"][0]["number"] == 2
+        assert [issue["number"] for issue in result["issues"]] == [3]
+        assert result["health"]["latest_workflow"]["conclusion"] == "success"
+        assert result["latest_release"]["tag_name"] == "v1.0.0"
+        assert result["health"]["rate_limit"]["remaining"] == 4999
+
+    @pytest.mark.asyncio
+    async def test_set_issue_state_requires_confirmation(self):
+        from integrations.github.tools.repo_dashboard import github_set_issue_state
+
+        result = json.loads(await github_set_issue_state(
+            "org/repo",
+            issue_number=3,
+            state="closed",
+            confirmed=False,
+        ))
+
+        assert result["error"] == "Issue state changes require explicit confirmation."
+
+    @pytest.mark.asyncio
+    async def test_set_issue_state_posts_optional_comment_before_patch(self):
+        from integrations.github.tools.repo_dashboard import github_set_issue_state
+
+        comment_resp = MagicMock()
+        comment_resp.raise_for_status = MagicMock()
+        issue_resp = MagicMock()
+        issue_resp.raise_for_status = MagicMock()
+        issue_resp.json.return_value = {
+            "number": 3,
+            "title": "Fixed",
+            "state": "closed",
+            "html_url": "https://github.com/org/repo/issues/3",
+            "user": {"login": "alice"},
+        }
+
+        with patch("integrations.github.tools.repo_dashboard._http") as mock_http:
+            mock_http.post = AsyncMock(return_value=comment_resp)
+            mock_http.patch = AsyncMock(return_value=issue_resp)
+            result = json.loads(await github_set_issue_state(
+                "org/repo",
+                issue_number=3,
+                state="closed",
+                comment="Closing from widget.",
+                confirmed=True,
+            ))
+
+        mock_http.post.assert_awaited_once()
+        mock_http.patch.assert_awaited_once()
+        assert result["comment_posted"] is True
+        assert result["issue"]["state"] == "closed"
+
+
+class TestGitHubPresetBindings:
+    def test_repo_options_transform(self):
+        from integrations.github.bindings import repo_options
+
+        raw = json.dumps({
+            "repositories": [
+                {
+                    "repository": "org/repo",
+                    "label": "org/repo",
+                    "group": "Current channel",
+                    "channel_id": "channel-id",
+                    "current_channel": True,
+                }
+            ]
+        })
+
+        options = repo_options(raw, {})
+
+        assert options == [{
+            "value": "org/repo",
+            "label": "org/repo",
+            "description": "GitHub repository",
+            "group": "Current channel",
+            "meta": {"channel_id": "channel-id", "current_channel": True},
+        }]
