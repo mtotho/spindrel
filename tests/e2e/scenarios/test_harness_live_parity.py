@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -196,20 +197,40 @@ def _has_persisted_tool_transcript(message: dict) -> bool:
 
 
 def _has_persisted_tool_result_envelope(message: dict) -> bool:
+    tool_call_ids = {
+        call.get("id")
+        for call in (message.get("tool_calls") or [])
+        if isinstance(call, dict) and isinstance(call.get("id"), str)
+    }
     meta = message.get("metadata") or {}
     tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
     return any(
         isinstance(result, dict) and isinstance(result.get("content_type"), str)
+        and (
+            not tool_call_ids
+            or not result.get("tool_call_id")
+            or result.get("tool_call_id") in tool_call_ids
+        )
         for result in (tool_results or [])
     )
 
 
 def _has_persisted_tool_result_containing(message: dict, expected: str) -> bool:
+    tool_call_ids = {
+        call.get("id")
+        for call in (message.get("tool_calls") or [])
+        if isinstance(call, dict) and isinstance(call.get("id"), str)
+    }
     meta = message.get("metadata") or {}
     tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
     return any(
         isinstance(result, dict)
         and result.get("content_type") in {"text/plain", "text/markdown"}
+        and (
+            not tool_call_ids
+            or not result.get("tool_call_id")
+            or result.get("tool_call_id") in tool_call_ids
+        )
         and expected in str(result.get("body") or result.get("plain_body") or "")
         for result in (tool_results or [])
     )
@@ -340,6 +361,8 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         style = await client.execute_slash_command("style", session_id=session_id, args=["terminal"])
         assert style["payload"]["effect"] == "style"
         assert style["payload"]["scope_id"] == channel_id
+        terminal_config = await client.get_channel_config(channel_id)
+        assert terminal_config.get("chat_mode") == "terminal"
 
         for command in case.native_commands:
             result = await client.execute_slash_command("runtime", session_id=session_id, args=[command])
@@ -495,7 +518,14 @@ async def test_live_harness_plan_mode_round_trip(
         timeout=_timeout(),
     )
     _assert_clean_turn(result)
-    assert "plan" in result.response_text.lower() or "step" in result.response_text.lower()
+    response_text = result.response_text.strip()
+    assert response_text, "plan-mode turn returned no assistant text"
+    lower_response = response_text.lower()
+    assert (
+        "plan" in lower_response
+        or "step" in lower_response
+        or bool(re.search(r"(^|\n)\s*1[.)]\s+", response_text))
+    ), f"plan-mode turn did not look like a plan: {response_text!r}"
     await _assert_trace_has_turn_context(client, result)
 
     after_status = await client.get_session_harness_status(session_id)

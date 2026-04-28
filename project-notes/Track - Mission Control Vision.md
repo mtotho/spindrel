@@ -63,6 +63,11 @@ mutations happen.
   implementation primitives. Mission Control copy should speak in concrete
   operating goals: maintain this repo, watch this server, triage this room,
   keep this project moving.
+- **Software factory is a future operating model.** Mission Control should
+  eventually support issue pickup, reviewer/manager roles, and high-level
+  next-action status across bots. Near-term alerts and map state should prepare
+  this language, but not invent durable manager/reviewer systems before the
+  existing primitives prove useful.
 
 ## End State
 

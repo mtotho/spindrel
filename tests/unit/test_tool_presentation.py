@@ -1,6 +1,6 @@
 import json
 
-from app.services.tool_presentation import derive_tool_presentation
+from app.services.tool_presentation import derive_tool_presentation, normalize_persisted_tool_calls
 
 
 def test_get_skill_presentation_is_transcript_read_skill():
@@ -401,6 +401,38 @@ def test_file_edit_presentation_uses_diff_summary():
         "path": "index.html",
         "diff_stats": {"additions": 1, "deletions": 1},
     }
+
+
+def test_persisted_mcp_file_envelope_attaches_by_native_tool_call_id():
+    calls = normalize_persisted_tool_calls(
+        [
+            {
+                "id": "toolu_read",
+                "name": "mcp__spindrel__file",
+                "type": "function",
+                "function": {
+                    "name": "mcp__spindrel__file",
+                    "arguments": json.dumps({
+                        "operation": "read",
+                        "path": ".spindrel-harness-parity/result.txt",
+                    }),
+                },
+            },
+        ],
+        envelopes=[
+            {
+                "content_type": "text/plain",
+                "body": "spindrel harness parity marker",
+                "plain_body": "Read .spindrel-harness-parity/result.txt",
+                "display": "inline",
+                "tool_call_id": "toolu_read",
+            },
+        ],
+    )
+
+    assert calls
+    assert calls[0]["surface"] == "rich_result"
+    assert calls[0]["summary"]["label"] == "Read .spindrel-harness-parity/result.txt"
 
 
 def test_widget_envelope_presentation_prefers_widget_surface():

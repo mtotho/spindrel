@@ -205,22 +205,6 @@ async def move_workspace_file(
     return result
 
 
-# File extensions treated as text (written via UTF-8 text writer)
-_TEXT_EXTENSIONS = frozenset({
-    ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".xml", ".html",
-    ".css", ".js", ".ts", ".tsx", ".jsx", ".py", ".sh", ".toml", ".ini",
-    ".cfg", ".conf", ".log", ".env", ".sql", ".graphql", ".rst", ".tex",
-    ".r", ".rb", ".go", ".java", ".kt", ".swift", ".c", ".cpp", ".h",
-    ".hpp", ".rs", ".lua", ".pl", ".pm",
-})
-
-
-def _is_text_file(filename: str) -> bool:
-    """Check if a filename should be treated as text based on extension."""
-    _, ext = os.path.splitext(filename.lower())
-    return ext in _TEXT_EXTENSIONS
-
-
 def _resolve_channel_path(channel_id: uuid.UUID, bot, path: str) -> str:
     """Resolve a channel-relative path to its absolute, sandbox-safe form."""
     from app.services.channel_workspace import get_channel_workspace_root
@@ -370,7 +354,7 @@ async def upload_workspace_file(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels:write")),
 ):
-    """Upload a file to the channel workspace. Text files are stored as UTF-8; binary files are stored as-is."""
+    """Upload a file to the channel workspace with streamed size enforcement."""
     channel, bot = await _require_channel_workspace(channel_id, db)
     from app.services.channel_workspace import ensure_channel_workspace, get_channel_workspace_root
     ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)

@@ -16,6 +16,7 @@ from app.services.dashboard_ascii import (
     render_legend,
     resolve_preset_name,
 )
+from app.services.dashboard_grid import ascii_max_rows, header_cols, preset_cols
 
 
 def _pin(
@@ -211,6 +212,11 @@ class TestFindFreeSlot:
         )
         # Fine has 24 cols — should find (0, 12) on the same row.
         assert (y_fine, x_fine) == (0, 12)
+
+    def test_ascii_helpers_use_manifest_values(self):
+        assert preset_cols("fine") == 24
+        assert header_cols("fine") == 24
+        assert ascii_max_rows("fine") == 24
 
     def test_respects_existing_occupancy_diagonal(self):
         # Top-left 6×6 occupied. Next free 4×4 should be at (0, 6).

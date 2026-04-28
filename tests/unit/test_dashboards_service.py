@@ -287,6 +287,28 @@ async def test_user_dashboard_pin_uses_alternating_columns(db_session):
 
 
 @pytest.mark.asyncio
+async def test_fine_dashboard_pin_uses_manifest_default_tile(db_session):
+    await create_dashboard(
+        db_session,
+        slug="fine-home",
+        name="Fine Home",
+        grid_config={"layout_type": "grid", "preset": "fine"},
+    )
+
+    a = await create_pin(
+        db_session, source_kind="adhoc", tool_name="a", envelope=_env(),
+        dashboard_key="fine-home",
+    )
+    b = await create_pin(
+        db_session, source_kind="adhoc", tool_name="b", envelope=_env(),
+        dashboard_key="fine-home",
+    )
+
+    assert a.grid_layout == {"x": 0, "y": 0, "w": 12, "h": 20}
+    assert b.grid_layout == {"x": 12, "y": 0, "w": 12, "h": 20}
+
+
+@pytest.mark.asyncio
 async def test_channel_dashboard_delete_removes_pins(db_session):
     ch = _make_channel(db_session)
     await db_session.commit()

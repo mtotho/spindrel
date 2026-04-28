@@ -18,6 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import ApiKey, Bot, WidgetDashboard, WidgetDashboardPin, WidgetInstance
+from app.services.dashboard_grid import (
+    DEFAULT_PRESET,
+    default_grid_layout as _manifest_default_grid_layout,
+    header_cols as _manifest_header_cols,
+    resolve_preset_name as _resolve_manifest_preset_name,
+)
 from app.services.native_app_widgets import (
     NATIVE_APP_CONTENT_TYPE,
     build_envelope_for_native_instance,
@@ -49,8 +55,6 @@ _HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive"
 
 
 _VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
-_DASHBOARD_PRESET_DEFAULT = "standard"
-_HEADER_PRESET_COLS = {"standard": 12, "fine": 24}
 _HEADER_DEFAULT_LAYOUT = {"x": 0, "y": 0, "w": 6, "h": 2}
 _HEADER_CHIP_LAYOUT = {"x": 0, "y": 0, "w": 4, "h": 1}
 
@@ -73,7 +77,12 @@ def _seed_widget_config(tool_name: str, envelope: dict, widget_config: dict | No
     return merged
 
 
-def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, int]:
+def _default_grid_layout(
+    position: int,
+    *,
+    channel: bool = False,
+    preset_name: str = DEFAULT_PRESET,
+) -> dict[str, int]:
     """Compute a day-0 layout slot for a pin at the given position.
 
     User + channel dashboards both land new pins in the main grid canvas by
@@ -83,25 +92,15 @@ def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, i
     into the page the user is looking at, which is the Grid canvas. Moves
     to Rail / Dock / Header happen via the zone chip.
     """
-    return {
-        "x": (position % 2) * 6,
-        "y": (position // 2) * 10,
-        "w": 6,
-        "h": 10,
-    }
+    return _manifest_default_grid_layout(position, preset_name=preset_name)
 
 
 def _resolve_dashboard_preset_name(grid_config: dict | None) -> str:
-    if not isinstance(grid_config, dict):
-        return _DASHBOARD_PRESET_DEFAULT
-    preset = grid_config.get("preset")
-    if isinstance(preset, str) and preset in _HEADER_PRESET_COLS:
-        return preset
-    return _DASHBOARD_PRESET_DEFAULT
+    return _resolve_manifest_preset_name(grid_config)
 
 
 def _header_cols_for_preset(preset_name: str) -> int:
-    return _HEADER_PRESET_COLS.get(preset_name, _HEADER_PRESET_COLS[_DASHBOARD_PRESET_DEFAULT])
+    return _manifest_header_cols(preset_name)
 
 
 def _default_layout_for_zone(
@@ -109,12 +108,13 @@ def _default_layout_for_zone(
     zone: str,
     *,
     channel: bool = False,
+    preset_name: str = DEFAULT_PRESET,
 ) -> dict[str, int]:
     if zone == "header":
         return dict(_HEADER_DEFAULT_LAYOUT)
     if zone in ("rail", "dock"):
         return {"x": 0, "y": position * 10, "w": 1, "h": 10}
-    return _default_grid_layout(position, channel=channel)
+    return _default_grid_layout(position, channel=channel, preset_name=preset_name)
 
 
 def _seed_layout_from_hints(
@@ -123,7 +123,7 @@ def _seed_layout_from_hints(
     resolved_zone: str,
     layout_hints: object,
     channel: bool = False,
-    preset_name: str = _DASHBOARD_PRESET_DEFAULT,
+    preset_name: str = DEFAULT_PRESET,
     apply_size_hints: bool = True,
 ) -> dict[str, int]:
     preferred_zone = (
@@ -136,7 +136,12 @@ def _seed_layout_from_hints(
     if preferred_zone == "chip" and resolved_zone == "header":
         base = dict(_HEADER_CHIP_LAYOUT)
     else:
-        base = _default_layout_for_zone(position, resolved_zone, channel=channel)
+        base = _default_layout_for_zone(
+            position,
+            resolved_zone,
+            channel=channel,
+            preset_name=preset_name,
+        )
     clamped = (
         clamp_layout_size_to_hints(base, layout_hints=layout_hints)
         if apply_size_hints
@@ -1050,7 +1055,7 @@ def _normalize_coords_for_zone(
     coords: dict[str, int],
     zone: str,
     *,
-    preset_name: str = _DASHBOARD_PRESET_DEFAULT,
+    preset_name: str = DEFAULT_PRESET,
 ) -> dict[str, int]:
     """Clamp ``coords`` to the invariants of ``zone``.
 

@@ -1,116 +1,108 @@
-"""Cross-layer drift guard for grid presets.
+"""Cross-layer drift guard for dashboard grid presets.
 
-Backend owns `app/services/dashboards.py::GRID_PRESETS` (scales pin coords
-server-side on preset change). Frontend owns
-`ui/src/lib/dashboardGrid.ts::GRID_PRESETS` (the rich shape: breakpoint map,
-tile chips, etc.). There is no API that exposes presets from backend to
-frontend, so the two tables are definitionally duplicated.
-
-This test pins the numeric fields that *must* match between the two sides:
-`cols_lg` and `row_height` (the only fields the backend's `_scale_ratio`
-relies on), plus the default preset id. It skips cleanly when the TS file
-isn't available (Docker test image excludes `ui/`).
+``packages/dashboard-grid/presets.json`` is the source of truth. Backend and
+frontend code may keep compatibility projections, but they must import or
+derive from the manifest instead of reintroducing local preset literals.
 """
 from __future__ import annotations
 
-import re
+import ast
+import json
 from pathlib import Path
 
 import pytest
 
+from app.services import dashboard_grid
 from app.services.dashboards import DEFAULT_PRESET, GRID_PRESETS as BACKEND_PRESETS
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_MANIFEST_FILE = _REPO_ROOT / "packages" / "dashboard-grid" / "presets.json"
 _TS_FILE = _REPO_ROOT / "ui" / "src" / "lib" / "dashboardGrid.ts"
+
+
+def _load_manifest() -> dict:
+    if not _MANIFEST_FILE.is_file():
+        pytest.fail(f"shared preset manifest not found at {_MANIFEST_FILE}")
+    return json.loads(_MANIFEST_FILE.read_text(encoding="utf-8"))
 
 
 def _load_ts() -> str:
     if not _TS_FILE.is_file():
         pytest.skip(f"frontend source not available at {_TS_FILE}")
-    return _TS_FILE.read_text()
+    return _TS_FILE.read_text(encoding="utf-8")
 
 
-def _extract_frontend_presets(src: str) -> dict[str, dict[str, int]]:
-    """Return ``{preset_id: {cols_lg, row_height}}`` parsed from the TS source.
+def _assignment_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+    return names
 
-    The TS file declares each preset as a static object literal — regex over
-    the declaration block is more brittle than a parser but cheap, and a
-    failure here fails loud (which is the whole point of the drift guard).
-    """
-    block_match = re.search(
-        r"export const GRID_PRESETS[^{]*=\s*\{(.*?)^\};",
-        src,
-        re.DOTALL | re.MULTILINE,
-    )
-    if not block_match:
-        raise AssertionError("GRID_PRESETS literal not found in dashboardGrid.ts")
-    body = block_match.group(1)
 
-    entry_re = re.compile(
-        r"(?P<id>\w+)\s*:\s*\{[^{}]*?"
-        r"cols\s*:\s*\{[^}]*?\blg\s*:\s*(?P<cols_lg>\d+)[^}]*?\}[^{}]*?"
-        r"rowHeight\s*:\s*(?P<row_height>\d+)",
-        re.DOTALL,
-    )
-    entries: dict[str, dict[str, int]] = {}
-    for m in entry_re.finditer(body):
-        entries[m.group("id")] = {
-            "cols_lg": int(m.group("cols_lg")),
-            "row_height": int(m.group("row_height")),
+def test_manifest_default_preset_exists() -> None:
+    manifest = _load_manifest()
+    assert manifest["defaultPresetId"] in manifest["presets"]
+    assert DEFAULT_PRESET == manifest["defaultPresetId"]
+
+
+def test_backend_projection_matches_manifest() -> None:
+    manifest = _load_manifest()
+    expected = {
+        preset_id: {
+            "cols_lg": preset["cols"]["lg"],
+            "row_height": preset["rowHeight"],
         }
-    if not entries:
-        raise AssertionError(
-            "no preset entries parsed from dashboardGrid.ts GRID_PRESETS block"
-        )
-    return entries
+        for preset_id, preset in manifest["presets"].items()
+    }
+    assert BACKEND_PRESETS == expected
 
 
-def _extract_frontend_default(src: str) -> str:
-    m = re.search(
-        r"export const DEFAULT_PRESET_ID[^=]*=\s*\"(?P<id>\w+)\"\s*;",
-        src,
-    )
-    if not m:
-        raise AssertionError(
-            "DEFAULT_PRESET_ID export not found in dashboardGrid.ts"
-        )
-    return m.group("id")
+def test_manifest_presets_have_integer_scale_ratios() -> None:
+    manifest = _load_manifest()
+    presets = manifest["presets"]
+    for from_id, from_preset in presets.items():
+        for to_id, to_preset in presets.items():
+            from_cols = from_preset["cols"]["lg"]
+            to_cols = to_preset["cols"]["lg"]
+            if from_cols == to_cols:
+                assert dashboard_grid.scale_ratio(from_id, to_id) == 1
+            elif to_cols > from_cols:
+                assert to_cols % from_cols == 0
+                assert dashboard_grid.scale_ratio(from_id, to_id) == to_cols // from_cols
+            else:
+                assert from_cols % to_cols == 0
+                assert dashboard_grid.scale_ratio(from_id, to_id) == -(from_cols // to_cols)
 
 
-def test_preset_ids_match_across_layers() -> None:
+def test_frontend_imports_shared_manifest_instead_of_local_literal() -> None:
     src = _load_ts()
-    frontend = _extract_frontend_presets(src)
-    assert set(BACKEND_PRESETS) == set(frontend), (
-        f"preset id drift: backend={sorted(BACKEND_PRESETS)} "
-        f"frontend={sorted(frontend)}"
-    )
+    assert "../../../packages/dashboard-grid/presets.json" in src
+    assert "export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {" not in src
+    assert 'export const DEFAULT_PRESET_ID: GridPresetId = "standard"' not in src
 
 
-def test_cols_lg_matches_across_layers() -> None:
-    src = _load_ts()
-    frontend = _extract_frontend_presets(src)
-    for pid, backend_fields in BACKEND_PRESETS.items():
-        assert frontend[pid]["cols_lg"] == backend_fields["cols_lg"], (
-            f"preset {pid!r}: backend cols_lg={backend_fields['cols_lg']} "
-            f"!= frontend cols.lg={frontend[pid]['cols_lg']}"
+def test_backend_callers_do_not_define_local_preset_tables() -> None:
+    owners = {
+        _REPO_ROOT / "app" / "services" / "dashboards.py": {"GRID_PRESETS"},
+        _REPO_ROOT / "app" / "services" / "dashboard_ascii.py": {"_PRESETS", "_DEFAULT_PRESET"},
+        _REPO_ROOT / "app" / "services" / "dashboard_pins.py": {
+            "_HEADER_PRESET_COLS",
+            "_DASHBOARD_PRESET_DEFAULT",
+        },
+    }
+    for path, forbidden in owners.items():
+        assigned = _assignment_names(path)
+        assert assigned.isdisjoint(forbidden), (
+            f"{path.relative_to(_REPO_ROOT)} reintroduced local preset state: "
+            f"{sorted(assigned & forbidden)}"
         )
-
-
-def test_row_height_matches_across_layers() -> None:
-    src = _load_ts()
-    frontend = _extract_frontend_presets(src)
-    for pid, backend_fields in BACKEND_PRESETS.items():
-        assert frontend[pid]["row_height"] == backend_fields["row_height"], (
-            f"preset {pid!r}: backend row_height={backend_fields['row_height']} "
-            f"!= frontend rowHeight={frontend[pid]['row_height']}"
-        )
-
-
-def test_default_preset_matches_across_layers() -> None:
-    src = _load_ts()
-    frontend_default = _extract_frontend_default(src)
-    assert DEFAULT_PRESET == frontend_default, (
-        f"default preset drift: backend={DEFAULT_PRESET!r} "
-        f"frontend={frontend_default!r}"
-    )

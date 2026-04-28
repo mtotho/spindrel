@@ -1,4 +1,4 @@
-/** Per-dashboard layout presets. Source of truth for frontend grid math.
+/** Per-dashboard layout presets. Frontend projection of the shared manifest.
  *
  *  A dashboard's `grid_config` JSONB is shaped
  *  `{ layout_type: "grid", preset: "standard" | "fine" }`. Existing rows
@@ -6,15 +6,16 @@
  *
  *  When a user switches presets on an existing dashboard, the BACKEND
  *  rescales every pin's `grid_layout` by the ratio between preset col
- *  counts (see `app/services/dashboards.py::_scale_ratio`). Frontend just
- *  reads `preset` and picks the right column/row/tile constants.
+ *  counts. Frontend just reads `preset` and picks the right column/row/tile
+ *  constants.
  */
 
 import type { ChatZone } from "@/src/types/api";
+import rawPresetManifest from "../../../packages/dashboard-grid/presets.json";
 export type { ChatZone };
 
 export type GridLayoutType = "grid";
-export type GridPresetId = "standard" | "fine";
+export type GridPresetId = keyof typeof rawPresetManifest.presets;
 
 export interface GridConfig {
   layout_type: GridLayoutType;
@@ -103,41 +104,15 @@ export interface GridPreset {
   sizePresets: SizePreset[];
 }
 
-export const GRID_PRESETS: Record<GridPresetId, GridPreset> = {
-  standard: {
-    id: "standard",
-    label: "Standard",
-    description: "12-column grid, 30px rows. Good for most dashboards.",
-    cols: { lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 },
-    rowHeight: 30,
-    defaultTile: { w: 6, h: 10 },
-    minTile: { w: 2, h: 3 },
-    sizePresets: [
-      { id: "S", label: "S", w: 3, h: 6 },
-      { id: "M", label: "M", w: 4, h: 8 },
-      { id: "L", label: "L", w: 6, h: 10 },
-      { id: "XL", label: "XL", w: 12, h: 12 },
-    ],
-  },
-  fine: {
-    id: "fine",
-    label: "Fine",
-    description:
-      "24-column grid, 15px rows. Twice as granular — snap to finer positions.",
-    cols: { lg: 24, md: 20, sm: 12, xs: 8, xxs: 4 },
-    rowHeight: 15,
-    defaultTile: { w: 12, h: 20 },
-    minTile: { w: 4, h: 6 },
-    sizePresets: [
-      { id: "S", label: "S", w: 6, h: 12 },
-      { id: "M", label: "M", w: 8, h: 16 },
-      { id: "L", label: "L", w: 12, h: 20 },
-      { id: "XL", label: "XL", w: 24, h: 24 },
-    ],
-  },
+type GridPresetManifest = {
+  defaultPresetId: GridPresetId;
+  presets: Record<GridPresetId, GridPreset>;
 };
 
-export const DEFAULT_PRESET_ID: GridPresetId = "standard";
+const presetManifest = rawPresetManifest as GridPresetManifest;
+
+export const GRID_PRESETS: Record<GridPresetId, GridPreset> = presetManifest.presets;
+export const DEFAULT_PRESET_ID: GridPresetId = presetManifest.defaultPresetId;
 
 /** Compute the pixel width/height a pin occupies given its grid layout,
  *  the dashboard preset, the measured container width, and the RGL margin.

@@ -262,6 +262,7 @@ async def test_dynamic_tool_call_emits_transcript_pair(monkeypatch, fake_ctx):
     assert len(emit.calls[1][1]["result_summary"]) <= 700
     assert emit.calls[1][1]["surface"] == "rich_result"
     assert emit.calls[1][1]["envelope"]["content_type"] == "application/json"
+    assert emit.calls[1][1]["envelope"]["tool_call_id"] == "call-123"
     assert emit.calls[1][1]["summary"]["label"] == "Bennie"
 
 

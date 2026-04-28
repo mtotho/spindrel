@@ -3,6 +3,7 @@ FROM node:22-slim AS ui-build
 WORKDIR /ui
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci
+COPY packages/ ../packages/
 COPY ui/ .
 RUN npm run build
 

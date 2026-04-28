@@ -33,6 +33,14 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Literal
 
+from app.services.dashboard_grid import (
+    DEFAULT_PRESET,
+    ascii_max_rows,
+    header_cols as preset_header_cols,
+    preset_cols,
+    resolve_preset_name as _resolve_manifest_preset_name,
+)
+
 ChatZone = Literal["rail", "header", "dock", "grid"]
 
 # Ordered alphabet for pin labels. A..Z, then a..z = 52 unique tokens. If a
@@ -42,28 +50,12 @@ _LABEL_ALPHABET = (
     "abcdefghijklmnopqrstuvwxyz"
 )
 
-# Preset → (cols, rail_cols, dock_cols, max_visible_rows)
-# Rail/dock are visually 1-col canvases; the rail_zone_cols / dock_right_cols
-# in migration 226's legacy classifier referred to *chat-screen* widths, not
-# the per-zone canvas. For ASCII rendering each of rail/dock is rendered as
-# a single column.
-_PRESETS: dict[str, dict[str, int]] = {
-    "standard": {"cols": 12, "max_rows": 18, "header_cols": 12},
-    "fine": {"cols": 24, "max_rows": 24, "header_cols": 24},
-}
-_DEFAULT_PRESET = "standard"
-
 _EMPTY_CELL = "·"
 _BAR = "═"
 
 
 def _resolve_preset_name(grid_config: dict | None) -> str:
-    if not isinstance(grid_config, dict):
-        return _DEFAULT_PRESET
-    preset = grid_config.get("preset")
-    if preset in _PRESETS:
-        return preset
-    return _DEFAULT_PRESET
+    return _resolve_manifest_preset_name(grid_config)
 
 
 def _pin_coords(pin: dict[str, Any]) -> dict[str, int]:
@@ -274,20 +266,20 @@ def render_layout(
     """
     grid_config = (dashboard or {}).get("grid_config")
     preset_name = _resolve_preset_name(grid_config)
-    preset = _PRESETS[preset_name]
 
     labels = _assign_labels(pins)
     buckets = _group_by_zone(pins)
 
-    header_cols = preset["header_cols"]
+    header_cols = preset_header_cols(preset_name)
     header_rows = _zone_max_rows("header", preset_name)
-    grid_cols = preset["cols"]
+    grid_cols = preset_cols(preset_name)
+    max_rows = ascii_max_rows(preset_name)
 
     rows_for_rail_dock = _zone_height(
-        buckets["rail"] + buckets["dock"], fallback=4, cap=preset["max_rows"],
+        buckets["rail"] + buckets["dock"], fallback=4, cap=max_rows,
     )
     rows_for_grid = _zone_height(
-        buckets["grid"], fallback=max(rows_for_rail_dock, 6), cap=preset["max_rows"],
+        buckets["grid"], fallback=max(rows_for_rail_dock, 6), cap=max_rows,
     )
 
     blocks: list[list[str]] = []
@@ -365,12 +357,11 @@ def render_layout(
 
 
 def _zone_cols(zone: ChatZone, preset_name: str) -> int:
-    preset = _PRESETS.get(preset_name, _PRESETS[_DEFAULT_PRESET])
     if zone == "rail" or zone == "dock":
         return 1
     if zone == "header":
-        return preset["header_cols"]
-    return preset["cols"]
+        return preset_header_cols(preset_name)
+    return preset_cols(preset_name)
 
 
 def _zone_max_rows(zone: ChatZone, preset_name: str) -> int:
@@ -410,7 +401,7 @@ def find_free_slot(
     zone: ChatZone,
     w: int,
     h: int,
-    preset_name: str = _DEFAULT_PRESET,
+    preset_name: str = DEFAULT_PRESET,
 ) -> tuple[int, int]:
     """Find the smallest ``(y, x)`` where a ``w×h`` pin fits without overlap.
 

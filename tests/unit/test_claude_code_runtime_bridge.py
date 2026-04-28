@@ -406,6 +406,7 @@ def test_spindrel_mcp_tool_result_reuses_dispatcher_envelope():
     result = emitter.calls[-1][1]
     assert result["surface"] == "rich_result"
     assert result["envelope"]["content_type"] == "application/json"
+    assert result["envelope"]["tool_call_id"] == "tu_mcp"
     assert result["summary"]["label"] == "Channels"
 
 

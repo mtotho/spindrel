@@ -245,15 +245,20 @@ async def _route_tool_call(
         await request.respond(schema.dynamic_tool_text_result(str(exc), success=False))
         return
     if emit is not None:
-            emit.tool_result(
-                tool_name=tool_name,
-                tool_call_id=tool_call_id,
-                result_summary=_summarize_dynamic_tool_text(rich_result.text),
-                is_error=rich_result.is_error,
-                envelope=rich_result.envelope,
-                surface=rich_result.surface,
-                summary=rich_result.summary,
-            )
+        envelope = (
+            {**rich_result.envelope, "tool_call_id": tool_call_id}
+            if isinstance(rich_result.envelope, dict)
+            else None
+        )
+        emit.tool_result(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            result_summary=_summarize_dynamic_tool_text(rich_result.text),
+            is_error=rich_result.is_error,
+            envelope=envelope,
+            surface=rich_result.surface,
+            summary=rich_result.summary,
+        )
     await request.respond(schema.dynamic_tool_text_result(
         rich_result.text,
         success=not rich_result.is_error,

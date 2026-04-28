@@ -143,6 +143,12 @@ the selected canvas anchor uses a one-pixel ring with softer severity opacity.
 The screenshot capture now asserts selected briefs expose tone metadata and do
 not regress to side-stripe treatment.
 
+Same-day cluster drilldown correction: clicking or double-clicking a far-zoom
+channel cluster now lands just past the uncluster threshold instead of fitting
+the cluster up into preview zoom. Cluster focus stays navigation-only: no
+Starboard selection, no hover card, no route dive. Screenshot assertions now
+pin the target scale above cluster exit and below channel preview range.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

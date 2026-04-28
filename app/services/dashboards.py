@@ -16,56 +16,20 @@ import uuid as uuid_mod
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from app.domain.errors import ConflictError, InternalError, NotFoundError, ValidationError
+from app.domain.errors import ConflictError, NotFoundError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Channel, WidgetDashboard, WidgetDashboardPin
 from app.services.dashboard_pins import DEFAULT_DASHBOARD_KEY
-
-
-# Grid presets — pin coordinates (x/y/w/h) are expressed in the active
-# preset's grid units. Switching presets on an existing dashboard rescales
-# every pin's grid_layout atomically so layouts visually persist.
-# Ratios between presets are chosen to keep scale math integer-safe.
-GRID_PRESETS: dict[str, dict[str, int]] = {
-    # cols_lg is the horizontal unit count at the widest breakpoint; used here
-    # only as the scale reference. The frontend owns the full breakpoint map.
-    "standard": {"cols_lg": 12, "row_height": 30},
-    "fine": {"cols_lg": 24, "row_height": 15},
-}
-DEFAULT_PRESET = "standard"
-
-
-def _valid_preset(preset: str | None) -> str:
-    if preset is None:
-        return DEFAULT_PRESET
-    if preset not in GRID_PRESETS:
-        raise ValidationError(
-            f"grid_config.preset must be one of {sorted(GRID_PRESETS)}",
-        )
-    return preset
-
-
-def _scale_ratio(from_preset: str, to_preset: str) -> int:
-    """Return the integer multiplier to apply to pin coords when switching.
-
-    Only two presets today (standard×2 = fine), so the ratio is always an
-    integer. If a new preset breaks that invariant in the future, callers
-    will need float coords — revisit then.
-    """
-    a = GRID_PRESETS[from_preset]["cols_lg"]
-    b = GRID_PRESETS[to_preset]["cols_lg"]
-    if a == b:
-        return 1
-    if b % a == 0:
-        return b // a
-    if a % b == 0:
-        return -(a // b)  # sentinel for "divide by"
-    raise InternalError(
-        f"Non-integer scale between presets {from_preset} and {to_preset}",
-    )
+from app.services.dashboard_grid import (
+    DEFAULT_PRESET,
+    GRID_PRESETS,
+    resolve_preset_name as _extract_preset,
+    scale_ratio as _scale_ratio,
+    valid_preset as _valid_preset,
+)
 
 
 def _rescale_pin_layout(layout: dict[str, Any], ratio: int) -> dict[str, Any]:
@@ -85,15 +49,6 @@ def _rescale_pin_layout(layout: dict[str, Any], ratio: int) -> dict[str, Any]:
             elif ratio < 0:
                 out[key] = max(1, v // (-ratio))
     return out
-
-
-def _extract_preset(grid_config: dict[str, Any] | None) -> str:
-    if not grid_config:
-        return DEFAULT_PRESET
-    preset = grid_config.get("preset")
-    if preset in GRID_PRESETS:
-        return preset
-    return DEFAULT_PRESET
 
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")

@@ -856,6 +856,7 @@ def _bridge_message(
                             )
                         if rich:
                             envelope, summary = rich
+                            envelope = {**envelope, "tool_call_id": block.tool_use_id}
                             surface = "rich_result"
                             result_summary = envelope["plain_body"]
                     if (
