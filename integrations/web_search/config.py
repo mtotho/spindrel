@@ -33,6 +33,10 @@ class _Settings(_Base):
         return _get(key, default)
 
     @property
+    def WEB_SEARCH_MODE(self) -> str:
+        return self._get("WEB_SEARCH_MODE", "searxng")
+
+    @property
     def WEB_SEARCH_CONTAINERS(self) -> bool:
         val = self._get("WEB_SEARCH_CONTAINERS", "true")
         return val.lower() in ("true", "1", "yes")

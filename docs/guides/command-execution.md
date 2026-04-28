@@ -208,4 +208,4 @@ These `.env` settings apply globally:
 | `DOCKER_SANDBOX_ENABLED` | Enable Docker sandbox system | `false` |
 | `DOCKER_SANDBOX_MOUNT_ALLOWLIST` | Allowed mount source paths | `""` |
 | `DOCKER_SANDBOX_MAX_CONCURRENT` | Max concurrent sandbox containers | `10` |
-| `PARALLEL_TOOL_MAX_CONCURRENT` | Max parallel tool calls per request | `5` |
+| `PARALLEL_TOOL_MAX_CONCURRENT` | Max parallel tool calls per request | `10` |

@@ -26,14 +26,13 @@ steps:
   # -----------------------------------------------------------------------
   - id: health_check
     prompt: |
-      Run a quick health check on all media stack services. For each service, make one
-      lightweight API call to confirm it's reachable:
+      Run a quick health check on all media stack services with one aggregate call:
 
-      1. `sonarr_series(limit=1)` — Sonarr
-      2. `radarr_movies(limit=1)` — Radarr
-      3. `qbit_torrents(limit=1)` — qBittorrent
-      4. `jellyfin_library(action="stats")` — Jellyfin
-      5. `jellyseerr_requests(limit=1)` — Jellyseerr
+      `arr_heartbeat_snapshot()`
+
+      Use the per-service `services` statuses from the snapshot. Do not make
+      individual health-check calls unless the snapshot has an error that needs
+      focused diagnosis.
 
       For each service, report ONE of:
       - "UP" — responded successfully
@@ -61,6 +60,10 @@ steps:
     prompt: |
       Sync all media state across the stack. Use the health_check results to know which
       services are available — skip sections for services that are DOWN or NOT_CONFIGURED.
+
+      Prefer the `arr_heartbeat_snapshot` sections from health_check as the baseline.
+      Only call the individual service tools below when you need fresher data after a
+      mutation, more rows than the snapshot included, or a focused remediation detail.
 
       **Downloads** (if qBit is UP):
       1. `qbit_torrents(filter="downloading")` — active downloads

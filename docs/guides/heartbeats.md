@@ -313,11 +313,13 @@ Choosing Custom, or editing a numeric limit, stores the policy as `custom`. Nume
 
 Tool-surface modes are runtime-enforced:
 
-- `focused_escape` (default): expose retrieved tools, explicitly tagged tools, heartbeat-injected tools such as optional posting, and the limited discovery escape hatches `get_tool_info` / `search_tools` when discovery is enabled. Broad pinned tools and widget-handler tools are not surfaced just because they are generally available.
+- `focused_escape` (default): expose retrieved tools, explicitly tagged tools, heartbeat-injected tools such as optional posting, and the limited discovery escape hatches `get_tool_info` / `search_tools` / `list_tool_signatures` / `run_script` when discovery is enabled. Broad pinned tools and widget-handler tools are not surfaced just because they are generally available.
 - `strict`: expose retrieved tools, explicitly tagged tools, and heartbeat-injected tools only; no discovery escape hatches.
 - `full`: preserve the broad chat-like surface, including pinned tools and normal discovery helper pins.
 
 When a soft budget trips, the loop emits `heartbeat_budget_pressure` with a reason (`soft_max_llm_calls`, `soft_current_prompt_tokens`, or `target_seconds`), prunes older in-loop tool results even if the model context window still has headroom, and asks the model to finish unless one more tool call is clearly high-value. `provider_state` continuation is reserved until loop state retention is implemented end to end; submitted policies normalize it back to `stateless`.
+
+Heartbeat prompts should prefer compact aggregate tools when the integration provides them. For example, the ARR integration exposes `arr_heartbeat_snapshot()` so a media heartbeat can get one bounded read-only snapshot across configured services, then call detailed tools only for anomalies or mutations.
 
 ---
 

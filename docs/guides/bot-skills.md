@@ -143,6 +143,8 @@ Bots can see these stats via `manage_bot_skill(action="list")` to identify dead-
 
 The system teaches bots when and how to create skills through three complementary nudge mechanisms. Each injects a one-shot system message at a strategic moment in the agent loop.
 
+Skills are also the right place to preserve repeated tool workflows. If a bot repeats the same executable procedure more than once, it should capture the durable decision rules in a bot-authored skill and, when useful, pair that skill with a stored script or `run_script` pattern so future runs do not rediscover the same loop through serial tool calls.
+
 ### 1. Correction-Driven Learning
 
 **Trigger**: User message matches correction patterns (e.g., "No, that's wrong", "Actually, you should...", "Incorrect", "Not quite")

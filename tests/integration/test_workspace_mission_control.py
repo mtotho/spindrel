@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+import json
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -132,3 +134,97 @@ async def test_mission_control_spatial_far_blocked_and_unknown(client, db_sessio
     assert unknown.status_code == 200, unknown.text
     unknown_row = unknown.json()["mission_rows"][workspace_mission["id"]]
     assert unknown_row["spatial_advisory"]["status"] == "unknown"
+
+
+class _FakeMissionControlCompletions:
+    def __init__(self, channel_id: str):
+        self.channel_id = channel_id
+
+    async def create(self, **_kwargs):
+        content = json.dumps({
+            "brief": {
+                "summary": "Recent task failures point to a channel follow-up.",
+                "next_focus": "Queue a grounded sweep for the affected channel.",
+                "confidence": "high",
+            },
+            "drafts": [
+                {
+                    "title": "Sweep recent channel failures",
+                    "directive": "Inspect the recent failed task output, identify the first actionable fix, and report the next concrete step.",
+                    "rationale": "The workspace has recent failed work that is more useful than attention noise.",
+                    "scope": "channel",
+                    "bot_id": "test-bot",
+                    "target_channel_id": self.channel_id,
+                    "interval_kind": "manual",
+                    "recurrence": None,
+                }
+            ],
+        })
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+class _FakeMissionControlClient:
+    def __init__(self, channel_id: str):
+        self.chat = SimpleNamespace(completions=_FakeMissionControlCompletions(channel_id))
+
+
+async def test_mission_control_ai_draft_lifecycle(client, monkeypatch):
+    channel = await _create_channel(client)
+
+    monkeypatch.setattr("app.services.workspace_mission_ai.get_llm_client", lambda _provider_id=None: _FakeMissionControlClient(channel["id"]))
+
+    refresh = await client.post(
+        "/api/v1/workspace/mission-control/ai/refresh",
+        json={"instruction": "Find something useful to queue."},
+        headers=AUTH_HEADERS,
+    )
+    assert refresh.status_code == 200, refresh.text
+    generated = refresh.json()
+    assert generated["assistant_brief"]["summary"].startswith("Recent task failures")
+    assert len(generated["drafts"]) == 1
+    draft = generated["drafts"][0]
+    assert draft["status"] == "draft"
+    assert draft["bot_id"] == "test-bot"
+
+    control = await client.get("/api/v1/workspace/mission-control", headers=AUTH_HEADERS)
+    assert control.status_code == 200, control.text
+    assert control.json()["assistant_brief"]["confidence"] == "high"
+    assert control.json()["drafts"][0]["id"] == draft["id"]
+
+    patched = await client.patch(
+        f"/api/v1/workspace/mission-control/drafts/{draft['id']}",
+        json={"title": "Sweep the failed task queue", "scope": "channel", "target_channel_id": channel["id"]},
+        headers=AUTH_HEADERS,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["draft"]["title"] == "Sweep the failed task queue"
+
+    accepted = await client.post(
+        f"/api/v1/workspace/mission-control/drafts/{draft['id']}/accept",
+        headers=AUTH_HEADERS,
+    )
+    assert accepted.status_code == 200, accepted.text
+    body = accepted.json()
+    assert body["draft"]["status"] == "accepted"
+    assert body["mission"]["title"] == "Sweep the failed task queue"
+    assert body["mission"]["assignments"][0]["bot_id"] == "test-bot"
+
+
+async def test_mission_control_ai_dismiss_hides_draft(client, monkeypatch):
+    channel = await _create_channel(client)
+    monkeypatch.setattr("app.services.workspace_mission_ai.get_llm_client", lambda _provider_id=None: _FakeMissionControlClient(channel["id"]))
+
+    refresh = await client.post("/api/v1/workspace/mission-control/ai/refresh", json={}, headers=AUTH_HEADERS)
+    assert refresh.status_code == 200, refresh.text
+    draft_id = refresh.json()["drafts"][0]["id"]
+
+    dismissed = await client.post(
+        f"/api/v1/workspace/mission-control/drafts/{draft_id}/dismiss",
+        headers=AUTH_HEADERS,
+    )
+    assert dismissed.status_code == 200, dismissed.text
+    assert dismissed.json()["draft"]["status"] == "dismissed"
+
+    control = await client.get("/api/v1/workspace/mission-control", headers=AUTH_HEADERS)
+    assert control.status_code == 200, control.text
+    assert all(row["id"] != draft_id for row in control.json()["drafts"])

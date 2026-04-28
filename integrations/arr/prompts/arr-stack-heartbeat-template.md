@@ -13,10 +13,10 @@ tags:
 Execute all 9 phases in order. Skip any phase whose required service is down. Log all notable actions via `append_timeline_event`.
 
 ## Phase 1: Service Health Check
-Ping Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr. Update `status.md` service table. If a service is down, log it, add to MEDIA.md Issues, skip dependent phases. If recovered, log recovery.
+Call `arr_heartbeat_snapshot()` first. Use its per-service statuses to update `status.md`. If a service is unavailable, log it, add to MEDIA.md Issues, skip dependent phases. If recovered, log recovery. Do not replace this with serial Sonarr/Radarr/qBit/Jellyfin/Jellyseerr health checks unless the snapshot itself needs focused diagnosis.
 
 ## Phase 2: Download Check (requires qBittorrent)
-Query active torrents. Classify each: healthy (progressing) → update MEDIA.md downloads; stalled (0 seeds, >1hr) or errored → auto-remediate (delete torrent, re-search in Sonarr/Radarr, log). Check completed items for import failures.
+Use the qBittorrent section from `arr_heartbeat_snapshot` as the baseline. Query active torrents only if the snapshot shows an issue or does not include enough rows. Classify each: healthy (progressing) → update MEDIA.md downloads; stalled (0 seeds, >1hr) or errored → auto-remediate (delete torrent, re-search in Sonarr/Radarr, log). Check completed items for import failures.
 
 ## Phase 3: Arr Stack Sync (requires Sonarr/Radarr)
 **Sonarr**: Check queue, wanted/missing for tracked shows in `data/tracked-shows.json`. Update episode states, log completions, check calendar for upcoming episodes.

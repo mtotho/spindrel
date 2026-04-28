@@ -819,6 +819,80 @@ class WorkspaceMissionUpdate(Base):
     )
 
 
+class WorkspaceMissionControlBrief(Base):
+    __tablename__ = "workspace_mission_control_briefs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    next_focus: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    confidence: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'medium'"))
+    user_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grounding_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    raw_response: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    ai_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("confidence IN ('low', 'medium', 'high')", name="ck_workspace_mission_control_briefs_confidence"),
+        Index("ix_workspace_mission_control_briefs_created", "created_at"),
+    )
+
+
+class WorkspaceMissionDraft(Base):
+    __tablename__ = "workspace_mission_drafts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'draft'"))
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'ai'"))
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    directive: Mapped[str] = mapped_column(Text, nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scope: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'workspace'"))
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    interval_kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'preset'"))
+    recurrence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_provider_id_override: Mapped[str | None] = mapped_column(Text, nullable=True)
+    harness_effort: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grounding_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    ai_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_response: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    user_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    accepted_mission_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workspace_missions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'accepted', 'dismissed')", name="ck_workspace_mission_drafts_status"),
+        CheckConstraint("source IN ('ai', 'user')", name="ck_workspace_mission_drafts_source"),
+        CheckConstraint("scope IN ('workspace', 'channel')", name="ck_workspace_mission_drafts_scope"),
+        CheckConstraint("interval_kind IN ('manual', 'preset', 'custom')", name="ck_workspace_mission_drafts_interval_kind"),
+        Index("ix_workspace_mission_drafts_status_updated", "status", "updated_at"),
+        Index("ix_workspace_mission_drafts_target_channel", "target_channel_id"),
+        Index("ix_workspace_mission_drafts_bot", "bot_id"),
+        Index("ix_workspace_mission_drafts_accepted_mission", "accepted_mission_id"),
+    )
+
+
 class UsageLimit(Base):
     __tablename__ = "usage_limits"
 

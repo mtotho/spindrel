@@ -401,6 +401,13 @@ joining results across tools). Runs Python in your workspace with `tools.NAME(**
 bindings and keeps intermediate data out of context. It can run ad-hoc inline source or a \
 named script attached to one of your bot-authored skills (`run_script(skill_name=..., script_name=...)`). \
 Call `list_tool_signatures()` first if you don't know what's composable.
+- Tool-efficiency rules:
+  - 1-2 simple calls: call the tools directly.
+  - 3+ independent checks: emit the tool calls together in one assistant turn so the runtime can dispatch them concurrently.
+  - Mechanical loops, filtering, joins, or fan-out over many items: use `run_script` instead of serial tool-call rounds.
+  - Repeated executable workflows: create/update a bot-authored skill and attach a named script with `manage_bot_skill`.
+  - Prefer purpose-built aggregate tools for recurring domain workflows when they exist; they save both tool iterations and context.
+  - Do not repeat read-only checks or re-read prior tool results unless a mutation happened or freshness materially matters.
 
 Two persistence layers — route correctly:
 - **Skills** (`manage_bot_skill`) — reusable domain knowledge, auto-surface across sessions \
@@ -534,6 +541,10 @@ class Settings(BaseSettings):
     PROMPT_GENERATION_MODEL: str = ""  # empty = uses DEFAULT_MODEL
     PROMPT_GENERATION_MODEL_PROVIDER_ID: str = ""
     PROMPT_GENERATION_TEMPERATURE: float = 0.7
+    # Mission Control AI (operator brief and suggested mission drafts)
+    MISSION_CONTROL_AI_MODEL: str = ""  # empty = prompt generation, compaction, then default
+    MISSION_CONTROL_AI_MODEL_PROVIDER_ID: str = ""
+    MISSION_CONTROL_AI_TEMPERATURE: float = 0.35
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15

@@ -354,6 +354,7 @@ async def build_mission_control(
         for update in mission.get("updates", [])[:3]
     ]
     recent_updates.sort(key=lambda row: str((row["update"] or {}).get("created_at") or ""), reverse=True)
+    from app.services.workspace_mission_ai import latest_mission_control_brief, list_mission_drafts
 
     return {
         "generated_at": _iso(datetime.now(timezone.utc)),
@@ -376,4 +377,6 @@ async def build_mission_control(
         ][:20],
         "recent_updates": recent_updates[:20],
         "mission_rows": mission_rows_by_id,
+        "assistant_brief": await latest_mission_control_brief(db),
+        "drafts": await list_mission_drafts(db, auth=auth, include_inactive=False, limit=20),
     }

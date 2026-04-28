@@ -2,7 +2,7 @@
 
 `run_script` lets a bot write a short Python script that orchestrates many tool calls in one turn.
 
-This is not the default way to use Spindrel. It is the escape hatch for jobs that are awkward in plain chat:
+This is not a replacement for simple tool calls. It is the expected path for jobs that are mostly mechanical orchestration:
 
 - loop over many items
 - filter or transform tool results before the next call
@@ -12,6 +12,13 @@ This is not the default way to use Spindrel. It is the escape hatch for jobs tha
 ## When to use it
 
 Use `run_script` when the bot needs to do real tool orchestration, not just one or two tool calls.
+
+Rule of thumb:
+
+- Use normal tool calls for 1-2 direct checks.
+- Emit independent direct tool calls together in one assistant turn when the model can do that safely.
+- Use `run_script` for 3+ related calls when there is fan-out, looping, filtering, joining, or compact intermediate state.
+- Prefer a purpose-built aggregate tool over either direct calls or `run_script` when one exists.
 
 Good fits:
 
@@ -68,6 +75,7 @@ That is expensive and noisy when the work is mostly mechanical.
 - It is best when the task is obviously tool-heavy
 - It is not yet something to present as a beginner-first feature
 - Budgeting and guardrails matter more here than in plain chat
+- Repeated executable workflows should become a bot-authored skill or stored script so future runs do not spend context rediscovering the same loop
 
 See [Feature Status](feature-status.md) for the current readiness/confidence snapshot.
 

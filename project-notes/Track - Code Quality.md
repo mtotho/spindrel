@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Context preview, context breakdown runtime seam, and `run_task` Wave C seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Pending request rendezvous seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -30,8 +30,9 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - **Context preview consolidation shipped.** `admin_channel_context_preview` no longer rebuilds prompt composition in the router. It now validates channel existence, calls runtime `assemble_for_preview`, and delegates response shaping to `app.services.context_preview.build_context_preview_response`. The adapter may split the already-assembled base system prompt for display labels, but does not reconstruct prompt policy.
 - **Context breakdown runtime seam shipped.** `compute_context_breakdown` now gets static/runtime-injected categories from `assemble_for_preview` via the shared preview-block adapter instead of manually reconstructing global/workspace/bot prompts, memory files, skills, tools, widgets, section indexes, and workspace RAG estimates. The breakdown module still owns DB diagnostics: gross conversation size, pruning savings, compaction state, reranking state, effective settings, and last-turn API usage reconciliation. `assemble_for_preview` accepts optional `session_id`/`db` so scratch-session breakdowns can use the same runtime path without leaving the request DB context.
 - **`run_task` Wave C shipped.** The deferred agent-run-path extraction proved viable as an internal typed seam instead of a broad new public interface. `run_task` remains the task worker coordinator, but the hidden implementation now has locality around task-run preparation, harness-backed execution, and normal-agent persistence/dispatch/follow-up behavior.
+- **Pending request rendezvous seam shipped.** `app.agent.pending` and `app.agent.approval_pending` now share one `PendingRegistry` implementation while preserving their existing wrapper Interfaces and `_pending` monkeypatch points. Client-tool timeout handling now discards timed-out request futures so the registry cannot leak stale entries; approval cancel/resolve behavior is unchanged.
 - **Readonly tool returns-schema baseline restored.** Added schemas for `describe_canvas_neighborhood`, `inspect_nearby_spatial_object`, `view_spatial_canvas`, and `widget_version_history`; `tests/unit/test_tool_returns_schema_coverage.py` is green again.
-- **Next section candidate.** Leave draft `context_estimate.py` separate because it estimates unsaved bot config. Next architecture section should pick the next verify-first item from the god-function/depth queue rather than reopening `run_task` immediately; `_run_normal_agent_task` can be revisited later only if follow-up-task or metadata policy starts changing again.
+- **Next section candidate.** Leave draft `context_estimate.py` separate because it estimates unsaved bot config. The pending/approval verify-first item is done; next architecture section should continue with a fresh verify-first pass over `persona.py`, `vector_ops.py`, and `hybrid_search.py` before scoping any Module move, rather than bundling them blindly.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

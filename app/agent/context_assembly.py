@@ -404,6 +404,64 @@ class AssemblyResult:
     tool_discovery_info: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class AssemblyLedger:
+    """Budget + injection accounting shared by context assembly stages."""
+    budget: "ContextBudget | None" = None
+    inject_chars: dict[str, int] = field(default_factory=dict)
+    inject_decisions: dict[str, str] = field(default_factory=dict)
+
+    def can_afford(self, content: Any) -> bool:
+        if self.budget is None:
+            return True
+        return self.budget.can_afford(estimate_content_tokens(content))
+
+    def consume(self, category: str, content: Any) -> None:
+        if self.budget is not None:
+            self.budget.consume(category, estimate_content_tokens(content))
+
+    def consume_tokens(self, category: str, tokens: int) -> None:
+        if self.budget is not None and tokens:
+            self.budget.consume(category, tokens)
+
+    def mark(self, key: str, decision: str) -> None:
+        self.inject_decisions[key] = decision
+
+    def record_chars(self, key: str, chars: int) -> None:
+        self.inject_chars[key] = chars
+
+
+@dataclass
+class AssemblyStageState:
+    """Typed cross-stage outputs for the context assembly pipeline."""
+    bot: BotConfig | None = None
+    enrolled_ids: list[str] = field(default_factory=list)
+    source_map: dict[str, str] = field(default_factory=dict)
+    tagged: list[Any] = field(default_factory=list)
+    tagged_skill_names: list[str] = field(default_factory=list)
+    tagged_tool_names: list[str] = field(default_factory=list)
+    tagged_bot_names: list[str] = field(default_factory=list)
+    untagged_ephemeral: list[str] = field(default_factory=list)
+    member_bot_ids: list[str] = field(default_factory=list)
+    member_configs: dict[str, dict] = field(default_factory=dict)
+    enrolled_rows: list[Any] = field(default_factory=list)
+    suggestion_rows: list[Any] = field(default_factory=list)
+    ranked_relevant: list[str] = field(default_factory=list)
+    auto_injected: list[str] = field(default_factory=list)
+    auto_injected_similarities: dict[str, float] = field(default_factory=dict)
+    history_fetched_skills: set[str] = field(default_factory=set)
+    history_skill_records: dict[str, dict[str, Any]] = field(default_factory=dict)
+    pre_selected_tools: list[dict[str, Any]] | None = None
+    authorized_names: set[str] | None = None
+    tool_discovery_info: dict[str, Any] = field(default_factory=lambda: {"tool_retrieval_enabled": False})
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        setattr(self, key, value)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+
 def _mark_injection_decision(
     inject_decisions: dict[str, str],
     key: str,
@@ -467,7 +525,7 @@ async def _run_context_pruning(
     messages: list[dict],
     bot: BotConfig,
     ch_row: Any,
-    inject_chars: dict[str, int],
+    ledger: AssemblyLedger,
     correlation_id: Any,
     session_id: Any,
     client_id: str | None,
@@ -494,7 +552,7 @@ async def _run_context_pruning(
     from app.agent.context_pruning import prune_tool_results
     _prune_stats = prune_tool_results(messages, min_content_length=_pruning_min_len)
     if _prune_stats["pruned_count"] > 0 or _prune_stats.get("tool_call_args_pruned", 0) > 0:
-        inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
+        ledger.record_chars("context_pruning_saved", -_prune_stats["chars_saved"])
         yield {
             "type": "context_pruning",
             "scope": "turn_boundary",
@@ -528,7 +586,7 @@ def _apply_effective_tools_and_budget(
     messages: list[dict],
     bot: BotConfig,
     ch_row: Any,
-    budget: "ContextBudget | None",
+    ledger: AssemblyLedger,
     result: "AssemblyResult",
 ) -> BotConfig:
     """Consume base + history tokens against the budget, resolve the channel-
@@ -537,7 +595,7 @@ def _apply_effective_tools_and_budget(
     overrides into `result`, and return the replaced BotConfig. Sync — no
     awaits in the underlying pipeline stage.
     """
-    if budget is not None:
+    if ledger.budget is not None:
         _base_tokens = 0
         _history_tokens = 0
         for m in messages:
@@ -546,10 +604,8 @@ def _apply_effective_tools_and_budget(
                 _base_tokens += _tokens
             else:
                 _history_tokens += _tokens
-        if _base_tokens:
-            budget.consume("base_context", _base_tokens)
-        if _history_tokens:
-            budget.consume("conversation_history", _history_tokens)
+        ledger.consume_tokens("base_context", _base_tokens)
+        ledger.consume_tokens("conversation_history", _history_tokens)
 
     if ch_row is not None:
         _eff = resolve_effective_tools(bot, ch_row)
@@ -592,7 +648,7 @@ def _apply_effective_tools_and_budget(
 async def _load_skill_enrollments(
     *,
     bot: BotConfig,
-    out_state: dict,
+    state: AssemblyStageState,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Phase 3 skill-enrollment loader. Discovers bot-authored skills,
     persists any new ones as source='authored', loads the bot's full enrolled
@@ -607,6 +663,7 @@ async def _load_skill_enrollments(
     `app.agent.context_assembly._get_bot_authored_skill_ids` continue to
     intercept the call.
     """
+    out_state = state
     out_state["bot"] = bot
     out_state["enrolled_ids"] = []
     out_state["source_map"] = {}
@@ -696,7 +753,7 @@ async def _resolve_tagged_mentions(
     session_id: Any,
     correlation_id: Any,
     result: Any,
-    out_state: dict,
+    state: AssemblyStageState,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Resolve @mentions in the user message into skill/tool/bot tag objects.
     Writes `tagged`, `tagged_skill_names`, `tagged_tool_names`,
@@ -716,6 +773,7 @@ async def _resolve_tagged_mentions(
     _tagged_tool_names = [t.name for t in _tagged if t.tag_type == "tool"]
     _tagged_bot_names = [t.name for t in _tagged if t.tag_type == "bot"]
 
+    out_state = state
     out_state["tagged"] = _tagged
     out_state["tagged_skill_names"] = _tagged_skill_names
     out_state["tagged_tool_names"] = _tagged_tool_names
@@ -773,20 +831,20 @@ async def _apply_ephemeral_skills(
     *,
     messages: list[dict],
     bot: BotConfig,
-    tagged_skill_names: list[str],
-    out_state: dict,
+    state: AssemblyStageState,
 ) -> None:
     """Append webhook/execution-config skills that weren't @-tagged or
     already in bot.skills. Writes `untagged_ephemeral` to ``out_state`` for
     Stage 9 to consume."""
     from app.agent.context import current_ephemeral_skills
+    tagged_skill_names = state.tagged_skill_names
     _ephemeral_skill_ids = list(current_ephemeral_skills.get() or [])
     _bot_skill_ids = {s.id for s in bot.skills}
     _untagged_ephemeral = [
         s for s in _ephemeral_skill_ids
         if s not in tagged_skill_names and s not in _bot_skill_ids
     ]
-    out_state["untagged_ephemeral"] = _untagged_ephemeral
+    state.untagged_ephemeral = _untagged_ephemeral
     if _untagged_ephemeral:
         _eph_chunks: list[str] = []
         for _eph_id in _untagged_ephemeral:
@@ -806,7 +864,7 @@ async def _inject_multi_bot_awareness(
     channel_id: Any,
     ch_row: Any,
     system_preamble: Any,
-    out_state: dict,
+    state: AssemblyStageState,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Load channel bot members + emit a system message listing participants
     (primary/member labels, self marker, config suffixes). Writes
@@ -828,8 +886,8 @@ async def _inject_multi_bot_awareness(
         except Exception:
             logger.debug("Failed to load channel bot members for %s", channel_id, exc_info=True)
 
-    out_state["member_bot_ids"] = _member_bot_ids
-    out_state["member_configs"] = _member_configs
+    state.member_bot_ids = _member_bot_ids
+    state.member_configs = _member_configs
 
     if _member_bot_ids:
         from app.agent.bots import get_bot as _get_bot_mb
@@ -885,10 +943,7 @@ async def _inject_spatial_awareness(
     messages: list[dict],
     bot: BotConfig,
     channel_id: Any,
-    inject_chars: dict,
-    inject_decisions: dict,
-    budget_can_afford,
-    budget_consume,
+    ledger: AssemblyLedger,
 ) -> AsyncGenerator[dict[str, Any], None]:
     if not channel_id:
         return
@@ -906,14 +961,14 @@ async def _inject_spatial_awareness(
         return
     if not block:
         return
-    if budget_can_afford(block):
+    if ledger.can_afford(block):
         messages.append({"role": "system", "content": block})
-        budget_consume("spatial_canvas", block)
-        inject_chars["spatial_canvas"] = len(block)
-        _mark_injection_decision(inject_decisions, "spatial_canvas", "admitted")
+        ledger.consume("spatial_canvas", block)
+        ledger.record_chars("spatial_canvas", len(block))
+        ledger.mark("spatial_canvas", "admitted")
         yield {"type": "spatial_canvas", "chars": len(block)}
     else:
-        _mark_injection_decision(inject_decisions, "spatial_canvas", "skipped_by_budget")
+        ledger.mark("spatial_canvas", "skipped_by_budget")
 
 
 def _inject_delegate_index(
@@ -970,15 +1025,10 @@ async def _inject_skill_working_set(
     session_id: Any,
     client_id: Any,
     skip_skill_inject: bool,
-    tagged_skill_names: list[str],
-    untagged_ephemeral: list[str],
-    source_map: dict[str, str],
-    budget_can_afford: Any,
-    budget_consume: Any,
+    state: AssemblyStageState,
+    ledger: AssemblyLedger,
     result: Any,
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
-    out_state: dict,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Phase-3 skill working-set + semantic discovery + auto-inject for the
     turn. Writes `enrolled_rows`, `suggestion_rows`, `enrolled_ids`,
@@ -1007,6 +1057,13 @@ async def _inject_skill_working_set(
     _skipped_in_history: list[str] = []
     _skipped_budget: list[str] = []
     _ranking: list[dict] = []
+    tagged_skill_names = state.tagged_skill_names
+    untagged_ephemeral = state.untagged_ephemeral
+    source_map = state.source_map
+    budget_can_afford = ledger.can_afford
+    budget_consume = ledger.consume
+    inject_decisions = ledger.inject_decisions
+    out_state = state
 
     out_state["enrolled_rows"] = _enrolled_rows
     out_state["suggestion_rows"] = _suggestion_rows
@@ -1337,22 +1394,24 @@ async def _run_tool_retrieval(
     bot: BotConfig,
     user_message: Any,
     ch_row: Any,
-    tagged_tool_names: list[str],
-    tagged_skill_names: list[str],
+    state: AssemblyStageState,
     correlation_id: Any,
     session_id: Any,
     client_id: Any,
     context_profile: Any,
     tool_surface_policy: str | None,
-    inject_decisions: dict,
-    budget_can_afford: Any,
-    budget_consume: Any,
-    out_state: dict,
+    ledger: AssemblyLedger,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Tool-RAG retrieval + policy gate + pinned/retrieved merge + compact
     unretrieved-tool index injection. Writes `pre_selected_tools`,
     `authorized_names`, `tool_discovery_info` to ``out_state``. Only called
     when `bot.tool_retrieval` is on — caller keeps the gate."""
+    tagged_tool_names = state.tagged_tool_names
+    tagged_skill_names = state.tagged_skill_names
+    inject_decisions = ledger.inject_decisions
+    budget_can_afford = ledger.can_afford
+    budget_consume = ledger.consume
+    out_state = state
     _enrolled_tool_names: list[str] = []
     if bot.id:
         try:
@@ -1452,6 +1511,8 @@ async def _run_tool_retrieval(
             _effective_pinned = tagged_tool_names + ["get_tool_info"]
             if bot.tool_discovery:
                 _effective_pinned.append("search_tools")
+                _effective_pinned.append("list_tool_signatures")
+                _effective_pinned.append("run_script")
             if tagged_skill_names:
                 _effective_pinned += ["get_skill", "get_skill_list"]
         else:
@@ -1552,11 +1613,11 @@ async def _finalize_exposed_tools(
     bot: BotConfig,
     channel_id: Any,
     ch_row: Any,
-    pre_selected_tools: list[dict[str, Any]] | None,
-    authorized_names: set[str] | None,
     tool_surface_policy: str | None,
-    out_state: dict,
+    state: AssemblyStageState,
 ) -> None:
+    pre_selected_tools = state.pre_selected_tools
+    authorized_names = state.authorized_names
     # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
     from app.agent.context import current_injected_tools
     _injected = current_injected_tools.get()
@@ -1657,8 +1718,8 @@ async def _finalize_exposed_tools(
                 channel_id, exc_info=True,
             )
 
-    out_state["pre_selected_tools"] = pre_selected_tools
-    out_state["authorized_names"] = authorized_names
+    state.pre_selected_tools = pre_selected_tools
+    state.authorized_names = authorized_names
 
 
 # ===== Cluster 7e-b late cache-safe injections =====
@@ -1680,11 +1741,12 @@ async def _inject_late_cache_safe_context(
     session_id: uuid.UUID | None,
     authorized_names: set[str] | None,
     context_profile: ContextProfile,
-    inject_chars: dict[str, int],
-    inject_decisions: dict,
-    budget_can_afford: Any,
-    budget_consume: Any,
+    ledger: AssemblyLedger,
 ) -> None:
+    inject_chars = ledger.inject_chars
+    inject_decisions = ledger.inject_decisions
+    budget_can_afford = ledger.can_afford
+    budget_consume = ledger.consume
     # --- datetime + conversation-gap framing (injected late to avoid busting prompt cache prefix) ---
     if context_profile.allow_temporal_context:
         try:
@@ -1877,10 +1939,11 @@ async def _append_prompt_and_user_message(
     native_audio: bool,
     system_preamble: str | None,
     task_mode: bool,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
+    ledger: AssemblyLedger,
     result: Any,
 ) -> None:
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and ch_row is not None:
         _ch_ws_path = getattr(ch_row, "channel_prompt_workspace_file_path", None)
@@ -1980,20 +2043,22 @@ async def _emit_finalization_traces(
     session_id: Any,
     client_id: Any,
     context_profile: ContextProfile,
-    budget: Any,
-    inject_chars: dict[str, int],
-    inject_decisions: dict,
-    enrolled_rows: list,
-    enrolled_ids: list[str],
-    ranked_relevant: list[str],
-    auto_injected: list[str],
-    auto_injected_similarities: dict[str, float],
-    suggestion_rows: list,
-    history_fetched_skills: Any,
-    history_skill_records: dict[str, dict],
-    tool_discovery_info: dict,
+    ledger: AssemblyLedger,
+    state: AssemblyStageState,
     result: Any,
 ) -> None:
+    budget = ledger.budget
+    inject_chars = ledger.inject_chars
+    inject_decisions = ledger.inject_decisions
+    enrolled_rows = state.enrolled_rows
+    enrolled_ids = state.enrolled_ids
+    ranked_relevant = state.ranked_relevant
+    auto_injected = state.auto_injected
+    auto_injected_similarities = state.auto_injected_similarities
+    suggestion_rows = state.suggestion_rows
+    history_fetched_skills = state.history_fetched_skills
+    history_skill_records = state.history_skill_records
+    tool_discovery_info = state.tool_discovery_info
     # --- store budget utilization for downstream (compaction trigger) ---
     if budget is not None:
         result.budget_utilization = budget.utilization
@@ -2104,13 +2169,14 @@ async def _emit_finalization_traces(
 async def _inject_plan_artifact(
     messages: list[dict],
     session_id: uuid.UUID | None,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
-    budget_can_afford: Any,
+    ledger: AssemblyLedger,
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
 ) -> None:
     """Inject a compact block derived from the active canonical plan artifact."""
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    inject_decisions = ledger.inject_decisions
     if not context_profile.allow_plan_artifact:
         return
     if session_id is None:
@@ -2148,12 +2214,9 @@ async def _inject_plan_artifact(
 async def _inject_memory_scheme(
     messages: list[dict],
     bot: BotConfig,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
-    budget_can_afford: Any,
+    ledger: AssemblyLedger,
     injected_paths: set[str],
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject memory scheme files (MEMORY.md, daily logs, reference index).
 
@@ -2164,6 +2227,10 @@ async def _inject_memory_scheme(
 
     from app.services.memory_scheme import get_memory_root, get_memory_index_prefix, get_memory_rel_path
     from app.services.workspace import workspace_service
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    inject_decisions = ledger.inject_decisions
     try:
         ws_root = workspace_service.get_workspace_root(bot.id, bot)
         mem_root = get_memory_root(bot, ws_root=ws_root)
@@ -2383,11 +2450,8 @@ async def _inject_channel_workspace(
     bot: BotConfig,
     ch_row: Any,
     user_message: str,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
-    budget_can_afford: Any,
+    ledger: AssemblyLedger,
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject channel workspace files, data listing, schema, index segments, and plan stall detection."""
     import os
@@ -2396,6 +2460,10 @@ async def _inject_channel_workspace(
     from app.services.channel_workspace import get_channel_workspace_root, ensure_channel_workspace
 
     ch_id = str(ch_row.id)
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    inject_decisions = ledger.inject_decisions
 
     try:
         ensure_channel_workspace(ch_id, bot, display_name=ch_row.name)
@@ -2558,11 +2626,8 @@ async def _inject_conversation_sections(
     channel_id: uuid.UUID,
     session_id: uuid.UUID | None,
     user_message: str,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
-    budget_can_afford: Any,
+    ledger: AssemblyLedger,
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject conversation section context (structured mode) or section index (file mode)."""
     from app.db.engine import async_session
@@ -2570,6 +2635,10 @@ async def _inject_conversation_sections(
     from app.services.compaction import _get_history_mode
     from sqlalchemy import func, select
     from sqlalchemy.orm import defer
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    inject_decisions = ledger.inject_decisions
 
     if not context_profile.allow_conversation_sections:
         _mark_injection_decision(inject_decisions, "conversation_sections", "skipped_by_profile")
@@ -2661,17 +2730,17 @@ async def _inject_workspace_rag(
     correlation_id: uuid.UUID | None,
     session_id: uuid.UUID | None,
     client_id: str | None,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
-    budget_can_afford: Any,
-    budget: Any,
+    ledger: AssemblyLedger,
     memory_scheme_injected_paths: set[str],
     excluded_path_prefixes: set[str],
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject workspace filesystem RAG context (current and legacy paths)."""
     from app.agent.fs_indexer import retrieve_filesystem_context
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    budget = ledger.budget
+    inject_decisions = ledger.inject_decisions
 
     if not context_profile.allow_workspace_rag:
         _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_by_profile")
@@ -2761,13 +2830,14 @@ async def _inject_bot_knowledge_base(
     messages: list[dict],
     bot: BotConfig,
     user_message: str,
-    inject_chars: dict[str, int],
-    budget_consume: Any,
-    budget_can_afford: Any,
+    ledger: AssemblyLedger,
     context_profile: ContextProfile,
-    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject semantic excerpts from the bot's own knowledge-base/ folder."""
+    inject_chars = ledger.inject_chars
+    budget_consume = ledger.consume
+    budget_can_afford = ledger.can_afford
+    inject_decisions = ledger.inject_decisions
     if not context_profile.allow_bot_knowledge_base:
         _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_by_profile")
         return
@@ -2857,24 +2927,13 @@ async def assemble_context(
         extra={"user_message": user_message},
     ))
 
-    _inject_chars: dict[str, int] = {}
-    _inject_decisions: dict[str, str] = {}
     context_profile = get_context_profile(context_profile_name or "chat")
     result.context_profile = context_profile.name
     result.context_origin = current_run_origin.get(None)
     result.context_policy = context_profile.to_policy_dict()
     current_skills_in_context.set([])
-
-    def _budget_consume(category: str, content: Any) -> None:
-        """Record consumption in the budget if one is active."""
-        if budget is not None:
-            budget.consume(category, estimate_content_tokens(content))
-
-    def _budget_can_afford(content: Any) -> bool:
-        """Check if the budget can accommodate this content."""
-        if budget is None:
-            return True
-        return budget.can_afford(estimate_content_tokens(content))
+    ledger = AssemblyLedger(budget=budget)
+    stage_state = AssemblyStageState(bot=bot)
 
     # --- channel-level tool/skill overrides ---
     _ch_row = await _load_channel_overrides(channel_id=channel_id)
@@ -2884,7 +2943,7 @@ async def assemble_context(
         messages=messages,
         bot=bot,
         ch_row=_ch_row,
-        inject_chars=_inject_chars,
+        ledger=ledger,
         correlation_id=correlation_id,
         session_id=session_id,
         client_id=client_id,
@@ -2896,20 +2955,18 @@ async def assemble_context(
         messages=messages,
         bot=bot,
         ch_row=_ch_row,
-        budget=budget,
+        ledger=ledger,
         result=result,
     )
+    stage_state.bot = bot
 
     # --- skill enrollment loading (Phase 3 working set model) ---
     # `bot_skill_enrollment` is the source of truth for "what skills does
     # this bot know about"; bot-authored skills are discovered each turn
     # and persisted as enrollment rows rather than merged inline.
-    _skill_state: dict = {}
-    async for _evt in _load_skill_enrollments(bot=bot, out_state=_skill_state):
+    async for _evt in _load_skill_enrollments(bot=bot, state=stage_state):
         yield _evt
-    bot = _skill_state.get("bot", bot)
-    _enrolled_ids: list[str] = _skill_state.get("enrolled_ids", [])
-    _source_map: dict[str, str] = _skill_state.get("source_map", {})
+    bot = stage_state.bot or bot
 
     # --- memory scheme: file injection ---
     # NOTE: memory-scheme TOOL injection (search_memory, file, etc.) is handled
@@ -2917,8 +2974,7 @@ async def assemble_context(
     _memory_scheme_injected_paths: set[str] = set()
     if bot.memory_scheme == "workspace-files":
         async for evt in _inject_memory_scheme(
-            messages, bot, _inject_chars, _budget_consume, _budget_can_afford,
-            _memory_scheme_injected_paths, context_profile, _inject_decisions,
+            messages, bot, ledger, _memory_scheme_injected_paths, context_profile,
         ):
             yield evt
 
@@ -2935,23 +2991,18 @@ async def assemble_context(
             pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + _CW_TOOLS)),
         )
         async for evt in _inject_channel_workspace(
-            messages, bot, _ch_row, user_message, _inject_chars, _budget_consume,
-            _budget_can_afford, context_profile, _inject_decisions,
+            messages, bot, _ch_row, user_message, ledger, context_profile,
         ):
             yield evt
 
     await _inject_plan_artifact(
         messages,
         session_id,
-        _inject_chars,
-        _budget_consume,
-        _budget_can_afford,
+        ledger,
         context_profile,
-        _inject_decisions,
     )
 
     # --- @mention tag resolution ---
-    _tag_state: dict = {}
     async for _evt in _resolve_tagged_mentions(
         messages=messages,
         bot=bot,
@@ -2960,23 +3011,16 @@ async def assemble_context(
         session_id=session_id,
         correlation_id=correlation_id,
         result=result,
-        out_state=_tag_state,
+        state=stage_state,
     ):
         yield _evt
-    _tagged = _tag_state.get("tagged", [])
-    _tagged_skill_names: list[str] = _tag_state.get("tagged_skill_names", [])
-    _tagged_tool_names: list[str] = _tag_state.get("tagged_tool_names", [])
-    _tagged_bot_names: list[str] = _tag_state.get("tagged_bot_names", [])
 
     # --- execution_config ephemeral skills (not already @-tagged or in bot.skills) ---
-    _eph_state: dict = {}
     await _apply_ephemeral_skills(
         messages=messages,
         bot=bot,
-        tagged_skill_names=_tagged_skill_names,
-        out_state=_eph_state,
+        state=stage_state,
     )
-    _untagged_ephemeral: list[str] = _eph_state.get("untagged_ephemeral", [])
 
     # --- skills (Phase 3 working set + semantic discovery layer + ranking) ---
     #
@@ -2984,8 +3028,6 @@ async def assemble_context(
     #   1. Working set — relevance-ranked list of enrolled skills.
     #   2. Auto-inject — highest-confidence enrolled skill pre-loaded.
     #   3. Discovery — semantic retrieval over UNENROLLED catalog skills.
-    _tool_discovery_info: dict[str, Any] = {"tool_retrieval_enabled": False}
-    _ws_state: dict = {}
     async for _evt in _inject_skill_working_set(
         messages=messages,
         bot=bot,
@@ -2994,25 +3036,12 @@ async def assemble_context(
         session_id=session_id,
         client_id=client_id,
         skip_skill_inject=skip_skill_inject,
-        tagged_skill_names=_tagged_skill_names,
-        untagged_ephemeral=_untagged_ephemeral,
-        source_map=_source_map,
-        budget_can_afford=_budget_can_afford,
-        budget_consume=_budget_consume,
+        state=stage_state,
+        ledger=ledger,
         result=result,
         context_profile=context_profile,
-        inject_decisions=_inject_decisions,
-        out_state=_ws_state,
     ):
         yield _evt
-    _enrolled_rows = _ws_state.get("enrolled_rows", [])
-    _suggestion_rows = _ws_state.get("suggestion_rows", [])
-    _enrolled_ids: list[str] = _ws_state.get("enrolled_ids", [])
-    _ranked_relevant: list[str] = _ws_state.get("ranked_relevant", [])
-    _auto_injected: list[str] = _ws_state.get("auto_injected", [])
-    _auto_injected_similarities: dict[str, float] = _ws_state.get("auto_injected_similarities", {})
-    _history_fetched_skills: set[str] = _ws_state.get("history_fetched_skills", set())
-    _history_skill_records: dict[str, dict[str, Any]] = _ws_state.get("history_skill_records", {})
 
     # --- API access tools (for bots with scoped API keys) ---
     bot, _api_event = _inject_api_access_tools(messages=messages, bot=bot)
@@ -3020,28 +3049,22 @@ async def assemble_context(
         yield _api_event
 
     # --- multi-bot channel awareness + member bot injection ---
-    _mb_state: dict = {}
     async for _evt in _inject_multi_bot_awareness(
         messages=messages,
         bot=bot,
         channel_id=channel_id,
         ch_row=_ch_row,
         system_preamble=system_preamble,
-        out_state=_mb_state,
+        state=stage_state,
     ):
         yield _evt
-    _member_bot_ids: list[str] = _mb_state.get("member_bot_ids", [])
-    _member_configs: dict[str, dict] = _mb_state.get("member_configs", {})
 
     # --- spatial canvas awareness (opt-in per channel/bot policy) ---
     async for _evt in _inject_spatial_awareness(
         messages=messages,
         bot=bot,
         channel_id=channel_id,
-        inject_chars=_inject_chars,
-        inject_decisions=_inject_decisions,
-        budget_can_afford=_budget_can_afford,
-        budget_consume=_budget_consume,
+        ledger=ledger,
     ):
         yield _evt
 
@@ -3049,8 +3072,8 @@ async def assemble_context(
     _delegate_event = _inject_delegate_index(
         messages=messages,
         bot=bot,
-        tagged_bot_names=_tagged_bot_names,
-        member_bot_ids=_member_bot_ids,
+        tagged_bot_names=stage_state.tagged_bot_names,
+        member_bot_ids=stage_state.member_bot_ids,
     )
     if _delegate_event:
         yield _delegate_event
@@ -3061,8 +3084,7 @@ async def assemble_context(
     # --- conversation section retrieval (structured mode) + section index (file mode) ---
     if channel_id is not None and _ch_row is not None:
         async for evt in _inject_conversation_sections(
-            messages, bot, _ch_row, channel_id, session_id, user_message, _inject_chars,
-            _budget_consume, _budget_can_afford, context_profile, _inject_decisions,
+            messages, bot, _ch_row, channel_id, session_id, user_message, ledger, context_profile,
         ):
             yield evt
 
@@ -3081,11 +3103,8 @@ async def assemble_context(
         messages,
         bot,
         user_message,
-        _inject_chars,
-        _budget_consume,
-        _budget_can_afford,
+        ledger,
         context_profile,
-        _inject_decisions,
     ):
         yield evt
 
@@ -3093,9 +3112,9 @@ async def assemble_context(
     async for evt in _inject_workspace_rag(
         messages, bot, _ch_row, channel_id, user_message,
         correlation_id, session_id, client_id,
-        _inject_chars, _budget_consume, _budget_can_afford, budget,
+        ledger,
         _memory_scheme_injected_paths, _workspace_rag_excluded_prefixes,
-        context_profile, _inject_decisions,
+        context_profile,
     ):
         yield evt
 
@@ -3103,46 +3122,39 @@ async def assemble_context(
     pre_selected_tools: list[dict[str, Any]] | None = None
     _authorized_names: set[str] | None = None
     if bot.tool_retrieval:
-        _tr_state: dict = {}
         async for _evt in _run_tool_retrieval(
             messages=messages,
             bot=bot,
             user_message=user_message,
             ch_row=_ch_row,
-            tagged_tool_names=_tagged_tool_names,
-            tagged_skill_names=_tagged_skill_names,
             correlation_id=correlation_id,
             session_id=session_id,
             client_id=client_id,
             context_profile=context_profile,
             tool_surface_policy=tool_surface_policy,
-            inject_decisions=_inject_decisions,
-            budget_can_afford=_budget_can_afford,
-            budget_consume=_budget_consume,
-            out_state=_tr_state,
+            state=stage_state,
+            ledger=ledger,
         ):
             yield _evt
-        pre_selected_tools = _tr_state.get("pre_selected_tools")
-        _authorized_names = _tr_state.get("authorized_names")
-        _tool_discovery_info = _tr_state.get("tool_discovery_info", _tool_discovery_info)
+        pre_selected_tools = stage_state.pre_selected_tools
+        _authorized_names = stage_state.authorized_names
     # --- tool-exposure finalization (dynamic injection + widget-handler tools + capability gate) ---
-    _ft_state: dict = {}
+    stage_state.pre_selected_tools = pre_selected_tools
+    stage_state.authorized_names = _authorized_names
     await _finalize_exposed_tools(
         bot=bot,
         channel_id=channel_id,
         ch_row=_ch_row,
-        pre_selected_tools=pre_selected_tools,
-        authorized_names=_authorized_names,
         tool_surface_policy=tool_surface_policy,
-        out_state=_ft_state,
+        state=stage_state,
     )
-    pre_selected_tools = _ft_state.get("pre_selected_tools", pre_selected_tools)
-    _authorized_names = _ft_state.get("authorized_names", _authorized_names)
+    pre_selected_tools = stage_state.pre_selected_tools
+    _authorized_names = stage_state.authorized_names
 
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
     result.effective_local_tools = list(bot.local_tools)
-    result.tool_discovery_info = dict(_tool_discovery_info)
+    result.tool_discovery_info = dict(stage_state.tool_discovery_info)
 
     # --- late cache-safe injections (temporal + pinned widgets + refusal guard + profile note) ---
     await _inject_late_cache_safe_context(
@@ -3153,10 +3165,7 @@ async def assemble_context(
         session_id=session_id,
         authorized_names=_authorized_names,
         context_profile=context_profile,
-        inject_chars=_inject_chars,
-        inject_decisions=_inject_decisions,
-        budget_can_afford=_budget_can_afford,
-        budget_consume=_budget_consume,
+        ledger=ledger,
     )
 
     # --- message assembly (channel prompt + preamble + turn marker + reinforcement + user message) ---
@@ -3172,8 +3181,7 @@ async def assemble_context(
         native_audio=native_audio,
         system_preamble=system_preamble,
         task_mode=task_mode,
-        inject_chars=_inject_chars,
-        budget_consume=_budget_consume,
+        ledger=ledger,
         result=result,
     )
 
@@ -3185,18 +3193,8 @@ async def assemble_context(
         session_id=session_id,
         client_id=client_id,
         context_profile=context_profile,
-        budget=budget,
-        inject_chars=_inject_chars,
-        inject_decisions=_inject_decisions,
-        enrolled_rows=_enrolled_rows,
-        enrolled_ids=_enrolled_ids,
-        ranked_relevant=_ranked_relevant,
-        auto_injected=_auto_injected,
-        auto_injected_similarities=_auto_injected_similarities,
-        suggestion_rows=_suggestion_rows,
-        history_fetched_skills=_history_fetched_skills,
-        history_skill_records=_history_skill_records,
-        tool_discovery_info=_tool_discovery_info,
+        ledger=ledger,
+        state=stage_state,
         result=result,
     )
 

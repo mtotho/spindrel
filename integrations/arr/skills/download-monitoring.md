@@ -8,7 +8,14 @@ description: Heartbeat-driven download monitoring, stuck download detection, AI-
 
 When running as a periodic heartbeat, follow this sequence:
 
-### 1. Check Download Queues
+### 1. Take One Aggregate Snapshot
+```
+arr_heartbeat_snapshot()
+```
+
+Use the snapshot to determine which services are configured, unavailable, or healthy. Do not fan out into individual read tools unless the snapshot shows an issue, missing detail, or a remediation target.
+
+### 2. Check Download Queues
 ```
 sonarr_queue()     → active TV downloads
 radarr_queue()     → active movie downloads
@@ -17,7 +24,7 @@ qbit_torrents(filter="downloading") → all active torrents
 
 Report: total items downloading, overall progress, any issues.
 
-### 2. Detect Stuck Downloads
+### 3. Detect Stuck Downloads
 ```
 qbit_torrents(filter="stalled") → torrents with no peers/progress
 sonarr_queue()                  → check for tracked_status: "warning" (import failures)
@@ -50,7 +57,7 @@ radarr_queue()                  → same for movies
 - "Sample" or tiny size (< 100 MB) → grabbed a sample, not the full file
 - "Not enough disk space" → disk full, tell user
 
-### 3. Fix Stuck Downloads
+### 4. Fix Stuck Downloads
 For each stuck torrent:
 1. **Remove from Sonarr/Radarr queue first** (this is critical):
    - `sonarr_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)` — removes queue entry + torrent + blocklists bad release
@@ -68,7 +75,7 @@ For each stuck torrent:
 3. Select a release that passes all checks (see AI-Assisted Torrent Selection below)
 4. Grab: `*_releases(action="grab", guid="...", indexer_id=N)`
 
-### 4. Check Indexer Health
+### 5. Check Indexer Health
 ```
 prowlarr_health()       → system warnings (disabled indexers, sync issues)
 prowlarr_indexers()     → all indexers with enabled/disabled status and failure info
@@ -82,7 +89,7 @@ Watch for:
 
 If many indexers are disabled/failing, this explains why searches return no results.
 
-### 5. Check Wanted Items
+### 6. Check Wanted Items
 ```
 sonarr_wanted(limit=10)              → missing TV episodes
 radarr_movies(filter="wanted")       → missing movies
@@ -94,7 +101,7 @@ If manual search also returns nothing, check indexer health (Step 4) and conside
 - `prowlarr_indexer_manage(action="add", definition_name="eztv", app_profile_id=1)` to add
 - `prowlarr_indexers(action="test", indexer_id=N)` to verify
 
-### 6. Update Workspace (if enabled)
+### 7. Update Workspace (if enabled)
 Update MEDIA.md with current state (see workspace tracking below).
 
 ## AI-Assisted Torrent Selection

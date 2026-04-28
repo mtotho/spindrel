@@ -448,6 +448,8 @@ class TestAssemblyBudgetTight:
         assert "web_search" in exposed
         assert "get_tool_info" in exposed
         assert "search_tools" in exposed
+        assert "list_tool_signatures" in exposed
+        assert "run_script" in exposed
         assert "file" not in exposed
         assert "exec_command" not in exposed
         assert result.tool_discovery_info["tool_surface"] == "focused_escape"

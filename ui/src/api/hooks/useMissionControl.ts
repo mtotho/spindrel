@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { WorkspaceAttentionItem } from "./useWorkspaceAttention";
-import type { WorkspaceMission, WorkspaceMissionAssignment, WorkspaceMissionUpdate } from "./useWorkspaceMissions";
+import type { MissionIntervalKind, MissionScope, WorkspaceMission, WorkspaceMissionAssignment, WorkspaceMissionUpdate } from "./useWorkspaceMissions";
+import { WORKSPACE_MISSIONS_KEY } from "./useWorkspaceMissions";
 
 export type SpatialReadiness = "ready" | "far" | "blocked" | "unknown";
 
@@ -87,6 +88,60 @@ export interface MissionControlRecentUpdate {
   update: WorkspaceMissionUpdate;
 }
 
+export interface MissionControlAssistantBrief {
+  id: string;
+  summary: string;
+  next_focus: string;
+  confidence: "low" | "medium" | "high";
+  user_instruction?: string | null;
+  grounding_summary: Record<string, unknown>;
+  ai_model?: string | null;
+  ai_provider_id?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface MissionControlDraft {
+  id: string;
+  status: "draft" | "accepted" | "dismissed";
+  source: "ai" | "user";
+  title: string;
+  directive: string;
+  rationale?: string | null;
+  scope: MissionScope;
+  bot_id?: string | null;
+  bot_name?: string | null;
+  target_channel_id?: string | null;
+  target_channel_name?: string | null;
+  interval_kind: MissionIntervalKind;
+  recurrence?: string | null;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  harness_effort?: string | null;
+  grounding_summary: Record<string, unknown>;
+  ai_model?: string | null;
+  ai_provider_id?: string | null;
+  user_instruction?: string | null;
+  accepted_mission_id?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MissionControlDraftUpdateInput {
+  title?: string;
+  directive?: string;
+  rationale?: string | null;
+  scope?: MissionScope;
+  bot_id?: string | null;
+  target_channel_id?: string | null;
+  interval_kind?: MissionIntervalKind;
+  recurrence?: string | null;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  harness_effort?: string | null;
+}
+
 export interface MissionControlResponse {
   generated_at?: string | null;
   summary: {
@@ -104,6 +159,8 @@ export interface MissionControlResponse {
   unassigned_attention: MissionControlAttentionSignal[];
   recent_updates: MissionControlRecentUpdate[];
   mission_rows: Record<string, MissionControlMissionRow>;
+  assistant_brief?: MissionControlAssistantBrief | null;
+  drafts: MissionControlDraft[];
 }
 
 export const MISSION_CONTROL_KEY = ["workspace-mission-control"] as const;
@@ -118,5 +175,75 @@ export function useMissionControl(includeCompleted = false) {
     refetchInterval: 20_000,
     staleTime: 8_000,
     refetchOnWindowFocus: false,
+  });
+}
+
+function useInvalidateMissionControl() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: MISSION_CONTROL_KEY });
+    qc.invalidateQueries({ queryKey: WORKSPACE_MISSIONS_KEY });
+  };
+}
+
+export function useRefreshMissionControlAi() {
+  const invalidate = useInvalidateMissionControl();
+  return useMutation({
+    mutationFn: async (instruction?: string) => apiFetch<{ assistant_brief: MissionControlAssistantBrief; drafts: MissionControlDraft[] }>("/api/v1/workspace/mission-control/ai/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction: instruction || null }),
+    }),
+    onSettled: invalidate,
+  });
+}
+
+export function useAskMissionControlAi() {
+  const invalidate = useInvalidateMissionControl();
+  return useMutation({
+    mutationFn: async (instruction: string) => apiFetch<{ assistant_brief: MissionControlAssistantBrief; drafts: MissionControlDraft[] }>("/api/v1/workspace/mission-control/ai/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruction }),
+    }),
+    onSettled: invalidate,
+  });
+}
+
+export function useUpdateMissionControlDraft() {
+  const invalidate = useInvalidateMissionControl();
+  return useMutation({
+    mutationFn: async ({ draftId, patch }: { draftId: string; patch: MissionControlDraftUpdateInput }) => {
+      const res = await apiFetch<{ draft: MissionControlDraft }>(`/api/v1/workspace/mission-control/drafts/${draftId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      return res.draft;
+    },
+    onSettled: invalidate,
+  });
+}
+
+export function useAcceptMissionControlDraft() {
+  const invalidate = useInvalidateMissionControl();
+  return useMutation({
+    mutationFn: async (draftId: string) => apiFetch<{ draft: MissionControlDraft; mission: WorkspaceMission }>(`/api/v1/workspace/mission-control/drafts/${draftId}/accept`, {
+      method: "POST",
+    }),
+    onSettled: invalidate,
+  });
+}
+
+export function useDismissMissionControlDraft() {
+  const invalidate = useInvalidateMissionControl();
+  return useMutation({
+    mutationFn: async (draftId: string) => {
+      const res = await apiFetch<{ draft: MissionControlDraft }>(`/api/v1/workspace/mission-control/drafts/${draftId}/dismiss`, {
+        method: "POST",
+      });
+      return res.draft;
+    },
+    onSettled: invalidate,
   });
 }

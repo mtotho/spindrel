@@ -1,6 +1,6 @@
 # ARR Media Stack Integration
 
-Controls Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr via their APIs. Provides 19 agent tools for browsing, searching, and managing your media stack.
+Controls Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, Prowlarr, Bazarr, and FlareSolverr via their APIs. Provides agent tools for browsing, searching, monitoring, and managing your media stack.
 
 ## Setup
 
@@ -28,6 +28,10 @@ JELLYFIN_API_KEY=your-jellyfin-api-key
 JELLYSEERR_URL=http://192.168.1.x:5055
 JELLYSEERR_API_KEY=your-jellyseerr-api-key
 
+# Prowlarr (Indexers)
+PROWLARR_URL=http://192.168.1.x:9696
+PROWLARR_API_KEY=your-prowlarr-api-key
+
 # Bazarr (Subtitles)
 BAZARR_URL=http://192.168.1.x:6767
 BAZARR_API_KEY=your-bazarr-api-key
@@ -49,6 +53,8 @@ Enroll the ARR tools you want on the bot for full media stack support:
 
 ```yaml
 local_tools:
+  # Aggregate heartbeat/status snapshot
+  - arr_heartbeat_snapshot
   # Sonarr
   - sonarr_calendar
   - sonarr_series
@@ -80,6 +86,7 @@ local_tools:
 
 | Service | Tool | Read/Write | Description |
 |---------|------|-----------|-------------|
+| ARR Stack | `arr_heartbeat_snapshot` | Read | One read-only heartbeat snapshot across configured services; reports not_configured/unavailable per service |
 | Sonarr | `sonarr_calendar` | Read | Upcoming episodes + download status |
 | Sonarr | `sonarr_series` | Read | List monitored series or search TVDB |
 | Sonarr | `sonarr_wanted` | Read | Missing episodes |
@@ -118,4 +125,4 @@ local_tools:
 4. `sonarr_releases(action="grab", guid="...", indexer_id=1)` — grab best release
 
 ### Heartbeat monitoring
-Configure a channel heartbeat to periodically check queues, detect stuck downloads, and update workspace tracking. See the `download-monitoring` skill for the full protocol.
+Configure a channel heartbeat to call `arr_heartbeat_snapshot()` first, then use detailed service tools only for anomalies or remediation. The snapshot gracefully handles users who configured only one or a few services. See the `download-monitoring` skill for the full protocol.

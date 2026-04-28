@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, Clock, ExternalLink, ListChecks, Pause, Play, Radar, Route, Settings2, Sparkles, Zap } from "lucide-react";
+import { Activity, Bot, CheckCircle2, Clock, ExternalLink, ListChecks, Loader2, MessageSquare, Pause, Pencil, Play, Plus, Radar, Route, Send, Settings2, Sparkles, X, Zap } from "lucide-react";
 
 import { useBots } from "../../api/hooks/useBots";
 import { useChannels } from "../../api/hooks/useChannels";
@@ -8,12 +8,20 @@ import {
   useCreateWorkspaceMission,
   useRunWorkspaceMissionNow,
   useSetWorkspaceMissionStatus,
+  type MissionCreateInput,
   type MissionScope,
   type WorkspaceMission,
   type WorkspaceMissionUpdate,
 } from "../../api/hooks/useWorkspaceMissions";
 import {
+  useAcceptMissionControlDraft,
+  useAskMissionControlAi,
+  useDismissMissionControlDraft,
   useMissionControl,
+  useRefreshMissionControlAi,
+  useUpdateMissionControlDraft,
+  type MissionControlAssistantBrief,
+  type MissionControlDraft,
   type MissionControlLane,
   type MissionControlMissionRow,
   type MissionControlSpatialAdvisory,
@@ -77,6 +85,8 @@ export function CommandCenter({
 }) {
   const { data, isLoading, isError } = useMissionControl();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState<MissionControlDraft | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
   useEffect(() => {
     if (initialItemId) setSelectedId(initialItemId);
   }, [initialItemId]);
@@ -115,7 +125,31 @@ export function CommandCenter({
           <MissionDetail mission={selected} row={selectedRow} onBack={() => setSelectedId(null)} />
         ) : (
           <>
-            <MissionComposer />
+            <OperatorBrief brief={data.assistant_brief ?? null} summary={data.summary} />
+            <AskMissionControl />
+            <DraftStack
+              drafts={data.drafts}
+              onEdit={(draft) => {
+                setManualOpen(false);
+                setEditingDraft(draft);
+              }}
+            />
+            <div className="mb-5">
+              {editingDraft ? (
+                <MissionEditor draft={editingDraft} onClose={() => setEditingDraft(null)} />
+              ) : manualOpen ? (
+                <MissionEditor onClose={() => setManualOpen(false)} />
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text"
+                  onClick={() => setManualOpen(true)}
+                >
+                  <Plus size={13} />
+                  Manual mission
+                </button>
+              )}
+            </div>
             <BotLanes lanes={data.lanes} onSelect={setSelectedId} />
             <section className="mt-5">
               <div className="mb-2 flex items-center justify-between">
@@ -140,13 +174,206 @@ export function CommandCenter({
   );
 }
 
-function MissionComposer() {
+function OperatorBrief({
+  brief,
+  summary,
+}: {
+  brief: MissionControlAssistantBrief | null;
+  summary: {
+    active_missions: number;
+    paused_missions: number;
+    active_bots: number;
+    attention_signals: number;
+    assigned_attention: number;
+    spatial_warnings: number;
+    recent_updates: number;
+  };
+}) {
+  const refresh = useRefreshMissionControlAi();
+  const lastRun = brief?.created_at ? formatRelative(brief.created_at) : null;
+  return (
+    <section className="mb-4 border-b border-surface-border/70 pb-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+            <Sparkles size={13} />
+            Operator Brief
+          </div>
+          {brief ? (
+            <>
+              <p className="mt-2 text-[15px] font-semibold leading-6 text-text">{brief.summary}</p>
+              {brief.next_focus && <p className="mt-2 text-sm leading-6 text-text-muted">{brief.next_focus}</p>}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-text-dim">
+                <StatusBadge label={`${brief.confidence} confidence`} variant={brief.confidence === "high" ? "success" : brief.confidence === "low" ? "warning" : "info"} />
+                {brief.ai_model && <span className="rounded-full bg-surface-overlay px-2 py-0.5">{brief.ai_model}</span>}
+                {lastRun && <span>{lastRun}</span>}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-[15px] font-semibold leading-6 text-text">Generate a brief from live workspace signals.</p>
+              <p className="mt-2 text-sm leading-6 text-text-muted">
+                Mission Control will inspect missions, tasks, channels, bots, and map readiness before drafting next moves.
+              </p>
+            </>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled={refresh.isPending}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.14] disabled:cursor-wait disabled:text-text-dim"
+          onClick={() => refresh.mutate(undefined)}
+        >
+          {refresh.isPending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+          Refresh
+        </button>
+      </div>
+      <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
+        <BriefMetric label="Missions" value={`${summary.active_missions}/${summary.paused_missions}`} />
+        <BriefMetric label="Bots" value={summary.active_bots} />
+        <BriefMetric label="Spatial" value={summary.spatial_warnings} />
+        <BriefMetric label="Updates" value={summary.recent_updates} />
+      </div>
+    </section>
+  );
+}
+
+function BriefMetric({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-md border border-surface-border/70 bg-surface-raised/30 px-2 py-2">
+      <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim">{label}</div>
+      <div className="mt-1 text-sm font-semibold tabular-nums text-text">{value}</div>
+    </div>
+  );
+}
+
+function AskMissionControl() {
+  const ask = useAskMissionControlAi();
+  const [instruction, setInstruction] = useState("");
+  const submit = () => {
+    const clean = instruction.trim();
+    if (!clean || ask.isPending) return;
+    ask.mutate(clean, { onSuccess: () => setInstruction("") });
+  };
+  return (
+    <section className="mb-4">
+      <div className="flex items-center gap-2 rounded-md border border-input-border bg-input px-2 py-2 focus-within:border-accent">
+        <MessageSquare size={15} className="shrink-0 text-text-dim" />
+        <input
+          className="min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-dim"
+          placeholder="Ask Mission Control what to queue next..."
+          value={instruction}
+          onChange={(event) => setInstruction(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") submit();
+          }}
+        />
+        <button
+          type="button"
+          disabled={!instruction.trim() || ask.isPending}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-accent hover:bg-accent/[0.08] disabled:cursor-not-allowed disabled:text-text-dim"
+          title="Ask Mission Control"
+          onClick={submit}
+        >
+          {ask.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function DraftStack({ drafts, onEdit }: { drafts: MissionControlDraft[]; onEdit: (draft: MissionControlDraft) => void }) {
+  const accept = useAcceptMissionControlDraft();
+  const dismiss = useDismissMissionControlDraft();
+  const refresh = useRefreshMissionControlAi();
+  return (
+    <section className="mb-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Suggested Next Moves</div>
+        <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{drafts.length}</span>
+      </div>
+      <div className="overflow-hidden rounded-md border border-surface-border/70">
+        {drafts.map((draft) => (
+          <div key={draft.id} className="border-t border-surface-border/60 px-3 py-3 first:border-t-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-semibold text-text">{draft.title}</span>
+                  <StatusBadge label={recurrenceLabel(draft.recurrence)} variant="info" />
+                </div>
+                {draft.rationale && <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{draft.rationale}</p>}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-text-dim">
+                  <span>{draft.bot_name ?? "best available bot"}</span>
+                  <span>·</span>
+                  <span>{draft.target_channel_name ? `#${draft.target_channel_name}` : draft.scope}</span>
+                  {draft.ai_model && (
+                    <>
+                      <span>·</span>
+                      <span>{draft.ai_model}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text"
+                  title="Edit draft"
+                  onClick={() => onEdit(draft)}
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={accept.isPending}
+                  className="rounded-md p-2 text-accent hover:bg-accent/[0.08] disabled:cursor-wait disabled:text-text-dim"
+                  title="Start mission"
+                  onClick={() => accept.mutate(draft.id)}
+                >
+                  <Zap size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={dismiss.isPending}
+                  className="rounded-md p-2 text-text-dim hover:bg-surface-overlay hover:text-text"
+                  title="Dismiss"
+                  onClick={() => dismiss.mutate(draft.id)}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {!drafts.length && (
+          <div className="px-3 py-5 text-sm text-text-muted">
+            <div className="font-medium text-text">No AI drafts yet.</div>
+            <div className="mt-1 text-xs leading-5 text-text-dim">Refresh the brief or ask Mission Control for a specific sweep.</div>
+            <button
+              type="button"
+              disabled={refresh.isPending}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:cursor-wait disabled:text-text-dim"
+              onClick={() => refresh.mutate(undefined)}
+            >
+              {refresh.isPending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              Draft suggestions
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MissionEditor({ draft, onClose }: { draft?: MissionControlDraft | null; onClose: () => void }) {
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
   const create = useCreateWorkspaceMission();
-  const [open, setOpen] = useState(false);
+  const updateDraft = useUpdateMissionControlDraft();
+  const acceptDraft = useAcceptMissionControlDraft();
   const [title, setTitle] = useState("");
   const [directive, setDirective] = useState("");
+  const [rationale, setRationale] = useState("");
   const [scope, setScope] = useState<MissionScope>("workspace");
   const [botId, setBotId] = useState("");
   const [channelId, setChannelId] = useState("");
@@ -172,10 +399,37 @@ function MissionComposer() {
   );
 
   useEffect(() => {
+    if (!draft) {
+      setTitle("");
+      setDirective("");
+      setRationale("");
+      setScope("workspace");
+      setBotId("");
+      setChannelId("");
+      setRecurrence("+4h");
+      setModel("");
+      setProviderId(null);
+      setHarnessEffort("");
+      return;
+    }
+    setTitle(draft.title);
+    setDirective(draft.directive);
+    setRationale(draft.rationale ?? "");
+    setScope(draft.scope);
+    setBotId(draft.bot_id ?? "");
+    setChannelId(draft.target_channel_id ?? "");
+    setRecurrence(draft.recurrence ?? "");
+    setModel(draft.model_override ?? "");
+    setProviderId(draft.model_provider_id_override ?? null);
+    setHarnessEffort(draft.harness_effort ?? "");
+  }, [draft?.id]);
+
+  useEffect(() => {
+    if (draft) return;
     setModel("");
     setProviderId(null);
     setHarnessEffort("");
-  }, [effectiveBotId]);
+  }, [draft, effectiveBotId]);
 
   useEffect(() => {
     if (!harnessEffort || !harnessEffortValues.length) return;
@@ -184,11 +438,11 @@ function MissionComposer() {
     }
   }, [harnessEffort, harnessEffortValues]);
 
-  const submit = () => {
+  const submit = async () => {
     const cleanTitle = title.trim();
     const cleanDirective = directive.trim();
     if (!cleanTitle || !cleanDirective || !effectiveBotId) return;
-    create.mutate({
+    const body: MissionCreateInput = {
       title: cleanTitle,
       directive: cleanDirective,
       scope,
@@ -201,38 +455,42 @@ function MissionComposer() {
       harness_effort: harnessRuntime ? harnessEffort || null : null,
       history_mode: "recent",
       history_recent_count: 8,
-    }, {
-      onSuccess: () => {
-        setTitle("");
-        setDirective("");
-        setOpen(false);
-      },
+    };
+    if (draft) {
+      await updateDraft.mutateAsync({
+        draftId: draft.id,
+        patch: {
+          title: cleanTitle,
+          directive: cleanDirective,
+          rationale: rationale.trim() || null,
+          scope,
+          bot_id: effectiveBotId,
+          target_channel_id: scope === "channel" ? channelId || null : null,
+          interval_kind: body.interval_kind,
+          recurrence: body.recurrence,
+          model_override: body.model_override,
+          model_provider_id_override: body.model_provider_id_override,
+          harness_effort: body.harness_effort,
+        },
+      });
+      await acceptDraft.mutateAsync(draft.id);
+      onClose();
+      return;
+    }
+    create.mutate(body, {
+      onSuccess: onClose,
     });
   };
-
-  if (!open) {
-    return (
-      <section className="mb-5">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between rounded-md bg-surface-raised/45 px-3 py-3 text-left hover:bg-surface-overlay/45"
-          onClick={() => setOpen(true)}
-        >
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold text-text">Create a mission</span>
-            <span className="mt-0.5 block text-xs text-text-dim">Give a bot a broad objective with configurable follow-up ticks.</span>
-          </span>
-          <Sparkles size={16} className="shrink-0 text-accent" />
-        </button>
-      </section>
-    );
-  }
+  const busy = create.isPending || updateDraft.isPending || acceptDraft.isPending;
 
   return (
-    <section className="mb-5 rounded-md bg-surface-raised/45 p-3">
+    <section className="rounded-md border border-surface-border/80 bg-surface-raised/35 p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-text">New mission</div>
-        <button type="button" className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setOpen(false)}>
+        <div>
+          <div className="text-sm font-semibold text-text">{draft ? "Review draft" : "Manual mission"}</div>
+          {draft?.rationale && <div className="mt-0.5 line-clamp-1 text-xs text-text-dim">{draft.rationale}</div>}
+        </div>
+        <button type="button" className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay hover:text-text" onClick={onClose}>
           Close
         </button>
       </div>
@@ -248,6 +506,14 @@ function MissionComposer() {
         value={directive}
         onChange={(event) => setDirective(event.target.value)}
       />
+      {draft && (
+        <textarea
+          className="mt-2 min-h-16 w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent"
+          placeholder="Why this is worth doing"
+          value={rationale}
+          onChange={(event) => setRationale(event.target.value)}
+        />
+      )}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <div>
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">Bot</div>
@@ -337,11 +603,11 @@ function MissionComposer() {
       <div className="mt-3 flex justify-end">
         <button
           type="button"
-          disabled={!title.trim() || !directive.trim() || !effectiveBotId || create.isPending || (scope === "channel" && !channelId)}
+          disabled={!title.trim() || !directive.trim() || !effectiveBotId || busy || (scope === "channel" && !channelId)}
           className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.08] disabled:cursor-not-allowed disabled:text-text-dim"
           onClick={submit}
         >
-          <Zap size={14} />
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
           Start mission
         </button>
       </div>

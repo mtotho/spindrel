@@ -80,6 +80,7 @@ tool_families:
   arr:
     label: ARR Stack
     tools:
+      - arr_heartbeat_snapshot
       - sonarr_calendar
       - sonarr_series
       - sonarr_episodes

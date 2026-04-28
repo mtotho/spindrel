@@ -181,13 +181,17 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "PROMPT_GENERATION_MODEL": {"group": "Prompt Generation", "label": "Model", "description": "Model used for the Generate Prompt feature in admin UI (empty = default LiteLLM model)", "type": "string", "widget": "model"},
     "PROMPT_GENERATION_MODEL_PROVIDER_ID": {"group": "Prompt Generation", "label": "Prompt Gen Provider", "type": "string", "description": "Provider for prompt generation model", "ui_hidden": True},
     "PROMPT_GENERATION_TEMPERATURE": {"group": "Prompt Generation", "label": "Temperature", "description": "LLM temperature for prompt generation (0.0-1.0)", "type": "float", "min": 0.0, "max": 1.0},
+    # --- Mission Control AI ---
+    "MISSION_CONTROL_AI_MODEL": {"group": "Mission Control AI", "label": "Model", "description": "Model used for Mission Control operator briefs and suggested mission drafts (empty = Prompt Generation model, then default)", "type": "string", "widget": "model"},
+    "MISSION_CONTROL_AI_MODEL_PROVIDER_ID": {"group": "Mission Control AI", "label": "Mission Control Provider", "type": "string", "description": "Provider for Mission Control AI model", "ui_hidden": True},
+    "MISSION_CONTROL_AI_TEMPERATURE": {"group": "Mission Control AI", "label": "Temperature", "description": "LLM temperature for Mission Control suggestions (0.0-1.0)", "type": "float", "min": 0.0, "max": 1.0},
 }
 
 # Group ordering for consistent display
 GROUP_ORDER = [
     "System", "Paths", "General", "Widgets", "Security", "API Rate Limiting", "Agent", "Chat History",
     "Memory & Learning", "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
-    "Tool Policies", "Speech-to-Text", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
+    "Tool Policies", "Speech-to-Text", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation", "Mission Control AI",
 ]
 
 

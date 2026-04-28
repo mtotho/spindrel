@@ -2,7 +2,7 @@
 tags: [agent-server, track, integrations, docs, contract]
 status: active
 created: 2026-04-23
-updated: 2026-04-25
+updated: 2026-04-28
 ---
 # Track — Integration Contract + Canonical Guide
 
@@ -57,6 +57,7 @@ Full detail lives in the plan file. One-line-per-phase summary:
 ## Follow-up cleanup
 
 - **2026-04-25 — Marp Slides relocation:** moved the lone `packages/slides` bundle into first-party integration shape at `integrations/marp_slides` with a manifest (`name: Marp Slides`), tool + skill under the integration namespace, and no remaining tracked `packages/` example.
+- **2026-04-28 — Shared browser runtime:** added the `runtime_services` manifest surface so integrations can provide/require shared sidecar capabilities without duplicating Docker services. `browser_automation` owns the shared headless Chromium runtime and headless browser tools; `web_search` now owns only SearXNG and resolves `browser.playwright` via explicit `PLAYWRIGHT_WS_URL` or the shared provider.
 
 ## References
 

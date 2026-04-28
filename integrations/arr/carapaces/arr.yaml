@@ -6,6 +6,7 @@ description: >-
 tags: [media, sonarr, radarr, prowlarr, jellyfin, qbittorrent, jellyseerr, flaresolverr]
 
 local_tools:
+  - arr_heartbeat_snapshot
   - sonarr_calendar
   - sonarr_series
   - sonarr_wanted
@@ -55,6 +56,8 @@ system_prompt_fragment: |
 
   You manage a home media stack. Each service is independently configured — check tool
   results for "not configured" errors and skip unconfigured services gracefully.
+  For broad status, heartbeat, or "what's going on" requests, call
+  `arr_heartbeat_snapshot()` first and use individual tools only for focused follow-up.
 
   ### Scenario Routing
 
@@ -67,7 +70,7 @@ system_prompt_fragment: |
   | "Why isn't X on?" / "X is missing" | → `get_skill('integrations/arr/media-troubleshoot')` then follow the procedure step by step |
   | "Make sure X is on" / "Can you get X?" | → `get_skill('integrations/arr/media-request')` — covers check + request if needed |
   | "Search for X episode" / "Find S01E05" / "Grab the best release for X" | → `get_skill('integrations/arr/media_management')` — see "Browse and grab specific releases" workflow |
-  | "What's downloading?" | → `sonarr_queue()` + `radarr_queue()` + `qbit_torrents(filter="downloading")` |
+  | "What's downloading?" | → `arr_heartbeat_snapshot()` first, then detailed queue tools only if more detail is needed |
   | "Fix stuck downloads" / "Something stalled" | → `get_skill('integrations/arr/download-monitoring')` — covers stalled detection, bad grabs, import failures |
   | "Why won't X import?" / "Download stuck" | → `get_skill('integrations/arr/media-troubleshoot')` — classifies as STALLED/BAD_GRAB/IMPORT_ISSUE/PHANTOM_FILE and fixes |
   | "What's new?" / "Recent additions" | → `jellyfin_library(action="recent")` |
@@ -92,6 +95,7 @@ system_prompt_fragment: |
 
   | Tool | Purpose |
   |------|---------|
+  | `arr_heartbeat_snapshot` | One read-only snapshot across configured ARR services; use first for heartbeats/status sweeps |
   | `jellyfin_library` | Search library, recent additions, stats |
   | `jellyseerr_search` | Find movies/shows on TMDB (paged, 20/page) |
   | `jellyseerr_manage` | Request, approve, decline media |

@@ -11,7 +11,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 ## Key Decisions
 
 ### Workspace Missions are task-backed coordination, separate from channel heartbeats
-**Decided 2026-04-27.** Mission Control is the user-facing layer for longer-lived bot work. Missions own directive, scope, assigned bot, cadence, status, and progress history; execution remains on the existing `Task` pipeline so model selection, provider overrides, fallback models, tracing, scheduling, and result capture are reused instead of rebuilt.
+**Decided 2026-04-27. Updated 2026-04-28.** Mission Control is the user-facing layer for longer-lived bot work. Missions own directive, scope, assigned bot, cadence, status, and progress history; execution remains on the existing `Task` pipeline so model selection, provider overrides, fallback models, tracing, scheduling, and result capture are reused instead of rebuilt.
 
 **Load-bearing invariants.**
 - Missions are not a parallel agent runtime. Kickoffs, ticks, and manual runs are `Task` rows with mission metadata in `callback_config` / `execution_config`.
@@ -19,6 +19,9 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Mission plan/model configuration is explicit per mission. Leaving the model blank means "use the assigned bot default"; selecting a model stamps the task execution config.
 - Bot-authored mission progress uses the `report_mission_progress` tool, and task completion still records a fallback update so Mission Control has a durable progress trail.
 - Admin task lists hide mission-internal task types by default, but every run remains inspectable by direct task/trace links.
+- Mission Control AI suggestions are persisted as human-approved drafts, not launched automatically. Drafts can be edited, dismissed, or accepted into ordinary task-backed missions.
+- Mission Control AI grounding treats Attention as a weak/noisy hint and must also include recent task outcomes, active missions, channels, bots, and spatial readiness before drafting work.
+- Mission Control AI model selection has its own server setting and falls back through Prompt Generation, compaction, then default model config.
 
 **Why.** The product need is a cohesive coordination surface, not another scheduler or chat stack. Keeping execution on the existing task backbone preserves observability and avoids confusing heartbeats, scheduled prompts, pipelines, and missions into one overloaded control.
 
