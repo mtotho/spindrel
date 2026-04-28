@@ -1,6 +1,6 @@
 """machine target leases and webhook replay keys
 
-Revision ID: 267_machine_target_leases_and_replays
+Revision ID: 267_machine_leases_replays
 Revises: 266_workspace_missions
 Create Date: 2026-04-28
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "267_machine_target_leases_and_replays"
+revision = "267_machine_leases_replays"
 down_revision = "266_workspace_missions"
 branch_labels = None
 depends_on = None
