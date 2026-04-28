@@ -8,6 +8,7 @@ from integrations import sdk
 _Base = sdk.make_settings("web_search", {
     "WEB_SEARCH_MODE": "searxng",
 })
+_get = _Base._get
 
 
 def _in_docker() -> bool:
@@ -27,6 +28,10 @@ def _instance_id() -> str:
 
 
 class _Settings(_Base):
+    @staticmethod
+    def _get(key: str, default: str = "") -> str:
+        return _get(key, default)
+
     @property
     def WEB_SEARCH_CONTAINERS(self) -> bool:
         val = self._get("WEB_SEARCH_CONTAINERS", "true")
@@ -46,9 +51,23 @@ class _Settings(_Base):
         val = self._get("PLAYWRIGHT_WS_URL", "")
         if val:
             return val
-        if _in_docker():
-            return f"ws://playwright-{_instance_id()}:3000"
-        return "ws://localhost:3000"
+        try:
+            from app.services.runtime_services import resolve_runtime_requirement
+            resolution = resolve_runtime_requirement("web_search", "browser.playwright")
+            return resolution.endpoint or ""
+        except Exception:
+            return ""
+
+    @property
+    def PLAYWRIGHT_CONNECT_PROTOCOL(self) -> str:
+        if self._get("PLAYWRIGHT_WS_URL", ""):
+            return "auto"
+        try:
+            from app.services.runtime_services import resolve_runtime_requirement
+            resolution = resolve_runtime_requirement("web_search", "browser.playwright")
+            return resolution.protocol or "auto"
+        except Exception:
+            return "auto"
 
 
 settings = _Settings()

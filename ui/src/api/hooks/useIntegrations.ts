@@ -118,6 +118,10 @@ export interface IntegrationItem {
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;
   provides?: string[];
+  runtime_services?: {
+    provides?: Array<Record<string, unknown>>;
+    requires?: Array<Record<string, unknown>>;
+  } | null;
   machine_control?: IntegrationMachineControlInfo | null;
   icon?: string;
   lifecycle_status: "available" | "enabled";

@@ -57,3 +57,23 @@ def test_headless_subscription_seed_omits_llm_fallback(monkeypatch, tmp_path):
     assert seed["billing_type"] == "plan"
     assert seed["plan_cost"] == 20
     assert seed["plan_period"] == "monthly"
+
+
+def test_headless_searxng_bootstraps_shared_browser(monkeypatch, tmp_path):
+    mod = _load_setup_module(monkeypatch)
+    mod.ENV_FILE = tmp_path / ".env"
+    mod.SEED_FILE = tmp_path / "provider-seed.yaml"
+
+    monkeypatch.setenv("SPINDREL_OVERWRITE", "1")
+    monkeypatch.setenv("SPINDREL_DEPLOY_MODE", "docker")
+    monkeypatch.setenv("SPINDREL_PROVIDER", "skip")
+    monkeypatch.setenv("SPINDREL_WEB_SEARCH", "searxng")
+    monkeypatch.setenv("SPINDREL_API_KEY", "ask_test")
+
+    mod.main_headless()
+
+    env_text = mod.ENV_FILE.read_text()
+    assert "WEB_SEARCH_MODE=searxng" in env_text
+    assert "WEB_SEARCH_CONTAINERS=true" in env_text
+    assert "HEADLESS_BROWSER_CONTAINERS=true" in env_text
+    assert "SPINDREL_BOOTSTRAP_INTEGRATIONS=web_search,browser_automation" in env_text

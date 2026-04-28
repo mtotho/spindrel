@@ -28,7 +28,7 @@ _manifests: dict[str, dict] = {}
 _KNOWN_KEYS = {
     "id", "name", "icon", "description", "version", "enabled", "includes",
     "mcp_servers", "settings", "activation", "oauth", "webhook",
-    "binding", "dependencies", "docker_compose", "web_ui",
+    "binding", "dependencies", "docker_compose", "runtime_services", "web_ui",
     "sidebar_section",
     "debug_actions", "api_permissions", "dashboard_modules",
     "target", "process", "capabilities", "provides", "events",
@@ -40,7 +40,7 @@ _KNOWN_KEYS = {
 # Used by _manifest_to_setup() in integrations/__init__.py.
 PASSTHROUGH_KEYS = (
     "activation", "oauth", "webhook", "binding", "includes",
-    "mcp_servers", "docker_compose", "web_ui",
+    "mcp_servers", "docker_compose", "runtime_services", "web_ui",
     "sidebar_section", "debug_actions",
     "api_permissions", "dashboard_modules",
     "target", "process", "capabilities", "provides", "events",

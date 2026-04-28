@@ -110,6 +110,29 @@ class StatusBody(BaseModel):
     status: str  # "available" | "enabled"
 
 
+async def _load_enabled_integration(integration_id: str) -> int:
+    try:
+        from app.services.integration_deps import ensure_one_integration_deps
+
+        await ensure_one_integration_deps(integration_id)
+    except Exception:
+        logger.warning(
+            "Dependency install on enable failed for %s; tools may not load",
+            integration_id, exc_info=True,
+        )
+
+    from integrations import _iter_integration_candidates
+    from app.tools.loader import load_integration_tools
+
+    loaded: list[str] = []
+    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+        if iid == integration_id:
+            loaded = load_integration_tools(candidate)
+            break
+    await _sync_docker_compose_stack(integration_id)
+    return len(loaded)
+
+
 @router.put("/integrations/{integration_id}/status")
 async def set_integration_status(integration_id: str, body: StatusBody, _auth=Depends(require_scopes("integrations:write"))):
     """Transition an integration between ``available`` and ``enabled``.
@@ -144,6 +167,7 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
         removed = unregister_integration_tools(integration_id)
         from app.agent.tools import remove_integration_embeddings
         embed_count = await remove_integration_embeddings(integration_id)
+        await _sync_docker_compose_stack(integration_id)
         # Drop any harness runtime this integration registered. The runtime
         # name isn't always the integration id, so we re-scan after the
         # ``HARNESS_REGISTRY`` snapshot below to remove the entries that
@@ -179,28 +203,29 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
             integration_id, len(removed), embed_count,
         )
     else:  # enabled
+        # Enable runtime providers first so consumers such as web_search can
+        # reuse a shared sidecar without duplicating containers.
+        provider_loaded_count = 0
+        try:
+            from app.services.runtime_services import ensure_required_providers_enabled
+
+            provider_ids = await ensure_required_providers_enabled(integration_id)
+            for provider_id in provider_ids:
+                provider_loaded_count += await _load_enabled_integration(provider_id)
+        except Exception:
+            logger.warning(
+                "Runtime provider enablement failed for %s",
+                integration_id,
+                exc_info=True,
+            )
+
         # Install per-integration deps (npm/pip/system) before tool loading
         # so freshly added integrations don't need a process restart to get
         # their CLI binaries onto PATH.
-        try:
-            from app.services.integration_deps import ensure_one_integration_deps
-
-            await ensure_one_integration_deps(integration_id)
-        except Exception:
-            logger.warning(
-                "Dependency install on enable failed for %s; tools may not load",
-                integration_id, exc_info=True,
-            )
         # Load tools and index. Process start is deferred — auto-start loop
         # handles it once is_configured becomes true. Manual start button on
         # the UI remains available.
-        from integrations import _iter_integration_candidates
-        from app.tools.loader import load_integration_tools
-        loaded: list[str] = []
-        for candidate, iid, _is_external, _source in _iter_integration_candidates():
-            if iid == integration_id:
-                loaded = load_integration_tools(candidate)
-                break
+        loaded_count = await _load_enabled_integration(integration_id)
         from app.agent.tools import index_local_tools
         await index_local_tools()
         # Re-sync file-managed assets after the integration flips active.
@@ -216,7 +241,12 @@ async def set_integration_status(integration_id: str, body: StatusBody, _auth=De
             discover_and_load_harnesses()
         except Exception:
             logger.debug("Harness discovery on enable failed for %s", integration_id, exc_info=True)
-        logger.info("Integration %s → enabled: loaded %d tool(s)", integration_id, len(loaded))
+        logger.info(
+            "Integration %s → enabled: loaded %d tool(s), provider tools %d",
+            integration_id,
+            loaded_count,
+            provider_loaded_count,
+        )
 
     # MCP servers honor the new active state.
     from app.services.mcp_servers import load_mcp_servers
@@ -239,23 +269,25 @@ async def _sync_docker_compose_stack(integration_id: str) -> None:
     from integrations import discover_docker_compose_stacks
     from app.services.docker_stacks import stack_service
     from app.services.integration_settings import get_value as _get_int_setting
+    from app.services.integration_settings import is_active as _is_integration_active
 
     for dc_info in discover_docker_compose_stacks():
         if dc_info["integration_id"] != integration_id:
             continue
         try:
             enabled = False
-            enabled_callable = dc_info.get("enabled_callable")
-            if enabled_callable is not None:
-                try:
-                    enabled = bool(enabled_callable())
-                except Exception:
-                    logger.exception("enabled_callable failed for %s", integration_id)
-                    enabled = False
-            elif dc_info["enabled_setting"]:
-                default = dc_info.get("enabled_default", "false")
-                val = _get_int_setting(integration_id, dc_info["enabled_setting"], default)
-                enabled = val.lower() in ("true", "1", "yes")
+            if _is_integration_active(integration_id):
+                enabled_callable = dc_info.get("enabled_callable")
+                if enabled_callable is not None:
+                    try:
+                        enabled = bool(enabled_callable())
+                    except Exception:
+                        logger.exception("enabled_callable failed for %s", integration_id)
+                        enabled = False
+                elif dc_info["enabled_setting"]:
+                    default = dc_info.get("enabled_default", "false")
+                    val = _get_int_setting(integration_id, dc_info["enabled_setting"], default)
+                    enabled = val.lower() in ("true", "1", "yes")
             await stack_service.apply_integration_stack(
                 integration_id=integration_id,
                 name=dc_info["description"] or integration_id,
@@ -290,6 +322,16 @@ async def update_integration_settings(
         raise HTTPException(status_code=422, detail=f"Unknown setting keys: {', '.join(sorted(bad_keys))}")
 
     applied = await update_settings(integration_id, body.settings, setup_vars, db)
+
+    try:
+        from app.services.integration_settings import is_active
+        from app.services.runtime_services import ensure_required_providers_enabled
+
+        if is_active(integration_id):
+            for provider_id in await ensure_required_providers_enabled(integration_id):
+                await _load_enabled_integration(provider_id)
+    except Exception:
+        logger.warning("Runtime provider sync after settings update failed for %s", integration_id, exc_info=True)
 
     # If a docker_compose.enabled_setting was toggled, start/stop the stack immediately
     await _sync_docker_compose_stack(integration_id)

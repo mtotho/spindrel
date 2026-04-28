@@ -75,6 +75,19 @@ class TestApprovalPending:
         assert not f1.done()
         assert not f3.done()
 
+    @pytest.mark.asyncio
+    async def test_wrapper_honors_patched_pending_dict(self, monkeypatch):
+        """Compatibility: older tests and route tests patch ``_pending`` directly."""
+        patched: dict[str, asyncio.Future[str]] = {}
+        monkeypatch.setattr("app.agent.approval_pending._pending", patched)
+
+        future = create_approval_pending("patched")
+
+        assert patched["patched"] is future
+        assert pending_count() == 1
+        assert resolve_approval("patched", "approved") is True
+        assert patched == {}
+
 
 class TestToolCallResultApprovalFields:
     def test_default_fields(self):

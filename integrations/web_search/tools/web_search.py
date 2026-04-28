@@ -214,8 +214,20 @@ async def fetch_url(url: str) -> str:
 async def _fetch_with_playwright(url: str) -> str:
     from playwright.async_api import async_playwright
 
+    endpoint = settings.PLAYWRIGHT_WS_URL
+    if not endpoint:
+        raise RuntimeError("No shared browser runtime configured")
+
     async with async_playwright() as p:
-        browser = await p.chromium.connect_over_cdp(settings.PLAYWRIGHT_WS_URL)
+        if settings.PLAYWRIGHT_CONNECT_PROTOCOL == "playwright":
+            browser = await p.chromium.connect(endpoint)
+        elif settings.PLAYWRIGHT_CONNECT_PROTOCOL == "cdp":
+            browser = await p.chromium.connect_over_cdp(endpoint)
+        else:
+            try:
+                browser = await p.chromium.connect(endpoint)
+            except Exception:
+                browser = await p.chromium.connect_over_cdp(endpoint)
         try:
             page = await browser.new_page()
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)

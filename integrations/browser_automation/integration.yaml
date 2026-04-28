@@ -1,0 +1,50 @@
+id: browser_automation
+name: Browser Automation
+icon: MonitorPlay
+description: Shared headless Chromium runtime and browser automation tools for agents.
+version: "0.1"
+enabled: false
+
+settings:
+  - key: HEADLESS_BROWSER_CONTAINERS
+    type: string
+    label: "Start built-in shared Chromium container"
+    default: "true"
+  - key: HEADLESS_BROWSER_WS_URL
+    type: string
+    label: "External Chromium/Playwright WebSocket URL (optional)"
+  - key: HEADLESS_BROWSER_IDLE_TTL_SECONDS
+    type: string
+    label: "Idle browser session TTL in seconds"
+    default: "900"
+
+docker_compose:
+  file: docker-compose.yml
+  project_name: "spindrel-${SPINDREL_INSTANCE_ID}-browser-automation"
+  enabled_setting: HEADLESS_BROWSER_CONTAINERS
+  description: "Shared headless browser automation runtime"
+
+runtime_services:
+  provides:
+    - capability: browser.playwright
+      protocol: cdp
+      browser: chromium
+      endpoint: "ws://playwright-${SPINDREL_INSTANCE_ID}:3000"
+      service: playwright
+
+activation:
+  description: "Headless browser automation tools for testing pages, inspecting DOM state, and taking screenshots."
+  tools:
+    - headless_browser_open
+    - headless_browser_goto
+    - headless_browser_snapshot
+    - headless_browser_click
+    - headless_browser_type
+    - headless_browser_screenshot
+    - headless_browser_eval
+    - headless_browser_close
+    - headless_browser_status
+
+provides:
+  - tools
+

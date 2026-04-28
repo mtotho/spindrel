@@ -124,6 +124,7 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `mcp_servers` | MCP servers this integration contributes. URL or container image. | `app/services/mcp_servers.py::seed_from_integrations` | active |
 | `dependencies` | Python / npm / system dependencies. Admin UI surfaces install commands. | `app/routers/api_v1_admin/integrations.py` | active |
 | `docker_compose` | Sidecar stack file + project name template + allowed bind mounts. | `app/services/docker_stacks.py` | active |
+| `runtime_services` | Shared sidecar capability contract. Providers declare endpoints they own; consumers declare required capabilities and optional external override settings. | `app/services/runtime_services.py` | active |
 | `web_ui` | Static build directory + dev port for an integration-owned web UI. | `integrations/__init__.py::discover_web_uis` | active |
 | `sidebar_section` | Navigation section added to the main sidebar. | `/api/v1/admin/integrations/sidebar` | active |
 | `dashboard_modules` | Pluggable panels for integration dashboards. Legacy naming may still appear around older dashboard modules. | `integrations/__init__.py::discover_dashboard_modules` | active |
@@ -447,6 +448,34 @@ if not chrome:
 ```
 
 `resolve_chrome()` resolves in this order: optional integration-setting → `CHROME_PATH` / `PUPPETEER_EXECUTABLE_PATH` env vars → `shutil.which()` for the chrome binaries → hardcoded fallback paths (including `/opt/spindrel-pkg/usr/bin/`). On miss it calls `install_system_package("chromium")` once — the same install path as the admin UI button, idempotent. Used by `excalidraw` and `marp_slides`.
+
+Shared runtime containers are not system dependencies. If one integration needs a long-running sidecar that another integration can reuse, declare it under `runtime_services` instead of adding another `dependencies.system` entry or duplicating a `docker_compose` service.
+
+Example:
+
+```yaml
+runtime_services:
+  provides:
+    - capability: browser.playwright
+      protocol: cdp
+      browser: chromium
+      endpoint: "ws://playwright-${SPINDREL_INSTANCE_ID}:3000"
+      service: playwright
+```
+
+Consumers declare the capability they need and the setting that wins when a user brings their own service:
+
+```yaml
+runtime_services:
+  requires:
+    - capability: browser.playwright
+      override_setting: PLAYWRIGHT_WS_URL
+      when:
+        setting: WEB_SEARCH_MODE
+        values: ["searxng"]
+```
+
+Lifecycle stays explicit: enabling a consumer can auto-enable its provider, but the provider integration remains separately visible and can expose its own tools only through normal activation, pinning, or admin enablement paths.
 
 For other binaries follow the same pattern: declare in `dependencies.system`, look up with `shutil.which()`, and (optionally) call `install_system_package(apt_package)` from your tool when a missing binary is recoverable. If the lookup pattern ends up duplicated in a second integration, lift it into `integrations/sdk.py` rather than copy-pasting.
 

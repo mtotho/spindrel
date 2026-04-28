@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.tool_dispatch import dispatch_tool_call
+from app.agent.tool_dispatch import ToolCallResult, _execute_tool_call, dispatch_tool_call
 from app.config import settings
 
 
@@ -116,3 +116,34 @@ async def test_fast_local_tool_not_affected_by_guard(dispatch_kwargs, monkeypatc
     parsed = json.loads(result.result)
     assert parsed.get("ok") is True
     assert "error" not in parsed
+
+
+@pytest.mark.asyncio
+async def test_client_tool_timeout_removes_pending_request(monkeypatch):
+    """Timed-out client-tool requests must not leak unresolved registry entries."""
+    from app.agent import pending
+
+    pending.clear_pending()
+    monkeypatch.setattr("app.agent.tool_dispatch.CLIENT_TOOL_TIMEOUT", 0.01)
+
+    result_obj = ToolCallResult()
+    with patch("app.agent.tool_dispatch.is_client_tool", return_value=True):
+        raw_result, tc_type, tc_server = await _execute_tool_call(
+            result_obj,
+            name="client_only_tool",
+            args="{}",
+            bot_id="test-bot",
+            session_id=None,
+            client_id="test-client",
+            correlation_id=None,
+            channel_id=None,
+            iteration=0,
+            pre_hook_type="client",
+            compaction=False,
+        )
+
+    parsed = json.loads(raw_result)
+    assert tc_type == "client"
+    assert tc_server is None
+    assert parsed == {"error": "Client did not respond in time"}
+    assert pending.pending_count() == 0

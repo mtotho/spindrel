@@ -1063,7 +1063,8 @@ class TestSidecarComposeDeclarativeNetworking:
     @pytest.mark.parametrize(
         "integration, expected_aliases",
         [
-            ("web_search", {"searxng", "playwright"}),
+            ("web_search", {"searxng"}),
+            ("browser_automation", {"playwright"}),
             ("wyoming", {"whisper", "piper"}),
         ],
     )

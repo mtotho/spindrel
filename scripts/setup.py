@@ -19,6 +19,7 @@ Headless env vars:
     SPINDREL_MODEL         Model name           (default per provider)
     SPINDREL_WEB_SEARCH    searxng|searxng-external|ddgs|none  (default: ddgs)
     SPINDREL_SEARXNG_URL   SearXNG URL          (for searxng-external)
+    SPINDREL_PLAYWRIGHT_WS_URL Browser WebSocket URL (optional for searxng-external)
     SPINDREL_API_KEY       Server API key       (auto-generated if not set)
     SPINDREL_DB_URL        Database URL         (auto-set for docker mode)
     SPINDREL_PORT          Server port          (default: 8000, used in DB URL for local)
@@ -199,7 +200,7 @@ def write_env_file(config: dict[str, str]) -> None:
         ("Auth", ["API_KEY", "ADMIN_API_KEY"]),
         ("Database", ["DATABASE_URL"]),
         ("LLM Provider", ["DEFAULT_MODEL", "LLM_BASE_URL", "LLM_API_KEY"]),
-        ("Web Search", ["WEB_SEARCH_MODE", "WEB_SEARCH_CONTAINERS", "SEARXNG_URL", "PLAYWRIGHT_WS_URL"]),
+        ("Web Search", ["WEB_SEARCH_MODE", "WEB_SEARCH_CONTAINERS", "SEARXNG_URL", "PLAYWRIGHT_WS_URL", "HEADLESS_BROWSER_CONTAINERS", "SPINDREL_BOOTSTRAP_INTEGRATIONS"]),
     ]
 
     written_keys: set[str] = set()
@@ -398,12 +399,20 @@ def main_headless() -> None:
     if web_mode == "searxng":
         env_config["WEB_SEARCH_MODE"] = "searxng"
         env_config["WEB_SEARCH_CONTAINERS"] = "true"
+        env_config["HEADLESS_BROWSER_CONTAINERS"] = "true"
+        env_config["SPINDREL_BOOTSTRAP_INTEGRATIONS"] = "web_search,browser_automation"
     elif web_mode == "searxng-external":
         env_config["WEB_SEARCH_MODE"] = "searxng"
         searxng_url = env("SPINDREL_SEARXNG_URL", "http://localhost:8080")
         env_config["SEARXNG_URL"] = searxng_url
+        playwright_url = env("SPINDREL_PLAYWRIGHT_WS_URL", "")
+        if playwright_url:
+            env_config["PLAYWRIGHT_WS_URL"] = playwright_url
+        env_config["SPINDREL_BOOTSTRAP_INTEGRATIONS"] = "web_search"
     elif web_mode != "none":
         env_config["WEB_SEARCH_MODE"] = web_mode
+        if web_mode != "disabled":
+            env_config["SPINDREL_BOOTSTRAP_INTEGRATIONS"] = "web_search"
 
     # API key
     api_key_val = env("SPINDREL_API_KEY", "")
@@ -573,7 +582,7 @@ def main() -> None:
         "Web search backend:",
         choices=[
             questionary.Choice(
-                "SearXNG — built-in containers (adds 2 containers)",
+                "SearXNG — built-in containers (SearXNG + shared browser runtime)",
                 value="searxng",
             ),
             questionary.Choice(
@@ -597,6 +606,8 @@ def main() -> None:
     if web_mode == "searxng":
         env_config["WEB_SEARCH_MODE"] = "searxng"
         env_config["WEB_SEARCH_CONTAINERS"] = "true"
+        env_config["HEADLESS_BROWSER_CONTAINERS"] = "true"
+        env_config["SPINDREL_BOOTSTRAP_INTEGRATIONS"] = "web_search,browser_automation"
     elif web_mode == "searxng-external":
         env_config["WEB_SEARCH_MODE"] = "searxng"
         searxng_url = questionary.text(
@@ -616,8 +627,11 @@ def main() -> None:
             return
         if playwright_url:
             env_config["PLAYWRIGHT_WS_URL"] = playwright_url
+        env_config["SPINDREL_BOOTSTRAP_INTEGRATIONS"] = "web_search"
     else:
         env_config["WEB_SEARCH_MODE"] = web_mode
+        if web_mode != "none":
+            env_config["SPINDREL_BOOTSTRAP_INTEGRATIONS"] = "web_search"
 
     # ── 5. Auth ────────────────────────────────────────────────────────────
 

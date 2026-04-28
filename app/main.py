@@ -369,6 +369,13 @@ async def lifespan(application: FastAPI):
     await seed_manifests()
     logger.info("Loading integration manifests from DB...")
     await load_manifests()
+    from app.services.integration_settings import apply_bootstrap_integrations
+    _bootstrapped_integrations = await apply_bootstrap_integrations()
+    if _bootstrapped_integrations:
+        logger.info(
+            "Applied bootstrap integration intent: %s",
+            ", ".join(_bootstrapped_integrations),
+        )
     from app.services.widget_packages_seeder import seed_widget_packages
     await seed_widget_packages()
     from app.services.widget_templates import load_widget_templates_from_db
@@ -603,21 +610,23 @@ async def lifespan(application: FastAPI):
             from app.services.docker_stacks import stack_service
             from integrations import discover_docker_compose_stacks
             from app.services.integration_settings import get_value as _get_int_setting
+            from app.services.integration_settings import is_active as _is_integration_active
             for _dc_info in discover_docker_compose_stacks():
                 _int_id = _dc_info["integration_id"]
                 try:
                     _enabled = False
-                    _enabled_callable = _dc_info.get("enabled_callable")
-                    if _enabled_callable is not None:
-                        try:
-                            _enabled = bool(_enabled_callable())
-                        except Exception:
-                            logger.exception("enabled_callable failed for %s", _int_id)
-                            _enabled = False
-                    elif _dc_info["enabled_setting"]:
-                        _default = _dc_info.get("enabled_default", "false")
-                        _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], _default)
-                        _enabled = _val.lower() in ("true", "1", "yes")
+                    if _is_integration_active(_int_id):
+                        _enabled_callable = _dc_info.get("enabled_callable")
+                        if _enabled_callable is not None:
+                            try:
+                                _enabled = bool(_enabled_callable())
+                            except Exception:
+                                logger.exception("enabled_callable failed for %s", _int_id)
+                                _enabled = False
+                        elif _dc_info["enabled_setting"]:
+                            _default = _dc_info.get("enabled_default", "false")
+                            _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], _default)
+                            _enabled = _val.lower() in ("true", "1", "yes")
                     await stack_service.apply_integration_stack(
                         integration_id=_int_id,
                         name=_dc_info["description"] or _int_id,

@@ -8,29 +8,39 @@ resolves the future so the loop can continue.
 import asyncio
 import logging
 
+from app.agent.pending_registry import PendingRegistry
+
 logger = logging.getLogger(__name__)
 
 _pending: dict[str, asyncio.Future[str]] = {}
+_registry = PendingRegistry[str](label="request", logger=logger)
+_registry.bind(_pending)
 
 CLIENT_TOOL_TIMEOUT = 120.0  # seconds
 
 
+def _sync_registry() -> PendingRegistry[str]:
+    if _registry.pending is not _pending:
+        _registry.bind(_pending)
+    return _registry
+
+
 def create_pending(request_id: str) -> asyncio.Future[str]:
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-    _pending[request_id] = future
-    logger.debug("Created pending request %s (%d active)", request_id, len(_pending))
-    return future
+    return _sync_registry().create(request_id)
 
 
 def resolve_pending(request_id: str, result: str) -> bool:
-    future = _pending.pop(request_id, None)
-    if future is None:
-        logger.warning("No pending request for %s", request_id)
-        return False
-    if future.done():
-        logger.warning("Pending request %s already resolved", request_id)
-        return False
-    future.set_result(result)
-    logger.debug("Resolved pending request %s", request_id)
-    return True
+    return _sync_registry().resolve(request_id, result)
+
+
+def expire_pending(request_id: str) -> bool:
+    """Remove a timed-out client-tool request from the rendezvous registry."""
+    return _sync_registry().discard(request_id)
+
+
+def pending_count() -> int:
+    return _sync_registry().count()
+
+
+def clear_pending() -> None:
+    _sync_registry().clear()

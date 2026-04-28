@@ -18,7 +18,7 @@ from app.agent.recording import (
     _start_tool_call,
 )
 from app.agent.tracing import _trace
-from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
+from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending, expire_pending
 from app.config import settings
 from app.tools.client_tools import is_client_tool
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool, resolve_mcp_tool_name
@@ -1109,6 +1109,7 @@ async def _execute_tool_call(
         try:
             result = await asyncio.wait_for(future, timeout=CLIENT_TOOL_TIMEOUT)
         except asyncio.TimeoutError:
+            expire_pending(request_id)
             logger.warning("Client tool %s timed out (request %s)", name, request_id)
             result = json.dumps({"error": "Client did not respond in time"})
     elif is_local_tool(name):

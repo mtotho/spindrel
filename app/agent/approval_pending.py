@@ -10,45 +10,35 @@ Mirrors the pattern in pending.py (client tool execution).
 import asyncio
 import logging
 
+from app.agent.pending_registry import PendingRegistry
+
 logger = logging.getLogger(__name__)
 
 _pending: dict[str, asyncio.Future[str]] = {}
+_registry = PendingRegistry[str](label="approval", logger=logger)
+_registry.bind(_pending)
+
+
+def _sync_registry() -> PendingRegistry[str]:
+    if _registry.pending is not _pending:
+        _registry.bind(_pending)
+    return _registry
 
 
 def create_approval_pending(approval_id: str) -> asyncio.Future[str]:
     """Create a Future for an approval request. Returns the Future to await."""
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
-    _pending[approval_id] = future
-    logger.debug("Created approval pending %s (%d active)", approval_id, len(_pending))
-    return future
+    return _sync_registry().create(approval_id)
 
 
 def resolve_approval(approval_id: str, verdict: str) -> bool:
     """Resolve an approval Future with 'approved' or 'denied'. Returns False if not found."""
-    future = _pending.pop(approval_id, None)
-    if future is None:
-        logger.warning("No pending approval for %s", approval_id)
-        return False
-    if future.done():
-        logger.warning("Approval %s already resolved", approval_id)
-        return False
-    future.set_result(verdict)
-    logger.debug("Resolved approval %s → %s", approval_id, verdict)
-    return True
+    return _sync_registry().resolve(approval_id, verdict)
 
 
 def cancel_approval(approval_id: str) -> bool:
     """Cancel a pending approval (e.g. on expiry). Returns False if not found."""
-    future = _pending.pop(approval_id, None)
-    if future is None:
-        return False
-    if future.done():
-        return False
-    future.set_result("expired")
-    logger.debug("Cancelled approval %s", approval_id)
-    return True
+    return _sync_registry().cancel(approval_id, "expired")
 
 
 def pending_count() -> int:
-    return len(_pending)
+    return _sync_registry().count()

@@ -154,7 +154,8 @@ WORKSPACE_HOST_DIR=/Users/yourname/.spindrel-workspaces   # real host path
 WORKSPACE_LOCAL_DIR=/workspace-data                         # mount path inside container
 
 # SearXNG and Playwright — use container names (managed by web_search integration)
-# These are auto-detected when WEB_SEARCH_CONTAINERS=true; only set for external instances.
+# These are auto-detected when WEB_SEARCH_CONTAINERS=true and browser_automation is enabled;
+# only set for external instances.
 # SEARXNG_URL=http://searxng-local:8080
 # PLAYWRIGHT_WS_URL=ws://playwright-local:3000
 ```
@@ -274,7 +275,7 @@ Switching from running the server on the host to running it inside Docker.
 **Changes:**
 1. Add `WORKSPACE_HOST_DIR` and `WORKSPACE_LOCAL_DIR` to `.env`
 2. Change `DATABASE_URL` hostname from `localhost` to `postgres`
-3. Set `WEB_SEARCH_CONTAINERS=true` if using built-in SearXNG containers
+3. Set `WEB_SEARCH_CONTAINERS=true` if using built-in SearXNG containers, and enable `browser_automation` or set `PLAYWRIGHT_WS_URL` for JavaScript-rendered page fetching
 4. Run `docker compose up -d` instead of `spindrel start`
 5. Disable the systemd service if it exists: `sudo systemctl disable --now spindrel`
 

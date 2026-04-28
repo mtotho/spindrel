@@ -140,7 +140,7 @@ Web search is provided by the `web_search` integration. Configure it via **Admin
 
 | Mode | `WEB_SEARCH_MODE` | `WEB_SEARCH_CONTAINERS` | Description |
 |---|---|---|---|
-| Managed SearXNG | `searxng` | `true` | Integration starts SearXNG + Playwright containers |
+| Managed SearXNG | `searxng` | `true` | Integration starts SearXNG and enables the shared browser runtime |
 | External SearXNG | `searxng` | (unset) | User provides `SEARXNG_URL` |
 | DuckDuckGo | `ddgs` | (unset) | Lightweight, no containers needed |
 | Disabled | `disabled` | (unset) | Bring your own search tool in `tools/` |
@@ -152,9 +152,11 @@ Web search is provided by the `web_search` integration. Configure it via **Admin
 ```bash
 WEB_SEARCH_MODE=searxng
 WEB_SEARCH_CONTAINERS=true
+HEADLESS_BROWSER_CONTAINERS=true
+SPINDREL_BOOTSTRAP_INTEGRATIONS=web_search,browser_automation
 ```
 
-The integration automatically starts SearXNG and Playwright containers and connects them to Spindrel's network. Managed containers appear in **Admin UI > Docker Stacks** where you can monitor status, view service health, read logs, and start/stop them.
+The setup intent enables Web Search plus Browser Automation on first boot. Web Search owns the SearXNG container; Browser Automation owns the shared headless Chromium runtime. Managed containers appear in **Admin UI > Docker Stacks** where you can monitor status, view service health, read logs, and start/stop them.
 
 **External instances** (bring your own SearXNG/Playwright):
 
@@ -184,7 +186,7 @@ The `web_search` tool returns an error directing bots to enable it. Add custom s
 
 You can switch modes at any time via the Integrations UI — no restart required. The `fetch_url` tool always works regardless of mode (falls back to httpx when Playwright is unavailable).
 
-> **Upgrading from COMPOSE_PROFILES?** Replace `COMPOSE_PROFILES=web-search` with `WEB_SEARCH_CONTAINERS=true` in your `.env`.
+> **Upgrading from COMPOSE_PROFILES?** Replace `COMPOSE_PROFILES=web-search` with `WEB_SEARCH_CONTAINERS=true` in your `.env`. Built-in JavaScript page fetching now comes from the `browser_automation` integration, so enable that integration or set `PLAYWRIGHT_WS_URL`.
 
 ## LLM Provider Configuration
 

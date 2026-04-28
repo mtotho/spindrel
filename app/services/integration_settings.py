@@ -272,6 +272,11 @@ def get_status(integration_id: str) -> LifecycleStatus:
     return "available"
 
 
+def has_lifecycle_status(integration_id: str) -> bool:
+    """Return True when the user/bootstrapping has written an explicit status."""
+    return (integration_id, STATUS_KEY) in _cache
+
+
 async def set_status(integration_id: str, status: LifecycleStatus) -> None:
     """Persist the lifecycle status. Does not run side effects on its own —
     the admin router drives process start/stop and tool registration around
@@ -300,6 +305,24 @@ async def set_status(integration_id: str, status: LifecycleStatus) -> None:
         await db.commit()
 
     _cache[(integration_id, STATUS_KEY)] = status
+
+
+async def apply_bootstrap_integrations(raw: str | None = None) -> list[str]:
+    """Enable integrations requested by first-run setup intent.
+
+    This only writes rows for integrations that do not already have an
+    explicit lifecycle status, so setup can opt in defaults without overriding
+    a later Admin UI choice.
+    """
+    value = raw if raw is not None else os.environ.get("SPINDREL_BOOTSTRAP_INTEGRATIONS", "")
+    requested = [part.strip() for part in value.split(",") if part.strip()]
+    applied: list[str] = []
+    for integration_id in requested:
+        if has_lifecycle_status(integration_id):
+            continue
+        await set_status(integration_id, "enabled")
+        applied.append(integration_id)
+    return applied
 
 
 def is_configured(integration_id: str) -> bool:

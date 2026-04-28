@@ -592,6 +592,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "webhook": None,
             "api_permissions": None,
             "provides": [],
+            "runtime_services": None,
             "machine_control": None,
             "status": "not_configured",
             "readme": None,
@@ -782,6 +783,10 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             provides = setup.get("provides")
             if isinstance(provides, list):
                 entry["provides"] = [str(v) for v in provides if str(v).strip()]
+
+            runtime_services = setup.get("runtime_services")
+            if isinstance(runtime_services, dict):
+                entry["runtime_services"] = runtime_services
 
             mc = setup.get("machine_control")
             if isinstance(mc, dict):

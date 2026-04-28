@@ -1,0 +1,19 @@
+name: "spindrel-${SPINDREL_INSTANCE_ID:-default}-browser-automation"
+
+services:
+  playwright:
+    image: ghcr.io/browserless/chromium
+    environment:
+      - TIMEOUT=60000
+      - CONCURRENT=5
+    networks:
+      agent_net:
+        aliases:
+          - "playwright-${SPINDREL_INSTANCE_ID:-default}"
+    restart: unless-stopped
+
+networks:
+  agent_net:
+    external: true
+    name: "${AGENT_NETWORK_NAME:-agent-server_default}"
+

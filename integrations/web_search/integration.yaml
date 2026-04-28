@@ -11,14 +11,14 @@ settings:
     default: "searxng"
   - key: WEB_SEARCH_CONTAINERS
     type: string
-    label: "Start built-in SearXNG + Playwright containers (only needed in searxng mode with no external instance)"
+    label: "Start built-in SearXNG container (only needed in searxng mode with no external instance)"
     default: "true"
   - key: SEARXNG_URL
     type: string
     label: "URL of the SearXNG instance (only used in searxng mode). Default auto-detects Docker vs local."
   - key: PLAYWRIGHT_WS_URL
     type: string
-    label: "Playwright/Chromium WebSocket URL for JS-rendered page fetching. Default auto-detects Docker vs local."
+    label: "External Chromium/Playwright WebSocket URL for JS-rendered page fetching. Blank uses the shared browser runtime."
 
 docker_compose:
   file: docker-compose.yml
@@ -30,7 +30,15 @@ docker_compose:
   project_name: "spindrel-${SPINDREL_INSTANCE_ID}-web-search"
   enabled_setting: WEB_SEARCH_CONTAINERS
   config_files: [config/searxng/settings.yml]
-  description: "SearXNG + Playwright for private web search"
+  description: "SearXNG for private web search"
+
+runtime_services:
+  requires:
+    - capability: browser.playwright
+      override_setting: PLAYWRIGHT_WS_URL
+      when:
+        setting: WEB_SEARCH_MODE
+        values: ["searxng"]
 
 provides:
   - tools
