@@ -11,7 +11,7 @@ export function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
     position: pin.position,
     pinned_at: pin.pinned_at ?? new Date().toISOString(),
     widget_presentation: pin.widget_presentation ?? null,
+    widget_contract: pin.widget_contract ?? null,
     config: pin.widget_config ?? {},
   };
 }
-

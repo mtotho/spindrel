@@ -18,7 +18,15 @@ import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRen
 import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 import { useDashboardPinsStore } from "../../stores/dashboardPins";
-import { apiFetch } from "../../api/client";
+import { requestWidgetRefresh } from "../../lib/widgetRefreshBatcher";
+import {
+  isWidgetRefreshCapable,
+  shouldRunWidgetAutoRefresh,
+} from "../../lib/widgetRefreshPolicy";
+import {
+  useDocumentVisible,
+  useElementVisible,
+} from "../../hooks/useWidgetAutoRefreshVisibility";
 import {
   useDeleteSpatialNode,
   useFindCanvasNodeByIdentity,
@@ -85,6 +93,18 @@ export function WidgetCard({
       (w) => envelopeIdentityKey(w.tool_name, w.envelope, w.widget_config ?? null) === thisKey,
     );
   });
+  const autoCollapsed = (isPinned && !isLatestBotMessage) || (defaultCollapsed ?? false);
+  const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const refreshCapable = isWidgetRefreshCapable(currentEnvelope);
+  const documentVisible = useDocumentVisible();
+  const elementVisible = useElementVisible(cardRef, refreshCapable && !isCollapsed);
+  const autoRefreshAllowed = shouldRunWidgetAutoRefresh({
+    refreshCapable,
+    collapsed: isCollapsed,
+    documentVisible,
+    elementVisible,
+  });
 
   // Pass display_label so post-action polling can refetch state-bearing tools
   // (e.g. schedule_prompt, define_pipeline) using whatever identifier the template stored.
@@ -125,26 +145,17 @@ export function WidgetCard({
   // complete) without requiring a new tool call or page reload.
   const displayLabel = currentEnvelope.display_label ?? "";
   const intervalSec = currentEnvelope.refresh_interval_seconds;
-  const refreshable = currentEnvelope.refreshable;
   const envelopeForRefreshRef = useRef(currentEnvelope);
   envelopeForRefreshRef.current = currentEnvelope;
 
   const refreshState = useCallback(async () => {
-    if (!channelId || !botId || !refreshable) return;
+    if (!channelId || !botId || !refreshCapable) return;
     try {
-      const resp = await apiFetch<{
-        ok: boolean;
-        envelope?: Record<string, unknown> | null;
-        error?: string;
-      }>("/api/v1/widget-actions/refresh", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tool_name: toolName,
-          display_label: envelopeForRefreshRef.current.display_label ?? "",
-          channel_id: channelId,
-          bot_id: botId,
-        }),
+      const resp = await requestWidgetRefresh({
+        tool_name: toolName,
+        display_label: envelopeForRefreshRef.current.display_label ?? "",
+        channel_id: channelId,
+        bot_id: botId,
       });
       if (resp.ok && resp.envelope) {
         const fresh = resp.envelope as unknown as ToolResultEnvelope;
@@ -156,18 +167,18 @@ export function WidgetCard({
     } catch {
       // Stale content is better than a flashing error banner here.
     }
-  }, [channelId, botId, toolName, refreshable, broadcastEnvelope]);
+  }, [channelId, botId, toolName, refreshCapable, broadcastEnvelope]);
 
   // Initial sync on mount: if the cached envelope is stale (e.g., scrolled
   // back to an older message), refresh once so the UI reflects current state.
   const initialRefreshKey = widgetId ?? `${toolName}:${displayLabel}`;
   const refreshedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!refreshable) return;
+    if (!autoRefreshAllowed) return;
     if (refreshedForRef.current === initialRefreshKey) return;
     refreshedForRef.current = initialRefreshKey;
     refreshState();
-  }, [initialRefreshKey, refreshable, refreshState]);
+  }, [initialRefreshKey, autoRefreshAllowed, refreshState]);
 
   // Interval refresh while status is non-terminal. The state_poll YAML sets
   // refresh_interval_seconds; we clear it client-side once the rendered body
@@ -192,11 +203,11 @@ export function WidgetCard({
   }, [currentEnvelope.body]);
 
   useEffect(() => {
-    if (!refreshable || !intervalSec || intervalSec <= 0) return;
+    if (!autoRefreshAllowed || !intervalSec || intervalSec <= 0) return;
     if (isTerminal) return;
     const handle = setInterval(refreshState, intervalSec * 1000);
     return () => clearInterval(handle);
-  }, [refreshable, intervalSec, isTerminal, refreshState]);
+  }, [autoRefreshAllowed, intervalSec, isTerminal, refreshState]);
 
   // Subscribe to shared envelope map — sync from pinned widget actions
   const envelopeKey = channelId ? `${channelId}::${envelopeIdentityKey(toolName, currentEnvelope)}` : null;
@@ -230,10 +241,6 @@ export function WidgetCard({
 
   const displayName = cleanToolName(toolName);
   const isTerminalMode = chatMode === "terminal";
-
-  // Auto-collapse: when pinned (older messages) or when defaultCollapsed is set (stacked widgets)
-  const autoCollapsed = (isPinned && !isLatestBotMessage) || (defaultCollapsed ?? false);
-  const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
 
   const content = isHtmlWidget ? (
     <InteractiveHtmlRenderer
@@ -290,6 +297,7 @@ export function WidgetCard({
 
   return (
     <div
+        ref={cardRef}
         className="rounded-lg border mt-1.5"
       style={{
         borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,

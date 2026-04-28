@@ -146,7 +146,7 @@ export function SpatialAttentionLayer({ items, selectedId, hubOpen, onSelect, on
 export function AttentionHubDrawerRoot() {
   const open = useUIStore((s) => s.attentionHubOpen);
   const close = useUIStore((s) => s.closeAttentionHub);
-  const { data: items } = useWorkspaceAttention();
+  const { data: items } = useWorkspaceAttention(null, { enabled: open });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   return (
     <AttentionHubDrawer

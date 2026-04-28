@@ -23,13 +23,22 @@ import {
 import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
-import { apiFetch } from "@/src/api/client";
 import {
   useDeleteSpatialNode,
   useFindCanvasNodesByIdentity,
   useFindCanvasNodesByPinPredicate,
   usePinWidgetToCanvas,
 } from "@/src/api/hooks/useWorkspaceSpatial";
+import { requestWidgetRefresh } from "@/src/lib/widgetRefreshBatcher";
+import {
+  isWidgetRefreshCapable,
+  shouldRunWidgetAutoRefresh,
+  widgetRefreshJitterMs,
+} from "@/src/lib/widgetRefreshPolicy";
+import {
+  useDocumentVisible,
+  useElementVisible,
+} from "@/src/hooks/useWidgetAutoRefreshVisibility";
 import { envelopeIdentityKey as canvasEnvelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { formatRelativeTime } from "@/src/utils/format";
 import {
@@ -167,6 +176,7 @@ export function PinnedToolWidget({
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const measureNodeRef = useRef<HTMLDivElement | null>(null);
   // Channel pins now live in the dashboard-pins store under the implicit
   // slug `channel:<uuid>`. Both scope.kind values read/write the same
   // store; the channel variant still fires the chat-side envelope
@@ -242,10 +252,22 @@ export function PinnedToolWidget({
   const sharedEnvelope = isDashboard ? dashboardShared : channelShared;
   const envelopeRef = useRef(currentEnvelope);
   envelopeRef.current = currentEnvelope;
+  const refreshCapable = isWidgetRefreshCapable(currentEnvelope, widget.widget_contract);
+  const isHtmlWidget = currentEnvelope?.content_type
+    === "application/vnd.spindrel.html+interactive";
+  const skipHtmlAutoRefresh = isHtmlWidget && !refreshCapable;
+  const documentVisible = useDocumentVisible();
+  const elementVisible = useElementVisible(measureNodeRef, refreshCapable);
+  const autoRefreshAllowed = shouldRunWidgetAutoRefresh({
+    refreshCapable,
+    documentVisible,
+    elementVisible,
+    skipHtmlAutoRefresh,
+  });
 
-  // Refresh state from the poll tool. Always try (even without envelope.refreshable)
-  // so widgets pinned before the state_poll feature still refresh. Backend returns
-  // an error for tools with no state_poll config, which we ignore.
+  // Refresh state from the poll tool only for state_poll-capable widgets.
+  // Older pins can advertise that through widget_contract even when the saved
+  // envelope predates the refreshable flag.
   const [refreshing, setRefreshing] = useState(false);
   const actionInFlightRef = useRef(false);
   // Per-pin in-flight guard. A single chat-broadcast can fan out to N widgets
@@ -256,29 +278,20 @@ export function PinnedToolWidget({
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
   const selfBroadcastRef = useRef<ToolResultEnvelope | null>(null);
   const refreshState = useCallback((): Promise<void> => {
+    if (!refreshCapable) return Promise.resolve();
     if (refreshInFlightRef.current) return refreshInFlightRef.current;
     const displayLabel = resolveDisplayLabel(envelopeRef.current);
     setRefreshing(true);
     const run = (async () => {
       try {
-        const body: Record<string, unknown> = {
+        const resp = await requestWidgetRefresh({
           tool_name: widget.tool_name,
           display_label: displayLabel,
           widget_config: widgetConfigRef.current ?? {},
           dashboard_pin_id: widget.id,
-        };
-        if (channelId) {
-          body.channel_id = channelId;
-          body.bot_id = widget.bot_id;
-        }
-        const resp = await apiFetch<{ ok: boolean; envelope?: Record<string, unknown> | null; error?: string }>(
-          "/api/v1/widget-actions/refresh",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
+          channel_id: channelId,
+          bot_id: channelId ? widget.bot_id : null,
+        });
         if (actionInFlightRef.current) return;
         if (resp.ok && resp.envelope) {
           const fresh = resp.envelope as unknown as ToolResultEnvelope;
@@ -306,7 +319,7 @@ export function PinnedToolWidget({
     })();
     refreshInFlightRef.current = run;
     return run;
-  }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel, markPinRefreshed]);
+  }, [refreshCapable, widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel, markPinRefreshed]);
   const updatedLabel = lastRefreshedAt ? formatRelativeTime(lastRefreshedAt) : "";
   const refreshTooltip = lastRefreshedAt
     ? `${updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`} · ${new Date(lastRefreshedAt).toLocaleString()} · Click to refresh`
@@ -322,17 +335,6 @@ export function PinnedToolWidget({
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
   const [hasCompletedInitialRefresh, setHasCompletedInitialRefresh] = useState(false);
-  // HTML widgets own their own freshness UNLESS they declare state_poll.
-  //   - emit_html_widget output is either a static inline snapshot or a
-  //     path-mode envelope polled against the workspace file — refreshable=false.
-  //   - Declarative html_template widgets (e.g. frigate_snapshot) run through
-  //     state_poll like component widgets, so they get refreshable=true + a
-  //     refresh_interval_seconds. The refresh endpoint re-emits the envelope
-  //     with fresh source_bot_id/source_channel_id so `window.spindrel` stays
-  //     intact across polls.
-  const isHtmlWidget = currentEnvelope?.content_type
-    === "application/vnd.spindrel.html+interactive";
-  const skipHtmlAutoRefresh = isHtmlWidget && !currentEnvelope?.refreshable;
   const recentRefreshIso = recentPinRefreshById.get(widget.id) ?? null;
   const lastRefreshAgeMs = recentRefreshIso
     ? Date.now() - Date.parse(recentRefreshIso)
@@ -344,16 +346,20 @@ export function PinnedToolWidget({
     return 0;
   })();
   const shouldRefreshOnMount =
-    !skipHtmlAutoRefresh
+    autoRefreshAllowed
     && (!mountRefreshGraceMs || !Number.isFinite(lastRefreshAgeMs) || lastRefreshAgeMs >= mountRefreshGraceMs);
   useEffect(() => {
-    if (refreshedForRef.current === widget.id) return;
-    refreshedForRef.current = widget.id;
     if (!shouldRefreshOnMount) {
       setHasCompletedInitialRefresh(true);
       return;
     }
-    refreshState().finally(() => setHasCompletedInitialRefresh(true));
+    if (refreshedForRef.current === widget.id) return;
+    refreshedForRef.current = widget.id;
+    setHasCompletedInitialRefresh(false);
+    const handle = window.setTimeout(() => {
+      refreshState().finally(() => setHasCompletedInitialRefresh(true));
+    }, widgetRefreshJitterMs(widget.id, 1_000));
+    return () => window.clearTimeout(handle);
   }, [widget.id, refreshState, shouldRefreshOnMount]);
 
   // Automatic interval refresh — driven by envelope.refresh_interval_seconds.
@@ -361,11 +367,26 @@ export function PinnedToolWidget({
   // the integration's widget YAML (e.g. OpenWeather uses 3600 for hourly).
   const intervalSec = currentEnvelope?.refresh_interval_seconds;
   useEffect(() => {
-    if (skipHtmlAutoRefresh) return;
+    if (!autoRefreshAllowed) return;
     if (!intervalSec || intervalSec <= 0) return;
-    const handle = setInterval(refreshState, intervalSec * 1000);
-    return () => clearInterval(handle);
-  }, [intervalSec, refreshState, skipHtmlAutoRefresh]);
+    let cancelled = false;
+    let handle: number | null = null;
+    const schedule = (delayMs: number) => {
+      handle = window.setTimeout(() => {
+        if (cancelled) return;
+        refreshState().finally(() => {
+          if (!cancelled) {
+            schedule(intervalSec * 1000 + widgetRefreshJitterMs(widget.id, 1_500));
+          }
+        });
+      }, delayMs);
+    };
+    schedule(intervalSec * 1000 + widgetRefreshJitterMs(widget.id, 1_500));
+    return () => {
+      cancelled = true;
+      if (handle !== null) window.clearTimeout(handle);
+    };
+  }, [autoRefreshAllowed, intervalSec, refreshState, widget.id]);
 
   // React to external envelope updates (chat broadcasts, other pinned widgets).
   // Two cases:
@@ -487,7 +508,6 @@ export function PinnedToolWidget({
   const [measuredSize, setMeasuredSize] = useState<{ width: number; height: number } | null>(
     null,
   );
-  const measureNodeRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const node = measureNodeRef.current;
     if (!node) return;
@@ -573,7 +593,7 @@ export function PinnedToolWidget({
   // so rendering it before the state_poll lands shows stale state (then flips
   // moments later when the poll returns). Skeleton avoids that flash.
   const awaitingFirstPollForRefreshable =
-    !hasCompletedInitialRefresh && !!currentEnvelope?.refreshable;
+    !hasCompletedInitialRefresh && refreshCapable && autoRefreshAllowed;
 
   // Show skeleton placeholder on initial load (before first poll/hydration)
   if (!currentEnvelope || body == null || awaitingFirstPollForRefreshable) {
@@ -914,7 +934,7 @@ export function PinnedToolWidget({
             className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
             aria-label="Refresh widget"
             title={refreshTooltip}
-            disabled={refreshing}
+            disabled={refreshing || !refreshCapable}
           >
             <RefreshCw
               size={ctrlIconSize}

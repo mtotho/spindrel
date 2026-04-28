@@ -412,6 +412,7 @@ export interface PinnedWidget {
   position: number;
   pinned_at: string;
   widget_presentation?: WidgetPresentation | null;
+  widget_contract?: WidgetContract | null;
   /** Legacy pinned-widget config shape. New widget work should use
    *  `widget_config` on dashboard pins and `{{widget_config.*}}` in templates;
    *  `{{config.*}}` remains as a compatibility alias. */

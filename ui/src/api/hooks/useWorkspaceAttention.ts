@@ -112,7 +112,11 @@ export function reconcileAttentionItems(
   return found ? next : items;
 }
 
-export function useWorkspaceAttention(channelId?: string | null) {
+export function useWorkspaceAttention(
+  channelId?: string | null,
+  options: { enabled?: boolean; refetchInterval?: number | false } = {},
+) {
+  const enabled = options.enabled ?? true;
   return useQuery({
     queryKey: channelId ? [...WORKSPACE_ATTENTION_KEY, channelId] : WORKSPACE_ATTENTION_KEY,
     queryFn: async () => {
@@ -122,7 +126,8 @@ export function useWorkspaceAttention(channelId?: string | null) {
       const res = await apiFetch<AttentionResponse>(`/api/v1/workspace/attention${suffix}`);
       return res.items;
     },
-    refetchInterval: 15_000,
+    enabled,
+    refetchInterval: enabled ? options.refetchInterval ?? 15_000 : false,
     staleTime: 10_000,
     refetchOnWindowFocus: false,
   });

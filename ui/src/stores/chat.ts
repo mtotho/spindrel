@@ -684,11 +684,21 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((s) => ({
       channels: {
         ...s.channels,
-        [channelId]: {
-          ...(s.channels[channelId] ?? emptyChannel),
-          isProcessing: true,
-          queuedTaskId: taskId,
-        },
+        [channelId]: (() => {
+          const ch = s.channels[channelId] ?? emptyChannel;
+          if (Object.keys(ch.turns).length > 0) {
+            return {
+              ...ch,
+              isProcessing: false,
+              queuedTaskId: null,
+            };
+          }
+          return {
+            ...ch,
+            isProcessing: true,
+            queuedTaskId: taskId,
+          };
+        })(),
       },
     })),
 

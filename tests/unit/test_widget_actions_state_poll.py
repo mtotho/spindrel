@@ -165,24 +165,120 @@ class TestStatePollArgSubstitution:
         # Second call must hit the cache — not the tool.
         assert stub.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_same_args_different_bot_context_do_not_share_cache(self):
+        _register_weather_widget()
+        poll_cfg = _widget_templates["get_weather"]["state_poll"]
+
+        stub = AsyncMock(side_effect=[
+            json.dumps({"location": "BOT_A"}),
+            json.dumps({"location": "BOT_B"}),
+        ])
+        with patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", stub), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            env_a = await router_mod._do_state_poll(
+                tool_name="get_weather",
+                display_label="Paris, FR",
+                poll_cfg=poll_cfg,
+                bot_id="bot-a",
+            )
+            env_b = await router_mod._do_state_poll(
+                tool_name="get_weather",
+                display_label="Paris, FR",
+                poll_cfg=poll_cfg,
+                bot_id="bot-b",
+            )
+
+        assert stub.await_count == 2
+        assert json.loads(env_a.body)["components"][0]["text"] == "BOT_A"
+        assert json.loads(env_b.body)["components"][0]["text"] == "BOT_B"
+
+    @pytest.mark.asyncio
+    async def test_refresh_batch_coalesces_identical_state_poll_work(self):
+        _register_weather_widget()
+
+        stub = AsyncMock(return_value=json.dumps({"location": "Paris, FR"}))
+        with patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", stub), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            resp = await router_mod.refresh_widget_states_batch(
+                router_mod.WidgetRefreshBatchRequest(
+                    requests=[
+                        router_mod.WidgetRefreshBatchItem(
+                            request_id="one",
+                            tool_name="get_weather",
+                            display_label="Paris, FR",
+                        ),
+                        router_mod.WidgetRefreshBatchItem(
+                            request_id="two",
+                            tool_name="get_weather",
+                            display_label="Paris, FR",
+                        ),
+                    ],
+                )
+            )
+
+        assert resp.ok is True
+        assert stub.await_count == 1
+        assert [item.request_id for item in resp.results] == ["one", "two"]
+        assert all(item.ok for item in resp.results)
+        assert json.loads(resp.results[0].envelope["body"])["components"][0]["text"] == "Paris, FR"
+
+    @pytest.mark.asyncio
+    async def test_refresh_batch_does_not_coalesce_different_bot_contexts(self):
+        _register_weather_widget()
+
+        stub = AsyncMock(side_effect=[
+            json.dumps({"location": "BOT_A"}),
+            json.dumps({"location": "BOT_B"}),
+        ])
+        with patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", stub), \
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+            resp = await router_mod.refresh_widget_states_batch(
+                router_mod.WidgetRefreshBatchRequest(
+                    requests=[
+                        router_mod.WidgetRefreshBatchItem(
+                            request_id="one",
+                            tool_name="get_weather",
+                            display_label="Paris, FR",
+                            bot_id="bot-a",
+                        ),
+                        router_mod.WidgetRefreshBatchItem(
+                            request_id="two",
+                            tool_name="get_weather",
+                            display_label="Paris, FR",
+                            bot_id="bot-b",
+                        ),
+                    ],
+                )
+            )
+
+        assert resp.ok is True
+        assert stub.await_count == 2
+        bodies = [json.loads(item.envelope["body"]) for item in resp.results]
+        assert bodies[0]["components"][0]["text"] == "BOT_A"
+        assert bodies[1]["components"][0]["text"] == "BOT_B"
+
 
 class TestInvalidatePollCache:
     def test_sweeps_all_arg_variants_for_tool(self):
         # Seed the cache with two variants for get_weather plus an unrelated entry.
-        router_mod._poll_cache[("get_weather", '{"location":"Paris"}')] = (0.0, "x")
-        router_mod._poll_cache[("get_weather", '{"location":"Tokyo"}')] = (0.0, "y")
-        router_mod._poll_cache[("OtherTool", "{}")] = (0.0, "z")
+        router_mod._poll_cache[("get_weather", '{"location":"Paris"}', None, None)] = (0.0, "x")
+        router_mod._poll_cache[("get_weather", '{"location":"Tokyo"}', None, None)] = (0.0, "y")
+        router_mod._poll_cache[("OtherTool", "{}", None, None)] = (0.0, "z")
 
         with patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
             router_mod.invalidate_poll_cache_for({"tool": "get_weather"})
 
         remaining = set(router_mod._poll_cache.keys())
-        assert remaining == {("OtherTool", "{}")}
+        assert remaining == {("OtherTool", "{}", None, None)}
 
     def test_no_op_when_tool_missing(self):
-        router_mod._poll_cache[("OtherTool", "{}")] = (0.0, "z")
+        router_mod._poll_cache[("OtherTool", "{}", None, None)] = (0.0, "z")
         router_mod.invalidate_poll_cache_for({})  # no 'tool' key
-        assert ("OtherTool", "{}") in router_mod._poll_cache
+        assert ("OtherTool", "{}", None, None) in router_mod._poll_cache
 
 
 def _register_weather_widget_with_config():
@@ -320,7 +416,7 @@ class TestDispatchWidgetConfig:
         _register_weather_widget_with_config()
 
         # Pre-seed the cache so we can assert invalidation happens.
-        stale_key = ("get_weather", '{"include_daily":false,"location":"Paris"}')
+        stale_key = ("get_weather", '{"include_daily":false,"location":"Paris"}', None, None)
         router_mod._poll_cache[stale_key] = (0.0, "stale")
 
         pin_id = uuid.uuid4()

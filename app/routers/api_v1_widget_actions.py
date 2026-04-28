@@ -800,11 +800,12 @@ def _build_result_envelope(
     return _build_default_envelope(raw_result, cap_body=cap_body)
 
 
-# ── State poll cache — deduplicates concurrent poll calls ──
-# Keyed by (resolved_tool_name, json_args) so widgets that re-poll the same
-# tool with different args (e.g. per-location weather) don't clobber each other.
+# ── State poll cache — deduplicates repeated poll calls ──
+# Keyed by (resolved_tool_name, json_args, bot_id, channel_id) so widgets that
+# re-poll the same tool with different args or identity context do not clobber
+# each other.
 
-_poll_cache: dict[tuple[str, str], tuple[float, str]] = {}
+_poll_cache: dict[tuple[str, str, str | None, str | None], tuple[float, str]] = {}
 _POLL_CACHE_TTL = 30.0  # seconds
 
 
@@ -880,48 +881,92 @@ async def _do_state_poll(
     }
     substituted_args = substitute_vars(raw_args, widget_meta)
     poll_args = json.dumps(substituted_args, sort_keys=True)
-    cache_key = (resolved_poll_tool, poll_args)
+    cache_key = _poll_cache_key(
+        resolved_poll_tool,
+        poll_args,
+        bot_id=bot_id,
+        channel_id=channel_id,
+    )
 
+    raw_result = await _fetch_state_poll_raw(
+        resolved_poll_tool=resolved_poll_tool,
+        poll_args=poll_args,
+        cache_key=cache_key,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        current_bot_id=current_bot_id,
+        current_channel_id=current_channel_id,
+    )
+    if raw_result is None:
+        return None
+
+    return apply_state_poll(tool_name, raw_result, widget_meta)
+
+
+def _poll_cache_key(
+    resolved_poll_tool: str,
+    poll_args: str,
+    *,
+    bot_id: str | None,
+    channel_id: uuid.UUID | None,
+) -> tuple[str, str, str | None, str | None]:
+    return (
+        resolved_poll_tool,
+        poll_args,
+        bot_id,
+        str(channel_id) if channel_id else None,
+    )
+
+
+async def _fetch_state_poll_raw(
+    *,
+    resolved_poll_tool: str,
+    poll_args: str,
+    cache_key: tuple[str, str, str | None, str | None],
+    bot_id: str | None,
+    channel_id: uuid.UUID | None,
+    current_bot_id: Any,
+    current_channel_id: Any,
+) -> str | None:
     now = time.monotonic()
     cached = _poll_cache.get(cache_key)
     if cached and (now - cached[0]) < _POLL_CACHE_TTL:
-        raw_result: str | None = cached[1]
-    else:
-        raw_result = None
-        bot_token = current_bot_id.set(bot_id) if bot_id else None
-        channel_token = current_channel_id.set(channel_id) if channel_id else None
-        try:
-            if is_local_tool(resolved_poll_tool):
-                raw_result = await asyncio.wait_for(
-                    call_local_tool(resolved_poll_tool, poll_args),
-                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
-                )
-            elif is_mcp_tool(resolved_poll_tool):
-                raw_result = await asyncio.wait_for(
-                    call_mcp_tool(resolved_poll_tool, poll_args),
-                    timeout=settings.TOOL_DISPATCH_TIMEOUT,
-                )
-            else:
-                logger.warning("Unknown poll tool: %s", poll_tool)
-                return None
-        except asyncio.TimeoutError:
-            logger.warning("Poll tool '%s' timed out", resolved_poll_tool)
-            return None
-        except Exception:
-            logger.warning("Poll tool '%s' failed", resolved_poll_tool, exc_info=True)
-            return None
-        finally:
-            if bot_token is not None:
-                current_bot_id.reset(bot_token)
-            if channel_token is not None:
-                current_channel_id.reset(channel_token)
+        return cached[1]
 
-        if raw_result is None:
+    raw_result = None
+    bot_token = current_bot_id.set(bot_id) if bot_id else None
+    channel_token = current_channel_id.set(channel_id) if channel_id else None
+    try:
+        if is_local_tool(resolved_poll_tool):
+            raw_result = await asyncio.wait_for(
+                call_local_tool(resolved_poll_tool, poll_args),
+                timeout=settings.TOOL_DISPATCH_TIMEOUT,
+            )
+        elif is_mcp_tool(resolved_poll_tool):
+            raw_result = await asyncio.wait_for(
+                call_mcp_tool(resolved_poll_tool, poll_args),
+                timeout=settings.TOOL_DISPATCH_TIMEOUT,
+            )
+        else:
+            logger.warning("Unknown poll tool: %s", resolved_poll_tool)
             return None
+    except asyncio.TimeoutError:
+        logger.warning("Poll tool '%s' timed out", resolved_poll_tool)
+        return None
+    except Exception:
+        logger.warning("Poll tool '%s' failed", resolved_poll_tool, exc_info=True)
+        return None
+    finally:
+        if bot_token is not None:
+            current_bot_id.reset(bot_token)
+        if channel_token is not None:
+            current_channel_id.reset(channel_token)
 
-        _poll_cache[cache_key] = (now, raw_result)
+    if raw_result is None:
+        return None
 
-    return apply_state_poll(tool_name, raw_result, widget_meta)
+    _poll_cache[cache_key] = (now, raw_result)
+    return raw_result
 
 
 class WidgetRefreshRequest(BaseModel):
@@ -935,6 +980,190 @@ class WidgetRefreshRequest(BaseModel):
     # Current pin config — exposed as {{config.*}} in state_poll args and in
     # the state_poll template. Optional; missing = empty dict (defaults only).
     widget_config: dict | None = None
+
+
+class WidgetRefreshBatchItem(WidgetRefreshRequest):
+    request_id: str
+
+
+class WidgetRefreshBatchRequest(BaseModel):
+    requests: list[WidgetRefreshBatchItem]
+
+
+class WidgetRefreshBatchResult(BaseModel):
+    request_id: str
+    ok: bool
+    envelope: dict | None = None
+    error: str | None = None
+
+
+class WidgetRefreshBatchResponse(BaseModel):
+    ok: bool
+    results: list[WidgetRefreshBatchResult]
+
+
+async def _load_refresh_pin_contexts(
+    requests: list[WidgetRefreshRequest],
+) -> dict[uuid.UUID, tuple[str | None, uuid.UUID | None]]:
+    pin_ids = sorted({req.dashboard_pin_id for req in requests if req.dashboard_pin_id is not None})
+    if not pin_ids:
+        return {}
+    from sqlalchemy import select
+
+    from app.db.engine import async_session
+    from app.db.models import WidgetDashboardPin
+
+    contexts: dict[uuid.UUID, tuple[str | None, uuid.UUID | None]] = {}
+    try:
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(
+                        WidgetDashboardPin.id,
+                        WidgetDashboardPin.source_bot_id,
+                        WidgetDashboardPin.source_channel_id,
+                    ).where(WidgetDashboardPin.id.in_(pin_ids))
+                )
+            ).all()
+            for pin_id, source_bot_id, source_channel_id in rows:
+                contexts[pin_id] = (source_bot_id, source_channel_id)
+    except Exception:
+        logger.warning("Dashboard pin batch lookup for refresh context failed", exc_info=True)
+    return contexts
+
+
+async def _persist_refreshed_pin_envelopes(updates: dict[uuid.UUID, dict]) -> None:
+    if not updates:
+        return
+    from app.db.engine import async_session
+    from app.services.dashboard_pins import update_pin_envelope
+
+    try:
+        async with async_session() as db:
+            for pin_id, env_dict in updates.items():
+                await update_pin_envelope(db, pin_id, env_dict)
+    except Exception:
+        logger.warning("Dashboard pin envelope batch write-back failed", exc_info=True)
+
+
+@router.post("/refresh-batch", response_model=WidgetRefreshBatchResponse)
+async def refresh_widget_states_batch(req: WidgetRefreshBatchRequest):
+    """Refresh many pinned widgets while coalescing identical state polls."""
+    _evict_stale_cache()
+    from app.agent.context import current_bot_id, current_channel_id
+
+    pin_contexts = await _load_refresh_pin_contexts(req.requests)
+    results: dict[str, WidgetRefreshBatchResult] = {}
+    persist_updates: dict[uuid.UUID, dict] = {}
+    groups: dict[tuple[str, str, str | None, str | None], dict[str, Any]] = {}
+
+    for item in req.requests:
+        poll_cfg = get_state_poll_config(item.tool_name)
+        if not poll_cfg:
+            results[item.request_id] = WidgetRefreshBatchResult(
+                request_id=item.request_id,
+                ok=False,
+                error=f"No state_poll config for {item.tool_name}",
+            )
+            continue
+        poll_tool = poll_cfg.get("tool")
+        if not poll_tool:
+            results[item.request_id] = WidgetRefreshBatchResult(
+                request_id=item.request_id,
+                ok=False,
+                error="state_poll missing 'tool' field",
+            )
+            continue
+
+        pin_bot_id: str | None = None
+        pin_channel_id: uuid.UUID | None = None
+        if item.dashboard_pin_id is not None:
+            pin_bot_id, pin_channel_id = pin_contexts.get(item.dashboard_pin_id, (None, None))
+
+        bot_id = pin_bot_id or item.bot_id
+        channel_id = pin_channel_id or item.channel_id
+        resolved_poll_tool = _resolve_tool_name(poll_tool)
+        raw_args = poll_cfg.get("args", {}) or {}
+        widget_meta = {
+            "display_label": item.display_label,
+            "tool_name": item.tool_name,
+            "widget_config": item.widget_config or {},
+            "config": item.widget_config or {},
+            "source_bot_id": bot_id,
+            "source_channel_id": str(channel_id) if channel_id else None,
+        }
+        substituted_args = substitute_vars(raw_args, widget_meta)
+        poll_args = json.dumps(substituted_args, sort_keys=True)
+        cache_key = _poll_cache_key(
+            resolved_poll_tool,
+            poll_args,
+            bot_id=bot_id,
+            channel_id=channel_id,
+        )
+        group = groups.setdefault(
+            cache_key,
+            {
+                "resolved_poll_tool": resolved_poll_tool,
+                "poll_args": poll_args,
+                "bot_id": bot_id,
+                "channel_id": channel_id,
+                "items": [],
+            },
+        )
+        group["items"].append((item, poll_cfg, widget_meta, pin_bot_id, pin_channel_id))
+
+    for cache_key, group in groups.items():
+        raw_result = await _fetch_state_poll_raw(
+            resolved_poll_tool=group["resolved_poll_tool"],
+            poll_args=group["poll_args"],
+            cache_key=cache_key,
+            bot_id=group["bot_id"],
+            channel_id=group["channel_id"],
+            current_bot_id=current_bot_id,
+            current_channel_id=current_channel_id,
+        )
+        if raw_result is None:
+            for item, *_ in group["items"]:
+                results[item.request_id] = WidgetRefreshBatchResult(
+                    request_id=item.request_id,
+                    ok=False,
+                    error="State poll failed to produce an envelope",
+                )
+            continue
+
+        for item, _poll_cfg, widget_meta, pin_bot_id, pin_channel_id in group["items"]:
+            envelope = apply_state_poll(item.tool_name, raw_result, widget_meta)
+            if envelope is None:
+                results[item.request_id] = WidgetRefreshBatchResult(
+                    request_id=item.request_id,
+                    ok=False,
+                    error="State poll failed to produce an envelope",
+                )
+                continue
+            env_dict = envelope.compact_dict()
+            if item.dashboard_pin_id is not None:
+                if pin_bot_id is not None:
+                    env_dict["source_bot_id"] = pin_bot_id
+                else:
+                    env_dict.pop("source_bot_id", None)
+                if pin_channel_id is not None:
+                    env_dict["source_channel_id"] = str(pin_channel_id)
+                else:
+                    env_dict.pop("source_channel_id", None)
+                persist_updates[item.dashboard_pin_id] = env_dict
+            results[item.request_id] = WidgetRefreshBatchResult(
+                request_id=item.request_id,
+                ok=True,
+                envelope=env_dict,
+            )
+
+    await _persist_refreshed_pin_envelopes(persist_updates)
+    ordered = [
+        results.get(item.request_id)
+        or WidgetRefreshBatchResult(request_id=item.request_id, ok=False, error="Refresh was not scheduled")
+        for item in req.requests
+    ]
+    return WidgetRefreshBatchResponse(ok=all(item.ok for item in ordered), results=ordered)
 
 
 @router.post("/refresh", response_model=WidgetActionResponse)

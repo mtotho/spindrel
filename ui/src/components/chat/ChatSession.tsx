@@ -877,10 +877,12 @@ function FixedSessionChatSession({
           model_provider_id_override: modelProviderId,
         } : {}),
       });
-      useChatStore.getState().setProcessing(
-        sessionId,
-        result.task_id ?? result.turn_id ?? clientLocalId,
-      );
+      if (result.queued) {
+        useChatStore.getState().setProcessing(
+          sessionId,
+          result.task_id ?? result.turn_id ?? clientLocalId,
+        );
+      }
       qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
     } catch (err) {
       useChatStore.getState().clearProcessing(sessionId);
@@ -1302,10 +1304,12 @@ function EphemeralChatSession({
             model_provider_id_override: modelProviderId,
           } : {}),
         });
-        useChatStore.getState().setProcessing(
-          activeSessionId,
-          result.task_id ?? result.turn_id ?? clientLocalId,
-        );
+        if (result.queued) {
+          useChatStore.getState().setProcessing(
+            activeSessionId,
+            result.task_id ?? result.turn_id ?? clientLocalId,
+          );
+        }
         qc.invalidateQueries({ queryKey: ["session-messages", activeSessionId] });
       } catch (err) {
         if (activeSessionId) {

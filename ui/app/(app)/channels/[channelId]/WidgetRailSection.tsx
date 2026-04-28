@@ -44,6 +44,7 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
     envelope: pin.envelope,
     position: pin.position,
     pinned_at: pin.pinned_at ?? new Date().toISOString(),
+    widget_contract: pin.widget_contract ?? null,
     config: pin.widget_config ?? {},
   };
 }

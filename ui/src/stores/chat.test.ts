@@ -70,6 +70,19 @@ test("tool results reconcile by tool_call_id when the same tool name appears mul
   assert.equal(toolCalls[1]?.envelope?.record_id, "result-b");
 });
 
+test("processing ack arriving after turn start does not leave a stale background indicator", () => {
+  useChatStore.setState({ channels: {} });
+  const store = useChatStore.getState();
+
+  store.startTurn("channel-1", "turn-1", "bot-1", "Rolland", true);
+  store.setProcessing("channel-1", "task-late-ack");
+
+  const ch = useChatStore.getState().getChannel("channel-1");
+  assert.equal(Object.keys(ch.turns).length, 1);
+  assert.equal(ch.isProcessing, false);
+  assert.equal(ch.queuedTaskId, null);
+});
+
 test("finishTurn materializes the canonical assistant turn body", () => {
   useChatStore.setState({ channels: {} });
   const store = useChatStore.getState();
