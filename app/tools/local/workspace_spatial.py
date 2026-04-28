@@ -117,6 +117,14 @@ _MAP_VIEW_SCHEMA = {
     },
 }
 
+_ERRORABLE_OBJECT_RETURNS = {
+    "type": "object",
+    "properties": {
+        "error": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+
 _PIN_WIDGET_SCHEMA = {
     "type": "function",
     "function": {
@@ -269,7 +277,13 @@ def _step_count(dx_steps: int, dy_steps: int) -> int:
     return abs(int(dx_steps)) + abs(int(dy_steps))
 
 
-@register(_DESCRIBE_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
+@register(
+    _DESCRIBE_SCHEMA,
+    safety_tier="readonly",
+    requires_bot_context=True,
+    requires_channel_context=True,
+    returns=_ERRORABLE_OBJECT_RETURNS,
+)
 async def describe_canvas_neighborhood() -> str:
     bot_id, channel_id, err = _scope()
     if err:
@@ -347,7 +361,13 @@ async def tug_spatial_object(
     return json.dumps({"node": serialize_node(node), "steps_used": current_spatial_tug_steps_used.get()}, default=str)
 
 
-@register(_INSPECT_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
+@register(
+    _INSPECT_SCHEMA,
+    safety_tier="readonly",
+    requires_bot_context=True,
+    requires_channel_context=True,
+    returns=_ERRORABLE_OBJECT_RETURNS,
+)
 async def inspect_nearby_spatial_object(target_node_id: str) -> str:
     bot_id, channel_id, err = _scope()
     if err:
@@ -366,7 +386,13 @@ async def inspect_nearby_spatial_object(target_node_id: str) -> str:
     return json.dumps(payload, default=str)
 
 
-@register(_MAP_VIEW_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
+@register(
+    _MAP_VIEW_SCHEMA,
+    safety_tier="readonly",
+    requires_bot_context=True,
+    requires_channel_context=True,
+    returns=_ERRORABLE_OBJECT_RETURNS,
+)
 async def view_spatial_canvas(
     preset: str = "whole_map",
     center_world_x: float | None = None,

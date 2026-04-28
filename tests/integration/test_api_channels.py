@@ -356,6 +356,58 @@ class TestAdminContextPreview:
         assert resp.status_code == 200
         body = resp.json()
         assert "pinned_widget_context" in body
-        assert body["pinned_widget_context"]["enabled"] is True
+        assert body["pinned_widget_context"] == {
+            "enabled": True,
+            "decision": "skipped_empty",
+        }
         labels = [b["label"] for b in body["blocks"]]
-        assert "Pinned Widget Context" in labels
+        assert "Pinned Widget Context" not in labels
+
+    async def test_uses_runtime_context_preview_assembly(self, client, monkeypatch):
+        ch = await _create_channel(client)
+        ch_id = ch["id"]
+        called = {}
+
+        async def fake_assemble_for_preview(channel_id, *, user_message=""):
+            called["channel_id"] = str(channel_id)
+            called["user_message"] = user_message
+
+            class FakeBudget:
+                total_tokens = 1000
+                reserve_tokens = 100
+                used_tokens = 250
+                remaining_tokens = 650
+
+            class FakeAssembly:
+                inject_decisions = {"pinned_widgets": "skipped_empty"}
+                context_profile = "chat"
+                context_policy = {}
+
+            return type("Preview", (), {
+                "messages": [{"role": "system", "content": "Assembled preview only."}],
+                "inject_chars": {},
+                "assembly": FakeAssembly(),
+                "budget": FakeBudget(),
+                "bot_id": "test-bot",
+                "model": "test/model",
+            })()
+
+        monkeypatch.setattr(
+            "app.routers.api_v1_admin.channels.assemble_for_preview",
+            fake_assemble_for_preview,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/context-preview",
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 200
+        assert called == {"channel_id": ch_id, "user_message": ""}
+        assert resp.json()["blocks"] == [
+            {
+                "label": "Bot System Prompt",
+                "role": "system",
+                "content": "Assembled preview only.",
+            }
+        ]

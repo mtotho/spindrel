@@ -451,6 +451,18 @@ async def widget_library_list(
         },
     },
     safety_tier="readonly",
+    returns={
+        "type": "object",
+        "properties": {
+            "widget_ref": {"type": "string"},
+            "history": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
+            "count": {"type": "integer"},
+        },
+        "required": ["widget_ref", "history", "count"],
+    },
 )
 async def widget_version_history_tool(
     widget_ref: str,

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import selectinload
 
+from app.agent.context_assembly import assemble_for_preview
 from app.agent.bots import get_bot
 from app.domain.errors import DomainError
 from app.db.models import (
@@ -35,6 +36,7 @@ from app.db.models import (
 from app.config import settings
 from app.dependencies import get_db, require_scopes
 from app.services.channels import apply_channel_visibility
+from app.services.context_preview import build_context_preview_response
 from app.services.heartbeat_policy import DEFAULT_HEARTBEAT_EXECUTION_POLICY, HEARTBEAT_EXECUTION_PRESETS
 from app.services.agent_harnesses.project import (
     PROJECT_PATH_KEY,
@@ -2453,190 +2455,11 @@ async def admin_channel_context_preview(
     _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Render a preview of all system messages that would be injected before a user message."""
-    from app.agent.base_prompt import resolve_workspace_base_prompt
-    from app.agent.bots import get_bot as _get_bot_fn
-    from app.agent.persona import get_persona
-    from app.db.models import ConversationSection, Skill as SkillRow
-    from app.services.compaction import _get_history_mode, format_section_index
-    from app.services.prompt_dialect import render as _dialect_render
-    from app.services.providers import resolve_prompt_style
-    from app.services.widget_context import (
-        build_pinned_widget_context_snapshot,
-        fetch_channel_pin_dicts,
-        is_pinned_widget_context_enabled,
-    )
-
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-
-    bot = _get_bot_fn(channel.bot_id)
-    blocks: list[dict] = []  # {"label": str, "role": str, "content": str}
-    prompt_style = resolve_prompt_style(bot, channel)
-
-    # --- System prompt blocks (shown separately for clarity) ---
-    if settings.GLOBAL_BASE_PROMPT:
-        blocks.append({
-            "label": "Global Base Prompt",
-            "role": "system",
-            "content": _dialect_render(settings.GLOBAL_BASE_PROMPT, prompt_style).rstrip(),
-        })
-
-    ws_base = None
-    ws_base_enabled = False
-    from app.db.models import SharedWorkspaceBot as _SWBot, SharedWorkspace as _SW
-    _swb = (await db.execute(
-        select(_SWBot).where(_SWBot.bot_id == bot.id)
-    )).scalar_one_or_none()
-    if _swb:
-        _sw = await db.get(_SW, _swb.workspace_id)
-        if _sw:
-            ws_base_enabled = _sw.workspace_base_prompt_enabled
-    if channel.workspace_base_prompt_enabled is not None:
-        ws_base_enabled = channel.workspace_base_prompt_enabled
-    if ws_base_enabled and getattr(bot, "shared_workspace_id", None):
-        ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
-
-    if ws_base:
-        blocks.append({"label": "Workspace Base Prompt", "role": "system", "content": ws_base.rstrip()})
-
-    if bot.system_prompt:
-        blocks.append({"label": "Bot System Prompt", "role": "system", "content": bot.system_prompt.rstrip()})
-
-    # Memory guidelines — deprecated (DB memory no longer in use)
-
-    # --- Persona ---
-    if bot.persona:
-        persona_text = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
-        if persona_text:
-            blocks.append({"label": "Persona", "role": "system", "content": f"[PERSONA]\n{persona_text}"})
-
-    # --- Datetime ---
-    try:
-        from zoneinfo import ZoneInfo
-        from datetime import timezone as _tz_mod
-        _tz = ZoneInfo(settings.TIMEZONE)
-        from datetime import datetime as _dt
-        _now_local = _dt.now(_tz)
-        _now_utc = _dt.now(_tz_mod.utc)
-        blocks.append({"label": "Date/Time", "role": "system", "content": f"Current time: {_now_local.strftime('%Y-%m-%d %H:%M %Z')} ({_now_utc.strftime('%H:%M UTC')})"})
-    except Exception:
-        blocks.append({"label": "Date/Time", "role": "system", "content": "(timezone unavailable)"})
-
-    # --- Skill index ---
-    if bot.skills:
-        ids = [s.id for s in bot.skills]
-        rows = (await db.execute(select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(ids)))).all()
-        if rows:
-            index_lines = "\n".join(f"- {r.id}: {r.name}" for r in rows)
-            blocks.append({"label": f"Skill Index ({len(rows)})", "role": "system", "content": f"Available skills (use get_skill to retrieve full content):\n{index_lines}"})
-
-    # --- Delegate bot index ---
-    if bot.delegate_bots:
-        lines = []
-        for did in bot.delegate_bots:
-            try:
-                db_ = _get_bot_fn(did)
-                desc = (db_.system_prompt or "").strip().splitlines()[0][:120] if db_.system_prompt else ""
-                lines.append(f"  \u2022 {did} \u2014 {db_.name}" + (f": {desc}" if desc else ""))
-            except Exception:
-                lines.append(f"  \u2022 {did}")
-        blocks.append({"label": f"Delegation Index ({len(bot.delegate_bots)})", "role": "system", "content": "Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n" + "\n".join(lines)})
-
-    # Memory placeholder — deprecated (DB memory no longer in use)
-
-    # --- Section index (file mode) ---
-    hist_mode = _get_history_mode(bot, channel)
-    if hist_mode == "file":
-        si_count = channel.section_index_count if channel.section_index_count is not None else 10
-        if si_count > 0:
-            si_verbosity = channel.section_index_verbosity or "standard"
-            si_query = select(ConversationSection).where(ConversationSection.channel_id == channel_id)
-            if channel.active_session_id:
-                si_query = si_query.where(ConversationSection.session_id == channel.active_session_id)
-            else:
-                si_query = si_query.where(ConversationSection.session_id.is_(None), ConversationSection.id.is_(None))
-            si_rows = (await db.execute(
-                si_query
-                .order_by(ConversationSection.sequence.desc())
-                .limit(si_count)
-            )).scalars().all()
-            if si_rows:
-                si_text = format_section_index(si_rows, verbosity=si_verbosity)
-                blocks.append({"label": f"Section Index ({len(si_rows)} sections)", "role": "system", "content": si_text})
-            else:
-                blocks.append({"label": "Section Index", "role": "system", "content": "[No sections yet — run backfill first]"})
-
-    # --- Workspace filesystem placeholder ---
-    if bot.workspace.enabled and bot.workspace.indexing.enabled:
-        blocks.append({"label": "Workspace Files (RAG)", "role": "system", "content": "[Workspace file chunks — varies by query similarity]"})
-
-    # --- Channel prompt ---
-    if channel.channel_prompt:
-        blocks.append({"label": "Channel Prompt", "role": "system", "content": channel.channel_prompt})
-
-    pinned_widget_context = await build_pinned_widget_context_snapshot(
-        db,
-        await fetch_channel_pin_dicts(db, channel_id),
-        bot_id=bot.id,
-        channel_id=str(channel_id),
-        enabled=is_pinned_widget_context_enabled(channel.config or {}),
-        disabled_reason="channel_disabled",
-    )
-    pinned_widget_block = pinned_widget_context.get("block_text")
-    if isinstance(pinned_widget_block, str) and pinned_widget_block:
-        blocks.append({"label": "Pinned Widget Context", "role": "system", "content": pinned_widget_block})
-    elif not pinned_widget_context.get("enabled", True):
-        blocks.append({
-            "label": "Pinned Widget Context",
-            "role": "system",
-            "content": "[Disabled in channel settings — pinned widgets will not be injected into chat context.]",
-        })
-    else:
-        blocks.append({
-            "label": "Pinned Widget Context",
-            "role": "system",
-            "content": "[No export-enabled pinned widgets contribute context right now.]",
-        })
-
-    # --- Conversation history (optional) ---
-    conversation_blocks: list[dict] = []
-    if include_history and channel.active_session_id:
-        active_session = await db.get(Session, channel.active_session_id)
-
-        if active_session and active_session.summary:
-            conversation_blocks.append({"label": "Compaction Summary", "role": "system", "content": active_session.summary})
-
-        # Only show messages after watermark (post-compaction)
-        msg_query = select(Message).where(
-            Message.session_id == channel.active_session_id,
-        ).order_by(Message.created_at)
-
-        if active_session and active_session.summary_message_id:
-            watermark_msg = await db.get(Message, active_session.summary_message_id)
-            if watermark_msg:
-                msg_query = msg_query.where(Message.created_at > watermark_msg.created_at)
-
-        msgs = (await db.execute(msg_query)).scalars().all()
-        for m in msgs:
-            if m.role == "system":
-                continue
-            conversation_blocks.append({
-                "label": m.role.capitalize(),
-                "role": m.role,
-                "content": m.content[:10000] if m.content else "",
-            })
-
-    total_chars = sum(len(b["content"]) for b in blocks + conversation_blocks)
-
-    return {
-        "blocks": blocks,
-        "conversation": conversation_blocks,
-        "pinned_widget_context": pinned_widget_context,
-        "total_chars": total_chars,
-        "total_tokens_approx": max(1, total_chars // 4) if total_chars > 0 else 0,
-        "history_mode": hist_mode,
-    }
+    preview = await assemble_for_preview(channel_id, user_message="")
+    return build_context_preview_response(preview, include_history=include_history)
 
 
 # ---------------------------------------------------------------------------

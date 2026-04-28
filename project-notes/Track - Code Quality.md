@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-24 (Audit close-out SHIPPED — 7 clusters all done same day post-Cluster 10; track moves to ambient maintenance per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Context preview consolidation shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -24,6 +24,12 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 | **15** | `persist_turn` decomposition | `app/services/sessions.py:562` | 6 stage helpers (filter/metadata/insert/outbox-channel/outbox-thread/attachment-link/bus-publish); function 331 → 82 LOC (-75%); file 1341 → 1398 LOC; 16+442/5/2 baseline match | ✅ SHIPPED |
 | **15.1** | `persist_turn` typed seam follow-up (Ousterhout deepening audit candidate #5) | `app/services/sessions.py` + new `app/services/session_writes.py` | `_build_message_metadata` + `_insert_message_records` collapsed into one public function `stage_turn_messages(db, ctx, messages) -> TurnWriteResult` (frozen `TurnContext` collapses 9 kwargs → 1; `TurnWriteResult` replaces 3-tuple). Silent `JSONDecodeError`/`TypeError` swallow at delegation parse → logged WARNING with session/correlation/tool_call_id/preview, malformed entry skipped, well-formed siblings preserved. Non-object JSON also handled. sessions.py 1398 → 1278 LOC; new module 268 LOC. 91/22 baseline match + 3 new regression tests in `tests/unit/test_sessions_core_gaps.py::TestStageTurnMessagesMalformedDelegations` (94/22 final). Bug class shipped to [[Fix Log]] 2026-04-25. | ✅ SHIPPED |
 | **9** | `run_task` Wave A+B | `app/agent/tasks.py:774` | 3 helpers (`_mark_task_failed_in_db`, `_publish_turn_ended_safe`, `_dispatch_to_specialized_runner`); 5 of 8 mark-failed copies collapsed; function 657 → 596 LOC (-9%); file 1712 → 1729 LOC; 103/0 baseline match. Deeper agent-run-path extraction deferred — too test-coupled. | ✅ SHIPPED (partial) |
+
+## Maintenance pass (2026-04-28)
+
+- **Context preview consolidation shipped.** `admin_channel_context_preview` no longer rebuilds prompt composition in the router. It now validates channel existence, calls runtime `assemble_for_preview`, and delegates response shaping to `app.services.context_preview.build_context_preview_response`. The adapter may split the already-assembled base system prompt for display labels, but does not reconstruct prompt policy.
+- **Readonly tool returns-schema baseline restored.** Added schemas for `describe_canvas_neighborhood`, `inspect_nearby_spatial_object`, `view_spatial_canvas`, and `widget_version_history`; `tests/unit/test_tool_returns_schema_coverage.py` is green again.
+- **Next section candidate.** Consolidate `compute_context_breakdown` / context estimate around the same runtime preview seam, then reassess the deferred deeper `run_task` agent-run-path extraction.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

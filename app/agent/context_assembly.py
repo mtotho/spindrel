@@ -3216,6 +3216,7 @@ class PreviewResult:
     budget: "ContextBudget"
     bot_id: str
     model: str
+    history_mode: str
 
 
 async def assemble_for_preview(
@@ -3240,6 +3241,7 @@ async def assemble_for_preview(
     from app.agent.context_profiles import resolve_context_profile
     from app.db.engine import async_session
     from app.db.models import Channel, Session
+    from app.services.compaction import _get_history_mode
     from app.services.sessions import _load_messages
     from sqlalchemy import select
 
@@ -3248,6 +3250,7 @@ async def assemble_for_preview(
         if channel is None:
             raise ValueError(f"Channel not found: {channel_id}")
         bot = get_bot(channel.bot_id)
+        history_mode = _get_history_mode(bot, channel)
 
         # Find the most recent session for this channel; fall back to a
         # synthetic empty list if none exist yet.
@@ -3312,4 +3315,5 @@ async def assemble_for_preview(
         budget=budget,
         bot_id=bot.id,
         model=effective_model,
+        history_mode=history_mode,
     )
