@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import os
 import subprocess
@@ -598,6 +599,7 @@ def _attach_claude_mcp_bridge(
         return []
 
     sdk_tools: list[Any] = []
+    server_name = "spindrel"
     allowed_tool_names = frozenset(spec.name for spec in specs)
     for spec in specs:
         parameters = spec.parameters or {"type": "object", "properties": {}}
@@ -609,6 +611,8 @@ def _attach_claude_mcp_bridge(
                 arguments=args,
                 allowed_tool_names=allowed_tool_names,
             )
+            if _name == "get_tool_info":
+                text = _rewrite_get_tool_info_for_claude_mcp(text, server_name=server_name)
             return {"content": [{"type": "text", "text": text or ""}]}
 
         try:
@@ -619,7 +623,6 @@ def _attach_claude_mcp_bridge(
     if not sdk_tools:
         return []
 
-    server_name = "spindrel"
     try:
         server = create_sdk_mcp_server(
             name=server_name,
@@ -637,6 +640,45 @@ def _attach_claude_mcp_bridge(
     allowed.extend(f"mcp__{server_name}__{spec.name}" for spec in specs)
     options_kwargs["allowed_tools"] = allowed
     return [spec.name for spec in specs]
+
+
+def _rewrite_get_tool_info_for_claude_mcp(text: str, *, server_name: str) -> str:
+    """Rewrite discovery schemas to Claude's MCP-prefixed callable name."""
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return text
+    if not isinstance(payload, dict):
+        return text
+    schema = payload.get("schema")
+    if not isinstance(schema, dict):
+        return text
+    fn = schema.get("function")
+    if not isinstance(fn, dict):
+        return text
+    raw_name = fn.get("name")
+    if not isinstance(raw_name, str) or not raw_name.strip():
+        return text
+    callable_name = _claude_mcp_callable_name(raw_name.strip(), server_name=server_name)
+    if callable_name == raw_name and payload.get("callable_name") == callable_name:
+        return text
+    fn["name"] = callable_name
+    payload["callable_name"] = callable_name
+    payload["harness_bridge"] = {
+        "runtime": "claude-code",
+        "mcp_server": server_name,
+        "canonical_tool_name": raw_name,
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False)
+
+
+def _claude_mcp_callable_name(name: str, *, server_name: str) -> str:
+    prefix = f"mcp__{server_name}__"
+    if name.startswith(prefix):
+        return name
+    if name.startswith("mcp__"):
+        return prefix + name.removeprefix("mcp__")
+    return prefix + name
 
 
 def _prompt_with_context_hints(prompt: str, ctx: TurnContext) -> str:
