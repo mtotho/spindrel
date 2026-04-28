@@ -25,6 +25,7 @@ import logging
 import re
 import uuid
 from contextlib import suppress
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from app.agent.bots import BotConfig, get_bot
@@ -569,6 +570,57 @@ async def _persist_harness_failure(
     return "", error_text
 
 
+@dataclass(frozen=True)
+class _TurnScope:
+    session_id: uuid.UUID
+    channel_id: uuid.UUID | None
+    bus_key: uuid.UUID
+    turn_id: uuid.UUID
+    session_scoped: bool
+    correlation_id: uuid.UUID
+
+    @classmethod
+    def from_handle(cls, handle: TurnHandle) -> "_TurnScope":
+        return cls(
+            session_id=handle.session_id,
+            channel_id=handle.channel_id,
+            bus_key=handle.bus_key,
+            turn_id=handle.turn_id,
+            session_scoped=handle.session_scoped,
+            correlation_id=handle.turn_id,
+        )
+
+    @property
+    def has_channel(self) -> bool:
+        return self.channel_id is not None
+
+    @property
+    def suppress_outbox(self) -> bool:
+        return self.session_scoped or not self.has_channel
+
+
+@dataclass
+class _TurnRunState:
+    response_text: str = ""
+    response_actions: list | None = None
+    intermediate_texts: list[str] = field(default_factory=list)
+    budget_utilization: float | None = None
+    budget_snapshot: dict | None = None
+    was_cancelled: bool = False
+    error_text: str | None = None
+    pre_user_msg_id: uuid.UUID | None = None
+    persisted_turn: bool = False
+    from_index: int | None = None
+    streamed_text_parts: list[str] = field(default_factory=list)
+    auto_injected_skills: list[dict] = field(default_factory=list)
+    active_skills: list[dict] = field(default_factory=list)
+    skills_in_context: list[dict] = field(default_factory=list)
+    llm_retries: int = 0
+    llm_fallback_model: str | None = None
+    vision_fallback: bool = False
+    user_mentioned: list[tuple[str, dict]] = field(default_factory=list)
+
+
 async def run_turn(
     handle: TurnHandle,
     *,
@@ -596,521 +648,673 @@ async def run_turn(
 
     Releases the session lock unconditionally on the way out.
     """
-    channel_id = handle.channel_id
-    session_id = handle.session_id
-    bus_key = handle.bus_key  # channel_id if present, else session_id (channel-less ephemeral)
-    has_channel = channel_id is not None
-    turn_id = handle.turn_id
-    session_scoped = handle.session_scoped
-    correlation_id = turn_id  # turn_id IS the correlation_id — threads through SSE→synthetic→DB for reliable dedup
-    response_text = ""
-    response_actions: list | None = None
-    _intermediate_texts: list[str] = []
-    _budget_utilization: float | None = None
-    _budget_snapshot: dict | None = None
-    was_cancelled = False
-    error_text: str | None = None
-    pre_user_msg_id: uuid.UUID | None = None
-    persisted_turn = False
-    from_index: int | None = None
-    streamed_text_parts: list[str] = []
+    scope = _TurnScope.from_handle(handle)
+    state = _TurnRunState()
 
     try:
-        # Per-task ContextVars — safe because asyncio tasks each see their
-        # own ContextVar copy.
-        set_agent_context(
-            session_id=session_id,
-            client_id=req.client_id,
-            user_id=getattr(user, "id", None),
-            bot_id=bot.id,
-            correlation_id=correlation_id,
-            channel_id=channel_id,
-            memory_cross_channel=None,
-            memory_cross_client=None,
-            memory_cross_bot=None,
-            memory_similarity_threshold=None,
-            dispatch_type=None,
-            dispatch_config=None,
+        _setup_turn_context(scope, bot=bot, req=req, user=user)
+        await _start_turn_lifecycle(
+            scope,
+            state,
+            bot=bot,
+            req=req,
+            user=user,
+            user_message=user_message,
         )
-        # ``current_turn_id`` is set separately because ``set_agent_context``
-        # doesn't know the turn_id (it's a per-task value, not a request
-        # value). Tool-dispatch reads this when publishing
-        # APPROVAL_REQUESTED so the UI can route the approval back to the
-        # right in-flight turn slot.
-        from app.agent.context import current_turn_id
-        current_turn_id.set(turn_id)
-        if getattr(user, "id", None) is not None:
-            presence.mark_active(user.id)
-
-        # 1. Pre-persist the user message and publish NEW_MESSAGE so the bus
-        #    sees the user input before the agent starts emitting tokens.
-        _meta = req.msg_metadata or {}
-        _pre_id_str = _meta.pop("_pre_user_msg_id", None)
-        pre_user_msg_id = await _persist_and_publish_user_message(
-            session_id=session_id,
-            channel_id=channel_id,
-            bus_key=bus_key,
-            text=user_message,
-            correlation_id=correlation_id,
-            metadata=_meta,
-            pre_allocated_id=uuid.UUID(_pre_id_str) if _pre_id_str else None,
-            suppress_outbox=session_scoped or not has_channel,
-        )
-        if getattr(user, "id", None) is not None:
-            try:
-                from app.services.unread import mark_session_read
-
-                async with async_session() as db:
-                    await mark_session_read(
-                        db,
-                        user_id=user.id,
-                        session_id=session_id,
-                        source="web_send",
-                        surface="chat",
-                        message_id=pre_user_msg_id,
-                    )
-                    await db.commit()
-            except Exception:
-                logger.warning(
-                    "turn_worker: failed to mark session %s read for user %s after send",
-                    session_id,
-                    getattr(user, "id", None),
-                    exc_info=True,
-                )
-
-        # 2. Publish TURN_STARTED so renderers can post a "thinking..."
-        #    placeholder. Tag every lifecycle event with session_id so
-        #    channel-scoped scratch/thread subscribers can reject sibling
-        #    events carried on the same parent channel bus.
-        publish_typed(
-            bus_key,
-            ChannelEvent(
-                channel_id=bus_key,
-                kind=ChannelEventKind.TURN_STARTED,
-                payload=TurnStartedPayload(
-                    bot_id=bot.id,
-                    turn_id=turn_id,
-                    reason="user_message",
-                    session_id=session_id,
-                ),
-            ),
-        )
-
-        # Persistent lifecycle signal for the /state snapshot. Without this,
-        # `_snapshot_active_turns` only sees turns that produce a ToolCall or
-        # skill_index TraceEvent — a text-only streaming reply is invisible,
-        # and any snapshot refetch mid-stream (window focus, reconnect) fires
-        # the UI ghost reconciler and kills the live turn slot.
-        safe_create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=req.client_id,
-            event_type="turn_started",
-            data={"bot_id": bot.id},
-        ))
-
-        # 2b. Harness-runtime branch — bot delegates to an external agent
-        #     harness (Claude Code, Codex, ...) instead of run_stream. The
-        #     harness owns the agent loop end-to-end; we own the chat
-        #     surface. Skips @-mention fanout, supervisors, and compaction
-        #     because the harness has no Spindrel-side context to manage.
-        if bot.harness_runtime:
-            # Pre-initialize names the finally block references so its
-            # ``extra_metadata`` builder doesn't NameError on the harness path.
-            _auto_injected_skills = []
-            response_text, error_text = await _run_harness_turn(
-                channel_id=channel_id,
-                bus_key=bus_key,
-                session_id=session_id,
-                turn_id=turn_id,
-                bot=bot,
-                user_message=user_message,
-                correlation_id=correlation_id,
-                msg_metadata=req.msg_metadata,
-                pre_user_msg_id=pre_user_msg_id,
-                suppress_outbox=session_scoped or not has_channel,
-            )
-            persisted_turn = error_text is None or error_text == "persist_turn failed"
-            # Skip steps 3-8 entirely; finally-block publishes TURN_ENDED.
+        if await _run_harness_branch_if_needed(
+            scope,
+            state,
+            bot=bot,
+            req=req,
+            user_message=user_message,
+        ):
             return
 
-        # 3. Detect parallel multi-bot @-mentions BEFORE the primary bot
-        #    starts so the auto-invoked bots run lock-free in parallel.
-        #    Skipped for channel-less sessions — @-mention fanout is a
-        #    channel-scoped feature (requires channel membership resolution).
-        _user_mentioned: list[tuple[str, dict]] = []
-        if user_message and has_channel:
-            _user_mentioned = await _detect_member_mentions(
-                channel_id, bot.id, user_message, _depth=0,
-            )
-            if _user_mentioned:
-                _user_snap = ctx.raw_snapshot
-                _auto_invoked_ids: set[str] = set()
-                for _um_bot_id, _um_config in _user_mentioned:
-                    _um_task = asyncio.create_task(
-                        _run_member_bot_reply(
-                            channel_id, session_id, _um_bot_id, _um_config,
-                            bot.id, _depth=1,
-                            messages_snapshot=_user_snap,
-                            turn_id=uuid.uuid4(),
-                        )
-                    )
-                    _background_tasks.add(_um_task)
-                    _um_task.add_done_callback(_background_tasks.discard)
-                    _auto_invoked_ids.add(_um_bot_id)
-
-                current_invoked_member_bots.set(_auto_invoked_ids)
-
-                _auto_names = []
-                for _ai_id, _ in _user_mentioned:
-                    try:
-                        _ai_bot = get_bot(_ai_id)
-                        _auto_names.append(f"{_ai_bot.name} (@{_ai_id})")
-                    except Exception:
-                        _auto_names.append(f"@{_ai_id}")
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        f"The following bots were auto-invoked by the user's @-mentions and are "
-                        f"already responding in parallel: {', '.join(_auto_names)}. "
-                        f"Do NOT @-mention them again in your response."
-                    ),
-                })
-
-        # 4. Drive run_stream and map events onto the typed bus.
-        from_index = len(messages)
-        _effective_model_override = req.model_override or ctx.model_override
-
-        _run_stream_iter = run_stream(
-            messages, bot, user_message,
-            session_id=session_id,
-            client_id=req.client_id,
+        await _prepare_user_mention_fanout(
+            scope,
+            state,
+            bot=bot,
+            messages=messages,
+            user_message=user_message,
+            ctx=ctx,
+        )
+        await _drive_normal_turn_stream(
+            scope,
+            state,
+            bot=bot,
+            messages=messages,
+            user_message=user_message,
+            ctx=ctx,
+            req=req,
             audio_data=audio_data,
             audio_format=audio_format,
-            attachments=att_payload,
-            correlation_id=correlation_id,
-            dispatch_type=None,
-            dispatch_config=None,
-            channel_id=channel_id,
-            model_override=_effective_model_override,
-            provider_id_override=req.model_provider_id_override or ctx.provider_id_override,
-            system_preamble=ctx.system_preamble,
+            att_payload=att_payload,
         )
-        _auto_injected_skills: list[dict] = []
-        _active_skills: list[dict] = []
-        _skills_in_context: list[dict] = []
-        _llm_retries: int = 0
-        _llm_fallback_model: str | None = None
-        _vision_fallback: bool = False
-        async for event in emit_run_stream_events(
-            _run_stream_iter,
-            channel_id=bus_key,
-            bot_id=bot.id,
-            turn_id=turn_id,
-            session_id=session_id,
-        ):
-            etype = event.get("type")
-
-            if etype == "auto_inject":
-                _auto_injected_skills.append({
-                    "skill_id": event.get("skill_id", ""),
-                    "skill_name": event.get("skill_name", ""),
-                    "similarity": event.get("similarity", 0.0),
-                    "source": event.get("source", ""),
-                })
-                continue
-
-            if etype == "text_delta":
-                delta = event.get("delta", "")
-                if delta:
-                    streamed_text_parts.append(delta)
-                continue
-
-            if etype == "active_skills":
-                _skills_in_context = list(event.get("skills", []))
-                _active_skills = [
-                    s for s in _skills_in_context
-                    if isinstance(s, dict) and s.get("source") == "loaded"
-                ]
-                continue
-
-            if etype == "cancelled":
-                was_cancelled = True
-                messages.append({"role": "user", "content": "[STOP]"})
-                messages.append({"role": "assistant", "content": "[Cancelled by user]"})
-                # Surface cancellation on TURN_ENDED so the UI can render a
-                # cancelled state instead of an empty graceful turn. The
-                # ``error`` field is the only payload slot that distinguishes
-                # cancel from a successful empty response.
-                error_text = "cancelled"
-                break
-
-            if etype == "context_budget":
-                _budget_utilization = event.get("utilization")
-                _budget_snapshot = dict(event)
-                continue
-
-            if etype == "response":
-                final_text = event.get("text", "")
-                if not (final_text or "").strip() and _intermediate_texts:
-                    response_text = "\n\n".join(_intermediate_texts)
-                else:
-                    response_text = final_text
-                response_actions = event.get("client_actions")
-                continue
-
-            if etype == "assistant_text":
-                _intermediate_texts.append(event.get("text", ""))
-                continue
-
-            if etype == "delegation_post":
-                # Delegation posts are channel-scoped integration writes —
-                # skip entirely for channel-less ephemeral sessions.
-                if not has_channel:
-                    continue
-                try:
-                    await _ds.post_child_response(
-                        channel_id=channel_id,
-                        text=event.get("text", ""),
-                        bot_id=event.get("bot_id") or "",
-                        reply_in_thread=event.get("reply_in_thread", False),
-                    )
-                except Exception as exc:
-                    # Surface the failure on the bus so the UI / future
-                    # renderers can render an error chip. The legacy path
-                    # would have surfaced this via the dispatcher mirror;
-                    # the typed bus needs the explicit publish.
-                    logger.exception(
-                        "turn_worker: delegation_post failed for bot %s",
-                        event.get("bot_id"),
-                    )
-                    publish_typed(
-                        bus_key,
-                        ChannelEvent(
-                            channel_id=bus_key,
-                            kind=ChannelEventKind.TURN_STREAM_TOOL_RESULT,
-                            payload=TurnStreamToolResultPayload(
-                                bot_id=bot.id,
-                                turn_id=turn_id,
-                                tool_name="delegation_post",
-                                result_summary=(
-                                    f"delegation_post failed for "
-                                    f"{event.get('bot_id') or 'unknown'}: "
-                                    f"{type(exc).__name__}: {str(exc)[:300]}"
-                                ),
-                                is_error=True,
-                            ),
-                        ),
-                    )
-                continue
-
-            if etype == "llm_retry":
-                _llm_retries += 1
-                if event.get("reason") == "vision_not_supported":
-                    _vision_fallback = True
-                continue
-
-            if etype == "llm_fallback":
-                _llm_fallback_model = event.get("to_model")
-                continue
-
-            if etype == "llm_cooldown_skip":
-                _llm_fallback_model = event.get("using")
-                continue
-
-            # Anything else (transcript, thinking_content, warning, fallback,
-            # context_pruning, rate_limit_wait) — forwarded but no caller-side
-            # action needed.
-
-        from app.agent.context import current_skills_in_context as _current_skills_in_context
-        _runtime_skills_in_context = list(_current_skills_in_context.get() or [])
-        if _runtime_skills_in_context:
-            _skills_in_context = _runtime_skills_in_context
-            _active_skills = [
-                s for s in _skills_in_context
-                if isinstance(s, dict) and s.get("source") == "loaded"
-            ]
-
-        # 4b. Tag the last assistant message with auto-injected skill info
-        #     so persist_turn can carry it into the DB row's metadata.
-        if _auto_injected_skills:
-            for _m in reversed(messages[from_index:]):
-                if _m.get("role") == "assistant":
-                    _m["_auto_injected_skills"] = _auto_injected_skills
-                    break
-
-        # 4b.2. Tag the last assistant message with active skills (still in
-        #       context from prior get_skill calls) for the UI skill orb.
-        if _skills_in_context or _active_skills:
-            for _m in reversed(messages[from_index:]):
-                if _m.get("role") == "assistant":
-                    _m["_active_skills"] = _active_skills
-                    _m["_skills_in_context"] = _skills_in_context or _active_skills
-                    break
-
-        # 4c. Tag the last assistant message with LLM retry/fallback info
-        #     so persist_turn can carry it into the DB row's metadata.
-        if _llm_retries > 0 or _llm_fallback_model or _vision_fallback:
-            _llm_info: dict = {}
-            if _llm_retries > 0:
-                _llm_info["retries"] = _llm_retries
-            if _llm_fallback_model:
-                _llm_info["fallback_model"] = _llm_fallback_model
-            if _vision_fallback:
-                _llm_info["vision_fallback"] = True
-            for _m in reversed(messages[from_index:]):
-                if _m.get("role") == "assistant":
-                    _m["_llm_status"] = _llm_info
-                    break
-
-        # 5. Persist the turn (DB write + outbox enqueue + bus publish).
-        #    Runs unconditionally — cancelled turns must persist the [STOP] /
-        #    [Cancelled by user] markers that the cancellation branch above
-        #    appended to ``messages``, so the conversation history reflects
-        #    the cancellation. The legacy event_generator (deleted in Phase E)
-        #    called persist_turn unconditionally for the same reason.
-        try:
-            async with async_session() as db:
-                await persist_turn(
-                    db, session_id, bot, messages, from_index,
-                    correlation_id=correlation_id,
-                    msg_metadata=req.msg_metadata,
-                    channel_id=channel_id,
-                    pre_user_msg_id=pre_user_msg_id,
-                    suppress_outbox=session_scoped or not has_channel,
-                )
-                persisted_turn = True
-        except Exception:
-            logger.exception(
-                "turn_worker: persist_turn failed for session %s — messages will be lost",
-                session_id,
-            )
-            error_text = "persist_turn failed"
-
-        # 6. Run deterministic internal supervisors after persistence and
-        #    before TURN_ENDED so state changes reach the UI with the final
-        #    turn signal.
-        if persisted_turn:
-            await run_turn_supervisors(TurnEndContext(
-                session_id=session_id,
-                channel_id=channel_id,
-                bot_id=bot.id,
-                turn_id=turn_id,
-                correlation_id=correlation_id,
-                result=response_text or None,
-                error=error_text,
-                client_actions=list(response_actions or []),
-            ))
-
-        # 7. Trigger compaction in the background.
-        maybe_compact(
-            session_id, bot, messages,
-            correlation_id=correlation_id,
-            budget_utilization=_budget_utilization,
-            budget_snapshot=_budget_snapshot,
-        )
-
-        # 8. Bot-to-bot @-mention chain: trigger member bot replies for
-        #    bots the primary bot mentioned in its response.
-        #    Channel-less ephemeral sessions skip — @-mention fanout requires
-        #    channel membership resolution.
-        if not was_cancelled and response_text and has_channel:
-            _already_invoked = set(current_invoked_member_bots.get() or ())
-            if _user_mentioned:
-                _already_invoked.update(bid for bid, _ in _user_mentioned)
-            _messages_snapshot = copy.deepcopy(ctx.raw_snapshot) if ctx.raw_snapshot else []
-            _messages_snapshot.append({
-                "role": "assistant",
-                "content": response_text,
-                "_metadata": {
-                    "sender_id": f"bot:{bot.id}",
-                    "sender_display_name": bot.name,
-                },
-            })
-            try:
-                await _trigger_member_bot_replies(
-                    channel_id, session_id, bot.id, response_text,
-                    _depth=1,
-                    messages_snapshot=_messages_snapshot,
-                    already_invoked=_already_invoked,
-                )
-            except Exception:
-                logger.warning(
-                    "turn_worker: member-bot fanout failed for channel %s",
-                    channel_id, exc_info=True,
-                )
+        _tag_assistant_metadata(messages, state)
+        await _persist_completed_turn(scope, state, bot=bot, messages=messages, req=req)
+        await _run_after_persist_side_effects(scope, state, bot=bot, messages=messages, ctx=ctx)
 
     except Exception as exc:
         logger.exception(
             "turn_worker: turn %s failed for session %s",
-            turn_id, session_id,
+            scope.turn_id, scope.session_id,
         )
-        error_text = _format_turn_exception(exc)
-        if from_index is not None and not persisted_turn:
-            messages.append({
-                "role": "assistant",
-                "content": _build_turn_failure_message(
-                    error_text,
-                    "".join(streamed_text_parts),
-                ),
-                "_turn_error": True,
-                "_turn_error_message": error_text,
-            })
-            try:
-                async with async_session() as db:
-                    await persist_turn(
-                        db, session_id, bot, messages, from_index,
-                        correlation_id=correlation_id,
-                        msg_metadata=req.msg_metadata,
-                        channel_id=channel_id,
-                        pre_user_msg_id=pre_user_msg_id,
-                        suppress_outbox=session_scoped or not has_channel,
-                    )
-                    persisted_turn = True
-            except Exception:
-                logger.exception(
-                    "turn_worker: failed to persist turn error row for session %s",
-                    session_id,
-                )
+        state.error_text = _format_turn_exception(exc)
+        await _persist_error_turn_if_possible(scope, state, bot=bot, messages=messages, req=req)
     finally:
-        # 9. Always publish TURN_ENDED. Subscribers (renderers + UI) rely
-        #    on it to finalize their per-turn state.
+        _publish_turn_ended(scope, state, bot)
+        session_locks.release(scope.session_id)
+
+
+def _setup_turn_context(
+    scope: _TurnScope,
+    *,
+    bot: BotConfig,
+    req: ChatRequest,
+    user,
+) -> None:
+    # Per-task ContextVars are safe here because asyncio tasks each get their
+    # own ContextVar copy.
+    set_agent_context(
+        session_id=scope.session_id,
+        client_id=req.client_id,
+        user_id=getattr(user, "id", None),
+        bot_id=bot.id,
+        correlation_id=scope.correlation_id,
+        channel_id=scope.channel_id,
+        memory_cross_channel=None,
+        memory_cross_client=None,
+        memory_cross_bot=None,
+        memory_similarity_threshold=None,
+        dispatch_type=None,
+        dispatch_config=None,
+    )
+    # ``set_agent_context`` does not know the per-task turn id. Tool dispatch
+    # reads this when publishing approval events for the live turn slot.
+    from app.agent.context import current_turn_id
+
+    current_turn_id.set(scope.turn_id)
+    if getattr(user, "id", None) is not None:
+        presence.mark_active(user.id)
+
+
+async def _start_turn_lifecycle(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    req: ChatRequest,
+    user,
+    user_message: str,
+) -> None:
+    state.pre_user_msg_id = await _pre_persist_user_message(
+        scope,
+        req=req,
+        user_message=user_message,
+    )
+    await _mark_sender_session_read(
+        scope,
+        user=user,
+        message_id=state.pre_user_msg_id,
+    )
+    _publish_turn_started(scope, bot)
+    _record_turn_started_trace(scope, bot=bot, req=req)
+
+
+async def _pre_persist_user_message(
+    scope: _TurnScope,
+    *,
+    req: ChatRequest,
+    user_message: str,
+) -> uuid.UUID | None:
+    # Preserve existing behavior: the private preallocated message id is
+    # consumed from request metadata before later persist_turn receives it.
+    metadata = req.msg_metadata or {}
+    pre_id_str = metadata.pop("_pre_user_msg_id", None)
+    return await _persist_and_publish_user_message(
+        session_id=scope.session_id,
+        channel_id=scope.channel_id,
+        bus_key=scope.bus_key,
+        text=user_message,
+        correlation_id=scope.correlation_id,
+        metadata=metadata,
+        pre_allocated_id=uuid.UUID(pre_id_str) if pre_id_str else None,
+        suppress_outbox=scope.suppress_outbox,
+    )
+
+
+async def _mark_sender_session_read(
+    scope: _TurnScope,
+    *,
+    user,
+    message_id: uuid.UUID | None,
+) -> None:
+    if getattr(user, "id", None) is None:
+        return
+    try:
+        from app.services.unread import mark_session_read
+
+        async with async_session() as db:
+            await mark_session_read(
+                db,
+                user_id=user.id,
+                session_id=scope.session_id,
+                source="web_send",
+                surface="chat",
+                message_id=message_id,
+            )
+            await db.commit()
+    except Exception:
+        logger.warning(
+            "turn_worker: failed to mark session %s read for user %s after send",
+            scope.session_id,
+            getattr(user, "id", None),
+            exc_info=True,
+        )
+
+
+def _publish_turn_started(scope: _TurnScope, bot: BotConfig) -> None:
+    publish_typed(
+        scope.bus_key,
+        ChannelEvent(
+            channel_id=scope.bus_key,
+            kind=ChannelEventKind.TURN_STARTED,
+            payload=TurnStartedPayload(
+                bot_id=bot.id,
+                turn_id=scope.turn_id,
+                reason="user_message",
+                session_id=scope.session_id,
+            ),
+        ),
+    )
+
+
+def _record_turn_started_trace(
+    scope: _TurnScope,
+    *,
+    bot: BotConfig,
+    req: ChatRequest,
+) -> None:
+    # Persistent lifecycle signal for /state snapshots. Without it, text-only
+    # streaming replies are invisible to `_snapshot_active_turns`.
+    safe_create_task(_record_trace_event(
+        correlation_id=scope.correlation_id,
+        session_id=scope.session_id,
+        bot_id=bot.id,
+        client_id=req.client_id,
+        event_type="turn_started",
+        data={"bot_id": bot.id},
+    ))
+
+
+async def _run_harness_branch_if_needed(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    req: ChatRequest,
+    user_message: str,
+) -> bool:
+    if not bot.harness_runtime:
+        return False
+
+    state.response_text, state.error_text = await _run_harness_turn(
+        channel_id=scope.channel_id,
+        bus_key=scope.bus_key,
+        session_id=scope.session_id,
+        turn_id=scope.turn_id,
+        bot=bot,
+        user_message=user_message,
+        correlation_id=scope.correlation_id,
+        msg_metadata=req.msg_metadata,
+        pre_user_msg_id=state.pre_user_msg_id,
+        suppress_outbox=scope.suppress_outbox,
+    )
+    state.persisted_turn = (
+        state.error_text is None or state.error_text == "persist_turn failed"
+    )
+    return True
+
+
+async def _prepare_user_mention_fanout(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    user_message: str,
+    ctx: BotContext,
+) -> None:
+    # User @-mention fanout is channel-scoped; channel-less sessions have no
+    # membership set to resolve.
+    if not user_message or not scope.has_channel:
+        return
+    state.user_mentioned = await _detect_member_mentions(
+        scope.channel_id, bot.id, user_message, _depth=0,
+    )
+    if not state.user_mentioned:
+        return
+
+    auto_invoked_ids: set[str] = set()
+    for member_bot_id, member_config in state.user_mentioned:
+        task = asyncio.create_task(
+            _run_member_bot_reply(
+                scope.channel_id,
+                scope.session_id,
+                member_bot_id,
+                member_config,
+                bot.id,
+                _depth=1,
+                messages_snapshot=ctx.raw_snapshot,
+                turn_id=uuid.uuid4(),
+            )
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        auto_invoked_ids.add(member_bot_id)
+
+    current_invoked_member_bots.set(auto_invoked_ids)
+    auto_names = []
+    for member_bot_id, _ in state.user_mentioned:
         try:
-            publish_typed(
-                bus_key,
-                ChannelEvent(
-                    channel_id=bus_key,
-                    kind=ChannelEventKind.TURN_ENDED,
-                    payload=TurnEndedPayload(
-                        bot_id=bot.id,
-                        turn_id=turn_id,
-                        result=response_text or None,
-                        # Always surface error_text. The legacy guard
-                        # `if not response_text else None` swallowed
-                        # persist_turn / fanout failures whenever the
-                        # agent had already produced a response, so the
-                        # UI saw a green turn while the messages were
-                        # actually lost. Renderers + UI handle result
-                        # and error being independent.
-                        error=error_text or None,
-                        client_actions=list(response_actions or []),
-                        session_id=session_id,
-                        extra_metadata=(
-                            {"auto_injected_skills": _auto_injected_skills}
-                            if _auto_injected_skills else {}
-                        ),
+            mentioned_bot = get_bot(member_bot_id)
+            auto_names.append(f"{mentioned_bot.name} (@{member_bot_id})")
+        except Exception:
+            auto_names.append(f"@{member_bot_id}")
+    messages.append({
+        "role": "system",
+        "content": (
+            f"The following bots were auto-invoked by the user's @-mentions and are "
+            f"already responding in parallel: {', '.join(auto_names)}. "
+            f"Do NOT @-mention them again in your response."
+        ),
+    })
+
+
+async def _drive_normal_turn_stream(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    user_message: str,
+    ctx: BotContext,
+    req: ChatRequest,
+    audio_data: str | None,
+    audio_format: str | None,
+    att_payload: list[dict] | None,
+) -> None:
+    state.from_index = len(messages)
+    run_stream_iter = run_stream(
+        messages,
+        bot,
+        user_message,
+        session_id=scope.session_id,
+        client_id=req.client_id,
+        audio_data=audio_data,
+        audio_format=audio_format,
+        attachments=att_payload,
+        correlation_id=scope.correlation_id,
+        dispatch_type=None,
+        dispatch_config=None,
+        channel_id=scope.channel_id,
+        model_override=req.model_override or ctx.model_override,
+        provider_id_override=req.model_provider_id_override or ctx.provider_id_override,
+        system_preamble=ctx.system_preamble,
+    )
+    async for event in emit_run_stream_events(
+        run_stream_iter,
+        channel_id=scope.bus_key,
+        bot_id=bot.id,
+        turn_id=scope.turn_id,
+        session_id=scope.session_id,
+    ):
+        if await _handle_run_stream_event(scope, state, bot=bot, messages=messages, event=event):
+            break
+
+    _refresh_runtime_skills_in_context(state)
+
+
+async def _handle_run_stream_event(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    event: dict,
+) -> bool:
+    etype = event.get("type")
+
+    if etype == "auto_inject":
+        state.auto_injected_skills.append({
+            "skill_id": event.get("skill_id", ""),
+            "skill_name": event.get("skill_name", ""),
+            "similarity": event.get("similarity", 0.0),
+            "source": event.get("source", ""),
+        })
+        return False
+
+    if etype == "text_delta":
+        delta = event.get("delta", "")
+        if delta:
+            state.streamed_text_parts.append(delta)
+        return False
+
+    if etype == "active_skills":
+        state.skills_in_context = list(event.get("skills", []))
+        state.active_skills = _loaded_skills(state.skills_in_context)
+        return False
+
+    if etype == "cancelled":
+        state.was_cancelled = True
+        messages.append({"role": "user", "content": "[STOP]"})
+        messages.append({"role": "assistant", "content": "[Cancelled by user]"})
+        state.error_text = "cancelled"
+        return True
+
+    if etype == "context_budget":
+        state.budget_utilization = event.get("utilization")
+        state.budget_snapshot = dict(event)
+        return False
+
+    if etype == "response":
+        final_text = event.get("text", "")
+        if not (final_text or "").strip() and state.intermediate_texts:
+            state.response_text = "\n\n".join(state.intermediate_texts)
+        else:
+            state.response_text = final_text
+        state.response_actions = event.get("client_actions")
+        return False
+
+    if etype == "assistant_text":
+        state.intermediate_texts.append(event.get("text", ""))
+        return False
+
+    if etype == "delegation_post":
+        await _handle_delegation_post(scope, bot=bot, event=event)
+        return False
+
+    if etype == "llm_retry":
+        state.llm_retries += 1
+        if event.get("reason") == "vision_not_supported":
+            state.vision_fallback = True
+        return False
+
+    if etype == "llm_fallback":
+        state.llm_fallback_model = event.get("to_model")
+        return False
+
+    if etype == "llm_cooldown_skip":
+        state.llm_fallback_model = event.get("using")
+        return False
+
+    return False
+
+
+async def _handle_delegation_post(
+    scope: _TurnScope,
+    *,
+    bot: BotConfig,
+    event: dict,
+) -> None:
+    if not scope.has_channel:
+        return
+    try:
+        await _ds.post_child_response(
+            channel_id=scope.channel_id,
+            text=event.get("text", ""),
+            bot_id=event.get("bot_id") or "",
+            reply_in_thread=event.get("reply_in_thread", False),
+        )
+    except Exception as exc:
+        logger.exception(
+            "turn_worker: delegation_post failed for bot %s",
+            event.get("bot_id"),
+        )
+        publish_typed(
+            scope.bus_key,
+            ChannelEvent(
+                channel_id=scope.bus_key,
+                kind=ChannelEventKind.TURN_STREAM_TOOL_RESULT,
+                payload=TurnStreamToolResultPayload(
+                    bot_id=bot.id,
+                    turn_id=scope.turn_id,
+                    tool_name="delegation_post",
+                    result_summary=(
+                        f"delegation_post failed for "
+                        f"{event.get('bot_id') or 'unknown'}: "
+                        f"{type(exc).__name__}: {str(exc)[:300]}"
+                    ),
+                    is_error=True,
+                ),
+            ),
+        )
+
+
+def _refresh_runtime_skills_in_context(state: _TurnRunState) -> None:
+    from app.agent.context import current_skills_in_context
+
+    runtime_skills = list(current_skills_in_context.get() or [])
+    if runtime_skills:
+        state.skills_in_context = runtime_skills
+        state.active_skills = _loaded_skills(runtime_skills)
+
+
+def _loaded_skills(skills: list[dict]) -> list[dict]:
+    return [
+        skill for skill in skills
+        if isinstance(skill, dict) and skill.get("source") == "loaded"
+    ]
+
+
+def _tag_assistant_metadata(messages: list[dict], state: _TurnRunState) -> None:
+    if state.from_index is None:
+        return
+    assistant = _last_assistant_message(messages[state.from_index:])
+    if assistant is None:
+        return
+
+    if state.auto_injected_skills:
+        assistant["_auto_injected_skills"] = state.auto_injected_skills
+    if state.skills_in_context or state.active_skills:
+        assistant["_active_skills"] = state.active_skills
+        assistant["_skills_in_context"] = state.skills_in_context or state.active_skills
+
+    llm_info = _llm_status_metadata(state)
+    if llm_info:
+        assistant["_llm_status"] = llm_info
+
+
+def _last_assistant_message(messages: list[dict]) -> dict | None:
+    for message in reversed(messages):
+        if message.get("role") == "assistant":
+            return message
+    return None
+
+
+def _llm_status_metadata(state: _TurnRunState) -> dict:
+    llm_info: dict = {}
+    if state.llm_retries > 0:
+        llm_info["retries"] = state.llm_retries
+    if state.llm_fallback_model:
+        llm_info["fallback_model"] = state.llm_fallback_model
+    if state.vision_fallback:
+        llm_info["vision_fallback"] = True
+    return llm_info
+
+
+async def _persist_completed_turn(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    req: ChatRequest,
+) -> None:
+    try:
+        async with async_session() as db:
+            await persist_turn(
+                db,
+                scope.session_id,
+                bot,
+                messages,
+                state.from_index,
+                correlation_id=scope.correlation_id,
+                msg_metadata=req.msg_metadata,
+                channel_id=scope.channel_id,
+                pre_user_msg_id=state.pre_user_msg_id,
+                suppress_outbox=scope.suppress_outbox,
+            )
+            state.persisted_turn = True
+    except Exception:
+        logger.exception(
+            "turn_worker: persist_turn failed for session %s — messages will be lost",
+            scope.session_id,
+        )
+        state.error_text = "persist_turn failed"
+
+
+async def _run_after_persist_side_effects(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    ctx: BotContext,
+) -> None:
+    if state.persisted_turn:
+        await run_turn_supervisors(TurnEndContext(
+            session_id=scope.session_id,
+            channel_id=scope.channel_id,
+            bot_id=bot.id,
+            turn_id=scope.turn_id,
+            correlation_id=scope.correlation_id,
+            result=state.response_text or None,
+            error=state.error_text,
+            client_actions=list(state.response_actions or []),
+        ))
+
+    maybe_compact(
+        scope.session_id,
+        bot,
+        messages,
+        correlation_id=scope.correlation_id,
+        budget_utilization=state.budget_utilization,
+        budget_snapshot=state.budget_snapshot,
+    )
+    await _trigger_assistant_mention_fanout(scope, state, bot=bot, ctx=ctx)
+
+
+async def _trigger_assistant_mention_fanout(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    ctx: BotContext,
+) -> None:
+    if state.was_cancelled or not state.response_text or not scope.has_channel:
+        return
+
+    already_invoked = set(current_invoked_member_bots.get() or ())
+    if state.user_mentioned:
+        already_invoked.update(bot_id for bot_id, _ in state.user_mentioned)
+    messages_snapshot = copy.deepcopy(ctx.raw_snapshot) if ctx.raw_snapshot else []
+    messages_snapshot.append({
+        "role": "assistant",
+        "content": state.response_text,
+        "_metadata": {
+            "sender_id": f"bot:{bot.id}",
+            "sender_display_name": bot.name,
+        },
+    })
+    try:
+        await _trigger_member_bot_replies(
+            scope.channel_id,
+            scope.session_id,
+            bot.id,
+            state.response_text,
+            _depth=1,
+            messages_snapshot=messages_snapshot,
+            already_invoked=already_invoked,
+        )
+    except Exception:
+        logger.warning(
+            "turn_worker: member-bot fanout failed for channel %s",
+            scope.channel_id,
+            exc_info=True,
+        )
+
+
+async def _persist_error_turn_if_possible(
+    scope: _TurnScope,
+    state: _TurnRunState,
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    req: ChatRequest,
+) -> None:
+    if state.from_index is None or state.persisted_turn:
+        return
+    messages.append({
+        "role": "assistant",
+        "content": _build_turn_failure_message(
+            state.error_text or "unknown error",
+            "".join(state.streamed_text_parts),
+        ),
+        "_turn_error": True,
+        "_turn_error_message": state.error_text,
+    })
+    try:
+        async with async_session() as db:
+            await persist_turn(
+                db,
+                scope.session_id,
+                bot,
+                messages,
+                state.from_index,
+                correlation_id=scope.correlation_id,
+                msg_metadata=req.msg_metadata,
+                channel_id=scope.channel_id,
+                pre_user_msg_id=state.pre_user_msg_id,
+                suppress_outbox=scope.suppress_outbox,
+            )
+            state.persisted_turn = True
+    except Exception:
+        logger.exception(
+            "turn_worker: failed to persist turn error row for session %s",
+            scope.session_id,
+        )
+
+
+def _publish_turn_ended(scope: _TurnScope, state: _TurnRunState, bot: BotConfig) -> None:
+    try:
+        publish_typed(
+            scope.bus_key,
+            ChannelEvent(
+                channel_id=scope.bus_key,
+                kind=ChannelEventKind.TURN_ENDED,
+                payload=TurnEndedPayload(
+                    bot_id=bot.id,
+                    turn_id=scope.turn_id,
+                    result=state.response_text or None,
+                    # Result and error are independent: persistence/fanout can
+                    # fail after useful text has already streamed.
+                    error=state.error_text or None,
+                    client_actions=list(state.response_actions or []),
+                    session_id=scope.session_id,
+                    extra_metadata=(
+                        {"auto_injected_skills": state.auto_injected_skills}
+                        if state.auto_injected_skills else {}
                     ),
                 ),
-            )
-        except Exception:
-            logger.warning(
-                "turn_worker: failed to publish TURN_ENDED for turn %s",
-                turn_id, exc_info=True,
-            )
-
-        # 10. Always release the session lock so the next turn can run.
-        session_locks.release(session_id)
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "turn_worker: failed to publish TURN_ENDED for turn %s",
+            scope.turn_id,
+            exc_info=True,
+        )
 
 
 async def _persist_and_publish_user_message(

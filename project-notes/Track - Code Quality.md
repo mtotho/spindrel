@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Loop recovery/no-tool seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Turn worker lifecycle seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -40,7 +40,8 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - **Loop pre-LLM iteration seam shipped.** Cancellation before provider calls, mid-loop tool activation merging, heartbeat soft-budget pressure pruning, normal pressure-triggered in-loop pruning, first-iteration context-breakdown trace, and prompt-budget/rate-limit gating now live behind `stream_loop_pre_llm_iteration` / `LoopPreLlmIterationDone` in `app.agent.loop_pre_llm`. The coordinator now receives updated `tools_param` / `tool_choice` plus explicit return/continue control flags before entering the LLM stage.
 - **Loop setup seam shipped.** Loop config resolution, tool schema resolution, run-control policy normalization, hard-cap handling, heartbeat `tool_surface_summary` emission/trace, `LoopRunContext` / `LoopRunState` creation, provider resolution, and opening skill nudges now live behind `stream_loop_setup` / `LoopSetupDone` in `app.agent.loop_setup`. `run_agent_tool_loop` is now a staged coordinator: setup -> pre-LLM -> LLM -> recovery/no-tool/tool-iteration -> exit.
 - **Loop recovery/no-tool seam shipped.** Text-encoded tool-call recovery and the terminal no-tool branch now live behind `stream_loop_recovery` / `LoopRecoveryDone` in `app.agent.loop_recovery`. The coordinator now treats the LLM result as either recovered tool calls for the tool-iteration stage or a terminal no-tool response path.
-- **Next section candidate.** Persona remains deferred as low-leverage/removable. The live-loop god function is now materially reduced and staged; next architecture review should use a fresh verify-first scan for the next high-risk module rather than continuing to split small loop utilities.
+- **Turn worker lifecycle seam shipped.** `run_turn` is now a staged coordinator over `_TurnScope` / `_TurnRunState`: context setup, user-message lifecycle start, harness branch, member-bot pre-fanout, normal stream consumption, assistant metadata tagging, persistence/supervisors/compaction, assistant fanout, error persistence, final `TURN_ENDED`, and lock release now have local helpers. Public entrypoint and existing monkeypatch surfaces remain intact; `run_turn` dropped to 83 LOC. Added regression coverage for delegation-post failure surfacing and assistant metadata tags before `persist_turn`.
+- **Next section candidate.** Persona remains deferred as low-leverage/removable. Live loop and turn-worker coordinators are now materially reduced and staged; next architecture review should use a fresh verify-first scan. Current runner-up from the 2026-04-28 scan is `app/services/heartbeat.py::fire_heartbeat`, but verify before scoping.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

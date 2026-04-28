@@ -85,6 +85,8 @@ def _mock_db_and_persist():
               new_callable=AsyncMock, return_value=[]),
         patch("app.services.turn_worker._trigger_member_bot_replies",
               new_callable=AsyncMock),
+        patch("app.services.turn_worker.run_turn_supervisors",
+              new_callable=AsyncMock),
         patch("app.services.turn_worker.set_agent_context"),
     ):
         yield
@@ -385,3 +387,111 @@ class TestTurnWorker:
         assert kwargs["channel_id"] == handle.channel_id
         assert kwargs["text"] == "child reply"
         assert kwargs["bot_id"] == "child-bot"
+
+    async def test_delegation_post_failure_publishes_error_tool_result(self):
+        handle = _handle()
+        session_locks.acquire(handle.session_id)
+
+        async def _stream(*args, **kwargs):
+            yield {
+                "type": "delegation_post",
+                "text": "child reply",
+                "bot_id": "child-bot",
+                "reply_in_thread": False,
+            }
+            yield {"type": "response", "text": "parent done"}
+
+        with (
+            patch("app.services.turn_worker.run_stream", side_effect=_stream),
+            patch(
+                "app.services.turn_worker._ds.post_child_response",
+                new=AsyncMock(side_effect=RuntimeError("thread write failed")),
+            ),
+        ):
+            await run_turn(
+                handle,
+                bot=_bot(),
+                primary_bot_id="test-bot",
+                messages=[],
+                user_message="delegate",
+                ctx=_empty_ctx(),
+                req=ChatRequest(message="delegate", bot_id="test-bot"),
+                user=None,
+                audio_data=None,
+                audio_format=None,
+                att_payload=None,
+            )
+
+        error_events = [
+            ev for ev in _replay_buffer.get(handle.channel_id, [])
+            if (
+                ev.kind is ChannelEventKind.TURN_STREAM_TOOL_RESULT
+                and ev.payload.tool_name == "delegation_post"
+            )
+        ]
+        assert len(error_events) == 1
+        assert error_events[0].payload.is_error is True
+        assert "thread write failed" in error_events[0].payload.result_summary
+
+    async def test_stream_metadata_tags_last_assistant_message_before_persist(self):
+        handle = _handle()
+        session_locks.acquire(handle.session_id)
+
+        async def _stream(messages, *args, **kwargs):
+            messages.append({"role": "assistant", "content": "ok"})
+            yield {
+                "type": "auto_inject",
+                "skill_id": "skill:one",
+                "skill_name": "Skill One",
+                "similarity": 0.91,
+                "source": "rag",
+            }
+            yield {
+                "type": "active_skills",
+                "skills": [
+                    {"skill_id": "skill:loaded", "source": "loaded"},
+                    {"skill_id": "skill:auto", "source": "auto"},
+                ],
+            }
+            yield {"type": "llm_retry", "reason": "vision_not_supported"}
+            yield {"type": "llm_fallback", "to_model": "fallback/model"}
+            yield {"type": "response", "text": "ok"}
+
+        with (
+            patch("app.services.turn_worker.run_stream", side_effect=_stream),
+            patch("app.services.turn_worker.persist_turn", new_callable=AsyncMock) as mock_persist,
+        ):
+            await run_turn(
+                handle,
+                bot=_bot(),
+                primary_bot_id="test-bot",
+                messages=[],
+                user_message="hi",
+                ctx=_empty_ctx(),
+                req=ChatRequest(message="hi", bot_id="test-bot"),
+                user=None,
+                audio_data=None,
+                audio_format=None,
+                att_payload=None,
+            )
+
+        persisted_messages = mock_persist.await_args.args[3]
+        assistant = next(m for m in persisted_messages if m.get("role") == "assistant")
+        assert assistant["_auto_injected_skills"] == [{
+            "skill_id": "skill:one",
+            "skill_name": "Skill One",
+            "similarity": 0.91,
+            "source": "rag",
+        }]
+        assert assistant["_active_skills"] == [
+            {"skill_id": "skill:loaded", "source": "loaded"},
+        ]
+        assert assistant["_skills_in_context"] == [
+            {"skill_id": "skill:loaded", "source": "loaded"},
+            {"skill_id": "skill:auto", "source": "auto"},
+        ]
+        assert assistant["_llm_status"] == {
+            "retries": 1,
+            "fallback_model": "fallback/model",
+            "vision_fallback": True,
+        }
