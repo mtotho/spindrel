@@ -36,8 +36,11 @@ import {
 import { CHANNEL_CLUSTER_EXIT_SCALE } from "./spatialClustering";
 
 const DIVE_MS = 300;
+const CLUSTER_FOCUS_MS = 520;
 
 type UseSpatialNavigationArgs = Record<string, any>;
+
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
 export function spatialVisibleCenterX(viewportWidth: number, starboardPanelLeft?: number | null, viewportLeft = 0): number {
   if (
@@ -99,6 +102,35 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
   } = args;
   const recentPages = useUIStore((s) => s.recentPages);
   const queryClient = useQueryClient();
+  const cameraTweenRaf = useRef(0);
+  const cancelCameraTween = useCallback(() => {
+    if (cameraTweenRaf.current) {
+      window.cancelAnimationFrame(cameraTweenRaf.current);
+      cameraTweenRaf.current = 0;
+    }
+  }, []);
+  const animateCameraTo = useCallback(
+    (target: { x: number; y: number; scale: number }, durationMs = CLUSTER_FOCUS_MS) => {
+      cancelCameraTween();
+      const start = { ...cameraRef.current };
+      const t0 = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - t0) / Math.max(16, durationMs));
+        const k = easeInOut(t);
+        const next = {
+          x: start.x + (target.x - start.x) * k,
+          y: start.y + (target.y - start.y) * k,
+          scale: start.scale + (target.scale - start.scale) * k,
+        };
+        scheduleCamera(next, t === 1 ? "immediate" : "idle");
+        if (t < 1) cameraTweenRaf.current = window.requestAnimationFrame(tick);
+        else cameraTweenRaf.current = 0;
+      };
+      cameraTweenRaf.current = window.requestAnimationFrame(tick);
+    },
+    [cameraRef, cancelCameraTween, scheduleCamera],
+  );
+  useEffect(() => cancelCameraTween, [cancelCameraTween]);
   const diveToChannel = useCallback(
     (channelId: string, world: { x: number; y: number; w: number; h: number }) => {
       const rect = viewportRectRef.current;
@@ -618,37 +650,11 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
   // CSS transition, so the tween has to live here.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    let panRaf = 0;
-    const cancelPan = () => {
-      if (panRaf) {
-        window.cancelAnimationFrame(panRaf);
-        panRaf = 0;
-      }
-    };
-    const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-    const panTo = (target: { x: number; y: number; scale: number }, durationMs = 1200) => {
-      cancelPan();
-      const start = { ...cameraRef.current };
-      const t0 = performance.now();
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - t0) / Math.max(16, durationMs));
-        const k = easeInOut(t);
-        const next = {
-          x: start.x + (target.x - start.x) * k,
-          y: start.y + (target.y - start.y) * k,
-          scale: start.scale + (target.scale - start.scale) * k,
-        };
-        scheduleCamera(next, t === 1 ? "immediate" : "idle");
-        if (t < 1) panRaf = window.requestAnimationFrame(tick);
-        else panRaf = 0;
-      };
-      panRaf = window.requestAnimationFrame(tick);
-    };
     const flyToWorldPanned = (wx: number, wy: number, scale?: number, durationMs = 1200) => {
       const rect = viewportRectRef.current;
       if (!rect.width || !rect.height) return;
       const targetScale = typeof scale === "number" ? scale : cameraRef.current.scale;
-      panTo({ x: rect.width / 2 - wx * targetScale, y: rect.height / 2 - wy * targetScale, scale: targetScale }, durationMs);
+      animateCameraTo({ x: rect.width / 2 - wx * targetScale, y: rect.height / 2 - wy * targetScale, scale: targetScale }, durationMs);
     };
     (window as unknown as { __spindrelSpatial?: object }).__spindrelSpatial = {
       recenter: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
@@ -657,9 +663,9 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       fitAll: () => fitAllNodes(),
       flyToChannel: (channelId: string) => flyToChannel(channelId),
       setCamera: (next: { x: number; y: number; scale: number }) => scheduleCamera(next, "immediate"),
-      panTo,
+      panTo: animateCameraTo,
       flyToPoint: flyToWorldPanned,
-      cancelPan,
+      cancelPan: cancelCameraTween,
       getCamera: () => ({ ...cameraRef.current }),
       getNodes: () =>
         (nodesRef.current ?? []).map((n: any) => ({
@@ -673,8 +679,8 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
           world_h: n.world_h,
         })),
     };
-    return cancelPan;
-  }, [scheduleCamera, flyToWell, flyToMemoryObservatory, fitAllNodes, flyToChannel]);
+    return cancelCameraTween;
+  }, [scheduleCamera, flyToWell, flyToMemoryObservatory, fitAllNodes, flyToChannel, animateCameraTo, cancelCameraTween]);
 
   const flyToWorldBounds = useCallback(
     (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06, maxScale = 0.62) => {
@@ -706,13 +712,13 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       );
       const cx = bounds.x + bounds.w / 2;
       const cy = bounds.y + bounds.h / 2;
-      scheduleCamera({
+      animateCameraTo({
         scale: targetScale,
         x: rect.width / 2 - cx * targetScale,
         y: rect.height / 2 - cy * targetScale,
-      }, "immediate");
+      });
     },
-    [scheduleCamera],
+    [animateCameraTo],
   );
 
 

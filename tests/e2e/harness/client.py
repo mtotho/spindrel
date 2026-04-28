@@ -129,6 +129,7 @@ class E2EClient:
         channel_id: str,
         bot_id: str | None = None,
         timeout: float | None = None,
+        harness_question_answer: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> StreamResult:
         """Send a chat turn to a detached session and consume its channel bus.
@@ -148,6 +149,7 @@ class E2EClient:
             timeout=timeout,
             event_channel_id=channel_id,
             session_id=session_id,
+            harness_question_answer=harness_question_answer,
             **kwargs,
         )
 
@@ -169,6 +171,7 @@ class E2EClient:
         client_id: str | None,
         timeout: float | None = None,
         event_channel_id: str | None = None,
+        harness_question_answer: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """POST /chat, then tail the channel-events bus until TURN_ENDED.
@@ -236,6 +239,7 @@ class E2EClient:
         final_error: str | None = None
         final_client_actions: list[dict] = []
         final_raw: dict = body
+        answered_harness_questions: set[str] = set()
 
         sse_url = f"/api/v1/channels/{chan_id}/events"
         sse_params = {"since": "0"}
@@ -320,6 +324,12 @@ class E2EClient:
                             # Pass through new_message events for tests that
                             # introspect message ordering.
                             legacy_events.append(("message", dict(epayload)))
+                            await self._maybe_answer_harness_question(
+                                epayload,
+                                session_id=session_id,
+                                answer=harness_question_answer,
+                                answered=answered_harness_questions,
+                            )
                         elif kind == "turn_ended" and is_my_turn:
                             result_text = epayload.get("result")
                             if result_text:
@@ -377,6 +387,65 @@ class E2EClient:
             "client_actions": final_client_actions,
             "raw": {**final_raw, "error": final_error} if final_error else final_raw,
         }
+
+    async def _maybe_answer_harness_question(
+        self,
+        event_payload: dict[str, Any],
+        *,
+        session_id: str,
+        answer: dict[str, Any] | None,
+        answered: set[str],
+    ) -> None:
+        if not answer:
+            return
+        message = event_payload.get("message")
+        if not isinstance(message, dict):
+            return
+        if str(message.get("session_id") or "") != str(session_id):
+            return
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        if metadata.get("kind") != "harness_question":
+            return
+        interaction_id = str(message.get("id") or "").strip()
+        if not interaction_id or interaction_id in answered:
+            return
+        state = metadata.get("harness_interaction") if isinstance(metadata, dict) else None
+        if not isinstance(state, dict) or state.get("status") not in (None, "pending"):
+            return
+        questions = state.get("questions")
+        if not isinstance(questions, list) or not questions:
+            return
+
+        answers: list[dict[str, Any]] = []
+        default_answer = str(answer.get("answer") or "").strip()
+        selected_options = answer.get("selected_options")
+        default_selected = list(selected_options) if isinstance(selected_options, list) else []
+        for question in questions:
+            if not isinstance(question, dict):
+                continue
+            qid = str(question.get("id") or question.get("question_id") or "").strip()
+            if not qid:
+                continue
+            options = question.get("options")
+            selected = list(default_selected)
+            if not selected and isinstance(options, list) and options:
+                first = options[0]
+                if isinstance(first, dict) and first.get("label"):
+                    selected = [str(first["label"])]
+            answers.append({
+                "question_id": qid,
+                "answer": default_answer,
+                "selected_options": selected,
+            })
+        if not answers:
+            return
+        payload = {"answers": answers, "notes": answer.get("notes")}
+        resp = await self._client.post(
+            f"/api/v1/sessions/{session_id}/harness-interactions/{interaction_id}/answer",
+            json=payload,
+        )
+        resp.raise_for_status()
+        answered.add(interaction_id)
 
     # -- Admin/utility endpoints --
 

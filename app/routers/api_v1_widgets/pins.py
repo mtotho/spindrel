@@ -309,11 +309,10 @@ async def refresh_dashboard_pin(
 ):
     """Re-run the pin's state_poll and update its envelope.
 
-    Imports the widget-actions internals lazily to avoid a module-level
-    cycle (widget_actions may later import from here if we expose refresh
-    helpers the other direction).
+    Imports the widget-action state-poll service lazily to avoid a module-level
+    cycle with dashboard pin helpers.
     """
-    from app.routers.api_v1_widget_actions import (
+    from app.services.widget_action_state_poll import (
         _do_state_poll,
         _evict_stale_cache,
         _resolve_tool_name,

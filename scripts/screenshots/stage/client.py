@@ -237,6 +237,34 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def list_channel_workspace_files(
+        self,
+        channel_id: str,
+        *,
+        include_data: bool = False,
+        data_prefix: str | None = None,
+    ) -> list[dict]:
+        params: dict[str, Any] = {"include_data": include_data}
+        if data_prefix:
+            params["data_prefix"] = data_prefix
+        r = self._http.get(
+            f"/api/v1/channels/{channel_id}/workspace/files",
+            params=params,
+        )
+        r.raise_for_status()
+        return r.json().get("files", [])
+
+    def delete_channel_workspace_file(self, channel_id: str, path: str) -> None:
+        if self._dry_run:
+            logger.info("DRY-RUN DELETE /channels/%s/workspace/files path=%s", channel_id, path)
+            return
+        r = self._http.delete(
+            f"/api/v1/channels/{channel_id}/workspace/files",
+            params={"path": path},
+        )
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
     def list_session_messages(self, session_id: str, *, limit: int = 20) -> list[dict]:
         r = self._http.get(
             f"/api/v1/sessions/{session_id}/messages",

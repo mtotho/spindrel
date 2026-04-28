@@ -303,10 +303,8 @@ class TestErrorKindPropagation:
     """
 
     async def test_collision_propagates_validation_kind(self, db_session):
-        from app.routers.api_v1_widget_actions import (
-            WidgetActionRequest,
-            _dispatch_native_widget,
-        )
+        from app.schemas.widget_actions import WidgetActionRequest
+        from app.services.widget_action_dispatch import _dispatch_native_widget
 
         inst = await _make_instance(db_session)
         await _start_with_participants(db_session, inst, "rolland", "zeus")
@@ -336,10 +334,8 @@ class TestErrorKindPropagation:
 
     async def test_unknown_action_propagates_not_found_kind(self, db_session):
         from app.domain.errors import NotFoundError
-        from app.routers.api_v1_widget_actions import (
-            WidgetActionRequest,
-            _dispatch_native_widget,
-        )
+        from app.schemas.widget_actions import WidgetActionRequest
+        from app.services.widget_action_dispatch import _dispatch_native_widget
 
         inst = await _make_instance(db_session)
         req = WidgetActionRequest(

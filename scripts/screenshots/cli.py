@@ -21,6 +21,7 @@ from scripts.screenshots.capture.browser import AuthBundle
 from scripts.screenshots.capture.runner import capture_batch
 from scripts.screenshots.capture.specs import (
     A3_DOCS_SPECS,
+    ATTACHMENT_CHECK_SPECS,
     ATTENTION_SPECS,
     CORE_FEATURE_SPECS,
     DOCS_REPAIR_SPECS,
@@ -68,6 +69,11 @@ from scripts.screenshots.stage.scenarios.attention import (
     teardown_attention,
     teardown_notifications,
 )
+from scripts.screenshots.stage.scenarios.attachments import (
+    ATTACHMENT_CHANNEL_CLIENT_ID,
+    stage_attachments,
+    teardown_attachments,
+)
 
 
 logger = logging.getLogger("screenshots")
@@ -80,7 +86,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -171,6 +177,13 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             state = stage_attention(client, dry_run=dry_run)
         print("staged (attention):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "attachment-checks":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_attachments(client, dry_run=dry_run)
+        print("staged (attachment-checks):")
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
@@ -310,6 +323,15 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             # state from ``stage_attention`` drives what renders. No route
             # placeholders.
             spec_list = ATTENTION_SPECS
+        elif only == "attachment-checks":
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            ch = all_channels.get(ATTACHMENT_CHANNEL_CLIENT_ID)
+            if not ch:
+                raise SystemExit(
+                    "screenshot:attachments channel not found. Run `stage --only attachment-checks` first."
+                )
+            placeholders["attachments"] = str(ch["id"])
+            spec_list = ATTACHMENT_CHECK_SPECS
         elif only == "mobile-home":
             spec_list = MOBILE_HOME_SPECS
         elif only == "starboard":
@@ -516,6 +538,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_attention(client)
         print("teardown (attention): resolved seeded attention items")
+        return
+    if only == "attachment-checks":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_attachments(client)
+        print("teardown (attachment-checks): removed attachment screenshot channel and uploads")
         return
     if only == "spatial-checks":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:

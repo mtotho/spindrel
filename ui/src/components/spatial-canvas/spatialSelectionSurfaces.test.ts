@@ -23,8 +23,12 @@ test("channel clusters focus the map instead of opening selection chrome", () =>
   const clusteringSource = readFileSync(resolve(SPATIAL_DIR, "spatialClustering.ts"), "utf8");
   assert.match(clusteringSource, /CHANNEL_CLUSTER_FOCUS_SCALE = CHANNEL_CLUSTER_EXIT_SCALE \+ 0\.05/);
   assert.doesNotMatch(worldSource, /0\.42/);
+  assert.match(navigationSource, /const CLUSTER_FOCUS_MS = 520/);
+  assert.match(navigationSource, /animateCameraTo\(\{/);
   assert.match(worldSource, /CHANNEL_CLUSTER_FOCUS_SCALE/);
   assert.match(worldSource, /flyToWorldBounds\(cluster\.worldBounds, CHANNEL_CLUSTER_FOCUS_SCALE, CHANNEL_CLUSTER_FOCUS_SCALE\)/);
+  assert.match(worldSource, /setClusterFocusNodeIds/);
+  assert.match(worldSource, /data-spatial-cluster-focus-cue/);
   assert.match(navigationSource, /maxScale = 0\.62/);
   assert.match(navigationSource, /Math\.min\(\s*maxScale,/);
   assert.match(worldSource, /setSelectedSpatialObject\(null\)/);
@@ -70,6 +74,9 @@ test("cluster focus can recover viewport metrics before flying bounds", () => {
 test("selected objects get a world anchor and suppress competing hover cards", () => {
   const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
   assert.match(source, /data-spatial-selected-anchor/);
+  assert.match(source, /showLabel: false/);
+  assert.match(source, /showLabel: true/);
+  assert.match(source, /data-spatial-selected-anchor-label/);
   assert.match(source, /SelectedObjectAnchor/);
   assert.match(source, /ring-1 ring-offset-2/);
   assert.match(source, /!starboardOpen \|\| !selectedSpatialObject/);

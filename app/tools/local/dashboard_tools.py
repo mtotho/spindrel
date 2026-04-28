@@ -1581,7 +1581,8 @@ async def invoke_widget_action(
             }
             if pin_id_text is not None:
                 body["dashboard_pin_id"] = pin_id_text
-            from app.routers.api_v1_widget_actions import WidgetActionRequest, dispatch_widget_action
+            from app.schemas.widget_actions import WidgetActionRequest
+            from app.services.widget_action_dispatch import dispatch_widget_action
 
             resp = await dispatch_widget_action(WidgetActionRequest(**body), db)
             payload = {
@@ -1637,7 +1638,7 @@ async def invoke_widget_action(
             result = await invoke_widget_handler(pin, action, args or {})
         except Exception as exc:
             logger.exception("invoke_widget_action html handler failed")
-            from app.routers.api_v1_widget_actions import _classify_domain_error
+            from app.services.widget_action_dispatch import _classify_domain_error
             return json.dumps({
                 "error": f"{type(exc).__name__}: {exc}",
                 "error_kind": _classify_domain_error(exc),

@@ -989,7 +989,7 @@ def _select_result_envelope(
         poll_cfg = get_state_poll_config(name)
         if poll_cfg:
             try:
-                from app.routers.api_v1_widget_actions import invalidate_poll_cache_for
+                from app.services.widget_action_state_poll import invalidate_poll_cache_for
                 invalidate_poll_cache_for(poll_cfg)
             except Exception:
                 logger.debug("poll-cache invalidation skipped", exc_info=True)

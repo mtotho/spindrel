@@ -516,6 +516,11 @@ async def test_live_harness_plan_mode_round_trip(
         channel_id=channel_id,
         bot_id=bot_id,
         timeout=_timeout(),
+        harness_question_answer={
+            "answer": "General diagnostic scan. Please provide the concise two-step diagnostic plan without modifying files.",
+            "selected_options": ["General diagnostic scan"],
+            "notes": "E2E plan-mode parity answer.",
+        },
     )
     _assert_clean_turn(result)
     response_text = result.response_text.strip()

@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.routers import api_v1_widget_actions as router_mod
+from app.services import widget_action_dispatch as dispatch_mod
+from app.services import widget_action_state_poll as router_mod
 from app.services.widget_templates import _widget_templates
 
 
@@ -394,7 +395,7 @@ class TestDispatchWidgetConfig:
             bot_id="b",
             config={"show_forecast": True},
         )
-        resp = await router_mod._dispatch_widget_config(req)
+        resp = await dispatch_mod._dispatch_widget_config(req)
         assert resp.ok is False
         assert "dashboard_pin_id" in (resp.error or "")
 
@@ -406,7 +407,7 @@ class TestDispatchWidgetConfig:
             bot_id="b",
             dashboard_pin_id=uuid.uuid4(),
         )
-        resp = await router_mod._dispatch_widget_config(req)
+        resp = await dispatch_mod._dispatch_widget_config(req)
         assert resp.ok is False
         assert "config" in (resp.error or "")
 
@@ -439,7 +440,11 @@ class TestDispatchWidgetConfig:
              patch("app.db.engine.async_session", lambda: FakeAsyncSessionCtx()), \
              patch.object(router_mod, "is_local_tool", return_value=True), \
              patch.object(router_mod, "call_local_tool", tool_stub), \
-             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n):
+             patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n), \
+             patch.object(dispatch_mod, "_resolve_tool_name", side_effect=lambda n: n), \
+             patch.object(dispatch_mod, "get_state_poll_config", return_value=_widget_templates["get_weather"]["state_poll"]), \
+             patch.object(dispatch_mod, "_do_state_poll", wraps=router_mod._do_state_poll), \
+             patch.object(dispatch_mod, "invalidate_poll_cache_for", wraps=router_mod.invalidate_poll_cache_for):
             req = router_mod.WidgetActionRequest(
                 dispatch="widget_config",
                 channel_id="00000000-0000-0000-0000-000000000000",
@@ -448,7 +453,7 @@ class TestDispatchWidgetConfig:
                 config={"show_forecast": True},
                 display_label="Paris, FR",
             )
-            resp = await router_mod._dispatch_widget_config(req)
+            resp = await dispatch_mod._dispatch_widget_config(req)
 
         assert resp.ok is True
         assert resp.envelope is not None
@@ -667,14 +672,14 @@ class TestDashboardPinnedToolActionRefresh:
             widget_config={"entity_id": "light.kitchen"},
         )
 
-        with patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n), \
-             patch.object(router_mod, "is_local_tool", return_value=True), \
-             patch.object(router_mod, "call_local_tool", AsyncMock(return_value="{}")), \
-             patch.object(router_mod, "get_state_poll_config", return_value=poll_cfg), \
-             patch.object(router_mod, "_do_state_poll", side_effect=_fake_state_poll), \
+        with patch.object(dispatch_mod, "_resolve_tool_name", side_effect=lambda n: n), \
+             patch.object(dispatch_mod, "is_local_tool", return_value=True), \
+             patch.object(dispatch_mod, "call_local_tool", AsyncMock(return_value="{}")), \
+             patch.object(dispatch_mod, "get_state_poll_config", return_value=poll_cfg), \
+             patch.object(dispatch_mod, "_do_state_poll", side_effect=_fake_state_poll), \
              patch.object(pins_mod, "get_pin", side_effect=_fake_get_pin), \
              patch.object(pins_mod, "update_pin_envelope", side_effect=_fake_update_pin_envelope):
-            resp = await router_mod._dispatch_tool(req, db=object())
+            resp = await dispatch_mod._dispatch_tool(req, db=object())
 
         assert resp.ok is True
         assert resp.envelope is not None

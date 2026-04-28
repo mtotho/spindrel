@@ -17,7 +17,12 @@ from unittest.mock import patch
 import pytest
 
 from scripts.screenshots import config
-from scripts.screenshots.capture.specs import FLAGSHIP_SPECS, SPATIAL_CHECK_SPECS, resolve_specs
+from scripts.screenshots.capture.specs import (
+    ATTACHMENT_CHECK_SPECS,
+    FLAGSHIP_SPECS,
+    SPATIAL_CHECK_SPECS,
+    resolve_specs,
+)
 from scripts.screenshots.stage import envelopes
 from scripts.screenshots.stage.scenarios.harness import stage_harness
 
@@ -112,10 +117,32 @@ def test_spatial_checks_have_assertions_and_artifacts():
     assert any("data-starboard-panel" in str(spec.assert_js) for spec in SPATIAL_CHECK_SPECS)
 
 
+def test_attachment_checks_have_assertions_and_artifacts():
+    assert {spec.name for spec in ATTACHMENT_CHECK_SPECS} == {
+        "chat-attachments-drop-overlay",
+        "chat-attachments-routing-tray",
+        "chat-attachments-sent-receipts",
+    }
+    for spec in ATTACHMENT_CHECK_SPECS:
+        assert spec.output.startswith("chat-attachments-")
+        assert spec.output.endswith(".png")
+        assert spec.assert_js
+    assert any("dropSet" in str(spec.pre_capture_js) for spec in ATTACHMENT_CHECK_SPECS)
+    assert any("installFakeChatSubmit" in str(spec.pre_capture_js) for spec in ATTACHMENT_CHECK_SPECS)
+
+
 def test_resolve_specs_preserves_assertions():
     resolved = {s.name: s for s in resolve_specs(SPATIAL_CHECK_SPECS, {})}
     original = {s.name: s for s in SPATIAL_CHECK_SPECS}
     for name, spec in resolved.items():
+        assert spec.assert_js == original[name].assert_js
+
+
+def test_resolve_specs_preserves_attachment_assertions():
+    resolved = {s.name: s for s in resolve_specs(ATTACHMENT_CHECK_SPECS, {"attachments": "abc"})}
+    original = {s.name: s for s in ATTACHMENT_CHECK_SPECS}
+    for name, spec in resolved.items():
+        assert spec.route == "/channels/abc"
         assert spec.assert_js == original[name].assert_js
 
 

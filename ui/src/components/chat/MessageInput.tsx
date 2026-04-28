@@ -416,6 +416,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
               return (
                 <div
                   key={pf.id}
+                  data-testid="chat-attachment-pending"
+                  data-attachment-route={pf.route}
+                  data-attachment-status={pf.status}
+                  data-attachment-name={pf.file.name}
                   style={{
                     position: "relative",
                     display: "flex",
@@ -613,6 +617,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
               a floating CTA while preserving the desktop overlay treatment. */}
           <div
             ref={editorWrapperRef}
+            data-testid="chat-composer-drop-zone"
             onDragEnter={handleComposerDragEnter}
             onDragOver={handleComposerDragOver}
             onDragLeave={handleComposerDragLeave}
@@ -647,6 +652,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
           >
             {isDraggingFiles && (
               <div
+                data-testid="chat-composer-drop-overlay"
                 style={{
                   position: "absolute",
                   inset: 0,
@@ -850,6 +856,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
 
               {/* Send / Stop / Mic button */}
               <button
+                data-testid="chat-composer-send"
                 className="send-btn"
                 onClick={
                   (showStop && stopArmed) ? () => { tapHaptic(12); onCancel?.(); }

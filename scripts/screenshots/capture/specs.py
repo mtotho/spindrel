@@ -974,6 +974,7 @@ _ASSERT_MAP_BRIEF_SELECTION_JS = (
     "if (!brief) throw new Error('Map Brief station did not render');"
     "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected in Map Brief');"
     "if (!anchor) throw new Error('selected spatial anchor did not render');"
+    "if (document.querySelector('[data-spatial-selected-anchor-label=\"true\"]')) throw new Error('selected channel rendered duplicate anchor label');"
     "const selectedStyle = getComputedStyle(selected);"
     "const leftBorder = parseFloat(selectedStyle.borderLeftWidth || '0');"
     "if (leftBorder > 1) throw new Error(`selected brief uses side-stripe chrome: ${leftBorder}px`);"
@@ -1133,17 +1134,27 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             _spatial_camera_init({"x": 720, "y": 450, "scale": 0.18}),
         ],
         pre_capture_js=(
+            "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
+            " if (!world) throw new Error('spatial world not found');"
+            " const beforeMatch = String(world.style.transform || '').match(/scale\\(([^)]+)\\)/);"
+            " window.__spatialClusterClickScaleBefore = beforeMatch ? Number(beforeMatch[1]) : 0;"
             "const cluster = document.querySelector('[data-tile-kind=\"channel-cluster\"]');"
             " if (!cluster) throw new Error('channel cluster not found');"
             " cluster.click();"
-            " await new Promise(r => setTimeout(r, 900));"
+            " await new Promise(r => setTimeout(r, 80));"
+            " const midMatch = String(world.style.transform || '').match(/scale\\(([^)]+)\\)/);"
+            " window.__spatialClusterClickScaleMid = midMatch ? Number(midMatch[1]) : 0;"
+            " await new Promise(r => setTimeout(r, 570));"
         ),
         assert_js=(
             "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
             "const afterMatch = String(world?.style.transform || '').match(/scale\\(([^)]+)\\)/);"
             "const afterScale = afterMatch ? Number(afterMatch[1]) : 0;"
+            "if (!(window.__spatialClusterClickScaleMid > window.__spatialClusterClickScaleBefore)) throw new Error(`cluster click did not animate away from starting scale: ${window.__spatialClusterClickScaleBefore} -> ${window.__spatialClusterClickScaleMid}`);"
+            "if (!(window.__spatialClusterClickScaleMid < afterScale)) throw new Error(`cluster click jumped to final scale instead of tweening: mid ${window.__spatialClusterClickScaleMid}, final ${afterScale}`);"
             "if (!(afterScale > 0.26)) throw new Error(`cluster click did not cross uncluster threshold: ${afterScale}`);"
             "if (!(afterScale < 0.4)) throw new Error(`cluster click zoomed too far into preview range: ${afterScale}`);"
+            "if (!document.querySelector('[data-spatial-cluster-focus-cue=\"true\"]')) throw new Error('cluster click did not render revealed-member focus cues');"
             "if (document.querySelector('[data-testid=\"spatial-selection-rail\"]')) throw new Error('cluster click opened floating selection rail');"
             "if (document.querySelector('[data-spatial-selected-anchor=\"true\"]')) throw new Error('cluster click created a selected-object anchor');"
             "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) throw new Error('cluster click created a hover card');"
@@ -1212,6 +1223,213 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "const rect = canvas.getBoundingClientRect();"
             "if (rect.width < 900 || rect.height < 650) throw new Error(`canvas too small: ${rect.width}x${rect.height}`);"
         ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Attachment checks — browser-driven composer drag/drop + upload screenshots.
+# These intentionally use Playwright-side File/DataTransfer objects instead of
+# API-seeded message rows so the real composer routing, upload status, and
+# optimistic receipt UI are exercised.
+# ---------------------------------------------------------------------------
+
+_ATTACHMENT_READY = (
+    '!!document.querySelector(\'[data-testid="chat-composer-drop-zone"]\')'
+    ' && !document.querySelector(\'[class*="bg-skeleton"]\')'
+)
+
+
+_ATTACHMENT_HELPERS_JS = r"""
+window.__attachmentChecks = (() => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const tinyPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9SwAAAAABJRU5ErkJggg==";
+  const pngBytes = () => {
+    const raw = atob(tinyPngBase64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+    return out;
+  };
+  const smallImage = () => new File([pngBytes()], "small-floorplan.png", { type: "image/png" });
+  const largeImage = () => new File(
+    [pngBytes(), new Uint8Array((8 * 1024 * 1024) + 4096)],
+    "large-diagram.png",
+    { type: "image/png" }
+  );
+  const notesFile = () => new File(
+    [
+      "# Meeting notes\n\n",
+      "Attachment handling screenshot fixture.\n\n",
+      "- Routes non-image files to channel data.\n",
+      "- Leaves a receipt in the sent message.\n",
+    ],
+    "meeting-notes.txt",
+    { type: "text/plain" }
+  );
+  const waitFor = async (predicate, label, timeout = 25000) => {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      if (predicate()) return true;
+      await sleep(100);
+    }
+    throw new Error(`Timed out waiting for ${label}`);
+  };
+  const rows = () => Array.from(document.querySelectorAll('[data-testid="chat-attachment-pending"]'));
+  const row = (name) => rows().find((el) => el.getAttribute("data-attachment-name") === name);
+  const drop = async (files, { hold = false } = {}) => {
+    const zone = document.querySelector('[data-testid="chat-composer-drop-zone"]');
+    if (!zone) throw new Error("composer drop zone not found");
+    const dataTransfer = new DataTransfer();
+    for (const file of files) dataTransfer.items.add(file);
+    for (const type of ["dragenter", "dragover"]) {
+      zone.dispatchEvent(new DragEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+      }));
+    }
+    if (!hold) {
+      zone.dispatchEvent(new DragEvent("drop", {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+      }));
+    }
+  };
+  const dropSet = async () => {
+    await drop([smallImage(), largeImage(), notesFile()]);
+    await waitFor(() => rows().length >= 3, "three pending attachment rows");
+    await waitFor(() => {
+      const large = row("large-diagram.png");
+      const notes = row("meeting-notes.txt");
+      return large?.getAttribute("data-attachment-status") === "uploaded"
+        && notes?.getAttribute("data-attachment-status") === "uploaded";
+    }, "channel-data uploads to finish");
+  };
+  const setComposerText = (text) => {
+    const editor = document.querySelector('.tiptap-chat-input [contenteditable="true"]');
+    if (!editor) throw new Error("composer editor not found");
+    editor.focus();
+    document.execCommand("selectAll", false);
+    document.execCommand("insertText", false, text);
+    editor.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertText",
+      data: text,
+    }));
+  };
+  const installFakeChatSubmit = () => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input?.url || "";
+      if (url.endsWith("/chat") && String(init?.method || "GET").toUpperCase() === "POST") {
+        return new Response(JSON.stringify({
+          session_id: "00000000-0000-0000-0000-000000000001",
+          channel_id: location.pathname.split("/").filter(Boolean).pop() || "",
+          turn_id: "screenshot-attachment-turn"
+        }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return originalFetch(input, init);
+    };
+  };
+  const send = async () => {
+    const button = document.querySelector('[data-testid="chat-composer-send"]');
+    if (!button) throw new Error("send button not found");
+    button.click();
+  };
+  return {
+    smallImage,
+    largeImage,
+    notesFile,
+    waitFor,
+    row,
+    rows,
+    drop,
+    dropSet,
+    setComposerText,
+    installFakeChatSubmit,
+    send,
+  };
+})();
+"""
+
+
+_ASSERT_ATTACHMENT_ROUTING_JS = (
+    "const rows = window.__attachmentChecks.rows();"
+    "if (rows.length < 3) throw new Error(`expected 3 pending rows, got ${rows.length}`);"
+    "const small = window.__attachmentChecks.row('small-floorplan.png');"
+    "const large = window.__attachmentChecks.row('large-diagram.png');"
+    "const notes = window.__attachmentChecks.row('meeting-notes.txt');"
+    "if (!small || small.getAttribute('data-attachment-route') !== 'inline_image') throw new Error('small image did not route inline');"
+    "if (!large || large.getAttribute('data-attachment-route') !== 'channel_data') throw new Error('large image did not route to channel data');"
+    "if (!notes || notes.getAttribute('data-attachment-route') !== 'channel_data') throw new Error('text file did not route to channel data');"
+    "if (large.getAttribute('data-attachment-status') !== 'uploaded') throw new Error('large image upload did not finish');"
+    "if (notes.getAttribute('data-attachment-status') !== 'uploaded') throw new Error('text upload did not finish');"
+    "if (!/data\\/uploads\\//.test(large.textContent || '')) throw new Error('uploaded path missing from large image row');"
+    "if (!/data\\/uploads\\//.test(notes.textContent || '')) throw new Error('uploaded path missing from text file row');"
+)
+
+
+_ASSERT_ATTACHMENT_SENT_RECEIPTS_JS = (
+    "await window.__attachmentChecks.waitFor(() => {"
+    "  const image = document.querySelector('[data-testid=\"chat-attachment-image-local\"][data-attachment-name=\"small-floorplan.png\"]');"
+    "  const receipt = document.querySelector('[data-testid=\"chat-attachment-receipt-local\"][data-attachment-name=\"meeting-notes.txt\"]');"
+    "  return !!image && !!receipt && /data\\/uploads\\//.test(receipt.getAttribute('data-attachment-detail') || receipt.textContent || '');"
+    "}, 'sent attachment receipts', 10000);"
+    "if (document.querySelector('[data-testid=\"chat-attachment-pending\"]')) throw new Error('pending tray stayed visible after send');"
+)
+
+
+ATTACHMENT_CHECK_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="chat-attachments-drop-overlay",
+        route="/channels/{attachments}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_ATTACHMENT_READY,
+        output="chat-attachments-drop-overlay.png",
+        color_scheme="dark",
+        pre_capture_js=(
+            _ATTACHMENT_HELPERS_JS
+            + "await window.__attachmentChecks.drop([window.__attachmentChecks.smallImage()], { hold: true });"
+            + "await window.__attachmentChecks.waitFor(() => !!document.querySelector('[data-testid=\"chat-composer-drop-overlay\"]'), 'drop overlay');"
+        ),
+        assert_js=(
+            "if (!document.querySelector('[data-testid=\"chat-composer-drop-overlay\"]')) throw new Error('drop overlay missing');"
+            "if (!/Drop files to add/.test(document.body.innerText)) throw new Error('drop overlay copy missing');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="chat-attachments-routing-tray",
+        route="/channels/{attachments}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_ATTACHMENT_READY,
+        output="chat-attachments-routing-tray.png",
+        color_scheme="dark",
+        pre_capture_js=_ATTACHMENT_HELPERS_JS + "await window.__attachmentChecks.dropSet();",
+        assert_js=_ASSERT_ATTACHMENT_ROUTING_JS,
+    ),
+    ScreenshotSpec(
+        name="chat-attachments-sent-receipts",
+        route="/channels/{attachments}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_ATTACHMENT_READY,
+        output="chat-attachments-sent-receipts.png",
+        color_scheme="dark",
+        pre_capture_js=(
+            _ATTACHMENT_HELPERS_JS
+            + "await window.__attachmentChecks.dropSet();"
+            + "window.__attachmentChecks.installFakeChatSubmit();"
+            + "window.__attachmentChecks.setComposerText('Please inspect the uploaded files.');"
+            + "await window.__attachmentChecks.send();"
+        ),
+        assert_js=_ASSERT_ATTACHMENT_SENT_RECEIPTS_JS,
     ),
 ]
 

@@ -26,6 +26,9 @@ python -m scripts.screenshots stage --only flagship
 # capture the flagship 8
 python -m scripts.screenshots capture --only flagship
 
+# capture attachment composer checks
+python -m scripts.screenshots all --only attachment-checks
+
 # do both in one shot
 python -m scripts.screenshots all --only flagship
 
@@ -69,6 +72,17 @@ python -m scripts.screenshots teardown --only flagship
 | `dev-panel-tools.png` | `/widgets/dev` | 1440×900 | `[data-testid="rendered-envelope"], [data-testid="raw-result"]` |
 | `omnipanel-mobile.png` | `/channels/:id` | 375×812 | drawer open (pre_capture clicks hamburger) |
 | `admin-bots-list.png` | `/admin/bots` | 1440×900 | `[data-testid="bot-row"]:nth-of-type(3)` |
+
+## Attachment checks
+
+The `attachment-checks` bundle stages an isolated `screenshot:attachments`
+channel and writes these documentation artifacts:
+
+| File | Route | Viewport | Wait |
+|------|-------|----------|------|
+| `chat-attachments-drop-overlay.png` | `/channels/:attachments` | 1440×900 | composer drop zone ready |
+| `chat-attachments-routing-tray.png` | `/channels/:attachments` | 1440×900 | pending rows routed/uploaded |
+| `chat-attachments-sent-receipts.png` | `/channels/:attachments` | 1440×900 | optimistic image + data receipts |
 
 ## Key invariants
 

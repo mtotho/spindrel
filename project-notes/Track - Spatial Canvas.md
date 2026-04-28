@@ -149,6 +149,13 @@ the cluster up into preview zoom. Cluster focus stays navigation-only: no
 Starboard selection, no hover card, no route dive. Screenshot assertions now
 pin the target scale above cluster exit and below channel preview range.
 
+Same-day orientation follow-up: cluster focus now animates the camera instead
+of jumping, then briefly marks the revealed member channels so the user can
+understand what just separated. Selected-object anchors no longer render a
+second label for channels/bots/widgets; those objects keep their own tile label
+and the anchor is only the selection outline. Landmark anchors may still show
+their label because landmarks do not always have persistent tile text.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

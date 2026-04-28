@@ -25,7 +25,7 @@ interface WorkspaceUploadReceipt {
   path: string;
 }
 
-function AttachmentImage({ src, alt }: { src: string; alt: string }) {
+function AttachmentImage({ src, alt, testId }: { src: string; alt: string; testId?: string }) {
   const [loaded, setLoaded] = useState(false);
   return (
     <a href={src} target="_blank" rel="noopener noreferrer" className="self-start">
@@ -39,6 +39,8 @@ function AttachmentImage({ src, alt }: { src: string; alt: string }) {
         <img
           src={src}
           alt={alt}
+          data-testid={testId}
+          data-attachment-name={alt}
           loading="lazy"
           decoding="async"
           onLoad={() => setLoaded(true)}
@@ -58,11 +60,13 @@ function FileReceiptRow({
   sizeBytes,
   href,
   detail,
+  testId = "chat-attachment-receipt",
 }: {
   filename: string;
   sizeBytes: number;
   href?: string;
   detail?: string;
+  testId?: string;
 }) {
   const body = (
     <>
@@ -82,6 +86,9 @@ function FileReceiptRow({
         download={filename}
         target="_blank"
         rel="noopener noreferrer"
+        data-testid={testId}
+        data-attachment-name={filename}
+        data-attachment-detail={detail}
         className="flex max-w-full flex-row items-center gap-2 text-[13px] text-accent no-underline cursor-pointer"
       >
         {body}
@@ -90,7 +97,12 @@ function FileReceiptRow({
   }
 
   return (
-    <div className="flex max-w-full flex-row items-center gap-2 text-[13px] text-text-muted">
+    <div
+      data-testid={testId}
+      data-attachment-name={filename}
+      data-attachment-detail={detail}
+      className="flex max-w-full flex-row items-center gap-2 text-[13px] text-text-muted"
+    >
       {body}
     </div>
   );
@@ -132,6 +144,7 @@ export function AttachmentImages({
               key={item.id || item.preview_url}
               src={item.preview_url}
               alt={item.filename}
+              testId="chat-attachment-image-local"
             />
           );
         }
@@ -145,6 +158,7 @@ export function AttachmentImages({
             sizeBytes={item.size_bytes}
             href={href}
             detail={item.path ? item.path : undefined}
+            testId="chat-attachment-receipt-local"
           />
         );
       })}
@@ -155,6 +169,7 @@ export function AttachmentImages({
             key={img.id}
             src={url}
             alt={img.description || img.filename}
+            testId="chat-attachment-image-file"
           />
         );
       })}
@@ -167,6 +182,7 @@ export function AttachmentImages({
             filename={f.filename}
             sizeBytes={f.size_bytes}
             href={href}
+            testId="chat-attachment-receipt-file"
           />
         );
       })}
@@ -181,6 +197,7 @@ export function AttachmentImages({
             sizeBytes={item.size_bytes}
             href={href}
             detail={item.path}
+            testId="chat-attachment-receipt-workspace"
           />
         );
       })}

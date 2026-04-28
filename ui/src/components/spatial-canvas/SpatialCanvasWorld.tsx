@@ -145,6 +145,12 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     setActivatedTileId,
     triggerLensSettle,
   } = props;
+  const [clusterFocusNodeIds, setClusterFocusNodeIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (clusterFocusNodeIds.size === 0) return;
+    const timeout = window.setTimeout(() => setClusterFocusNodeIds(new Set()), 1600);
+    return () => window.clearTimeout(timeout);
+  }, [clusterFocusNodeIds]);
   const hoveredNode = hoveredNodeId ? (nodes ?? []).find((node: SpatialNode) => node.id === hoveredNodeId) : null;
   const hoveredState = hoveredNode ? mapState?.objects_by_node_id?.[hoveredNode.id] ?? null : null;
   const hoverCardAllowed = Boolean(
@@ -413,6 +419,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 onFocus={() => {
                   setSelectedSpatialObject(null);
                   setContextMenu(null);
+                  setClusterFocusNodeIds(new Set(cluster.members.map((member: any) => member.node.id)));
                   flyToWorldBounds(cluster.worldBounds, CHANNEL_CLUSTER_FOCUS_SCALE, CHANNEL_CLUSTER_FOCUS_SCALE);
                 }}
               />
@@ -660,10 +667,16 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             worldW={selectedAnchor.worldW}
             worldH={selectedAnchor.worldH}
             label={selectedAnchor.label}
+            showLabel={selectedAnchor.showLabel}
             tone={selectedAnchor.tone}
             scale={camera.scale}
           />
         )}
+        {clusterFocusNodeIds.size > 0 && (nodes ?? []).map((node: SpatialNode) => (
+          clusterFocusNodeIds.has(node.id)
+            ? <ClusterFocusCue key={`cluster-focus-${node.id}`} node={node} scale={camera.scale} />
+            : null
+        ))}
       </div>
     </DndContext>
   );
@@ -710,6 +723,7 @@ function buildSelectedAnchor({
       worldW: node.world_w,
       worldH: node.world_h,
       label,
+      showLabel: false,
       tone: selectedTone(state),
     };
   }
@@ -722,7 +736,7 @@ function buildSelectedAnchor({
         ? { x: dailyHealthPos.x, y: dailyHealthPos.y, label: "Daily Health" }
         : { x: wellPos.x, y: wellPos.y, label: "Now Well" };
   const state = mapState?.objects?.find((item: any) => item.kind === "landmark" && item.target_id === selectedSpatialObject.id) ?? null;
-  return { ...landmark, worldW: 180, worldH: 120, tone: selectedTone(state) };
+  return { ...landmark, worldW: 180, worldH: 120, showLabel: true, tone: selectedTone(state) };
 }
 
 function selectedTone(state: any): "danger" | "warning" | "active" | "muted" {
@@ -738,6 +752,7 @@ function SelectedObjectAnchor({
   worldW,
   worldH,
   label,
+  showLabel,
   tone,
   scale,
 }: {
@@ -746,6 +761,7 @@ function SelectedObjectAnchor({
   worldW: number;
   worldH: number;
   label: string;
+  showLabel: boolean;
   tone: "danger" | "warning" | "active" | "muted";
   scale: number;
 }) {
@@ -775,9 +791,34 @@ function SelectedObjectAnchor({
         className={`rounded-md ring-1 ring-offset-2 ring-offset-surface ${toneClass}`}
         style={{ width, height }}
       />
-      <div className="absolute left-1/2 top-full mt-1 max-w-[220px] -translate-x-1/2 truncate rounded-md bg-surface-raised/90 px-2 py-1 text-xs font-medium text-text ring-1 ring-surface-border backdrop-blur">
-        {label}
-      </div>
+      {showLabel && (
+        <div data-spatial-selected-anchor-label="true" className="absolute left-1/2 top-full mt-1 max-w-[220px] -translate-x-1/2 truncate rounded-md bg-surface-raised/90 px-2 py-1 text-xs font-medium text-text ring-1 ring-surface-border backdrop-blur">
+          {label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClusterFocusCue({ node, scale }: { node: SpatialNode; scale: number }) {
+  const inverseScale = 1 / Math.max(scale, 0.2);
+  const width = Math.max(54, Math.min(180, node.world_w * scale + 18));
+  const height = Math.max(44, Math.min(128, node.world_h * scale + 18));
+  return (
+    <div
+      data-spatial-cluster-focus-cue="true"
+      className="pointer-events-none absolute z-[4997]"
+      style={{
+        left: node.world_x + node.world_w / 2,
+        top: node.world_y + node.world_h / 2,
+        transform: `translate(-50%, -50%) scale(${inverseScale})`,
+        transformOrigin: "center center",
+      }}
+    >
+      <div
+        className="rounded-md bg-accent/[0.035] ring-1 ring-accent/45 ring-offset-2 ring-offset-surface"
+        style={{ width, height }}
+      />
     </div>
   );
 }
