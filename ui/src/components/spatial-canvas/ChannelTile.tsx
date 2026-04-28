@@ -3,7 +3,7 @@ import { Hash, Lock, MessageCircle } from "lucide-react";
 import { LucideIconByName } from "../IconPicker";
 import { useChannelReadStore } from "../../stores/channelRead";
 import type { Channel } from "../../types/api";
-import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, statusRingClass } from "./SpatialObjectStatus";
 import { channelHue } from "./spatialIdentity";
 import {
@@ -403,7 +403,7 @@ function PreviewView({
         </div>
         <div className="flex flex-row items-center gap-2 mt-auto">
           <BotAvatarRow channel={channel} botAvatarById={botAvatarById} size={18} max={4} />
-          <ObjectStatusPill state={workState} compact />
+          <ObjectStatusPill state={workState} compact iconOnly />
           <div className="flex flex-row items-center gap-2 ml-auto">
             <RecentCountBadge count={recentCount} />
             {isUnread && <UnreadDot />}
@@ -455,7 +455,7 @@ function SnapshotView({
             {preview}
           </div>
         )}
-        <ObjectStatusPill state={workState} />
+        <ObjectStatusPill state={workState} iconOnly />
         <div className="flex flex-row items-center gap-2 mt-auto">
           <BotAvatarRow channel={channel} botAvatarById={botAvatarById} size={20} max={4} />
           <div className="flex flex-row items-center gap-2 ml-auto">

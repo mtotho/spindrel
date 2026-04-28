@@ -587,9 +587,9 @@ async def restore_from_file() -> None:
     from app.db.engine import async_session
 
     async with async_session() as db:
-        # Import restore logic from config_state router
-        from app.routers.api_v1_admin.config_state import do_restore
-        summary = await do_restore(payload, db)
+        from app.services.config_state_restore import restore_config_state_snapshot
+
+        summary = await restore_config_state_snapshot(payload, db)
         await db.commit()
 
     log.info("Config state restored: %s", summary)

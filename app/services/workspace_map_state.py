@@ -96,6 +96,22 @@ def _task_signal(task: Task, channel: Channel | None = None) -> dict[str, Any]:
     }
 
 
+def _trace_signal(event: TraceEvent) -> dict[str, Any]:
+    data = event.data or {}
+    return {
+        "id": str(event.id),
+        "kind": "trace",
+        "title": event.event_name or event.event_type or "Trace error",
+        "status": "error",
+        "severity": "error",
+        "message": _truncate(str(data.get("error") or data.get("message") or "")),
+        "bot_id": event.bot_id or data.get("bot_id"),
+        "channel_id": data.get("channel_id"),
+        "created_at": _iso(event.created_at),
+        "last_seen_at": _iso(event.created_at),
+    }
+
+
 def _status_from_task(task: Task) -> str:
     if task.error or task.status == "failed":
         return "error"
@@ -497,19 +513,44 @@ async def build_workspace_map_state(
                 reason=item.title,
             )
 
-    # System trace errors roll up to Daily Health when they do not clearly map elsewhere.
+    # Trace errors attach to their target objects when the trace already carries
+    # channel/bot identity. Only unmapped system errors roll up to Daily Health.
     daily_health = next((node for node, _pin in node_pairs if node.landmark_kind == "daily_health"), None)
     trace_errors = await _recent_trace_errors(db, visible_channel_ids=visible_channel_ids)
-    if daily_health and trace_errors:
+    unmapped_trace_errors: list[TraceEvent] = []
+    for ev in trace_errors:
+        signal = _trace_signal(ev)
+        candidates: list[WorkspaceSpatialNode] = []
+        channel_id = signal.get("channel_id")
+        if channel_id:
+            try:
+                node = node_by_channel.get(uuid.UUID(str(channel_id)))
+                if node:
+                    candidates.append(node)
+            except ValueError:
+                pass
+        bot_id = signal.get("bot_id")
+        if bot_id and node_by_bot.get(str(bot_id)):
+            candidates.append(node_by_bot[str(bot_id)])
+        mapped = False
+        for node in {candidate.id: candidate for candidate in candidates}.values():
+            obj = objects.get(str(node.id))
+            if not obj:
+                continue
+            obj["warnings"].append(signal)
+            obj["recent"].append(signal)
+            obj["recent"] = obj["recent"][:6]
+            obj["counts"]["warnings"] += 1
+            obj["counts"]["recent"] += 1
+            _merge_state(obj, status="error", severity="error", reason=signal["title"])
+            mapped = True
+        if not mapped:
+            unmapped_trace_errors.append(ev)
+
+    if daily_health and unmapped_trace_errors:
         obj = objects[str(daily_health.id)]
-        for ev in trace_errors[:8]:
-            obj["warnings"].append({
-                "kind": "trace",
-                "severity": "error",
-                "title": ev.event_name or ev.event_type,
-                "message": _truncate(str((ev.data or {}).get("error") or (ev.data or {}).get("message") or "")),
-                "last_seen_at": _iso(ev.created_at),
-            })
+        for ev in unmapped_trace_errors[:8]:
+            obj["warnings"].append(_trace_signal(ev))
             obj["counts"]["warnings"] += 1
         _merge_state(obj, status="error", severity="error", reason="Recent system errors")
 

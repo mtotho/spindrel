@@ -173,14 +173,14 @@ class TestRestoreFromFile:
         mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
         mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        mock_do_restore = AsyncMock(return_value={"bots": {"created": 0, "updated": 1}})
+        mock_restore = AsyncMock(return_value={"bots": {"created": 0, "updated": 1}})
 
         with (
             patch.object(config_export_mod, "settings", MagicMock(CONFIG_STATE_FILE=str(config_file))),
             patch("app.db.engine.async_session", return_value=mock_session_ctx),
-            patch("app.routers.api_v1_admin.config_state.do_restore", mock_do_restore),
+            patch("app.services.config_state_restore.restore_config_state_snapshot", mock_restore),
         ):
             await restore_from_file()
 
-        mock_do_restore.assert_called_once_with(payload, mock_db)
+        mock_restore.assert_called_once_with(payload, mock_db)
         mock_db.commit.assert_called_once()

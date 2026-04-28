@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Activity, Bot, Box, ChevronDown, Command, Eye, ExternalLink, Hash, Home, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Box, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
 import { AttentionHubContent } from "./SpatialAttentionLayer";
@@ -8,8 +8,9 @@ import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
-import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapStateMeta } from "./SpatialObjectStatus";
+import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
 import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
@@ -83,6 +84,7 @@ const INTENSITY_HINT: Record<DensityIntensity, string> = {
 };
 
 const STARBOARD_TAB_KEY = "spatial.starboard.activeTab";
+const STARBOARD_DEFAULT_MIGRATION_KEY = "spatial.starboard.mapBriefDefault.v1";
 const STARBOARD_WIDTH_KEY = "spatial.starboard.width";
 const DEFAULT_STARBOARD_WIDTH = 680;
 const MIN_STARBOARD_WIDTH = 460;
@@ -94,22 +96,27 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   landmark: "Landmark",
 };
 
-const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; group: "Operator" | "Signals" | "Tools"; icon: ReactNode }> = [
-  { id: "hub", label: "Mission Control", eyebrow: "Missions, bot lanes, and progress", group: "Operator", icon: <Home size={15} /> },
+const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; group: "Map" | "Operator" | "Signals" | "Tools"; icon: ReactNode }> = [
+  { id: "objects", label: "Map Brief", eyebrow: "Objects, state, and next actions", group: "Map", icon: <LayoutList size={15} /> },
+  { id: "hub", label: "Mission Control", eyebrow: "Experimental operator surface", group: "Operator", icon: <Home size={15} /> },
   { id: "attention", label: "Attention", eyebrow: "Issues and assignments", group: "Signals", icon: <Radar size={15} /> },
   { id: "health", label: "Daily Health", eyebrow: "Server rollup", group: "Signals", icon: <Activity size={15} /> },
   { id: "smell", label: "Context Bloat", eyebrow: "Unused tools and skills", group: "Signals", icon: <Wind size={15} /> },
   { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", group: "Tools", icon: <Plus size={15} /> },
-  { id: "objects", label: "Objects", eyebrow: "Map entities", group: "Tools", icon: <LayoutList size={15} /> },
   { id: "controls", label: "Controls", eyebrow: "Canvas behavior", group: "Tools", icon: <Settings2 size={15} /> },
 ];
 
 export function loadStarboardStation(): StarboardStation {
   try {
     const stored = window.localStorage.getItem(STARBOARD_TAB_KEY);
-    return stored === "objects" || stored === "controls" || stored === "attention" || stored === "launch" || stored === "health" || stored === "smell" || stored === "hub" ? stored : "hub";
+    if (stored === "hub" && window.localStorage.getItem(STARBOARD_DEFAULT_MIGRATION_KEY) !== "done") {
+      window.localStorage.setItem(STARBOARD_DEFAULT_MIGRATION_KEY, "done");
+      window.localStorage.setItem(STARBOARD_TAB_KEY, "objects");
+      return "objects";
+    }
+    return stored === "objects" || stored === "controls" || stored === "attention" || stored === "launch" || stored === "health" || stored === "smell" || stored === "hub" ? stored : "objects";
   } catch {
-    return "hub";
+    return "objects";
   }
 }
 
@@ -364,7 +371,6 @@ export function UsageDensityChrome({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3">
-            {selectedObject && <SelectedObjectStrip item={selectedObject} />}
               {station === "hub" ? (
                 <CommandCenter embedded />
               ) : station === "controls" ? (
@@ -484,12 +490,15 @@ export function UsageDensityChrome({
                 </>
               ) : station === "objects" ? (
                 <>
+                  {selectedObject && <SelectedObjectInspector item={selectedObject} />}
                   <div className="mb-4">
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Objects</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">{selectedObject ? "Nearby" : "Map Brief"}</div>
                       <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{visibleObjects.length}</span>
                     </div>
-                    <div className="mt-1 text-sm text-text-muted">Nearest positioned items from the current view.</div>
+                    <div className="mt-1 text-sm text-text-muted">
+                      {selectedObject ? "Other positioned items from the current view." : "Select an object to inspect source, recent activity, warnings, and actions."}
+                    </div>
                   </div>
                   <label className="mb-3 flex items-center gap-2 rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text">
                     <Search size={15} className="text-text-dim" />
@@ -599,26 +608,31 @@ function clampStarboardWidth(width: number, maxWidth = Math.max(MIN_STARBOARD_WI
   return Math.round(Math.min(maxWidth, Math.max(MIN_STARBOARD_WIDTH, width)));
 }
 
-function SelectedObjectStrip({ item }: { item: StarboardObjectItem }) {
+function SelectedObjectInspector({ item }: { item: StarboardObjectItem }) {
   const primary = item.actions[0];
   const state = item.workState;
-  const next = state?.next;
-  const recent = state?.recent?.[0];
-  const warning = state?.warnings?.[0];
+  const brief = buildSpatialObjectBrief(state);
+  const usefulActions = item.actions.slice(0, 4);
+  const toneClass =
+    brief?.tone === "danger"
+      ? "border-danger/35 bg-danger/[0.045]"
+      : brief?.tone === "warning"
+        ? "border-warning/35 bg-warning/[0.045]"
+        : brief?.tone === "active"
+          ? "border-accent/25 bg-accent/[0.04]"
+          : "border-surface-border bg-surface-overlay/25";
   return (
-    <section className="mb-2 rounded-md bg-surface-overlay/35 px-2.5 py-2">
+    <section className={`mb-4 rounded-md border px-3 py-3 ${toneClass}`}>
       <div className="flex items-center gap-2">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
           {kindIcon(item.kind)}
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Selected {KIND_LABEL[item.kind]}</div>
-          <div className="truncate text-sm font-semibold text-text">{item.label}</div>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="truncate text-base font-semibold text-text">{item.label}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <ObjectStatusPill state={item.workState} compact />
-            {(item.subtitle || mapStateMeta(item.workState)) && (
-              <div className="truncate text-xs text-text-dim">{item.subtitle ?? mapStateMeta(item.workState)}</div>
-            )}
+            <div className="truncate text-xs text-text-dim">{brief?.headline ?? item.subtitle ?? KIND_LABEL[item.kind]}</div>
           </div>
         </div>
         {primary && (
@@ -633,29 +647,81 @@ function SelectedObjectStrip({ item }: { item: StarboardObjectItem }) {
           </button>
         )}
       </div>
-      {state && (
-        <div className="mt-2 grid gap-1.5 text-xs text-text-muted">
-          {next && (
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <span className="text-text-dim">Next</span>
-              <span className="truncate text-text">{next.title || next.kind}</span>
-            </div>
+      <div className="mt-3 text-sm leading-relaxed text-text-muted">
+        {brief?.summary ?? "No live map state is attached to this object yet."}
+      </div>
+      {brief && (
+        <div className="mt-3 grid gap-3">
+          {!!brief.sourceLines.length && (
+            <InspectorSection icon={<Info size={13} />} title="What this is">
+              {brief.sourceLines.map((line) => (
+                <div key={line} className="truncate text-text-muted">{line}</div>
+              ))}
+            </InspectorSection>
           )}
-          {recent && (
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <span className="text-text-dim">Recent</span>
-              <span className="truncate text-text">{recent.title || recent.kind}</span>
-            </div>
+          {brief.next && (
+            <InspectorSection icon={<Clock size={13} />} title="Next">
+              <SignalLine signal={brief.next} />
+            </InspectorSection>
           )}
-          {warning && (
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <span className="text-text-dim">Warning</span>
-              <span className="truncate text-danger">{warning.title || warning.message}</span>
-            </div>
+          {!!brief.warnings.length && (
+            <InspectorSection icon={<AlertTriangle size={13} />} title="Warnings">
+              {brief.warnings.map((signal, index) => <SignalLine key={`${signal.kind}-${signal.id ?? index}`} signal={signal} danger />)}
+            </InspectorSection>
+          )}
+          {!!brief.recent.length && (
+            <InspectorSection icon={<History size={13} />} title="Recent">
+              {brief.recent.map((signal, index) => <SignalLine key={`${signal.kind}-${signal.id ?? index}`} signal={signal} />)}
+            </InspectorSection>
+          )}
+          {!!usefulActions.length && (
+            <InspectorSection icon={<MapPin size={13} />} title="Actions">
+              <div className="flex flex-wrap gap-1.5">
+                {usefulActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    disabled={action.disabled}
+                    onClick={action.onSelect}
+                    className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-surface-overlay/50 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text disabled:cursor-not-allowed disabled:text-text-dim/50"
+                  >
+                    {actionIcon(action.icon)}
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </InspectorSection>
           )}
         </div>
       )}
     </section>
+  );
+}
+
+function InspectorSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-md bg-surface-overlay/35 px-2.5 py-2">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-dim">
+        {icon}
+        {title}
+      </div>
+      <div className="grid gap-1 text-xs">{children}</div>
+    </div>
+  );
+}
+
+function SignalLine({ signal, danger = false }: { signal: NonNullable<WorkspaceMapObjectState["next"]> | WorkspaceMapObjectState["recent"][number]; danger?: boolean }) {
+  const when = formatSignalTime(signal);
+  return (
+    <div className="min-w-0">
+      <div className={`truncate font-medium ${danger ? "text-danger" : "text-text"}`}>{signal.title || signal.kind}</div>
+      <div className="truncate text-text-dim">
+        {[signal.bot_name, signal.channel_name ? `#${signal.channel_name}` : null, when].filter(Boolean).join(" · ")}
+      </div>
+      {signal.message || signal.error ? (
+        <div className="mt-0.5 line-clamp-2 text-text-muted">{signal.message || signal.error}</div>
+      ) : null}
+    </div>
   );
 }
 

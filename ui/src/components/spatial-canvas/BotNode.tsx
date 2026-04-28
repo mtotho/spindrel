@@ -11,7 +11,7 @@ import {
   MIN_SCALE,
   type LensTransform,
 } from "./spatialGeometry";
-import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, statusRingClass } from "./SpatialObjectStatus";
 
 interface ManualBotNodeProps {
@@ -166,7 +166,7 @@ export function BotTile({
         </div>
         {!compact && (
           <div className="mt-1 flex justify-center">
-            <ObjectStatusPill state={workState} compact />
+            <ObjectStatusPill state={workState} compact iconOnly />
           </div>
         )}
       </div>

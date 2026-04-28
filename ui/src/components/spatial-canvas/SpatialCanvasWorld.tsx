@@ -16,6 +16,8 @@ import { MovementTraceLayer } from "./MovementTraceLayer";
 import { NowWell } from "./NowWell";
 import { SpatialAttentionSignal } from "./SpatialAttentionLayer";
 import { SpatialMissionLayer } from "./SpatialMissionLayer";
+import { buildSpatialObjectBrief } from "./SpatialObjectBrief";
+import { ObjectStatusPill } from "./SpatialObjectStatus";
 import { TaskDefinitionTile } from "./TaskDefinitionTile";
 import { UpcomingFirePulse } from "./UpcomingFirePulse";
 import { UpcomingTile } from "./UpcomingTile";
@@ -138,6 +140,8 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     setActivatedTileId,
     triggerLensSettle,
   } = props;
+  const hoveredNode = hoveredNodeId ? (nodes ?? []).find((node: SpatialNode) => node.id === hoveredNodeId) : null;
+  const hoveredState = hoveredNode ? mapState?.objects_by_node_id?.[hoveredNode.id] ?? null : null;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -560,6 +564,13 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             </DraggableNode>
           );
         })}
+        {hoveredNode && hoveredState && draggingNodeId !== hoveredNode.id && (
+          <ObjectHoverCard
+            node={hoveredNode}
+            state={hoveredState}
+            scale={camera.scale}
+          />
+        )}
         {(nodes ?? []).map((node: SpatialNode) => {
           const items = attentionByNodeId.get(node.id);
           if (!items?.length) return null;
@@ -611,5 +622,26 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
         })}
       </div>
     </DndContext>
+  );
+}
+
+function ObjectHoverCard({ node, state, scale }: { node: SpatialNode; state: any; scale: number }) {
+  const brief = buildSpatialObjectBrief(state);
+  return (
+    <div
+      className="pointer-events-none absolute z-[70] w-[260px] rounded-md border border-surface-border bg-surface-raised/95 px-3 py-2 text-xs text-text shadow-[0_16px_40px_rgb(0_0_0/0.22)] backdrop-blur"
+      style={{
+        left: node.world_x + node.world_w / 2,
+        top: node.world_y - 10,
+        transform: `translate(-50%, -100%) scale(${1 / Math.max(scale, 0.2)})`,
+        transformOrigin: "bottom center",
+      }}
+    >
+      <div className="mb-1 flex min-w-0 items-center gap-2">
+        <span className="truncate font-semibold">{state.label}</span>
+        <ObjectStatusPill state={state} compact />
+      </div>
+      <div className="line-clamp-2 text-text-muted">{brief?.summary ?? brief?.headline ?? "No live map state attached."}</div>
+    </div>
   );
 }

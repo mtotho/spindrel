@@ -497,6 +497,49 @@ class TestWorkspaceMapState:
         assert actor["source"]["bot_id"] == "test-bot"
         assert any(r["title"] == "Deploy check" for r in actor["recent"])
 
+    async def test_map_state_maps_trace_errors_to_channel_and_bot_objects(self, client, db_session):
+        ch = await _create_channel(client, name="Quality")
+        now = datetime.now(timezone.utc)
+
+        nodes_resp = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert nodes_resp.status_code == 200
+        channel_node = next(n for n in nodes_resp.json()["nodes"] if n["channel_id"] == ch["id"])
+
+        db_session.add(
+            TraceEvent(
+                event_type="error",
+                event_name="mermaid_to_excalidraw failed",
+                bot_id="test-bot",
+                data={
+                    "channel_id": ch["id"],
+                    "bot_id": "test-bot",
+                    "error": "tool bridge failed",
+                },
+                created_at=now - timedelta(minutes=3),
+            )
+        )
+        db_session.add(
+            TraceEvent(
+                event_type="error",
+                event_name="unmapped system failure",
+                data={"error": "background loop failed"},
+                created_at=now - timedelta(minutes=2),
+            )
+        )
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/workspace/spatial/map-state", headers=AUTH_HEADERS)
+        assert resp.status_code == 200, resp.text
+        payload = resp.json()
+        room = payload["objects_by_node_id"][channel_node["id"]]
+        actor = next(obj for obj in payload["objects"] if obj["kind"] == "bot" and obj["target_id"] == "test-bot")
+        daily_health = next(obj for obj in payload["objects"] if obj["kind"] == "landmark" and obj["target_id"] == "daily_health")
+
+        assert any(w["kind"] == "trace" and w["title"] == "mermaid_to_excalidraw failed" for w in room["warnings"])
+        assert any(r["kind"] == "trace" and r["title"] == "mermaid_to_excalidraw failed" for r in actor["recent"])
+        assert not any(w["title"] == "mermaid_to_excalidraw failed" for w in daily_health["warnings"])
+        assert any(w["title"] == "unmapped system failure" for w in daily_health["warnings"])
+
     async def test_map_state_describes_workspace_widget_sources_and_crons(self, client, db_session):
         ch = await _create_channel(client, name="Widgets")
         now = datetime.now(timezone.utc)

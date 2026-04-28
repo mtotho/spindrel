@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-28 (native compaction cleanup ownership documented)
+updated: 2026-04-28 (live harness smoke automation added)
 ---
 # Track - Harness SDK
 
@@ -113,6 +113,7 @@ What is landing:
 - Workspace-files memory on a harness bot injects a host hint pointing the runtime at durable memory files; reads/writes still require native filesystem access or selected bridged tools.
 - Claude Code gets a best-effort Spindrel tool bridge through SDK in-process MCP helpers. Tool definitions are resolved dynamically from the same effective channel/bot tool configuration as the normal loop, and invocation routes through `dispatch_tool_call` so policy, approval, trace rows, redaction, and result summarization stay centralized.
 - Bridge/context visibility is no longer count-only: harness status and `/context` expose pending hint previews, bridge health, exported tools, ignored client tools, explicit one-turn tools, tagged skills, last bridge error, native compact status, and estimated native context remaining when usage/window telemetry exists. The existing ctx header status opens these details instead of adding another chip.
+- Live harness smoke automation now exists at `tests/e2e/scenarios/test_harness_live_smoke.py`. It targets configured deployed Claude/Codex channels, creates a fresh detached session per case, checks native `/runtime` probes, basic turn persistence, plan-mode round trip, safe workspace write/cleanup, and Spindrel bridge invocation persistence in both runtimes.
 - Bridge inventory degrades visibly: local tool resolution and each MCP server list are isolated, inventory errors are recorded on bridge status, and harness `/context` caps live inventory at 3s before showing the last recorded bridge state. Broken MCP discovery should not make `/context` feel dead or collapse the whole bridge to an opaque generic error.
 - Slash-command UX has an immediate pending path: remote commands toast as soon as submitted, harness `/compact` inserts a pending transcript card, and native compaction result cards summarize usage with raw JSON hidden behind a details disclosure. Harness status also marks latest native compaction as the context-remaining source when it is newer than the last harness turn.
 - Harness channel settings include native auto-compaction prompts: default on, prompt below 60% remaining context, auto-run native compact below 10% remaining context when telemetry is available.

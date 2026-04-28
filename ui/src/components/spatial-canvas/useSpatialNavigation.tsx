@@ -78,6 +78,8 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
     setDiving,
     fitAllNodes,
     openStarboardAttention,
+    setStarboardOpen,
+    setStarboardStation,
   } = args;
   const diveToChannel = useCallback(
     (channelId: string, world: { x: number; y: number; w: number; h: number }) => {
@@ -417,18 +419,22 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
     (kind: "channel" | "bot" | "widget", node: SpatialNode, focus = false) => {
       setSelectedSpatialObject({ kind, nodeId: node.id });
       setContextMenu(null);
+      setStarboardStation?.("objects");
+      setStarboardOpen?.(true);
       if (focus) focusNode(node);
     },
-    [focusNode],
+    [focusNode, setStarboardOpen, setStarboardStation],
   );
 
   const selectLandmark = useCallback(
     (id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health", x: number, y: number, focus = false) => {
       setSelectedSpatialObject({ kind: "landmark", id });
       setContextMenu(null);
+      setStarboardStation?.("objects");
+      setStarboardOpen?.(true);
       if (focus) flyToStarboardObject(x, y);
     },
-    [flyToStarboardObject],
+    [flyToStarboardObject, setStarboardOpen, setStarboardStation],
   );
 
   const flyToWell = useCallback(() => {

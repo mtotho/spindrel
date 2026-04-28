@@ -108,6 +108,45 @@ class E2EClient:
             result.events.append(StreamEvent(type=ev_type, data=ev_data))
         return result
 
+    async def chat_session_stream(
+        self,
+        message: str,
+        *,
+        session_id: str,
+        channel_id: str,
+        bot_id: str | None = None,
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> StreamResult:
+        """Send a chat turn to a detached session and consume its channel bus.
+
+        ``/chat`` accepts ``session_id`` for scratch/detached sessions, but
+        turn events are still published on the parent channel bus. Existing
+        helpers infer the bus channel from the response body; this helper lets
+        live harness smoke tests target a fresh detached session while still
+        tailing the known parent channel.
+        """
+        kwargs.setdefault("external_delivery", "none")
+        consumed = await self._post_and_consume_turn(
+            message,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            client_id=None,
+            timeout=timeout,
+            event_channel_id=channel_id,
+            session_id=session_id,
+            **kwargs,
+        )
+
+        result = StreamResult()
+        result.session_id = consumed["session_id"]
+        result.response_text = consumed["response_text"]
+        result.tools_used = list(consumed["tools_used"])
+        result.raw_lines = list(consumed["raw_lines"])
+        for ev_type, ev_data in consumed["legacy_events"]:
+            result.events.append(StreamEvent(type=ev_type, data=ev_data))
+        return result
+
     async def _post_and_consume_turn(
         self,
         message: str,
@@ -116,6 +155,7 @@ class E2EClient:
         channel_id: str | None,
         client_id: str | None,
         timeout: float | None = None,
+        event_channel_id: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """POST /chat, then tail the channel-events bus until TURN_ENDED.
@@ -145,7 +185,7 @@ class E2EClient:
         body = post_resp.json()
 
         session_id = body.get("session_id", "")
-        chan_id = body.get("channel_id") or channel_id or ""
+        chan_id = body.get("channel_id") or channel_id or event_channel_id or ""
         turn_id = body.get("turn_id")
 
         # Fast paths that have no turn_id: passive store, throttled,
@@ -337,6 +377,52 @@ class E2EClient:
         resp.raise_for_status()
         data = resp.json()
         return data["channels"] if isinstance(data, dict) and "channels" in data else data
+
+    async def create_channel_session(self, channel_id: str) -> str:
+        """POST /api/v1/channels/{channel_id}/sessions and return the new session id."""
+        resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions")
+        resp.raise_for_status()
+        return str(resp.json()["new_session_id"])
+
+    async def get_session_messages(self, session_id: str, limit: int = 50) -> list[dict]:
+        """GET /api/v1/sessions/{session_id}/messages, normalized to the messages list."""
+        resp = await self._client.get(
+            f"/api/v1/sessions/{session_id}/messages",
+            params={"limit": limit},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, dict):
+            messages = data.get("messages", [])
+        else:
+            messages = data
+        return list(messages or [])
+
+    async def execute_slash_command(
+        self,
+        command_id: str,
+        *,
+        channel_id: str | None = None,
+        session_id: str | None = None,
+        current_session_id: str | None = None,
+        args: list[str] | None = None,
+        surface: str = "session",
+    ) -> dict:
+        """POST /api/v1/slash-commands/execute."""
+        payload: dict[str, Any] = {
+            "command_id": command_id,
+            "args": list(args or []),
+            "surface": surface,
+        }
+        if channel_id:
+            payload["channel_id"] = channel_id
+        if session_id:
+            payload["session_id"] = session_id
+        if current_session_id:
+            payload["current_session_id"] = current_session_id
+        resp = await self._client.post("/api/v1/slash-commands/execute", json=payload)
+        resp.raise_for_status()
+        return resp.json()
 
     # -- Bot admin endpoints --
 

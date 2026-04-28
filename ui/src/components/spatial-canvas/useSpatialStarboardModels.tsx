@@ -4,6 +4,7 @@ import { widgetPinHref } from "../../lib/hubRoutes";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import type { Camera } from "./spatialGeometry";
 import type { StarboardObjectAction, StarboardObjectItem } from "./UsageDensityChrome";
+import { mapStateMeta } from "./SpatialObjectStatus";
 
 type UseSpatialStarboardModelsArgs = Record<string, any> & {
   camera: Camera;
@@ -128,7 +129,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           id: `node-${node.id}`,
           label: channel ? `#${channel.name}` : "Channel",
           kind: "channel",
-          subtitle: "Channel",
+          subtitle: mapStateMeta(workState) ?? "Channel",
           workState,
           worldX,
           worldY,
@@ -166,7 +167,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           id: `node-${node.id}`,
           label: node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget",
           kind: "widget",
-          subtitle: node.pin.tool_name || "Widget",
+          subtitle: mapStateMeta(workState) ?? node.pin.tool_name ?? "Widget",
           workState,
           worldX,
           worldY,
@@ -195,7 +196,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           id: `node-${node.id}`,
           label: botName,
           kind: "bot",
-          subtitle: "Bot",
+          subtitle: mapStateMeta(workState) ?? "Bot",
           workState,
           worldX,
           worldY,

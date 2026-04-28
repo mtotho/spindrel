@@ -7,7 +7,7 @@ import { InteractiveHtmlRenderer } from "../chat/renderers/InteractiveHtmlRender
 import { ComponentRenderer, WidgetActionContext } from "../chat/renderers/ComponentRenderer";
 import { renderNativeWidget } from "../chat/renderers/nativeApps/registry";
 import type { ToolResultEnvelope } from "../../types/api";
-import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import {
   NODES_KEY,
   useDeleteSpatialNode,
@@ -233,7 +233,7 @@ function ChipTitleView({
       >
         {widgetTitle(pin)}
       </div>
-      <ObjectStatusPill state={workState} compact />
+      <ObjectStatusPill state={workState} compact iconOnly />
     </div>
   );
 }
@@ -451,7 +451,7 @@ function CardView({
         <span className="text-sm font-semibold leading-tight truncate ml-1">
           {title}
         </span>
-        <ObjectStatusPill state={workState} compact />
+        <ObjectStatusPill state={workState} compact iconOnly />
         <span className="text-[10px] text-text-dim font-mono truncate ml-auto">
           {tool}
         </span>

@@ -88,6 +88,14 @@ whether it needs attention. This is intentionally substrate work: future
 operator/mission surfaces may consume it, but the spatial canvas must remain
 useful with the workspace primitives that exist today.
 
+2026-04-28 useful-now follow-up: Starboard now defaults to a Map Brief surface
+instead of Mission Control. Selecting a channel, bot, widget, or landmark opens
+Starboard to an object inspector with source, next work, recent activity,
+warnings, and concrete actions. Canvas tiles use compact state markers instead
+of long failure labels; hover cards carry the one-line explanation. Trace
+errors now attach to channel/bot objects when trace metadata includes those
+ids, while unmapped errors still roll up to Daily Health.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

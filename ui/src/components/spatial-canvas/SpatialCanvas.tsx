@@ -315,6 +315,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
   const openStarboardHub = useCallback(() => {
     openStarboard("hub");
   }, [openStarboard]);
+  const openStarboardObjects = useCallback(() => {
+    openStarboard("objects");
+  }, [openStarboard]);
   const openStarboardHealth = useCallback(() => {
     openStarboard("health");
   }, [openStarboard]);
@@ -606,6 +609,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     setDiving,
     fitAllNodes,
     openStarboardAttention,
+    setStarboardOpen,
+    setStarboardStation,
   });
 
   const { starboardObjects, edgeBeacons, selectedStarboardObject } = useSpatialStarboardModels({
@@ -705,7 +710,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     focusNode,
     channelsById,
     setOpenBotChat,
-    openStarboardHub,
+    openStarboardObjects,
     navigate,
     canvasBackState,
     deleteNode,

@@ -209,6 +209,11 @@ class E2EEnvironment:
 
     def get_logs(self, service: str = "agent-server", tail: int = 100) -> str:
         """Return recent container logs for debugging."""
+        if self.config.is_external:
+            return (
+                "External E2E mode is using "
+                f"{self.config.base_url}; local compose logs are unavailable."
+            )
         env = self._compose_env()
         result = subprocess.run(
             self._compose_cmd("logs", "--tail", str(tail), service),

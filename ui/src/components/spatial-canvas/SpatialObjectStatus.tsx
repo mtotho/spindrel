@@ -1,5 +1,5 @@
 import { AlertTriangle, Clock, History, Play, Radio } from "lucide-react";
-import type { WorkspaceMapObjectState } from "../../api/hooks/useWorkspaceMapState";
+import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 
 export function mapStateLabel(state?: WorkspaceMapObjectState | null): string | null {
   if (!state) return null;
@@ -36,7 +36,15 @@ export function statusRingClass(state?: WorkspaceMapObjectState | null): string 
   return "";
 }
 
-export function ObjectStatusPill({ state, compact = false }: { state?: WorkspaceMapObjectState | null; compact?: boolean }) {
+export function ObjectStatusPill({
+  state,
+  compact = false,
+  iconOnly = false,
+}: {
+  state?: WorkspaceMapObjectState | null;
+  compact?: boolean;
+  iconOnly?: boolean;
+}) {
   const label = mapStateLabel(state);
   if (!state || !label) return null;
   const tone = mapStateTone(state);
@@ -64,7 +72,7 @@ export function ObjectStatusPill({ state, compact = false }: { state?: Workspace
       title={label}
     >
       <Icon size={compact ? 9 : 10} className="shrink-0" />
-      <span className="truncate">{label}</span>
+      {iconOnly ? <span className="sr-only">{label}</span> : <span className="truncate">{label}</span>}
     </span>
   );
 }
