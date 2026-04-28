@@ -490,7 +490,17 @@ export function UsageDensityChrome({
                 </>
               ) : station === "objects" ? (
                 <>
-                  {selectedObject && <SelectedObjectInspector item={selectedObject} />}
+                  {selectedObject && (
+                    <SelectedObjectInspector
+                      item={selectedObject}
+                      selectedAttentionId={selectedAttentionId}
+                      onOpenAttentionWarning={(id) => {
+                        const item = (attentionItems ?? []).find((entry) => entry.id === id);
+                        if (item) onSelectAttention(item);
+                        selectStation("attention");
+                      }}
+                    />
+                  )}
                   <div className="mb-4">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">{selectedObject ? "Nearby" : "Map Brief"}</div>
@@ -608,11 +618,20 @@ function clampStarboardWidth(width: number, maxWidth = Math.max(MIN_STARBOARD_WI
   return Math.round(Math.min(maxWidth, Math.max(MIN_STARBOARD_WIDTH, width)));
 }
 
-function SelectedObjectInspector({ item }: { item: StarboardObjectItem }) {
+function SelectedObjectInspector({
+  item,
+  selectedAttentionId,
+  onOpenAttentionWarning,
+}: {
+  item: StarboardObjectItem;
+  selectedAttentionId?: string | null;
+  onOpenAttentionWarning: (id: string) => void;
+}) {
   const primary = item.actions[0];
   const state = item.workState;
   const brief = buildSpatialObjectBrief(state);
   const usefulActions = item.actions.slice(0, 4);
+  const attentionWarning = brief?.warnings.find((signal) => signal.kind === "attention" && signal.id) ?? null;
   const toneClass =
     brief?.tone === "danger"
       ? "border-danger/35 bg-danger/[0.045]"
@@ -666,7 +685,24 @@ function SelectedObjectInspector({ item }: { item: StarboardObjectItem }) {
           )}
           {!!brief.warnings.length && (
             <InspectorSection icon={<AlertTriangle size={13} />} title="Warnings">
-              {brief.warnings.map((signal, index) => <SignalLine key={`${signal.kind}-${signal.id ?? index}`} signal={signal} danger />)}
+              {brief.warnings.map((signal, index) => (
+                <SignalLine
+                  key={`${signal.kind}-${signal.id ?? index}`}
+                  signal={signal}
+                  danger
+                  highlighted={Boolean(signal.id && signal.id === selectedAttentionId)}
+                />
+              ))}
+              {attentionWarning?.id && (
+                <button
+                  type="button"
+                  className="mt-1 inline-flex min-h-7 w-fit items-center gap-1.5 rounded-md bg-surface-overlay/55 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text"
+                  onClick={() => onOpenAttentionWarning(attentionWarning.id!)}
+                >
+                  <ExternalLink size={13} />
+                  Open in Attention
+                </button>
+              )}
             </InspectorSection>
           )}
           {!!brief.recent.length && (
@@ -710,10 +746,18 @@ function InspectorSection({ icon, title, children }: { icon: ReactNode; title: s
   );
 }
 
-function SignalLine({ signal, danger = false }: { signal: NonNullable<WorkspaceMapObjectState["next"]> | WorkspaceMapObjectState["recent"][number]; danger?: boolean }) {
+function SignalLine({
+  signal,
+  danger = false,
+  highlighted = false,
+}: {
+  signal: NonNullable<WorkspaceMapObjectState["next"]> | WorkspaceMapObjectState["recent"][number];
+  danger?: boolean;
+  highlighted?: boolean;
+}) {
   const when = formatSignalTime(signal);
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 rounded ${highlighted ? "bg-danger/10 px-2 py-1" : ""}`}>
       <div className={`truncate font-medium ${danger ? "text-danger" : "text-text"}`}>{signal.title || signal.kind}</div>
       <div className="truncate text-text-dim">
         {[signal.bot_name, signal.channel_name ? `#${signal.channel_name}` : null, when].filter(Boolean).join(" · ")}

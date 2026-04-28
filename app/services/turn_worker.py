@@ -441,6 +441,25 @@ async def _run_harness_turn(
         )
         return final_text, "persist_turn failed"
 
+    try:
+        async with async_session() as db:
+            from app.services.agent_harnesses.session_state import (
+                maybe_run_harness_auto_compaction,
+            )
+
+            await maybe_run_harness_auto_compaction(
+                db,
+                session_id,
+                runtime=bot.harness_runtime,
+                usage=result.usage if isinstance(result.usage, dict) else None,
+            )
+    except Exception:
+        logger.exception(
+            "harness '%s': auto-compaction check failed for session %s",
+            bot.harness_runtime,
+            session_id,
+        )
+
     # No bookkeeping write-back: resume state lives ON the persisted assistant
     # message (`metadata.harness.session_id`), and per-session cumulative cost
     # is computed from the same metadata when the UI asks for it. The bot row's

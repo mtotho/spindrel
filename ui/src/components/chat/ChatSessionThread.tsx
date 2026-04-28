@@ -216,6 +216,9 @@ export function ThreadChatSession({
       if (result.command_id === "compact") {
         qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
       }
+      if (result.command_id === "style") {
+        qc.invalidateQueries({ queryKey: ["channel", parentChannelId] });
+      }
     },
   });
 
@@ -548,4 +551,3 @@ export function ThreadChatSession({
     </ChatSessionDock>
   );
 }
-

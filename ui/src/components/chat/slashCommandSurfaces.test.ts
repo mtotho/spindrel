@@ -7,7 +7,8 @@ const catalog: SlashCommandSpec[] = [
   { id: "help", label: "/help", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
   { id: "context", label: "/context", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
   { id: "find", label: "/find", description: "", surfaces: ["channel"], local_only: false, args: [] },
-  { id: "effort", label: "/effort", description: "", surfaces: ["channel"], local_only: false, args: [] },
+  { id: "effort", label: "/effort", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
+  { id: "style", label: "/style", description: "", surfaces: ["channel", "session"], local_only: false, args: [] },
   { id: "clear", label: "/clear", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
   { id: "new", label: "/new", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
   { id: "scratch", label: "/scratch", description: "", surfaces: ["channel"], local_only: true, args: [] },
@@ -27,7 +28,7 @@ describe("resolveAvailableSlashCommandIds", () => {
         enabled: true,
         capabilities: ["clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
       }),
-      ["help", "context", "find", "effort", "clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
+      ["help", "context", "find", "effort", "style", "clear", "new", "scratch", "model", "theme", "sessions", "split", "focus"],
     );
   });
 
@@ -39,7 +40,7 @@ describe("resolveAvailableSlashCommandIds", () => {
         enabled: true,
         capabilities: ["clear", "new", "model", "theme", "sessions", "split", "focus"],
       }),
-      ["help", "context", "clear", "new", "model", "theme", "sessions", "split", "focus"],
+      ["help", "context", "effort", "style", "clear", "new", "model", "theme", "sessions", "split", "focus"],
     );
   });
 
@@ -51,7 +52,7 @@ describe("resolveAvailableSlashCommandIds", () => {
         enabled: true,
         capabilities: ["model", "theme"],
       }),
-      ["help", "context", "model", "theme"],
+      ["help", "context", "effort", "style", "model", "theme"],
     );
   });
 

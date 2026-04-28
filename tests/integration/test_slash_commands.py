@@ -245,10 +245,13 @@ class TestSlashCommandHelp:
         )
         assert resp.status_code == 200, resp.text
         labels = {c["label"] for c in resp.json()["payload"]["top_categories"]}
-        # Session surface — /find, /clear, /scratch, /mode, /effort are channel-only
+        # Session surface — /find, /clear, /scratch are channel-only.
+        # /style remains channel-global but is callable from channel-bound sessions.
+        # /effort is session-visible for harness sessions; non-harness execution
+        # rejects before mutating channel config.
         assert "/find" not in labels
-        assert "/style" not in labels
-        assert "/effort" not in labels
+        assert "/style" in labels
+        assert "/effort" in labels
         assert "/clear" not in labels
         assert "/scratch" not in labels
         # But /context, /help, /rename should be there
@@ -490,11 +493,35 @@ class TestSlashCommandStyle:
         )
         assert resp.status_code == 400, resp.text
 
-    async def test_mode_rejected_in_session_surface(self, client, db_session):
-        _channel_id, session_id = await _create_channel_with_session(db_session)
+    async def test_mode_from_session_surface_sets_parent_channel_config(self, client, db_session):
+        channel_id, session_id = await _create_channel_with_session(db_session)
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "style", "session_id": session_id},
+            json={"command_id": "style", "session_id": session_id, "args": ["terminal"]},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["payload"]["effect"] == "style"
+        assert body["payload"]["scope_kind"] == "channel"
+        assert body["payload"]["scope_id"] == channel_id
+
+        ch = await db_session.get(Channel, uuid.UUID(channel_id))
+        await db_session.refresh(ch)
+        assert (ch.config or {}).get("chat_mode") == "terminal"
+
+    async def test_mode_rejected_for_channelless_session_surface(self, client, db_session):
+        session_id = uuid.uuid4()
+        db_session.add(Session(
+            id=session_id,
+            bot_id="test-bot",
+            client_id=f"slash-free-{session_id.hex[:8]}",
+        ))
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={"command_id": "style", "session_id": str(session_id)},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400, resp.text

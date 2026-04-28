@@ -393,7 +393,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 <SpatialAttentionSignal
                   items={cluster.members.flatMap((member: any) => attentionByNodeId.get(member.node.id) ?? [])}
                   scale={camera.scale}
-                  onSelect={(item) => setSelectedAttentionId(item.id)}
+                  onSelect={openStarboardAttention}
                 />
               )}
             </div>
@@ -420,7 +420,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
               <SpatialAttentionSignal
                 items={cluster.nodes.flatMap((node: SpatialNode) => attentionByNodeId.get(node.id) ?? [])}
                 scale={camera.scale}
-                onSelect={(item) => setSelectedAttentionId(item.id)}
+                onSelect={openStarboardAttention}
               />
             )}
           </div>
@@ -614,7 +614,13 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 <SpatialAttentionSignal
                   items={items}
                   scale={camera.scale * (lens?.sizeFactor ?? 1) * botScale}
-                  onSelect={openStarboardAttention}
+                  onSelect={(item: any) => {
+                    if (node.channel_id) selectNode("channel", node);
+                    else if (node.bot_id) selectNode("bot", node);
+                    else if (node.pin) selectNode("widget", node);
+                    else if (node.landmark_kind) selectLandmark(node.landmark_kind, node.world_x + node.world_w / 2, node.world_y + node.world_h / 2);
+                    setSelectedAttentionId(item.id);
+                  }}
                 />
               )}
             </div>

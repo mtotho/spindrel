@@ -326,6 +326,10 @@ export function ChannelChatSession({
         return;
       }
       if (result.command_id === "plan") return;
+      if (result.command_id === "style") {
+        queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
+        return;
+      }
     },
   });
 
@@ -559,5 +563,4 @@ export function ChannelChatSession({
     </ChatSessionDock>
   );
 }
-
 

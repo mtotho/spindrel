@@ -29,6 +29,8 @@ class HarnessCase:
     default_bot_id: str
     native_commands: tuple[str, ...]
     bridge_tool_visible_name: str
+    light_model: str
+    light_effort: str
 
 
 HARNESSES = (
@@ -39,6 +41,8 @@ HARNESSES = (
         default_bot_id="codex-bot",
         native_commands=("config", "mcp-status", "skills"),
         bridge_tool_visible_name="bennie_loggins_health_summary",
+        light_model=os.environ.get("HARNESS_SMOKE_CODEX_LIGHT_MODEL", "gpt-5.4-mini"),
+        light_effort=os.environ.get("HARNESS_SMOKE_CODEX_LIGHT_EFFORT", "low"),
     ),
     HarnessCase(
         name="claude",
@@ -47,6 +51,8 @@ HARNESSES = (
         default_bot_id="claude-code-bot",
         native_commands=("version", "auth"),
         bridge_tool_visible_name="mcp__spindrel__bennie_loggins_health_summary",
+        light_model=os.environ.get("HARNESS_SMOKE_CLAUDE_LIGHT_MODEL", "claude-haiku-4-5"),
+        light_effort=os.environ.get("HARNESS_SMOKE_CLAUDE_LIGHT_EFFORT", "low"),
     ),
 )
 
@@ -99,6 +105,84 @@ def _all_nested_values(value: Any):
 
 def _message_mentions_tool(message: dict, tool_name: str) -> bool:
     return any(str(value) == tool_name for value in _all_nested_values(message))
+
+
+def _turn_id(result: StreamResult) -> str | None:
+    for event in reversed(result.events):
+        if event.type == "response":
+            value = event.data.get("turn_id")
+            return str(value) if value else None
+    return None
+
+
+async def _assert_trace_has_turn_context(client: E2EClient, result: StreamResult) -> None:
+    turn_id = _turn_id(result)
+    assert turn_id, "turn stream did not expose a turn/correlation id"
+    trace = await client.get_trace_detail(turn_id)
+    assert trace["correlation_id"] == turn_id
+    kinds = {event["kind"] for event in trace["events"]}
+    assert "message" in kinds or "trace_event" in kinds
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_session_controls_and_trace_diagnostics(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    original_config = await client.get_channel_config(channel_id)
+
+    try:
+        style_result = await client.execute_slash_command(
+            "style",
+            session_id=session_id,
+            args=["terminal"],
+        )
+        assert style_result["result_type"] == "side_effect"
+        assert style_result["payload"]["effect"] == "style"
+        assert style_result["payload"]["scope_kind"] == "channel"
+        assert style_result["payload"]["scope_id"] == channel_id
+
+        model_result = await client.execute_slash_command(
+            "model",
+            session_id=session_id,
+            args=[case.light_model],
+        )
+        assert model_result["payload"]["effect"] == "model"
+
+        effort_result = await client.execute_slash_command(
+            "effort",
+            session_id=session_id,
+            args=[case.light_effort],
+        )
+        assert effort_result["payload"]["effect"] == "effort"
+
+        settings = await client.get_session_harness_settings(session_id)
+        assert settings["model"] == case.light_model
+        assert settings["effort"] == case.light_effort
+
+        approval_mode = await client.set_session_approval_mode(session_id, "acceptEdits")
+        assert approval_mode["mode"] == "acceptEdits"
+
+        result = await client.chat_session_stream(
+            "Diagnostics turn. Reply with exactly: harness diagnostics ok",
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert "harness diagnostics ok" in result.response_text.lower()
+        await _assert_trace_has_turn_context(client, result)
+
+        budget = await client.get_context_budget(channel_id, session_id=session_id)
+        assert {"utilization", "consumed_tokens", "total_tokens"} <= set(budget.keys())
+    finally:
+        await client.patch_channel_config(
+            channel_id,
+            {"chat_mode": original_config.get("chat_mode") or "default"},
+        )
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

@@ -262,6 +262,9 @@ export function FixedSessionChatSession({
       if (result.command_id === "compact") {
         qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
       }
+      if (result.command_id === "style" && parentChannelId) {
+        qc.invalidateQueries({ queryKey: ["channel", parentChannelId] });
+      }
     },
   });
 
@@ -387,4 +390,3 @@ export function FixedSessionChatSession({
 
   return <div className="flex h-full min-h-0 w-full flex-col">{body}</div>;
 }
-

@@ -315,6 +315,7 @@ class E2EClient:
                         legacy_events.append(("response", {
                             "text": final_response_text,
                             "session_id": session_id,
+                            "turn_id": turn_id,
                             "error": final_error,
                             "client_actions": final_client_actions,
                         }))
@@ -421,6 +422,59 @@ class E2EClient:
         if current_session_id:
             payload["current_session_id"] = current_session_id
         resp = await self._client.post("/api/v1/slash-commands/execute", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_admin_logs(
+        self,
+        *,
+        session_id: str | None = None,
+        event_type: str | None = None,
+        page_size: int = 50,
+    ) -> dict:
+        params: dict[str, Any] = {"page_size": page_size}
+        if session_id:
+            params["session_id"] = session_id
+        if event_type:
+            params["event_type"] = event_type
+        resp = await self._client.get("/api/v1/admin/logs", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_trace_detail(self, correlation_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/admin/traces/{correlation_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_context_budget(self, channel_id: str, *, session_id: str | None = None) -> dict:
+        params = {"session_id": session_id} if session_id else None
+        resp = await self._client.get(
+            f"/api/v1/channels/{channel_id}/context-budget",
+            params=params,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_channel_config(self, channel_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/channels/{channel_id}/config")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def patch_channel_config(self, channel_id: str, patch: dict[str, Any]) -> dict:
+        resp = await self._client.patch(f"/api/v1/channels/{channel_id}/config", json=patch)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_session_harness_settings(self, session_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/sessions/{session_id}/harness-settings")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def set_session_approval_mode(self, session_id: str, mode: str) -> dict:
+        resp = await self._client.post(
+            f"/api/v1/sessions/{session_id}/approval-mode",
+            json={"mode": mode},
+        )
         resp.raise_for_status()
         return resp.json()
 

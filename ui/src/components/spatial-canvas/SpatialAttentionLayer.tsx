@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, Check, ExternalLink, MessageSquare, Plus, Radar, X } from "lucide-react";
+import { AlertTriangle, Bot, Check, ExternalLink, MessageSquare, Plus, Radar, X } from "lucide-react";
 import {
   useAcknowledgeAttentionItem,
   useAssignAttentionItem,
@@ -97,9 +97,18 @@ export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) 
         transformOrigin: "center center",
       }}
     >
+      <div
+        className={`relative flex h-10 w-10 items-center justify-center rounded-full ${signalClass(primary)}`}
+        aria-hidden
+      >
+        <span
+          className={`absolute h-7 w-7 rounded-full border-t-2 border-r-2 border-current opacity-75 ${urgent ? "attention-signal-pulse" : ""}`}
+        />
+        <span className="absolute h-1.5 w-1.5 translate-x-2 -translate-y-2 rounded-full bg-current" />
+      </div>
       <button
         type="button"
-        className={`pointer-events-auto group relative flex h-10 w-10 items-center justify-center rounded-full ${signalClass(primary)} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
+        className={`pointer-events-auto absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-surface-raised bg-surface-raised ${signalClass(primary)} shadow-[0_6px_16px_rgb(0_0_0/0.28)] hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
         title={label}
         aria-label={label}
         onPointerDown={(event) => event.stopPropagation()}
@@ -108,11 +117,7 @@ export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) 
           onSelect(primary);
         }}
       >
-        <span
-          className={`absolute h-7 w-7 rounded-full border-t-2 border-r-2 border-current opacity-85 transition-transform duration-100 group-hover:scale-110 ${urgent ? "attention-signal-pulse" : ""}`}
-          aria-hidden
-        />
-        <span className="absolute h-1.5 w-1.5 translate-x-2 -translate-y-2 rounded-full bg-current" aria-hidden />
+        <AlertTriangle size={12} aria-hidden />
       </button>
     </div>
   );

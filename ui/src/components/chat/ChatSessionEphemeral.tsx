@@ -375,6 +375,10 @@ export function EphemeralChatSession({
       if (result.command_id === "compact") {
         qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
       }
+      if (result.command_id === "style") {
+        const channelForStyle = scratchBoundChannelId ?? parentChannelId;
+        if (channelForStyle) qc.invalidateQueries({ queryKey: ["channel", channelForStyle] });
+      }
     },
   });
 
@@ -829,4 +833,3 @@ export function EphemeralChatSession({
     </>
   );
 }
-

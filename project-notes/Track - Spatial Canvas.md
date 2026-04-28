@@ -96,6 +96,13 @@ of long failure labels; hover cards carry the one-line explanation. Trace
 errors now attach to channel/bot objects when trace metadata includes those
 ids, while unmapped errors still roll up to Daily Health.
 
+Same-day interaction correction: single object selection no longer renders the
+floating selection rail. Starboard Map Brief is the only selected-object detail
+surface for channels, bots, widgets, and landmarks; the rail remains only for
+aggregate cluster affordances. Attention rings are visual-only, with a small
+explicit alert badge as the click target so warning selection cannot steal
+ordinary channel/bot/widget clicks.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

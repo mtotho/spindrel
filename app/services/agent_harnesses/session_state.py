@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import Message, Session, TraceEvent
+from app.db.models import Channel, Message, Session, TraceEvent
 from app.services.agent_harnesses.base import HarnessContextHint
 
 HARNESS_CONTEXT_HINTS_KEY = "harness_context_hints"
@@ -47,6 +47,14 @@ class HarnessStatus:
     context_remaining_pct: float | None = None
     native_compaction: dict[str, Any] | None = None
     context_note: str = "Native harness context is provider-managed; Spindrel tracks resume id, compact resets, and pending host hints."
+
+
+@dataclass(frozen=True)
+class HarnessAutoCompactionDecision:
+    action: str
+    remaining_pct: float | None = None
+    threshold_pct: int | None = None
+    reason: str = ""
 
 
 def _now_iso() -> str:
@@ -565,7 +573,147 @@ def harness_compaction_settings(config: dict[str, Any] | None) -> dict[str, Any]
         "hard_remaining_pct": int(raw.get("hard_remaining_pct", 10) or 10),
         "last_prompted_at": raw.get("last_prompted_at") if isinstance(raw.get("last_prompted_at"), str) else None,
         "last_hard_compact_at": raw.get("last_hard_compact_at") if isinstance(raw.get("last_hard_compact_at"), str) else None,
+        "last_action": raw.get("last_action") if isinstance(raw.get("last_action"), str) else None,
+        "last_remaining_pct": raw.get("last_remaining_pct") if isinstance(raw.get("last_remaining_pct"), (int, float)) else None,
     }
+
+
+def decide_harness_auto_compaction(
+    *,
+    channel_config: dict[str, Any] | None,
+    usage: dict[str, Any] | None,
+) -> HarnessAutoCompactionDecision:
+    settings = harness_compaction_settings(channel_config)
+    if not settings["enabled"]:
+        return HarnessAutoCompactionDecision(action="none", reason="disabled")
+    if not isinstance(usage, dict):
+        return HarnessAutoCompactionDecision(action="none", reason="missing usage")
+
+    window = context_window_from_usage(usage)
+    remaining = estimate_context_remaining_pct(usage, context_window_tokens=window)
+    if remaining is None:
+        return HarnessAutoCompactionDecision(action="none", reason="unknown remaining")
+
+    hard = max(1, min(99, int(settings["hard_remaining_pct"])))
+    soft = max(hard, min(99, int(settings["soft_remaining_pct"])))
+    last_action = settings.get("last_action")
+    last_remaining = settings.get("last_remaining_pct")
+
+    if remaining <= hard:
+        if last_action == "hard" and isinstance(last_remaining, (int, float)) and last_remaining <= hard:
+            return HarnessAutoCompactionDecision(
+                action="none",
+                remaining_pct=remaining,
+                threshold_pct=hard,
+                reason="already below hard threshold",
+            )
+        return HarnessAutoCompactionDecision(
+            action="hard",
+            remaining_pct=remaining,
+            threshold_pct=hard,
+            reason="below hard threshold",
+        )
+
+    if remaining <= soft:
+        if last_action == "soft" and isinstance(last_remaining, (int, float)) and last_remaining <= soft:
+            return HarnessAutoCompactionDecision(
+                action="none",
+                remaining_pct=remaining,
+                threshold_pct=soft,
+                reason="already below soft threshold",
+            )
+        return HarnessAutoCompactionDecision(
+            action="soft",
+            remaining_pct=remaining,
+            threshold_pct=soft,
+            reason="below soft threshold",
+        )
+
+    return HarnessAutoCompactionDecision(
+        action="none",
+        remaining_pct=remaining,
+        reason="above thresholds",
+    )
+
+
+async def maybe_run_harness_auto_compaction(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    *,
+    runtime: str | None,
+    usage: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Evaluate and apply channel-scoped harness auto-compaction settings."""
+    session = await db.get(Session, session_id)
+    if session is None:
+        return None
+    channel_id = session.channel_id or session.parent_channel_id
+    if channel_id is None:
+        return None
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        return None
+
+    decision = decide_harness_auto_compaction(
+        channel_config=channel.config or {},
+        usage=usage,
+    )
+    if decision.action == "none":
+        if decision.reason == "above thresholds":
+            cfg = dict(channel.config or {})
+            auto = dict(cfg.get("harness_auto_compaction") or {})
+            if auto.get("last_action") or auto.get("last_remaining_pct") is not None:
+                auto.pop("last_action", None)
+                auto.pop("last_remaining_pct", None)
+                cfg["harness_auto_compaction"] = auto
+                channel.config = cfg
+                flag_modified(channel, "config")
+                await db.commit()
+        return None
+
+    cfg = dict(channel.config or {})
+    auto = dict(cfg.get("harness_auto_compaction") or {})
+    now = _now_iso()
+    auto["last_action"] = decision.action
+    auto["last_remaining_pct"] = decision.remaining_pct
+    if decision.action == "soft":
+        auto["last_prompted_at"] = now
+    elif decision.action == "hard":
+        auto["last_hard_compact_at"] = now
+    cfg["harness_auto_compaction"] = auto
+    channel.config = cfg
+    flag_modified(channel, "config")
+
+    db.add(TraceEvent(
+        correlation_id=None,
+        session_id=session_id,
+        bot_id=session.bot_id,
+        client_id=session.client_id,
+        event_type="harness_auto_compaction",
+        event_name=decision.action,
+        data={
+            "runtime": runtime,
+            "remaining_pct": decision.remaining_pct,
+            "threshold_pct": decision.threshold_pct,
+            "reason": decision.reason,
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+
+    if decision.action != "hard":
+        return {
+            "status": "prompted",
+            "decision": decision.action,
+            "remaining_pct": decision.remaining_pct,
+            "threshold_pct": decision.threshold_pct,
+        }
+
+    return await run_native_harness_compact(
+        db,
+        session_id,
+        source="auto-context-pressure",
+    )
 
 
 async def record_native_compaction(

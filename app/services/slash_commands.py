@@ -1078,19 +1078,23 @@ async def _plan_handler(ctx: SlashCommandContext) -> SlashCommandResult:
 
 
 async def _effort_handler(ctx: SlashCommandContext) -> SlashCommandResult:
-    if ctx.surface != "channel":
-        raise ValueError("/effort is a channel setting; not available on sessions")
-    assert ctx.channel is not None and ctx.channel_id is not None
-
     # Phase 4: harness branch. If the channel's bot is a harness, dispatch
     # to the harness-aware path BEFORE touching channel.config — a runtime
     # without an effort knob (e.g. Claude Code in v1) returns a friendly
     # no-op and never mutates the channel-level effort_override that drives
     # the normal Spindrel loop.
-    runtime = await _resolve_harness_runtime_for_bot(ctx.db, ctx.channel.bot_id)
+    bot_id_str: str | None = None
+    if ctx.channel is not None and ctx.channel.bot_id:
+        bot_id_str = str(ctx.channel.bot_id)
+    elif ctx.session is not None:
+        bot_id_str = str(ctx.session.bot_id)
+    runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_str)
     if runtime is not None:
         return await _harness_effort_handler(ctx=ctx, runtime=runtime)
 
+    if ctx.surface != "channel":
+        raise ValueError("/effort is a channel setting; not available on non-harness sessions")
+    assert ctx.channel is not None and ctx.channel_id is not None
     return await _set_channel_effort(
         channel=ctx.channel,
         channel_id=ctx.channel_id,
@@ -1165,10 +1169,12 @@ async def _harness_effort_handler(
     display = caps.display_name if caps else "This harness"
 
     if not caps or not caps.effort_values:
+        scope_kind: Literal["channel", "session"] = ctx.surface
+        scope_id = ctx.channel_id if ctx.surface == "channel" else ctx.session_id
         payload = SideEffectPayload(
             effect="effort",
-            scope_kind="channel",
-            scope_id=str(ctx.channel_id),
+            scope_kind=scope_kind,
+            scope_id=str(scope_id),
             title="Effort not supported",
             detail=f"{display} does not expose a reasoning-effort knob.",
         )
@@ -1448,11 +1454,20 @@ async def _mode_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     `default` is stored as "no key" (mirrors the PATCH config endpoint's
     treatment so the channel config stays tidy).
     """
-    if ctx.surface != "channel":
-        raise ValueError("/style is a channel setting; not available on sessions")
-    assert ctx.channel is not None and ctx.channel_id is not None
+    channel = ctx.channel
+    channel_id = ctx.channel_id
+    if ctx.surface == "session":
+        if ctx.session is None:
+            raise LookupError("Session not found")
+        channel_id = ctx.session.channel_id or ctx.session.parent_channel_id
+        if channel_id is None:
+            raise ValueError("/style is only available for sessions inside a channel")
+        channel = await ctx.db.get(Channel, channel_id)
+        if channel is None:
+            raise LookupError("Channel not found")
+    assert channel is not None and channel_id is not None
 
-    current = (ctx.channel.config or {}).get("chat_mode", "default")
+    current = (channel.config or {}).get("chat_mode", "default")
     if ctx.args:
         target = ctx.args[0].strip().lower()
         if target not in CHAT_MODES:
@@ -1462,19 +1477,19 @@ async def _mode_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     else:
         target = "terminal" if current == "default" else "default"
 
-    cfg = _copy.deepcopy(ctx.channel.config or {})
+    cfg = _copy.deepcopy(channel.config or {})
     if target == "default":
         cfg.pop("chat_mode", None)
     else:
         cfg["chat_mode"] = target
-    ctx.channel.config = cfg
-    flag_modified(ctx.channel, "config")
+    channel.config = cfg
+    flag_modified(channel, "config")
     await ctx.db.commit()
 
     payload = SideEffectPayload(
         effect="style",
         scope_kind="channel",
-        scope_id=str(ctx.channel_id),
+        scope_id=str(channel_id),
         title=f"Chat style: {target}",
         detail=f"Chat style set to {target}.",
     )
@@ -1536,7 +1551,7 @@ _register(SlashCommandSpec(
     id="style",
     label="/style",
     description="Switch chat style (default / terminal)",
-    surfaces=("channel",),
+    surfaces=("channel", "session"),
     handler=_mode_handler,
     args=(SlashCommandArgSpec(name="style", source="enum", required=False, enum=CHAT_MODES),),
 ))
@@ -1587,7 +1602,7 @@ _register(SlashCommandSpec(
     id="effort",
     label="/effort",
     description="Set reasoning effort",
-    surfaces=("channel",),
+    surfaces=("channel", "session"),
     handler=_effort_handler,
     args=(SlashCommandArgSpec(name="level", source="enum", required=False, enum=("off", "low", "medium", "high", "xhigh", "max")),),
 ))

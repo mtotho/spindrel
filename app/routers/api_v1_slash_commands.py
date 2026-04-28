@@ -93,7 +93,16 @@ async def run_slash_command(
         session = await db.get(Session, body.session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        if body.command_id == "context":
+        if body.command_id == "style":
+            parent_channel_id = session.channel_id or session.parent_channel_id
+            if parent_channel_id is None:
+                raise HTTPException(status_code=400, detail="/style is only available for sessions inside a channel")
+            channel = await db.get(Channel, parent_channel_id)
+            if channel is None:
+                raise HTTPException(status_code=404, detail="Channel not found")
+            _require_scope(auth, "channels.messages:write")
+            _check_protected(channel, auth)
+        elif body.command_id == "context":
             _require_scope(auth, "sessions:read")
         else:
             _require_scope(auth, "sessions:write")

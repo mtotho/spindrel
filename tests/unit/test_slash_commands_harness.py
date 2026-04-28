@@ -153,6 +153,25 @@ async def test_harness_effort_does_not_mutate_channel_config(db_session):
     assert "effort_override" not in (channel.config or {})
 
 
+async def test_harness_effort_session_surface_does_not_mutate_channel_config(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+    initial_config = dict(channel.config or {})
+
+    result = await execute_slash_command(
+        command_id="effort",
+        channel_id=None,
+        session_id=session.id,
+        db=db_session,
+        args=["low"],
+    )
+
+    assert result.command_id == "effort"
+    assert result.payload["scope_kind"] == "session"
+    assert "does not expose" in result.payload["detail"].lower()
+    await db_session.refresh(channel)
+    assert (channel.config or {}) == initial_config
+
+
 # ---------------------------------------------------------------------------
 # /model — harness writes harness_settings; non-harness writes channel
 # ---------------------------------------------------------------------------
