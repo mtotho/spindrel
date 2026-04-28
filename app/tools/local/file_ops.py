@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 MAX_CONTENT_BYTES = 1_048_576  # 1 MB
 MAX_READ_LINES = 2000
 DEFAULT_READ_LINES = 500
+MAX_BATCH_READ_PREVIEW_CHARS = 12_000
 
 # grep / glob limits
 MAX_GREP_MATCHES = 500
@@ -80,6 +81,19 @@ def _mimetype_for_path(path: str) -> str:
     if ext in _JSON_EXTS:
         return "application/json"
     return "text/plain"
+
+
+def _markdown_inline_code(value: object) -> str:
+    text = str(value or "")
+    return text.replace("`", "'")
+
+
+def _batch_read_preview_body(body: object) -> str:
+    text = str(body or "")
+    if len(text) <= MAX_BATCH_READ_PREVIEW_CHARS:
+        return text
+    omitted = len(text) - MAX_BATCH_READ_PREVIEW_CHARS
+    return f"{text[:MAX_BATCH_READ_PREVIEW_CHARS]}\n\n... truncated {omitted} chars ..."
 
 
 def _get_bot_and_workspace_root() -> tuple:
@@ -1853,6 +1867,7 @@ async def _op_batch(ops: list[dict] | None) -> str:
         return _error(f"Batch too large ({len(ops)} > {_BATCH_MAX_OPS}).")
 
     results: list[dict] = []
+    read_sections: list[str] = []
     ok_count = 0
     err_count = 0
     for i, sub in enumerate(ops):
@@ -1887,8 +1902,22 @@ async def _op_batch(ops: list[dict] | None) -> str:
             parsed = json.loads(raw) if isinstance(raw, str) else raw
         except (TypeError, json.JSONDecodeError):
             parsed = {"ok": True, "result": raw}
-        # Strip _envelope from each sub-result to keep the batch payload compact
-        # — the batch itself emits one envelope summarising the whole run.
+        if isinstance(parsed, dict) and not parsed.get("error"):
+            envelope = parsed.get("_envelope")
+            if sub_op == "read" and isinstance(envelope, dict):
+                body = envelope.get("body") or parsed.get("llm")
+                if body:
+                    read_path = kwargs.get("path") or parsed.get("path") or "read"
+                    read_sections.extend([
+                        "",
+                        f"### Read #{i} `{_markdown_inline_code(read_path)}`",
+                        "",
+                        "```",
+                        _batch_read_preview_body(body),
+                        "```",
+                    ])
+        # Strip _envelope from each sub-result to keep the per-op payload compact
+        # — the batch itself emits one envelope with summaries and read previews.
         if isinstance(parsed, dict):
             parsed.pop("_envelope", None)
         if isinstance(parsed, dict) and parsed.get("error"):
@@ -1902,6 +1931,7 @@ async def _op_batch(ops: list[dict] | None) -> str:
         _op = (sub.get("op") or sub.get("operation")) if isinstance(sub, dict) else "?"
         _tag = "✓" if not r.get("error") else "✗"
         body_lines.append(f"- {_tag} #{i} `{_op}` — {r.get('error') or 'ok'}")
+    body_lines.extend(read_sections)
 
     return json.dumps({
         "ok": err_count == 0,

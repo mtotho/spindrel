@@ -47,9 +47,10 @@ async function tryRefresh(): Promise<string | null> {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = await res.json() as { access_token?: string };
+    if (!data.access_token) return null;
     useAuthStore.getState().setAccessToken(data.access_token);
-    return data.access_token as string;
+    return data.access_token;
   } catch {
     return null;
   }
@@ -98,7 +99,7 @@ export async function apiFetch<T = unknown>(
   }
 
   if (res.status === 204) return undefined as T;
-  return res.json();
+  return await res.json() as T;
 }
 
 /** Like apiFetch but returns raw text instead of parsing JSON. */

@@ -86,6 +86,13 @@ type PreparedChatSend = {
   files?: PendingFile[];
 };
 
+type WorkspaceUploadMetadata = {
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  path: string;
+};
+
 function makeClientLocalId(): string {
   const cryptoObj = globalThis.crypto as Crypto | undefined;
   if (cryptoObj?.randomUUID) return `web-${cryptoObj.randomUUID()}`;
@@ -411,6 +418,26 @@ export function useChannelChat({
         useUIStore.getState().toggleFileExplorerSplit();
       }
 
+      const workspaceUploads: WorkspaceUploadMetadata[] = [];
+      const localAttachments = (files ?? []).map((pf) => {
+        if (pf.route === "channel_data" && pf.upload?.path) {
+          workspaceUploads.push({
+            filename: pf.file.name,
+            mime_type: pf.file.type || "application/octet-stream",
+            size_bytes: pf.file.size,
+            path: pf.upload.path,
+          });
+        }
+        return {
+          id: pf.id,
+          filename: pf.file.name,
+          mime_type: pf.file.type || "application/octet-stream",
+          size_bytes: pf.file.size,
+          route: pf.route,
+          preview_url: pf.preview,
+          path: pf.upload?.path,
+        };
+      });
       const clientLocalId = makeClientLocalId();
       const optimisticMsgId = `msg-${clientLocalId}`;
       addMessage(channelId, {
@@ -424,6 +451,8 @@ export function useChannelChat({
           sender_type: "human",
           client_local_id: clientLocalId,
           local_status: "sending",
+          ...(localAttachments.length ? { local_attachments: localAttachments } : {}),
+          ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
         },
       });
 
@@ -433,20 +462,20 @@ export function useChannelChat({
         attachments = [];
         file_metadata = [];
         for (const pf of files) {
-          if (pf.file.type.startsWith("image/")) {
+          if (pf.route === "inline_image" && pf.file.type.startsWith("image/") && pf.base64) {
             attachments.push({
               type: "image",
               content: pf.base64,
               mime_type: pf.file.type,
               name: pf.file.name,
             });
+            file_metadata.push({
+              filename: pf.file.name,
+              mime_type: pf.file.type,
+              size_bytes: pf.file.size,
+              file_data: pf.base64,
+            });
           }
-          file_metadata.push({
-            filename: pf.file.name,
-            mime_type: pf.file.type,
-            size_bytes: pf.file.size,
-            file_data: pf.base64,
-          });
         }
       }
 
@@ -459,6 +488,7 @@ export function useChannelChat({
           source: "web",
           sender_type: "human",
           client_local_id: clientLocalId,
+          ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
         },
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),

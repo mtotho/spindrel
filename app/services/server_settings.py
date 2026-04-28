@@ -163,6 +163,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars when extracting text from files and PDFs", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "ATTACHMENT_MAX_SIZE_BYTES": {"group": "Attachments", "label": "Max Size (bytes)", "description": "Max attachment size (empty = no limit)", "type": "int", "min": 1024, "max": 1073741824, "nullable": True},
+    "CHANNEL_DATA_UPLOAD_MAX_BYTES": {"group": "Attachments", "label": "Channel Data Upload Max Bytes", "description": "Max file size for channel workspace data uploads", "type": "int", "min": 1024, "max": 1073741824},
     # --- Data Retention ---
     "DATA_RETENTION_DAYS": {"group": "Data Retention", "label": "Retention Days", "description": "Days to keep operational data (trace events, tool calls, heartbeat runs, etc.). Empty = keep forever.", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "DATA_RETENTION_SWEEP_INTERVAL_S": {"group": "Data Retention", "label": "Sweep Interval (seconds)", "description": "Seconds between automatic retention sweeps", "type": "int", "min": 3600, "max": 604800},

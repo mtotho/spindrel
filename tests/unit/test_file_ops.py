@@ -1379,6 +1379,20 @@ class TestBatchOp:
         assert parsed["results"][2]["ok"] is True
 
     @pytest.mark.asyncio
+    async def test_batch_read_content_survives_in_result_envelope(self, mock_ctx):
+        result = await file_tool(operation="batch", ops=[
+            {"op": "read", "path": "hello.txt"},
+        ])
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert parsed["results"][0].get("llm")
+        assert "_envelope" not in parsed["results"][0]
+        envelope = parsed["_envelope"]
+        assert envelope["content_type"] == "text/markdown"
+        assert "Read #0 `hello.txt`" in envelope["body"]
+        assert "Hello world" in envelope["body"]
+
+    @pytest.mark.asyncio
     async def test_rejects_empty_ops(self, mock_ctx):
         result = await file_tool(operation="batch", ops=[])
         parsed = json.loads(result)

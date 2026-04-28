@@ -192,12 +192,12 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(messageInput, /ComposerModelControl/);
   assert.match(messageInput, /ComposerPlanControl/);
   assert.match(messageInput, /ComposerApprovalModeControl/);
-  assert.match(messageInput, /const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;/);
+  assert.match(messageInput, /shouldShowComposerPlanControl/);
   assert.doesNotMatch(messageInput, /!isHarness && canTogglePlanMode/);
   assert.doesNotMatch(messageInput, /useDraftsStore/);
   assert.doesNotMatch(messageInput, /type DraftFile/);
   assert.doesNotMatch(messageInput, /function fileToBase64/);
-  assert.doesNotMatch(messageInput, /function draftFilesToPending/);
+  assert.doesNotMatch(messageInput, /uploadChannelWorkspaceFile/);
   assert.doesNotMatch(messageInput, /resolveSlashCommand/);
   assert.doesNotMatch(messageInput, /detectMissingSlashArgs/);
   assert.doesNotMatch(messageInput, /function HarnessModelPickerContent/);
@@ -210,7 +210,8 @@ test("MessageInput delegates draft files and submit decision policy", () => {
 
   assert.match(draftFiles, /useDraftsStore/);
   assert.match(draftFiles, /function fileToBase64/);
-  assert.match(draftFiles, /function draftFilesToPending/);
+  assert.match(draftFiles, /uploadChannelWorkspaceFile/);
+  assert.doesNotMatch(draftFiles, /setDraftFiles/);
   assert.match(composerSubmit, /resolveSlashCommand/);
   assert.match(composerSubmit, /detectMissingSlashArgs/);
   assert.doesNotMatch(composerSubmit, /toast/);

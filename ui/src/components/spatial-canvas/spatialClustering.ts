@@ -4,6 +4,7 @@ import type { Camera } from "./spatialGeometry";
 
 export const CHANNEL_CLUSTER_ENTER_SCALE = 0.22;
 export const CHANNEL_CLUSTER_EXIT_SCALE = 0.26;
+export const CHANNEL_CLUSTER_FOCUS_SCALE = CHANNEL_CLUSTER_EXIT_SCALE + 0.05;
 export const CHANNEL_CLUSTER_SCREEN_RADIUS = 92;
 
 export interface ChannelActivityScore {

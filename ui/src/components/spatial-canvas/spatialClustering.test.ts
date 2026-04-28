@@ -7,7 +7,7 @@ import {
   buildChannelClusters,
   clusterSuppressedChannelIds,
   clusterSuppressedNodeIds,
-} from "./spatialClustering.ts";
+} from "./spatialClustering";
 
 function channel(id: string, name: string, last: string): Channel {
   return {

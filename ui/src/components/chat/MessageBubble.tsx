@@ -387,8 +387,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
       ) : null}
-      {message.attachments && message.attachments.length > 0 && (
-        <AttachmentImages attachments={message.attachments} />
+      {((message.attachments && message.attachments.length > 0)
+        || Array.isArray(meta.local_attachments)
+        || Array.isArray(meta.workspace_uploads)) && (
+        <AttachmentImages
+          attachments={message.attachments ?? []}
+          localAttachments={Array.isArray(meta.local_attachments) ? meta.local_attachments : undefined}
+          workspaceUploads={Array.isArray(meta.workspace_uploads) ? meta.workspace_uploads : undefined}
+          channelId={channelId}
+        />
       )}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
       {turnCancelled && (

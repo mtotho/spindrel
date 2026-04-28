@@ -677,7 +677,7 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
   }, [scheduleCamera, flyToWell, flyToMemoryObservatory, fitAllNodes, flyToChannel]);
 
   const flyToWorldBounds = useCallback(
-    (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06) => {
+    (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06, maxScale = 0.62) => {
       let rect = viewportRectRef.current;
       if (!rect.width || !rect.height) {
         const el = document.querySelector('[data-spatial-canvas="true"]');
@@ -697,7 +697,7 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       const targetScale = Math.max(
         minScale,
         Math.min(
-          0.62,
+          maxScale,
           Math.min(
             rect.width / Math.max(1, bounds.w * (1 + margin * 2)),
             rect.height / Math.max(1, bounds.h * (1 + margin * 2)),

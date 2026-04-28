@@ -55,6 +55,8 @@
     "src/components/chat/composerSubmit.test.ts",
     "src/components/chat/chatCancelRequest.ts",
     "src/components/chat/chatCancelRequest.test.ts",
+    "src/components/chat/attachmentRouting.ts",
+    "src/components/chat/attachmentRouting.test.ts",
     "src/components/chat/planControl.ts",
     "src/components/chat/planControl.test.ts",
     "src/components/chat/planControlVisibility.ts",

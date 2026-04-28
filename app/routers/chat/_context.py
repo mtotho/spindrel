@@ -246,6 +246,41 @@ def _build_identity_preamble(
         )
 
 
+def _compose_workspace_upload_context(msg_metadata: dict | None) -> str | None:
+    uploads = (msg_metadata or {}).get("workspace_uploads")
+    if not isinstance(uploads, list) or not uploads:
+        return None
+    lines = [
+        "The user uploaded file(s) to this channel workspace before sending the current message.",
+        "They are stored under data/ and are not automatically injected as full file contents.",
+        "Use the file tool or search_channel_workspace if you need to inspect them.",
+        "",
+    ]
+    for item in uploads[:20]:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        filename = str(item.get("filename") or "").strip()
+        mime = str(item.get("mime_type") or "application/octet-stream").strip()
+        size = item.get("size_bytes")
+        if not path:
+            continue
+        size_part = f", {size} bytes" if isinstance(size, int) else ""
+        label = filename or path.rsplit("/", 1)[-1]
+        lines.append(f"- {label}: {path} ({mime}{size_part})")
+    if len(lines) == 4:
+        return None
+    return "\n".join(lines)
+
+
+def _append_system_preamble(base: str | None, addition: str | None) -> str | None:
+    if not addition:
+        return base
+    if not base:
+        return addition
+    return f"{base}\n\n{addition}"
+
+
 # ---------------------------------------------------------------------------
 # Unified context preparation
 # ---------------------------------------------------------------------------
@@ -380,6 +415,10 @@ async def prepare_bot_context(
         is_primary=is_primary,
         mentioning_bot_id=mentioning_bot_id,
         invocation_message=invocation_message,
+    )
+    system_preamble = _append_system_preamble(
+        system_preamble,
+        _compose_workspace_upload_context(msg_metadata),
     )
 
     model_override = member_config.get("model_override")

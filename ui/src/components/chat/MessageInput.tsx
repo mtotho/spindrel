@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { Send, Square, X, Mic, Check } from "lucide-react";
+import { useState, useRef, useCallback, useEffect, type DragEvent } from "react";
+import { AlertCircle, Check, FileText, Loader2, Mic, Send, Square, UploadCloud, X } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
@@ -15,6 +15,7 @@ import { ComposerPlanControl } from "./ComposerPlanControl";
 import type { HarnessApprovalMode } from "./harnessApprovalModeControl";
 import { shouldShowComposerPlanControl, type PlanModeControlVisibility } from "./planControlVisibility";
 import { useComposerDraftFiles, type PendingFile } from "./useComposerDraftFiles";
+import { formatFileSize, routeLabel } from "./attachmentRouting";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -130,14 +131,24 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   const [showPlanMenu, setShowPlanMenu] = useState(false);
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
+  const dragCounterRef = useRef(0);
   const [isFocused, setIsFocused] = useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const collapsed = false;
+  const attachmentBlockReason = pendingFiles.some((pf) => pf.status === "uploading")
+    ? "File upload is still running"
+    : pendingFiles.some((pf) => pf.status === "error")
+      ? "Remove failed uploads before sending"
+      : pendingFiles.some((pf) => pf.status === "rejected")
+        ? "Remove files that are too large before sending"
+        : null;
+  const effectiveSendDisabledReason = sendDisabledReason ?? attachmentBlockReason;
 
   const resolveCurrentSubmitIntent = useCallback(() => resolveComposerSubmitIntent({
     rawMessage: editorRef.current?.getMarkdown() ?? text,
     pendingFiles,
     disabled,
-    sendDisabledReason,
+    sendDisabledReason: effectiveSendDisabledReason,
     slashSurface,
     slashCatalog,
     availableSlashCommands,
@@ -145,7 +156,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
     text,
     pendingFiles,
     disabled,
-    sendDisabledReason,
+    effectiveSendDisabledReason,
     slashSurface,
     slashCatalog,
     availableSlashCommands,
@@ -269,7 +280,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   }, [setText, text]);
 
   const hasContent = !!(text.trim() || pendingFiles.length > 0);
-  const sendBlocked = !!sendDisabledReason;
+  const sendBlocked = !!effectiveSendDisabledReason;
   const canAttemptSend = hasContent && !disabled;
   const canSend = canAttemptSend && !sendBlocked;
   // Show stop button when streaming and user hasn't typed anything
@@ -342,6 +353,34 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
     );
   }, [applySubmitIntent, onSendNow, resolveCurrentSubmitIntent]);
 
+  const handleComposerDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDraggingFiles(true);
+  }, []);
+
+  const handleComposerDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleComposerDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDraggingFiles(false);
+  }, []);
+
+  const handleComposerDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingFiles(false);
+    handleFileSelect(event.dataTransfer.files);
+  }, [handleFileSelect]);
+
   const sendIconColor = showStop || recorder.isRecording
       ? t.danger
       : canSend
@@ -367,68 +406,119 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
               flexWrap: "wrap",
             }}
           >
-            {pendingFiles.map((pf, i) => (
-              <div
-                key={i}
-                style={{
-                  position: "relative",
-                  borderRadius: 8,
-                  overflow: "hidden",
-                  border: `1px solid ${t.overlayBorder}`,
-                }}
-              >
-                {pf.preview ? (
-                  <img
-                    src={pf.preview}
-                    alt={pf.file.name}
+            {pendingFiles.map((pf, i) => {
+              const blocked = pf.status === "error" || pf.status === "rejected";
+              const statusText = blocked
+                ? (pf.error || pf.reason || "Could not add file")
+                : pf.status === "uploading"
+                  ? "Uploading to channel data..."
+                  : pf.upload?.path || `${routeLabel(pf.route)} · ${formatFileSize(pf.file.size)}`;
+              return (
+                <div
+                  key={pf.id}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    maxWidth: 300,
+                    minHeight: 66,
+                    borderRadius: 8,
+                    overflow: "hidden",
+                    border: `1px solid ${blocked ? t.danger : t.overlayBorder}`,
+                    background: t.surfaceRaised,
+                  }}
+                >
+                  {pf.preview ? (
+                    <img
+                      src={pf.preview}
+                      alt={pf.file.name}
+                      style={{
+                        width: 64,
+                        height: 64,
+                        objectFit: "cover",
+                        display: "block",
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 64,
+                        height: 64,
+                        display: "flex", flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: t.surfaceRaised,
+                        color: t.textMuted,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <FileText size={22} />
+                    </div>
+                  )}
+                  <div style={{ minWidth: 0, padding: "6px 28px 6px 0" }}>
+                    <div
+                      title={pf.file.name}
+                      style={{
+                        fontSize: 12,
+                        color: t.text,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 185,
+                      }}
+                    >
+                      {pf.file.name}
+                    </div>
+                    <div
+                      title={statusText}
+                      style={{
+                        display: "flex",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 5,
+                        fontSize: 10,
+                        color: blocked ? t.danger : t.textDim,
+                        minWidth: 0,
+                      }}
+                    >
+                      {pf.status === "uploading" ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : pf.status === "uploaded" ? (
+                        <UploadCloud size={11} />
+                      ) : blocked ? (
+                        <AlertCircle size={11} />
+                      ) : null}
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {statusText}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeFile(i)}
                     style={{
-                      width: 64,
-                      height: 64,
-                      objectFit: "cover",
-                      display: "block",
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: 64,
-                      height: 64,
+                      position: "absolute",
+                      top: 2,
+                      right: 2,
+                      width: 18,
+                      height: 18,
+                      borderRadius: 9,
+                      background: "rgba(0,0,0,0.7)",
+                      border: "none",
                       display: "flex", flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: t.surfaceRaised,
-                      fontSize: 10,
-                      color: t.textMuted,
-                      padding: 4,
-                      textAlign: "center",
-                      wordBreak: "break-all",
+                      cursor: "pointer",
+                      padding: 0,
                     }}
                   >
-                    {pf.file.name.slice(0, 20)}
-                  </div>
-                )}
-                <button
-                  onClick={() => removeFile(i)}
-                  style={{
-                    position: "absolute",
-                    top: 2,
-                    right: 2,
-                    width: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    background: "rgba(0,0,0,0.7)",
-                    border: "none",
-                    display: "flex", flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    padding: 0,
-                  }}
-                >
-                  <X size={10} color="#fff" />
-                </button>
-              </div>
-            ))}
+                    <X size={10} color="#fff" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -523,6 +613,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
               a floating CTA while preserving the desktop overlay treatment. */}
           <div
             ref={editorWrapperRef}
+            onDragEnter={handleComposerDragEnter}
+            onDragOver={handleComposerDragOver}
+            onDragLeave={handleComposerDragLeave}
+            onDrop={handleComposerDrop}
             onFocusCapture={() => setIsFocused(true)}
             onBlurCapture={() => {
               // Delay so focus bouncing through portals (mentions, + menu) doesn't
@@ -548,8 +642,28 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   : `inset 0 1px 0 ${t.overlayLight}, 0 6px 24px -8px rgba(0,0,0,0.45), 0 2px 6px -2px rgba(0,0,0,0.3)`,
               overflow: "hidden",
               transition: "box-shadow 0.15s, border-color 0.15s",
+              position: "relative",
             }}
           >
+            {isDraggingFiles && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  zIndex: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: `${t.surfaceRaised}ee`,
+                  color: t.accent,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  pointerEvents: "none",
+                }}
+              >
+                Drop files to add
+              </div>
+            )}
             {/* Editor area — no own border/background; inherits the card.
                 Mobile collapsed mode inlines a compact mic on the right so
                 the single-row pill stays useful. */}

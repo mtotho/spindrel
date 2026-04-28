@@ -483,30 +483,43 @@ export function useRestoreChannelWorkspaceFile(channelId: string) {
 // Channel workspace file upload (multipart — bypasses apiFetch)
 // ---------------------------------------------------------------------------
 
+export interface ChannelWorkspaceUploadResult {
+  path: string;
+  size: number;
+  filename?: string;
+  mime_type?: string;
+}
+
+export async function uploadChannelWorkspaceFile(
+  channelId: string,
+  { file, targetDir }: { file: File; targetDir: string },
+): Promise<ChannelWorkspaceUploadResult> {
+  const { useAuthStore, getAuthToken } = await import("../../stores/auth");
+  const { serverUrl } = useAuthStore.getState();
+  if (!serverUrl) throw new Error("Server not configured");
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const token = getAuthToken();
+  const url = `${serverUrl}/api/v1/channels/${channelId}/workspace/files/upload?path=${encodeURIComponent(targetDir)}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => null);
+    throw new Error(`Upload failed (${res.status}): ${body}`);
+  }
+  return res.json();
+}
+
 export function useUploadChannelWorkspaceFile(channelId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ file, targetDir }: { file: File; targetDir: string }) => {
-      const { useAuthStore, getAuthToken } = await import("../../stores/auth");
-      const { serverUrl } = useAuthStore.getState();
-      if (!serverUrl) throw new Error("Server not configured");
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const token = getAuthToken();
-      const url = `${serverUrl}/api/v1/channels/${channelId}/workspace/files/upload?path=${encodeURIComponent(targetDir)}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => null);
-        throw new Error(`Upload failed (${res.status}): ${body}`);
-      }
-      return res.json();
-    },
+    mutationFn: (payload: { file: File; targetDir: string }) =>
+      uploadChannelWorkspaceFile(channelId, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
     },

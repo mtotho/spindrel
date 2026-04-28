@@ -19,8 +19,14 @@ test("channel clusters focus the map instead of opening selection chrome", () =>
   const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
   const markerSource = readFileSync(resolve(SPATIAL_DIR, "ChannelClusterMarker.tsx"), "utf8");
   const canvasSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvas.tsx"), "utf8");
-  assert.match(worldSource, /CHANNEL_CLUSTER_FOCUS_MIN_SCALE = 0\.42/);
-  assert.match(worldSource, /flyToWorldBounds\(cluster\.worldBounds, CHANNEL_CLUSTER_FOCUS_MIN_SCALE\)/);
+  const navigationSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialNavigation.tsx"), "utf8");
+  const clusteringSource = readFileSync(resolve(SPATIAL_DIR, "spatialClustering.ts"), "utf8");
+  assert.match(clusteringSource, /CHANNEL_CLUSTER_FOCUS_SCALE = CHANNEL_CLUSTER_EXIT_SCALE \+ 0\.05/);
+  assert.doesNotMatch(worldSource, /0\.42/);
+  assert.match(worldSource, /CHANNEL_CLUSTER_FOCUS_SCALE/);
+  assert.match(worldSource, /flyToWorldBounds\(cluster\.worldBounds, CHANNEL_CLUSTER_FOCUS_SCALE, CHANNEL_CLUSTER_FOCUS_SCALE\)/);
+  assert.match(navigationSource, /maxScale = 0\.62/);
+  assert.match(navigationSource, /Math\.min\(\s*maxScale,/);
   assert.match(worldSource, /setSelectedSpatialObject\(null\)/);
   assert.match(canvasSource, /flyToWorldBounds=\{flyToWorldBounds\}/);
   assert.doesNotMatch(worldSource, /onDiveWinner/);

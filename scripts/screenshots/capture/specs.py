@@ -1139,6 +1139,11 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             " await new Promise(r => setTimeout(r, 900));"
         ),
         assert_js=(
+            "const world = document.querySelector('[data-testid=\"spatial-world\"]');"
+            "const afterMatch = String(world?.style.transform || '').match(/scale\\(([^)]+)\\)/);"
+            "const afterScale = afterMatch ? Number(afterMatch[1]) : 0;"
+            "if (!(afterScale > 0.26)) throw new Error(`cluster click did not cross uncluster threshold: ${afterScale}`);"
+            "if (!(afterScale < 0.4)) throw new Error(`cluster click zoomed too far into preview range: ${afterScale}`);"
             "if (document.querySelector('[data-testid=\"spatial-selection-rail\"]')) throw new Error('cluster click opened floating selection rail');"
             "if (document.querySelector('[data-spatial-selected-anchor=\"true\"]')) throw new Error('cluster click created a selected-object anchor');"
             "if (document.querySelector('[data-testid=\"spatial-object-hover-card\"]')) throw new Error('cluster click created a hover card');"
@@ -1176,6 +1181,8 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "const afterMatch = String(world?.style.transform || '').match(/scale\\(([^)]+)\\)/);"
             "const afterScale = afterMatch ? Number(afterMatch[1]) : 0;"
             "if (!(afterScale > window.__spatialClusterScaleBefore + 0.05)) throw new Error(`cluster double-click did not zoom toward the cluster: ${window.__spatialClusterScaleBefore} -> ${afterScale}`);"
+            "if (!(afterScale > 0.26)) throw new Error(`cluster double-click did not cross uncluster threshold: ${afterScale}`);"
+            "if (!(afterScale < 0.4)) throw new Error(`cluster double-click zoomed too far into preview range: ${afterScale}`);"
             "if (location.pathname !== window.__spatialClusterPathBefore) throw new Error('cluster double-click navigated directly to a channel');"
             "if (document.querySelector('[data-testid=\"spatial-selection-rail\"]')) throw new Error('cluster double-click opened floating selection rail');"
             "if (document.querySelector('[data-spatial-selected-anchor=\"true\"]')) throw new Error('cluster double-click created a selected-object anchor');"

@@ -204,12 +204,12 @@ def _has_persisted_tool_result_envelope(message: dict) -> bool:
     )
 
 
-def _has_persisted_text_tool_result_containing(message: dict, expected: str) -> bool:
+def _has_persisted_tool_result_containing(message: dict, expected: str) -> bool:
     meta = message.get("metadata") or {}
     tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
     return any(
         isinstance(result, dict)
-        and result.get("content_type") == "text/plain"
+        and result.get("content_type") in {"text/plain", "text/markdown"}
         and expected in str(result.get("body") or result.get("plain_body") or "")
         for result in (tool_results or [])
     )
@@ -535,9 +535,9 @@ async def test_live_harness_safe_workspace_write_read_delete(
         messages = await client.get_session_messages(session_id, limit=20)
         assistants = _assistant_messages(messages)
         assert any(
-            _has_persisted_text_tool_result_containing(message, exact_content)
+            _has_persisted_tool_result_containing(message, exact_content)
             for message in assistants
-        ), "native write/read turn did not persist a text/plain tool-result envelope"
+        ), "write/read turn did not persist a readable tool-result envelope with file content"
     finally:
         cleanup = await client.chat_session_stream(
             (

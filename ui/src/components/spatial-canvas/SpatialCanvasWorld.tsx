@@ -41,9 +41,9 @@ import {
 } from "./spatialGeometry";
 import { upcomingOrbit, upcomingReactKey } from "./spatialActivity";
 import { AttentionHubLandmark, OriginMarker } from "./SpatialCanvasLandmarks";
+import { CHANNEL_CLUSTER_FOCUS_SCALE } from "./spatialClustering";
 
 const DIVE_MS = 300;
-const CHANNEL_CLUSTER_FOCUS_MIN_SCALE = 0.42;
 
 type SpatialCanvasWorldProps = Record<string, any> & {
   setHoveredNodeId: React.Dispatch<React.SetStateAction<any>>;
@@ -413,7 +413,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 onFocus={() => {
                   setSelectedSpatialObject(null);
                   setContextMenu(null);
-                  flyToWorldBounds(cluster.worldBounds, CHANNEL_CLUSTER_FOCUS_MIN_SCALE);
+                  flyToWorldBounds(cluster.worldBounds, CHANNEL_CLUSTER_FOCUS_SCALE, CHANNEL_CLUSTER_FOCUS_SCALE);
                 }}
               />
               {attentionSignalsVisible && (

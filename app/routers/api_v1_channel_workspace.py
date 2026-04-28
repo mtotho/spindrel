@@ -5,6 +5,7 @@ import asyncio
 import glob as glob_mod
 import logging
 import os
+import re
 import shutil
 import time
 import uuid
@@ -15,10 +16,13 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel
+from app.config import settings
 from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channels/{channel_id}/workspace", tags=["Channel Workspace"])
+_SAFE_UPLOAD_FILENAME_RE = re.compile(r"[^\w.\- ]")
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 class FileWriteBody(BaseModel):
@@ -228,6 +232,47 @@ def _resolve_channel_path(channel_id: uuid.UUID, bot, path: str) -> str:
     return target
 
 
+def _safe_upload_filename(filename: str | None) -> str:
+    base = os.path.basename(filename or "upload")
+    cleaned = _SAFE_UPLOAD_FILENAME_RE.sub("_", base).strip(" .")
+    return cleaned[:255] or "upload"
+
+
+def _dedupe_upload_path(directory: str, filename: str) -> tuple[str, str]:
+    stem, ext = os.path.splitext(filename)
+    candidate = filename
+    idx = 1
+    while os.path.exists(os.path.join(directory, candidate)):
+        suffix = f"-{idx}"
+        candidate = f"{stem[:255 - len(ext) - len(suffix)]}{suffix}{ext}"
+        idx += 1
+    return candidate, os.path.join(directory, candidate)
+
+
+async def _write_upload_stream(file: UploadFile, target: str, max_bytes: int) -> int:
+    written = 0
+    try:
+        with open(target, "wb") as out:
+            while True:
+                chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large (max {max_bytes // (1024 * 1024)} MB)",
+                    )
+                out.write(chunk)
+    except Exception:
+        try:
+            if os.path.exists(target):
+                os.remove(target)
+        finally:
+            raise
+    return written
+
+
 @router.get("/files/versions")
 async def list_workspace_file_versions(
     channel_id: uuid.UUID,
@@ -327,23 +372,27 @@ async def upload_workspace_file(
 ):
     """Upload a file to the channel workspace. Text files are stored as UTF-8; binary files are stored as-is."""
     channel, bot = await _require_channel_workspace(channel_id, db)
-    from app.services.channel_workspace import (
-        ensure_channel_workspace,
-        write_workspace_file as _write_text,
-        write_workspace_file_binary as _write_binary,
-    )
+    from app.services.channel_workspace import ensure_channel_workspace, get_channel_workspace_root
     ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
 
-    filename = file.filename or "upload.md"
-    file_path = f"{path}/{filename}" if path else filename
-    raw_bytes = await file.read()
-
+    filename = _safe_upload_filename(file.filename)
+    ws_path = get_channel_workspace_root(str(channel_id), bot)
+    ws_real = os.path.realpath(ws_path)
+    target_dir = os.path.realpath(os.path.join(ws_real, path)) if path else ws_real
+    if not (target_dir == ws_real or target_dir.startswith(ws_real + os.sep)):
+        raise HTTPException(400, "Path escapes workspace root")
+    os.makedirs(target_dir, exist_ok=True)
+    final_filename, target = _dedupe_upload_path(target_dir, filename)
     try:
-        if _is_text_file(filename):
-            result = _write_text(str(channel_id), bot, file_path, raw_bytes.decode("utf-8", errors="replace"))
-        else:
-            result = _write_binary(str(channel_id), bot, file_path, raw_bytes)
+        size = await _write_upload_stream(file, target, settings.CHANNEL_DATA_UPLOAD_MAX_BYTES)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    rel_path = os.path.relpath(target, ws_real)
+    result = {
+        "path": rel_path,
+        "size": size,
+        "filename": final_filename,
+        "mime_type": file.content_type or "application/octet-stream",
+    }
     _schedule_reindex(str(channel_id), bot)
     return result
