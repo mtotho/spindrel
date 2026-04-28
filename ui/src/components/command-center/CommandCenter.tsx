@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, Clock, ExternalLink, ListChecks, Loader2, MessageSquare, Pause, Pencil, Play, Plus, Radar, Route, Send, Settings2, Sparkles, X, Zap } from "lucide-react";
+import { Activity, AlertTriangle, Bot, CheckCircle2, ClipboardCheck, Clock, ExternalLink, ListChecks, Loader2, MessageSquare, Pause, Pencil, Play, Plus, Radar, Route, Send, Settings2, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
 
 import { useBots } from "../../api/hooks/useBots";
 import { useChannels } from "../../api/hooks/useChannels";
@@ -24,6 +24,7 @@ import {
   type MissionControlDraft,
   type MissionControlLane,
   type MissionControlMissionRow,
+  type MissionControlResponse,
   type MissionControlSpatialAdvisory,
 } from "../../api/hooks/useMissionControl";
 import { BotPicker } from "../shared/BotPicker";
@@ -127,6 +128,7 @@ export function CommandCenter({
           <>
             <OperatorBrief brief={data.assistant_brief ?? null} summary={data.summary} />
             <AskMissionControl />
+            <OperatorOpportunityStack data={data} onManualMission={() => setManualOpen(true)} />
             <DraftStack
               drafts={data.drafts}
               onEdit={(draft) => {
@@ -261,7 +263,7 @@ function AskMissionControl() {
         <MessageSquare size={15} className="shrink-0 text-text-dim" />
         <input
           className="min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-dim"
-          placeholder="Ask Mission Control what to queue next..."
+          placeholder="Ask Mission Control to inspect, stage concrete changes, or explain next work..."
           value={instruction}
           onChange={(event) => setInstruction(event.target.value)}
           onKeyDown={(event) => {
@@ -277,6 +279,128 @@ function AskMissionControl() {
         >
           {ask.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
         </button>
+      </div>
+    </section>
+  );
+}
+
+function OperatorOpportunityStack({
+  data,
+  onManualMission,
+}: {
+  data: MissionControlResponse;
+  onManualMission: () => void;
+}) {
+  const ask = useAskMissionControlAi();
+  const refresh = useRefreshMissionControlAi();
+  const cards: Array<{
+    id: string;
+    title: string;
+    detected: string;
+    missing: string;
+    staged: string;
+    action: string;
+    icon: typeof Radar;
+    onSelect: () => void;
+    busy?: boolean;
+  }> = [];
+
+  if (!data.assistant_brief && data.drafts.length === 0) {
+    cards.push({
+      id: "operator-inspection",
+      title: "Run an operator inspection",
+      detected: "No current brief or staged next moves.",
+      missing: "A grounded read of missions, bots, channels, recent runs, and map readiness.",
+      staged: "Brief plus reviewable mission drafts. Nothing durable is created until you approve a draft.",
+      action: "Inspect workspace",
+      icon: Sparkles,
+      onSelect: () => refresh.mutate("Inspect the workspace and stage only concrete, approval-ready next moves."),
+      busy: refresh.isPending,
+    });
+  }
+
+  if (data.unassigned_attention.length > 0) {
+    cards.push({
+      id: "triage-attention",
+      title: "Triage unassigned attention",
+      detected: `${data.unassigned_attention.length} active attention item${data.unassigned_attention.length === 1 ? "" : "s"} without an operator lane.`,
+      missing: "Owner, target channel, and the first bounded investigation step.",
+      staged: "One mission draft per useful lane, with noisy or duplicate signals left unstaged.",
+      action: "Stage triage",
+      icon: AlertTriangle,
+      onSelect: () => ask.mutate("Inspect unassigned attention items. Stage concrete triage missions only when there is enough evidence, and explain anything you decline to stage."),
+      busy: ask.isPending,
+    });
+  }
+
+  if (data.summary.spatial_warnings > 0) {
+    cards.push({
+      id: "spatial-readiness",
+      title: "Resolve map readiness",
+      detected: `${data.summary.spatial_warnings} mission lane${data.summary.spatial_warnings === 1 ? "" : "s"} with spatial readiness warnings.`,
+      missing: "A clear target, nearby bot posture, or explicit decision to ignore proximity.",
+      staged: "Drafted move/inspection plan or a mission edit that makes the warning visible before the next run.",
+      action: "Inspect warnings",
+      icon: Radar,
+      onSelect: () => ask.mutate("Inspect spatial readiness warnings. Stage concrete fixes or mission edits, and keep position advisory rather than blocking work."),
+      busy: ask.isPending,
+    });
+  }
+
+  if (data.summary.active_missions === 0 && data.summary.active_bots > 0) {
+    cards.push({
+      id: "first-operating-rhythm",
+      title: "Start an operating rhythm",
+      detected: `${data.summary.active_bots} bot${data.summary.active_bots === 1 ? "" : "s"} available and no active missions.`,
+      missing: "One bounded responsibility that should recur or run on demand.",
+      staged: "A task-backed mission draft tied to a bot and room, ready for approval.",
+      action: "Stage first mission",
+      icon: ClipboardCheck,
+      onSelect: onManualMission,
+    });
+  }
+
+  if (!cards.length) return null;
+
+  return (
+    <section className="mb-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+          <ShieldCheck size={13} />
+          Operator Opportunities
+        </div>
+        <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{cards.length}</span>
+      </div>
+      <div className="grid gap-2">
+        {cards.slice(0, 3).map((card) => {
+          const Icon = card.icon;
+          return (
+            <div key={card.id} className="rounded-md bg-surface-raised/40 px-3 py-3">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/[0.08] text-accent">
+                  <Icon size={15} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-text">{card.title}</div>
+                  <div className="mt-2 grid gap-1 text-xs leading-5 text-text-muted sm:grid-cols-3">
+                    <div><span className="text-text-dim">Detected:</span> {card.detected}</div>
+                    <div><span className="text-text-dim">Missing:</span> {card.missing}</div>
+                    <div><span className="text-text-dim">Stages:</span> {card.staged}</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={card.busy}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:cursor-wait disabled:text-text-dim"
+                  onClick={card.onSelect}
+                >
+                  {card.busy ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
+                  {card.action}
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -312,6 +436,10 @@ function DraftStack({ drafts, onEdit }: { drafts: MissionControlDraft[]; onEdit:
                       <span>{draft.ai_model}</span>
                     </>
                   )}
+                </div>
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-surface-overlay/45 px-2 py-1 text-[11px] text-text-muted">
+                  <ShieldCheck size={12} />
+                  Approval creates a task-backed mission; dismissing does not start work.
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -725,7 +853,7 @@ function BotLanes({ lanes, onSelect }: { lanes: MissionControlLane[]; onSelect: 
         ))}
         {!lanes.length && (
           <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-3 py-6 text-center text-sm text-text-dim">
-            No active missions yet.
+            No active mission lanes yet. Ask Mission Control to inspect the workspace or stage one bounded mission.
           </div>
         )}
       </div>

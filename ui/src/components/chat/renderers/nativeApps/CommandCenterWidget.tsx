@@ -24,7 +24,7 @@ export function CommandCenterWidget({
     return (
       <PreviewCard
         title="Mission Control"
-        description="Mission load, bot lanes, attention signals, and spatial readiness."
+        description="Operator snapshot for active missions, staged drafts, bot lanes, and spatial readiness."
         t={t}
       />
     );
@@ -41,10 +41,10 @@ export function CommandCenterWidget({
     return (
       <Link to="/hub/mission-control" style={{ color: "inherit", textDecoration: "none" }}>
         <div style={{ display: "flex", minHeight: "100%", flexDirection: "column", gap: 10 }}>
-          <div style={{ border: `1px solid ${t.surfaceBorder}`, borderRadius: 12, background: t.surface, padding: 12 }}>
+          <div style={{ border: `1px solid ${t.surfaceBorder}`, borderRadius: 8, background: t.surface, padding: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, color: t.textDim, fontSize: 11 }}>
-              <span>Missions</span>
-              <span>{data.summary.active_missions}</span>
+              <span>Operator snapshot</span>
+              <span>{data.summary.active_missions} active</span>
             </div>
             <div style={{ marginTop: 8, color: t.text, fontSize: 15, fontWeight: 600 }}>
               {first?.missions[0]?.mission.title ?? "No active mission"}
@@ -54,8 +54,9 @@ export function CommandCenterWidget({
             </div>
           </div>
           <div style={{ color: t.textDim, fontSize: 11 }}>
+            {data.drafts.length ? `${data.drafts.length} staged · ` : ""}
             {data.summary.spatial_warnings ? `${data.summary.spatial_warnings} spatial warnings · ` : ""}
-            {data.summary.recent_updates} recent updates
+            {data.summary.recent_updates} updates
           </div>
         </div>
       </Link>
@@ -75,9 +76,9 @@ export function CommandCenterWidget({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, paddingBottom: 10 }}>
         {[
           ["Active", data.summary.active_missions],
+          ["Staged", data.drafts.length],
           ["Bots", data.summary.active_bots],
           ["Spatial", data.summary.spatial_warnings],
-          ["Attention", data.summary.attention_signals],
         ].map(([label, value]) => (
           <div key={label} style={{ background: t.surface, borderRadius: 8, padding: "8px 10px" }}>
             <div style={{ color: t.textDim, fontSize: 10 }}>{label}</div>

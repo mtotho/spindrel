@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Loop setup seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Loop recovery/no-tool seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -39,7 +39,8 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - **Loop exit/finalization seam shipped.** Post-loop forced-response dispatch, success-path tool-enrollment telemetry, and error-path `after_response`/trace cleanup now live behind `stream_loop_exit_finalization` and `schedule_loop_error_cleanup` in `app.agent.loop_exit`. The existing forced-response helper remains injected to preserve behavior, while the coordinator now treats loop exit as one bounded stage and no longer owns success telemetry or error cleanup details.
 - **Loop pre-LLM iteration seam shipped.** Cancellation before provider calls, mid-loop tool activation merging, heartbeat soft-budget pressure pruning, normal pressure-triggered in-loop pruning, first-iteration context-breakdown trace, and prompt-budget/rate-limit gating now live behind `stream_loop_pre_llm_iteration` / `LoopPreLlmIterationDone` in `app.agent.loop_pre_llm`. The coordinator now receives updated `tools_param` / `tool_choice` plus explicit return/continue control flags before entering the LLM stage.
 - **Loop setup seam shipped.** Loop config resolution, tool schema resolution, run-control policy normalization, hard-cap handling, heartbeat `tool_surface_summary` emission/trace, `LoopRunContext` / `LoopRunState` creation, provider resolution, and opening skill nudges now live behind `stream_loop_setup` / `LoopSetupDone` in `app.agent.loop_setup`. `run_agent_tool_loop` is now a staged coordinator: setup -> pre-LLM -> LLM -> recovery/no-tool/tool-iteration -> exit.
-- **Next section candidate.** Persona remains deferred as low-leverage/removable. The live-loop god function is now materially reduced; next architecture review should either extract a small recovery/no-tool stage around `_recover_tool_calls_from_text` + `_handle_no_tool_calls_path`, or pivot to another high-risk module using a fresh verify-first scan rather than continuing to split utilities.
+- **Loop recovery/no-tool seam shipped.** Text-encoded tool-call recovery and the terminal no-tool branch now live behind `stream_loop_recovery` / `LoopRecoveryDone` in `app.agent.loop_recovery`. The coordinator now treats the LLM result as either recovered tool calls for the tool-iteration stage or a terminal no-tool response path.
+- **Next section candidate.** Persona remains deferred as low-leverage/removable. The live-loop god function is now materially reduced and staged; next architecture review should use a fresh verify-first scan for the next high-risk module rather than continuing to split small loop utilities.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

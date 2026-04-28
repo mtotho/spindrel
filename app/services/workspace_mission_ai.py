@@ -240,14 +240,18 @@ def _prompt_messages(context: dict[str, Any]) -> list[dict[str, str]]:
         "and 2-5 draft missions that a human can approve. Be concrete, operational, and "
         "skeptical of noisy attention alerts. Prefer evidence from recent task outcomes, "
         "mission progress, channel configuration, bot capabilities, and spatial readiness. "
-        "Do not claim a mission has started. Return JSON only."
+        "This is an Operator Map, not a setup interview: inspect the provided state first, "
+        "then stage concrete next work. Every draft rationale must explicitly cover "
+        "Detected, Missing, Stages, Approval, and Afterward. Do not ask broad discovery "
+        "questions when the grounding data already answers them. Do not claim a mission "
+        "has started. Return JSON only."
     )
     user_msg = (
         "Workspace grounding JSON follows. Return this exact JSON shape:\n"
         "{\n"
         '  "brief": {"summary": "...", "next_focus": "...", "confidence": "low|medium|high"},\n'
         '  "drafts": [\n'
-        '    {"title": "...", "directive": "...", "rationale": "...", "scope": "workspace|channel", '
+        '    {"title": "...", "directive": "...", "rationale": "Detected: ... Missing: ... Stages: ... Approval: ... Afterward: ...", "scope": "workspace|channel", '
         '"bot_id": "existing bot id or null", "target_channel_id": "existing channel id or null", '
         '"interval_kind": "manual|preset|custom", "recurrence": null or "+4h"}\n'
         "  ]\n"

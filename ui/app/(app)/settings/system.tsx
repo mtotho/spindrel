@@ -101,6 +101,8 @@ const LEGACY_HASH_MAP: Record<string, SystemTab> = {
 const DOMAIN_KEYS: Record<Exclude<SystemTab, "Overview" | "Advanced">, string[]> = {
   Models: [
     "LLM_FALLBACK_MODEL",
+    "MISSION_CONTROL_AI_MODEL",
+    "MISSION_CONTROL_AI_TEMPERATURE",
     "COMPACTION_MODEL",
     "MEMORY_FLUSH_MODEL",
     "MEMORY_HYGIENE_MODEL",
@@ -274,6 +276,11 @@ function settingsForDomain(tab: Exclude<SystemTab, "Overview" | "Advanced">, set
   return DOMAIN_KEYS[tab].map((key) => settingsByKey.get(key)).filter(Boolean) as SettingItem[];
 }
 
+function providerCompanionKey(key: string): string | null {
+  if (key.endsWith("_MODEL")) return `${key}_PROVIDER_ID`;
+  return null;
+}
+
 function formatSettingValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -296,11 +303,15 @@ function saveTone(status: "idle" | "dirty" | "pending" | "saved" | "error"): Sav
 function SettingControl({
   item,
   value,
+  values,
   onChange,
+  onChangeKey,
 }: {
   item: SettingItem;
   value: string;
+  values: Record<string, string>;
   onChange: (value: string) => void;
+  onChangeKey: (key: string, value: string) => void;
 }) {
   if (item.type === "bool") {
     return (
@@ -327,6 +338,7 @@ function SettingControl({
   }
 
   if (item.widget === "model" || item.widget === "embedding_model" || item.widget === "image_model") {
+    const providerKey = providerCompanionKey(item.key);
     const placeholder =
       item.widget === "embedding_model"
         ? "Select embedding model..."
@@ -337,8 +349,11 @@ function SettingControl({
       <div className="max-w-[420px]">
         <LlmModelDropdown
           value={value}
-          onChange={(model) => {
-            if (!item.read_only) onChange(model);
+          selectedProviderId={providerKey ? values[providerKey] || null : undefined}
+          onChange={(model, providerId) => {
+            if (item.read_only) return;
+            onChange(model);
+            if (providerKey) onChangeKey(providerKey, providerId ?? "");
           }}
           placeholder={placeholder}
           allowClear={item.nullable}
@@ -408,9 +423,14 @@ function SettingsDomainSection({
   onSave: (keys?: string[]) => void;
   onReset: (item: SettingItem) => void;
 }) {
-  const sectionDirtyKeys = settings
-    .filter((item) => dirtyKeys.has(item.key))
-    .map((item) => item.key);
+  const sectionDirtyKeys = Array.from(new Set(
+    settings.flatMap((item) => {
+      const keys = [item.key];
+      const companion = providerCompanionKey(item.key);
+      if (companion) keys.push(companion);
+      return keys;
+    }).filter((key) => dirtyKeys.has(key)),
+  ));
   const sectionStatus = status === "dirty" && sectionDirtyKeys.length === 0 ? "idle" : status;
 
   return (
@@ -471,7 +491,9 @@ function SettingsDomainSection({
                 <SettingControl
                   item={item}
                   value={values[item.key] ?? ""}
+                  values={values}
                   onChange={(next) => onChange(item.key, next)}
+                  onChangeKey={onChange}
                 />
               </div>
             </div>
@@ -781,7 +803,13 @@ export default function SystemSettingsPage() {
   };
 
   const saveSettings = async (keys?: string[]) => {
-    const keysToSave = keys?.length ? keys.filter((key) => dirtyKeys.has(key)) : Array.from(dirtyKeys);
+    const requestedKeys = keys?.length ? keys : Array.from(dirtyKeys);
+    const expandedKeys = new Set(requestedKeys);
+    for (const key of requestedKeys) {
+      const companion = providerCompanionKey(key);
+      if (companion) expandedKeys.add(companion);
+    }
+    const keysToSave = Array.from(expandedKeys).filter((key) => dirtyKeys.has(key));
     if (!keysToSave.length) return;
     const updates: Record<string, unknown> = {};
     for (const key of keysToSave) {

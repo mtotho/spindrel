@@ -1,6 +1,7 @@
 import { OnboardingSection } from "./sections/OnboardingSection";
 import { AttentionSection } from "./sections/AttentionSection";
 import { DailyHealthSection } from "./sections/DailyHealthSection";
+import { MissionControlSection } from "./sections/MissionControlSection";
 import { UpcomingSection } from "./sections/UpcomingSection";
 import { ChannelsSection } from "./sections/ChannelsSection";
 import { MemoryPulseSection } from "./sections/MemoryPulseSection";
@@ -33,6 +34,7 @@ export function HubSections({ navigation }: { navigation?: HubNavigationHandlers
         onOpenHub={navigation?.onAttentionHub}
       />
       <DailyHealthSection onOpen={navigation?.onDailyHealth} />
+      <MissionControlSection />
       <UpcomingSection />
       <ChannelsSection />
       <MemoryPulseSection />

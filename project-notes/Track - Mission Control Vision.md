@@ -18,6 +18,13 @@ Channels are rooms/clusters on that map. Bots are actors. Widgets are live
 instruments. Missions are durable work objects that connect the operator feed,
 the map, and task-backed execution.
 
+The guiding product shape is **Operator Map**: Mission Control is the command
+room, and the spatial canvas is the living map. This is not another
+orchestrator-led setup interview and not a generic workflow wizard. The operator
+must inspect actual workspace state, name concrete missing pieces, stage
+specific changes, and require approval before durable work or configuration
+mutations happen.
+
 ## Locked Product Decisions
 
 - **Mission Control is an operator agent.** It should have a normal-feeling
@@ -44,6 +51,18 @@ the map, and task-backed execution.
 - **Game feeling is structural, not toy.** "Quest board" means motivating
   work framing, optional useful side quests, and a living world. No XP,
   inventory, levels, or blocking game loops in this track's v1 scope.
+- **Setup help is inspection-first.** Mission Control should not ask broad
+  intake questions when the workspace can answer them. Useful suggestions cite
+  detected state, missing pieces, staged action, approval requirement, and the
+  durable object that will exist afterward.
+- **Quiet by default.** Setup opportunities belong in Mission Control, the
+  optional native widget, or selected-object context. Channels and the map stay
+  clean unless there is active local work, severe evidence, or an explicitly
+  pinned widget.
+- **Avoid user-facing "workflow" language.** Automations and Pipelines remain
+  implementation primitives. Mission Control copy should speak in concrete
+  operating goals: maintain this repo, watch this server, triage this room,
+  keep this project moving.
 
 ## End State
 
@@ -71,6 +90,19 @@ operator bot needs:
 - load relevant skills on demand;
 - remember durable workspace-level operating context;
 - propose changes as structured drafts before mutating.
+
+Every operator suggestion should clear the "materially better than the old
+orchestrator" bar:
+
+- **Detected:** what Mission Control found in live missions, tasks, channels,
+  bots, widgets, traces, integrations, spatial state, or files.
+- **Missing:** the exact absent setup or decision that prevents useful work.
+- **Stages:** the concrete mission, automation, widget, setting, bot/channel
+  edit, or run that would be created.
+- **Approval:** what the human is approving and what remains unchanged if they
+  dismiss it.
+- **Afterward:** where the durable result appears: feed card, channel strip,
+  widget, map marker, run transcript, task, or trace.
 
 The feed is not the only surface. Mission Control can also appear as:
 
@@ -196,6 +228,8 @@ The board version of Mission Control should be dense and professional:
 Carry forward the accepted near-term implementation plan:
 
 - redesign `CommandCenter` into a dense operator board;
+- add inspection-first opportunity cards that show detected state, missing
+  pieces, staged action, and approval outcome;
 - promote Mission Control AI settings into System > Models and make provider
   selection persist correctly;
 - add per-request model/provider selector to Mission Control ask/refresh;
@@ -208,6 +242,8 @@ Acceptance:
 
 - browser find for "Mission Control" succeeds on System > Models;
 - user can answer "what is each bot doing next?" in under 10 seconds;
+- empty or underconfigured workspaces show concrete operator opportunities, not
+  generic onboarding copy;
 - a channel-scoped draft can be accepted into a normal mission;
 - active missions remain traceable through task links.
 
@@ -294,6 +330,8 @@ Acceptance:
   heartbeat consumption.
 - Mission Control suggestions require human approval before creating durable
   work or mutating configuration.
+- AI-assisted setup suggestions must cite detected state, missing pieces,
+  staged action, approval impact, and the durable result after approval.
 - Attention is a weak/noisy signal unless supported by task, trace, mission,
   channel, or spatial evidence.
 - Spatial position affects recommendations and warnings, not authorization.
@@ -304,6 +342,9 @@ Acceptance:
 - Widgets should remain real tools, not decorative panels. A widget earns its
   canvas footprint by showing state or enabling action.
 - Professional utility wins over game flavor. Side quests must be useful work.
+- The canvas should feel alive through useful state, actor movement, local
+  context, and optional side objectives, not through XP, levels, or decorative
+  mechanics.
 
 ## References
 

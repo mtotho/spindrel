@@ -44,6 +44,7 @@ from app.agent.loop_helpers import (
 from app.agent.loop_exit import schedule_loop_error_cleanup, stream_loop_exit_finalization
 from app.agent.loop_llm import LoopLlmIterationDone, stream_loop_llm_iteration
 from app.agent.loop_pre_llm import LoopPreLlmIterationDone, stream_loop_pre_llm_iteration
+from app.agent.loop_recovery import LoopRecoveryDone, stream_loop_recovery
 from app.agent.loop_setup import LoopSetupDone, stream_loop_setup
 from app.agent.loop_state import LoopRunContext, LoopRunState
 from app.agent.loop_tool_iteration import LoopToolIterationDone, stream_loop_tool_iteration
@@ -246,28 +247,26 @@ async def run_agent_tool_loop(
                 return
 
             accumulated_msg = _llm_done.accumulated_msg
-            effective_model = _llm_done.effective_model
-            messages = state.messages
-
-            # Recover tool calls from JSON-in-text (local model compat) or
-            # suppressed XML blocks (MiniMax and siblings emit <invoke> as text).
-            _recover_tool_calls_from_text(
-                accumulated_msg, messages, _effective_allowed,
-            )
-
-            if not accumulated_msg.tool_calls:
-                async for _evt in _handle_no_tool_calls_path(
-                    accumulated_msg=accumulated_msg,
-                    ctx=ctx,
-                    state=state,
-                    iteration=iteration,
-                    model=model,
-                    tools_param=tools_param,
-                    effective_provider_id=effective_provider_id,
-                    fallback_models=fallback_models,
-                    llm_call_fn=_llm_call,
-                ):
-                    yield _evt
+            _recovery_done: LoopRecoveryDone | None = None
+            async for _recovery_event in stream_loop_recovery(
+                accumulated_msg=accumulated_msg,
+                ctx=ctx,
+                state=state,
+                iteration=iteration,
+                model=model,
+                tools_param=tools_param,
+                effective_provider_id=effective_provider_id,
+                fallback_models=fallback_models,
+                effective_allowed=_effective_allowed,
+                recover_tool_calls_from_text_fn=_recover_tool_calls_from_text,
+                handle_no_tool_calls_path_fn=_handle_no_tool_calls_path,
+                llm_call_fn=_llm_call,
+            ):
+                if isinstance(_recovery_event, LoopRecoveryDone):
+                    _recovery_done = _recovery_event
+                    continue
+                yield _recovery_event
+            if _recovery_done is None or _recovery_done.return_loop:
                 return
 
             _tool_iteration_done: LoopToolIterationDone | None = None
