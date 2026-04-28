@@ -109,24 +109,26 @@ export function CommandCenter({
 
   return (
     <div className={`flex min-h-0 flex-1 flex-col ${embedded ? "" : "h-full"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            <Radar size={14} />
-            Mission Control
-          </div>
-          <div className="mt-1 text-xs text-text-muted">
-            {activeCount} active · {pausedCount} paused · {data.summary.active_bots} bots · {data.summary.spatial_warnings} spatial warnings · {updateCount} recent updates
+      {!embedded && (
+        <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+              <Radar size={14} />
+              Mission Control
+            </div>
+            <div className="mt-1 text-xs text-text-muted">
+              {activeCount} active · {pausedCount} paused · {data.summary.active_bots} bots · {data.summary.spatial_warnings} spatial warnings · {updateCount} recent updates
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="min-h-0 flex-1 overflow-auto px-3 pb-4">
+      <div className={`min-h-0 flex-1 overflow-auto pb-4 ${embedded ? "px-1" : "px-3"}`}>
         {selected ? (
           <MissionDetail mission={selected} row={selectedRow} onBack={() => setSelectedId(null)} />
         ) : (
           <>
-            <OperatorBrief brief={data.assistant_brief ?? null} summary={data.summary} />
+            <OperatorBrief brief={data.assistant_brief ?? null} summary={data.summary} embedded={embedded} />
             <AskMissionControl />
             <OperatorOpportunityStack data={data} onManualMission={() => setManualOpen(true)} />
             <DraftStack
@@ -179,8 +181,10 @@ export function CommandCenter({
 function OperatorBrief({
   brief,
   summary,
+  embedded = false,
 }: {
   brief: MissionControlAssistantBrief | null;
+  embedded?: boolean;
   summary: {
     active_missions: number;
     paused_missions: number;
@@ -194,7 +198,7 @@ function OperatorBrief({
   const refresh = useRefreshMissionControlAi();
   const lastRun = brief?.created_at ? formatRelative(brief.created_at) : null;
   return (
-    <section className="mb-4 border-b border-surface-border/70 pb-4">
+    <section className={`mb-3 ${embedded ? "pb-2" : "border-b border-surface-border/70 pb-4"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
@@ -203,9 +207,9 @@ function OperatorBrief({
           </div>
           {brief ? (
             <>
-              <p className="mt-2 text-[15px] font-semibold leading-6 text-text">{brief.summary}</p>
-              {brief.next_focus && <p className="mt-2 text-sm leading-6 text-text-muted">{brief.next_focus}</p>}
-              <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-text-dim">
+              <p className={`mt-1.5 font-semibold text-text ${embedded ? "text-sm leading-5" : "text-[15px] leading-6"}`}>{brief.summary}</p>
+              {brief.next_focus && <p className={`mt-1.5 text-text-muted ${embedded ? "text-xs leading-5" : "text-sm leading-6"}`}>{brief.next_focus}</p>}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-text-dim">
                 <StatusBadge label={`${brief.confidence} confidence`} variant={brief.confidence === "high" ? "success" : brief.confidence === "low" ? "warning" : "info"} />
                 {brief.ai_model && <span className="rounded-full bg-surface-overlay px-2 py-0.5">{brief.ai_model}</span>}
                 {lastRun && <span>{lastRun}</span>}
@@ -213,8 +217,8 @@ function OperatorBrief({
             </>
           ) : (
             <>
-              <p className="mt-2 text-[15px] font-semibold leading-6 text-text">Generate a brief from live workspace signals.</p>
-              <p className="mt-2 text-sm leading-6 text-text-muted">
+              <p className={`mt-1.5 font-semibold text-text ${embedded ? "text-sm leading-5" : "text-[15px] leading-6"}`}>Generate a brief from live workspace signals.</p>
+              <p className={`mt-1.5 text-text-muted ${embedded ? "text-xs leading-5" : "text-sm leading-6"}`}>
                 Mission Control will inspect missions, tasks, channels, bots, and map readiness before drafting next moves.
               </p>
             </>
@@ -223,19 +227,28 @@ function OperatorBrief({
         <button
           type="button"
           disabled={refresh.isPending}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.14] disabled:cursor-wait disabled:text-text-dim"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:cursor-wait disabled:text-text-dim"
           onClick={() => refresh.mutate(undefined)}
         >
           {refresh.isPending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
           Refresh
         </button>
       </div>
-      <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
-        <BriefMetric label="Missions" value={`${summary.active_missions}/${summary.paused_missions}`} />
-        <BriefMetric label="Bots" value={summary.active_bots} />
-        <BriefMetric label="Spatial" value={summary.spatial_warnings} />
-        <BriefMetric label="Updates" value={summary.recent_updates} />
-      </div>
+      {embedded ? (
+        <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-text-muted">
+          <span className="rounded-full bg-surface-overlay/45 px-2 py-0.5">{summary.active_missions}/{summary.paused_missions} missions</span>
+          <span className="rounded-full bg-surface-overlay/45 px-2 py-0.5">{summary.active_bots} bots</span>
+          <span className="rounded-full bg-surface-overlay/45 px-2 py-0.5">{summary.spatial_warnings} spatial</span>
+          <span className="rounded-full bg-surface-overlay/45 px-2 py-0.5">{summary.recent_updates} updates</span>
+        </div>
+      ) : (
+        <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
+          <BriefMetric label="Missions" value={`${summary.active_missions}/${summary.paused_missions}`} />
+          <BriefMetric label="Bots" value={summary.active_bots} />
+          <BriefMetric label="Spatial" value={summary.spatial_warnings} />
+          <BriefMetric label="Updates" value={summary.recent_updates} />
+        </div>
+      )}
     </section>
   );
 }
@@ -263,7 +276,7 @@ function AskMissionControl() {
         <MessageSquare size={15} className="shrink-0 text-text-dim" />
         <input
           className="min-w-0 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-dim"
-          placeholder="Ask Mission Control to inspect, stage concrete changes, or explain next work..."
+          placeholder="Ask Mission Control to inspect or stage next work..."
           value={instruction}
           onChange={(event) => setInstruction(event.target.value)}
           onKeyDown={(event) => {
@@ -375,17 +388,23 @@ function OperatorOpportunityStack({
         {cards.slice(0, 3).map((card) => {
           const Icon = card.icon;
           return (
-            <div key={card.id} className="rounded-md bg-surface-raised/40 px-3 py-3">
-              <div className="flex items-start gap-3">
+            <div key={card.id} className="rounded-md bg-surface-raised/35 px-2.5 py-2.5">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5">
                 <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/[0.08] text-accent">
                   <Icon size={15} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-text">{card.title}</div>
-                  <div className="mt-2 grid gap-1 text-xs leading-5 text-text-muted sm:grid-cols-3">
-                    <div><span className="text-text-dim">Detected:</span> {card.detected}</div>
-                    <div><span className="text-text-dim">Missing:</span> {card.missing}</div>
-                    <div><span className="text-text-dim">Stages:</span> {card.staged}</div>
+                  <div className="text-sm font-semibold leading-5 text-text">{card.title}</div>
+                  <div className="mt-0.5 text-xs leading-5 text-text-muted">
+                    <span className="text-text-dim">Detected:</span> {card.detected}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] leading-4 text-text-muted">
+                    <span className="rounded-full bg-surface-overlay/45 px-2 py-0.5">
+                      Missing: {card.missing}
+                    </span>
+                    <span className="rounded-full bg-surface-overlay/45 px-2 py-0.5">
+                      Will stage: {card.staged}
+                    </span>
                   </div>
                 </div>
                 <button

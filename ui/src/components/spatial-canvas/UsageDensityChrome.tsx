@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { Activity, Bot, Box, ChevronDown, Command, Eye, ExternalLink, Hash, Home, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
@@ -62,6 +62,7 @@ interface UsageDensityChromeProps {
   onSelectAttention: (item: WorkspaceAttentionItem | null) => void;
   onReplyAttention?: (item: WorkspaceAttentionItem) => void;
   launchWorldCenter: { x: number; y: number } | null;
+  selectedObject?: StarboardObjectItem | null;
 }
 
 const WINDOWS: DensityWindow[] = ["24h", "7d", "30d"];
@@ -79,6 +80,9 @@ const INTENSITY_HINT: Record<DensityIntensity, string> = {
 };
 
 const STARBOARD_TAB_KEY = "spatial.starboard.activeTab";
+const STARBOARD_WIDTH_KEY = "spatial.starboard.width";
+const DEFAULT_STARBOARD_WIDTH = 680;
+const MIN_STARBOARD_WIDTH = 460;
 
 const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   channel: "Channel",
@@ -87,14 +91,14 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   landmark: "Landmark",
 };
 
-const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; icon: ReactNode }> = [
-  { id: "hub", label: "Mission Control", eyebrow: "Missions, bot lanes, and progress", icon: <Home size={15} /> },
-  { id: "attention", label: "Attention", eyebrow: "Issues and assignments", icon: <Radar size={15} /> },
-  { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", icon: <Plus size={15} /> },
-  { id: "health", label: "Daily Health", eyebrow: "Server rollup", icon: <Activity size={15} /> },
-  { id: "smell", label: "Context Bloat", eyebrow: "Unused tools and skills", icon: <Wind size={15} /> },
-  { id: "objects", label: "Objects", eyebrow: "Map entities", icon: <LayoutList size={15} /> },
-  { id: "controls", label: "Controls", eyebrow: "Canvas behavior", icon: <Settings2 size={15} /> },
+const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; group: "Operator" | "Signals" | "Tools"; icon: ReactNode }> = [
+  { id: "hub", label: "Mission Control", eyebrow: "Missions, bot lanes, and progress", group: "Operator", icon: <Home size={15} /> },
+  { id: "attention", label: "Attention", eyebrow: "Issues and assignments", group: "Signals", icon: <Radar size={15} /> },
+  { id: "health", label: "Daily Health", eyebrow: "Server rollup", group: "Signals", icon: <Activity size={15} /> },
+  { id: "smell", label: "Context Bloat", eyebrow: "Unused tools and skills", group: "Signals", icon: <Wind size={15} /> },
+  { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", group: "Tools", icon: <Plus size={15} /> },
+  { id: "objects", label: "Objects", eyebrow: "Map entities", group: "Tools", icon: <LayoutList size={15} /> },
+  { id: "controls", label: "Controls", eyebrow: "Canvas behavior", group: "Tools", icon: <Settings2 size={15} /> },
 ];
 
 export function loadStarboardStation(): StarboardStation {
@@ -159,6 +163,7 @@ export function UsageDensityChrome({
   onSelectAttention,
   onReplyAttention,
   launchWorldCenter,
+  selectedObject,
 }: UsageDensityChromeProps) {
   const [objectQuery, setObjectQuery] = useState("");
   const [objectMenu, setObjectMenu] = useState<{
@@ -169,6 +174,7 @@ export function UsageDensityChrome({
   const [stationMenuOpen, setStationMenuOpen] = useState(false);
   const stationMenuRef = useRef<HTMLDivElement | null>(null);
   const objectClickTimerRef = useRef<number | null>(null);
+  const [panelWidth, setPanelWidth] = useState(() => loadStarboardWidth());
   const activeStation = STATIONS.find((item) => item.id === station) ?? STATIONS[0];
   const selectStation = (nextStation: StarboardStation) => {
     onStationChange(nextStation);
@@ -206,6 +212,26 @@ export function UsageDensityChrome({
       }
     };
   }, []);
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = panelWidth;
+    const maxWidth = Math.max(MIN_STARBOARD_WIDTH, window.innerWidth - 24);
+    let latest = startWidth;
+    const move = (moveEvent: PointerEvent) => {
+      latest = clampStarboardWidth(startWidth + startX - moveEvent.clientX, maxWidth);
+      setPanelWidth(latest);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      persistStarboardWidth(latest);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   const handleObjectClick = (item: StarboardObjectItem) => {
     if (!item.onDoubleClick) {
@@ -253,7 +279,8 @@ export function UsageDensityChrome({
       {open && (
         <aside
           data-starboard-panel="true"
-          className="fixed bottom-0 right-0 top-0 z-[65] flex w-[560px] max-w-[calc(100vw-1rem)] flex-col border-l border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
+          className="fixed bottom-0 right-0 top-0 z-[65] flex max-w-[calc(100vw-1rem)] flex-col border-l border-surface-border bg-surface-raised/95 text-sm text-text backdrop-blur"
+          style={{ width: panelWidth }}
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -263,7 +290,12 @@ export function UsageDensityChrome({
             event.stopPropagation();
           }}
         >
-          <div className="flex items-center justify-between px-3 py-3">
+          <div
+            className="absolute bottom-0 left-0 top-0 w-1 cursor-ew-resize bg-transparent transition-colors hover:bg-accent/25"
+            onPointerDown={startResize}
+            title="Resize Starboard"
+          />
+          <div className="flex items-center justify-between px-2.5 py-2">
             <div ref={stationMenuRef} className="relative min-w-0 flex-1">
               <button
                 type="button"
@@ -291,22 +323,28 @@ export function UsageDensityChrome({
                     event.stopPropagation();
                   }}
                 >
-                  {STATIONS.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      role="menuitem"
-                      className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${
-                        station === item.id ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-                      }`}
-                      onClick={() => selectStation(item.id)}
-                    >
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-overlay/50">{item.icon}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium">{item.label}</span>
-                        <span className="block truncate text-xs text-text-dim">{item.eyebrow}</span>
-                      </span>
-                    </button>
+                  {STATIONS.map((item, index) => (
+                    <Fragment key={item.id}>
+                      {index === 0 || STATIONS[index - 1].group !== item.group ? (
+                        <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+                          {item.group}
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${
+                          station === item.id ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                        }`}
+                        onClick={() => selectStation(item.id)}
+                      >
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-overlay/50">{item.icon}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium">{item.label}</span>
+                          <span className="block truncate text-xs text-text-dim">{item.eyebrow}</span>
+                        </span>
+                      </button>
+                    </Fragment>
                   ))}
                 </div>
               )}
@@ -322,7 +360,8 @@ export function UsageDensityChrome({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3">
+            {selectedObject && <SelectedObjectStrip item={selectedObject} />}
               {station === "hub" ? (
                 <CommandCenter embedded />
               ) : station === "controls" ? (
@@ -533,6 +572,56 @@ function persistStarboardTab(tab: StarboardStation) {
   } catch {
     /* storage disabled */
   }
+}
+
+function loadStarboardWidth(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(STARBOARD_WIDTH_KEY));
+    return clampStarboardWidth(stored || DEFAULT_STARBOARD_WIDTH);
+  } catch {
+    return DEFAULT_STARBOARD_WIDTH;
+  }
+}
+
+function persistStarboardWidth(width: number) {
+  try {
+    window.localStorage.setItem(STARBOARD_WIDTH_KEY, String(Math.round(width)));
+  } catch {
+    /* storage disabled */
+  }
+}
+
+function clampStarboardWidth(width: number, maxWidth = Math.max(MIN_STARBOARD_WIDTH, window.innerWidth - 24)): number {
+  return Math.round(Math.min(maxWidth, Math.max(MIN_STARBOARD_WIDTH, width)));
+}
+
+function SelectedObjectStrip({ item }: { item: StarboardObjectItem }) {
+  const primary = item.actions[0];
+  return (
+    <section className="mb-2 rounded-md bg-surface-overlay/35 px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
+          {kindIcon(item.kind)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Selected {KIND_LABEL[item.kind]}</div>
+          <div className="truncate text-sm font-semibold text-text">{item.label}</div>
+          {item.subtitle && <div className="truncate text-xs text-text-dim">{item.subtitle}</div>}
+        </div>
+        {primary && (
+          <button
+            type="button"
+            disabled={primary.disabled}
+            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:cursor-not-allowed disabled:text-text-dim"
+            onClick={primary.onSelect}
+          >
+            {actionIcon(primary.icon)}
+            {primary.label}
+          </button>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function ObjectContextMenu({ x, y, item, onClose }: { x: number; y: number; item: StarboardObjectItem; onClose: () => void }) {

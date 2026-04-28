@@ -230,6 +230,9 @@ Carry forward the accepted near-term implementation plan:
 - redesign `CommandCenter` into a dense operator board;
 - add inspection-first opportunity cards that show detected state, missing
   pieces, staged action, and approval outcome;
+- keep embedded Starboard density high: no duplicate Mission Control header,
+  compact status strip instead of large metric cards, and scan-friendly
+  opportunity rows;
 - promote Mission Control AI settings into System > Models and make provider
   selection persist correctly;
 - add per-request model/provider selector to Mission Control ask/refresh;
@@ -244,6 +247,7 @@ Acceptance:
 - user can answer "what is each bot doing next?" in under 10 seconds;
 - empty or underconfigured workspaces show concrete operator opportunities, not
   generic onboarding copy;
+- Mission Control AI provider rejection never becomes a raw 500;
 - a channel-scoped draft can be accepted into a normal mission;
 - active missions remain traceable through task links.
 

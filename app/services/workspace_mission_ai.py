@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import openai
 from sqlalchemy import desc, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -261,6 +262,39 @@ def _prompt_messages(context: dict[str, Any]) -> list[dict[str, str]]:
     return [{"role": "system", "content": system_msg}, {"role": "user", "content": user_msg}]
 
 
+def _provider_error_message(exc: openai.BadRequestError) -> str:
+    raw = str(exc).strip()
+    if raw:
+        return raw[:600]
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])[:600]
+    return "provider rejected the Mission Control AI request"
+
+
+async def _create_mission_control_completion(client: Any, *, model: str, messages: list[dict[str, str]]) -> Any:
+    try:
+        return await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=settings.MISSION_CONTROL_AI_TEMPERATURE,
+            max_tokens=2400,
+        )
+    except openai.BadRequestError as first_exc:
+        try:
+            return await client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+        except openai.BadRequestError as second_exc:
+            raise ValidationError(
+                "Mission Control AI provider rejected the request: "
+                f"{_provider_error_message(second_exc)}"
+            ) from second_exc
+
+
 async def generate_mission_control_drafts(
     db: AsyncSession,
     *,
@@ -270,13 +304,11 @@ async def generate_mission_control_drafts(
 ) -> dict[str, Any]:
     model, provider_id = _resolve_model()
     context = await build_ai_grounding_context(db, auth=auth, user_instruction=user_instruction)
+    # End the read transaction before slow provider I/O so the request does not
+    # pin a pooled DB connection while waiting on the model.
+    await db.rollback()
     client = get_llm_client(provider_id)
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=_prompt_messages(context),
-        temperature=settings.MISSION_CONTROL_AI_TEMPERATURE,
-        max_tokens=2400,
-    )
+    resp = await _create_mission_control_completion(client, model=model, messages=_prompt_messages(context))
     text = (resp.choices[0].message.content or "").strip()
     parsed = _extract_json_object(text)
     brief_data = parsed.get("brief") if isinstance(parsed.get("brief"), dict) else {}

@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-28 (Turn worker lifecycle seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-28 (Heartbeat runtime lifecycle seam shipped; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
@@ -41,7 +41,8 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - **Loop setup seam shipped.** Loop config resolution, tool schema resolution, run-control policy normalization, hard-cap handling, heartbeat `tool_surface_summary` emission/trace, `LoopRunContext` / `LoopRunState` creation, provider resolution, and opening skill nudges now live behind `stream_loop_setup` / `LoopSetupDone` in `app.agent.loop_setup`. `run_agent_tool_loop` is now a staged coordinator: setup -> pre-LLM -> LLM -> recovery/no-tool/tool-iteration -> exit.
 - **Loop recovery/no-tool seam shipped.** Text-encoded tool-call recovery and the terminal no-tool branch now live behind `stream_loop_recovery` / `LoopRecoveryDone` in `app.agent.loop_recovery`. The coordinator now treats the LLM result as either recovered tool calls for the tool-iteration stage or a terminal no-tool response path.
 - **Turn worker lifecycle seam shipped.** `run_turn` is now a staged coordinator over `_TurnScope` / `_TurnRunState`: context setup, user-message lifecycle start, harness branch, member-bot pre-fanout, normal stream consumption, assistant metadata tagging, persistence/supervisors/compaction, assistant fanout, error persistence, final `TURN_ENDED`, and lock release now have local helpers. Public entrypoint and existing monkeypatch surfaces remain intact; `run_turn` dropped to 83 LOC. Added regression coverage for delegation-post failure surfacing and assistant metadata tags before `persist_turn`.
-- **Next section candidate.** Persona remains deferred as low-leverage/removable. Live loop and turn-worker coordinators are now materially reduced and staged; next architecture review should use a fresh verify-first scan. Current runner-up from the 2026-04-28 scan is `app/services/heartbeat.py::fire_heartbeat`, but verify before scoping.
+- **Heartbeat runtime lifecycle seam shipped.** `fire_heartbeat` is now a 44-line coordinator over `_prepare_heartbeat_run`, `_run_harness_heartbeat_if_needed`, `_run_spindrel_heartbeat`, and `_finalize_heartbeat_run`. The pass separated DB preparation/scheduling, harness busy-session deferral, standard agent execution/persistence/dispatch/follow-up, and final run accounting while preserving workflow mode and existing test patch surfaces.
+- **Next section candidate.** Persona remains deferred as low-leverage/removable. Live loop, turn-worker, and heartbeat coordinators are now materially reduced and staged; next architecture review should use a fresh verify-first scan instead of continuing from stale god-function estimates.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.

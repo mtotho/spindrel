@@ -2618,6 +2618,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     updateNode,
   ]);
 
+  const selectedStarboardObject = useMemo(() => {
+    if (!selectedSpatialObject) return null;
+    if (selectedSpatialObject.kind === "channel" || selectedSpatialObject.kind === "bot" || selectedSpatialObject.kind === "widget") {
+      return starboardObjects.find((item) => item.id === `node-${selectedSpatialObject.nodeId}`) ?? null;
+    }
+    if (selectedSpatialObject.kind === "landmark") {
+      const id = selectedSpatialObject.id === "memory_observatory"
+        ? "landmark-memory-observatory"
+        : selectedSpatialObject.id === "now_well"
+          ? "landmark-now-well"
+          : selectedSpatialObject.id === "attention_hub"
+            ? "landmark-attention-hub"
+            : "landmark-daily-health";
+      return starboardObjects.find((item) => item.id === id) ?? null;
+    }
+    return null;
+  }, [selectedSpatialObject, starboardObjects]);
+
   // Fire-pulse tracking — when an upcoming item's scheduled_at crosses
   // tickedNow we render a one-shot expanding ring at its last orbit position.
   // The 5s tickedNow cadence means pulses can land up to ~5s late, but a
@@ -3556,6 +3574,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
           selectedAttentionId={selectedAttentionId}
           onSelectAttention={(item) => setSelectedAttentionId(item?.id ?? null)}
           onReplyAttention={handleAttentionReply}
+          selectedObject={selectedStarboardObject}
           launchWorldCenter={
             pinPositionOverride
               ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
