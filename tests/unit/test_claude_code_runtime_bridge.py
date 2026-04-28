@@ -216,11 +216,52 @@ def test_tool_result_uses_lookup_to_resolve_tool_name():
             "result_summary": "file contents here",
             "is_error": False,
             "tool_call_id": "tu_1",
-            "envelope": None,
-            "surface": None,
-            "summary": None,
+            "envelope": {
+                "content_type": "text/plain",
+                "body": "file contents here",
+                "plain_body": "file contents here",
+                "display": "inline",
+                "truncated": False,
+                "record_id": None,
+                "byte_size": 18,
+                "tool_name": "Read",
+                "tool_call_id": "tu_1",
+            },
+            "surface": "rich_result",
+            "summary": {
+                "kind": "result",
+                "subject_type": "generic",
+                "label": "file contents here",
+                "preview_text": "file contents here",
+            },
         }),
     ]
+
+
+def test_bash_tool_result_emits_text_envelope():
+    emitter = _RecordingEmitter()
+    msg = UserMessage(
+        content=[ToolResultBlock(
+            tool_use_id="tu_bash",
+            content="stdout line\n",
+            is_error=False,
+        )],
+    )
+
+    _bridge_message(
+        msg,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={"tu_bash": "Bash"},
+        final_text_parts=[],
+        result_meta={},
+    )
+
+    result = emitter.calls[0][1]
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["content_type"] == "text/plain"
+    assert result["envelope"]["body"] == "stdout line"
+    assert result["envelope"]["tool_call_id"] == "tu_bash"
 
 
 def test_tool_result_with_unknown_use_id_falls_back_to_unknown():

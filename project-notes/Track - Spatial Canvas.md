@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-28 (Map Brief cohesion and selected-object wayfinding.)
+updated: 2026-04-28 (Map Brief quiet triage and selected-object wayfinding.)
 ---
 
 # Track — Spatial Canvas
@@ -121,7 +121,8 @@ object has no rich map-state brief, so `Jump here` is always available.
 
 Same-day fundamentals sweep: Map Brief selected-object content now has explicit
 top clearance under the Starboard station selector and flatter inspector chrome
-using state pills plus a subtle left edge instead of a heavy warning card.
+using state pills plus a low-contrast tonal surface instead of a heavy warning
+card.
 Zoomed-out clusters are navigation-only: click focuses cluster bounds, the old
 floating selection rail no longer appears, and hover cards are suppressed during
 overview/cluster zoom so the map stays calm until the user zooms into inspectable
@@ -133,6 +134,14 @@ with no delayed timer, double-click also focuses/zooms toward the group instead
 of diving into the winner, and the old focus-lens hint no longer competes with
 cluster wayfinding. Direct channel opening remains available once an individual
 channel tile is visible or from the explicit context menu action.
+
+Same-day quiet triage pass: the selected-object inspector now avoids colored
+side-stripe chrome entirely; severity is carried by compact status chips, subtle
+ring/background tone, and explicit warning/recent/next chips. Related-object
+rows only get a restrained raised hover surface when they need attention, and
+the selected canvas anchor uses a one-pixel ring with softer severity opacity.
+The screenshot capture now asserts selected briefs expose tone metadata and do
+not regress to side-stripe treatment.
 
 | Phase | Status | Description |
 |---|---|---|

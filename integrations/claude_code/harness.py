@@ -38,6 +38,7 @@ from integrations.sdk import (
     TurnResult,
     apply_tool_bridge,
     build_diff_tool_result,
+    build_text_tool_result,
     execute_harness_spindrel_tool_result,
     format_question_answer_for_runtime,
     request_harness_approval,
@@ -75,6 +76,7 @@ _BYPASS_ALLOWED: tuple[str, ...] = (
     "Task", "WebFetch", "WebSearch", "ExitPlanMode",
 )
 _RESTRICTED_ALLOWED: tuple[str, ...] = ("Read", "Glob", "Grep", "WebSearch")
+_TEXT_RESULT_TOOLS: frozenset[str] = frozenset({"Read", "Bash", "Glob", "Grep"})
 
 
 def _allowed_tools_for_mode(mode: str) -> list[str]:
@@ -856,6 +858,20 @@ def _bridge_message(
                             envelope, summary = rich
                             surface = "rich_result"
                             result_summary = envelope["plain_body"]
+                    if (
+                        not block.is_error
+                        and envelope is None
+                        and tool_name in _TEXT_RESULT_TOOLS
+                        and result_summary.strip()
+                    ):
+                        envelope, summary = build_text_tool_result(
+                            tool_name=tool_name,
+                            tool_call_id=block.tool_use_id,
+                            body=result_summary,
+                            label=None,
+                        )
+                        surface = "rich_result"
+                        result_summary = envelope["plain_body"]
                     emit.tool_result(
                         tool_name=tool_name,
                         tool_call_id=block.tool_use_id,

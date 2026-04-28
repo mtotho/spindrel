@@ -69,8 +69,8 @@ HARNESSES = (
         default_bot_id="codex-bot",
         native_commands=("config", "mcp-status", "plugins", "skills", "features"),
         model_candidates=(
-            "gpt-5.3-codex-spark",
             "gpt-5.4-mini",
+            "gpt-5.3-codex-spark",
         ),
         effort_env="HARNESS_PARITY_CODEX_EFFORT",
         model_env="HARNESS_PARITY_CODEX_MODEL",
