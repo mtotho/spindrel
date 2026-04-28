@@ -347,6 +347,10 @@ from app.services.agent_harnesses.tools import (  # noqa: E402, F401
     list_harness_spindrel_tools_for,
     resolve_harness_bridge_inventory,
 )
+from app.services.agent_harnesses.tool_results import (  # noqa: E402, F401
+    build_diff_tool_result,
+    unified_diff_from_strings,
+)
 
 # ---------------------------------------------------------------------------
 # Utility

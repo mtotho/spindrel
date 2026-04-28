@@ -10,10 +10,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.services.agent_harnesses.tool_results import build_diff_tool_result
 from integrations.codex import schema
 from integrations.codex.app_server import Notification
-from integrations.sdk import ChannelEventEmitter
+from integrations.sdk import ChannelEventEmitter, build_diff_tool_result
 
 logger = logging.getLogger(__name__)
 

@@ -23,10 +23,6 @@ import os
 import subprocess
 from typing import Any
 
-from app.services.agent_harnesses.tool_results import (
-    build_diff_tool_result,
-    unified_diff_from_strings,
-)
 from integrations.sdk import (
     AllowDeny,
     AuthStatus,
@@ -41,10 +37,12 @@ from integrations.sdk import (
     TurnContext,
     TurnResult,
     apply_tool_bridge,
+    build_diff_tool_result,
     execute_harness_spindrel_tool_result,
     format_question_answer_for_runtime,
     request_harness_approval,
     request_harness_question,
+    unified_diff_from_strings,
 )
 
 # Probe-import the SDK at module load. The actual SDK calls live inside
