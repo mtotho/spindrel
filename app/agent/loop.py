@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import time
-import traceback
 import uuid
 
 from app.utils import safe_create_task
@@ -43,7 +42,10 @@ from app.agent.loop_helpers import (
     _sanitize_messages,
     _synthesize_empty_response_fallback,  # noqa: F401 — re-exported
 )
+from app.agent.loop_exit import schedule_loop_error_cleanup, stream_loop_exit_finalization
+from app.agent.loop_llm import LoopLlmIterationDone, stream_loop_llm_iteration
 from app.agent.loop_state import LoopRunContext, LoopRunState
+from app.agent.loop_tool_iteration import LoopToolIterationDone, stream_loop_tool_iteration
 from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
@@ -183,7 +185,7 @@ async def run_agent_tool_loop(
 
     try:
         import time as _time
-        from app.agent.hooks import fire_hook, HookContext
+        from app.agent.hooks import fire_hook
         from app.services.providers import resolve_provider_for_model
         from app.services.secret_registry import redact as _redact_secrets
 
@@ -429,176 +431,38 @@ async def run_agent_tool_loop(
             if _budget_gate.wait_seconds:
                 await asyncio.sleep(_budget_gate.wait_seconds)
 
-            effective_model = model
-
-            messages = _sanitize_messages(messages)
-            state.messages = messages
-
-            _llm_t0 = _time.monotonic()
-
-            # Fire before_llm_call lifecycle hook
-            safe_create_task(fire_hook("before_llm_call", HookContext(
-                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-                client_id=client_id, correlation_id=correlation_id,
-                extra={
-                    "model": effective_model,
-                    "message_count": len(messages),
-                    "tools_count": len(tools_param) if tools_param else 0,
-                    "provider_id": effective_provider_id,
-                    "iteration": iteration + 1,
-                },
-            )))
-
-            # --- Streaming LLM call ---
-            accumulated_msg: AccumulatedMessage | None = None
-            _llm_cancelled = False
-            async for item in _llm_call_stream(
-                effective_model, messages, tools_param, tool_choice,
-                provider_id=effective_provider_id, model_params=_effective_model_params,
+            _llm_done: LoopLlmIterationDone | None = None
+            async for _llm_event in stream_loop_llm_iteration(
+                ctx=ctx,
+                state=state,
+                iteration=iteration,
+                model=model,
+                tools_param=tools_param,
+                tool_choice=tool_choice,
+                effective_provider_id=effective_provider_id,
+                model_params=_effective_model_params,
                 fallback_models=fallback_models,
+                session_lock_manager=session_locks,
+                llm_call_stream_fn=_llm_call_stream,
+                last_fallback_info_get_fn=last_fallback_info.get,
+                fire_hook_fn=fire_hook,
+                record_trace_event_fn=_record_trace_event,
+                record_fallback_event_fn=_record_fallback_event,
+                safe_create_task_fn=safe_create_task,
+                monotonic_fn=_time.monotonic,
             ):
-                if isinstance(item, AccumulatedMessage):
-                    accumulated_msg = item
-                else:
-                    # Persist retry / fallback events to the trace so admins
-                    # can see when the LLM call had to back off and retry.
-                    # Without this, 529s and rate-limit retries are invisible
-                    # in the trace UI even though they're happening.
-                    if isinstance(item, dict) and correlation_id is not None:
-                        _ev_type = item.get("type")
-                        if _ev_type in ("llm_retry", "llm_fallback", "llm_cooldown_skip", "llm_error"):
-                            safe_create_task(_record_trace_event(
-                                correlation_id=correlation_id,
-                                session_id=session_id,
-                                bot_id=bot.id,
-                                client_id=client_id,
-                                event_type=_ev_type,
-                                data={
-                                    **{k: v for k, v in item.items() if k != "type"},
-                                    "iteration": iteration + 1,
-                                },
-                            ))
-                    yield _event_with_compaction_tag(item, compaction)
-                # Check cancel during LLM streaming/retries
-                if session_id and session_locks.is_cancel_requested(session_id):
-                    logger.info("Cancellation requested for session %s (during LLM stream)", session_id)
-                    _llm_cancelled = True
-                    break
-            if _llm_cancelled:
-                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                if isinstance(_llm_event, LoopLlmIterationDone):
+                    _llm_done = _llm_event
+                    continue
+                yield _llm_event
+                if _llm_event.get("type") == "cancelled":
+                    return
+            if _llm_done is None:
                 return
 
-            _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
-            if accumulated_msg is None:
-                raise RuntimeError("LLM stream completed without yielding an AccumulatedMessage")
-
-            # Fire after_llm_call lifecycle hook
-            _fb_info_for_hook = last_fallback_info.get()
-            _after_llm_extra: dict[str, Any] = {
-                "model": effective_model,
-                "duration_ms": _llm_latency_ms,
-                "prompt_tokens": accumulated_msg.usage.prompt_tokens if accumulated_msg.usage else None,
-                "completion_tokens": accumulated_msg.usage.completion_tokens if accumulated_msg.usage else None,
-                "total_tokens": accumulated_msg.usage.total_tokens if accumulated_msg.usage else None,
-                "tool_calls_count": len(accumulated_msg.tool_calls) if accumulated_msg.tool_calls else 0,
-                "fallback_used": _fb_info_for_hook is not None,
-                "fallback_model": _fb_info_for_hook.fallback_model if _fb_info_for_hook else None,
-                "iteration": iteration + 1,
-                "provider_id": effective_provider_id,
-            }
-            safe_create_task(fire_hook("after_llm_call", HookContext(
-                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-                client_id=client_id, correlation_id=correlation_id,
-                extra=_after_llm_extra,
-            )))
-
-            # Check if a fallback was used and emit trace event
-            _fb_info = last_fallback_info.get()
-            if _fb_info is not None:
-                logger.warning(
-                    "Fallback used: %s → %s (reason: %s)",
-                    _fb_info.original_model, _fb_info.fallback_model, _fb_info.reason,
-                )
-                yield _event_with_compaction_tag({
-                    "type": "fallback",
-                    "original_model": _fb_info.original_model,
-                    "fallback_model": _fb_info.fallback_model,
-                    "reason": _fb_info.reason,
-                }, compaction)
-                if correlation_id is not None:
-                    safe_create_task(_record_trace_event(
-                        correlation_id=correlation_id,
-                        session_id=session_id,
-                        bot_id=bot.id,
-                        client_id=client_id,
-                        event_type="model_fallback",
-                        data={
-                            "original_model": _fb_info.original_model,
-                            "fallback_model": _fb_info.fallback_model,
-                            "reason": _fb_info.reason,
-                            "original_error": _fb_info.original_error,
-                            "iteration": iteration + 1,
-                        },
-                        duration_ms=_llm_latency_ms,
-                    ))
-                # Record fallback event to DB for admin visibility
-                safe_create_task(_record_fallback_event(
-                    _fb_info, session_id=session_id, channel_id=channel_id, bot_id=bot.id,
-                ))
-
-            msg_dict = accumulated_msg.to_msg_dict()
-            messages.append(msg_dict)
-
-            if accumulated_msg.usage:
-                logger.debug(
-                    "Token usage: prompt=%d completion=%d total=%d",
-                    accumulated_msg.usage.prompt_tokens,
-                    accumulated_msg.usage.completion_tokens,
-                    accumulated_msg.usage.total_tokens,
-                )
-                _gross_prompt_tokens = accumulated_msg.usage.prompt_tokens
-                _cached_prompt_tokens = accumulated_msg.cached_tokens
-                _current_prompt_tokens = _gross_prompt_tokens
-                if _cached_prompt_tokens is not None:
-                    _current_prompt_tokens = max(0, _gross_prompt_tokens - _cached_prompt_tokens)
-                state.current_prompt_tokens_total += int(_current_prompt_tokens or 0)
-                if correlation_id is not None:
-                    _usage_data = {
-                        "prompt_tokens": _gross_prompt_tokens,
-                        "gross_prompt_tokens": _gross_prompt_tokens,
-                        "current_prompt_tokens": _current_prompt_tokens,
-                        "completion_tokens": accumulated_msg.usage.completion_tokens,
-                        "total_tokens": accumulated_msg.usage.total_tokens,
-                        "consumed_tokens": _gross_prompt_tokens,
-                        "iteration": iteration + 1,
-                        "model": effective_model,
-                        "provider_id": effective_provider_id,
-                        "channel_id": str(channel_id) if channel_id else None,
-                    }
-                    if _cached_prompt_tokens is not None:
-                        _usage_data["cached_tokens"] = _cached_prompt_tokens
-                        _usage_data["cached_prompt_tokens"] = _cached_prompt_tokens
-                    if accumulated_msg.response_cost is not None:
-                        _usage_data["response_cost"] = accumulated_msg.response_cost
-                    safe_create_task(_record_trace_event(
-                        correlation_id=correlation_id,
-                        session_id=session_id,
-                        bot_id=bot.id,
-                        client_id=client_id,
-                        event_type="token_usage",
-                        data=_usage_data,
-                        duration_ms=_llm_latency_ms,
-                    ))
-
-            # Emit thinking content event for downstream consumers (Slack, etc.)
-            # and accumulate across iterations for persistence on the final
-            # assistant message (see `_thinking_content` injection below).
-            if accumulated_msg.thinking_content:
-                state.append_thinking(accumulated_msg.thinking_content)
-                yield _event_with_compaction_tag(
-                    {"type": "thinking_content", "text": accumulated_msg.thinking_content},
-                    compaction,
-                )
+            accumulated_msg = _llm_done.accumulated_msg
+            effective_model = _llm_done.effective_model
+            messages = state.messages
 
             # Recover tool calls from JSON-in-text (local model compat) or
             # suppressed XML blocks (MiniMax and siblings emit <invoke> as text).
@@ -621,164 +485,40 @@ async def run_agent_tool_loop(
                     yield _evt
                 return
 
-            _acc_content = accumulated_msg.content
-            if native_audio and user_msg_index is not None and not state.transcript_emitted and _acc_content:
-                transcript, _ = _extract_transcript(_acc_content)
-                if transcript:
-                    logger.info("Audio transcript (from tool-call response): %r", transcript[:100])
-                    yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
-                    messages[user_msg_index] = {"role": "user", "content": transcript}
-                    state.transcript_emitted = True
-
-            # Emit intermediate text when the LLM returns content alongside tool calls.
-            # Without this, the text is recorded in conversation history but never
-            # surfaces to streaming consumers (Slack, UI, etc.).
-            # Strip malformed tool calls (XML/JSON fragments) that local models
-            # sometimes emit as text alongside proper function calls.
-            _intermediate_text = _sanitize_llm_text(_acc_content or "")
-            _intermediate_text = _redact_secrets(_intermediate_text)
-            if _intermediate_text:
-                _append_transcript_text_entry(state.transcript_entries, _intermediate_text)
-                yield _event_with_compaction_tag(
-                    {"type": "assistant_text", "text": _intermediate_text},
-                    compaction,
-                )
-
-            _acc_tool_calls = accumulated_msg.tool_calls
-            logger.info("LLM requested %d tool call(s)", len(_acc_tool_calls))
-            async for _dispatch_event in dispatch_iteration_tool_calls(
-                accumulated_tool_calls=_acc_tool_calls,
+            _tool_iteration_done: LoopToolIterationDone | None = None
+            async for _tool_iteration_event in stream_loop_tool_iteration(
+                accumulated_msg=accumulated_msg,
                 ctx=ctx,
                 state=state,
                 iteration=iteration,
                 provider_id=effective_provider_id,
+                model=model,
                 summarize_settings=summarize_settings,
                 skip_tool_policy=skip_tool_policy,
                 effective_allowed=_effective_allowed,
                 settings_obj=settings,
                 session_lock_manager=session_locks,
+                in_loop_keep_iterations=_in_loop_keep_iterations,
+                has_manage_bot_skill=_has_manage_bot_skill,
+                dispatch_iteration_tool_calls_fn=dispatch_iteration_tool_calls,
                 dispatch_tool_call_fn=dispatch_tool_call,
                 is_client_tool_fn=is_client_tool,
+                redact_fn=_redact_secrets,
+                prune_in_loop_tool_results_fn=prune_in_loop_tool_results,
+                should_prune_in_loop_fn=should_prune_in_loop,
+                detect_cycle_fn=detect_cycle,
             ):
-                yield _dispatch_event
-                if _dispatch_event.get("type") == "cancelled":
-                    return
-            _iteration_injected_images = list(state.iteration_injected_images)
-
-            # Inject images as synthetic user message so LLM sees them natively
-            if _iteration_injected_images:
-                from app.services.providers import model_supports_vision
-                if model_supports_vision(model):
-                    _img_parts: list[dict] = [{"type": "text", "text": "[Requested image(s) for your analysis]"}]
-                    for img in _iteration_injected_images:
-                        mime = img.get("mime_type", "image/jpeg")
-                        b64 = img.get("base64", "")
-                        if b64:
-                            _img_parts.append({
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime};base64,{b64}"},
-                            })
-                    if len(_img_parts) > 1:
-                        messages.append({
-                            "role": "user",
-                            "content": _img_parts,
-                            "_hidden": True,
-                            "_suppress_outbox": True,
-                            "_internal_kind": "injected_image_context",
-                        })
-                else:
-                    # Auto-describe images using vision model for non-vision models
-                    from app.agent.llm import _describe_image_data
-                    _desc_parts: list[str] = []
-                    for img in _iteration_injected_images:
-                        mime = img.get("mime_type", "image/jpeg")
-                        b64 = img.get("base64", "")
-                        if not b64:
-                            continue
-                        data_url = f"data:{mime};base64,{b64}"
-                        desc = await _describe_image_data(data_url)
-                        _desc_parts.append(
-                            f"[Image description: {desc}]" if desc
-                            else "[An image was attached but could not be described.]"
-                        )
-                    if _desc_parts:
-                        messages.append({
-                            "role": "user",
-                            "content": "\n\n".join(_desc_parts),
-                            "_hidden": True,
-                            "_suppress_outbox": True,
-                            "_internal_kind": "injected_image_context",
-                        })
-                        yield _event_with_compaction_tag({
-                            "type": "llm_retry", "reason": "vision_not_supported",
-                            "model": model, "attempt": 0, "max_retries": 0,
-                            "wait_seconds": 0,
-                        }, compaction)
-
-            if settings.IN_LOOP_PRUNING_ENABLED and state.last_pruned_after_iteration != iteration:
-                _available_budget_tokens = 0
-                try:
-                    from app.agent.context_budget import get_model_context_window
-                    _window = get_model_context_window(model, effective_provider_id)
-                    if _window > 0:
-                        _available_budget_tokens = max(
-                            0,
-                            _window - int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO),
-                        )
-                except Exception:
-                    _available_budget_tokens = 0
-                _should_prune, _utilization = should_prune_in_loop(
-                    messages,
-                    available_budget_tokens=_available_budget_tokens,
-                    pressure_threshold=settings.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
-                )
-                if _should_prune:
-                    _in_loop_stats = prune_in_loop_tool_results(
-                        messages,
-                        keep_iterations=_in_loop_keep_iterations,
-                        min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
-                    )
-                    if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
-                        state.last_pruned_after_iteration = iteration
-                        yield _event_with_compaction_tag({
-                            "type": "context_pruning",
-                            "pruned_count": _in_loop_stats["pruned_count"],
-                            "chars_saved": _in_loop_stats["chars_saved"],
-                            "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                            "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                            "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                            "scope": "in_loop",
-                            "keep_iterations": _in_loop_keep_iterations,
-                            "live_history_utilization": _utilization,
-                            "triggered_by": "pressure",
-                        }, compaction)
-
-            # --- Skill learning nudge (one-shot after N iterations) ---
-            _nudge_after = settings.SKILL_NUDGE_AFTER_ITERATIONS
-            if (
-                _nudge_after
-                and iteration + 1 == _nudge_after
-                and _has_manage_bot_skill
-            ):
-                from app.config import DEFAULT_SKILL_NUDGE_PROMPT
-                messages.append({
-                    "role": "system",
-                    "content": DEFAULT_SKILL_NUDGE_PROMPT,
-                })
-
-            # --- Within-run tool loop detection ---
-            if settings.TOOL_LOOP_DETECTION_ENABLED and len(state.tool_call_trace) >= 3:
-                state.detected_cycle_len = detect_cycle(state.tool_call_trace) or 0
-                if state.detected_cycle_len:
-                    state.loop_broken_reason = "cycle"
-                    logger.warning(
-                        "Tool loop detected: cycle length %d after %d calls — breaking",
-                        state.detected_cycle_len, len(state.tool_call_trace),
-                    )
-                    break
+                if isinstance(_tool_iteration_event, LoopToolIterationDone):
+                    _tool_iteration_done = _tool_iteration_event
+                    continue
+                yield _tool_iteration_event
+            if _tool_iteration_done is None or _tool_iteration_done.cancelled:
+                return
+            if _tool_iteration_done.break_loop:
+                break
 
         # --- Post-loop: forced response (max iterations or cycle break) ---
-        async for _evt in _handle_loop_exit_forced_response(
+        async for _evt in stream_loop_exit_finalization(
             ctx=ctx,
             state=state,
             iteration=iteration,
@@ -788,40 +528,20 @@ async def run_agent_tool_loop(
             effective_provider_id=effective_provider_id,
             fallback_models=fallback_models,
             llm_call_fn=_llm_call,
+            handle_loop_exit_forced_response_fn=_handle_loop_exit_forced_response,
         ):
             yield _evt
         if state.terminated:
             return
 
-        # Flush tool usage telemetry (fire-and-forget) — success path only.
-        # ``record_use_many`` upserts each row: creates with source='fetched'
-        # if missing, increments fetch_count by occurrence count, stamps
-        # last_used_at. Memory hygiene reads these to decide what to prune.
-        if state.tools_to_enroll and bot.id:
-            from app.services.tool_enrollment import record_use_many as _record_tool_uses
-            safe_create_task(_record_tool_uses(bot.id, state.tools_to_enroll))
-
     except Exception as exc:
-        # Fire after_response hook on error path so integrations can clean up
-        # (e.g. Slack removes the hourglass reaction).
-        try:
-            safe_create_task(fire_hook("after_response", HookContext(
-                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-                client_id=client_id, correlation_id=correlation_id,
-                extra={"error": True, "tool_calls_made": list(state.tool_calls_made)},
-            )))
-        except Exception:
-            pass  # best-effort; fire_hook/HookContext may not be bound if imports failed
-        if correlation_id is not None:
-            safe_create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="error",
-                event_name=type(exc).__name__,
-                data={"traceback": traceback.format_exc()[:4000]},
-            ))
+        schedule_loop_error_cleanup(
+            exc=exc,
+            ctx=ctx,
+            state=state,
+            record_trace_event_fn=_record_trace_event,
+            safe_create_task_fn=safe_create_task,
+        )
         raise
 
 

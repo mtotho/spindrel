@@ -12,6 +12,12 @@ A workspace-scope **infinite plane** where every channel and every opt-in widget
 
 Design intent: replace the throwaway `HomeGrid` (a "desktopified command palette") with a surface that *is* the workspace — channels networked in the middle, widgets living freely around them. Giant DND, semantic zoom, iframes-on-world-at-close-zoom, route-change-on-dive.
 
+Mission Control relationship: this track owns the spatial substrate and map
+interaction mechanics. [[Track - Mission Control Vision]] owns the orchestration
+product direction layered on top: Mission Control as workspace operator,
+missions as work objects, channels as rooms, and the canvas as an actionable
+professional work map.
+
 ## Status
 
 2026-04-27 follow-up: shortened migration 263's Alembic revision id to
