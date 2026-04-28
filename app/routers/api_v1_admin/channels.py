@@ -565,6 +565,9 @@ class ChannelSettingsOut(BaseModel):
     # Header strip shell treatment for header-zone widgets. Stored in
     # channel.config["header_backdrop_mode"]; unset/default resolves to glass.
     header_backdrop_mode: str = "glass"
+    # Composer plan-control visibility. Stored in channel.config; absent/auto
+    # hides dormant controls on non-harness channels while preserving /plan.
+    plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None
     pinned_widget_context_enabled: bool = True
 
@@ -641,6 +644,8 @@ class ChannelSettingsUpdate(BaseModel):
     # "default" remains the solid Surface compatibility value.
     # Stored inside channel.config JSONB.
     header_backdrop_mode: Optional[str] = None
+    # Composer plan-control visibility. "auto" clears the JSONB key.
+    plan_mode_control: Optional[str] = None
     widget_theme_ref: Optional[str] = None
     pinned_widget_context_enabled: Optional[bool] = None
 
@@ -824,6 +829,7 @@ async def admin_channel_settings(
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
+    out.plan_mode_control = (channel.config or {}).get("plan_mode_control") or "auto"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
     _fill_channel_project_settings(out, channel)
@@ -969,6 +975,22 @@ async def admin_channel_settings_update(
         channel.config = cfg
         flag_modified(channel, "config")
 
+    if "plan_mode_control" in updates:
+        pmc = updates.pop("plan_mode_control")
+        _valid_plan_mode_control = {"auto", "show", "hide"}
+        if pmc is not None and pmc not in _valid_plan_mode_control:
+            raise HTTPException(
+                status_code=422,
+                detail=f"plan_mode_control must be one of: {sorted(_valid_plan_mode_control)}",
+            )
+        cfg = dict(channel.config or {})
+        if pmc in (None, "auto"):
+            cfg.pop("plan_mode_control", None)
+        else:
+            cfg["plan_mode_control"] = pmc
+        channel.config = cfg
+        flag_modified(channel, "config")
+
     if "widget_theme_ref" in updates:
         wtr = updates.pop("widget_theme_ref")
         if wtr is not None:
@@ -1036,6 +1058,7 @@ async def admin_channel_settings_update(
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
     out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
+    out.plan_mode_control = (channel.config or {}).get("plan_mode_control") or "auto"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
     _fill_channel_project_settings(out, channel)

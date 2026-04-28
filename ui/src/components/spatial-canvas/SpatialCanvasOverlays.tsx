@@ -5,7 +5,7 @@ import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttenti
 import { useUIStore } from "../../stores/ui";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
-import { AddWidgetButton, LensHint } from "./SpatialCanvasChrome";
+import { AddWidgetButton } from "./SpatialCanvasChrome";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { MemoryObservationPanel } from "./MemoryObservatory";
 import { Minimap } from "./Minimap";
@@ -90,12 +90,10 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     sessionPickerOpen,
     setSessionPickerOpen,
     navigate,
-    channelClusterMode,
   } = props;
 
   return (
     <>
-      {!channelClusterMode && <LensHint />}
       {selectionRail && (
         <SpatialSelectionRail
           x={selectionRail.x}

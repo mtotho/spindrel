@@ -24,7 +24,7 @@ from integrations.sdk import (
     ChannelEventEmitter,
     HarnessQuestionResult,
     TurnContext,
-    execute_harness_spindrel_tool,
+    execute_harness_spindrel_tool_result,
     request_harness_approval,
     request_harness_question,
 )
@@ -227,7 +227,7 @@ async def _route_tool_call(
             tool_call_id=tool_call_id,
         )
     try:
-        text = await execute_harness_spindrel_tool(
+        rich_result = await execute_harness_spindrel_tool_result(
             ctx,
             tool_name=tool_name,
             arguments=tool_args,
@@ -245,13 +245,19 @@ async def _route_tool_call(
         await request.respond(schema.dynamic_tool_text_result(str(exc), success=False))
         return
     if emit is not None:
-        emit.tool_result(
-            tool_name=tool_name,
-            tool_call_id=tool_call_id,
-            result_summary=_summarize_dynamic_tool_text(text),
-            is_error=False,
-        )
-    await request.respond(schema.dynamic_tool_text_result(text, success=True))
+            emit.tool_result(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                result_summary=_summarize_dynamic_tool_text(rich_result.text),
+                is_error=rich_result.is_error,
+                envelope=rich_result.envelope,
+                surface=rich_result.surface,
+                summary=rich_result.summary,
+            )
+    await request.respond(schema.dynamic_tool_text_result(
+        rich_result.text,
+        success=not rich_result.is_error,
+    ))
 
 
 async def handle_server_request(

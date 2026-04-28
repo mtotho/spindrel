@@ -1,4 +1,5 @@
 import { useCallback, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ExternalLink,
   Footprints,
@@ -14,6 +15,9 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { widgetPinHref } from "../../lib/hubRoutes";
+import { resolveChannelEntryHref } from "../../lib/channelNavigation";
+import { useUIStore } from "../../stores/ui";
+import type { UnreadStateResponse } from "../../api/hooks/useUnread";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import type { SpatialContextMenuItem } from "./SpatialContextMenu";
 
@@ -46,6 +50,16 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
     setConnectionsEnabled,
     setContextMenu,
   } = args;
+  const recentPages = useUIStore((s) => s.recentPages);
+  const queryClient = useQueryClient();
+  const channelHref = useCallback((channelId: string) => {
+    const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+    return resolveChannelEntryHref({
+      channelId,
+      recentPages,
+      unreadStates: unreadState?.states,
+    });
+  }, [queryClient, recentPages]);
 
   return useCallback(
     (e: ReactPointerEvent<HTMLDivElement> | ReactMouseEvent<HTMLDivElement>) => {
@@ -148,7 +162,7 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
           items.push({
             label: "Open source channel",
             icon: <ExternalLink size={14} />,
-            onClick: () => navigate(`/channels/${sourceId}`, { state: canvasBackState }),
+            onClick: () => navigate(channelHref(sourceId), { state: canvasBackState }),
           });
         }
         items.push({
@@ -324,6 +338,7 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
       connectionsEnabled,
       setConnectionsEnabled,
       setContextMenu,
+      channelHref,
     ],
   );
 }

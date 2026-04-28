@@ -1,6 +1,10 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Brain, LayoutDashboard, MessageCircle, Radar, Target, Users as UsersIcon } from "lucide-react";
 import { widgetPinHref } from "../../lib/hubRoutes";
+import { resolveChannelEntryHref } from "../../lib/channelNavigation";
+import { useUIStore } from "../../stores/ui";
+import type { UnreadStateResponse } from "../../api/hooks/useUnread";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import type { Camera } from "./spatialGeometry";
 import type { StarboardObjectAction, StarboardObjectItem } from "./UsageDensityChrome";
@@ -41,6 +45,17 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     selectedSpatialObject,
     mapState,
   } = args;
+  const recentPages = useUIStore((s) => s.recentPages);
+  const queryClient = useQueryClient();
+
+  const channelHref = useCallback((channelId: string) => {
+    const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+    return resolveChannelEntryHref({
+      channelId,
+      recentPages,
+      unreadStates: unreadState?.states,
+    });
+  }, [queryClient, recentPages]);
 
   const starboardObjects = useMemo<StarboardObjectItem[]>(() => {
     const rect = viewportRectRef.current;
@@ -144,7 +159,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
             }),
           actions: [
             jumpAction(worldX, worldY),
-            { label: "Open channel", icon: "open", onSelect: () => navigate(`/channels/${node.channel_id}`, { state: canvasBackState }) },
+            { label: "Open channel", icon: "open", onSelect: () => navigate(channelHref(node.channel_id!), { state: canvasBackState }) },
             {
               label: channel ? `Open mini chat - #${channel.name}` : "Open mini chat",
               icon: "chat",
@@ -263,6 +278,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     attentionHubPos.x,
     attentionHubPos.y,
     mapState,
+    channelHref,
   ]);
 
   const edgeBeacons = useMemo(() => {

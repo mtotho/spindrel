@@ -19,6 +19,7 @@ from integrations.codex.approvals import (
     handle_server_request,
     mode_to_codex_policy,
 )
+from integrations.sdk import HarnessSpindrelToolResult
 
 pytestmark = pytest.mark.asyncio
 
@@ -168,7 +169,7 @@ async def test_dynamic_tool_call_reads_tool_field(monkeypatch, fake_ctx):
     """Per README, item/tool/call params use `tool` (not `name` or `toolName`)."""
 
     async def _fake_execute(ctx, *, tool_name, arguments, allowed_tool_names):
-        return f"result for {tool_name}: {arguments}"
+        return HarnessSpindrelToolResult(text=f"result for {tool_name}: {arguments}")
 
     captured_approvals: list = []
 
@@ -179,7 +180,7 @@ async def test_dynamic_tool_call_reads_tool_field(monkeypatch, fake_ctx):
         return AllowDeny(allow=True, reason="ok")
 
     monkeypatch.setattr(
-        "integrations.codex.approvals.execute_harness_spindrel_tool",
+        "integrations.codex.approvals.execute_harness_spindrel_tool_result",
         _fake_execute,
     )
     # Verify NO duplicate approval call for tool/call requests — Spindrel's
@@ -212,10 +213,23 @@ async def test_dynamic_tool_call_reads_tool_field(monkeypatch, fake_ctx):
 
 async def test_dynamic_tool_call_emits_transcript_pair(monkeypatch, fake_ctx):
     async def _fake_execute(ctx, *, tool_name, arguments, allowed_tool_names):
-        return "x" * 900
+        return HarnessSpindrelToolResult(
+            text="x" * 900,
+            envelope={
+                "content_type": "application/json",
+                "body": '{"ok": true}',
+                "plain_body": "ok",
+                "display": "inline",
+                "truncated": False,
+                "record_id": None,
+                "byte_size": 12,
+            },
+            surface="rich_result",
+            summary={"kind": "json", "subject_type": "tool", "label": "Bennie"},
+        )
 
     monkeypatch.setattr(
-        "integrations.codex.approvals.execute_harness_spindrel_tool",
+        "integrations.codex.approvals.execute_harness_spindrel_tool_result",
         _fake_execute,
     )
 
@@ -246,6 +260,9 @@ async def test_dynamic_tool_call_emits_transcript_pair(monkeypatch, fake_ctx):
     assert emit.calls[1][1]["tool_call_id"] == "call-123"
     assert emit.calls[1][1]["is_error"] is False
     assert len(emit.calls[1][1]["result_summary"]) <= 700
+    assert emit.calls[1][1]["surface"] == "rich_result"
+    assert emit.calls[1][1]["envelope"]["content_type"] == "application/json"
+    assert emit.calls[1][1]["summary"]["label"] == "Bennie"
 
 
 async def test_dynamic_tool_call_missing_tool_field_returns_failure(fake_ctx):
@@ -264,7 +281,7 @@ async def test_dynamic_tool_call_dispatch_error_returns_failure_envelope(monkeyp
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "integrations.codex.approvals.execute_harness_spindrel_tool",
+        "integrations.codex.approvals.execute_harness_spindrel_tool_result",
         _fake_execute_raises,
     )
 

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 from app.db.engine import async_session
 from app.services.agent_harnesses.base import HarnessToolSpec, TurnContext
+from integrations.sdk import HarnessSpindrelToolResult
 
 
 def _ctx() -> TurnContext:
@@ -49,8 +50,8 @@ def test_claude_mcp_bridge_handler_returns_sdk_result_dict(monkeypatch):
     sys.modules.pop("integrations.claude_code.harness", None)
     harness = importlib.import_module("integrations.claude_code.harness")
 
-    execute = AsyncMock(return_value="tool output")
-    monkeypatch.setattr(harness, "execute_harness_spindrel_tool", execute)
+    execute = AsyncMock(return_value=HarnessSpindrelToolResult(text="tool output"))
+    monkeypatch.setattr(harness, "execute_harness_spindrel_tool_result", execute)
 
     options: dict = {}
     exported = harness._attach_claude_mcp_bridge(
@@ -100,7 +101,7 @@ def test_claude_mcp_bridge_rewrites_get_tool_info_callable_name(monkeypatch):
     sys.modules.pop("integrations.claude_code.harness", None)
     harness = importlib.import_module("integrations.claude_code.harness")
 
-    execute = AsyncMock(return_value=json.dumps({
+    execute = AsyncMock(return_value=HarnessSpindrelToolResult(text=json.dumps({
         "schema": {
             "type": "function",
             "function": {
@@ -108,8 +109,8 @@ def test_claude_mcp_bridge_rewrites_get_tool_info_callable_name(monkeypatch):
                 "parameters": {"type": "object", "properties": {}},
             },
         },
-    }))
-    monkeypatch.setattr(harness, "execute_harness_spindrel_tool", execute)
+    })))
+    monkeypatch.setattr(harness, "execute_harness_spindrel_tool_result", execute)
 
     options: dict = {}
     harness._attach_claude_mcp_bridge(
@@ -131,3 +132,65 @@ def test_claude_mcp_bridge_rewrites_get_tool_info_callable_name(monkeypatch):
     assert payload["schema"]["function"]["name"] == "mcp__spindrel__bennie_loggins_health_summary"
     assert payload["callable_name"] == "mcp__spindrel__bennie_loggins_health_summary"
     assert payload["harness_bridge"]["canonical_tool_name"] == "bennie_loggins_health_summary"
+
+
+def test_claude_mcp_bridge_caches_rich_spindrel_tool_result(monkeypatch):
+    captured_tools: list[types.SimpleNamespace] = []
+
+    def fake_tool(name, description, input_schema):
+        def decorator(handler):
+            wrapped = types.SimpleNamespace(
+                name=name,
+                description=description,
+                input_schema=input_schema,
+                handler=handler,
+            )
+            captured_tools.append(wrapped)
+            return wrapped
+
+        return decorator
+
+    fake_sdk = types.SimpleNamespace(
+        tool=fake_tool,
+        create_sdk_mcp_server=lambda **kwargs: kwargs,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_sdk)
+    sys.modules.pop("integrations.claude_code.harness", None)
+    harness = importlib.import_module("integrations.claude_code.harness")
+
+    execute = AsyncMock(return_value=HarnessSpindrelToolResult(
+        text="channels",
+        envelope={
+            "content_type": "application/json",
+            "body": '{"channels": []}',
+            "plain_body": "channels",
+            "display": "inline",
+            "truncated": False,
+            "record_id": None,
+            "byte_size": 16,
+        },
+        surface="rich_result",
+        summary={"kind": "json", "subject_type": "tool", "label": "Channels"},
+    ))
+    monkeypatch.setattr(harness, "execute_harness_spindrel_tool_result", execute)
+
+    bridge_results: dict = {}
+    harness._attach_claude_mcp_bridge(
+        _ctx(),
+        {},
+        (
+            HarnessToolSpec(
+                name="list_channels",
+                description="List channels",
+                parameters={"type": "object", "properties": {}},
+                schema={},
+            ),
+        ),
+        bridge_results=bridge_results,
+    )
+
+    result = asyncio.run(captured_tools[0].handler({}))
+
+    assert result == {"content": [{"type": "text", "text": "channels"}]}
+    assert "list_channels:{}" in bridge_results
+    assert bridge_results["list_channels:{}"][0].summary["label"] == "Channels"

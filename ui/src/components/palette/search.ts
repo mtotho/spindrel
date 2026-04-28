@@ -3,7 +3,7 @@ import { useUIStore, type RecentPage } from "../../stores/ui";
 import type { PaletteItem, ScoredItem } from "./types";
 import { fuzzyMatch } from "./fuzzy";
 import { categoryRank } from "./admin-items.js";
-import { shouldSkipRecentPage } from "../../lib/recentPages";
+import { parseChannelRecentRoute, shouldSkipRecentPage } from "../../lib/recentPages";
 import { resolveRecentPaletteItem, type RecentPaletteItemCandidate } from "./recent";
 
 export interface PaletteSearchOptions {
@@ -53,11 +53,19 @@ export function scorePaletteSearchItems(
       const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
       const [catScore] = fuzzyMatch(query, item.category);
       const [searchTextScore] = item.searchText ? fuzzyMatch(query, item.searchText) : [0, []];
+      const [recentSessionChannelScore] =
+        item.category === "Recent"
+        && typeof item.href === "string"
+        && parseChannelRecentRoute(item.href)?.kind === "session"
+        && item.hint
+          ? fuzzyMatch(query, item.hint)
+          : [0, []];
       const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3, searchTextScore * 0.9);
       const bonus = item.href ? recencyBonus.get(item.href) ?? 0 : 0;
+      const recentChannelBonus = recentSessionChannelScore > 0 ? 80 : 0;
       return {
         item,
-        score: bestScore + bonus,
+        score: bestScore + bonus + recentChannelBonus,
         matchIndices: labelScore >= hintScore * 0.5 ? labelIndices : [],
       };
     })

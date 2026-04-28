@@ -575,6 +575,20 @@ export function PresentationSection({
           label="Resume cards in this channel"
           description="Local channel override for the idle resume card. Re-enable it here if it was hidden from a card menu."
         />
+        <FormRow
+          label="Plan control"
+          description="Controls the always-visible plan button in the composer. The /plan command remains available."
+        >
+          <SelectInput
+            value={(form.plan_mode_control ?? "auto") as string}
+            onChange={(v) => patch("plan_mode_control", v as ChannelSettings["plan_mode_control"])}
+            options={[
+              { label: "Auto — hidden unless this is a harness channel", value: "auto" },
+              { label: "Show", value: "show" },
+              { label: "Hide", value: "hide" },
+            ]}
+          />
+        </FormRow>
       </Section>
 
       <Section title="Dashboard Presentation">

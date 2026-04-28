@@ -356,6 +356,8 @@ export interface Channel {
     chat_mode?: "default" | "terminal";
     /** Top-center header strip shell treatment for header-zone widgets. */
     header_backdrop_mode?: "default" | "glass" | "clear";
+    /** Composer plan-control visibility. "auto" is the absent/default state. */
+    plan_mode_control?: "auto" | "show" | "hide";
     /** Whether pinned channel widgets may export summaries into chat context. */
     pinned_widget_context_enabled?: boolean;
     /** Channel-scoped HTML widget SDK theme override. */
@@ -779,6 +781,8 @@ export interface ChannelSettings {
   chat_mode?: "default" | "terminal";
   /** Top-center chat header strip shell treatment. Stored in `channel.config`. */
   header_backdrop_mode?: "default" | "glass" | "clear";
+  /** Composer plan-control visibility. "auto" hides dormant control on non-harness channels and shows it for harness channels. Stored in `channel.config`. */
+  plan_mode_control?: "auto" | "show" | "hide";
   /** Channel-scoped HTML widget SDK theme override. Null/absent inherits the global default. */
   widget_theme_ref?: string | null;
 }

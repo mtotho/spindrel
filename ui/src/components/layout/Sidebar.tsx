@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { Plus, Home } from "lucide-react";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useIntegrationIcons } from "../../api/hooks/useIntegrations";
 import { useUIStore, SIDEBAR_DEFAULT_WIDTH } from "../../stores/ui";
 import { useChannels } from "../../api/hooks/useChannels";
@@ -9,6 +10,8 @@ import { useChatStore } from "../../stores/chat";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "../../lib/cn";
 import { useChannelReadStore } from "../../stores/channelRead";
+import { resolveChannelEntryHref } from "../../lib/channelNavigation";
+import type { UnreadStateResponse } from "../../api/hooks/useUnread";
 
 import { ChannelList } from "./sidebar/ChannelList";
 import { SidebarRail } from "./sidebar/SidebarRail";
@@ -20,12 +23,20 @@ import type { Channel } from "../../types/api";
 function OrchestratorRow({ channel }: { channel: Channel }) {
   const { pathname } = useLocation();
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  const recentPages = useUIStore((s) => s.recentPages);
   const isUnread = useChannelReadStore((s) => s.isUnread);
+  const queryClient = useQueryClient();
   const isActive = pathname.includes(channel.id);
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
+  const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+  const href = resolveChannelEntryHref({
+    channelId: channel.id,
+    recentPages,
+    unreadStates: unreadState?.states,
+  });
 
   return (
-    <Link to={`/channels/${channel.id}`} onClick={closeMobile}>
+    <Link to={href} onClick={closeMobile}>
       <div
         className={cn(
           "relative flex flex-row items-center gap-2 px-3 py-1.5 mx-1 rounded-md cursor-pointer transition-colors",

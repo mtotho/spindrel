@@ -41,7 +41,7 @@ from integrations.sdk import (
     TurnContext,
     TurnResult,
     apply_tool_bridge,
-    execute_harness_spindrel_tool,
+    execute_harness_spindrel_tool_result,
     format_question_answer_for_runtime,
     request_harness_approval,
     request_harness_question,
@@ -243,8 +243,15 @@ class ClaudeCodeRuntime:
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
 
+        result_meta: dict[str, Any] = {"claude_spindrel_tool_results": {}}
+
         async def _attach(specs: tuple[HarnessToolSpec, ...]) -> list[str]:
-            return _attach_claude_mcp_bridge(ctx, options_kwargs, specs)
+            return _attach_claude_mcp_bridge(
+                ctx,
+                options_kwargs,
+                specs,
+                bridge_results=result_meta["claude_spindrel_tool_results"],
+            )
 
         await apply_tool_bridge(ctx, self, attach=_attach)
 
@@ -254,7 +261,6 @@ class ClaudeCodeRuntime:
         # carries tool_use_id) can publish a meaningful tool_name on result.
         tool_name_by_use_id: dict[str, str] = {}
         final_text_parts: list[str] = []
-        result_meta: dict[str, Any] = {}
 
         async with ClaudeSDKClient(options=opts) as client:
             await client.query(_prompt_with_context_hints(prompt, ctx))
@@ -586,6 +592,8 @@ def _attach_claude_mcp_bridge(
     ctx: TurnContext,
     options_kwargs: dict[str, Any],
     specs: tuple[HarnessToolSpec, ...],
+    *,
+    bridge_results: dict[str, list[Any]] | None = None,
 ) -> list[str]:
     """Wrap Spindrel bridge tools as an in-process Claude MCP server.
 
@@ -609,14 +617,24 @@ def _attach_claude_mcp_bridge(
         parameters = spec.parameters or {"type": "object", "properties": {}}
 
         async def _handler(args: dict[str, Any], *, _name: str = spec.name) -> dict[str, Any]:
-            text = await execute_harness_spindrel_tool(
+            result = await execute_harness_spindrel_tool_result(
                 ctx,
                 tool_name=_name,
                 arguments=args,
                 allowed_tool_names=allowed_tool_names,
             )
+            text = result.text
             if _name == "get_tool_info":
                 text = _rewrite_get_tool_info_for_claude_mcp(text, server_name=server_name)
+            if bridge_results is not None and (
+                result.envelope or result.surface or result.summary
+            ):
+                key = _claude_spindrel_result_key(
+                    _claude_mcp_callable_name(_name, server_name=server_name),
+                    args,
+                    server_name=server_name,
+                )
+                bridge_results.setdefault(key, []).append(result)
             return {"content": [{"type": "text", "text": text or ""}]}
 
         try:
@@ -683,6 +701,44 @@ def _claude_mcp_callable_name(name: str, *, server_name: str) -> str:
     if name.startswith("mcp__"):
         return prefix + name.removeprefix("mcp__")
     return prefix + name
+
+
+def _claude_spindrel_result_key(
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    server_name: str = "spindrel",
+) -> str:
+    canonical = tool_name
+    prefix = f"mcp__{server_name}__"
+    if canonical.startswith(prefix):
+        canonical = canonical.removeprefix(prefix)
+    try:
+        args_key = json.dumps(arguments or {}, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        args_key = str(arguments or {})
+    return f"{canonical}:{args_key}"
+
+
+def _pop_claude_spindrel_tool_result(
+    result_meta: dict[str, Any],
+    *,
+    tool_name: str,
+    tool_input: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None] | None:
+    cache = result_meta.get("claude_spindrel_tool_results")
+    if not isinstance(cache, dict):
+        return None
+    key = _claude_spindrel_result_key(tool_name, tool_input)
+    queued = cache.get(key)
+    if not isinstance(queued, list) or not queued:
+        return None
+    result = queued.pop(0)
+    envelope = getattr(result, "envelope", None)
+    summary = getattr(result, "summary", None)
+    if not isinstance(envelope, dict):
+        return None
+    return envelope, summary if isinstance(summary, dict) else None
 
 
 def _prompt_with_context_hints(prompt: str, ctx: TurnContext) -> str:
@@ -792,6 +848,12 @@ def _bridge_message(
                             tool_call_id=block.tool_use_id,
                             tool_input=tool_input,
                         )
+                        if rich is None:
+                            rich = _pop_claude_spindrel_tool_result(
+                                result_meta,
+                                tool_name=tool_name,
+                                tool_input=tool_input,
+                            )
                         if rich:
                             envelope, summary = rich
                             surface = "rich_result"

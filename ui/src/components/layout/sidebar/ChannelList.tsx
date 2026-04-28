@@ -25,6 +25,9 @@ import { cn } from "../../../lib/cn";
 import type { Channel } from "../../../types/api";
 import type { BotConfig } from "../../../types/api";
 import { useCallback, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { resolveChannelEntryHref } from "../../../lib/channelNavigation";
+import type { UnreadStateResponse } from "../../../api/hooks/useUnread";
 
 const CATEGORY_COLLAPSED_STORAGE_KEY = "channel-category-collapsed";
 
@@ -79,10 +82,18 @@ interface ChannelItemProps {
 function ChannelItem({ channel, bot, isStreaming, integrationIcons }: ChannelItemProps) {
   const { pathname } = useLocation();
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
+  const recentPages = useUIStore((s) => s.recentPages);
   const isUnread = useChannelReadStore((s) => s.isUnread);
+  const queryClient = useQueryClient();
 
   const isActive = pathname.includes(channel.id);
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
+  const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+  const href = resolveChannelEntryHref({
+    channelId: channel.id,
+    recentPages,
+    unreadStates: unreadState?.states,
+  });
   const displayName = channel.display_name || channel.name || channel.client_id;
 
   const IconComp = channel.private ? Lock : Hash;
@@ -116,7 +127,7 @@ function ChannelItem({ channel, bot, isStreaming, integrationIcons }: ChannelIte
     : displayName;
 
   return (
-    <Link to={`/channels/${channel.id}`} onClick={closeMobile} title={tooltip}>
+    <Link to={href} onClick={closeMobile} title={tooltip}>
       <div
         className={cn(
           "group relative flex flex-row items-center gap-2 px-3 py-1.5 mx-1 rounded-md cursor-pointer transition-colors",

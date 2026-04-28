@@ -1396,6 +1396,7 @@ export default function ChatScreen() {
     hasPlan: sessionPlan.hasPlan,
     planBusy,
     canTogglePlanMode: !!currentPlanSessionId,
+    planModeControl: channel?.config?.plan_mode_control ?? "auto",
     onTogglePlanMode: currentPlanSessionId ? handleTogglePlanMode : undefined,
     onApprovePlan: sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined,
   };

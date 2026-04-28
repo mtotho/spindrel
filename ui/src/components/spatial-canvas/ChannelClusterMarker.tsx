@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { dotColor } from "./spatialIdentity";
 import type { ChannelCluster } from "./spatialClustering";
 
@@ -44,23 +44,6 @@ export function ChannelClusterMarker({
     if (e.button === undefined || e.button === 0) focusCluster();
   };
 
-  useEffect(() => {
-    const el = buttonRef.current;
-    if (!el) return;
-    const focusFromNativeEvent = (event: MouseEvent | PointerEvent) => {
-      event.stopPropagation();
-      if (event.button === 0) onFocus();
-    };
-    el.addEventListener("pointerdown", focusFromNativeEvent);
-    el.addEventListener("mousedown", focusFromNativeEvent);
-    el.addEventListener("dblclick", focusFromNativeEvent);
-    return () => {
-      el.removeEventListener("pointerdown", focusFromNativeEvent);
-      el.removeEventListener("mousedown", focusFromNativeEvent);
-      el.removeEventListener("dblclick", focusFromNativeEvent);
-    };
-  }, [onFocus]);
-
   return (
     <button
       ref={buttonRef}
@@ -69,6 +52,8 @@ export function ChannelClusterMarker({
       title={`Zoom to ${cluster.members.length} nearby channels`}
       className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3 border-0 bg-transparent p-0 text-text"
       style={{ width: 270, minHeight: 170 }}
+      onPointerDownCapture={focusPrimaryCluster}
+      onMouseDownCapture={focusPrimaryCluster}
       onPointerDown={focusPrimaryCluster}
       onMouseDown={focusPrimaryCluster}
       onPointerUp={focusPrimaryCluster}

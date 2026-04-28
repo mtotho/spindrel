@@ -8,6 +8,7 @@ centralized.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
 import uuid
@@ -39,6 +40,8 @@ __all__ = [
     "HarnessToolSpec",
     "apply_tool_bridge",
     "execute_harness_spindrel_tool",
+    "execute_harness_spindrel_tool_result",
+    "HarnessSpindrelToolResult",
     "list_harness_spindrel_tools",
     "list_harness_spindrel_tools_for",
     "resolve_harness_bridge_inventory",
@@ -46,6 +49,17 @@ __all__ = [
 
 
 HarnessAttach = Callable[[tuple[HarnessToolSpec, ...]], Awaitable[list[str]]]
+
+
+@dataclass(frozen=True)
+class HarnessSpindrelToolResult:
+    """Result of a Spindrel tool executed through a harness bridge."""
+
+    text: str
+    envelope: dict[str, Any] | None = None
+    surface: str | None = None
+    summary: dict[str, Any] | None = None
+    is_error: bool = False
 
 
 async def apply_tool_bridge(
@@ -418,6 +432,23 @@ async def execute_harness_spindrel_tool(
     allowed_tool_names: set[str] | frozenset[str] | None = None,
 ) -> str:
     """Execute one bridged Spindrel tool and return LLM-visible text."""
+    result = await execute_harness_spindrel_tool_result(
+        ctx,
+        tool_name=tool_name,
+        arguments=arguments,
+        allowed_tool_names=allowed_tool_names,
+    )
+    return result.text
+
+
+async def execute_harness_spindrel_tool_result(
+    ctx: TurnContext,
+    *,
+    tool_name: str,
+    arguments: dict[str, Any] | None,
+    allowed_tool_names: set[str] | frozenset[str] | None = None,
+) -> HarnessSpindrelToolResult:
+    """Execute one bridged Spindrel tool and keep its UI presentation data."""
     if allowed_tool_names is None:
         raise ValueError("allowed_tool_names is required for harness bridge tool execution")
     bot = get_bot(ctx.bot_id)
@@ -491,9 +522,18 @@ async def execute_harness_spindrel_tool(
                 allowed_tool_names=set(allowed_tool_names),
             )
         else:
-            return f"Tool call denied or expired: {verdict}"
-    if result.result_for_llm:
-        return result.result_for_llm
-    if result.result:
-        return result.result
-    return ""
+            return HarnessSpindrelToolResult(
+                text=f"Tool call denied or expired: {verdict}",
+                is_error=True,
+            )
+    text = result.result_for_llm or result.result or ""
+    event = result.tool_event or {}
+    envelope = event.get("envelope")
+    summary = event.get("summary")
+    return HarnessSpindrelToolResult(
+        text=text,
+        envelope=envelope if isinstance(envelope, dict) else None,
+        surface=event.get("surface") if isinstance(event.get("surface"), str) else None,
+        summary=summary if isinstance(summary, dict) else None,
+        is_error=bool(event.get("error")),
+    )

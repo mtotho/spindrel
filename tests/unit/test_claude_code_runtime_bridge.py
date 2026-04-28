@@ -15,6 +15,7 @@ approval card carries the signal.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
@@ -311,6 +312,60 @@ def test_edit_tool_result_emits_runtime_supplied_diff_envelope():
     assert "+print('new')" in result["envelope"]["body"]
     assert result["summary"]["kind"] == "diff"
     assert result["summary"]["path"] == "app.py"
+
+
+def test_spindrel_mcp_tool_result_reuses_dispatcher_envelope():
+    emitter = _RecordingEmitter()
+    result_meta = {
+        "claude_spindrel_tool_results": {
+            "list_channels:{}": [
+                SimpleNamespace(
+                    envelope={
+                        "content_type": "application/json",
+                        "body": '{"channels": []}',
+                        "plain_body": "Listed channels",
+                        "display": "inline",
+                        "truncated": False,
+                        "record_id": None,
+                        "byte_size": 16,
+                    },
+                    summary={"kind": "json", "subject_type": "tool", "label": "Channels"},
+                )
+            ],
+        },
+    }
+    msg_start = AssistantMessage(
+        content=[
+            ToolUseBlock(id="tu_mcp", name="mcp__spindrel__list_channels", input={})
+        ],
+        model="claude-sonnet-4-6",
+    )
+    msg_result = UserMessage(
+        content=[ToolResultBlock(tool_use_id="tu_mcp", content="Listed channels", is_error=False)],
+    )
+
+    tool_name_by_use_id: dict[str, str] = {}
+    _bridge_message(
+        msg_start,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+    _bridge_message(
+        msg_result,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id=tool_name_by_use_id,
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    result = emitter.calls[-1][1]
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["content_type"] == "application/json"
+    assert result["summary"]["label"] == "Channels"
 
 
 def test_result_message_populates_meta():

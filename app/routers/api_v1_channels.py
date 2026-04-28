@@ -248,6 +248,7 @@ class ChannelConfigOut(BaseModel):
     #   ``glass``   — translucent/blurred shell for header-zone widgets
     #   ``clear``   — plain shell; header-zone widgets sit directly on page
     header_backdrop_mode: str = "glass"
+    plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None
     harness_auto_compaction_enabled: bool = True
     harness_auto_compaction_soft_remaining_pct: int = 60
@@ -321,6 +322,7 @@ class ChannelConfigUpdate(BaseModel):
     # Header strip shell treatment (see ChannelConfigOut.header_backdrop_mode
     # for semantics). Accepted values: ``default | glass | clear``.
     header_backdrop_mode: Optional[str] = None
+    plan_mode_control: Optional[str] = None
     widget_theme_ref: Optional[str] = None
     harness_auto_compaction_enabled: Optional[bool] = None
     harness_auto_compaction_soft_remaining_pct: Optional[int] = None
@@ -654,6 +656,13 @@ async def update_channel_config(
                 status_code=422,
                 detail=f"Invalid header_backdrop_mode. Valid: {sorted(_valid_header_backdrop)}",
             )
+    if "plan_mode_control" in ch_updates and ch_updates["plan_mode_control"] is not None:
+        _valid_plan_mode_control = {"auto", "show", "hide"}
+        if ch_updates["plan_mode_control"] not in _valid_plan_mode_control:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid plan_mode_control. Valid: {sorted(_valid_plan_mode_control)}",
+            )
     if "widget_theme_ref" in ch_updates and ch_updates["widget_theme_ref"] is not None:
         try:
             await resolve_widget_theme(db, ch_updates["widget_theme_ref"])
@@ -678,6 +687,10 @@ async def update_channel_config(
     has_header_backdrop_mode_update = "header_backdrop_mode" in ch_updates
     header_backdrop_mode_update = (
         ch_updates.pop("header_backdrop_mode", None) if has_header_backdrop_mode_update else None
+    )
+    has_plan_mode_control_update = "plan_mode_control" in ch_updates
+    plan_mode_control_update = (
+        ch_updates.pop("plan_mode_control", None) if has_plan_mode_control_update else None
     )
     has_widget_theme_ref_update = "widget_theme_ref" in ch_updates
     widget_theme_ref_update = ch_updates.pop("widget_theme_ref", None) if has_widget_theme_ref_update else None
@@ -741,6 +754,18 @@ async def update_channel_config(
             cfg.pop("header_backdrop_mode", None)
         else:
             cfg["header_backdrop_mode"] = header_backdrop_mode_update
+        channel.config = cfg
+        flag_modified(channel, "config")
+        channel.updated_at = now
+
+    if has_plan_mode_control_update:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        if plan_mode_control_update in (None, "auto"):
+            cfg.pop("plan_mode_control", None)
+        else:
+            cfg["plan_mode_control"] = plan_mode_control_update
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -867,6 +892,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "layout_mode": (channel.config or {}).get("layout_mode", "full"),
         "chat_mode": (channel.config or {}).get("chat_mode", "default"),
         "header_backdrop_mode": (channel.config or {}).get("header_backdrop_mode", "glass"),
+        "plan_mode_control": (channel.config or {}).get("plan_mode_control", "auto"),
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
         "harness_auto_compaction_enabled": ((channel.config or {}).get("harness_auto_compaction") or {}).get("enabled", True),
         "harness_auto_compaction_soft_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("soft_remaining_pct", 60),

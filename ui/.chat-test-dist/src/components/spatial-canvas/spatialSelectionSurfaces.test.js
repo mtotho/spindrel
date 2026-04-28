@@ -19,6 +19,7 @@ test("channel clusters focus the map instead of opening selection chrome", () =>
     assert.match(worldSource, /CHANNEL_CLUSTER_FOCUS_MIN_SCALE = 0\.42/);
     assert.match(worldSource, /flyToWorldBounds\(cluster\.worldBounds, CHANNEL_CLUSTER_FOCUS_MIN_SCALE\)/);
     assert.match(worldSource, /setSelectedSpatialObject\(null\)/);
+    assert.match(canvasSource, /flyToWorldBounds=\{flyToWorldBounds\}/);
     assert.doesNotMatch(worldSource, /onDiveWinner/);
     assert.doesNotMatch(worldSource, /diveToChannel\(cluster\.winner\.channel\.id/);
     assert.doesNotMatch(markerSource, /onDiveWinner/);
@@ -30,7 +31,7 @@ test("channel clusters focus the map instead of opening selection chrome", () =>
 });
 test("cluster overview suppresses the focus lens hint", () => {
     const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasOverlays.tsx"), "utf8");
-    assert.match(source, /!\s*channelClusterMode\s*&&\s*<LensHint/);
+    assert.doesNotMatch(source, /LensHint/);
 });
 test("attention signal keeps the ring visual-only and makes only the badge clickable", () => {
     const source = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
@@ -45,6 +46,12 @@ test("Map Brief jump frames targets left of an open Starboard panel", () => {
     assert.match(source, /querySelector\("\[data-starboard-panel='true'\]"\)/);
     assert.match(source, /panelRect\?\.left/);
     assert.match(source, /rect\.left/);
+});
+test("cluster focus can recover viewport metrics before flying bounds", () => {
+    const source = readFileSync(resolve(SPATIAL_DIR, "useSpatialNavigation.tsx"), "utf8");
+    assert.match(source, /querySelector\('\[data-spatial-canvas="true"\]'\)/);
+    assert.match(source, /getBoundingClientRect\(\)/);
+    assert.match(source, /viewportRectRef\.current = rect/);
 });
 test("selected objects get a world anchor and suppress competing hover cards", () => {
     const source = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");

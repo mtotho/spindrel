@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
   Cog, PanelRight, Sparkles, StickyNote,
@@ -130,6 +131,8 @@ export function ChannelHeader({
   const navigate = useNavigate();
   const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
   const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);
+  const mobileOverflowMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const [mobileOverflowPos, setMobileOverflowPos] = React.useState({ top: 0, left: 0, width: 190 });
   // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
   // than the plain command palette — drawer's Jump tab wraps the palette
   // content inline, so channel-route mobile users get one surface with nav
@@ -336,17 +339,43 @@ export function ChannelHeader({
   }>;
   const showMobileOverflow = isMobile && mobileOverflowActions.length > 0;
 
+  const updateMobileOverflowPosition = React.useCallback(() => {
+    const rect = mobileOverflowRef.current?.getBoundingClientRect();
+    if (!rect || typeof window === "undefined") return;
+    const width = 190;
+    setMobileOverflowPos({
+      top: rect.bottom + 5,
+      left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width)),
+      width,
+    });
+  }, []);
+
   React.useEffect(() => {
     if (!mobileOverflowOpen) return;
+    updateMobileOverflowPosition();
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (mobileOverflowRef.current && target && !mobileOverflowRef.current.contains(target)) {
+      const inTrigger = !!(mobileOverflowRef.current && target && mobileOverflowRef.current.contains(target));
+      const inMenu = !!(mobileOverflowMenuRef.current && target && mobileOverflowMenuRef.current.contains(target));
+      if (!inTrigger && !inMenu) {
         setMobileOverflowOpen(false);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileOverflowOpen(false);
+    };
+    const handleDismiss = () => setMobileOverflowOpen(false);
     document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [mobileOverflowOpen]);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleDismiss);
+    window.addEventListener("scroll", handleDismiss, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleDismiss);
+      window.removeEventListener("scroll", handleDismiss, true);
+    };
+  }, [mobileOverflowOpen, updateMobileOverflowPosition]);
 
   return (
     <header
@@ -696,7 +725,10 @@ export function ChannelHeader({
               height: iconSize,
               backgroundColor: mobileOverflowOpen ? t.surfaceOverlay : undefined,
             }}
-            onClick={() => setMobileOverflowOpen((open) => !open)}
+            onClick={() => {
+              updateMobileOverflowPosition();
+              setMobileOverflowOpen((open) => !open);
+            }}
             aria-label="More actions"
             aria-haspopup="menu"
             aria-expanded={mobileOverflowOpen}
@@ -704,46 +736,51 @@ export function ChannelHeader({
           >
             <MoreHorizontal size={18} color={mobileOverflowOpen ? t.text : t.textDim} />
           </button>
-          {mobileOverflowOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-full mt-1 min-w-[190px] overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
-              style={{
-                background: t.surfaceRaised,
-                zIndex: 40,
-              }}
-            >
-              {mobileOverflowActions.map((action) => {
-                const Icon = action.icon;
-                const color = action.danger
-                  ? t.danger
-                  : action.active
-                    ? t.accent
-                    : t.text;
-                return (
-                  <button
-                    key={action.key}
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm transition-colors"
-                    style={{
-                      background: action.active ? t.accentSubtle : "transparent",
-                      color,
-                      borderBottom: `1px solid ${t.surfaceBorder}`,
-                    }}
-                    onClick={() => {
-                      setMobileOverflowOpen(false);
-                      action.onClick();
-                    }}
-                  >
-                    <Icon size={16} color={color} />
-                    <span>{action.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
+      )}
+      {mobileOverflowOpen && typeof document !== "undefined" && createPortal(
+        <div
+          ref={mobileOverflowMenuRef}
+          role="menu"
+          className="fixed overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+          style={{
+            top: mobileOverflowPos.top,
+            left: mobileOverflowPos.left,
+            width: mobileOverflowPos.width,
+            background: t.surfaceRaised,
+            zIndex: 50001,
+          }}
+        >
+          {mobileOverflowActions.map((action) => {
+            const Icon = action.icon;
+            const color = action.danger
+              ? t.danger
+              : action.active
+                ? t.accent
+                : t.text;
+            return (
+              <button
+                key={action.key}
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm transition-colors"
+                style={{
+                  background: action.active ? t.accentSubtle : "transparent",
+                  color,
+                  borderBottom: `1px solid ${t.surfaceBorder}`,
+                }}
+                onClick={() => {
+                  setMobileOverflowOpen(false);
+                  action.onClick();
+                }}
+              >
+                <Icon size={16} color={color} />
+                <span>{action.label}</span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
       )}
     </header>
   );

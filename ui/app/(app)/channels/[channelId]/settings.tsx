@@ -112,6 +112,7 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     category: settings.category ?? null,
     chat_mode: settings.chat_mode ?? "default",
     header_backdrop_mode: settings.header_backdrop_mode ?? "glass",
+    plan_mode_control: settings.plan_mode_control ?? "auto",
     layout_mode: settings.layout_mode,
     widget_theme_ref: settings.widget_theme_ref,
     pipeline_mode: settings.pipeline_mode,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ReactDOM from "react-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronUp,
@@ -14,6 +15,7 @@ import { useUIStore } from "../../stores/ui";
 import { usePaletteActions } from "../../stores/paletteActions";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import { buildRecentHref } from "../../lib/recentPages";
+import { resolveGenericChannelHref } from "../../lib/channelNavigation";
 import { normalizePalettePathInput, resolvePaletteRoute } from "../../lib/paletteRoutes.js";
 import { useIsAdmin } from "../../hooks/useScope";
 import { SpindrelLogo } from "./SpindrelLogo";
@@ -25,6 +27,7 @@ import {
   type CollapsiblePaletteBrowseSection,
 } from "../palette/search";
 import type { PaletteItem, ScoredItem } from "../palette/types";
+import type { UnreadStateResponse } from "../../api/hooks/useUnread";
 
 const COLLAPSIBLE_BROWSE_LABELS: Record<CollapsiblePaletteBrowseSection, string> = {
   tools: "Tools",
@@ -77,6 +80,8 @@ export function CommandPaletteContent({
   const listRef = useRef<HTMLDivElement>(null);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const recordPageVisit = useUIStore((s) => s.recordPageVisit);
+  const recentPages = useUIStore((s) => s.recentPages);
+  const queryClient = useQueryClient();
   const registeredActions = usePaletteActions((s) => s.actions);
   const shouldAutoFocus = autoFocus ?? (variant === "modal");
   const [query, setQuery] = useState("");
@@ -277,9 +282,15 @@ export function CommandPaletteContent({
           return;
         }
       }
-      if (item.href) go(item, item.href);
+      if (item.href) {
+        const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+        go(item, resolveGenericChannelHref(item.href, {
+          recentPages,
+          unreadStates: unreadState?.states,
+        }));
+      }
     },
-    [closeMobileSidebar, go, onAfterSelect],
+    [closeMobileSidebar, go, onAfterSelect, queryClient, recentPages],
   );
 
   /** Secondary action — "fly to map" path for canvas-owned results. Enter
@@ -306,7 +317,11 @@ export function CommandPaletteContent({
         }
       }
       if (item.href) {
-        go(item, item.href);
+        const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+        go(item, resolveGenericChannelHref(item.href, {
+          recentPages,
+          unreadStates: unreadState?.states,
+        }));
         return;
       }
       if (item.onSelect) {
@@ -315,7 +330,7 @@ export function CommandPaletteContent({
         item.onSelect();
       }
     },
-    [closeMobileSidebar, go, onAfterSelect, surface],
+    [closeMobileSidebar, go, onAfterSelect, queryClient, recentPages, surface],
   );
 
   const itemHasSecondary = useCallback(

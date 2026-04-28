@@ -6,6 +6,7 @@ import { getAuthToken, useAuthStore } from "../../stores/auth";
 import { useChannelReadStore } from "../../stores/channelRead";
 import { toast } from "../../stores/toast";
 import { mergeUnreadStateUpdates } from "../../lib/unreadStateCache";
+import { unreadStateHref } from "../../lib/unreadNavigation";
 
 export interface SessionReadState {
   user_id: string;
@@ -232,7 +233,7 @@ export function useUnreadEvents() {
                       message: "New agent reply",
                       action: {
                         label: "Open",
-                        onClick: () => navigate(`/channels/${state.channel_id}`),
+                        onClick: () => navigate(unreadStateHref(state) ?? `/channels/${state.channel_id}`),
                       },
                       durationMs: 6000,
                     });

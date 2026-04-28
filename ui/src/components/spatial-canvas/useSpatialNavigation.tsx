@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Brain,
   Footprints,
@@ -17,7 +18,10 @@ import {
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import { usePaletteActions } from "../../stores/paletteActions";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
+import { useUIStore } from "../../stores/ui";
 import { buildChannelSurfaceRoute, getChannelLastSurface } from "../../stores/channelLastSurface";
+import type { UnreadStateResponse } from "../../api/hooks/useUnread";
+import { resolveChannelEntryHref } from "../../lib/channelNavigation";
 import { SPATIAL_HANDOFF_KEY } from "../../lib/spatialHandoff";
 import { definitionOrbit } from "./spatialDefinitionsOrbit";
 import {
@@ -93,6 +97,8 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
     setStarboardOpen,
     setStarboardStation,
   } = args;
+  const recentPages = useUIStore((s) => s.recentPages);
+  const queryClient = useQueryClient();
   const diveToChannel = useCallback(
     (channelId: string, world: { x: number; y: number; w: number; h: number }) => {
       const rect = viewportRectRef.current;
@@ -118,13 +124,20 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       // dive falls back to chat. The tracker in AppShell records the
       // surface on every channel-route visit.
       const surface = getChannelLastSurface(channelId) ?? "chat";
-      const target = buildChannelSurfaceRoute(channelId, surface);
+      const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+      const target = surface === "chat"
+        ? resolveChannelEntryHref({
+            channelId,
+            recentPages,
+            unreadStates: unreadState?.states,
+          })
+        : buildChannelSurfaceRoute(channelId, surface);
       window.setTimeout(() => {
         navigate(target);
         if (onAfterDive) window.setTimeout(onAfterDive, 16);
       }, DIVE_MS);
     },
-    [navigate, onAfterDive, lensEngaged, triggerLensSettle, scheduleCamera],
+    [navigate, onAfterDive, lensEngaged, triggerLensSettle, scheduleCamera, queryClient, recentPages],
   );
 
   /**
@@ -665,7 +678,20 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
 
   const flyToWorldBounds = useCallback(
     (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06) => {
-      const rect = viewportRectRef.current;
+      let rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) {
+        const el = document.querySelector('[data-spatial-canvas="true"]');
+        const domRect = el?.getBoundingClientRect();
+        if (domRect?.width && domRect.height) {
+          rect = {
+            left: domRect.left,
+            top: domRect.top,
+            width: domRect.width,
+            height: domRect.height,
+          };
+          viewportRectRef.current = rect;
+        }
+      }
       if (!rect.width || !rect.height) return;
       const margin = 0.18;
       const targetScale = Math.max(

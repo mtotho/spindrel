@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Search, AlertTriangle, ChevronRight, Compass } from "lucide-react";
 import { useChannels, useEnsureOrchestrator } from "../../api/hooks/useChannels";
 import { useProviders } from "../../api/hooks/useProviders";
@@ -12,7 +13,9 @@ import { HomeGridTile } from "./HomeGridTile";
 import { NewChannelTile } from "./NewChannelTile";
 import { Link } from "react-router-dom";
 import { buildRecentHref } from "../../lib/recentPages";
+import { resolveGenericChannelHref } from "../../lib/channelNavigation";
 import type { PaletteItem } from "../palette/types";
+import type { UnreadStateResponse } from "../../api/hooks/useUnread";
 
 const MIN_TILE_WIDTH = 220;
 const GRID_GAP = 8;
@@ -41,6 +44,15 @@ export function HomeGrid() {
 
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const recordPageVisit = useUIStore((s) => s.recordPageVisit);
+  const recentPages = useUIStore((s) => s.recentPages);
+  const queryClient = useQueryClient();
+  const resolveHomeHref = (href: string) => {
+    const unreadState = queryClient.getQueryData<UnreadStateResponse>(["unread-state"]);
+    return resolveGenericChannelHref(href, {
+      recentPages,
+      unreadStates: unreadState?.states,
+    });
+  };
 
   const allItems = usePaletteItems();
   // The palette surfaces "Home" (self-link here) and "New channel" (replaced
@@ -235,8 +247,9 @@ export function HomeGrid() {
       if (target.kind === "new") {
         navigate("/channels/new");
       } else {
-        const href = target.scored.item.href;
-        if (!href) return;
+        const rawHref = target.scored.item.href;
+        if (!rawHref) return;
+        const href = resolveHomeHref(rawHref);
         recordPageVisit(href);
         const hashIdx = href.indexOf("#");
         if (hashIdx >= 0) {
@@ -349,7 +362,7 @@ export function HomeGrid() {
           {/* Orchestrator hero / setup banners pinned above the grid */}
           {orchestratorChannel && (
             <Link
-              to={`/channels/${orchestratorChannel.id}`}
+              to={resolveHomeHref(`/channels/${orchestratorChannel.id}`)}
               className="block no-underline mb-6"
               style={{ color: "inherit" }}
             >
@@ -507,20 +520,25 @@ export function HomeGrid() {
                 {group.items.map((scored) => {
                   const flatIdx = flatIndexByScoredId.get(scored.item.id) ?? -1;
                   const navigableScored = scored as typeof scored & { item: NavigablePaletteItem };
+                  const href = resolveHomeHref(navigableScored.item.href);
+                  const resolvedScored = {
+                    ...navigableScored,
+                    item: { ...navigableScored.item, href },
+                  };
                   return (
                     <HomeGridTile
                       key={navigableScored.item.id}
                       ref={(el) => {
                         if (flatIdx >= 0) tileRefs.current[flatIdx] = el;
                       }}
-                      scored={navigableScored}
+                      scored={resolvedScored}
                       selected={flatIdx === selectedIndex}
                       onHover={() => {
                         isKeyboardNav.current = false;
                         setSelectedIndex(flatIdx);
                       }}
                       onClick={() => {
-                        recordPageVisit(navigableScored.item.href);
+                        recordPageVisit(href);
                       }}
                     />
                   );

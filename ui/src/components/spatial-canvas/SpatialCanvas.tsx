@@ -77,7 +77,6 @@ import { ManualBotNode, BotTile } from "./BotNode";
 import {
   AddWidgetButton,
   CanvasStarfield,
-  LensHint,
 } from "./SpatialCanvasChrome";
 import { MovementTraceLayer } from "./MovementTraceLayer";
 import { SpatialMissionLayer } from "./SpatialMissionLayer";
@@ -903,6 +902,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         selectedSpatialObject={selectedSpatialObject}
         starboardOpen={starboardOpen}
         diveToChannel={diveToChannel}
+        flyToWorldBounds={flyToWorldBounds}
         attentionByNodeId={attentionByNodeId}
         setSelectedAttentionId={setSelectedAttentionId}
         standaloneWidgetClusters={standaloneWidgetClusters}
@@ -983,7 +983,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         setOpenBotChat={setOpenBotChat}
         sessionPickerOpen={sessionPickerOpen}
         setSessionPickerOpen={setSessionPickerOpen}
-        channelClusterMode={channelClusterMode}
         navigate={navigate}
       />
     </div>

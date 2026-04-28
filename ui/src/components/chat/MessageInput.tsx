@@ -13,6 +13,7 @@ import { ComposerApprovalModeControl } from "./ComposerApprovalModeControl";
 import { ComposerModelControl } from "./ComposerModelControl";
 import { ComposerPlanControl } from "./ComposerPlanControl";
 import type { HarnessApprovalMode } from "./harnessApprovalModeControl";
+import { shouldShowComposerPlanControl, type PlanModeControlVisibility } from "./planControlVisibility";
 import { useComposerDraftFiles, type PendingFile } from "./useComposerDraftFiles";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
@@ -65,6 +66,7 @@ interface Props {
   hasPlan?: boolean;
   planBusy?: boolean;
   canTogglePlanMode?: boolean;
+  planModeControl?: PlanModeControlVisibility | null;
   onTogglePlanMode?: () => void;
   onApprovePlan?: () => void;
   /** Hide the inline model-override pill. Used for non-harness scratch
@@ -104,7 +106,7 @@ function tapHaptic(pattern: number | number[] = 8) {
   try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -297,7 +299,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
   // Plan mode and harness permission mode are separate controls: plan mode
   // mirrors/initiates the runtime's native planning state, while the harness
   // footer text controls approval/sandbox posture.
-  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;
+  const canShowPlanControl = !!onTogglePlanMode && shouldShowComposerPlanControl({
+    canTogglePlanMode,
+    planMode,
+    planModeControl,
+    harnessRuntime,
+  });
   const controlPresentation = isTerminalMode ? "terminal" : "default";
   const approvalModeControl = isHarness ? (
     <ComposerApprovalModeControl

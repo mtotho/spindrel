@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import time
@@ -7,16 +6,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from app.utils import safe_create_task
-
 from app.agent.bots import ensure_default_bot, list_bots, load_bots, seed_bots_from_yaml
 from app.agent.skills import load_skills, seed_skills_from_files
 from app.services import file_sync
-from app.agent.tools import (
-    index_local_tools,
-    validate_pinned_tools,
-    warm_mcp_tool_index_for_all_bots,
-)
 from app.config import VERSION, settings
 from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
@@ -63,125 +55,6 @@ async def _cleanup_orphaned_tools(registered_tools: dict) -> None:
                 await db.commit()
     # Reload so in-memory configs reflect the cleanup
     await load_bots()
-
-
-_LEGACY_INTEGRATION_CONTAINER_NAMES = (
-    "spindrel-searxng",
-    "spindrel-playwright",
-    "spindrel-wyoming-whisper",
-    "spindrel-wyoming-piper",
-)
-_LEGACY_CLEANUP_SETTING_KEY = "legacy_integration_containers_cleaned"
-
-
-async def _legacy_integration_container_cleanup() -> None:
-    """Remove pre-multi-instance integration containers that squat on globally
-    unique names. One-shot, guarded by a ``server_settings`` flag so it only
-    runs on the first boot after this code ships.
-    """
-    import asyncio as _asyncio
-    from app.db.engine import async_session
-    from app.db.models import ServerSetting
-    from sqlalchemy import select
-
-    async with async_session() as db:
-        existing = (await db.execute(
-            select(ServerSetting).where(ServerSetting.key == _LEGACY_CLEANUP_SETTING_KEY)
-        )).scalar_one_or_none()
-        if existing and existing.value == "1":
-            return
-
-    removed: list[str] = []
-    for name in _LEGACY_INTEGRATION_CONTAINER_NAMES:
-        try:
-            proc = await _asyncio.create_subprocess_exec(
-                "docker", "inspect", "--format",
-                '{{index .Config.Labels "com.docker.stack-id"}}|{{.State.Status}}',
-                name,
-                stdout=_asyncio.subprocess.PIPE,
-                stderr=_asyncio.subprocess.PIPE,
-            )
-            out, _ = await proc.communicate()
-            if proc.returncode != 0:
-                continue  # No such container — nothing to do
-            label, _, _status = out.decode().strip().partition("|")
-            if label:
-                # Labeled by a stack — leave it to the stack service to manage
-                continue
-            rm = await _asyncio.create_subprocess_exec(
-                "docker", "rm", "-f", name,
-                stdout=_asyncio.subprocess.PIPE,
-                stderr=_asyncio.subprocess.PIPE,
-            )
-            rm_out, rm_err = await rm.communicate()
-            if rm.returncode == 0:
-                removed.append(name)
-            else:
-                logger.warning(
-                    "Legacy container cleanup: failed to rm %s: %s",
-                    name, rm_err.decode().strip(),
-                )
-        except Exception:
-            logger.warning("Legacy container cleanup: inspect failed for %s", name, exc_info=True)
-
-    async with async_session() as db:
-        row = ServerSetting(key=_LEGACY_CLEANUP_SETTING_KEY, value="1")
-        await db.merge(row)
-        await db.commit()
-
-    if removed:
-        logger.warning(
-            "Legacy integration cleanup: removed %d orphan container(s): %s. "
-            "Integration stacks will be recreated under instance-scoped names.",
-            len(removed), ", ".join(removed),
-        )
-
-
-async def _index_filesystems_and_start_watchers() -> None:
-    """Index workspace and legacy filesystem directories, then start file watchers.
-
-    Runs as a background task so it doesn't block server startup.
-    """
-    from app.agent.fs_indexer import index_directory
-    from app.agent.fs_watcher import start_watchers
-    from app.services.bot_indexing import reindex_bot
-
-    logger.info("Background: reindexing workspaces + memory for all bots...")
-    for bot in list_bots():
-        try:
-            await reindex_bot(bot, force=True, cleanup_orphans=True)
-        except Exception:
-            logger.exception("Failed to reindex bot %s", bot.id)
-        for cfg in bot.filesystem_indexes:
-            try:
-                stats = await index_directory(cfg.root, bot.id, cfg.patterns, force=True)
-                logger.info("Indexed %s for bot %s: %s", cfg.root, bot.id, stats)
-            except Exception:
-                logger.exception("Failed to index %s for bot %s", cfg.root, bot.id)
-    await start_watchers(list_bots())
-    logger.info("Background: filesystem indexing complete.")
-
-    # Warm contextual retrieval cache from existing filesystem chunk metadata
-    if settings.CONTEXTUAL_RETRIEVAL_ENABLED:
-        try:
-            from sqlalchemy import select as _sel
-            from app.agent.contextual_retrieval import warm_cache_from_metadata
-            from app.db.models import FilesystemChunk
-            async with async_session() as _db:
-                cr_rows = (await _db.execute(
-                    _sel(
-                        FilesystemChunk.content_hash,
-                        FilesystemChunk.chunk_index,
-                        FilesystemChunk.metadata_["contextual_description"].as_string(),
-                    ).where(
-                        FilesystemChunk.metadata_["contextual_description"].as_string().is_not(None)
-                    ).limit(10_000)
-                )).all()
-            warmed = warm_cache_from_metadata(cr_rows)
-            if warmed:
-                logger.info("Warmed contextual retrieval cache from %d filesystem chunk(s)", warmed)
-        except Exception:
-            logger.debug("Contextual retrieval cache warm-up failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -397,9 +270,18 @@ async def lifespan(application: FastAPI):
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()
     _t = _tlog("Load workflows, webhooks", _t)
+
+    from app.services.startup_runtime import (
+        StartupRuntimeHandle,
+        shutdown_runtime_services,
+        start_boot_background_services,
+        start_file_source_watcher,
+        start_ready_runtime_services,
+    )
+
+    _runtime = StartupRuntimeHandle()
     logger.info("Starting file watcher...")
-    _workers: list[asyncio.Task] = []
-    _workers.append(safe_create_task(file_sync.watch_files(), name="file_watcher"))
+    start_file_source_watcher(_runtime)
 
     # Bootstrap memory scheme for workspace-files bots (idempotent, creates MEMORY.md if missing)
     from app.services.memory_scheme import bootstrap_memory_scheme
@@ -477,109 +359,7 @@ async def lifespan(application: FastAPI):
 
     _t = _tlog("Memory bootstrap, workspace dirs, integrations, endpoint catalog", _t)
 
-    # Ensure shared workspace directories exist
-    for _sw in _sw_rows:
-        try:
-            shared_workspace_service.ensure_host_dirs(str(_sw.id))
-        except Exception:
-            logger.warning("Failed to ensure workspace dirs for %s", _sw.name)
-    # Start shared workspace watchers (fast — no embedding)
-    _sw_watch_targets: list[tuple[str, str]] = [
-        (str(_sw.id), shared_workspace_service.get_host_root(str(_sw.id)))
-        for _sw in _sw_rows
-    ]
-    if _sw_watch_targets:
-        from app.agent.fs_watcher import start_shared_workspace_watchers
-        _workers.append(safe_create_task(start_shared_workspace_watchers(_sw_watch_targets), name="sw_watchers"))
-    # Index filesystem directories + start watchers in background (doesn't block startup)
-    _workers.append(safe_create_task(_index_filesystems_and_start_watchers(), name="fs_index"))
-
-    # ---------------------------------------------------------------------------
-    # Background warmup: embedding indexes, MCP tool fetching, docker stacks.
-    # These are safe to run after the server is ready — they only populate RAG
-    # indexes and reconcile container state.  Content-hash checks skip unchanged
-    # items, so steady-state restarts finish quickly.
-    # ---------------------------------------------------------------------------
-
-    async def _background_warmup() -> None:
-        import time as _time
-        _t0 = _time.monotonic()
-        logger.info("Background warmup: starting...")
-
-        # Phase 1: Tool & MCP indexing (parallel)
-        logger.info("Background warmup: indexing local tools + MCP tools...")
-        async def _index_tools():
-            await index_local_tools()
-            await warm_mcp_tool_index_for_all_bots()
-            await validate_pinned_tools()
-
-        await asyncio.gather(
-            _index_tools(),
-            return_exceptions=True,
-        )
-
-        # Phase 2: Docker stack reconciliation
-        if settings.DOCKER_STACKS_ENABLED:
-            try:
-                from app.services.docker_stacks import stack_service
-                fixed = await stack_service.reconcile_running()
-                if fixed:
-                    logger.info("Reconciled %d docker stack(s) to stopped", fixed)
-            except Exception:
-                logger.exception("Failed to reconcile docker stacks")
-
-            # One-shot legacy orphan sweep. Pre-multi-instance builds used
-            # hard-coded container_name values (`spindrel-searxng`,
-            # `spindrel-playwright`, `spindrel-wyoming-whisper/piper`) which
-            # are globally unique on the Docker daemon. Remove any such
-            # orphan containers (no ``com.docker.stack-id`` label, not owned
-            # by a currently-tracked integration stack) so compose can
-            # recreate them under instance-scoped names.
-            try:
-                await _legacy_integration_container_cleanup()
-            except Exception:
-                logger.exception("Legacy integration container cleanup failed")
-
-        # Sync integration Docker Compose stacks
-        try:
-            from app.services.docker_stacks import stack_service
-            from integrations import discover_docker_compose_stacks
-            from app.services.integration_settings import get_value as _get_int_setting
-            from app.services.integration_settings import is_active as _is_integration_active
-            for _dc_info in discover_docker_compose_stacks():
-                _int_id = _dc_info["integration_id"]
-                try:
-                    _enabled = False
-                    if _is_integration_active(_int_id):
-                        _enabled_callable = _dc_info.get("enabled_callable")
-                        if _enabled_callable is not None:
-                            try:
-                                _enabled = bool(_enabled_callable())
-                            except Exception:
-                                logger.exception("enabled_callable failed for %s", _int_id)
-                                _enabled = False
-                        elif _dc_info["enabled_setting"]:
-                            _default = _dc_info.get("enabled_default", "false")
-                            _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], _default)
-                            _enabled = _val.lower() in ("true", "1", "yes")
-                    await stack_service.apply_integration_stack(
-                        integration_id=_int_id,
-                        name=_dc_info["description"] or _int_id,
-                        compose_definition=_dc_info["compose_definition"],
-                        project_name=_dc_info["project_name"],
-                        enabled=_enabled,
-                        description=_dc_info["description"],
-                        config_files=_dc_info["config_files"],
-                    )
-                except Exception:
-                    logger.exception("Failed to sync integration stack: %s", _int_id)
-        except Exception:
-            logger.exception("Failed to discover/sync integration docker stacks")
-
-        _elapsed = _time.monotonic() - _t0
-        logger.info("Background warmup: complete in %.1fs", _elapsed)
-
-    _workers.append(safe_create_task(_background_warmup(), name="bg_warmup"))
+    start_boot_background_services(_runtime, shared_workspace_rows=_sw_rows)
     _t = _tlog("Container auto-start, watchers, background warmup launched", _t)
 
     if settings.STT_PROVIDER:
@@ -594,179 +374,12 @@ async def lifespan(application: FastAPI):
         settings.SPINDREL_INSTANCE_ID,
         settings.AGENT_NETWORK_NAME or "(none)",
     )
-    from app.agent.tasks import task_worker
-    _workers.append(safe_create_task(task_worker(), name="task_worker"))
-    from app.services.heartbeat import heartbeat_worker
-    _workers.append(safe_create_task(heartbeat_worker(), name="heartbeat_worker"))
-    from app.services.usage_spike import usage_spike_worker
-    _workers.append(safe_create_task(usage_spike_worker(), name="usage_spike_worker"))
-    from app.agent.fs_watcher import periodic_reindex_worker
-    _workers.append(safe_create_task(periodic_reindex_worker(), name="periodic_reindex"))
-    from app.services.attachment_summarizer import attachment_sweep_worker
-    _workers.append(safe_create_task(attachment_sweep_worker(), name="attachment_sweep"))
-    from app.services.attachment_retention import attachment_retention_worker
-    _workers.append(safe_create_task(attachment_retention_worker(), name="attachment_retention"))
-    from app.services.data_retention import data_retention_worker
-    _workers.append(safe_create_task(data_retention_worker(), name="data_retention"))
-    from app.services.pin_contract import pin_contract_drift_worker
-    _workers.append(safe_create_task(pin_contract_drift_worker(), name="pin_contract_drift"))
-    if settings.CONFIG_STATE_FILE:
-        from app.services.config_export import config_export_worker
-        _workers.append(safe_create_task(config_export_worker(), name="config_export"))
-
-    # Periodic session store cleanup (session allows only)
-    async def _session_cleanup_worker():
-        while True:
-            try:
-                await asyncio.sleep(600)  # every 10 minutes
-                from app.agent.session_allows import cleanup_stale as _allow_cleanup
-                from app.services.session_locks import sweep_stale as _lock_sweep
-                allow_removed = _allow_cleanup()
-                # session_locks janitor: sweep entries older than the
-                # default TTL (2 hours). Drops locks leaked by background
-                # tasks cancelled before their try-block runs.
-                lock_removed = _lock_sweep()
-                if allow_removed or lock_removed:
-                    logger.debug(
-                        "Session cleanup: %d allow + %d session-lock entries evicted",
-                        allow_removed, lock_removed,
-                    )
-            except Exception:
-                logger.warning("Session cleanup failed", exc_info=True)
-    _workers.append(safe_create_task(_session_cleanup_worker(), name="session_cleanup"))
-
-    # Start integration background processes (non-blocking, like other workers)
-    from app.services.integration_processes import process_manager
-    _workers.append(safe_create_task(process_manager.start_auto_start_processes(), name="integration_processes"))
-
-    # Start one IntegrationDispatcherTask per registered ChannelRenderer
-    # (Phase B of the Integration Delivery refactor). Phase C1 imports
-    # `app.integrations.core_renderers` so the four core renderers
-    # (none / web / webhook / internal) self-register before this loop
-    # runs. Phase F adds `SlackRenderer`. Phase D (this) wires the real
-    # channel → DispatchTarget resolver via `dispatch_resolution`.
-    import app.integrations.core_renderers  # noqa: F401  registers core renderers
-    # Integration-specific renderers (Slack, Discord, BlueBubbles, …) are
-    # auto-imported by the integration discovery loop above (line 424,
-    # which calls `discover_integrations()` → `_load_single_integration`
-    # → auto-imports `renderer.py`). Each integration's renderer.py runs
-    # a `_register()` helper at import time so by the time we reach this
-    # block, the registry is already populated. Never `import
-    # integrations.X.renderer` explicitly from `app/` — that breaks the
-    # boundary the discovery system was built to enforce.
-    from app.integrations.renderer_registry import all_renderers
-    from app.services.channel_renderers import IntegrationDispatcherTask
-    from app.services.dispatch_resolution import resolve_target_for_renderer
-    _renderer_dispatchers: list[IntegrationDispatcherTask] = []
-    for _renderer in all_renderers().values():
-        async def _resolve(channel_id, _r=_renderer):
-            return await resolve_target_for_renderer(channel_id, _r.integration_id)
-        _disp = IntegrationDispatcherTask(_renderer, _resolve)
-        _disp.start()
-        _renderer_dispatchers.append(_disp)
-        logger.info("Started IntegrationDispatcherTask for renderer %r", _renderer.integration_id)
-
-    # Outbox drainer. Pulls pending outbox rows and routes them through
-    # the renderer registry. Persist_turn enqueues one row per dispatch
-    # target inside the same DB transaction as the message inserts; the
-    # drainer fans them out asynchronously to integration renderers.
-    #
-    # Recovery sweep first: any rows left in IN_FLIGHT from a previous
-    # process that crashed mid-delivery are stranded — fetch_pending only
-    # sees PENDING / FAILED_RETRYABLE. Reset them to PENDING so the
-    # drainer picks them up on its next batch.
-    from app.services.outbox import reset_stale_in_flight
-    from app.services.outbox_drainer import outbox_drainer_worker
-    try:
-        from app.db.engine import async_session as _outbox_session
-        async with _outbox_session() as _db:
-            _recovered = await reset_stale_in_flight(_db)
-        if _recovered:
-            logger.info("outbox: recovered %d stale IN_FLIGHT row(s) from previous run", _recovered)
-    except Exception:
-        logger.exception("outbox: stale IN_FLIGHT recovery failed (drainer will continue)")
-    _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
-    from app.services.workspace_attention import structured_attention_worker
-    _workers.append(safe_create_task(structured_attention_worker(), name="workspace_attention"))
-    from app.services.unread import unread_reminder_worker
-    _workers.append(safe_create_task(unread_reminder_worker(), name="unread_reminders"))
-
-    # Heartbeat startup recovery — same crash-gap shape as outbox: a
-    # HeartbeatRun row flipped to ``status='running'`` that never reached
-    # its follow-up write is stranded forever, wedging the run history view.
-    # Reset before the worker launches so the next fire starts from a clean
-    # terminal state.
-    try:
-        from app.services.heartbeat import reset_stale_running_runs
-        from app.db.engine import async_session as _hb_session
-        async with _hb_session() as _db:
-            _hb_recovered = await reset_stale_running_runs(_db)
-        if _hb_recovered:
-            logger.info("heartbeat: recovered %d stale running run(s) from previous process", _hb_recovered)
-    except Exception:
-        logger.exception("heartbeat: stale running-run recovery failed (worker will continue)")
-
-    # Widget SDK Phase B.4 — restore widget.py @on_event subscribers for every
-    # pin whose bundle declares events. Best-effort: a single broken bundle
-    # must not block server boot.
-    try:
-        from app.services.widget_events import register_all_pins_on_startup
-        await register_all_pins_on_startup()
-    except Exception:
-        logger.exception("widget_events: startup registration failed")
+    await start_ready_runtime_services(_runtime)
 
     try:
         yield
     finally:
-        # Cancel every live widget @on_event subscriber task before SSE shutdown
-        # so we don't spend shutdown time waiting on subscribe() generators.
-        try:
-            from app.services.widget_events import unregister_all_on_shutdown
-            await unregister_all_on_shutdown()
-        except Exception:
-            logger.exception("widget_events: shutdown cancellation failed")
-
-        # Signal SSE connections to close. By the time we get here, uvicorn's
-        # --timeout-graceful-shutdown has already force-closed connections, but
-        # this ensures clean subscriber cleanup for any stragglers.
-        from app.services.channel_events import signal_shutdown
-        signal_shutdown()
-        from app.services.user_events import signal_shutdown as signal_user_events_shutdown
-        signal_user_events_shutdown()
-
-        # Stop renderer dispatchers cleanly so per-channel state is dropped.
-        for _disp in _renderer_dispatchers:
-            await _disp.stop()
-
-        # Close every renderer's module-level httpx.AsyncClient so process
-        # shutdown doesn't log a "Unclosed client session" resource warning.
-        # Each renderer module exposes its client as ``_http``; we look it
-        # up reflectively so adding a new integration doesn't require
-        # editing this list.
-        from app.integrations.renderer_registry import all_renderers
-        import importlib
-        _renderer_modules: set[str] = set()
-        for _r in all_renderers().values():
-            mod_name = type(_r).__module__
-            _renderer_modules.add(mod_name)
-        # Also close the core_renderers WebhookRenderer client.
-        _renderer_modules.add("app.integrations.core_renderers")
-        for _mod_name in _renderer_modules:
-            try:
-                _mod = importlib.import_module(_mod_name)
-                _client = getattr(_mod, "_http", None)
-                if _client is not None and hasattr(_client, "aclose"):
-                    await _client.aclose()
-            except Exception:
-                logger.debug(
-                    "Failed to close httpx client in %s during shutdown",
-                    _mod_name, exc_info=True,
-                )
-
-        for w in _workers:
-            w.cancel()
-        await asyncio.gather(*_workers, return_exceptions=True)
-        await process_manager.shutdown_all()
+        await shutdown_runtime_services(_runtime)
 
 
 app = FastAPI(
