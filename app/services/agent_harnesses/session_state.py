@@ -348,16 +348,123 @@ def _usage_total_tokens(usage: dict[str, Any] | None) -> int | None:
     return total if found else None
 
 
+def normalize_context_usage(
+    usage: dict[str, Any] | None,
+    *,
+    runtime: str | None = None,
+    context_window_tokens: int | None = None,
+    source: str = "last_turn",
+) -> dict[str, Any]:
+    """Normalize provider usage into a context-footprint estimate.
+
+    Harness runtimes expose different usage shapes. Some fields are current
+    prompt/context footprint, while others are billing or cumulative thread
+    totals. The UI should only treat high/medium confidence estimates as
+    actionable pressure; low confidence data is still useful for traces.
+    """
+    snapshot: dict[str, Any] = {
+        "runtime": runtime,
+        "source": source,
+        "confidence": "none",
+        "context_window_tokens": context_window_tokens,
+        "context_tokens": None,
+        "remaining_pct": None,
+        "source_fields": [],
+        "reason": "no usage reported",
+        "raw_usage": usage if isinstance(usage, dict) else None,
+    }
+    if not isinstance(usage, dict) or not usage:
+        return snapshot
+
+    for key in ("context_remaining_pct", "context_remaining_percent", "remaining_pct"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)):
+            remaining = round(max(0.0, min(100.0, float(value))), 1)
+            snapshot.update(
+                {
+                    "confidence": "high",
+                    "remaining_pct": remaining,
+                    "source_fields": [key],
+                    "reason": "provider reported remaining context directly",
+                }
+            )
+            if context_window_tokens and context_window_tokens > 0:
+                snapshot["context_tokens"] = int(
+                    round(context_window_tokens * (1.0 - remaining / 100.0))
+                )
+            return snapshot
+
+    for key in ("context_tokens", "context_total_tokens", "last_total_tokens"):
+        value = usage.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            tokens = int(value)
+            snapshot.update(
+                {
+                    "confidence": "high",
+                    "context_tokens": tokens,
+                    "source_fields": [key],
+                    "reason": f"using normalized {key}",
+                }
+            )
+            break
+
+    if snapshot["context_tokens"] is None:
+        # Provider turn input is the closest cross-runtime proxy for active
+        # prompt footprint. Include generated output when present because it
+        # becomes part of the resumable transcript, but do not add cache-read
+        # or historical total fields here; those are commonly billing/cumulative
+        # and caused false 0-40% context readings after compaction.
+        input_key = "input_tokens" if isinstance(usage.get("input_tokens"), (int, float)) else "prompt_tokens"
+        input_value = usage.get(input_key)
+        output_key = "output_tokens" if isinstance(usage.get("output_tokens"), (int, float)) else "completion_tokens"
+        output_value = usage.get(output_key)
+        if isinstance(input_value, (int, float)) and input_value > 0:
+            tokens = int(input_value)
+            fields = [input_key]
+            if isinstance(output_value, (int, float)) and output_value > 0:
+                tokens += int(output_value)
+                fields.append(output_key)
+            snapshot.update(
+                {
+                    "confidence": "medium",
+                    "context_tokens": tokens,
+                    "source_fields": fields,
+                    "reason": "estimated from provider turn input/output tokens",
+                }
+            )
+
+    if snapshot["context_tokens"] is None:
+        total = usage.get("total_tokens")
+        if isinstance(total, (int, float)) and total > 0:
+            snapshot.update(
+                {
+                    "confidence": "low",
+                    "context_tokens": int(total),
+                    "source_fields": ["total_tokens"],
+                    "reason": "total_tokens may be billing or cumulative, not active context",
+                }
+            )
+
+    tokens = snapshot.get("context_tokens")
+    if isinstance(tokens, int) and tokens > 0 and context_window_tokens and context_window_tokens > 0:
+        remaining = max(0.0, 1.0 - (float(tokens) / float(context_window_tokens)))
+        snapshot["remaining_pct"] = round(remaining * 100.0, 1)
+    return snapshot
+
+
 def estimate_context_remaining_pct(
     usage: dict[str, Any] | None,
     *,
     context_window_tokens: int | None,
 ) -> float | None:
-    total = _usage_total_tokens(usage)
-    if not total or not context_window_tokens or context_window_tokens <= 0:
+    snapshot = normalize_context_usage(
+        usage,
+        context_window_tokens=context_window_tokens,
+    )
+    if snapshot.get("confidence") == "low":
         return None
-    remaining = max(0.0, 1.0 - (float(total) / float(context_window_tokens)))
-    return round(remaining * 100.0, 1)
+    value = snapshot.get("remaining_pct")
+    return float(value) if isinstance(value, (int, float)) else None
 
 
 def estimate_native_compaction_remaining_pct(
@@ -411,14 +518,16 @@ def _context_snapshot(
     *,
     context_window_tokens: int | None,
     source: str,
+    runtime: str | None = None,
 ) -> dict[str, Any]:
+    snapshot = normalize_context_usage(
+        usage,
+        runtime=runtime,
+        context_window_tokens=context_window_tokens,
+        source=source,
+    )
     return {
-        "source": source,
-        "remaining_pct": estimate_context_remaining_pct(
-            usage,
-            context_window_tokens=context_window_tokens,
-        ),
-        "context_window_tokens": context_window_tokens,
+        **snapshot,
         "usage": usage if isinstance(usage, dict) else None,
     }
 
@@ -594,6 +703,7 @@ async def run_native_harness_compact(
         prior_usage if isinstance(prior_usage, dict) else None,
         context_window_tokens=prior_window,
         source="last_turn",
+        runtime=runtime_name,
     )
     permission_mode = await load_session_mode(db, session_id)
     settings = await load_session_settings(db, session_id)

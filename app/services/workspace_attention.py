@@ -386,6 +386,12 @@ async def assign_attention_item(
     item = await get_attention_item(db, item_id)
     if item.status == "resolved":
         raise ValidationError("Cannot assign a resolved attention item.")
+    channel = await db.get(Channel, item.channel_id) if item.channel_id else None
+    if mode == "next_heartbeat":
+        if channel is None:
+            raise ValidationError("Next-heartbeat assignments require a channel target.")
+        if channel.bot_id != bot_id:
+            raise ValidationError("Next-heartbeat assignments must target the channel heartbeat bot. Use run_now for other bots.")
     try:
         from app.agent.bots import get_bot
         get_bot(bot_id)
@@ -406,7 +412,6 @@ async def assign_attention_item(
     item.requires_response = True
 
     if mode == "run_now":
-        channel = await db.get(Channel, item.channel_id) if item.channel_id else None
         task = Task(
             bot_id=bot_id,
             client_id=channel.client_id if channel else None,
@@ -679,7 +684,12 @@ async def build_attention_assignment_block(
             WorkspaceAttentionItem.assignment_mode == "next_heartbeat",
             WorkspaceAttentionItem.assignment_status.in_(("assigned", "running")),
             WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES),
-        ).order_by(desc(WorkspaceAttentionItem.assigned_at)).limit(5)
+        ).order_by(
+            desc(WorkspaceAttentionItem.severity == "critical"),
+            desc(WorkspaceAttentionItem.severity == "error"),
+            desc(WorkspaceAttentionItem.severity == "warning"),
+            WorkspaceAttentionItem.assigned_at.asc(),
+        ).limit(1)
     )).scalars().all()
     if not items:
         return None

@@ -790,13 +790,13 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         from app.services.agent_harnesses.session_state import (
             HARNESS_RESUME_RESET_AT_KEY,
             context_window_from_usage,
-            estimate_context_remaining_pct,
             estimate_native_compaction_remaining_pct,
             hint_preview,
             load_bridge_status,
             load_context_hints,
             load_latest_harness_metadata,
             load_native_compaction,
+            normalize_context_usage,
         )
         from app.services.agent_harnesses.settings import load_session_settings
         from app.services.agent_harnesses.tools import resolve_harness_bridge_inventory
@@ -860,10 +860,15 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         )
         if usage:
             lines.append(f"Last usage: {usage}")
-        remaining_pct = estimate_context_remaining_pct(
-            usage,
+        context_diagnostics = normalize_context_usage(
+            usage if isinstance(usage, dict) else None,
+            runtime=bot.harness_runtime,
             context_window_tokens=context_window_tokens,
+            source="last_turn",
         )
+        remaining_pct = context_diagnostics.get("remaining_pct")
+        if not isinstance(remaining_pct, (int, float)):
+            remaining_pct = None
         if native_compaction and native_compaction.get("status") == "completed":
             compact_usage = native_compaction.get("usage")
             compact_remaining = estimate_native_compaction_remaining_pct(
@@ -899,6 +904,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 "native_compaction_available": bool(getattr(caps, "native_compaction", False)) if caps else False,
                 "context_window_tokens": context_window_tokens,
                 "context_remaining_pct": remaining_pct,
+                "context_diagnostics": context_diagnostics,
                 "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
                 "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
                 "native_compaction": native_compaction,

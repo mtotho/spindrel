@@ -18,7 +18,9 @@ from app.services.workspace_attention import (
     report_attention_assignment,
     resolve_attention_item,
 )
+from app.services.workspace_command_center import build_command_center
 from app.dependencies import ApiKeyAuth
+from app.domain.errors import ValidationError
 
 
 @pytest.mark.asyncio
@@ -443,6 +445,64 @@ async def test_next_heartbeat_assignment_injects_block_and_report_updates_item(d
 
 
 @pytest.mark.asyncio
+async def test_next_heartbeat_assignment_requires_channel_heartbeat_bot(db_session, bot_registry):
+    bot_registry.register("bot-a")
+    bot_registry.register("bot-b")
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    item = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Manual follow-up",
+    )
+
+    with pytest.raises(ValidationError, match="channel heartbeat bot"):
+        await assign_attention_item(
+            db_session,
+            item.id,
+            bot_id="bot-b",
+            mode="next_heartbeat",
+        )
+
+
+@pytest.mark.asyncio
+async def test_next_heartbeat_assignment_block_injects_only_top_priority_item(db_session, bot_registry):
+    bot_registry.register("bot-a")
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    low = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Low priority",
+        severity="warning",
+    )
+    high = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="High priority",
+        severity="critical",
+    )
+    await assign_attention_item(db_session, low.id, bot_id="bot-a", mode="next_heartbeat")
+    await assign_attention_item(db_session, high.id, bot_id="bot-a", mode="next_heartbeat")
+
+    block = await build_attention_assignment_block(db_session, channel_id=channel_id, bot_id="bot-a")
+
+    assert "High priority" in block
+    assert "Low priority" not in block
+
+
+@pytest.mark.asyncio
 async def test_run_now_assignment_creates_attention_task(db_session, bot_registry):
     bot_registry.register("bot-a")
     session_id = uuid.uuid4()
@@ -480,6 +540,33 @@ async def test_run_now_assignment_creates_attention_task(db_session, bot_registr
     assert task.task_type == "attention_assignment"
     assert task.callback_config["attention_item_id"] == str(item.id)
     assert task.execution_config["tools"] == ["report_attention_assignment"]
+
+
+@pytest.mark.asyncio
+async def test_command_center_groups_assignments_with_blocked_heartbeat_state(db_session, bot_registry):
+    bot_registry.register("bot-a")
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    item = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Manual follow-up",
+    )
+    await assign_attention_item(db_session, item.id, bot_id="bot-a", mode="next_heartbeat")
+
+    data = await build_command_center(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["channels:read"], name="user-key"),
+    )
+
+    assert data["summary"]["assigned"] == 1
+    assert data["summary"]["blocked"] == 1
+    assert data["bots"][0]["bot_id"] == "bot-a"
+    assert data["bots"][0]["active_assignment"]["queue_state"]["blocked"] is True
 
 
 @pytest.mark.asyncio

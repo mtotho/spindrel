@@ -1102,6 +1102,23 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         panel_title="Upcoming activity",
         show_panel_title=True,
     ),
+    "core/command_center_native": NativeWidgetSpec(
+        widget_ref="core/command_center_native",
+        name="command_center_native",
+        display_label="Command Center",
+        description="First-party native operations board for assignments, upcoming work, and recent run reports.",
+        icon="radar",
+        supported_scopes=("channel", "dashboard"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 5, "h": 3}, "max_cells": {"w": 12, "h": 8}},
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        context_export={"enabled": False, "summary_kind": "server_provider", "hint_kind": "none"},
+        panel_title="Command Center",
+        show_panel_title=True,
+    ),
     "core/machine_control_native": NativeWidgetSpec(
         widget_ref="core/machine_control_native",
         name="machine_control_native",

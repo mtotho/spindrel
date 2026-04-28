@@ -819,6 +819,11 @@ function HarnessStatusPill({
     : data.context_remaining_source === "last_turn"
       ? "last turn"
       : null;
+  const diagnostics = (data.context_diagnostics ?? null) as Record<string, unknown> | null;
+  const confidence = typeof diagnostics?.confidence === "string" ? diagnostics.confidence : null;
+  const contextReason = typeof diagnostics?.reason === "string" ? diagnostics.reason : null;
+  const sourceFields = Array.isArray(diagnostics?.source_fields) ? diagnostics.source_fields.map(String) : [];
+  const contextTokens = typeof diagnostics?.context_tokens === "number" ? diagnostics.context_tokens : null;
   const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
   const bridge = (data.bridge_status ?? {}) as Record<string, unknown>;
   const nativeCompact = (data.native_compaction ?? null) as Record<string, unknown> | null;
@@ -847,9 +852,9 @@ function HarnessStatusPill({
           color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
           fontFamily: "'Menlo', monospace",
         }}
-        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}.`}
+        title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}${confidence ? `, confidence ${confidence}` : ""}.`}
       >
-        ctx {remainingLabel ?? usageLabel ?? resume}{remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}{hints}
+        ctx {remainingLabel ?? usageLabel ?? resume}{remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}{confidence && confidence !== "high" ? ` · ${confidence}` : ""}{hints}
       </button>
       {open && (
         <div
@@ -865,6 +870,13 @@ function HarnessStatusPill({
           <div className="grid gap-1">
             <div><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
             <div><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{remainingSource ? ` · ${remainingSource}` : ""}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
+            <div><span className="text-text-dim">Estimate</span> {confidence || "none"}{contextTokens ? ` · ${contextTokens.toLocaleString()} tokens` : ""}</div>
+            {contextReason && (
+              <div><span className="text-text-dim">Reason</span> {contextReason}</div>
+            )}
+            {sourceFields.length > 0 && (
+              <div><span className="text-text-dim">Usage fields</span> <span className="font-mono text-[10px]">{sourceFields.join(", ")}</span></div>
+            )}
             <div>
               <span className="text-text-dim">Native compact</span>{" "}
               {nativeCompact

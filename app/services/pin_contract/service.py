@@ -298,7 +298,10 @@ def _fold_with_snapshot(
     live: LiveFields,
     snapshot: ContractSnapshot | None,
 ) -> PinMetadataView:
-    from app.services.widget_contracts import _merge_presentation_with_defaults
+    from app.services.widget_contracts import (
+        _merge_presentation_with_defaults,
+        normalize_config_schema,
+    )
 
     snapshot = snapshot or ContractSnapshot()
     widget_contract = (
@@ -308,13 +311,17 @@ def _fold_with_snapshot(
         if snapshot.widget_contract is not None
         else None
     )
-    config_schema = (
-        live.config_schema
-        if live.config_schema is not None
-        else copy.deepcopy(snapshot.config_schema)
-        if snapshot.config_schema is not None
-        else None
-    )
+    # Match legacy ``build_pin_contract_metadata``: when falling back to the
+    # cached snapshot, run it through ``normalize_config_schema`` to fill in
+    # missing ``type`` / ``properties`` / ``required`` defaults. Hand-edited
+    # rows or pre-Phase-1 backfills can have raw shapes that legacy would
+    # canonicalize on every read.
+    if live.config_schema is not None:
+        config_schema = live.config_schema
+    elif snapshot.config_schema is not None:
+        config_schema = normalize_config_schema(snapshot.config_schema)
+    else:
+        config_schema = None
     # Match legacy ``build_pin_contract_metadata``: when neither live nor
     # snapshot supplies presentation, fall back to a defaults-merged dict
     # rather than ``None`` so downstream renderers always see a populated

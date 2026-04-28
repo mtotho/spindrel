@@ -5,8 +5,8 @@ import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
 import { AttentionHubContent } from "./SpatialAttentionLayer";
 import { CanvasLibraryContent } from "./CanvasLibrarySheet";
+import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
-import { HubSections } from "../home/HubSections";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import SummaryPanel from "../system-health/SummaryPanel";
 
@@ -88,7 +88,7 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
 };
 
 const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; icon: ReactNode }> = [
-  { id: "hub", label: "Hub", eyebrow: "Everything in one place", icon: <Home size={15} /> },
+  { id: "hub", label: "Command Center", eyebrow: "Assignments and scheduled work", icon: <Home size={15} /> },
   { id: "attention", label: "Attention", eyebrow: "Issues and assignments", icon: <Radar size={15} /> },
   { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", icon: <Plus size={15} /> },
   { id: "health", label: "Daily Health", eyebrow: "Server rollup", icon: <Activity size={15} /> },
@@ -324,17 +324,7 @@ export function UsageDensityChrome({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
               {station === "hub" ? (
-                <HubSections
-                  navigation={{
-                    onAttentionItem: (item) => {
-                      onSelectAttention(item);
-                      selectStation("attention");
-                    },
-                    onAttentionHub: () => selectStation("attention"),
-                    onDailyHealth: () => selectStation("health"),
-                    onContextBloat: () => selectStation("smell"),
-                  }}
-                />
+                <CommandCenter embedded />
               ) : station === "controls" ? (
                 <>
                   <div className="mb-4">

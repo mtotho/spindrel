@@ -25,6 +25,6 @@ test("approval mode control exposes label, title, and tone", () => {
   assert.equal(state.mode, "acceptEdits");
   assert.equal(state.label, "edits");
   assert.equal(state.tone, "warning");
-  assert.match(state.title, /Approval mode:/);
+  assert.match(state.title, /Harness permission mode:/);
   assert.match(state.title, /Click to cycle/);
 });

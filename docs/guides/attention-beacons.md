@@ -48,7 +48,7 @@ Raw server logs are not a direct v1 source. They may become supporting
 evidence later when linked by correlation id or trace context.
 
 User-authored items are first-class Attention Items. They are created from the
-Attention Hub, use `source_type="user"`, and can be immediately assigned to a
+Command Center, use `source_type="user"`, and can be immediately assigned to a
 bot or left as unassigned intake.
 
 ## Visibility
@@ -78,7 +78,9 @@ signals, and Attention edge urgency without changing Attention Item state.
 Informational non-actionable items remain Hub-only unless they explicitly
 require a response.
 
-The **Attention Hub** is the global triage surface. It is reachable from:
+The **Command Center** is the global operations surface. Attention is one
+section of that surface alongside bot assignment load, upcoming scheduled work,
+and recent run/report activity. It is reachable from:
 
 - the start-zone spatial landmark above the seed center
 - the canvas edge beacon
@@ -87,12 +89,12 @@ The **Attention Hub** is the global triage surface. It is reachable from:
 
 ![Attention Hub drawer — items grouped by lane (Needs reply, Assigned, System, Recent) with severity, target, and next-steps inline](../images/attention-hub.png)
 
-The hub lists lanes for items needing reply, assigned work, system errors, and
-recent/reported items. Clicking a Beacon opens the same hub drawer with message,
-next steps, source, target, count, assignment state, report findings, evidence,
-and actions. When a target has multiple active items, the drawer opens in a
-target review mode that labels the target, shows the current issue as `N of M`,
-lists the target's active issues, and advances to the next active item after
+The Command Center lists a bot board first: assigned Attention work, each bot's
+next heartbeat state, nearby upcoming work, and recent run reports. Attention
+items still expose message, next steps, source, target, count, assignment state,
+report findings, evidence, and actions. When a target has multiple active items,
+the detail surface labels the target, shows the current issue as `N of M`, lists
+the target's active issues, and advances to the next active item after
 acknowledge or resolve.
 
 The Hub owns bulk triage actions. Target review can acknowledge all active
@@ -123,7 +125,9 @@ item lifecycle.
 V1 has two modes:
 
 - `next_heartbeat` — stores the assignment and injects a compact assignment
-  block into the assigned bot's next heartbeat for that channel.
+  block into that channel's next heartbeat. This mode only targets the channel
+  heartbeat bot, and only one assignment is injected per heartbeat using
+  severity first, then assignment age.
 - `run_now` — creates a pending `Task` with `task_type="attention_assignment"`
   and a narrow tool surface containing `report_attention_assignment`.
 

@@ -125,7 +125,7 @@ class TestRefreshPinContractMetadata:
         pin.provenance_confidence = canonical["provenance_confidence"]
 
         with patch(
-            "app.services.dashboard_pins.flag_modified"
+            "app.services.pin_contract.service.flag_modified"
         ) as flag_modified_spy:
             changed = _refresh_pin_contract_metadata(pin)
 
@@ -153,7 +153,7 @@ class TestRefreshPinContractMetadata:
         pin.provenance_confidence = None
 
         with patch(
-            "app.services.dashboard_pins.flag_modified"
+            "app.services.pin_contract.service.flag_modified"
         ) as flag_modified_spy:
             changed = _refresh_pin_contract_metadata(pin)
 
@@ -178,7 +178,7 @@ class TestRefreshPinContractMetadata:
         pin.widget_presentation_snapshot = {"stale": "presentation"}
 
         with patch(
-            "app.services.dashboard_pins.flag_modified"
+            "app.services.pin_contract.service.flag_modified"
         ) as flag_modified_spy:
             changed = _refresh_pin_contract_metadata(pin)
 
@@ -207,7 +207,7 @@ class TestRefreshPinContractMetadata:
         pin.widget_presentation_snapshot = canonical["widget_presentation_snapshot"]
 
         with patch(
-            "app.services.dashboard_pins.flag_modified"
+            "app.services.pin_contract.service.flag_modified"
         ) as flag_modified_spy:
             changed = _refresh_pin_contract_metadata(pin)
 

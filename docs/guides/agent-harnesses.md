@@ -146,7 +146,7 @@ This is not a full Spindrel context budget. The native provider owns its own con
 
 `/new` and `/clear` are generic chat-session commands. They create a new channel-bound Spindrel session and navigate the invoking pane to it. Old sessions remain in history, and the channel's primary/default pointer is not changed by these commands.
 
-Scheduled heartbeats on harness channels also use one-shot host hints. They do not launch the normal Spindrel loop. The heartbeat preamble and task prompt are queued onto the channel's primary session so the next user-driven harness turn can see the scheduled context. Scratch/split fanout is intentionally not automatic yet.
+Scheduled heartbeats on harness channels run through the native harness turn path, not the normal Spindrel loop. The heartbeat preamble, optional spatial/pinned-widget/game context, Command Center assignment block, and task prompt are combined into the harness user message and executed with `_run_harness_turn` on the channel's primary session. If the primary session is busy, the heartbeat is deferred and rescheduled shortly. Scratch/split fanout is intentionally not automatic yet.
 
 When workspace-files memory is enabled on a harness bot, Spindrel injects a non-consuming host hint on each turn that points the runtime at the bot workspace and explains that durable memory files may exist there. The hint does not read or mutate memory by itself; the harness must use native filesystem tools or selected bridged Spindrel tools to inspect or update files.
 

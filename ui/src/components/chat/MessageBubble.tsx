@@ -420,8 +420,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <div
           className="msg-hover"
           style={{
-            paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 20,
-            paddingRight: isTerminalMode ? 12 : narrow ? 12 : 20,
+            paddingLeft: isTerminalMode ? 0 : narrow ? 12 : 20,
+            paddingRight: isTerminalMode ? 0 : narrow ? 12 : 20,
             paddingTop: isTerminalMode ? 9 : 14,
             paddingBottom: isTerminalMode ? 9 : 8,
             borderRadius: 4,

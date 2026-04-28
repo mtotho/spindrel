@@ -23,8 +23,12 @@ from app.services.native_app_widgets import (
     extract_native_widget_ref_from_envelope,
     get_or_create_native_widget_instance,
 )
-from app.services.pin_contract import compute_pin_source_stamp
-from app.services.widget_contracts import build_pin_contract_metadata, build_public_fields_for_pin
+from app.services.pin_contract import (
+    ContractSnapshot,
+    compute_pin_metadata,
+    reconcile_pin_metadata,
+    render_pin_metadata,
+)
 from app.services.widget_layout import (
     VALID_ZONES,
     clamp_layout_size_to_hints,
@@ -139,18 +143,55 @@ def _seed_layout_from_hints(
     return _normalize_coords_for_zone(clamped, resolved_zone, preset_name=preset_name)
 
 
-def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
-    """Serialize a pin row to a JSON-safe dict for API responses."""
-    contract_meta = build_pin_contract_metadata(
-        tool_name=pin.tool_name,
-        envelope=pin.envelope or {},
-        source_bot_id=pin.source_bot_id,
-        widget_origin=pin.widget_origin,
-        provenance_confidence=pin.provenance_confidence,
-        widget_contract_snapshot=pin.widget_contract_snapshot,
-        config_schema_snapshot=pin.config_schema_snapshot,
-        widget_presentation_snapshot=pin.widget_presentation_snapshot,
+def _pin_is_fully_stamped(pin: WidgetDashboardPin) -> bool:
+    """Gate for the snapshot-only read path.
+
+    A row is "fully stamped" when every column the read path needs is
+    populated AND ``source_stamp`` is set (proof a Phase 1+ writer or the
+    Phase 2 backfill produced this row). ``config_schema_snapshot`` is
+    intentionally NOT in the gate — many widgets legitimately have no
+    config schema, and a NULL there must not force a cold-path reconcile.
+    """
+    return (
+        pin.source_stamp is not None
+        and pin.widget_origin is not None
+        and pin.provenance_confidence is not None
+        and pin.widget_contract_snapshot is not None
+        and pin.widget_presentation_snapshot is not None
     )
+
+
+def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
+    """Serialize a pin row to a JSON-safe dict for API responses.
+
+    Hot path: ``render_pin_metadata`` reads only the snapshot columns when
+    the pin is fully stamped. Stragglers fall back to ``compute_pin_metadata``
+    which walks the resolver chain — they should be rare after Phase 2
+    backfill, but the fallback keeps hand-edited / restored-from-backup
+    rows serving correctly.
+    """
+    if _pin_is_fully_stamped(pin):
+        view = render_pin_metadata(pin)
+    else:
+        snapshot = ContractSnapshot(
+            widget_contract=pin.widget_contract_snapshot,
+            config_schema=pin.config_schema_snapshot,
+            widget_presentation=pin.widget_presentation_snapshot,
+        )
+        caller_origin = (
+            pin.widget_origin
+            if pin.provenance_confidence == "authoritative"
+            and isinstance(pin.widget_origin, dict)
+            and pin.widget_origin
+            else None
+        )
+        view, _ = compute_pin_metadata(
+            tool_name=pin.tool_name,
+            envelope=pin.envelope or {},
+            source_bot_id=pin.source_bot_id,
+            caller_origin=caller_origin,
+            snapshot=snapshot,
+        )
     data = {
         "id": str(pin.id),
         "dashboard_key": pin.dashboard_key,
@@ -162,8 +203,8 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "tool_name": pin.tool_name,
         "tool_args": pin.tool_args or {},
         "widget_config": pin.widget_config or {},
-        "widget_origin": contract_meta["widget_origin"],
-        "provenance_confidence": contract_meta["provenance_confidence"],
+        "widget_origin": view.widget_origin,
+        "provenance_confidence": view.provenance_confidence,
         "envelope": pin.envelope or {},
         "display_label": pin.display_label,
         "grid_layout": pin.grid_layout or {},
@@ -171,19 +212,11 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "zone": pin.zone or "grid",
         "pinned_at": pin.pinned_at.isoformat() if pin.pinned_at else None,
         "updated_at": pin.updated_at.isoformat() if pin.updated_at else None,
+        "config_schema": view.config_schema,
+        "widget_contract": view.widget_contract,
+        "widget_presentation": view.widget_presentation,
     }
-    data.update(
-        build_public_fields_for_pin(
-            tool_name=pin.tool_name,
-            envelope=pin.envelope or {},
-            source_bot_id=pin.source_bot_id,
-            widget_origin=contract_meta["widget_origin"],
-            widget_contract_snapshot=contract_meta["widget_contract_snapshot"],
-            config_schema_snapshot=contract_meta["config_schema_snapshot"],
-            widget_presentation_snapshot=contract_meta["widget_presentation_snapshot"],
-        )
-    )
-    widget_presentation = contract_meta.get("widget_presentation")
+    widget_presentation = view.widget_presentation
     if isinstance(widget_presentation, dict):
         data["panel_title"] = widget_presentation.get("panel_title")
         data["show_panel_title"] = widget_presentation.get("show_panel_title")
@@ -192,37 +225,16 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
 
 
 def _refresh_pin_contract_metadata(pin: WidgetDashboardPin) -> bool:
-    metadata = build_pin_contract_metadata(
-        tool_name=pin.tool_name,
-        envelope=pin.envelope or {},
-        source_bot_id=pin.source_bot_id,
-        widget_origin=pin.widget_origin,
-        provenance_confidence=pin.provenance_confidence,
-        widget_contract_snapshot=pin.widget_contract_snapshot,
-        config_schema_snapshot=pin.config_schema_snapshot,
-        widget_presentation_snapshot=pin.widget_presentation_snapshot,
-    )
-    changed = False
-    if pin.widget_origin != metadata["widget_origin"]:
-        pin.widget_origin = metadata["widget_origin"]
-        flag_modified(pin, "widget_origin")
-        changed = True
-    if pin.provenance_confidence != metadata["provenance_confidence"]:
-        pin.provenance_confidence = metadata["provenance_confidence"]
-        changed = True
-    if pin.widget_contract_snapshot != metadata["widget_contract_snapshot"]:
-        pin.widget_contract_snapshot = metadata["widget_contract_snapshot"]
-        flag_modified(pin, "widget_contract_snapshot")
-        changed = True
-    if pin.config_schema_snapshot != metadata["config_schema_snapshot"]:
-        pin.config_schema_snapshot = metadata["config_schema_snapshot"]
-        flag_modified(pin, "config_schema_snapshot")
-        changed = True
-    if pin.widget_presentation_snapshot != metadata["widget_presentation_snapshot"]:
-        pin.widget_presentation_snapshot = metadata["widget_presentation_snapshot"]
-        flag_modified(pin, "widget_presentation_snapshot")
-        changed = True
-    return changed
+    """Thin wrapper around ``reconcile_pin_metadata`` for back-compat.
+
+    Phase 3 flipped the implementation to the new resolver chain. The
+    function name is preserved so the existing drift-guard test suite
+    (``tests/unit/test_refresh_pin_contract_metadata.py``) and any
+    Phase 1-era callers keep working unchanged. ``reconcile_pin_metadata``
+    additionally writes ``source_stamp``, which is the desired side-effect
+    on every refresh.
+    """
+    return reconcile_pin_metadata(pin)
 
 
 async def _sync_native_pin_envelopes(
@@ -314,8 +326,13 @@ async def list_pins(
                 row.grid_layout = normalized
                 flag_modified(row, "grid_layout")
                 dirty = True
-        if _refresh_pin_contract_metadata(row):
-            dirty = True
+        # Reconcile only un-stamped / under-populated rows. Fully-stamped
+        # rows serve straight from snapshot columns via ``render_pin_metadata``
+        # in ``serialize_pin`` — no registry / filesystem reads on the hot
+        # path. The fallback keeps hand-edited or backup-restored rows alive.
+        if not _pin_is_fully_stamped(row):
+            if reconcile_pin_metadata(row):
+                dirty = True
     if await _sync_native_pin_envelopes(db, rows):
         dirty = True
     if dirty:
@@ -446,14 +463,16 @@ async def create_pin(
             display_label=display_label or envelope.get("display_label"),
             source_bot_id=source_bot_id,
         )
-    contract_meta = build_pin_contract_metadata(
+    # Phase 3: single compute call produces origin/confidence/snapshots AND
+    # the source_stamp in one pass. We need the resolved view BEFORE
+    # constructing the row so layout_hints can drive initial zone seeding.
+    view, source_stamp = compute_pin_metadata(
         tool_name=tool_name,
         envelope=envelope,
         source_bot_id=resolved_bot_id,
-        widget_origin=widget_origin,
-        provenance_confidence="authoritative" if widget_origin else None,
+        caller_origin=widget_origin,
     )
-    widget_presentation = contract_meta.get("widget_presentation")
+    widget_presentation = view.widget_presentation
     layout_hints = (
         widget_presentation.get("layout_hints")
         if isinstance(widget_presentation, dict)
@@ -473,20 +492,18 @@ async def create_pin(
         tool_name=tool_name,
         tool_args=tool_args or {},
         widget_config=widget_config or {},
-        widget_origin=contract_meta["widget_origin"],
-        provenance_confidence=contract_meta["provenance_confidence"],
-        widget_contract_snapshot=contract_meta["widget_contract_snapshot"],
-        config_schema_snapshot=contract_meta["config_schema_snapshot"],
-        widget_presentation_snapshot=contract_meta["widget_presentation_snapshot"],
-        # Phase 1 stamp populate: legacy build_pin_contract_metadata above
-        # writes the snapshot fields; the new resolver chain produces just
-        # the stamp. Phase 3 will collapse both paths through compute_pin_metadata.
-        source_stamp=compute_pin_source_stamp(
-            tool_name=tool_name,
-            envelope=envelope,
-            source_bot_id=resolved_bot_id,
-            caller_origin=widget_origin,
-        ),
+        widget_origin=view.widget_origin or None,
+        provenance_confidence=view.provenance_confidence,
+        widget_contract_snapshot=copy.deepcopy(view.widget_contract)
+        if view.widget_contract is not None
+        else None,
+        config_schema_snapshot=copy.deepcopy(view.config_schema)
+        if view.config_schema is not None
+        else None,
+        widget_presentation_snapshot=copy.deepcopy(view.widget_presentation)
+        if view.widget_presentation is not None
+        else None,
+        source_stamp=source_stamp,
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
         grid_layout=(
@@ -780,15 +797,7 @@ async def update_pin_envelope(
     pin.envelope = envelope
     pin.display_label = envelope.get("display_label") or pin.display_label
     flag_modified(pin, "envelope")
-    _refresh_pin_contract_metadata(pin)
-    pin.source_stamp = compute_pin_source_stamp(
-        tool_name=pin.tool_name,
-        envelope=envelope,
-        source_bot_id=pin.source_bot_id,
-        caller_origin=pin.widget_origin
-        if pin.provenance_confidence == "authoritative"
-        else None,
-    )
+    reconcile_pin_metadata(pin)
     await db.commit()
     await db.refresh(pin)
 
@@ -868,15 +877,7 @@ async def update_pin_scope(
         envelope["source_bot_id"] = source_bot_id
     pin.envelope = envelope
     flag_modified(pin, "envelope")
-    _refresh_pin_contract_metadata(pin)
-    pin.source_stamp = compute_pin_source_stamp(
-        tool_name=pin.tool_name,
-        envelope=envelope,
-        source_bot_id=pin.source_bot_id,
-        caller_origin=pin.widget_origin
-        if pin.provenance_confidence == "authoritative"
-        else None,
-    )
+    reconcile_pin_metadata(pin)
 
     await db.commit()
     await db.refresh(pin)

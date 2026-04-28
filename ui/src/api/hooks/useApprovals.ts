@@ -162,9 +162,10 @@ export function useSetSessionApprovalMode() {
       apiFetch<ApprovalModeResponse>(`/api/v1/sessions/${sessionId}/approval-mode`, {
         method: "POST",
         body: JSON.stringify({ mode }),
-      }),
+    }),
     onSuccess: (data, variables) => {
       qc.setQueryData(["session-approval-mode", variables.sessionId], data);
+      qc.invalidateQueries({ queryKey: ["session-harness-status", variables.sessionId] });
     },
   });
 }
@@ -238,6 +239,7 @@ export interface HarnessStatus {
   context_window_tokens: number | null;
   context_remaining_pct: number | null;
   context_remaining_source: string | null;
+  context_diagnostics: Record<string, unknown> | null;
   native_compaction: Record<string, unknown> | null;
   hints: Array<Record<string, unknown>>;
   next_turn_computed_hints: Array<Record<string, unknown>>;
@@ -261,7 +263,8 @@ export function useSessionHarnessStatus(
         `/api/v1/sessions/${sessionId}/harness-status`,
       ),
     enabled: !!sessionId,
-    refetchInterval: 10_000,
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
   });
 }
 

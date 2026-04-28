@@ -42,6 +42,12 @@ export interface WorkspaceAttentionItem {
   last_seen_at?: string | null;
   responded_at?: string | null;
   resolved_at?: string | null;
+  queue_state?: {
+    blocked?: boolean;
+    blocked_reason?: string | null;
+    next_run_at?: string | null;
+    heartbeat_channel_id?: string | null;
+  };
 }
 
 interface AttentionResponse {

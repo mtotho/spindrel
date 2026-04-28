@@ -17,14 +17,14 @@ const HARNESS_APPROVAL_MODE_LABEL: Record<HarnessApprovalMode, string> = {
   bypassPermissions: "bypass",
   acceptEdits: "edits",
   default: "ask",
-  plan: "plan",
+  plan: "read-only",
 };
 
 const HARNESS_APPROVAL_MODE_DESCRIPTION: Record<HarnessApprovalMode, string> = {
   bypassPermissions: "Bypass: every tool call is auto-approved.",
   acceptEdits: "Accept edits: Edit and Write are auto-approved; Bash and others ask.",
   default: "Ask: write and exec tools require approval.",
-  plan: "Plan: read-only until the harness exits plan mode.",
+  plan: "Read-only permissions: write and exec tools are blocked until the harness exits native plan mode.",
 };
 
 const HARNESS_APPROVAL_MODE_TONE: Record<HarnessApprovalMode, HarnessApprovalModeTone> = {
@@ -65,7 +65,7 @@ export function getHarnessApprovalModeControlState(
   return {
     mode: normalized,
     label: HARNESS_APPROVAL_MODE_LABEL[normalized],
-    title: `Approval mode: ${description} Click to cycle.`,
+    title: `Harness permission mode: ${description} Click to cycle.`,
     tone: HARNESS_APPROVAL_MODE_TONE[normalized],
   };
 }

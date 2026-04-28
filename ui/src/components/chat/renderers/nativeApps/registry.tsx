@@ -1,6 +1,7 @@
 import { AgentSmellWidget } from "./AgentSmellWidget";
 import { BlockyardWidget } from "./BlockyardWidget";
 import { ChannelFilesWidget } from "./ChannelFilesWidget";
+import { CommandCenterWidget } from "./CommandCenterWidget";
 import type { ReactNode } from "react";
 import { ContextTrackerWidget } from "./ContextTrackerWidget";
 import { EcosystemSimWidget } from "./EcosystemSimWidget";
@@ -21,6 +22,7 @@ type NativeWidgetComponent = (props: NativeAppRendererProps) => ReactNode;
 const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
   "core/agent_smell_native": AgentSmellWidget,
   "core/channel_files_native": ChannelFilesWidget,
+  "core/command_center_native": CommandCenterWidget,
   "core/plan_questions": PlanQuestionsWidget,
   "core/context_tracker": ContextTrackerWidget,
   "core/game_blockyard": BlockyardWidget,

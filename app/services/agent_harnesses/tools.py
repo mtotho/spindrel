@@ -355,6 +355,8 @@ async def execute_harness_spindrel_tool(
     allowed_tool_names: set[str] | frozenset[str] | None = None,
 ) -> str:
     """Execute one bridged Spindrel tool and return LLM-visible text."""
+    if allowed_tool_names is None:
+        raise ValueError("allowed_tool_names is required for harness bridge tool execution")
     bot = get_bot(ctx.bot_id)
     args = json.dumps(arguments or {})
     tool_call_id = f"harness-spindrel:{uuid.uuid4()}"
@@ -395,7 +397,7 @@ async def execute_harness_spindrel_tool(
         summarize_max_tokens=summarize.max_tokens,
         summarize_exclude=set(summarize.exclude),
         compaction=False,
-        allowed_tool_names=set(allowed_tool_names) if allowed_tool_names is not None else set(),
+        allowed_tool_names=set(allowed_tool_names),
     )
     if result.needs_approval and result.approval_id:
         verdict = await resolve_approval_verdict(
@@ -423,7 +425,7 @@ async def execute_harness_spindrel_tool(
                 compaction=False,
                 skip_policy=True,
                 existing_record_id=result.record_id,
-                allowed_tool_names=set(allowed_tool_names) if allowed_tool_names is not None else set(),
+                allowed_tool_names=set(allowed_tool_names),
             )
         else:
             return f"Tool call denied or expired: {verdict}"

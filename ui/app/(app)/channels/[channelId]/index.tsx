@@ -29,6 +29,7 @@ import {
   useSessionHarnessStatus,
   useSetSessionApprovalMode,
   useSetSessionHarnessSettings,
+  type HarnessApprovalMode,
 } from "@/src/api/hooks/useApprovals";
 import { getNextHarnessApprovalMode } from "@/src/components/chat/harnessApprovalModeControl";
 import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
@@ -637,9 +638,14 @@ export default function ChatScreen() {
   const autoCompactSoft = autoCompactConfig.soft_remaining_pct ?? channel?.config?.harness_auto_compaction_soft_remaining_pct ?? 60;
   const autoCompactHard = autoCompactConfig.hard_remaining_pct ?? channel?.config?.harness_auto_compaction_hard_remaining_pct ?? 10;
   const remainingPct = harnessStatus?.context_remaining_pct;
+  const contextConfidence = typeof harnessStatus?.context_diagnostics?.confidence === "string"
+    ? harnessStatus.context_diagnostics.confidence
+    : null;
+  const contextEstimateActionable = contextConfidence === "high" || contextConfidence === "medium";
   const autoCompactPressure = bot?.harness_runtime
     && autoCompactEnabled
     && typeof remainingPct === "number"
+    && contextEstimateActionable
     && currentPlanSessionId
     && dismissedAutoCompactSession !== currentPlanSessionId
     ? (remainingPct < autoCompactHard ? "hard" : remainingPct < autoCompactSoft ? "soft" : null)
@@ -694,6 +700,12 @@ export default function ChatScreen() {
   const pendingHarnessQuestion = pendingHarnessQuestionIndex >= 0
     ? invertedData[pendingHarnessQuestionIndex]
     : null;
+  const visibleInvertedData = useMemo(
+    () => chatMode === "terminal" && pendingHarnessQuestion
+      ? invertedData.filter((m) => m.id !== pendingHarnessQuestion.id)
+      : invertedData,
+    [chatMode, invertedData, pendingHarnessQuestion],
+  );
   const handleIgnoreHarnessQuestion = useCallback(async () => {
     if (!pendingHarnessQuestion?.session_id) return;
     const questionId = pendingHarnessQuestion.id;
@@ -709,6 +721,7 @@ export default function ChatScreen() {
     }
   }, [pendingHarnessQuestion, queryClient]);
   const setApprovalMode = useSetSessionApprovalMode();
+  const harnessApprovalBeforePlanRef = useRef<HarnessApprovalMode | null>(null);
   const planBusy = sessionPlan.startPlan.isPending
     || sessionPlan.approvePlan.isPending
     || sessionPlan.exitPlan.isPending
@@ -720,9 +733,19 @@ export default function ChatScreen() {
     if (!currentPlanSessionId) return;
     if (sessionPlan.mode !== "chat") {
       sessionPlan.exitPlan.mutate();
+      if (bot?.harness_runtime && harnessStatus?.permission_mode === "plan") {
+        setApprovalMode.mutate({
+          sessionId: currentPlanSessionId,
+          mode: harnessApprovalBeforePlanRef.current || "bypassPermissions",
+        });
+        harnessApprovalBeforePlanRef.current = null;
+      }
       return;
     }
     if (bot?.harness_runtime) {
+      harnessApprovalBeforePlanRef.current = harnessStatus?.permission_mode && harnessStatus.permission_mode !== "plan"
+        ? (harnessStatus.permission_mode as HarnessApprovalMode)
+        : "bypassPermissions";
       setApprovalMode.mutate({ sessionId: currentPlanSessionId, mode: "plan" });
     }
     if (sessionPlan.hasPlan) {
@@ -730,7 +753,19 @@ export default function ChatScreen() {
       return;
     }
     sessionPlan.startPlan.mutate();
-  }, [bot?.harness_runtime, currentPlanSessionId, sessionPlan, setApprovalMode]);
+  }, [bot?.harness_runtime, currentPlanSessionId, harnessStatus?.permission_mode, sessionPlan, setApprovalMode]);
+
+  useEffect(() => {
+    if (!bot?.harness_runtime || !currentPlanSessionId) return;
+    if (sessionPlan.mode !== "chat") return;
+    if (harnessApprovalBeforePlanRef.current && harnessStatus?.permission_mode === "plan" && !setApprovalMode.isPending) {
+      setApprovalMode.mutate({
+        sessionId: currentPlanSessionId,
+        mode: harnessApprovalBeforePlanRef.current,
+      });
+      harnessApprovalBeforePlanRef.current = null;
+    }
+  }, [bot?.harness_runtime, currentPlanSessionId, harnessStatus?.permission_mode, sessionPlan.mode, setApprovalMode]);
 
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
@@ -1716,7 +1751,7 @@ export default function ChatScreen() {
 
   // ---- Shared message area props ----
   const messageAreaProps = {
-    invertedData,
+    invertedData: visibleInvertedData,
     renderMessage,
     chatState,
     bot,
@@ -1753,11 +1788,9 @@ export default function ChatScreen() {
   const pendingHarnessQuestionLane = pendingHarnessQuestion ? (
     <div className="px-3 pb-2">
       <div className="mb-1 text-[11px] text-text-dim">
-        Answer the question above to continue, or ignore it if it expired.
+        Answer this harness question to continue, or ignore it if it expired.
       </div>
-      {chatMode !== "terminal"
-        ? renderMessage({ item: pendingHarnessQuestion, index: pendingHarnessQuestionIndex })
-        : null}
+      {renderMessage({ item: pendingHarnessQuestion, index: pendingHarnessQuestionIndex })}
       <div className="mt-1 flex justify-end">
         <button
           type="button"

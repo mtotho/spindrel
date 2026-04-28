@@ -217,6 +217,15 @@ def test_native_catalog_entries_expose_contract():
     assert usage["widget_contract"]["layout_hints"] == usage["layout_hints"]
     upcoming = next(entry for entry in entries if entry["name"] == "upcoming_activity_native")
     assert upcoming["supported_scopes"] == ["channel", "dashboard"]
+    command_center = next(entry for entry in entries if entry["name"] == "command_center_native")
+    assert command_center["display_label"] == "Command Center"
+    assert command_center["widget_ref"] == "core/command_center_native"
+    assert command_center["supported_scopes"] == ["channel", "dashboard"]
+    assert command_center["widget_contract"]["context_export"] == {
+        "enabled": False,
+        "summary_kind": "server_provider",
+        "hint_kind": "none",
+    }
     machine = next(entry for entry in entries if entry["name"] == "machine_control_native")
     assert machine["widget_ref"] == "core/machine_control_native"
     assert machine["supported_scopes"] == ["channel"]
@@ -312,7 +321,7 @@ async def test_context_tracker_rejects_user_dashboard_scope(db_session):
 @pytest.mark.asyncio
 async def test_usage_and_upcoming_native_widgets_allow_channel_and_dashboard_scopes(db_session):
     channel_id = uuid.uuid4()
-    for widget_ref in ("core/usage_forecast_native", "core/upcoming_activity_native"):
+    for widget_ref in ("core/usage_forecast_native", "core/upcoming_activity_native", "core/command_center_native"):
         channel_instance = await get_or_create_native_widget_instance(
             db_session,
             widget_ref=widget_ref,

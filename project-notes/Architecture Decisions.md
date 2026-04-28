@@ -854,12 +854,13 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - `workspace_attention_items` owns source, target, severity, status, dedupe, occurrence count, evidence, response metadata, and assignment state.
 - `workspace_spatial_nodes` remains the single source of truth for canvas positions only.
 - Bot-authored beacons are created through policy-gated heartbeat/spatial tools and attach to existing channel/bot/widget/system targets.
-- User-authored items are first-class Attention Items and can be created from the Attention Hub.
+- User-authored items are first-class Attention Items and can be created from the Command Center.
 - Structured system failures are admin-only Attention Items; bot-authored and user-authored channel beacons remain visible to non-admin channel viewers.
 - Reply status is distinct from resolution: a response marks `responded`, while humans or the source bot must still resolve the item.
 - Assignment adds workflow state around the item rather than overloading item lifecycle. V1 assignment modes are `next_heartbeat` and `run_now`, both investigate/report only.
+- `next_heartbeat` is a channel-heartbeat queue, not arbitrary bot routing: it targets only the channel heartbeat bot and injects at most one assigned item per heartbeat, ordered by severity then assignment age.
 - The Spatial Canvas renders badges inside the target node or cluster shell with inverse scaling, so badges stay screen-sized but move with the bound object.
-- The Attention Hub is the shared triage surface for lanes, manual intake, assignment, bot findings, and trace evidence.
+- The Command Center is the shared operations surface for manual intake, assignment, bot load, upcoming work, recent reports, bot findings, and trace evidence. Attention is a subsection of that surface, and the optional `core/command_center_native` widget is a removable convenience view over the same read model.
 
 **Why.**
 - The same visual marker can represent a bot warning, a human-created item, an automatic trace failure, or investigate/report work without duplicating models.

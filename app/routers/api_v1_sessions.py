@@ -937,6 +937,7 @@ class HarnessStatusOut(BaseModel):
     context_window_tokens: int | None = None
     context_remaining_pct: float | None = None
     context_remaining_source: str | None = None
+    context_diagnostics: dict[str, Any] | None = None
     native_compaction: dict[str, Any] | None = None
     hints: list[dict[str, Any]] = Field(default_factory=list)
     next_turn_computed_hints: list[dict[str, Any]] = Field(default_factory=list)
@@ -983,13 +984,13 @@ async def get_harness_status(
     from app.services.agent_harnesses.session_state import (
         HARNESS_RESUME_RESET_AT_KEY,
         context_window_from_usage,
-        estimate_context_remaining_pct,
         estimate_native_compaction_remaining_pct,
         hint_preview,
         load_bridge_status,
         load_context_hints,
         load_latest_harness_metadata,
         load_native_compaction,
+        normalize_context_usage,
     )
     from app.services.agent_harnesses.settings import load_session_settings
     from app.services.agent_harnesses.project import (
@@ -1019,7 +1020,7 @@ async def get_harness_status(
     memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)
     if memory_hint is not None:
         computed_hints.append(memory_hint)
-    runtime_name = (harness_meta or {}).get("runtime") if harness_meta else None
+    runtime_name = ((harness_meta or {}).get("runtime") if harness_meta else None) or bot.harness_runtime
     runtime = HARNESS_REGISTRY.get(runtime_name) if runtime_name else None
     usage = (harness_meta or {}).get("usage") if harness_meta else None
     caps = runtime.capabilities() if runtime and hasattr(runtime, "capabilities") else None
@@ -1029,10 +1030,15 @@ async def get_harness_status(
     )
     native_compaction = await load_native_compaction(db, session_id)
     meta = session.metadata_ or {}
-    remaining_pct = estimate_context_remaining_pct(
-        usage,
+    context_diagnostics = normalize_context_usage(
+        usage if isinstance(usage, dict) else None,
+        runtime=runtime_name,
         context_window_tokens=context_window_tokens,
+        source="last_turn",
     )
+    remaining_pct = context_diagnostics.get("remaining_pct")
+    if not isinstance(remaining_pct, (int, float)):
+        remaining_pct = None
     remaining_source = "last_turn" if remaining_pct is not None else None
     compact_created_at = None
     if native_compaction and isinstance(native_compaction.get("created_at"), str):
@@ -1058,9 +1064,27 @@ async def get_harness_status(
         if compact_remaining is not None:
             remaining_pct = compact_remaining
             remaining_source = "native_compaction"
+            compact_after = native_compaction.get("context_after")
+            if isinstance(compact_after, dict):
+                context_diagnostics = {
+                    **compact_after,
+                    "source": "native_compaction",
+                    "raw_usage": compact_usage if isinstance(compact_usage, dict) else None,
+                }
         elif context_window_tokens:
             remaining_pct = 100.0
             remaining_source = "native_compaction"
+            context_diagnostics = {
+                "runtime": runtime_name,
+                "source": "native_compaction",
+                "confidence": "low",
+                "context_window_tokens": context_window_tokens,
+                "context_tokens": None,
+                "remaining_pct": 100.0,
+                "source_fields": [],
+                "reason": "native compact completed without usable usage telemetry",
+                "raw_usage": compact_usage if isinstance(compact_usage, dict) else None,
+            }
     return HarnessStatusOut(
         runtime=runtime_name,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
@@ -1077,6 +1101,7 @@ async def get_harness_status(
         context_window_tokens=context_window_tokens,
         context_remaining_pct=remaining_pct,
         context_remaining_source=remaining_source,
+        context_diagnostics=context_diagnostics,
         native_compaction=native_compaction,
         hints=[hint_preview(hint) for hint in hints],
         next_turn_computed_hints=[hint_preview(hint) for hint in computed_hints],

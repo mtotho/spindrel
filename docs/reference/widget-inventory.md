@@ -70,6 +70,7 @@ Use this checklist when adding or modernizing a widget.
 | `core/channel_files_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native channel file browser. Reuses shared channel file/navigation state instead of a widget-local file store. |
 | `core/pinned_files_native` | `native_widget` | `app/services/native_app_widgets.py` + `app/services/pinned_panels.py` | Current | Hidden channel-scoped native widget whose instance state stores pinned file paths and active file selection. |
 | `core/upcoming_activity_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native upcoming-activity/schedule surface. |
+| `core/command_center_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | Optional native Command Center widget for bot assignment load, next heartbeat timing, upcoming work, and recent reports. |
 | `core/machine_control_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | Optional channel-scoped native machine-control surface for session status, lease controls, and per-target probe actions. Intentionally does not export pinned-widget context. |
 | `core/plan_questions` | `native_widget` | `app/tools/local/ask_plan_questions.py` | Current | Transcript-native planning Q&A card. Not catalog-backed or instance-backed; answers persist into chat history and structured `planning_state`. |
 

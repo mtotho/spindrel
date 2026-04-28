@@ -8,7 +8,10 @@ export function isHarnessQuestionMessage(message: Pick<Message, "metadata">): bo
 
 export function isHarnessQuestionTransportMessage(message: Pick<Message, "metadata">): boolean {
   const meta = message.metadata ?? {};
-  return meta.source === "harness_question" || meta.hidden === true;
+  return meta.source === "harness_question" || (
+    meta.hidden === true
+    && typeof meta.harness_question_id === "string"
+  );
 }
 
 export function isPendingHarnessQuestionMessage(

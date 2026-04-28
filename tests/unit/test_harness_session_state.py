@@ -14,6 +14,7 @@ from app.services.agent_harnesses.session_state import (
     estimate_native_compaction_remaining_pct,
     load_context_hints,
     load_latest_harness_metadata,
+    normalize_context_usage,
     set_resume_reset,
 )
 from tests.factories import build_bot, build_channel
@@ -66,6 +67,43 @@ async def test_context_remaining_prefers_codex_last_turn_over_cumulative_total()
         usage,
         context_window_tokens=121_600,
     ) == 90.0
+
+
+async def test_context_remaining_ignores_low_confidence_total_only_usage():
+    usage = {"total_tokens": 283_092}
+
+    assert estimate_context_remaining_pct(
+        usage,
+        context_window_tokens=200_000,
+    ) is None
+    snapshot = normalize_context_usage(
+        usage,
+        runtime="claude-code",
+        context_window_tokens=200_000,
+    )
+    assert snapshot["confidence"] == "low"
+    assert snapshot["remaining_pct"] == 0.0
+    assert snapshot["reason"] == "total_tokens may be billing or cumulative, not active context"
+
+
+async def test_context_usage_does_not_add_cache_tokens_to_prompt_footprint():
+    usage = {
+        "input_tokens": 78_000,
+        "output_tokens": 2_000,
+        "cache_read_input_tokens": 120_000,
+        "cached_tokens": 120_000,
+    }
+
+    snapshot = normalize_context_usage(
+        usage,
+        runtime="claude-code",
+        context_window_tokens=200_000,
+    )
+
+    assert snapshot["confidence"] == "medium"
+    assert snapshot["context_tokens"] == 80_000
+    assert snapshot["remaining_pct"] == 60.0
+    assert snapshot["source_fields"] == ["input_tokens", "output_tokens"]
 
 
 @pytest.fixture

@@ -33,6 +33,13 @@ test("harness question answer transport rows are hidden from transcript lists", 
       role: "user",
       metadata: { hidden: true },
     })),
+    false,
+  );
+  assert.equal(
+    isHarnessQuestionTransportMessage(makeMessage({
+      role: "user",
+      metadata: { hidden: true, harness_question_id: "question-1" },
+    })),
     true,
   );
 });

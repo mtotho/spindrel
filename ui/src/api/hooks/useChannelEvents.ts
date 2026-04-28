@@ -728,6 +728,7 @@ export function useChannelEvents(
           // this invalidate, a prematurely-reaped turn stays visible only
           // as its partial synthetic until the user navigates away.
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          queryClient.invalidateQueries({ queryKey: ["session-harness-status"] });
           return;
         }
 
