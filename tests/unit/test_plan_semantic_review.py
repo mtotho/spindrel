@@ -133,6 +133,40 @@ def test_deterministic_assessment_supports_mutating_step_done_with_evidence_path
     assert review["verdict"] == "supported"
 
 
+def test_deterministic_assessment_supports_canonical_workspace_path_for_relative_evidence():
+    flags, review = _deterministic_assessment(
+        {
+            **_bundle(
+                outcome="step_done",
+                features={
+                    "had_successful_tool": True,
+                    "had_supporting_successful_tool": True,
+                    "had_any_error": False,
+                    "all_tool_calls_failed": False,
+                    "read_only_only": False,
+                    "had_mutation": True,
+                    "had_supporting_mutation": True,
+                    "had_verification_signal": False,
+                    "requested_replan": False,
+                    "touched_paths": [
+                        "/workspace/channels/67a06926-87e6-40fb-b85b-7eac36c74b98/.spindrel-plan-parity/adherence-marker.txt"
+                    ],
+                },
+                step_label="Create the planned marker file",
+            ),
+            "outcome": {
+                "outcome": "step_done",
+                "summary": "Created the planned adherence marker file.",
+                "evidence": ".spindrel-plan-parity/adherence-marker.txt",
+            },
+        }
+    )
+
+    assert "step_done_supported_by_mutation" in flags
+    assert review is not None
+    assert review["verdict"] == "supported"
+
+
 def _professional_fields() -> dict:
     return {
         "key_changes": ["Implement the requested plan adherence behavior."],

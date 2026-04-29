@@ -127,6 +127,38 @@ def _extract_commands(arguments: dict[str, Any]) -> list[str]:
     return commands[:5]
 
 
+def _path_evidence_variants(path: str) -> set[str]:
+    normalized = str(path or "").replace("\\", "/").strip().lower()
+    if not normalized:
+        return set()
+    variants = {normalized, normalized.lstrip("/")}
+    match = re.search(r"(?:^|/)workspace/channels/[0-9a-f-]{36}/(.+)$", normalized)
+    if match:
+        variants.add(match.group(1).lstrip("/"))
+    match = re.search(r"(?:^|/)channels/[0-9a-f-]{36}/(.+)$", normalized)
+    if match:
+        variants.add(match.group(1).lstrip("/"))
+    return {variant for variant in variants if variant}
+
+
+def _outcome_mentions_touched_path(outcome: dict[str, Any], touched_paths: list[str]) -> bool:
+    if not touched_paths:
+        return True
+    evidence_text = json.dumps(
+        [
+            outcome.get("summary"),
+            outcome.get("evidence"),
+            outcome.get("status_note"),
+        ],
+        default=str,
+    ).replace("\\", "/").lower()
+    for path in touched_paths:
+        for variant in _path_evidence_variants(path):
+            if variant in evidence_text:
+                return True
+    return False
+
+
 def _step_is_execution_oriented(step_label: str | None, step_note: str | None) -> bool:
     text = " ".join(part for part in [step_label or "", step_note or ""] if part).strip()
     if not text:
@@ -267,15 +299,8 @@ def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[s
         and not features["had_any_error"]
         and bundle["step"]["execution_oriented"]
     ):
-        evidence_text = json.dumps(
-            [
-                bundle["outcome"].get("summary"),
-                bundle["outcome"].get("evidence"),
-            ],
-            default=str,
-        ).lower()
-        touched_paths = [str(path).lower() for path in features.get("touched_paths") or []]
-        if not touched_paths or any(path and path in evidence_text for path in touched_paths):
+        touched_paths = [str(path) for path in features.get("touched_paths") or []]
+        if _outcome_mentions_touched_path(bundle["outcome"], touched_paths):
             flags.append("step_done_supported_by_mutation")
             return flags, {
                 "verdict": PLAN_SEMANTIC_REVIEW_SUPPORTED,

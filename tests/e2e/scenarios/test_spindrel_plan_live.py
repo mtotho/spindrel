@@ -1290,7 +1290,11 @@ async def test_live_spindrel_adherence_executes_plan_records_and_reviews(client:
     assert "file" in result.tools_used
     assert "record_plan_progress" in result.tools_used
 
-    file_body = await _read_workspace_file_with_retry(client, workspace_id, rel_path)
+    file_body = await _read_workspace_file_with_retry(
+        client,
+        workspace_id,
+        f"channels/{channel_id}/{rel_path}",
+    )
     assert str(file_body.get("content") or "").strip() == exact_content
 
     state = await client.get_session_plan_state(session_id)
