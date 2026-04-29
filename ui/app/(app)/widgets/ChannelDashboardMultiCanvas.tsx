@@ -64,6 +64,10 @@ import type {
 } from "@/src/types/api";
 import type { GridPreset, DashboardChrome } from "@/src/lib/dashboardGrid";
 import { CHANNEL_PANEL_DEFAULT_WIDTH } from "@/src/lib/channelPanelLayout";
+import {
+  floatingHeaderOverlayClass,
+  floatingHeaderTileClass,
+} from "@/src/lib/channelDashboardPointerPolicy";
 import { resolveDashboardCanvasMinHeight } from "@/src/lib/dashboardCanvasHeight";
 import { getSuggestedWidgetSize, getWidgetLayoutBounds } from "@/src/lib/widgetLayoutHints";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
@@ -1005,7 +1009,7 @@ function HeaderCanvas({
                       data-pin-id={pin.id}
                       data-pin-zone="header"
                       className={
-                        "relative min-w-0 "
+                        `relative min-w-0 ${floatingHeaderTileClass()} `
                         + (justMovedId === pin.id ? "pin-flash" : "")
                       }
                       style={binding.style}
@@ -1179,7 +1183,7 @@ function UnifiedBodyCanvas({
       )}
       {metrics && (
         <div
-          className="absolute z-20"
+          className={`absolute z-20 ${floatingHeaderOverlayClass()}`}
           style={{
             top: CANVAS_INNER_PADDING,
             left: headerLeft,

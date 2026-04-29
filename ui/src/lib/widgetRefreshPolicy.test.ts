@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   isWidgetRefreshCapable,
+  shouldSchedulePinnedInitialRefresh,
+  shouldShowPinnedWidgetIframeSkeleton,
+  shouldShowPinnedWidgetRefreshOverlay,
   shouldRenderPinnedWidgetLoadShell,
   shouldRunWidgetAutoRefresh,
   widgetRefreshJitterMs,
@@ -37,6 +40,64 @@ test("refreshable pinned widgets keep chrome available while first poll runs", (
       awaitingFirstPollForRefreshable: true,
     }),
     true,
+  );
+});
+
+test("refreshable pinned widgets do not cover already-rendered content with a refresh skeleton", () => {
+  assert.equal(
+    shouldShowPinnedWidgetRefreshOverlay({
+      hasRenderableBody: true,
+      awaitingFirstPollForRefreshable: true,
+    }),
+    false,
+  );
+});
+
+test("cancelled delayed initial refreshes remain eligible to reschedule", () => {
+  assert.equal(
+    shouldSchedulePinnedInitialRefresh({
+      widgetId: "pin-a",
+      refreshedForWidgetId: null,
+      shouldRefreshOnMount: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldSchedulePinnedInitialRefresh({
+      widgetId: "pin-a",
+      refreshedForWidgetId: null,
+      shouldRefreshOnMount: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldSchedulePinnedInitialRefresh({
+      widgetId: "pin-a",
+      refreshedForWidgetId: "pin-a",
+      shouldRefreshOnMount: true,
+    }),
+    false,
+  );
+});
+
+test("interactive iframe preload skeleton has a watchdog cutoff", () => {
+  assert.equal(
+    shouldShowPinnedWidgetIframeSkeleton({
+      isHtmlInteractive: true,
+      iframeReady: false,
+      preloadElapsedMs: 500,
+      preloadWatchdogMs: 2500,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldShowPinnedWidgetIframeSkeleton({
+      isHtmlInteractive: true,
+      iframeReady: false,
+      preloadElapsedMs: 2500,
+      preloadWatchdogMs: 2500,
+    }),
+    false,
   );
 });
 

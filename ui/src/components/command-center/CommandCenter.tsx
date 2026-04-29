@@ -57,6 +57,16 @@ function recurrenceLabel(value?: string | null): string {
   return `every ${count} ${unit}${count === 1 ? "" : "s"}`;
 }
 
+function mutationErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  const detail = typeof error === "object" && error !== null && "detail" in error
+    ? (error as { detail?: unknown }).detail
+    : null;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (error instanceof Error) return error.message;
+  return "The request failed.";
+}
+
 function missionStatusVariant(status: WorkspaceMission["status"]): "success" | "warning" | "info" {
   if (status === "active") return "success";
   if (status === "paused") return "warning";
@@ -196,6 +206,7 @@ function OperatorBrief({
   };
 }) {
   const refresh = useRefreshMissionControlAi();
+  const refreshError = mutationErrorMessage(refresh.error);
   const lastRun = brief?.created_at ? formatRelative(brief.created_at) : null;
   return (
     <section className={`mb-3 ${embedded ? "pb-2" : "border-b border-surface-border/70 pb-4"}`}>
@@ -247,6 +258,11 @@ function OperatorBrief({
           <BriefMetric label="Bots" value={summary.active_bots} />
           <BriefMetric label="Spatial" value={summary.spatial_warnings} />
           <BriefMetric label="Updates" value={summary.recent_updates} />
+        </div>
+      )}
+      {refreshError && (
+        <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs leading-5 text-danger">
+          {refreshError}
         </div>
       )}
     </section>
@@ -306,6 +322,7 @@ function OperatorOpportunityStack({
 }) {
   const ask = useAskMissionControlAi();
   const refresh = useRefreshMissionControlAi();
+  const refreshError = mutationErrorMessage(refresh.error);
   const cards: Array<{
     id: string;
     title: string;
@@ -377,6 +394,11 @@ function OperatorOpportunityStack({
 
   return (
     <section className="mb-4">
+      {refreshError && (
+        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-xs leading-5 text-danger">
+          {refreshError}
+        </div>
+      )}
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
           <ShieldCheck size={13} />

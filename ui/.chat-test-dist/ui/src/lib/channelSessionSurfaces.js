@@ -454,9 +454,11 @@ export function buildChannelSessionTabItems({ channelId, recentPages, currentHre
     const activeLayoutKey = activeLayout ? sessionTabKeyForChatPaneLayout(activeLayout) : null;
     const activeKey = activeLayoutKey ?? surfaceKey(active);
     const orderedPages = [];
-    if (currentHref)
-        orderedPages.push({ href: currentHref });
-    orderedPages.push(...(recentPages ?? []));
+    const recents = recentPages ?? [];
+    if (currentHref) {
+        orderedPages.push(recents.find((page) => page.href === currentHref) ?? { href: currentHref });
+    }
+    orderedPages.push(...recents);
     const unreadBySession = new Map((unreadStates ?? []).map((row) => [row.session_id, Math.max(0, row.unread_agent_reply_count)]));
     const tabByKey = new Map();
     const seen = new Set();

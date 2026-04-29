@@ -110,6 +110,14 @@ export interface AttentionTriageRunResponse {
   parent_channel_id: string;
   bot_id: string;
   item_count: number;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  effective_model?: string | null;
+}
+
+export interface AttentionTriageRunInput {
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
 }
 
 export interface AttentionTriageFeedbackInput {
@@ -301,11 +309,11 @@ export function useUnassignAttentionItem() {
 export function useStartAttentionTriageRun() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
+    mutationFn: async (body: AttentionTriageRunInput = {}) => {
       const res = await apiFetch<AttentionTriageRunResponse>("/api/v1/workspace/attention/triage-runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "all_active" }),
+        body: JSON.stringify({ scope: "all_active", ...body }),
       });
       return res;
     },

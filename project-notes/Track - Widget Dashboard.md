@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-27 (dedicated pinned-widget route + open-full affordances)
+updated: 2026-04-29 (channel dashboard skeleton overlay fix)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -24,6 +24,8 @@ updated: 2026-04-27 (dedicated pinned-widget route + open-full affordances)
 > Same-day navigation polish: contextual launches from Home Hub or Starboard pass a return target into the full-widget route, so Back returns to the launching surface and mobile still exposes the global menu. The focused route continues to own widget chrome instead of nesting the dashboard host wrapper.
 >
 > Same-day base-layer follow-up: pins and catalog entries now also surface `widget_presentation` (`presentation_family`, panel metadata, layout hints), and the UI host path resolves final chrome from one policy object instead of scattered booleans. New invariant: dashboard placement (`zone`), authored presentation (`card | chip | panel`), and runtime host policy (title mode, wrapper surface, fill-height) are distinct layers and should not be conflated again.
+>
+> **2026-04-29 channel dashboard skeleton/drag follow-up.** Pinned widgets no longer cover already-rendered content with a first-poll refresh skeleton. The delayed initial-refresh marker is claimed only when the poll actually starts, so rerenders that cancel the jitter timer can reschedule instead of leaving `hasCompletedInitialRefresh=false` forever. Interactive HTML preload shells also have a watchdog so a lost iframe ready handshake cannot hide loaded content indefinitely. The empty floating header rail is now click-through, while real header tiles restore pointer events, so the rail cannot sit over the top of grid widgets and steal their drag handles. New invariant: preload/refresh placeholders and empty drop rails may reserve visible space, but once widget content exists they must not mask the tile or make edit affordances feel unavailable.
 >
 > Later 2026-04-23 follow-up: channel header-zone pins now have an explicit channel-level `header_backdrop_mode` (`default | glass | clear`) instead of ad-hoc per-pin shell overrides, and header-zone host titles are now hard-disabled regardless of stale `widget_config.show_title`. `EditPinDrawer` also had its React hook-order crash fixed by moving the `isOpen` early return below the schema `useMemo`s, and compact Home Assistant light cards no longer render the friendly name twice. New invariant: header-zone chrome is channel-owned, titleless, and compact widgets should not duplicate identity the host already provides.
 >

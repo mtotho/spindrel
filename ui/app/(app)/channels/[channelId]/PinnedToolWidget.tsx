@@ -32,6 +32,9 @@ import {
 import { requestWidgetRefresh } from "@/src/lib/widgetRefreshBatcher";
 import {
   isWidgetRefreshCapable,
+  shouldSchedulePinnedInitialRefresh,
+  shouldShowPinnedWidgetIframeSkeleton,
+  shouldShowPinnedWidgetRefreshOverlay,
   shouldRenderPinnedWidgetLoadShell,
   shouldRunWidgetAutoRefresh,
   widgetRefreshJitterMs,
@@ -54,6 +57,7 @@ import type { HeaderBackdropMode } from "@/src/lib/widgetHostPolicy";
 import { widgetPinHref } from "@/src/lib/hubRoutes";
 
 const INITIAL_REFRESH_GRACE_MS = 2 * 60 * 1000;
+const IFRAME_PRELOAD_WATCHDOG_MS = 2_500;
 // Session-local freshness cache so dashboard <-> chat route switches don't
 // immediately re-poll the same pin after a just-completed refresh.
 const recentPinRefreshById = new Map<string, string>();
@@ -354,10 +358,18 @@ export function PinnedToolWidget({
       setHasCompletedInitialRefresh(true);
       return;
     }
-    if (refreshedForRef.current === widget.id) return;
-    refreshedForRef.current = widget.id;
+    if (!shouldSchedulePinnedInitialRefresh({
+      widgetId: widget.id,
+      refreshedForWidgetId: refreshedForRef.current,
+      shouldRefreshOnMount,
+    })) return;
     setHasCompletedInitialRefresh(false);
     const handle = window.setTimeout(() => {
+      if (refreshedForRef.current === widget.id) {
+        setHasCompletedInitialRefresh(true);
+        return;
+      }
+      refreshedForRef.current = widget.id;
       refreshState().finally(() => setHasCompletedInitialRefresh(true));
     }, widgetRefreshJitterMs(widget.id, 1_000));
     return () => window.clearTimeout(handle);
@@ -534,17 +546,37 @@ export function PinnedToolWidget({
   // when the pin identity changes so a slot reused for a different pin
   // re-shows the skeleton.
   const [iframeReady, setIframeReady] = useState(() => hasPinnedWidgetIframeEntry(keepAliveKey));
+  const [iframePreloadStartedAt, setIframePreloadStartedAt] = useState(() => Date.now());
+  const [iframePreloadTick, setIframePreloadTick] = useState(0);
   useEffect(() => {
     setIframeReady(hasPinnedWidgetIframeEntry(keepAliveKey));
-  }, [keepAliveKey]);
+    setIframePreloadStartedAt(Date.now());
+    setIframePreloadTick(0);
+  }, [keepAliveKey, currentEnvelope?.body]);
   const handleIframeReady = useCallback(() => {
     setIframeReady(true);
   }, []);
   const isHtmlInteractive =
     currentEnvelope?.content_type === "application/vnd.spindrel.html+interactive";
+  useEffect(() => {
+    if (!isHtmlInteractive || iframeReady) return;
+    const handle = window.setTimeout(() => {
+      setIframePreloadTick((tick) => tick + 1);
+    }, IFRAME_PRELOAD_WATCHDOG_MS);
+    return () => window.clearTimeout(handle);
+  }, [isHtmlInteractive, iframeReady, iframePreloadStartedAt]);
   // Skeleton overlay only kicks in for interactive-HTML pins — component
-  // widgets render synchronously so there's no flash window to cover.
-  const showIframeSkeleton = isHtmlInteractive && !iframeReady;
+  // widgets render synchronously so there's no flash window to cover. A
+  // watchdog drops the overlay if the iframe has rendered but its ready
+  // handshake was lost.
+  const showIframeSkeleton = shouldShowPinnedWidgetIframeSkeleton({
+    isHtmlInteractive,
+    iframeReady,
+    preloadElapsedMs:
+      Date.now() - iframePreloadStartedAt
+      + iframePreloadTick * IFRAME_PRELOAD_WATCHDOG_MS,
+    preloadWatchdogMs: IFRAME_PRELOAD_WATCHDOG_MS,
+  });
 
   // Drag wiring: prefer the enclosing DndContext's binding (`externalDrag`)
   // when provided — that's the channel-dashboard edit-mode case. Otherwise
@@ -589,14 +621,16 @@ export function PinnedToolWidget({
   });
   const fillsHostHeight = hostPolicy.fillHeight;
 
-  // Show skeleton while awaiting first poll for refreshable pins. The saved
-  // envelope in the store is frozen from whenever the pin was last persisted,
-  // so rendering it before the state_poll lands shows stale state (then flips
-  // moments later when the poll returns). Skeleton avoids that flash.
+  // Only reserve a skeleton before any renderable body exists. Once a saved
+  // envelope can render, keep the widget visible while the first poll catches
+  // up so dashboard edit chrome and tile content never look unavailable.
   const awaitingFirstPollForRefreshable =
     !hasCompletedInitialRefresh && refreshCapable && autoRefreshAllowed;
   const hasRenderableBody = !!currentEnvelope && body != null;
-  const showRefreshSkeletonOverlay = awaitingFirstPollForRefreshable && hasRenderableBody;
+  const showRefreshSkeletonOverlay = shouldShowPinnedWidgetRefreshOverlay({
+    hasRenderableBody,
+    awaitingFirstPollForRefreshable,
+  });
 
   // Show skeleton placeholder on initial load (before first poll/hydration)
   if (shouldRenderPinnedWidgetLoadShell({

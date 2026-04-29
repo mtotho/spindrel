@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.agent_harnesses.base import TurnResult
+from app.services.agent_harnesses.base import render_context_hints_for_prompt
+from app.services.agent_harnesses.project import build_workspace_files_memory_hint
 from app.services.turn_worker import (
     _codex_plan_evidence,
     _mirror_harness_native_plan_state,
@@ -421,6 +423,26 @@ async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypa
     assert hint.priority == "instruction"
     assert hint.consume_after_next_turn is False
     assert "PLAN-123" in hint.text
+
+
+async def test_harness_workspace_files_memory_hint_points_without_loading_contents():
+    bot = SimpleNamespace(id="codex-bot", memory_scheme="workspace-files")
+    hint = build_workspace_files_memory_hint(bot, "/workspace-data/bots/codex-bot")
+
+    assert hint is not None
+    assert hint.kind == "workspace_files_memory"
+    assert hint.consume_after_next_turn is False
+    assert "/workspace-data/bots/codex-bot" in hint.text
+
+    rendered = render_context_hints_for_prompt(
+        "User request",
+        (hint,),
+    )
+    assert "Spindrel workspace-files memory is enabled" in rendered
+    assert "Use bridged Spindrel file or memory tools" in rendered
+    assert "Your persistent memory" not in rendered
+    assert "curated stable facts" not in rendered
+    assert "secret-memory-marker" not in rendered
 
 
 async def test_harness_heartbeat_turn_marks_persisted_rows(monkeypatch):

@@ -163,7 +163,7 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Host context hints | Supported | Channel prompts render as priority host instructions; heartbeats and workspace-files memory queue host hints for harness turns. Native compaction does not use Spindrel continuity hints. |
 | Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through runtime-native bridge hooks when available: Claude via the SDK MCP helper surface, Codex via `dynamicTools` when the installed binary advertises support. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed-runtime smoke testing. |
 | Spindrel skills | Partial | `@skill:<id>` adds a tagged skill index hint for the turn and relies on bridged `get_skill` / `get_skill_list` for progressive skill fetching. No native `.claude/skills` sync yet. |
-| Memory system | Partial | Workspace-files memory injects a host hint telling the harness where memory files live. Reads/writes still require explicit bridged tools/policies. |
+| Memory system | Partial | Normal Spindrel bots auto-inject workspace-files `MEMORY.md` through context assembly. Harness bots bypass that path: they receive only a host hint telling the runtime where memory files live. Reads/writes still require explicit native filesystem access or bridged tools/policies. |
 | Usage aggregation | Supported | Harness turns emit synthetic non-billable `/admin/usage` rows with provider id, channel id, model, prompt/completion tokens, context fields, and `billing_source="harness_sdk"`. |
 
 ## Harness questions
@@ -192,7 +192,7 @@ Scheduled and manual heartbeats on harness channels run through the native harne
 
 Scheduled/manual tasks that target a harness bot use the same automation seam. Task `execution_config.tools` and `execution_config.skills` are merged with any `@tool:` / `@skill:` tags in the task prompt, model/effort overrides are passed through to the runtime, and `skip_tool_approval=true` applies only to that automated run. Arbitrary `additional_tool_schemas` remain normal-agent-only unless a real bridge executor exists; harness automation should select registered Spindrel tools.
 
-When workspace-files memory is enabled on a harness bot, Spindrel injects a non-consuming host hint on each turn that points the runtime at the bot workspace and explains that durable memory files may exist there. The hint does not read or mutate memory by itself; the harness must use native filesystem tools or selected bridged Spindrel tools to inspect or update files.
+When workspace-files memory is enabled on a harness bot, Spindrel injects a non-consuming host hint on each turn that points the runtime at the bot workspace and explains that durable memory files may exist there. The hint does not read, mutate, or paste `memory/MEMORY.md` into the native Codex/Claude prompt. Channel prompts are the right place for short harness-specific operating instructions; durable memory files remain file-backed context the harness must inspect explicitly through native filesystem tools or selected bridged Spindrel tools.
 
 ## Spindrel tool bridge
 
@@ -214,6 +214,7 @@ If the SDK bridge is unavailable, Spindrel reports that state in `/context` and 
 
 Just put files in the workspace directory. The harness reads what's there:
 
+- For live Spindrel project work, set the channel Project Directory to `common/projects`. Inside the app container this resolves to `/workspace-data/shared/<workspace_id>/common/projects`; the `spindrel` repo is a child directory under that cwd. Host-only paths such as `/opt/thoth-server` are for SSH/operator commands and are not visible to the harness runtime.
 - Want your dotfiles' `CLAUDE.md` in the bot's view? `git clone git@github.com:me/dotfiles /data/harness/my-project/.dotfiles` (or whatever layout makes sense — the harness sees a normal filesystem).
 - Want your vault available? `git clone git@github.com:me/vault /data/harness/my-project/vault` and reference it from your project-level `CLAUDE.md`.
 - Want a Spindrel skill for one turn? Use the composer plus menu or type `@skill:<id>`. The harness gets a tagged-skill index hint and can fetch the body through bridged `get_skill` when the bridge is available.

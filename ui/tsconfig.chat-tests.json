@@ -24,6 +24,8 @@
     "src/lib/paletteRoutes.test.ts",
     "src/lib/channelPanelLayout.ts",
     "src/lib/channelPanelLayout.test.ts",
+    "src/lib/channelDashboardPointerPolicy.ts",
+    "src/lib/channelDashboardPointerPolicy.test.ts",
     "src/lib/channelSessionSurfaces.ts",
     "src/lib/channelSessionSurfaces.test.ts",
     "src/lib/dashboardCanvasHeight.ts",

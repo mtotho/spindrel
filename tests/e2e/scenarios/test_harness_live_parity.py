@@ -12,11 +12,13 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 - ``automation``: heartbeat plus harness scheduled/manual task automation.
 - ``writes``: automation plus safe temporary workspace write/read/delete.
 - ``context``: writes plus context-pressure and native compaction checks.
+- ``project``: context plus a plan-confirm-build static app workflow with screenshots.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -25,6 +27,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -44,6 +47,7 @@ TIER_ORDER = {
     "automation": 4,
     "writes": 5,
     "context": 6,
+    "project": 7,
 }
 
 
@@ -135,6 +139,14 @@ def _requires_tier(required: str) -> None:
 
 def _timeout() -> float:
     return float(os.environ.get("HARNESS_PARITY_TIMEOUT", "300"))
+
+
+def _project_path() -> str:
+    return os.environ.get("HARNESS_PARITY_PROJECT_PATH", "common/projects").strip() or "common/projects"
+
+
+def _artifact_root() -> Path:
+    return Path(os.environ.get("HARNESS_PARITY_ARTIFACT_DIR", "/tmp/spindrel-harness-parity"))
 
 
 def _bridge_tool_name() -> str:
@@ -509,6 +521,110 @@ async def _assert_browser_runtime_live_diagnostics(client: E2EClient) -> None:
     assert proc.returncode == 0, (
         f"agent container could not resolve {host!r}; stdout={proc.stdout!r} stderr={proc.stderr!r}"
     )
+
+
+def _start_container_http_server(directory: str) -> tuple[subprocess.Popen, int]:
+    if not shutil.which("docker"):
+        pytest.skip("docker CLI is not available for project screenshot diagnostics")
+
+    container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "agent-server-agent-server-1")
+    base_port = int(os.environ.get("HARNESS_PARITY_APP_PORT_BASE", "18500"))
+    offset = int(uuid.uuid4().hex[:4], 16) % 200
+    last_error = ""
+    for index in range(20):
+        port = base_port + offset + index
+        proc = subprocess.Popen(
+            [
+                "docker",
+                "exec",
+                container,
+                "python",
+                "-m",
+                "http.server",
+                str(port),
+                "--bind",
+                "0.0.0.0",
+                "--directory",
+                directory,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                stderr = proc.stderr.read() if proc.stderr else ""
+                last_error = stderr or f"server exited with code {proc.returncode}"
+                break
+            probe = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    container,
+                    "python",
+                    "-c",
+                    (
+                        "import urllib.request; "
+                        f"urllib.request.urlopen('http://127.0.0.1:{port}/', timeout=1).read(32)"
+                    ),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=4,
+                check=False,
+            )
+            if probe.returncode == 0:
+                return proc, port
+            last_error = probe.stderr
+            time.sleep(0.25)
+        if proc.poll() is None:
+            proc.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=3)
+            if proc.poll() is None:
+                proc.kill()
+    raise AssertionError(f"could not start container HTTP server for {directory!r}: {last_error}")
+
+
+async def _capture_project_screenshot(*, url: str, out_path: Path, marker: str) -> None:
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+    from scripts.screenshots.playwright_runtime import launch_async_browser
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw)
+        try:
+            page = await browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
+            await page.goto(url, wait_until="networkidle")
+            body_text = await page.locator("body").inner_text()
+            assert marker in body_text, f"generated app marker {marker!r} was not visible at {url}"
+            await page.screenshot(path=str(out_path), full_page=True)
+        finally:
+            await browser.close()
+
+
+async def _assert_harness_project_cwd(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    expected_project_path: str,
+) -> dict:
+    status = await client.get_session_harness_status(session_id)
+    assert status["effective_cwd_source"] == "channel_project_dir", status
+    project_dir = status.get("project_dir") or {}
+    assert project_dir.get("path") == expected_project_path, status
+    effective_cwd = str(status.get("effective_cwd") or "")
+    assert effective_cwd.endswith(f"/{expected_project_path}"), status
+    assert "/opt/thoth-server" not in effective_cwd, status
+
+    settings = await client.get_channel_settings(channel_id)
+    assert settings.get("project_path") == expected_project_path
+    assert settings.get("resolved_project_workspace_id") == project_dir.get("workspace_id")
+    return status
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
@@ -1079,3 +1195,134 @@ async def test_live_harness_context_pressure_and_native_compact(
     assert native.get("status") == "completed"
     remaining = compact_status.get("context_remaining_pct")
     assert remaining is None or remaining >= 50.0
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_project_plan_build_and_screenshot(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("project")
+    await _assert_browser_runtime_live_diagnostics(client)
+
+    channel_id, bot_id = _configured_case(case)
+    expected_project_path = _project_path()
+    original_settings = await client.get_channel_settings(channel_id)
+    restored = False
+    session_id: str | None = None
+    workspace_id: str | None = None
+    app_rel = ""
+    app_workspace_rel = ""
+    server_proc: subprocess.Popen | None = None
+    marker = uuid.uuid4().hex[:12]
+
+    try:
+        await client.patch_channel_settings(channel_id, {"project_path": expected_project_path})
+        session_id = await client.create_channel_session(channel_id)
+        await _configure_low_cost_session(client, case, session_id)
+
+        status = await _assert_harness_project_cwd(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            expected_project_path=expected_project_path,
+        )
+        project_dir = status.get("project_dir") or {}
+        workspace_id = str(project_dir.get("workspace_id") or "")
+        assert workspace_id, status
+
+        plan_command = await client.execute_slash_command("plan", session_id=session_id)
+        assert plan_command["payload"]["effect"] == "plan"
+        plan_status = await client.get_session_harness_status(session_id)
+        assert plan_status["session_plan_mode"] == "planning"
+
+        app_rel = f"e2e-testing/{case.name}-{marker}"
+        app_workspace_rel = f"{expected_project_path}/{app_rel}"
+        plan = await client.chat_session_stream(
+            (
+                "Plan only. Do not create, edit, delete, or run files. "
+                f"Give a concise implementation plan for a static single-page app in ./{app_rel}. "
+                "The app will use index.html, styles.css, app.js, and README.md only. "
+                f"It must visibly include marker {marker}."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+            harness_question_answer={
+                "answer": "Use a minimal static app with no package install and no external assets.",
+                "selected_options": ["Minimal static app"],
+                "notes": "E2E project parity plan answer.",
+            },
+        )
+        _assert_clean_turn(plan)
+        assert marker in plan.response_text
+
+        exit_command = await client.execute_slash_command("plan", session_id=session_id)
+        assert exit_command["payload"]["effect"] == "plan"
+        chat_status = await client.get_session_harness_status(session_id)
+        assert chat_status["session_plan_mode"] == "chat"
+        await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+        build = await client.chat_session_stream(
+            (
+                f"Proceed with the approved plan. In the current working directory, create ./{app_rel} "
+                "and write exactly these files: index.html, styles.css, app.js, README.md. "
+                "Do not install packages, do not use external network assets, and do not write outside "
+                f"./{app_rel}. The rendered page must show title \"Harness Project Parity\", "
+                f"runtime \"{case.name}\", and marker \"{marker}\". "
+                "When done, briefly list the files created."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(build)
+        assert app_rel in build.response_text or marker in build.response_text
+
+        index = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/index.html")
+        styles = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/styles.css")
+        app_js = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/app.js")
+        readme = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/README.md")
+        assert "Harness Project Parity" in str(index.get("content") or "")
+        assert marker in str(index.get("content") or "")
+        assert str(styles.get("content") or "").strip()
+        assert marker in str(app_js.get("content") or "") or case.name in str(app_js.get("content") or "")
+        assert str(readme.get("content") or "").strip()
+
+        final_status = await _assert_harness_project_cwd(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            expected_project_path=expected_project_path,
+        )
+        server_dir = f"{final_status['effective_cwd'].rstrip('/')}/{app_rel}"
+        server_proc, port = _start_container_http_server(server_dir)
+        screenshot_url = f"http://agent-server:{port}/"
+        screenshot_path = _artifact_root() / marker / f"{case.name}-project.png"
+        await _capture_project_screenshot(
+            url=screenshot_url,
+            out_path=screenshot_path,
+            marker=marker,
+        )
+        assert screenshot_path.is_file(), f"screenshot was not written: {screenshot_path}"
+    finally:
+        if server_proc is not None:
+            server_proc.terminate()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                server_proc.wait(timeout=3)
+            if server_proc.poll() is None:
+                server_proc.kill()
+        if workspace_id and app_workspace_rel:
+            await client.delete_workspace_path(workspace_id, app_workspace_rel)
+        await client.patch_channel_settings(
+            channel_id,
+            {
+                "project_workspace_id": original_settings.get("project_workspace_id"),
+                "project_path": original_settings.get("project_path"),
+            },
+        )
+        restored = True
+    assert restored

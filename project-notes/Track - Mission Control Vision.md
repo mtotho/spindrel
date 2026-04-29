@@ -143,6 +143,12 @@ stay active as ready-for-review items with a suggested action and optional
 route. Review feedback is written back to the item and operator memory so
 future runs can learn routing preferences.
 
+The Starboard surface must not expose the compatibility `orchestrator` identity
+as the primary product name. Treat that bot/channel as migration substrate:
+launch and review copy says Operator, the run setup discloses read-only mode and
+model/provider choice before work starts, and the embedded transcript stays
+contained inside Starboard instead of becoming the main navigation path.
+
 This is a proving slice for Mission Control: chat-native session, structured
 card output, approval/review loop, and live Attention cleanup, without making
 the product depend on a durable mission system.

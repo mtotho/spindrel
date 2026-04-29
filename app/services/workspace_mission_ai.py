@@ -263,14 +263,14 @@ def _prompt_messages(context: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _provider_error_message(exc: openai.BadRequestError) -> str:
-    raw = str(exc).strip()
-    if raw:
-        return raw[:600]
     body = getattr(exc, "body", None)
     if isinstance(body, dict):
         err = body.get("error")
         if isinstance(err, dict) and err.get("message"):
             return str(err["message"])[:600]
+    raw = str(exc).strip()
+    if raw:
+        return raw[:600]
     return "provider rejected the Mission Control AI request"
 
 
@@ -290,7 +290,7 @@ async def _create_mission_control_completion(client: Any, *, model: str, message
             )
         except openai.BadRequestError as second_exc:
             raise ValidationError(
-                "Mission Control AI provider rejected the request: "
+                f"Mission Control AI provider rejected model {model!r}: "
                 f"{_provider_error_message(second_exc)}"
             ) from second_exc
 

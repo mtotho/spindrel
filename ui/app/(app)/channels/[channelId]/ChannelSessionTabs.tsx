@@ -87,9 +87,12 @@ export function ChannelSessionTabStrip({
 }: ChannelSessionTabStripProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
+  const overflowButtonRef = useRef<HTMLButtonElement | null>(null);
+  const overflowMenuRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [tabWidths, setTabWidths] = useState<Record<string, number>>({});
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [overflowMenuPosition, setOverflowMenuPosition] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
     const node = containerRef.current;
     if (!node) return;
@@ -151,14 +154,31 @@ export function ChannelSessionTabStrip({
   );
   useEffect(() => {
     if (!overflowOpen) return;
-    const close = () => setOverflowOpen(false);
+    const close = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && (overflowMenuRef.current?.contains(target) || overflowButtonRef.current?.contains(target))) return;
+      setOverflowOpen(false);
+    };
     window.addEventListener("pointerdown", close);
-    window.addEventListener("scroll", close, true);
     return () => {
       window.removeEventListener("pointerdown", close);
-      window.removeEventListener("scroll", close, true);
     };
   }, [overflowOpen]);
+  useLayoutEffect(() => {
+    if (!overflowOpen) return;
+    const updatePosition = () => {
+      const rect = overflowButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const menuWidth = 288;
+      setOverflowMenuPosition({
+        left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
+        top: rect.bottom + 4,
+      });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => window.removeEventListener("resize", updatePosition);
+  }, [overflowOpen, overflowTabs.length]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -220,6 +240,7 @@ export function ChannelSessionTabStrip({
         {overflowTabs.length > 0 && (
           <div className="relative ml-1 shrink-0">
           <button
+            ref={overflowButtonRef}
             type="button"
             data-testid="channel-session-tab-overflow-button"
             onPointerDown={(event) => event.stopPropagation()}
@@ -233,10 +254,12 @@ export function ChannelSessionTabStrip({
             <MoreHorizontal size={14} />
             More
           </button>
-          {overflowOpen && (
+          {overflowOpen && overflowMenuPosition && typeof document !== "undefined" && ReactDOM.createPortal(
             <div
+              ref={overflowMenuRef}
               data-testid="channel-session-tab-overflow-menu"
-              className="absolute right-0 top-8 z-40 max-h-[360px] w-72 overflow-y-auto rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg"
+              className="fixed z-[10070] max-h-[360px] w-72 overflow-y-auto rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg"
+              style={{ left: overflowMenuPosition.left, top: overflowMenuPosition.top }}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
             >
@@ -254,7 +277,7 @@ export function ChannelSessionTabStrip({
                 />
               ))}
             </div>
-          )}
+          , document.body)}
           </div>
         )}
       </div>

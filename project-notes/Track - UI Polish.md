@@ -56,6 +56,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Added desktop channel session tabs sourced from local browser recents, with stable user-reorderable ordering, instant ghost-preview drag, quiet primary/unread indication, immediate pending feedback, saved conjoined split-layout tabs, a right-click split/unsplit action menu, close-to-hide behavior, docs screenshots, and an inline session chooser when every recent tab is hidden.
 - [x] Folded channel workspace files into the same top tab strip: opening a file selects/adds a file tab instead of forcing split, file tabs can explicitly split right, direct `open_file=notes/...` links resolve through channel file endpoints, and the screenshot harness now captures the loaded file-tab split state.
 - [x] Reworked tab overflow to a VS Code-like single-row model: new files/sessions/splits open at the front, hidden tabs live behind a right-side overflow menu, Explorer `Alt`-click opens files split, and chat file links open the same file tabs.
+- [x] Added session-tab rename to the right-click menu and made `Unsplit to` dissolve saved split tabs instead of leaving the conjoined tab behind.
+- [x] Portaled the tab overflow menu above channel content and fixed file-tree row markup so delete actions are no longer nested buttons.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 

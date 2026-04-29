@@ -102,6 +102,7 @@ const DOMAIN_KEYS: Record<Exclude<SystemTab, "Overview" | "Advanced">, string[]>
   Models: [
     "LLM_FALLBACK_MODEL",
     "MISSION_CONTROL_AI_MODEL",
+    "MISSION_CONTROL_AI_MODEL_PROVIDER_ID",
     "MISSION_CONTROL_AI_TEMPERATURE",
     "COMPACTION_MODEL",
     "MEMORY_FLUSH_MODEL",

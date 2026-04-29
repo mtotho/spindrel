@@ -22,6 +22,7 @@ import {
 import { useBots } from "../../api/hooks/useBots";
 import { useChannels } from "../../api/hooks/useChannels";
 import { BotPicker } from "../shared/BotPicker";
+import { LlmModelDropdown } from "../shared/LlmModelDropdown";
 import { useUIStore } from "../../stores/ui";
 import { openTraceInspector } from "../../stores/traceInspector";
 import { SessionChatView } from "../chat/SessionChatView";
@@ -233,9 +234,15 @@ export function AttentionHubContent({
 }) {
   const [creating, setCreating] = useState(false);
   const [triageRun, setTriageRun] = useState<AttentionTriageRunResponse | null>(null);
+  const [triageOptionsOpen, setTriageOptionsOpen] = useState(false);
+  const [triageModel, setTriageModel] = useState("");
+  const [triageProviderId, setTriageProviderId] = useState<string | null>(null);
   const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const startTriage = useStartAttentionTriageRun();
+  const { data: bots = [] } = useBots();
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const operatorBot = bots.find((bot) => bot.id === "orchestrator");
+  const operatorDefaultModel = operatorBot?.model ?? "operator default";
   const active = activeItems(items);
   const activeOccurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
   const selectedTargetItems = useMemo(() => {
@@ -290,11 +297,11 @@ export function AttentionHubContent({
             type="button"
             disabled={!active.length || startTriage.isPending}
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:opacity-40"
-            onClick={() => startTriage.mutate(undefined, { onSuccess: setTriageRun })}
-            title="Ask the operator to triage all active Attention Items"
+            onClick={() => setTriageOptionsOpen((value) => !value)}
+            title="Configure an operator triage run for all active Attention Items"
           >
             {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            Triage all
+            Operator
           </button>
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">
             <Plus size={16} />
@@ -318,6 +325,34 @@ export function AttentionHubContent({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
+          {triageOptionsOpen && (
+            <OperatorTriageSetup
+              activeCount={active.length}
+              occurrenceCount={activeOccurrenceCount}
+              defaultModel={operatorDefaultModel}
+              model={triageModel}
+              providerId={triageProviderId}
+              pending={startTriage.isPending}
+              onModelChange={(model, providerId) => {
+                setTriageModel(model);
+                setTriageProviderId(model ? providerId ?? null : null);
+              }}
+              onStart={() => {
+                startTriage.mutate(
+                  {
+                    model_override: triageModel || null,
+                    model_provider_id_override: triageModel ? triageProviderId ?? null : null,
+                  },
+                  {
+                    onSuccess: (run) => {
+                      setTriageRun(run);
+                      setTriageOptionsOpen(false);
+                    },
+                  },
+                );
+              }}
+            />
+          )}
           {triageRun && <OperatorTriageRunPanel run={triageRun} />}
           <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
           <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
@@ -331,6 +366,61 @@ export function AttentionHubContent({
   );
 }
 
+function OperatorTriageSetup({
+  activeCount,
+  occurrenceCount,
+  defaultModel,
+  model,
+  providerId,
+  pending,
+  onModelChange,
+  onStart,
+}: {
+  activeCount: number;
+  occurrenceCount: number;
+  defaultModel: string;
+  model: string;
+  providerId: string | null;
+  pending: boolean;
+  onModelChange: (model: string, providerId?: string | null) => void;
+  onStart: () => void;
+}) {
+  return (
+    <section className="mb-4 space-y-3 rounded-md bg-surface-overlay/35 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+            <Sparkles size={13} />
+            Operator triage
+          </div>
+          <div className="mt-1 text-xs text-text-muted">
+            Read-only classify + report · {plural(activeCount, "active item")} · {plural(occurrenceCount, "occurrence")}
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={!activeCount || pending}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={onStart}
+        >
+          {pending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          Start
+        </button>
+      </div>
+      <div className="space-y-1.5">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Model</div>
+        <LlmModelDropdown
+          value={model}
+          selectedProviderId={providerId}
+          onChange={onModelChange}
+          placeholder={`Inherit ${defaultModel}`}
+          allowClear
+        />
+      </div>
+    </section>
+  );
+}
+
 function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
   return (
     <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/35 p-3">
@@ -340,18 +430,22 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
             <Sparkles size={13} />
             Operator run
           </div>
-          <div className="mt-1 truncate text-xs text-text-muted">{plural(run.item_count, "item")} in one triage session</div>
+          <div className="mt-1 truncate text-xs text-text-muted">
+            {plural(run.item_count, "item")} · {run.effective_model || run.model_override || "default model"}
+          </div>
         </div>
         <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-accent">live</span>
       </div>
-      <div className="h-64 min-h-0 overflow-hidden rounded-md bg-surface-raised/70">
-        <SessionChatView
-          sessionId={run.session_id}
-          parentChannelId={run.parent_channel_id}
-          botId={run.bot_id}
-          chatMode="terminal"
-          emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
-        />
+      <div className="relative h-64 min-h-0 overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
+        <div className="absolute inset-0 overflow-hidden">
+          <SessionChatView
+            sessionId={run.session_id}
+            parentChannelId={run.parent_channel_id}
+            botId={run.bot_id}
+            chatMode="default"
+            emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
+          />
+        </div>
       </div>
     </section>
   );

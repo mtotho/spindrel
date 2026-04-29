@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isWidgetRefreshCapable, shouldRenderPinnedWidgetLoadShell, shouldRunWidgetAutoRefresh, widgetRefreshJitterMs, } from "./widgetRefreshPolicy.js";
+import { isWidgetRefreshCapable, shouldSchedulePinnedInitialRefresh, shouldShowPinnedWidgetIframeSkeleton, shouldShowPinnedWidgetRefreshOverlay, shouldRenderPinnedWidgetLoadShell, shouldRunWidgetAutoRefresh, widgetRefreshJitterMs, } from "./widgetRefreshPolicy.js";
 test("refresh capability follows state_poll contract when old envelopes omit refreshable", () => {
     assert.equal(isWidgetRefreshCapable({ refreshable: false }, { refresh_model: "state_poll" }), true);
     assert.equal(isWidgetRefreshCapable({ refreshable: true }, { refresh_model: "none" }), true);
@@ -23,6 +23,43 @@ test("refreshable pinned widgets keep chrome available while first poll runs", (
         hasRenderableBody: false,
         awaitingFirstPollForRefreshable: true,
     }), true);
+});
+test("refreshable pinned widgets do not cover already-rendered content with a refresh skeleton", () => {
+    assert.equal(shouldShowPinnedWidgetRefreshOverlay({
+        hasRenderableBody: true,
+        awaitingFirstPollForRefreshable: true,
+    }), false);
+});
+test("cancelled delayed initial refreshes remain eligible to reschedule", () => {
+    assert.equal(shouldSchedulePinnedInitialRefresh({
+        widgetId: "pin-a",
+        refreshedForWidgetId: null,
+        shouldRefreshOnMount: true,
+    }), true);
+    assert.equal(shouldSchedulePinnedInitialRefresh({
+        widgetId: "pin-a",
+        refreshedForWidgetId: null,
+        shouldRefreshOnMount: true,
+    }), true);
+    assert.equal(shouldSchedulePinnedInitialRefresh({
+        widgetId: "pin-a",
+        refreshedForWidgetId: "pin-a",
+        shouldRefreshOnMount: true,
+    }), false);
+});
+test("interactive iframe preload skeleton has a watchdog cutoff", () => {
+    assert.equal(shouldShowPinnedWidgetIframeSkeleton({
+        isHtmlInteractive: true,
+        iframeReady: false,
+        preloadElapsedMs: 500,
+        preloadWatchdogMs: 2500,
+    }), true);
+    assert.equal(shouldShowPinnedWidgetIframeSkeleton({
+        isHtmlInteractive: true,
+        iframeReady: false,
+        preloadElapsedMs: 2500,
+        preloadWatchdogMs: 2500,
+    }), false);
 });
 test("refresh jitter is deterministic and bounded", () => {
     const first = widgetRefreshJitterMs("pin-a", 1000);

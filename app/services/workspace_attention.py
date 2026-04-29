@@ -580,6 +580,8 @@ async def create_attention_triage_run(
     *,
     auth: Any,
     actor: str | None,
+    model_override: str | None = None,
+    model_provider_id_override: str | None = None,
 ) -> dict[str, Any]:
     items = await list_attention_items(db, auth=auth, include_resolved=False)
     active = [item for item in items if item.status in VISIBLE_STATUSES]
@@ -620,6 +622,11 @@ async def create_attention_triage_run(
         rows = (await db.execute(select(Channel).where(Channel.id.in_(channel_ids)))).scalars().all()
         channel_names = {row.id: row.name for row in rows}
 
+    clean_model_override = (model_override or "").strip() or None
+    clean_provider_id_override = (model_provider_id_override or "").strip() or None
+    if not clean_model_override:
+        clean_provider_id_override = None
+
     task = Task(
         bot_id=OPERATOR_TRIAGE_BOT_ID,
         client_id=operator_channel.client_id,
@@ -653,6 +660,8 @@ async def create_attention_triage_run(
                 "Classify and report outcomes only. Do not mutate workspace state "
                 "except by calling report_attention_triage_batch."
             ),
+            "model_override": clean_model_override,
+            "model_provider_id_override": clean_provider_id_override,
         },
         created_at=_now(),
     )
@@ -691,6 +700,9 @@ async def create_attention_triage_run(
         "parent_channel_id": str(operator_channel.id),
         "bot_id": OPERATOR_TRIAGE_BOT_ID,
         "item_count": len(active),
+        "model_override": clean_model_override,
+        "model_provider_id_override": clean_provider_id_override,
+        "effective_model": clean_model_override or operator_bot.model,
     }
 
 

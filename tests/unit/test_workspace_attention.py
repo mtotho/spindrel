@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,7 @@ from app.services.workspace_attention import (
     acknowledge_attention_items_bulk,
     assign_attention_item,
     build_attention_assignment_block,
+    create_attention_triage_run,
     create_user_attention_item,
     detect_structured_attention_once,
     list_attention_items,
@@ -607,6 +609,58 @@ async def test_operator_triage_batch_marks_processed_and_ready_for_review(db_ses
     assert by_id[risky.id].status == "responded"
     assert by_id[risky.id].evidence["operator_triage"]["state"] == "ready_for_review"
     assert by_id[risky.id].evidence["operator_triage"]["route"] == "developer_channel"
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_run_records_model_override(db_session, bot_registry, monkeypatch):
+    bot_registry.register("orchestrator", name="Operator", model="default/operator")
+    operator_channel_id = uuid.uuid4()
+    operator_session_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    operator_channel = Channel(
+        id=operator_channel_id,
+        name="Operator",
+        bot_id="orchestrator",
+        client_id="orchestrator:home",
+        protected=True,
+        private=True,
+    )
+    db_session.add_all([
+        operator_channel,
+        Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"),
+    ])
+    await db_session.commit()
+    await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Needs triage",
+    )
+
+    async def fake_operator_channel(_db):
+        return operator_channel
+
+    async def fake_spawn_ephemeral_session(_db, **_kwargs):
+        return SimpleNamespace(id=operator_session_id)
+
+    monkeypatch.setattr("app.services.workspace_attention._operator_channel", fake_operator_channel)
+    monkeypatch.setattr("app.services.sub_sessions.spawn_ephemeral_session", fake_spawn_ephemeral_session)
+
+    run = await create_attention_triage_run(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:write"], name="admin"),
+        actor="user:test",
+        model_override="gpt-5.4",
+        model_provider_id_override="openai-main",
+    )
+
+    task = await db_session.get(Task, uuid.UUID(run["task_id"]))
+    assert task is not None
+    assert task.execution_config["model_override"] == "gpt-5.4"
+    assert task.execution_config["model_provider_id_override"] == "openai-main"
+    assert run["effective_model"] == "gpt-5.4"
 
 
 @pytest.mark.asyncio

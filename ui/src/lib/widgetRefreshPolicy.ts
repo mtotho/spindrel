@@ -13,6 +13,24 @@ export interface PinnedWidgetLoadShellInput {
   awaitingFirstPollForRefreshable?: boolean;
 }
 
+export interface PinnedWidgetRefreshOverlayInput {
+  hasRenderableBody: boolean;
+  awaitingFirstPollForRefreshable?: boolean;
+}
+
+export interface PinnedInitialRefreshInput {
+  widgetId: string;
+  refreshedForWidgetId: string | null;
+  shouldRefreshOnMount: boolean;
+}
+
+export interface PinnedWidgetIframeSkeletonInput {
+  isHtmlInteractive: boolean;
+  iframeReady: boolean;
+  preloadElapsedMs: number;
+  preloadWatchdogMs: number;
+}
+
 export function isWidgetRefreshCapable(
   envelope: Pick<ToolResultEnvelope, "refreshable"> | null | undefined,
   contract?: Pick<WidgetContract, "refresh_model"> | null,
@@ -31,6 +49,20 @@ export function shouldRunWidgetAutoRefresh(input: WidgetRefreshPolicyInput): boo
 
 export function shouldRenderPinnedWidgetLoadShell(input: PinnedWidgetLoadShellInput): boolean {
   return !input.hasRenderableBody;
+}
+
+export function shouldShowPinnedWidgetRefreshOverlay(input: PinnedWidgetRefreshOverlayInput): boolean {
+  return !input.hasRenderableBody && !!input.awaitingFirstPollForRefreshable;
+}
+
+export function shouldSchedulePinnedInitialRefresh(input: PinnedInitialRefreshInput): boolean {
+  return input.shouldRefreshOnMount && input.refreshedForWidgetId !== input.widgetId;
+}
+
+export function shouldShowPinnedWidgetIframeSkeleton(input: PinnedWidgetIframeSkeletonInput): boolean {
+  if (!input.isHtmlInteractive) return false;
+  if (input.iframeReady) return false;
+  return input.preloadElapsedMs < input.preloadWatchdogMs;
 }
 
 export function widgetRefreshJitterMs(key: string, maxMs = 1_500): number {

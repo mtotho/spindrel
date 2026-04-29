@@ -297,7 +297,15 @@ export function TreeFileRow({
     : (hovered || focused) ? `${t.text}06` : "transparent";
 
   return (
-    <button type="button" onClick={(e) => onSelect(e)}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={(e) => onSelect(e)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onSelect(e as unknown as React.MouseEvent);
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -349,7 +357,7 @@ export function TreeFileRow({
           {modified || sizeStr}
         </span>
       )}
-    </button>
+    </div>
   );
 }
 

@@ -60,6 +60,8 @@ class AttentionBulkAcknowledgeRequest(BaseModel):
 
 class AttentionTriageRunRequest(BaseModel):
     scope: str = "all_active"
+    model_override: str | None = None
+    model_provider_id_override: str | None = None
 
 
 class AttentionTriageFeedbackRequest(BaseModel):
@@ -133,6 +135,8 @@ async def create_attention_triage_run_route(
             db,
             auth=auth,
             actor=actor_label(auth),
+            model_override=body.model_override,
+            model_provider_id_override=body.model_provider_id_override,
         )
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e

@@ -66,6 +66,21 @@ harness receives `ctx.workdir` from the channel Project Directory resolver:
   (`effective_cwd`) or by checking the channel Project Directory; `/opt` is
   only the host checkout used by SSH maintenance commands.
 
+The live harness parity suite includes a project-build tier for this exact
+path. It sets/verifies `project_path=common/projects`, asks Codex and Claude to
+plan then build a small static app under `./e2e-testing/<runtime>-<run_id>`,
+and captures the result through the shared Playwright runtime:
+
+```bash
+ssh spindrel-bot 'cd /opt/thoth-server && \
+  HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
+    -k project_plan_build_and_screenshot'
+```
+
+Scratch app files are deleted through the workspace file API after the test.
+Screenshots land under `/tmp/spindrel-harness-parity/` unless
+`HARNESS_PARITY_ARTIFACT_DIR` is set.
+
 When capturing docs screenshots, run the script from the host checkout but
 connect to the app through Docker networking. The browser itself runs inside the
 Playwright container, so from that browser `127.0.0.1:8000` means the Playwright

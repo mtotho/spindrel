@@ -106,6 +106,8 @@ The Hub can also start an **operator triage run** across all active visible
 items. This is still Attention, not a separate mission system:
 
 - the run creates one task-backed ephemeral session for the operator bot;
+- the Hub must show the run mode and effective model before launch, with an
+  optional model/provider override recorded on the task execution config;
 - the operator receives a read-only tool surface plus
   `report_attention_triage_batch`;
 - benign, duplicate, expected, recovered, informational, or noisy items are

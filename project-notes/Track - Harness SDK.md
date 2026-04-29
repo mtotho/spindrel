@@ -214,6 +214,7 @@ Approval mapping intent (final values from schema):
 - Live harness parity bridge tier now verifies the `browser_automation` Docker stack, agent-container DNS for `playwright-local`, registered `headless_browser_*` tools, and a real Codex/Claude harness call through `headless_browser_open`.
 - Spindrel live verification passed after the manifest-default follow-up: `browser_automation` enabled/running, `playwright-local` resolved from the app container, Codex/Claude browser-tool parity passed, and harness docs screenshots regenerated through the shared runtime.
 - Ops docs now pin the instance-detection rule for this path: channel hints and memory are advisory only; agents must verify repo path, port, app container, browser runtime container, health, and runtime DNS before running live browser parity or screenshot capture.
+- Project-build parity coverage now has a planned `HARNESS_PARITY_TIER=project` lane: it sets/verifies channel Project Directory `common/projects`, drives Codex and Claude through plan-then-build for `./e2e-testing/<runtime>-<run_id>`, verifies workspace files through the shared workspace API, captures screenshots through the shared Playwright runtime, and preserves the harness memory policy as hint-only rather than auto-injecting `MEMORY.md`.
 
 ### Finish-line pass — 2026-04-27
 

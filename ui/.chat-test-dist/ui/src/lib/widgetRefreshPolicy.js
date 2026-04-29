@@ -17,6 +17,19 @@ export function shouldRunWidgetAutoRefresh(input) {
 export function shouldRenderPinnedWidgetLoadShell(input) {
     return !input.hasRenderableBody;
 }
+export function shouldShowPinnedWidgetRefreshOverlay(input) {
+    return !input.hasRenderableBody && !!input.awaitingFirstPollForRefreshable;
+}
+export function shouldSchedulePinnedInitialRefresh(input) {
+    return input.shouldRefreshOnMount && input.refreshedForWidgetId !== input.widgetId;
+}
+export function shouldShowPinnedWidgetIframeSkeleton(input) {
+    if (!input.isHtmlInteractive)
+        return false;
+    if (input.iframeReady)
+        return false;
+    return input.preloadElapsedMs < input.preloadWatchdogMs;
+}
 export function widgetRefreshJitterMs(key, maxMs = 1_500) {
     if (maxMs <= 0)
         return 0;

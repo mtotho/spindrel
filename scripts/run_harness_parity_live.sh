@@ -12,6 +12,7 @@
 #   ./scripts/run_harness_parity_live.sh --tier automation
 #   ./scripts/run_harness_parity_live.sh --tier writes
 #   ./scripts/run_harness_parity_live.sh --tier context
+#   ./scripts/run_harness_parity_live.sh --tier project
 #   ./scripts/run_harness_parity_live.sh -k core
 
 set -euo pipefail
@@ -25,7 +26,7 @@ PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tier)
-            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, automation, writes, context}"
+            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, automation, writes, context, project}"
             shift 2
             ;;
         --tier=*)
@@ -63,6 +64,7 @@ export HARNESS_PARITY_CODEX_CHANNEL_ID="${HARNESS_PARITY_CODEX_CHANNEL_ID:-41fc9
 export HARNESS_PARITY_CLAUDE_CHANNEL_ID="${HARNESS_PARITY_CLAUDE_CHANNEL_ID:-71eb14fd-a482-5bdd-a9a2-e60d9e951169}"
 export HARNESS_PARITY_AGENT_CONTAINER="${HARNESS_PARITY_AGENT_CONTAINER:-agent-server-agent-server-1}"
 export HARNESS_PARITY_PLAYWRIGHT_HOST="${HARNESS_PARITY_PLAYWRIGHT_HOST:-playwright-local}"
+export HARNESS_PARITY_PROJECT_PATH="${HARNESS_PARITY_PROJECT_PATH:-common/projects}"
 
 echo "=== Harness Live Parity ==="
 echo "  Server: ${E2E_HOST}:${E2E_PORT}"
@@ -70,6 +72,7 @@ echo "  Tier:   ${HARNESS_PARITY_TIER}"
 echo "  Codex:  ${HARNESS_PARITY_CODEX_CHANNEL_ID}"
 echo "  Claude: ${HARNESS_PARITY_CLAUDE_CHANNEL_ID}"
 echo "  Browser host: ${HARNESS_PARITY_PLAYWRIGHT_HOST}"
+echo "  Project path: ${HARNESS_PARITY_PROJECT_PATH}"
 echo ""
 
 PYTEST_BIN=".venv/bin/pytest"

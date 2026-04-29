@@ -636,6 +636,32 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_channel_settings(self, channel_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/settings")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def patch_channel_settings(self, channel_id: str, patch: dict[str, Any]) -> dict:
+        resp = await self._client.patch(f"/api/v1/admin/channels/{channel_id}/settings", json=patch)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def read_workspace_file(self, workspace_id: str, path: str) -> dict:
+        resp = await self._client.get(
+            f"/api/v1/workspaces/{workspace_id}/files/content",
+            params={"path": path},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def delete_workspace_path(self, workspace_id: str, path: str) -> None:
+        resp = await self._client.delete(
+            f"/api/v1/workspaces/{workspace_id}/files",
+            params={"path": path},
+        )
+        if resp.status_code not in (200, 204, 404):
+            resp.raise_for_status()
+
     async def get_channel_heartbeat(self, channel_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/heartbeat")
         resp.raise_for_status()
