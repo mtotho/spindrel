@@ -2,11 +2,18 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-29 (heartbeat/tool-selection and maintenance automation consolidation read-model pass)
+updated: 2026-04-29 (channel quick automations V1)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
+
+## 2026-04-29 — Channel Quick Automations V1
+
+- Added internal run presets as read-only canned task payloads, not a new persisted primitive. The first preset is `widget_improvement_healthcheck`.
+- Channel Settings -> Tasks now shows a compact Quick automations launcher. The preset opens a review drawer with editable title, start, recurrence, prompt, and channel-posting behavior, then creates an ordinary scheduled task through the existing task API.
+- The preset defaults to a quiet weekly widget health/usefulness review with recent channel history, the `widgets` skill pack, and the read/inspection widget tools. It does not alter heartbeat behavior or grant global approval bypasses.
+- Advanced customization stays in `/admin/automations`: the drawer can create the task and jump to the full automation editor.
 
 ## 2026-04-29 — Heartbeat and maintenance consolidation pass
 

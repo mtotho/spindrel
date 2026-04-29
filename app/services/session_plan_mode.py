@@ -1755,7 +1755,28 @@ def _is_vague_step_label(label: str) -> bool:
     if text in vague_exact:
         return True
     words = text.split()
-    if len(words) <= 3 and any(word in {"implement", "fix", "update", "test", "verify"} for word in words):
+    generic_objects = {
+        "change",
+        "changes",
+        "fix",
+        "fixes",
+        "issue",
+        "issues",
+        "bug",
+        "bugs",
+        "it",
+        "thing",
+        "things",
+        "stuff",
+        "work",
+        "task",
+        "tasks",
+    }
+    if (
+        len(words) <= 3
+        and words[0] in {"implement", "fix", "update", "test", "verify"}
+        and all(word in generic_objects or word == words[0] for word in words[1:])
+    ):
         return True
     return False
 

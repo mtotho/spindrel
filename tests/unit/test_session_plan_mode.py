@@ -279,6 +279,37 @@ def test_approval_rejects_plan_missing_professional_contract(monkeypatch, tmp_pa
     assert "vague_step_label" in codes
 
 
+def test_short_step_label_with_specific_target_is_not_vague():
+    plan = spm.SessionPlan(
+        title="Concrete Short Labels",
+        status=spm.PLAN_STATUS_DRAFT,
+        revision=1,
+        session_id=uuid.uuid4(),
+        task_slug="concrete-short-labels",
+        summary="Validate concrete short step labels.",
+        scope="Validation heuristic only; no execution.",
+        key_changes=["Tune vague-label detection."],
+        interfaces=["No public API changes."],
+        assumptions=[],
+        assumptions_and_defaults=["Short labels with concrete objects are acceptable."],
+        open_questions=[],
+        steps=[
+            spm.PlanStep(id="implement-quality", label="Implement quality validation"),
+            spm.PlanStep(id="verify-behavior", label="Verify behavior regressions"),
+        ],
+        test_plan=["Run session plan mode unit tests."],
+        artifacts=[],
+        acceptance_criteria=["Concrete short labels pass validation."],
+        risks=[],
+        outcome="Pending execution.",
+    )
+
+    validation = spm.validate_plan_for_approval(plan)
+    codes = {issue["code"] for issue in validation["issues"]}
+
+    assert "vague_step_label" not in codes
+
+
 def test_preview_publish_surfaces_blocking_validation_without_side_effects(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

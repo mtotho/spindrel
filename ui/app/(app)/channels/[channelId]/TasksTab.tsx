@@ -39,12 +39,35 @@ type QuickAutomationDraft = {
   post_final_to_channel: boolean;
 };
 
+const START_OFFSET_MS: Record<string, number> = {
+  s: 1000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+};
+
+function toLocalDateTimeInput(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function scheduledAtForPicker(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = value.match(/^\+(\d+)([smhdw])$/);
+  if (!match) return value;
+  const amount = Number.parseInt(match[1], 10);
+  const unit = match[2];
+  const ms = amount * (START_OFFSET_MS[unit] ?? 0);
+  return toLocalDateTimeInput(new Date(Date.now() + ms));
+}
+
 function draftFromPreset(preset: RunPreset): QuickAutomationDraft {
   const defaults = preset.task_defaults;
   return {
     title: defaults.title,
     prompt: defaults.prompt,
-    scheduled_at: defaults.scheduled_at ?? "",
+    scheduled_at: scheduledAtForPicker(defaults.scheduled_at),
     recurrence: defaults.recurrence ?? "",
     post_final_to_channel: defaults.post_final_to_channel,
   };

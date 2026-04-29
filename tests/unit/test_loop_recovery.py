@@ -114,3 +114,45 @@ async def test_no_tool_path_events_are_forwarded_then_return_loop():
         {"type": "response", "text": "forced"},
         LoopRecoveryDone(has_tool_calls=False, return_loop=True),
     ]
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_structured_question_card_synthesizes_tool_call():
+    async def _fail_no_tool(**kwargs):
+        raise AssertionError("plan-mode question-card recovery should continue to tool iteration")
+        yield {}
+
+    state = LoopRunState(messages=[
+        {
+            "role": "system",
+            "content": "Plan mode is active. If the user explicitly asks for a structured question card, you must use ask_plan_questions.",
+        },
+        {
+            "role": "user",
+            "content": (
+                "Use a structured question card titled 'Quality readiness questions' "
+                "because there is no target subsystem, success signal, mutation scope, or verification expectation."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "## Quality readiness questions\n\n1. What should I build?",
+        },
+    ])
+    msg = AccumulatedMessage(content="## Quality readiness questions\n\n1. What should I build?")
+
+    outputs, _ = await _collect(
+        accumulated_msg=msg,
+        state=state,
+        tools_param=[{"type": "function", "function": {"name": "ask_plan_questions"}}],
+        handle_no_tool_calls_path_fn=_fail_no_tool,
+    )
+
+    assert outputs == [LoopRecoveryDone(has_tool_calls=True)]
+    assert msg.content == ""
+    assert msg.tool_calls
+    call = msg.tool_calls[0]
+    assert call["function"]["name"] == "ask_plan_questions"
+    assert "Quality readiness questions" in call["function"]["arguments"]
+    assert state.messages[-1]["content"] == ""
+    assert state.messages[-1]["tool_calls"] == msg.tool_calls
