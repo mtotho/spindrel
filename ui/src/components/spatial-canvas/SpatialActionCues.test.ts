@@ -4,7 +4,6 @@ import {
   type SpatialActionCueObject,
   objectNearViewport,
   shouldRenderCueMarker,
-  shouldShowCueHalo,
   topActionCompassItems,
 } from "./SpatialActionCues.js";
 
@@ -52,14 +51,11 @@ function item(
   };
 }
 
-test("cue markers render only for actionable objects and suppress selected halos", () => {
+test("cue markers render only for actionable objects", () => {
   const investigate = item("investigate", "investigate", 95, 0, 0);
   const quiet = item("quiet", "quiet", 0, 0, 0);
   assert.equal(shouldRenderCueMarker(investigate), true);
   assert.equal(shouldRenderCueMarker(quiet), false);
-  assert.equal(shouldShowCueHalo(investigate, null, 0.55), true);
-  assert.equal(shouldShowCueHalo(investigate, "investigate", 0.55), false);
-  assert.equal(shouldShowCueHalo(investigate, null, 0.2), false);
 });
 
 test("action compass ranks by cue priority before viewport bias", () => {

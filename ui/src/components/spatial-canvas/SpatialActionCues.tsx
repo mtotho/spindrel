@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock3, History, Radio } from "lucide-react";
+import { AlertTriangle, ChevronRight, Clock3, History, ListChecks, Radio } from "lucide-react";
 import type { ComponentType } from "react";
 import type { LucideProps } from "lucide-react";
 import type { WorkspaceMapCueIntent } from "../../api/types/workspaceMapState";
@@ -6,8 +6,6 @@ import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState"
 import { mapCueIntent, mapCueRank, mapStateLabel, mapStateMeta, mapStateTone } from "./SpatialObjectStatus.js";
 
 const CUE_VIEWPORT_MARGIN_WORLD = 220;
-const CUE_DOT_THRESHOLD = 0.35;
-
 export interface WorldBbox {
   minX: number;
   minY: number;
@@ -47,10 +45,6 @@ export function objectNearViewport(item: SpatialActionCueObject, viewport?: Worl
 
 export function shouldRenderCueMarker(item: SpatialActionCueObject): boolean {
   return Boolean(item.workState && mapCueIntent(item.workState) !== "quiet");
-}
-
-export function shouldShowCueHalo(item: SpatialActionCueObject, selectedObjectId: string | null, scale: number): boolean {
-  return shouldRenderCueMarker(item) && item.id !== selectedObjectId && scale >= CUE_DOT_THRESHOLD;
 }
 
 export function topActionCompassItems(
@@ -116,6 +110,10 @@ function cueCountLabel(item: SpatialActionCueObject): string | null {
   return null;
 }
 
+function actionCount(objects: SpatialActionCueObject[]): number {
+  return objects.filter(shouldRenderCueMarker).length;
+}
+
 function kindLabel(kind: SpatialActionCueObject["kind"]): string {
   if (kind === "channel") return "Channel";
   if (kind === "widget") return "Widget";
@@ -144,11 +142,12 @@ export function SpatialActionCueLayer({
       {visible.map((item) => {
         const intent = mapCueIntent(item.workState);
         const Icon = cueIcon(intent);
-        const showHalo = shouldShowCueHalo(item, selectedObjectId, scale);
         const highlighted = highlightedObjectId === item.id;
         const width = Math.max(42, Math.min(220, (item.worldW ?? 96) * scale + 24));
         const height = Math.max(34, Math.min(160, (item.worldH ?? 72) * scale + 24));
         const toneClass = cueToneClass(item);
+        const badgeX = Math.round(width / 2 - 10);
+        const badgeY = Math.round(-height / 2 + 2);
         return (
           <div
             key={`action-cue-${item.id}`}
@@ -164,15 +163,16 @@ export function SpatialActionCueLayer({
               transformOrigin: "center center",
             }}
           >
-            <div className={`relative transition-transform duration-150 ${highlighted ? "scale-105" : "scale-100"}`}>
-              {showHalo && (
-                <div
-                  data-spatial-action-cue-halo="true"
-                  className={`rounded-md ring-1 ring-offset-2 ring-offset-surface ${toneClass}`}
-                  style={{ width, height }}
-                />
-              )}
-              <div className={`absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full ring-1 ${toneClass}`}>
+            <div
+              className={`relative transition-transform duration-150 ${highlighted ? "scale-110" : "scale-100"}`}
+              style={{ width: 0, height: 0 }}
+            >
+              <div
+                className={`absolute flex h-5 w-5 items-center justify-center rounded-full ring-1 backdrop-blur-sm ${toneClass} ${
+                  highlighted ? "ring-2 ring-accent/35" : ""
+                }`}
+                style={{ transform: `translate(${badgeX}px, ${badgeY}px)` }}
+              >
                 <Icon size={13} />
                 <span className="sr-only">{cueLabel(item)}</span>
               </div>
@@ -190,12 +190,14 @@ export function ActionCompass({
   selectedObjectId,
   highlightedObjectId,
   onHighlight,
+  collapsed = false,
 }: {
   objects: SpatialActionCueObject[];
   viewport?: WorldBbox | null;
   selectedObjectId: string | null;
   highlightedObjectId: string | null;
   onHighlight: (id: string | null) => void;
+  collapsed?: boolean;
 }) {
   const selectedItem = selectedObjectId
     ? objects.find((item) => item.id === selectedObjectId && shouldRenderCueMarker(item)) ?? null
@@ -205,6 +207,48 @@ export function ActionCompass({
     ? [selectedItem, ...rankedItems.filter((item) => item.id !== selectedItem.id)].slice(0, 3)
     : rankedItems.slice(0, 3);
   if (!items.length) return null;
+  if (collapsed) {
+    const total = actionCount(objects);
+    const topItem = items[0];
+    const intent = mapCueIntent(topItem.workState);
+    const Icon = cueIcon(intent);
+    return (
+      <div
+        data-testid="spatial-action-compass"
+        data-spatial-action-compass-collapsed="true"
+        className="absolute left-4 top-4 z-[2] flex flex-col items-center gap-1 rounded-md bg-surface-raised/90 p-1.5 text-text ring-1 ring-surface-border/70"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          title={`Needs action: ${total}`}
+          aria-label={`Needs action: ${total}`}
+          className="flex h-10 w-10 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+          onPointerEnter={() => onHighlight(topItem.id)}
+          onPointerLeave={() => onHighlight(null)}
+          onFocus={() => onHighlight(topItem.id)}
+          onBlur={() => onHighlight(null)}
+          onClick={() => topItem.onSelect()}
+        >
+          <ListChecks size={17} />
+        </button>
+        <button
+          type="button"
+          title={`${cueLabel(topItem)}: ${topItem.label}`}
+          aria-label={`${cueLabel(topItem)}: ${topItem.label}`}
+          className={`flex h-8 w-8 items-center justify-center rounded-full ring-1 ${cueToneClass(topItem)}`}
+          onPointerEnter={() => onHighlight(topItem.id)}
+          onPointerLeave={() => onHighlight(null)}
+          onFocus={() => onHighlight(topItem.id)}
+          onBlur={() => onHighlight(null)}
+          onClick={() => topItem.onSelect()}
+        >
+          <Icon size={13} />
+        </button>
+        <span className="rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted">{total}</span>
+      </div>
+    );
+  }
   return (
     <div
       data-testid="spatial-action-compass"
@@ -269,6 +313,7 @@ export function ActionCompass({
                     {count}
                   </span>
                 )}
+                <ChevronRight size={13} className="text-text-dim" />
                 <span className="text-[10px] font-medium text-text-dim">{index + 1}</span>
               </span>
             </button>

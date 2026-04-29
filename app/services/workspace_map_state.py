@@ -108,6 +108,7 @@ def _trace_signal(event: TraceEvent) -> dict[str, Any]:
         "message": _truncate(str(data.get("error") or data.get("message") or "")),
         "bot_id": event.bot_id or data.get("bot_id"),
         "channel_id": data.get("channel_id"),
+        "correlation_id": str(event.correlation_id) if event.correlation_id else None,
         "created_at": _iso(event.created_at),
         "last_seen_at": _iso(event.created_at),
     }

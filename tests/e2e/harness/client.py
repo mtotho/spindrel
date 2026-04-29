@@ -659,8 +659,17 @@ class E2EClient:
             f"/api/v1/workspaces/{workspace_id}/files",
             params={"path": path},
         )
+        if resp.status_code in (200, 204, 404):
+            return
+        if resp.status_code == 400 and "not" in resp.text.lower():
+            return
         if resp.status_code not in (200, 204, 404):
             resp.raise_for_status()
+
+    async def exit_session_plan_mode(self, session_id: str) -> dict:
+        resp = await self._client.post(f"/sessions/{session_id}/plan/exit", json={})
+        resp.raise_for_status()
+        return resp.json()
 
     async def get_channel_heartbeat(self, channel_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/heartbeat")

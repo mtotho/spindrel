@@ -14,6 +14,7 @@ import { WORKSPACE_MAP_STATE_KEY } from "../../api/hooks/useWorkspaceMapState";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
+import { openTraceInspector } from "../../stores/traceInspector";
 import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
@@ -70,6 +71,7 @@ interface UsageDensityChromeProps {
   selectedAttentionId: string | null;
   onSelectAttention: (item: WorkspaceAttentionItem | null) => void;
   onReplyAttention?: (item: WorkspaceAttentionItem) => void;
+  navigate?: (to: string, options?: any) => void;
   launchWorldCenter: { x: number; y: number } | null;
   selectedObject?: StarboardObjectItem | null;
 }
@@ -183,6 +185,7 @@ export function UsageDensityChrome({
   selectedAttentionId,
   onSelectAttention,
   onReplyAttention,
+  navigate,
   launchWorldCenter,
   selectedObject,
 }: UsageDensityChromeProps) {
@@ -489,6 +492,7 @@ export function UsageDensityChrome({
                         if (item) onSelectAttention(item);
                         selectStation("attention");
                       }}
+                      navigate={navigate}
                     />
                   )}
                   <div className="mb-3">
@@ -688,21 +692,30 @@ function SelectedObjectInspector({
   attentionItems,
   selectedAttentionId,
   onOpenAttentionWarning,
+  navigate,
 }: {
   item: StarboardObjectItem;
   attentionItems: WorkspaceAttentionItem[];
   selectedAttentionId?: string | null;
   onOpenAttentionWarning: (id: string) => void;
+  navigate?: (to: string, options?: any) => void;
 }) {
   const queryClient = useQueryClient();
   const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
-  const primary = item.actions.find((action) => action.icon !== "jump") ?? item.actions[0];
+  const defaultPrimary = item.actions.find((action) => action.icon !== "jump") ?? item.actions[0];
   const state = item.workState;
   const brief = buildSpatialObjectBrief(state);
-  const usefulActions = item.actions.filter((action) => action !== primary).slice(0, 4);
   const target = attentionTargetForObject(item);
   const targetAttentionItems = findActiveAttentionItemsForObject(item, attentionItems);
   const firstTargetAttention = targetAttentionItems[0] ?? null;
+  const primary: StarboardObjectAction | undefined = firstTargetAttention
+    ? {
+        label: "Review issue",
+        icon: "open",
+        onSelect: () => onOpenAttentionWarning(firstTargetAttention.id),
+      }
+    : defaultPrimary;
+  const usefulActions = item.actions.filter((action) => action !== defaultPrimary).slice(0, 4);
   const tone = brief?.tone ?? "muted";
   const toneClass = selectedInspectorToneClass(tone);
   const acknowledgeTarget = () => {
@@ -807,7 +820,7 @@ function SelectedObjectInspector({
               )}
               {brief.next && (
                 <InspectorSection icon={<Clock size={13} />} title="Next">
-                  <SignalLine signal={brief.next} />
+                  <SignalLine signal={brief.next} navigate={navigate} />
                 </InspectorSection>
               )}
               {!!brief.warnings.length && (
@@ -818,13 +831,22 @@ function SelectedObjectInspector({
                       signal={signal}
                       danger
                       highlighted={Boolean(signal.id && signal.id === selectedAttentionId)}
+                      onOpenAttentionWarning={onOpenAttentionWarning}
+                      navigate={navigate}
                     />
                   ))}
                 </InspectorSection>
               )}
               {!!brief.recent.length && (
                 <InspectorSection icon={<History size={13} />} title="Recent">
-                  {brief.recent.map((signal, index) => <SignalLine key={`${signal.kind}-${signal.id ?? index}`} signal={signal} />)}
+                  {brief.recent.map((signal, index) => (
+                    <SignalLine
+                      key={`${signal.kind}-${signal.id ?? index}`}
+                      signal={signal}
+                      onOpenAttentionWarning={onOpenAttentionWarning}
+                      navigate={navigate}
+                    />
+                  ))}
                 </InspectorSection>
               )}
             </>
@@ -945,14 +967,19 @@ function SignalLine({
   signal,
   danger = false,
   highlighted = false,
+  onOpenAttentionWarning,
+  navigate,
 }: {
   signal: NonNullable<WorkspaceMapObjectState["next"]> | WorkspaceMapObjectState["recent"][number];
   danger?: boolean;
   highlighted?: boolean;
+  onOpenAttentionWarning?: (id: string) => void;
+  navigate?: (to: string, options?: any) => void;
 }) {
   const when = formatSignalTime(signal);
-  return (
-    <div className={`min-w-0 rounded ${highlighted ? "bg-danger/10 px-2 py-1" : ""}`}>
+  const action = signalAction(signal, onOpenAttentionWarning, navigate);
+  const content = (
+    <>
       <div className={`truncate font-medium ${danger ? "text-danger" : "text-text"}`}>{signal.title || signal.kind}</div>
       <div className="truncate text-text-dim">
         {[signal.bot_name, signal.channel_name ? `#${signal.channel_name}` : null, when].filter(Boolean).join(" · ")}
@@ -960,8 +987,69 @@ function SignalLine({
       {signal.message || signal.error ? (
         <div className="mt-0.5 line-clamp-2 text-text-muted">{signal.message || signal.error}</div>
       ) : null}
+      {action && (
+        <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-accent">
+          {action.icon}
+          {action.label}
+        </div>
+      )}
+    </>
+  );
+  if (action) {
+    return (
+      <button
+        type="button"
+        data-testid="map-brief-signal-action"
+        data-signal-kind={signal.kind}
+        className={`min-w-0 rounded px-2 py-1 text-left transition-colors hover:bg-surface-overlay/50 focus-visible:bg-surface-overlay/50 ${
+          highlighted ? "bg-danger/10" : ""
+        }`}
+        onClick={action.onSelect}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div className={`min-w-0 rounded ${highlighted ? "bg-danger/10 px-2 py-1" : ""}`}>
+      {content}
     </div>
   );
+}
+
+function signalAction(
+  signal: NonNullable<WorkspaceMapObjectState["next"]> | WorkspaceMapObjectState["recent"][number],
+  onOpenAttentionWarning?: (id: string) => void,
+  navigate?: (to: string, options?: any) => void,
+): { label: string; icon: ReactNode; onSelect: () => void } | null {
+  if (signal.kind === "attention" && signal.id && onOpenAttentionWarning) {
+    return {
+      label: "Review in Attention",
+      icon: <ExternalLink size={11} />,
+      onSelect: () => onOpenAttentionWarning(signal.id!),
+    };
+  }
+  const correlationId = signal.correlation_id || (signal.kind === "trace" ? signal.id : null);
+  if (correlationId) {
+    return {
+      label: "Open trace",
+      icon: <Activity size={11} />,
+      onSelect: () => openTraceInspector({
+        correlationId,
+        title: signal.title || "Trace",
+        subtitle: signal.channel_name ? `#${signal.channel_name}` : signal.bot_name ?? undefined,
+      }),
+    };
+  }
+  const taskId = signal.task_id || (signal.kind === "task" ? signal.id : null);
+  if (taskId && navigate) {
+    return {
+      label: "Open automation",
+      icon: <ExternalLink size={11} />,
+      onSelect: () => navigate(`/admin/automations/${taskId}`),
+    };
+  }
+  return null;
 }
 
 function ObjectContextMenu({ x, y, item, onClose }: { x: number; y: number; item: StarboardObjectItem; onClose: () => void }) {

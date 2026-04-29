@@ -800,7 +800,6 @@ function SelectedObjectAnchor({
   worldH,
   label,
   showLabel,
-  tone,
   scale,
 }: {
   x: number;
@@ -815,14 +814,6 @@ function SelectedObjectAnchor({
   const inverseScale = 1 / Math.max(scale, 0.2);
   const width = Math.max(74, Math.min(220, worldW * scale + 24));
   const height = Math.max(54, Math.min(160, worldH * scale + 24));
-  const toneClass =
-    tone === "danger"
-      ? "ring-danger/45 bg-danger/[0.045] text-danger"
-      : tone === "warning"
-        ? "ring-warning/40 bg-warning/[0.045] text-warning"
-        : tone === "active"
-          ? "ring-accent/45 bg-accent/[0.055] text-accent"
-          : "ring-accent/35 bg-accent/[0.04] text-accent";
   return (
     <div
       data-spatial-selected-anchor="true"
@@ -835,7 +826,7 @@ function SelectedObjectAnchor({
       }}
     >
       <div
-        className={`rounded-md ring-1 ring-offset-2 ring-offset-surface ${toneClass}`}
+        className="rounded-md bg-accent/[0.018] ring-1 ring-accent/38 ring-offset-2 ring-offset-surface"
         style={{ width, height }}
       />
       {showLabel && (

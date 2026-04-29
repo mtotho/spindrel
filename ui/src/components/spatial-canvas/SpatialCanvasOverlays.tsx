@@ -121,6 +121,7 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
         selectedObjectId={selectedStarboardObject?.id ?? null}
         highlightedObjectId={highlightedActionCueId ?? null}
         onHighlight={setHighlightedActionCueId}
+        collapsed={Boolean(starboardOpen && selectedStarboardObject)}
       />
       {landmarkBeaconsVisible && (
         <SpatialEdgeBeacons
@@ -184,6 +185,7 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
           onSelectAttention={(item: WorkspaceAttentionItem | null) => setSelectedAttentionId(item?.id ?? null)}
           onReplyAttention={handleAttentionReply}
           selectedObject={selectedStarboardObject}
+          navigate={navigate}
           launchWorldCenter={
             pinPositionOverride
               ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }

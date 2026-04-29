@@ -149,6 +149,10 @@ def _artifact_root() -> Path:
     return Path(os.environ.get("HARNESS_PARITY_ARTIFACT_DIR", "/tmp/spindrel-harness-parity"))
 
 
+def _project_timeout() -> float:
+    return max(_timeout(), float(os.environ.get("HARNESS_PARITY_PROJECT_TIMEOUT", "600")))
+
+
 def _bridge_tool_name() -> str:
     return os.environ.get("HARNESS_PARITY_BRIDGE_TOOL", "list_channels").strip() or "list_channels"
 
@@ -1241,15 +1245,15 @@ async def test_live_harness_project_plan_build_and_screenshot(
         app_workspace_rel = f"{expected_project_path}/{app_rel}"
         plan = await client.chat_session_stream(
             (
-                "Plan only. Do not create, edit, delete, or run files. "
-                f"Give a concise implementation plan for a static single-page app in ./{app_rel}. "
-                "The app will use index.html, styles.css, app.js, and README.md only. "
-                f"It must visibly include marker {marker}."
+                "Plan only. Do not create, edit, delete, run files, inspect files, or call tools. "
+                "Reply with exactly three short bullet points. "
+                f"The plan is for a static single-page app in ./{app_rel} using only "
+                f"index.html, styles.css, app.js, and README.md, visibly including marker {marker}."
             ),
             session_id=session_id,
             channel_id=channel_id,
             bot_id=bot_id,
-            timeout=_timeout(),
+            timeout=_project_timeout(),
             harness_question_answer={
                 "answer": "Use a minimal static app with no package install and no external assets.",
                 "selected_options": ["Minimal static app"],
@@ -1259,8 +1263,8 @@ async def test_live_harness_project_plan_build_and_screenshot(
         _assert_clean_turn(plan)
         assert marker in plan.response_text
 
-        exit_command = await client.execute_slash_command("plan", session_id=session_id)
-        assert exit_command["payload"]["effect"] == "plan"
+        exit_command = await client.exit_session_plan_mode(session_id)
+        assert exit_command["mode"] == "chat"
         chat_status = await client.get_session_harness_status(session_id)
         assert chat_status["session_plan_mode"] == "chat"
         await client.set_session_approval_mode(session_id, "bypassPermissions")
@@ -1277,7 +1281,7 @@ async def test_live_harness_project_plan_build_and_screenshot(
             session_id=session_id,
             channel_id=channel_id,
             bot_id=bot_id,
-            timeout=_timeout(),
+            timeout=_project_timeout(),
         )
         _assert_clean_turn(build)
         assert app_rel in build.response_text or marker in build.response_text

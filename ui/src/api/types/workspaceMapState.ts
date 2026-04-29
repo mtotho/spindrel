@@ -32,6 +32,7 @@ export interface WorkspaceMapSignal {
   bot_name?: string | null;
   channel_id?: string | null;
   channel_name?: string | null;
+  correlation_id?: string | null;
   scheduled_at?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
