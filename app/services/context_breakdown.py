@@ -8,6 +8,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
+import uuid as _uuid
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,6 +109,55 @@ class ContextBreakdownResult:
     disclaimer: str = ""
 
 
+@dataclass(frozen=True)
+class _InjectionSnapshot:
+    budget: dict[str, Any]
+    context_profile: str | None
+    context_origin: str | None
+    live_history_turns: int | None
+    mandatory_static_injections: list[str]
+    optional_static_injections: list[str]
+
+
+@dataclass(frozen=True)
+class _UsageSnapshot:
+    gross_prompt_tokens: int | None
+    current_prompt_tokens: int | None
+    cached_prompt_tokens: int | None
+    completion_tokens: int | None
+
+
+@dataclass(frozen=True)
+class _BreakdownScope:
+    channel_id: str
+    channel_pk: _uuid.UUID
+    channel: Channel
+    bot: Any
+    requested_session_id: str | None
+    session_id: str | None
+    session_pk: _uuid.UUID | None
+    session: Session | None
+
+
+@dataclass(frozen=True)
+class _ConversationStats:
+    total_messages: int = 0
+    total_msg_chars: int = 0
+    msgs_since_watermark: int = 0
+    chars_since_watermark: int = 0
+    user_msgs_since_watermark: int | None = None
+    watermark_msg: Message | None = None
+
+
+@dataclass(frozen=True)
+class _PreviewPolicy:
+    context_profile: str | None
+    context_origin: str | None
+    live_history_turns: int | None
+    mandatory_static_injections: list[str]
+    optional_static_injections: list[str]
+
+
 def _chars_to_tokens(chars: int) -> int:
     """Sign-preserving wrapper around the shared chars/3.5 estimator.
 
@@ -124,6 +174,162 @@ def _chars_to_tokens(chars: int) -> int:
 
 def _row_prompt_chars(content: Any, tool_calls: Any) -> int:
     return message_prompt_chars({"content": content, "tool_calls": tool_calls})
+
+
+def _session_scope_clause(channel_id: str | Any, session_id: str | Any | None):
+    if session_id is None:
+        return Session.channel_id == channel_id
+    return or_(
+        Session.channel_id == channel_id,
+        Session.parent_channel_id == channel_id,
+    )
+
+
+async def _latest_trace_data(
+    db: AsyncSession,
+    *,
+    scope_clause,
+    event_type: str,
+    session_id: str | Any | None,
+) -> dict[str, Any]:
+    query = (
+        select(TraceEvent.data)
+        .join(Session, TraceEvent.session_id == Session.id)
+        .where(scope_clause, TraceEvent.event_type == event_type)
+    )
+    if session_id is not None:
+        query = query.where(TraceEvent.session_id == session_id)
+    row = await db.execute(query.order_by(TraceEvent.created_at.desc()).limit(1))
+    return row.scalar_one_or_none() or {}
+
+
+async def _latest_trace_time(
+    db: AsyncSession,
+    *,
+    scope_clause,
+    event_type: str,
+    session_id: str | Any | None,
+) -> Any | None:
+    query = (
+        select(TraceEvent.created_at)
+        .join(Session, TraceEvent.session_id == Session.id)
+        .where(scope_clause, TraceEvent.event_type == event_type)
+    )
+    if session_id is not None:
+        query = query.where(TraceEvent.session_id == session_id)
+    row = await db.execute(query.order_by(TraceEvent.created_at.desc()).limit(1))
+    return row.scalar_one_or_none()
+
+
+def _injection_snapshot(data: dict[str, Any]) -> _InjectionSnapshot:
+    policy = data.get("context_policy") or {}
+    return _InjectionSnapshot(
+        budget=data.get("context_budget") or {},
+        context_profile=data.get("context_profile"),
+        context_origin=data.get("context_origin"),
+        live_history_turns=policy.get("live_history_turns"),
+        mandatory_static_injections=list(policy.get("mandatory_static_injections") or []),
+        optional_static_injections=list(policy.get("optional_static_injections") or []),
+    )
+
+
+def _usage_snapshot(data: dict[str, Any]) -> _UsageSnapshot:
+    gross = data.get("gross_prompt_tokens")
+    if gross is None:
+        gross = data.get("prompt_tokens")
+    cached = data.get("cached_prompt_tokens")
+    if cached is None:
+        cached = data.get("cached_tokens")
+    current = data.get("current_prompt_tokens")
+    if current is None and gross is not None:
+        current = gross if cached is None else max(0, gross - cached)
+    return _UsageSnapshot(
+        gross_prompt_tokens=gross,
+        current_prompt_tokens=current,
+        cached_prompt_tokens=cached,
+        completion_tokens=data.get("completion_tokens"),
+    )
+
+
+def _budget_response(
+    snapshot: _InjectionSnapshot,
+    *,
+    source: str,
+    consumed: int | None,
+    total_tokens: int | None,
+    current_prompt_tokens: int | None,
+    cached_prompt_tokens: int | None,
+    completion_tokens: int | None,
+    utilization: float | None = None,
+) -> dict[str, Any]:
+    if utilization is None and total_tokens and consumed is not None and total_tokens > 0:
+        utilization = round(consumed / total_tokens, 3)
+    return {
+        "utilization": utilization,
+        "consumed_tokens": consumed,
+        "total_tokens": total_tokens,
+        "gross_prompt_tokens": consumed,
+        "current_prompt_tokens": current_prompt_tokens,
+        "cached_prompt_tokens": cached_prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "context_profile": snapshot.context_profile,
+        "context_origin": snapshot.context_origin,
+        "live_history_turns": snapshot.live_history_turns,
+        "mandatory_static_injections": snapshot.mandatory_static_injections,
+        "optional_static_injections": snapshot.optional_static_injections,
+        "source": source,
+    }
+
+
+async def _model_context_window_for_channel(
+    channel_id: str | Any,
+    db: AsyncSession,
+) -> int | None:
+    from app.agent.bots import get_bot
+    from app.agent.context_budget import get_model_context_window
+    from app.agent.loop import _resolve_effective_provider
+
+    channel_pk = _uuid.UUID(str(channel_id)) if not isinstance(channel_id, _uuid.UUID) else channel_id
+    channel = await db.get(Channel, channel_pk)
+    if channel is None:
+        return None
+    bot = get_bot(channel.bot_id)
+    model = channel.model_override or bot.model
+    provider = _resolve_effective_provider(
+        channel.model_override,
+        getattr(channel, "model_provider_id_override", None),
+        bot.model_provider_id,
+    )
+    return get_model_context_window(model, provider)
+
+
+async def _fresh_budget_after_compaction(
+    channel_id: str | Any,
+    db: AsyncSession,
+    *,
+    session_id: str | Any | None,
+    snapshot: _InjectionSnapshot,
+) -> dict[str, Any]:
+    fresh_estimate = await compute_context_breakdown(
+        str(channel_id),
+        db,
+        mode="next_turn",
+        session_id=str(session_id) if session_id is not None else None,
+        include_budget=False,
+    )
+    total_tokens = snapshot.budget.get("total_tokens")
+    if total_tokens is None:
+        total_tokens = await _model_context_window_for_channel(channel_id, db)
+    consumed = fresh_estimate.total_tokens_approx
+    return _budget_response(
+        snapshot,
+        source="estimate",
+        consumed=consumed,
+        total_tokens=total_tokens,
+        current_prompt_tokens=consumed,
+        cached_prompt_tokens=None,
+        completion_tokens=None,
+    )
 
 
 async def fetch_latest_context_budget(
@@ -151,189 +357,87 @@ async def fetch_latest_context_budget(
     Shared by ``GET /admin/channels/{id}/context-budget`` and
     ``GET /channels/{id}/context-budget`` so the two cannot drift.
     """
-    session_scope_clause = Session.channel_id == channel_id
-    if session_id is not None:
-        session_scope_clause = or_(
-            Session.channel_id == channel_id,
-            Session.parent_channel_id == channel_id,
-        )
-
-    # Latest pre-call estimate carries `total_tokens` (the model's window)
-    # which the API usage event doesn't, so we read both and merge.
-    inj_query = (
-        select(TraceEvent.data)
-        .join(Session, TraceEvent.session_id == Session.id)
-        .where(
-            session_scope_clause,
-            TraceEvent.event_type == "context_injection_summary",
+    scope_clause = _session_scope_clause(channel_id, session_id)
+    injection = _injection_snapshot(
+        await _latest_trace_data(
+            db,
+            scope_clause=scope_clause,
+            event_type="context_injection_summary",
+            session_id=session_id,
         )
     )
-    if session_id is not None:
-        inj_query = inj_query.where(TraceEvent.session_id == session_id)
-    inj_row = await db.execute(
-        inj_query.order_by(TraceEvent.created_at.desc()).limit(1)
-    )
-    inj_data = inj_row.scalar_one_or_none()
-    inj_budget = (inj_data or {}).get("context_budget") or {}
-    context_profile = (inj_data or {}).get("context_profile")
-    context_origin = (inj_data or {}).get("context_origin")
-    context_policy = (inj_data or {}).get("context_policy") or {}
-    live_history_turns = context_policy.get("live_history_turns")
-    mandatory_static_injections = context_policy.get("mandatory_static_injections") or []
-    optional_static_injections = context_policy.get("optional_static_injections") or []
-    total_tokens = inj_budget.get("total_tokens")
-    est_consumed = inj_budget.get("consumed_tokens")
-
-    usage_query = (
-        select(TraceEvent.data)
-        .join(Session, TraceEvent.session_id == Session.id)
-        .where(
-            session_scope_clause,
-            TraceEvent.event_type == "token_usage",
+    usage = _usage_snapshot(
+        await _latest_trace_data(
+            db,
+            scope_clause=scope_clause,
+            event_type="token_usage",
+            session_id=session_id,
         )
     )
-    if session_id is not None:
-        usage_query = usage_query.where(TraceEvent.session_id == session_id)
-    usage_ordered = usage_query.order_by(TraceEvent.created_at.desc()).limit(1)
-    usage_row = await db.execute(usage_ordered)
-    usage_data = usage_row.scalar_one_or_none() or {}
-    api_prompt_tokens = usage_data.get("gross_prompt_tokens")
-    if api_prompt_tokens is None:
-        api_prompt_tokens = usage_data.get("prompt_tokens")
-    cached_prompt_tokens = usage_data.get("cached_prompt_tokens")
-    if cached_prompt_tokens is None:
-        cached_prompt_tokens = usage_data.get("cached_tokens")
-    current_prompt_tokens = usage_data.get("current_prompt_tokens")
-    if current_prompt_tokens is None and api_prompt_tokens is not None:
-        if cached_prompt_tokens is None:
-            current_prompt_tokens = api_prompt_tokens
-        else:
-            current_prompt_tokens = max(0, api_prompt_tokens - cached_prompt_tokens)
-    completion_tokens = usage_data.get("completion_tokens")
-
-    compaction_query = (
-        select(TraceEvent.created_at)
-        .join(Session, TraceEvent.session_id == Session.id)
-        .where(
-            session_scope_clause,
-            TraceEvent.event_type == "compaction_done",
-        )
+    latest_compaction_at = await _latest_trace_time(
+        db,
+        scope_clause=scope_clause,
+        event_type="compaction_done",
+        session_id=session_id,
     )
-    if session_id is not None:
-        compaction_query = compaction_query.where(TraceEvent.session_id == session_id)
-    compaction_row = await db.execute(
-        compaction_query.order_by(TraceEvent.created_at.desc()).limit(1)
+    latest_usage_at = (
+        await _latest_trace_time(
+            db,
+            scope_clause=scope_clause,
+            event_type="token_usage",
+            session_id=session_id,
+        )
+        if usage.gross_prompt_tokens is not None and latest_compaction_at is not None
+        else None
     )
-    latest_compaction_at = compaction_row.scalar_one_or_none()
-
-    if api_prompt_tokens is not None and latest_compaction_at is not None:
-        usage_time_query = (
-            select(TraceEvent.created_at)
-            .join(Session, TraceEvent.session_id == Session.id)
-            .where(
-                session_scope_clause,
-                TraceEvent.event_type == "token_usage",
-            )
-        )
-        if session_id is not None:
-            usage_time_query = usage_time_query.where(TraceEvent.session_id == session_id)
-        usage_time_row = await db.execute(
-            usage_time_query.order_by(TraceEvent.created_at.desc()).limit(1)
-        )
-        latest_usage_at = usage_time_row.scalar_one_or_none()
-    else:
-        latest_usage_at = None
 
     if (
-        api_prompt_tokens is not None
+        usage.gross_prompt_tokens is not None
         and latest_compaction_at is not None
         and latest_usage_at is not None
         and latest_usage_at <= latest_compaction_at
     ):
-        fresh_estimate = await compute_context_breakdown(
-            str(channel_id),
+        return await _fresh_budget_after_compaction(
+            channel_id,
             db,
-            mode="next_turn",
-            session_id=str(session_id) if session_id is not None else None,
-            include_budget=False,
+            session_id=session_id,
+            snapshot=injection,
         )
-        if total_tokens is None:
-            from app.agent.bots import get_bot
-            from app.agent.context_budget import get_model_context_window
-            from app.agent.loop import _resolve_effective_provider
 
-            import uuid as _uuid
-            channel_pk = _uuid.UUID(str(channel_id)) if not isinstance(channel_id, _uuid.UUID) else channel_id
-            channel = await db.get(Channel, channel_pk)
-            if channel is not None:
-                bot = get_bot(channel.bot_id)
-                model = channel.model_override or bot.model
-                provider = _resolve_effective_provider(
-                    channel.model_override,
-                    getattr(channel, "model_provider_id_override", None),
-                    bot.model_provider_id,
-                )
-                total_tokens = get_model_context_window(model, provider)
-        consumed = fresh_estimate.total_tokens_approx
-        utilization = None
-        if total_tokens and consumed is not None and total_tokens > 0:
-            utilization = round(consumed / total_tokens, 3)
-        return {
-            "utilization": utilization,
-            "consumed_tokens": consumed,
-            "total_tokens": total_tokens,
-            "gross_prompt_tokens": consumed,
-            "current_prompt_tokens": consumed,
-            "cached_prompt_tokens": None,
-            "completion_tokens": None,
-            "context_profile": context_profile,
-            "context_origin": context_origin,
-            "live_history_turns": live_history_turns,
-            "mandatory_static_injections": mandatory_static_injections,
-            "optional_static_injections": optional_static_injections,
-            "source": "estimate",
-        }
+    estimate_consumed = injection.budget.get("consumed_tokens")
+    total_tokens = injection.budget.get("total_tokens")
+    if usage.gross_prompt_tokens is None and estimate_consumed is None:
+        return _budget_response(
+            injection,
+            source="none",
+            consumed=None,
+            total_tokens=None,
+            current_prompt_tokens=None,
+            cached_prompt_tokens=None,
+            completion_tokens=None,
+        )
 
-    if api_prompt_tokens is None and est_consumed is None:
-        return {
-            "utilization": None,
-            "consumed_tokens": None,
-            "total_tokens": None,
-            "gross_prompt_tokens": None,
-            "current_prompt_tokens": None,
-            "cached_prompt_tokens": None,
-            "completion_tokens": None,
-            "context_profile": context_profile,
-            "context_origin": context_origin,
-            "live_history_turns": live_history_turns,
-            "mandatory_static_injections": mandatory_static_injections,
-            "optional_static_injections": optional_static_injections,
-            "source": "none",
-        }
+    if usage.gross_prompt_tokens is None:
+        return _budget_response(
+            injection,
+            source="estimate",
+            consumed=estimate_consumed,
+            total_tokens=total_tokens,
+            current_prompt_tokens=estimate_consumed,
+            cached_prompt_tokens=None,
+            completion_tokens=None,
+            utilization=injection.budget.get("utilization"),
+        )
 
-    consumed = api_prompt_tokens if api_prompt_tokens is not None else est_consumed
-    utilization = None
-    if total_tokens and consumed is not None and total_tokens > 0:
-        utilization = round(consumed / total_tokens, 3)
-    elif api_prompt_tokens is None:
-        # No API number AND no total — preserve the estimator's utilization
-        utilization = inj_budget.get("utilization")
-
-    return {
-        "utilization": utilization,
-        "consumed_tokens": consumed,
-        "total_tokens": total_tokens,
-        "gross_prompt_tokens": consumed,
-        "current_prompt_tokens": current_prompt_tokens if api_prompt_tokens is not None else est_consumed,
-        "cached_prompt_tokens": cached_prompt_tokens if api_prompt_tokens is not None else None,
-        "completion_tokens": completion_tokens if api_prompt_tokens is not None else None,
-        "context_profile": context_profile,
-        "context_origin": context_origin,
-        "live_history_turns": live_history_turns,
-        "mandatory_static_injections": mandatory_static_injections,
-        "optional_static_injections": optional_static_injections,
-        "source": "api" if api_prompt_tokens is not None else "estimate",
-    }
+    return _budget_response(
+        injection,
+        source="api",
+        consumed=usage.gross_prompt_tokens,
+        total_tokens=total_tokens,
+        current_prompt_tokens=usage.current_prompt_tokens,
+        cached_prompt_tokens=usage.cached_prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+    )
 
 
 def _resolve_setting(channel_val, bot_val, global_val, channel_attr: str) -> EffectiveSetting:
@@ -565,6 +669,489 @@ def _preview_forecast_tokens(preview: Any, fallback_chars: int) -> int:
     return _chars_to_tokens(fallback_chars)
 
 
+async def _load_breakdown_scope(
+    channel_id: str,
+    db: AsyncSession,
+    *,
+    session_id: str | Any | None,
+) -> _BreakdownScope:
+    from app.agent.bots import get_bot
+
+    channel_pk = _uuid.UUID(channel_id) if isinstance(channel_id, str) else channel_id
+    channel = await db.get(Channel, channel_pk)
+    if not channel:
+        raise ValueError(f"Channel not found: {channel_id}")
+
+    session_id_str = str(session_id) if session_id is not None else None
+    target_session_id = session_id_str or (
+        str(channel.active_session_id) if channel.active_session_id else None
+    )
+    target_session_pk = _uuid.UUID(target_session_id) if target_session_id else None
+    target_session = None
+    if target_session_pk is not None:
+        target_session = await db.get(Session, target_session_pk)
+        if target_session is None:
+            raise ValueError(f"Session not found: {target_session_id}")
+        belongs_to_channel = (
+            str(target_session.channel_id) == str(channel.id)
+            or str(target_session.parent_channel_id) == str(channel.id)
+        )
+        if not belongs_to_channel:
+            raise ValueError(f"Session {target_session_id} does not belong to channel {channel_id}")
+
+    return _BreakdownScope(
+        channel_id=str(channel_id),
+        channel_pk=channel_pk,
+        channel=channel,
+        bot=get_bot(channel.bot_id),
+        requested_session_id=session_id_str,
+        session_id=target_session_id,
+        session_pk=target_session_pk,
+        session=target_session,
+    )
+
+
+async def _assemble_runtime_preview(scope: _BreakdownScope, db: AsyncSession) -> Any:
+    from app.agent.context_assembly import assemble_for_preview
+
+    return await assemble_for_preview(
+        scope.channel_pk,
+        user_message="",
+        session_id=_uuid.UUID(scope.requested_session_id) if scope.requested_session_id else None,
+        db=db,
+    )
+
+
+async def _load_conversation_stats(
+    db: AsyncSession,
+    *,
+    session_pk: _uuid.UUID | None,
+    session: Session | None,
+) -> _ConversationStats:
+    if session_pk is None:
+        return _ConversationStats()
+
+    total_messages = (await db.execute(
+        select(func.count()).select_from(Message)
+        .where(Message.session_id == session_pk)
+        .where(_not_compaction_run_clause)
+    )).scalar_one()
+    total_rows = (await db.execute(
+        select(Message.content, Message.tool_calls)
+        .where(Message.session_id == session_pk)
+        .where(_not_compaction_run_clause)
+    )).all()
+    total_msg_chars = sum(_row_prompt_chars(row[0], row[1]) for row in total_rows)
+
+    watermark_msg = None
+    user_msgs_since_watermark: int | None = None
+    if session and session.summary_message_id and session.summary:
+        watermark_msg = await db.get(Message, session.summary_message_id)
+        if watermark_msg:
+            watermark_rows = (await db.execute(
+                select(Message.content, Message.tool_calls).where(
+                    Message.session_id == session_pk,
+                    Message.created_at > watermark_msg.created_at,
+                    _not_compaction_run_clause,
+                )
+            )).all()
+            msgs_since_watermark = len(watermark_rows)
+            chars_since_watermark = sum(_row_prompt_chars(row[0], row[1]) for row in watermark_rows)
+            user_msgs_since_watermark = (await db.execute(
+                select(func.count()).where(
+                    Message.session_id == session_pk,
+                    Message.created_at > watermark_msg.created_at,
+                    Message.role == "user",
+                    _not_compaction_run_clause,
+                )
+            )).scalar_one()
+        else:
+            msgs_since_watermark = total_messages
+            chars_since_watermark = total_msg_chars
+    else:
+        msgs_since_watermark = total_messages
+        chars_since_watermark = total_msg_chars
+
+    return _ConversationStats(
+        total_messages=total_messages,
+        total_msg_chars=total_msg_chars,
+        msgs_since_watermark=msgs_since_watermark,
+        chars_since_watermark=chars_since_watermark,
+        user_msgs_since_watermark=user_msgs_since_watermark,
+        watermark_msg=watermark_msg,
+    )
+
+
+def _append_conversation_category(
+    categories: list[ContextCategory],
+    *,
+    stats: _ConversationStats,
+    session: Session | None,
+) -> None:
+    if stats.chars_since_watermark <= 0:
+        return
+    if session and session.summary:
+        if stats.user_msgs_since_watermark is not None:
+            desc = (
+                f"{stats.user_msgs_since_watermark} user turns since last "
+                f"compaction ({stats.msgs_since_watermark} messages total)"
+            )
+        else:
+            desc = f"{stats.msgs_since_watermark} messages since last compaction"
+    else:
+        desc = f"{stats.total_messages} messages (no compaction yet)"
+    categories.append(ContextCategory(
+        key="conversation",
+        label="Conversation History",
+        chars=stats.chars_since_watermark,
+        tokens_approx=0,
+        percentage=0,
+        category="conversation",
+        description=desc,
+    ))
+
+
+async def _append_pruning_category(
+    categories: list[ContextCategory],
+    *,
+    db: AsyncSession,
+    scope: _BreakdownScope,
+    stats: _ConversationStats,
+) -> None:
+    if scope.session_pk is None or stats.chars_since_watermark <= 0:
+        return
+    pruning_on = _resolve_setting(
+        getattr(scope.channel, "context_pruning", None),
+        getattr(scope.bot, "context_pruning", None),
+        settings.CONTEXT_PRUNING_ENABLED,
+        "context_pruning",
+    ).value
+    if not pruning_on:
+        return
+
+    min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
+    watermark_clause = (
+        Message.created_at > stats.watermark_msg.created_at
+        if scope.session and scope.session.summary_message_id and stats.watermark_msg
+        else True
+    )
+    tool_count, tool_chars = (await db.execute(
+        select(func.count(), func.coalesce(func.sum(func.length(Message.content)), 0)).where(
+            Message.session_id == scope.session_pk,
+            watermark_clause,
+            _not_compaction_run_clause,
+            Message.role == "tool",
+            func.length(Message.content) >= min_len,
+        )
+    )).one()
+
+    from app.agent.context_pruning import (
+        build_pruned_tool_result_marker,
+        estimate_tool_call_argument_pruning,
+    )
+
+    arg_rows = (await db.execute(
+        select(Message.tool_calls).where(
+            Message.session_id == scope.session_pk,
+            watermark_clause,
+            _not_compaction_run_clause,
+            Message.role == "assistant",
+            Message.tool_calls.is_not(None),
+        )
+    )).scalars().all()
+    arg_count = 0
+    arg_chars = 0
+    arg_marker_chars = 0
+    for tool_calls in arg_rows:
+        arg_stats = estimate_tool_call_argument_pruning(tool_calls, min_len)
+        arg_count += arg_stats["count"]
+        arg_chars += arg_stats["chars"]
+        arg_marker_chars += arg_stats["marker_chars"]
+    if tool_count <= 0 and arg_count <= 0:
+        return
+
+    sample_marker = build_pruned_tool_result_marker(
+        "generic_tool",
+        10_000,
+        record_id="00000000-0000-0000-0000-000000000000",
+    )
+    marker_chars = tool_count * len(sample_marker)
+    est_savings = max(0, tool_chars - marker_chars) + max(0, arg_chars - arg_marker_chars)
+    categories.append(ContextCategory(
+        key="context_pruning",
+        label="Context Pruning (savings)",
+        chars=-est_savings,
+        tokens_approx=0,
+        percentage=0,
+        category="conversation",
+        description=(
+            f"~{tool_count} tool results replaced with retrieval pointers"
+            + (f"; ~{arg_count} tool-call argument payload(s) compacted" if arg_count else "")
+        ),
+    ))
+
+
+async def _build_compaction_state(
+    categories: list[ContextCategory],
+    *,
+    db: AsyncSession,
+    scope: _BreakdownScope,
+    stats: _ConversationStats,
+) -> CompactionState:
+    interval = _resolve_compaction_interval(scope.channel, scope.bot)
+    keep_turns = _resolve_compaction_keep_turns(scope.channel, scope.bot)
+    enabled = _resolve_compaction_enabled(scope.channel, scope.bot)
+
+    summary_chars = 0
+    has_summary = False
+    if scope.session and scope.session.summary:
+        has_summary = True
+        summary_chars = len(scope.session.summary)
+        categories.append(ContextCategory(
+            key="compaction_summary",
+            label="Compaction Summary",
+            chars=summary_chars,
+            tokens_approx=0,
+            percentage=0,
+            category="compaction",
+            description="Summary of compacted conversation history",
+        ))
+
+    user_turns_since = await _count_user_turns_since_watermark(db, scope, stats)
+    turns_until_next = max(0, interval - user_turns_since) if enabled else None
+    return CompactionState(
+        enabled=enabled,
+        has_summary=has_summary,
+        summary_chars=summary_chars,
+        messages_since_watermark=stats.msgs_since_watermark,
+        total_messages=stats.total_messages,
+        compaction_interval=interval,
+        compaction_keep_turns=keep_turns,
+        turns_until_next=turns_until_next,
+    )
+
+
+async def _count_user_turns_since_watermark(
+    db: AsyncSession,
+    scope: _BreakdownScope,
+    stats: _ConversationStats,
+) -> int:
+    if scope.session_pk is None:
+        return 0
+    clauses = [
+        Message.session_id == scope.session_pk,
+        Message.role == "user",
+        _not_compaction_run_clause,
+    ]
+    if scope.session and scope.session.summary_message_id and stats.watermark_msg:
+        clauses.append(Message.created_at > stats.watermark_msg.created_at)
+    return (await db.execute(
+        select(func.count()).select_from(Message).where(*clauses)
+    )).scalar_one()
+
+
+def _build_rerank_state(categories: list[ContextCategory]) -> RerankState:
+    total_rag_chars = sum(c.chars for c in categories if c.category == "rag")
+    rerank_model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
+    return RerankState(
+        enabled=settings.RAG_RERANK_ENABLED,
+        model=rerank_model,
+        threshold_chars=settings.RAG_RERANK_THRESHOLD_CHARS,
+        max_chunks=settings.RAG_RERANK_MAX_CHUNKS,
+        total_rag_chars=total_rag_chars,
+        would_rerank=settings.RAG_RERANK_ENABLED and total_rag_chars >= settings.RAG_RERANK_THRESHOLD_CHARS,
+    )
+
+
+def _effective_settings(channel: Channel, bot: Any) -> dict[str, EffectiveSetting]:
+    return {
+        "context_compaction": _resolve_setting(
+            channel.context_compaction if channel.context_compaction != True else None,
+            bot.context_compaction if not bot.context_compaction else None,
+            True,
+            "context_compaction",
+        ),
+        "compaction_interval": _resolve_setting(
+            channel.compaction_interval,
+            bot.compaction_interval,
+            settings.COMPACTION_INTERVAL,
+            "compaction_interval",
+        ),
+        "compaction_keep_turns": _resolve_setting(
+            channel.compaction_keep_turns,
+            bot.compaction_keep_turns,
+            settings.COMPACTION_KEEP_TURNS,
+            "compaction_keep_turns",
+        ),
+        "memory_enabled": EffectiveSetting(value=False, source="deprecated"),
+        "max_iterations": _resolve_setting(
+            channel.max_iterations,
+            None,
+            settings.AGENT_MAX_ITERATIONS,
+            "max_iterations",
+        ),
+        "tool_retrieval": EffectiveSetting(value=bot.tool_retrieval, source="bot"),
+        "tool_similarity_threshold": EffectiveSetting(
+            value=bot.tool_similarity_threshold or settings.TOOL_RETRIEVAL_THRESHOLD,
+            source="bot" if bot.tool_similarity_threshold else "global",
+        ),
+        "rag_reranking": EffectiveSetting(value=settings.RAG_RERANK_ENABLED, source="global"),
+        "context_pruning": _resolve_setting(
+            getattr(channel, "context_pruning", None),
+            getattr(bot, "context_pruning", None),
+            settings.CONTEXT_PRUNING_ENABLED,
+            "context_pruning",
+        ),
+    }
+
+
+def _finalize_category_metrics(categories: list[ContextCategory]) -> int:
+    gross_chars = sum(c.chars for c in categories if c.chars > 0)
+    for cat in categories:
+        cat.tokens_approx = _chars_to_tokens(cat.chars)
+        cat.percentage = round((cat.chars / gross_chars * 100) if gross_chars > 0 else 0, 1)
+    return sum(c.chars for c in categories)
+
+
+def _preview_policy(runtime_preview: Any) -> _PreviewPolicy:
+    assembly = runtime_preview.assembly
+    policy = getattr(assembly, "context_policy", {}) or {}
+    return _PreviewPolicy(
+        context_profile=getattr(assembly, "context_profile", None),
+        context_origin=getattr(assembly, "context_origin", None),
+        live_history_turns=policy.get("live_history_turns"),
+        mandatory_static_injections=list(policy.get("mandatory_static_injections") or []),
+        optional_static_injections=list(policy.get("optional_static_injections") or []),
+    )
+
+
+def _effective_model_and_provider(channel: Channel, bot: Any) -> tuple[str, str | None]:
+    from app.agent.loop import _resolve_effective_provider
+
+    model = channel.model_override or bot.model
+    provider = _resolve_effective_provider(
+        channel.model_override,
+        getattr(channel, "model_provider_id_override", None),
+        bot.model_provider_id,
+    )
+    return model, provider
+
+
+async def _build_context_budget_info(
+    *,
+    db: AsyncSession,
+    scope: _BreakdownScope,
+    runtime_preview: Any,
+    forecast_total_tokens: int,
+    include_budget: bool,
+) -> tuple[dict | None, int | None, _PreviewPolicy]:
+    policy = _preview_policy(runtime_preview)
+    if not (settings.CONTEXT_BUDGET_ENABLED and include_budget):
+        return None, None, policy
+
+    try:
+        from app.agent.context_budget import get_model_context_window
+
+        model, provider = _effective_model_and_provider(scope.channel, scope.bot)
+        window = get_model_context_window(model, provider)
+        reserve = int(window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
+        available = window - reserve
+        latest = await fetch_latest_context_budget(
+            scope.channel_id,
+            db,
+            session_id=scope.session_id,
+        )
+        policy = _merge_budget_policy(policy, latest)
+        api_total_tokens = latest.get("consumed_tokens") if latest.get("source") == "api" else None
+        return (
+            {
+                "context_profile": policy.context_profile,
+                "context_origin": policy.context_origin,
+                "live_history_turns": policy.live_history_turns,
+                "mandatory_static_injections": policy.mandatory_static_injections,
+                "optional_static_injections": policy.optional_static_injections,
+                "estimate": {
+                    "total_tokens": window,
+                    "reserve_tokens": reserve,
+                    "available_tokens": available,
+                    "gross_prompt_tokens": forecast_total_tokens,
+                    "current_prompt_tokens": forecast_total_tokens,
+                    "cached_prompt_tokens": None,
+                    "completion_tokens": None,
+                    "utilization": round(forecast_total_tokens / available, 3) if available > 0 else 1.0,
+                    "source": "estimate",
+                },
+                "usage": None if latest.get("source") == "none" else {
+                    "total_tokens": latest.get("total_tokens"),
+                    "gross_prompt_tokens": latest.get("gross_prompt_tokens"),
+                    "current_prompt_tokens": latest.get("current_prompt_tokens"),
+                    "cached_prompt_tokens": latest.get("cached_prompt_tokens"),
+                    "completion_tokens": latest.get("completion_tokens"),
+                    "utilization": latest.get("utilization"),
+                    "source": latest.get("source"),
+                },
+            },
+            api_total_tokens,
+            policy,
+        )
+    except Exception:
+        logger.debug("budget block compute failed", exc_info=True)
+        return None, None, policy
+
+
+def _merge_budget_policy(policy: _PreviewPolicy, latest: dict[str, Any]) -> _PreviewPolicy:
+    return _PreviewPolicy(
+        context_profile=latest.get("context_profile") or policy.context_profile,
+        context_origin=latest.get("context_origin") or policy.context_origin,
+        live_history_turns=(
+            latest.get("live_history_turns")
+            if latest.get("live_history_turns") is not None
+            else policy.live_history_turns
+        ),
+        mandatory_static_injections=list(
+            latest.get("mandatory_static_injections") or policy.mandatory_static_injections
+        ),
+        optional_static_injections=list(
+            latest.get("optional_static_injections") or policy.optional_static_injections
+        ),
+    )
+
+
+def context_breakdown_response(
+    result: ContextBreakdownResult,
+    *,
+    mode: str,
+    include_effective_settings: bool = False,
+) -> dict[str, Any]:
+    """Serialize context-breakdown responses for admin and public routers."""
+    from dataclasses import asdict
+
+    payload = {
+        "channel_id": result.channel_id,
+        "session_id": result.session_id,
+        "bot_id": result.bot_id,
+        "context_profile": result.context_profile,
+        "context_origin": result.context_origin,
+        "live_history_turns": result.live_history_turns,
+        "mandatory_static_injections": result.mandatory_static_injections,
+        "optional_static_injections": result.optional_static_injections,
+        "categories": [asdict(c) for c in result.categories],
+        "total_chars": result.total_chars,
+        "total_tokens_approx": result.total_tokens_approx,
+        "compaction": asdict(result.compaction),
+        "reranking": asdict(result.reranking),
+        "context_budget": result.context_budget,
+        "mode": mode,
+        "disclaimer": result.disclaimer,
+    }
+    if include_effective_settings:
+        payload["effective_settings"] = {
+            key: {"value": value.value, "source": value.source}
+            for key, value in result.effective_settings.items()
+        }
+    return payload
+
+
 async def compute_context_breakdown(
     channel_id: str,
     db: AsyncSession,
@@ -595,380 +1182,28 @@ async def compute_context_breakdown(
             return payload
         _breakdown_cache.pop(cache_key, None)
 
-    from app.agent.bots import get_bot
-    from app.agent.context_assembly import assemble_for_preview
-
-    import uuid as _uuid
-    _ch_pk = _uuid.UUID(channel_id) if isinstance(channel_id, str) else channel_id
-    channel = await db.get(Channel, _ch_pk)
-    if not channel:
-        raise ValueError(f"Channel not found: {channel_id}")
-
-    bot = get_bot(channel.bot_id)
-    target_session_id = session_id_str or (str(channel.active_session_id) if channel.active_session_id else None)
-    runtime_preview = await assemble_for_preview(
-        _ch_pk,
-        user_message="",
-        session_id=_uuid.UUID(session_id_str) if session_id_str else None,
-        db=db,
+    scope = await _load_breakdown_scope(channel_id, db, session_id=session_id)
+    runtime_preview = await _assemble_runtime_preview(scope, db)
+    categories = _runtime_preview_categories(runtime_preview)
+    stats = await _load_conversation_stats(
+        db,
+        session_pk=scope.session_pk,
+        session=scope.session,
     )
-    categories: list[ContextCategory] = _runtime_preview_categories(runtime_preview)
-    target_session_pk = _uuid.UUID(target_session_id) if target_session_id else None
-    target_session = None
-    if target_session_pk is not None:
-        target_session = await db.get(Session, target_session_pk)
-        if target_session is None:
-            raise ValueError(f"Session not found: {target_session_id}")
-        belongs_to_channel = (
-            str(target_session.channel_id) == str(channel.id)
-            or str(target_session.parent_channel_id) == str(channel.id)
-        )
-        if not belongs_to_channel:
-            raise ValueError(f"Session {target_session_id} does not belong to channel {channel_id}")
-
-    # -----------------------------------------------------------------------
-    # 3. Conversation history (live from DB)
-    # -----------------------------------------------------------------------
-    total_messages = 0
-    total_msg_chars = 0
-    msgs_since_watermark = 0
-    chars_since_watermark = 0
-    watermark_msg = None
-
-    if target_session_pk:
-        session = target_session
-
-        # Total messages
-        total_messages = (await db.execute(
-            select(func.count()).select_from(Message)
-            .where(Message.session_id == target_session_pk)
-            .where(_not_compaction_run_clause)
-        )).scalar_one()
-
-        total_rows = (await db.execute(
-            select(Message.content, Message.tool_calls)
-            .where(Message.session_id == target_session_pk)
-            .where(_not_compaction_run_clause)
-        )).all()
-        total_msg_chars = sum(_row_prompt_chars(row[0], row[1]) for row in total_rows)
-
-        # Messages since watermark
-        if session and session.summary_message_id and session.summary:
-            watermark_msg = await db.get(Message, session.summary_message_id)
-            if watermark_msg:
-                result = await db.execute(
-                    select(Message.content, Message.tool_calls)
-                    .where(
-                        Message.session_id == target_session_pk,
-                        Message.created_at > watermark_msg.created_at,
-                        _not_compaction_run_clause,
-                    )
-                )
-                watermark_rows = result.all()
-                msgs_since_watermark = len(watermark_rows)
-                chars_since_watermark = sum(_row_prompt_chars(row[0], row[1]) for row in watermark_rows)
-                # Count user messages only (matches compaction trigger logic)
-                user_msgs_since_watermark = (await db.execute(
-                    select(func.count())
-                    .where(
-                        Message.session_id == target_session_pk,
-                        Message.created_at > watermark_msg.created_at,
-                        Message.role == "user",
-                        _not_compaction_run_clause,
-                    )
-                )).scalar_one()
-            else:
-                msgs_since_watermark = total_messages
-                chars_since_watermark = total_msg_chars
-                user_msgs_since_watermark = None
-        else:
-            msgs_since_watermark = total_messages
-            chars_since_watermark = total_msg_chars
-            user_msgs_since_watermark = None
-
-        # Add conversation history category
-        if chars_since_watermark > 0:
-            # Show user turn count since compaction triggers on user messages
-            if session and session.summary:
-                if user_msgs_since_watermark is not None:
-                    desc = f"{user_msgs_since_watermark} user turns since last compaction ({msgs_since_watermark} messages total)"
-                else:
-                    desc = f"{msgs_since_watermark} messages since last compaction"
-            else:
-                desc = f"{total_messages} messages (no compaction yet)"
-            categories.append(ContextCategory(
-                key="conversation", label="Conversation History",
-                chars=chars_since_watermark,
-                tokens_approx=0, percentage=0, category="conversation",
-                description=desc,
-            ))
-
-        # Context pruning savings estimate.
-        # Tool results with a stored record_id are replaced with retrieval
-        # pointers regardless of turn position.  Old results without a
-        # record_id are pruned only in turns outside the keep_turns window.
-        # Rather than re-implementing the full turn-splitting logic here,
-        # we count all tool messages >= min_length as eligible — this is
-        # accurate for new messages (all have record IDs) and slightly
-        # overestimates for legacy messages in kept turns.
-        _pruning_on = _resolve_setting(
-            getattr(channel, "context_pruning", None),
-            getattr(bot, "context_pruning", None),
-            settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
-        ).value
-        if _pruning_on and chars_since_watermark > 0:
-            _min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
-            _watermark_clause = Message.created_at > watermark_msg.created_at if (session and session.summary_message_id and watermark_msg) else True
-
-            _tool_msg_stats = (await db.execute(
-                select(
-                    func.count(),
-                    func.coalesce(func.sum(func.length(Message.content)), 0),
-                ).where(
-                    Message.session_id == target_session_pk,
-                    _watermark_clause,
-                    _not_compaction_run_clause,
-                    Message.role == "tool",
-                    func.length(Message.content) >= _min_len,
-                )
-            )).one()
-            _tool_count, _tool_chars = _tool_msg_stats
-            from app.agent.context_pruning import (
-                build_pruned_tool_result_marker,
-                estimate_tool_call_argument_pruning,
-            )
-
-            _arg_rows = (await db.execute(
-                select(Message.tool_calls).where(
-                    Message.session_id == target_session_pk,
-                    _watermark_clause,
-                    _not_compaction_run_clause,
-                    Message.role == "assistant",
-                    Message.tool_calls.is_not(None),
-                )
-            )).scalars().all()
-            _arg_count = 0
-            _arg_chars = 0
-            _arg_marker_chars = 0
-            for _tool_calls in _arg_rows:
-                _stats = estimate_tool_call_argument_pruning(_tool_calls, _min_len)
-                _arg_count += _stats["count"]
-                _arg_chars += _stats["chars"]
-                _arg_marker_chars += _stats["marker_chars"]
-            if _tool_count > 0 or _arg_count > 0:
-                _sample_marker = build_pruned_tool_result_marker(
-                    "generic_tool",
-                    10_000,
-                    record_id="00000000-0000-0000-0000-000000000000",
-                )
-                _marker_chars = _tool_count * len(_sample_marker)
-                _est_savings = max(0, _tool_chars - _marker_chars) + max(0, _arg_chars - _arg_marker_chars)
-                categories.append(ContextCategory(
-                    key="context_pruning", label="Context Pruning (savings)",
-                    chars=-_est_savings,
-                    tokens_approx=0, percentage=0, category="conversation",
-                    description=(
-                        f"~{_tool_count} tool results replaced with retrieval pointers"
-                        + (f"; ~{_arg_count} tool-call argument payload(s) compacted" if _arg_count else "")
-                    ),
-                ))
-
-    # -----------------------------------------------------------------------
-    # 4. Compaction state
-    # -----------------------------------------------------------------------
-    compaction_interval = _resolve_compaction_interval(channel, bot)
-    compaction_keep_turns = _resolve_compaction_keep_turns(channel, bot)
-    compaction_enabled = _resolve_compaction_enabled(channel, bot)
-
-    summary_chars = 0
-    has_summary = False
-    if target_session_pk:
-        session = target_session
-        if session and session.summary:
-            has_summary = True
-            summary_chars = len(session.summary)
-            categories.append(ContextCategory(
-                key="compaction_summary", label="Compaction Summary",
-                chars=summary_chars,
-                tokens_approx=0, percentage=0, category="compaction",
-                description="Summary of compacted conversation history",
-            ))
-
-    # Count user turns since watermark for "turns until next"
-    user_turns_since = 0
-    if target_session_pk:
-        session = target_session
-        if session and session.summary_message_id:
-            if watermark_msg:
-                user_turns_since = (await db.execute(
-                    select(func.count()).select_from(Message)
-                    .where(
-                        Message.session_id == target_session_pk,
-                        Message.created_at > watermark_msg.created_at,
-                        Message.role == "user",
-                        _not_compaction_run_clause,
-                    )
-                )).scalar_one()
-            else:
-                user_turns_since = (await db.execute(
-                    select(func.count()).select_from(Message)
-                    .where(
-                        Message.session_id == target_session_pk,
-                        Message.role == "user",
-                        _not_compaction_run_clause,
-                    )
-                )).scalar_one()
-        else:
-            user_turns_since = (await db.execute(
-                select(func.count()).select_from(Message)
-                .where(
-                    Message.session_id == target_session_pk,
-                    Message.role == "user",
-                    _not_compaction_run_clause,
-                )
-            )).scalar_one()
-
-    turns_until_next = max(0, compaction_interval - user_turns_since) if compaction_enabled else None
-
-    compaction = CompactionState(
-        enabled=compaction_enabled,
-        has_summary=has_summary,
-        summary_chars=summary_chars,
-        messages_since_watermark=msgs_since_watermark,
-        total_messages=total_messages,
-        compaction_interval=compaction_interval,
-        compaction_keep_turns=compaction_keep_turns,
-        turns_until_next=turns_until_next,
-    )
-
-    # -----------------------------------------------------------------------
-    # 5. RAG re-ranking state
-    # -----------------------------------------------------------------------
-    total_rag_chars = sum(c.chars for c in categories if c.category == "rag")
-    rerank_model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
-    reranking = RerankState(
-        enabled=settings.RAG_RERANK_ENABLED,
-        model=rerank_model,
-        threshold_chars=settings.RAG_RERANK_THRESHOLD_CHARS,
-        max_chunks=settings.RAG_RERANK_MAX_CHUNKS,
-        total_rag_chars=total_rag_chars,
-        would_rerank=settings.RAG_RERANK_ENABLED and total_rag_chars >= settings.RAG_RERANK_THRESHOLD_CHARS,
-    )
-
-    # -----------------------------------------------------------------------
-    # 6. Effective settings
-    # -----------------------------------------------------------------------
-    effective_settings = {
-        "context_compaction": _resolve_setting(
-            channel.context_compaction if channel.context_compaction != True else None,
-            bot.context_compaction if not bot.context_compaction else None,
-            True, "context_compaction",
-        ),
-        "compaction_interval": _resolve_setting(
-            channel.compaction_interval, bot.compaction_interval,
-            settings.COMPACTION_INTERVAL, "compaction_interval",
-        ),
-        "compaction_keep_turns": _resolve_setting(
-            channel.compaction_keep_turns, bot.compaction_keep_turns,
-            settings.COMPACTION_KEEP_TURNS, "compaction_keep_turns",
-        ),
-        "memory_enabled": EffectiveSetting(value=False, source="deprecated"),
-        "max_iterations": _resolve_setting(
-            channel.max_iterations, None, settings.AGENT_MAX_ITERATIONS, "max_iterations",
-        ),
-        "tool_retrieval": EffectiveSetting(value=bot.tool_retrieval, source="bot"),
-        "tool_similarity_threshold": EffectiveSetting(
-            value=bot.tool_similarity_threshold or settings.TOOL_RETRIEVAL_THRESHOLD,
-            source="bot" if bot.tool_similarity_threshold else "global",
-        ),
-        "rag_reranking": EffectiveSetting(value=settings.RAG_RERANK_ENABLED, source="global"),
-        "context_pruning": _resolve_setting(
-            getattr(channel, "context_pruning", None),
-            getattr(bot, "context_pruning", None),
-            settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
-        ),
-    }
-
-    # -----------------------------------------------------------------------
-    # Finalize: compute totals and percentages
-    # -----------------------------------------------------------------------
-    total_chars = sum(c.chars for c in categories)
-    # Use gross (positive-only) chars as denominator so percentages are intuitive:
-    # positive components sum to ~100%, pruning savings shows as a negative percentage.
-    gross_chars = sum(c.chars for c in categories if c.chars > 0)
-
-    # Resolve effective model+provider for the budget block. Per-category
-    # tokens use the cheap chars/3.5 estimate — running tiktoken against
-    # `"x" * chars` is both bogus (chars are placeholders, not real text)
-    # and expensive on large categories. The headline total still comes from
-    # the real API count in last_turn mode, which is what users actually see.
-    from app.agent.loop import _resolve_effective_provider
-    _model = channel.model_override or bot.model
-    _provider = _resolve_effective_provider(
-        channel.model_override,
-        getattr(channel, "model_provider_id_override", None),
-        bot.model_provider_id,
-    )
-
-    for cat in categories:
-        cat.tokens_approx = _chars_to_tokens(cat.chars)
-        cat.percentage = round((cat.chars / gross_chars * 100) if gross_chars > 0 else 0, 1)
-
+    _append_conversation_category(categories, stats=stats, session=scope.session)
+    await _append_pruning_category(categories, db=db, scope=scope, stats=stats)
+    compaction = await _build_compaction_state(categories, db=db, scope=scope, stats=stats)
+    reranking = _build_rerank_state(categories)
+    effective_settings = _effective_settings(scope.channel, scope.bot)
+    total_chars = _finalize_category_metrics(categories)
     forecast_total_tokens = _preview_forecast_tokens(runtime_preview, total_chars)
-
-    # Context budget info (if enabled)
-    _budget_info = None
-    api_total_tokens: int | None = None
-    assembly = runtime_preview.assembly
-    preview_policy = getattr(assembly, "context_policy", {}) or {}
-    context_profile: str | None = getattr(assembly, "context_profile", None)
-    context_origin: str | None = getattr(assembly, "context_origin", None)
-    live_history_turns: int | None = preview_policy.get("live_history_turns")
-    mandatory_static_injections: list[str] = list(preview_policy.get("mandatory_static_injections") or [])
-    optional_static_injections: list[str] = list(preview_policy.get("optional_static_injections") or [])
-    if settings.CONTEXT_BUDGET_ENABLED and include_budget:
-        try:
-            from app.agent.context_budget import get_model_context_window
-            _window = get_model_context_window(_model, _provider)
-            _reserve = int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
-            _available = _window - _reserve
-            # Pull the API-reported prompt_tokens for last_turn alignment.
-            _latest = await fetch_latest_context_budget(channel_id, db, session_id=target_session_id)
-            context_profile = _latest.get("context_profile") or context_profile
-            context_origin = _latest.get("context_origin") or context_origin
-            live_history_turns = _latest.get("live_history_turns") if _latest.get("live_history_turns") is not None else live_history_turns
-            mandatory_static_injections = list(_latest.get("mandatory_static_injections") or mandatory_static_injections)
-            optional_static_injections = list(_latest.get("optional_static_injections") or optional_static_injections)
-            api_total_tokens = _latest.get("consumed_tokens") if _latest.get("source") == "api" else None
-            _budget_info = {
-                "context_profile": context_profile,
-                "context_origin": context_origin,
-                "live_history_turns": live_history_turns,
-                "mandatory_static_injections": mandatory_static_injections,
-                "optional_static_injections": optional_static_injections,
-                "estimate": {
-                    "total_tokens": _window,
-                    "reserve_tokens": _reserve,
-                    "available_tokens": _available,
-                    "gross_prompt_tokens": forecast_total_tokens,
-                    "current_prompt_tokens": forecast_total_tokens,
-                    "cached_prompt_tokens": None,
-                    "completion_tokens": None,
-                    "utilization": round(forecast_total_tokens / _available, 3) if _available > 0 else 1.0,
-                    "source": "estimate",
-                },
-                "usage": None if _latest.get("source") == "none" else {
-                    "total_tokens": _latest.get("total_tokens"),
-                    "gross_prompt_tokens": _latest.get("gross_prompt_tokens"),
-                    "current_prompt_tokens": _latest.get("current_prompt_tokens"),
-                    "cached_prompt_tokens": _latest.get("cached_prompt_tokens"),
-                    "completion_tokens": _latest.get("completion_tokens"),
-                    "utilization": _latest.get("utilization"),
-                    "source": _latest.get("source"),
-                },
-            }
-        except Exception:
-            logger.debug("budget block compute failed", exc_info=True)
+    budget_info, api_total_tokens, policy = await _build_context_budget_info(
+        db=db,
+        scope=scope,
+        runtime_preview=runtime_preview,
+        forecast_total_tokens=forecast_total_tokens,
+        include_budget=include_budget,
+    )
 
     # Headline total: API ground truth in last_turn mode (when available),
     # forecast otherwise.
@@ -978,21 +1213,21 @@ async def compute_context_breakdown(
         total_tokens = forecast_total_tokens
 
     result = ContextBreakdownResult(
-        channel_id=str(channel_id),
-        session_id=target_session_id,
-        bot_id=channel.bot_id,
+        channel_id=scope.channel_id,
+        session_id=scope.session_id,
+        bot_id=scope.channel.bot_id,
         categories=categories,
         total_chars=total_chars,
         total_tokens_approx=total_tokens,
         compaction=compaction,
         reranking=reranking,
         effective_settings=effective_settings,
-        context_profile=context_profile,
-        context_origin=context_origin,
-        live_history_turns=live_history_turns,
-        mandatory_static_injections=mandatory_static_injections,
-        optional_static_injections=optional_static_injections,
-        context_budget=_budget_info,
+        context_profile=policy.context_profile,
+        context_origin=policy.context_origin,
+        live_history_turns=policy.live_history_turns,
+        mandatory_static_injections=policy.mandatory_static_injections,
+        optional_static_injections=policy.optional_static_injections,
+        context_budget=budget_info,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )
     _breakdown_cache[cache_key] = (time.monotonic() + _BREAKDOWN_CACHE_TTL, result)

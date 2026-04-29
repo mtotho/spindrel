@@ -6,9 +6,25 @@ export const MEMORY_CENTER_HREF = "/admin/learning#Memory";
 export const COMMAND_CENTER_HREF = "/hub/mission-control";
 export const ATTENTION_COMMAND_DECK_HREF = "/hub/attention";
 
+export type AttentionDeckMode = "review" | "inbox" | "runs" | "cleared";
+
+export interface AttentionDeckHrefOptions {
+  itemId?: string | null;
+  channelId?: string | null;
+  mode?: AttentionDeckMode | null;
+}
+
+export function attentionDeckHref(options: AttentionDeckHrefOptions = {}): string {
+  const params = new URLSearchParams();
+  if (options.itemId) params.set("item", options.itemId);
+  if (options.channelId) params.set("channel", options.channelId);
+  if (options.mode) params.set("mode", options.mode);
+  const query = params.toString();
+  return query ? `${ATTENTION_COMMAND_DECK_HREF}?${query}` : ATTENTION_COMMAND_DECK_HREF;
+}
+
 export function attentionHubHref(itemId?: string | null): string {
-  if (!itemId) return ATTENTION_COMMAND_DECK_HREF;
-  return `${ATTENTION_COMMAND_DECK_HREF}?item=${encodeURIComponent(itemId)}`;
+  return attentionDeckHref({ itemId });
 }
 
 export function attentionItemHref(item: Pick<WorkspaceAttentionItem, "id">): string {

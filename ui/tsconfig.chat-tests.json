@@ -93,6 +93,8 @@
     "src/components/chat/renderArchitecture.test.ts",
     "src/components/chat/renderers/widgetTheme.ts",
     "src/components/chat/renderers/widgetTheme.test.ts",
+    "src/components/chat/renderers/planPayload.ts",
+    "src/components/chat/renderers/planPayload.test.ts",
     "src/components/chat/renderers/nativeApps/nativeWidgetLayout.ts",
     "src/components/chat/renderers/nativeApps/nativeWidgetLayout.test.ts",
     "src/components/chat/renderers/nativeApps/contextTrackerLayout.ts",

@@ -22,6 +22,7 @@ import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
 import { useWorkspaceAttention } from "@/src/api/hooks/useWorkspaceAttention";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
+import { attentionDeckHref } from "@/src/lib/hubRoutes";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
 
 export interface ChannelHeaderProps {
@@ -138,7 +139,6 @@ export function ChannelHeader({
   // content inline, so channel-route mobile users get one surface with nav
   // + widgets + files all reachable from a single tap.
   const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
-  const openAttentionHub = useUIStore((s) => s.openAttentionHub);
   // Mobile-only: the top-right widget button toggles the same drawer but
   // force-pins it to the Widgets tab. Hamburger still opens wherever the
   // user last explicitly navigated (persisted `omniPanelTab`), so the two
@@ -502,7 +502,7 @@ export function ChannelHeader({
               type="button"
               className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning hover:bg-warning/15"
               title={`${attentionCount} active Attention Beacon${attentionCount === 1 ? "" : "s"}`}
-              onClick={openAttentionHub}
+              onClick={() => navigate(attentionDeckHref({ channelId, mode: "inbox" }))}
             >
               <AlertTriangle size={10} />
               {attentionCount}

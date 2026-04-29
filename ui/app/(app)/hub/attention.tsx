@@ -5,11 +5,18 @@ import { AttentionCommandDeck } from "@/src/components/attention/AttentionComman
 import { useWorkspaceAttention, useMarkAttentionResponded, type WorkspaceAttentionItem } from "@/src/api/hooks/useWorkspaceAttention";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useDraftsStore } from "@/src/stores/drafts";
+import type { AttentionDeckMode } from "@/src/lib/hubRoutes";
+
+function readDeckMode(value: string | null): AttentionDeckMode | null {
+  return value === "review" || value === "inbox" || value === "runs" || value === "cleared" ? value : null;
+}
 
 export default function HubAttentionPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data: items = [] } = useWorkspaceAttention();
+  const requestedChannelId = searchParams.get("channel");
+  const requestedMode = readDeckMode(searchParams.get("mode"));
+  const { data: items = [] } = useWorkspaceAttention(requestedChannelId || undefined);
   const { data: channels = [] } = useChannels();
   const markAttentionResponded = useMarkAttentionResponded();
   const requestedItemId = searchParams.get("item");
@@ -28,6 +35,13 @@ export default function HubAttentionPage() {
     const next = new URLSearchParams(searchParams);
     if (item) next.set("item", item.id);
     else next.delete("item");
+    setSearchParams(next, { replace: true });
+  };
+
+  const selectMode = (mode: AttentionDeckMode) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("mode", mode);
+    if (mode === "runs") next.delete("item");
     setSearchParams(next, { replace: true });
   };
 
@@ -64,6 +78,9 @@ export default function HubAttentionPage() {
             items={items}
             selectedId={selectedId}
             onSelect={selectItem}
+            initialMode={requestedMode}
+            channelId={requestedChannelId}
+            onModeChange={selectMode}
             onReply={replyToItem}
           />
         </div>

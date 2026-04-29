@@ -63,6 +63,25 @@ test("chat modes centralize composer placement and rich result mode conventions"
   assert.match(richToolResult, /resultViews\.register\("core\.plan", \{ default: renderPlanView, terminal: renderPlanView \}\)/);
 });
 
+test("native plan replay hydrates out-of-line envelopes before rendering plan cards", () => {
+  const richToolResult = readChatFile("RichToolResult.tsx");
+  const planRenderer = readChatFile("renderers/PlanResultRenderer.tsx");
+  const planPayload = readChatFile("renderers/planPayload.ts");
+  const planQuestions = readChatFile("renderers/nativeApps/PlanQuestionsWidget.tsx");
+
+  assert.match(richToolResult, /const PLAN_CONTENT_TYPE = "application\/vnd\.spindrel\.plan\+json"/);
+  assert.match(richToolResult, /unwrapFetchedToolResultBody\(envelope, fetched\)/);
+  assert.match(richToolResult, /shouldAutoFetchPlan/);
+  assert.match(planRenderer, /parsePlanPayload\(body \?\? envelope\.body\)/);
+  assert.match(planPayload, /parsed\._envelope/);
+  assert.match(planPayload, /parsed\.plan/);
+
+  assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/plan\/question-answers/);
+  assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/messages/);
+  assert.match(planQuestions, /source:\s*"plan_questions"/);
+  assert.match(planQuestions, /run_agent:\s*true/);
+});
+
 test("chat rich-result wrappers explicitly separate renderer variant from chrome ownership", () => {
   const orderedTranscript = readChatFile("OrderedTranscript.tsx");
   const toolBadges = readChatFile("ToolBadges.tsx");
@@ -370,8 +389,20 @@ test("mobile chat transcript uses full-width content instead of avatar gutter", 
   assert.match(messageBubble, /const narrow = effectiveMobile \|\| compactLayout;/);
   assert.match(streamingIndicator, /const isMobile = useIsMobile\(\);/);
   assert.match(streamingIndicator, /!\s*isTerminalMode && !isMobile/);
-  assert.match(chatMessageArea, /const contentHorizontalPadding = isMobile \? 4 : 16;/);
+  assert.match(chatMessageArea, /const contentHorizontalPadding = contentHorizontalPaddingOverride \?\? \(isMobile \? 4 : 16\);/);
   assert.doesNotMatch(chatMessageArea, /className="w-full mx-auto px-4"/);
+});
+
+test("harness route headers use URL session id while pane chrome hydrates", () => {
+  const channelRoute = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),
+    "utf8",
+  );
+
+  assert.match(channelRoute, /const headerHarnessSessionId = channelHeaderChromeMode !== "canvas"/);
+  assert.match(channelRoute, /headerPaneSessionId \?\? routeSessionId \?\? null/);
+  assert.match(channelRoute, /bot\?\.harness_runtime \? headerHarnessSessionId : null/);
+  assert.match(channelRoute, /sessionId=\{headerHarnessSessionId\}/);
 });
 
 test("channel route delegates session pane orchestration to its local controller", () => {

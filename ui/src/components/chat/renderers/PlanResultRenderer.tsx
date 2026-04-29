@@ -3,26 +3,19 @@ import type { ToolResultEnvelope } from "@/src/types/api";
 import { SessionPlanCard } from "@/app/(app)/channels/[channelId]/SessionPlanCard";
 import type { SessionPlan } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
 import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
-
-function parsePlan(envelope: ToolResultEnvelope): SessionPlan | null {
-  const raw = envelope.body;
-  if (raw == null) return null;
-  try {
-    return typeof raw === "string" ? JSON.parse(raw) as SessionPlan : raw as unknown as SessionPlan;
-  } catch {
-    return null;
-  }
-}
+import { parsePlanPayload } from "./planPayload";
 
 export function PlanResultRenderer({
   envelope,
+  body,
   sessionId,
 }: {
   envelope: ToolResultEnvelope;
+  body?: string | Record<string, unknown> | null;
   sessionId?: string;
 }) {
   const sessionPlan = useSessionPlanMode(sessionId);
-  const fallbackPlan = useMemo(() => parsePlan(envelope), [envelope]);
+  const fallbackPlan = useMemo(() => parsePlanPayload(body ?? envelope.body), [body, envelope.body]);
   const plan = useMemo(() => {
     if (!fallbackPlan) return sessionPlan.data ?? null;
     const currentRevision = sessionPlan.state?.revision ?? sessionPlan.data?.revision ?? null;

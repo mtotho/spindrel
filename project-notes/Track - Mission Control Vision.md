@@ -199,6 +199,14 @@ Command Deck, keep `/hub/mission-control` for the broader Mission Control
 surface, and change Starboard's Attention station into a compact launcher and
 object-local summary. Do not introduce a mission system for this pivot.
 
+2026-04-29 implementation note: the global Attention drawer mount was removed.
+Channel Attention badges now route into `/hub/attention?channel=...&mode=inbox`,
+and the deck owns mode state through URL params. The deck now leads with a
+"What to do now" lane strip, treats reviewed/cleared/raw/running as distinct
+modes, makes cleared items read-only, keeps normal bot assignment collapsed, and
+shows Operator run receipts before exposing transcript evidence. Transcript is
+deliberate evidence, not the default run workspace.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

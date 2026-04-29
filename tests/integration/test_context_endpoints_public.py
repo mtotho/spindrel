@@ -302,7 +302,11 @@ class TestPublicContextBreakdown:
             headers=AUTH_HEADERS,
         )).json()
 
-        assert public == admin
+        assert "effective_settings" not in public
+        assert "effective_settings" in admin
+        admin_without_effective = dict(admin)
+        admin_without_effective.pop("effective_settings", None)
+        assert public == admin_without_effective
         assert public["session_id"] == str(scratch_session_id)
         assert public["compaction"]["messages_since_watermark"] == 3
         assert public["compaction"]["total_messages"] == 4

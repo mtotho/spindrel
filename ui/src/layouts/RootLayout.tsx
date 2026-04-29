@@ -5,7 +5,6 @@ import { useAuthStore } from "@/src/stores/auth";
 import { useThemeStore } from "@/src/stores/theme";
 import { useHydrated } from "@/src/hooks/useHydrated";
 import { Spinner } from "@/src/components/shared/Spinner";
-import { AttentionHubDrawerRoot } from "@/src/components/spatial-canvas/SpatialAttentionLayer";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -89,12 +88,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function GlobalDrawers() {
-  const isConfigured = useAuthStore((s) => s.isConfigured);
-  if (!isConfigured) return null;
-  return <AttentionHubDrawerRoot />;
-}
-
 export function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -115,7 +108,6 @@ export function RootLayout() {
           }
         >
           <Outlet />
-          <GlobalDrawers />
         </Suspense>
       </AuthGate>
     </QueryClientProvider>

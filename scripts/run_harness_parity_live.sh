@@ -101,6 +101,71 @@ PY
     return 1
 }
 
+preflight_api_surface() {
+    local base_url="http://${E2E_HOST}:${E2E_PORT}"
+    local openapi
+    if command -v curl >/dev/null 2>&1; then
+        openapi="$(curl -fsS --max-time 10 "$base_url/openapi.json" 2>/dev/null || true)"
+    else
+        openapi="$(python - "$base_url/openapi.json" <<'PY' 2>/dev/null || true
+import sys
+import urllib.request
+
+print(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode())
+PY
+)"
+    fi
+    if [[ -z "$openapi" ]]; then
+        echo "Harness parity preflight failed: could not read $base_url/openapi.json" >&2
+        return 1
+    fi
+
+    local openapi_tmp
+    openapi_tmp="$(mktemp)"
+    printf '%s' "$openapi" > "$openapi_tmp"
+    if ! python - "$HARNESS_PARITY_TIER" "$openapi_tmp" <<'PY'
+import json
+import sys
+
+tier = sys.argv[1]
+with open(sys.argv[2], "r", encoding="utf-8") as fh:
+    doc = json.load(fh)
+paths = set(doc.get("paths") or {})
+
+tier_order = {
+    "core": 0,
+    "bridge": 1,
+    "terminal": 2,
+    "plan": 3,
+    "heartbeat": 4,
+    "automation": 5,
+    "writes": 6,
+    "context": 7,
+    "project": 8,
+    "memory": 9,
+    "skills": 10,
+    "replay": 11,
+}
+
+required = ["/api/v1/channels/{channel_id}/sessions"]
+if tier_order.get(tier, 0) >= tier_order["terminal"]:
+    required.append("/api/v1/admin/docker-stacks")
+
+missing = [path for path in required if path not in paths]
+if missing:
+    print("Harness parity preflight failed: deployed API is missing required routes:", file=sys.stderr)
+    for path in missing:
+        print(f"  - {path}", file=sys.stderr)
+    print("Redeploy/restart the server image that contains the current harness parity API surface before running this tier.", file=sys.stderr)
+    raise SystemExit(1)
+PY
+    then
+        rm -f "$openapi_tmp"
+        return 1
+    fi
+    rm -f "$openapi_tmp"
+}
+
 if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
     browser_ip="$(docker inspect "$HARNESS_PARITY_PLAYWRIGHT_CONTAINER" \
         --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
@@ -139,5 +204,6 @@ if [[ ! -x "$PYTEST_BIN" ]]; then
 fi
 
 wait_for_server_health
+preflight_api_surface
 
 exec "$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs "${PYTEST_ARGS[@]}"

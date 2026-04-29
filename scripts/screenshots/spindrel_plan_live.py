@@ -147,13 +147,15 @@ def _build_specs(
         route = f"{browser_url}/channels/{channel_id}/session/{answered_session_id}"
         wait = (
             "document.body.innerText.toLowerCase().includes('native spindrel answered plan') "
-            "&& document.body.innerText.toLowerCase().includes('answer handoff')"
+            "&& document.body.innerText.toLowerCase().includes('answer handoff') "
+            "&& document.body.innerText.toLowerCase().includes('read submitted plan answers') "
+            "&& document.body.innerText.toLowerCase().includes('publish answered plan')"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-answered-questions-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Answered Plan", "answer handoff"),
+            contains=("Native Spindrel Answered Plan", "answer handoff", "Read submitted plan answers", "Publish answered plan"),
             scroll_text="Native Spindrel Answered Plan",
         ))
     if progress_session_id:

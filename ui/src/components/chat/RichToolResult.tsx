@@ -22,7 +22,7 @@
  * mounted with the fetched body. The lazy-fetch state is local — collapse
  * + re-expand re-fetches.
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ToolCallSummary, ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { apiFetch } from "../../api/client";
@@ -74,6 +74,8 @@ type CompactionRunPayload = {
   result_kind?: string | null;
   error?: string | null;
 };
+
+const PLAN_CONTENT_TYPE = "application/vnd.spindrel.plan+json";
 
 interface Props {
   envelope: ToolResultEnvelope;
@@ -275,8 +277,8 @@ function renderNativeAppView({
   );
 }
 
-function renderPlanView({ envelope, sessionId }: RichResultViewProps) {
-  return <PlanResultRenderer envelope={envelope} sessionId={sessionId} />;
+function renderPlanView({ envelope, body, sessionId }: RichResultViewProps) {
+  return <PlanResultRenderer envelope={envelope} body={body} sessionId={sessionId} />;
 }
 
 function renderDefaultSearchResultsView({ data, t }: RichResultViewProps) {
@@ -490,7 +492,7 @@ function parseStructuredData(envelope: ToolResultEnvelope, body: string): unknow
     || envelope.content_type === "application/vnd.spindrel.file-listing+json"
     || envelope.content_type === "application/vnd.spindrel.components+json"
     || envelope.content_type === "application/vnd.spindrel.native-app+json"
-    || envelope.content_type === "application/vnd.spindrel.plan+json"
+    || envelope.content_type === PLAN_CONTENT_TYPE
   ) {
     try {
       return JSON.parse(body);
@@ -520,6 +522,31 @@ resultViews.register("core.machine_target_status", { any: renderMachineTargetSta
 resultViews.register("core.command_result", { any: renderCommandResultView });
 resultViews.register("core.machine_access_required", { any: renderMachineAccessRequiredView });
 resultViews.register("compaction_run", { any: renderCompactionRunView });
+
+function unwrapFetchedToolResultBody(envelope: ToolResultEnvelope, fetched: string): string | Record<string, unknown> {
+  if (envelope.content_type !== PLAN_CONTENT_TYPE) return fetched;
+  try {
+    const parsed = JSON.parse(fetched) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fetched;
+    const record = parsed as Record<string, unknown>;
+    const embeddedEnvelope = record._envelope;
+    if (embeddedEnvelope && typeof embeddedEnvelope === "object" && !Array.isArray(embeddedEnvelope)) {
+      const embeddedBody = (embeddedEnvelope as Record<string, unknown>).body;
+      if (embeddedBody != null) {
+        return typeof embeddedBody === "string" || (typeof embeddedBody === "object" && !Array.isArray(embeddedBody))
+          ? embeddedBody as string | Record<string, unknown>
+          : JSON.stringify(embeddedBody);
+      }
+    }
+    const plan = record.plan;
+    if (plan && typeof plan === "object" && !Array.isArray(plan)) {
+      return plan as Record<string, unknown>;
+    }
+  } catch {
+    return fetched;
+  }
+  return fetched;
+}
 
 export function RichToolResult({
   envelope,
@@ -561,8 +588,40 @@ export function RichToolResult({
     [dispatcher, channelId, internalDispatchAction],
   );
 
+  const fetchFullOutput = useCallback(async () => {
+    if (!sessionId || !envelope.record_id) return;
+    setFetching(true);
+    setFetchError(null);
+    try {
+      const data = await apiFetch<{ body: string }>(
+        `/api/v1/sessions/${sessionId}/tool-calls/${envelope.record_id}/result`,
+      );
+      setFetched(data.body ?? "");
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : "Fetch failed");
+    } finally {
+      setFetching(false);
+    }
+  }, [envelope.record_id, sessionId]);
+
+  const shouldAutoFetchPlan = Boolean(
+    envelope.content_type === PLAN_CONTENT_TYPE
+    && envelope.truncated
+    && envelope.body == null
+    && sessionId
+    && envelope.record_id
+    && fetched == null
+    && !fetching
+    && !fetchError,
+  );
+
+  useEffect(() => {
+    if (!shouldAutoFetchPlan) return;
+    void fetchFullOutput();
+  }, [fetchFullOutput, shouldAutoFetchPlan]);
+
   // body may be a pre-parsed object from JSONB metadata — normalize to string
-  const rawBody = fetched ?? envelope.body;
+  const rawBody = fetched == null ? envelope.body : unwrapFetchedToolResultBody(envelope, fetched);
   const body = rawBody == null ? null : typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
   const isTerminalRenderer = rendererVariant === "terminal-chat";
   const renderMode = getChatModeConfig(isTerminalRenderer ? "terminal" : "default").resultMode;
@@ -594,20 +653,7 @@ export function RichToolResult({
         {canFetch && (
           <button
             type="button"
-            onClick={async () => {
-              setFetching(true);
-              setFetchError(null);
-              try {
-                const data = await apiFetch<{ body: string }>(
-                  `/api/v1/sessions/${sessionId}/tool-calls/${envelope.record_id}/result`,
-                );
-                setFetched(data.body ?? "");
-              } catch (e) {
-                setFetchError(e instanceof Error ? e.message : "Fetch failed");
-              } finally {
-                setFetching(false);
-              }
-            }}
+            onClick={fetchFullOutput}
             disabled={fetching}
             style={{
               padding: isTerminal ? 0 : "2px 8px",

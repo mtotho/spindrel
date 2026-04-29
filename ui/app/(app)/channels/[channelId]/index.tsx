@@ -777,22 +777,25 @@ export default function ChatScreen() {
     isMobile,
     setActiveFile,
   });
+  const headerHarnessSessionId = channelHeaderChromeMode !== "canvas"
+    ? (headerPaneSessionId ?? routeSessionId ?? null)
+    : null;
   const { data: harnessSettings } = useSessionHarnessSettings(
-    bot?.harness_runtime ? headerPaneSessionId : null,
+    bot?.harness_runtime ? headerHarnessSessionId : null,
   );
   const { data: sessionApprovalMode } = useSessionApprovalMode(
-    bot?.harness_runtime ? headerPaneSessionId : null,
+    bot?.harness_runtime ? headerHarnessSessionId : null,
   );
   const handleCycleHarnessApprovalMode = useCallback(() => {
-    if (!bot?.harness_runtime || !headerPaneSessionId || setApprovalMode.isPending) return;
+    if (!bot?.harness_runtime || !headerHarnessSessionId || setApprovalMode.isPending) return;
     const nextMode = getNextHarnessApprovalMode(sessionApprovalMode?.mode);
     setApprovalMode.mutate({
-      sessionId: headerPaneSessionId,
+      sessionId: headerHarnessSessionId,
       mode: nextMode,
     });
   }, [
     bot?.harness_runtime,
-    headerPaneSessionId,
+    headerHarnessSessionId,
     sessionApprovalMode?.mode,
     setApprovalMode,
   ]);
@@ -1620,7 +1623,7 @@ export default function ChatScreen() {
           isMobile={isMobile}
           contextBudget={headerContextBudget}
           sessionHeaderStats={channelHeaderChromeMode !== "canvas" ? headerSessionStats ?? null : null}
-          sessionId={channelHeaderChromeMode !== "canvas" ? headerPaneSessionId : null}
+          sessionId={headerHarnessSessionId}
           sessionChromeMode={channelHeaderChromeMode}
           sessionChromeTitle={null}
           sessionChromeMeta={channelHeaderChromeMode === "session" ? headerPaneMeta : null}

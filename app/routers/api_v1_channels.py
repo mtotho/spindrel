@@ -1521,8 +1521,7 @@ async def get_channel_context_breakdown(
     """
     await _auth_channel_context(channel_id, auth, db)
 
-    from app.services.context_breakdown import compute_context_breakdown
-    from dataclasses import asdict
+    from app.services.context_breakdown import compute_context_breakdown, context_breakdown_response
 
     if mode not in {"last_turn", "next_turn"}:
         raise HTTPException(status_code=422, detail="mode must be 'last_turn' or 'next_turn'")
@@ -1537,24 +1536,7 @@ async def get_channel_context_breakdown(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    return {
-        "channel_id": result.channel_id,
-        "session_id": result.session_id,
-        "bot_id": result.bot_id,
-        "context_profile": result.context_profile,
-        "context_origin": result.context_origin,
-        "live_history_turns": result.live_history_turns,
-        "mandatory_static_injections": result.mandatory_static_injections,
-        "optional_static_injections": result.optional_static_injections,
-        "categories": [asdict(c) for c in result.categories],
-        "total_chars": result.total_chars,
-        "total_tokens_approx": result.total_tokens_approx,
-        "compaction": asdict(result.compaction),
-        "reranking": asdict(result.reranking),
-        "context_budget": result.context_budget,
-        "mode": mode,
-        "disclaimer": result.disclaimer,
-    }
+    return context_breakdown_response(result, mode=mode)
 
 
 async def _snapshot_pending_approvals(db: AsyncSession, channel_id: uuid.UUID) -> list[dict]:

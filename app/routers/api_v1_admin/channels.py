@@ -2395,8 +2395,7 @@ async def admin_channel_context_breakdown(
     ``mode=next_turn`` — the headline total is a forecast over the channel's
     current static configuration. May differ from the chat header by design.
     """
-    from app.services.context_breakdown import compute_context_breakdown
-    from dataclasses import asdict
+    from app.services.context_breakdown import compute_context_breakdown, context_breakdown_response
 
     if mode not in {"last_turn", "next_turn"}:
         raise HTTPException(status_code=422, detail="mode must be 'last_turn' or 'next_turn'")
@@ -2411,28 +2410,11 @@ async def admin_channel_context_breakdown(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    return {
-        "channel_id": result.channel_id,
-        "session_id": result.session_id,
-        "bot_id": result.bot_id,
-        "context_profile": result.context_profile,
-        "context_origin": result.context_origin,
-        "live_history_turns": result.live_history_turns,
-        "mandatory_static_injections": result.mandatory_static_injections,
-        "optional_static_injections": result.optional_static_injections,
-        "categories": [asdict(c) for c in result.categories],
-        "total_chars": result.total_chars,
-        "total_tokens_approx": result.total_tokens_approx,
-        "compaction": asdict(result.compaction),
-        "reranking": asdict(result.reranking),
-        "effective_settings": {
-            k: {"value": v.value, "source": v.source}
-            for k, v in result.effective_settings.items()
-        },
-        "context_budget": result.context_budget,
-        "mode": mode,
-        "disclaimer": result.disclaimer,
-    }
+    return context_breakdown_response(
+        result,
+        mode=mode,
+        include_effective_settings=True,
+    )
 
 
 @router.get("/channels/{channel_id}/config-overhead")

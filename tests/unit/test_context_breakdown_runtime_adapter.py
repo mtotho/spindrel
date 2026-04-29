@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 import uuid
 from types import SimpleNamespace
 
@@ -134,3 +136,31 @@ async def test_compute_breakdown_sources_static_categories_from_runtime_preview(
     assert result.live_history_turns == 6
     assert result.mandatory_static_injections == ["section_index"]
     assert [_category(result.categories, "system_prompt").label] == ["Bot System Prompt"]
+
+
+def _function_loc(path: Path, name: str) -> int:
+    tree = ast.parse(path.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node.end_lineno - node.lineno + 1
+    raise AssertionError(f"missing function {name}")
+
+
+def test_context_breakdown_public_functions_stay_coordinators():
+    path = Path("app/services/context_breakdown.py")
+
+    assert _function_loc(path, "fetch_latest_context_budget") <= 120
+    assert _function_loc(path, "compute_context_breakdown") <= 90
+
+
+def test_context_breakdown_routers_use_shared_serializer():
+    router_paths = [
+        Path("app/routers/api_v1_channels.py"),
+        Path("app/routers/api_v1_admin/channels.py"),
+    ]
+
+    for path in router_paths:
+        text = path.read_text()
+        assert "context_breakdown_response" in text
+        assert '"categories": [asdict(c) for c in result.categories]' not in text
+        assert '"compaction": asdict(result.compaction)' not in text

@@ -40,13 +40,17 @@ import {
   sweepCandidateItems,
   type AttentionBuckets,
 } from "../spatial-canvas/SpatialAttentionModel";
+import type { AttentionDeckMode } from "../../lib/hubRoutes";
 
-type DeckMode = "review" | "inbox" | "runs" | "cleared";
+type DeckMode = AttentionDeckMode;
 
 interface AttentionCommandDeckProps {
   items: WorkspaceAttentionItem[];
   selectedId: string | null;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
+  initialMode?: DeckMode | null;
+  channelId?: string | null;
+  onModeChange?: (mode: DeckMode) => void;
   onReply?: (item: WorkspaceAttentionItem) => void;
 }
 
@@ -101,47 +105,63 @@ function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentio
   return [...buckets.triage, ...buckets.review];
 }
 
-export function AttentionCommandDeck({ items, selectedId, onSelect, onReply }: AttentionCommandDeckProps) {
-  const [mode, setMode] = useState<DeckMode>(() => "review");
+export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode, channelId, onModeChange, onReply }: AttentionCommandDeckProps) {
+  const [mode, setModeState] = useState<DeckMode>(() => initialMode ?? "review");
   const [notice, setNotice] = useState<string | null>(null);
   const buckets = useMemo(() => bucketAttentionItems(items), [items]);
   const sweepable = useMemo(() => sweepCandidateItems(items), [items]);
   const selected = items.find((item) => item.id === selectedId) ?? null;
-  const activeList = useMemo(() => sortAttention(modeItems(mode, buckets)), [buckets, mode]);
-  const displayItem = selected ?? activeList[0] ?? null;
   const { data: runs = [] } = useAttentionTriageRuns({ limit: 16, refetchInterval: mode === "runs" ? 5_000 : 15_000 });
   const startTriage = useStartAttentionTriageRun();
-
-  useEffect(() => {
-    if (!selected) return;
-    const state = getAttentionWorkflowState(selected);
-    if (state === "operator_review") setMode("review");
-    else if (state === "processed" || state === "closed") setMode("cleared");
-    else if (state === "in_sweep") setMode("runs");
-    else setMode("inbox");
-  }, [selected?.id]);
-
-  const startSweep = () => {
-    setNotice(null);
-    if (!sweepable.length) {
-      setMode(buckets.review.length ? "review" : "inbox");
-      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No untriaged Attention items are ready for Operator.");
-      return;
-    }
-    setMode("runs");
-    onSelect(null);
-    startTriage.mutate({}, {
-      onSuccess: () => setNotice("Operator sweep started. Findings will appear in Review when the run reports back."),
-      onError: (error) => setNotice(error instanceof Error ? error.message : "Operator sweep could not start."),
-    });
-  };
-
   const counts = {
     review: buckets.review.length,
     inbox: buckets.untriaged.length + buckets.assigned.length,
     running: buckets.triage.length,
     cleared: buckets.processed.length,
     closed: buckets.closed.length,
+  };
+  const activeList = useMemo(() => sortAttention(modeItems(mode, buckets)), [buckets, mode]);
+  const displayItem = selected ?? activeList[0] ?? null;
+
+  const setDeckMode = (next: DeckMode) => {
+    setModeState(next);
+    onModeChange?.(next);
+  };
+
+  useEffect(() => {
+    if (initialMode) setModeState(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    if (initialMode || selected) return;
+    if (counts.review > 0) setModeState("review");
+    else if (counts.inbox > 0) setModeState("inbox");
+    else if (runs.length > 0) setModeState("runs");
+    else setModeState("cleared");
+  }, [initialMode, selected?.id, counts.review, counts.inbox, runs.length]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const state = getAttentionWorkflowState(selected);
+    if (state === "operator_review") setDeckMode("review");
+    else if (state === "processed" || state === "closed") setDeckMode("cleared");
+    else if (state === "in_sweep") setDeckMode("runs");
+    else setDeckMode("inbox");
+  }, [selected?.id]);
+
+  const startSweep = () => {
+    setNotice(null);
+    if (!sweepable.length) {
+      setDeckMode(buckets.review.length ? "review" : "inbox");
+      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No untriaged Attention items are ready for Operator.");
+      return;
+    }
+    setDeckMode("runs");
+    onSelect(null);
+    startTriage.mutate({}, {
+      onSuccess: () => setNotice("Operator sweep started. Review will update when the run reports back."),
+      onError: (error) => setNotice(error instanceof Error ? error.message : "Operator sweep could not start."),
+    });
   };
 
   return (
@@ -154,14 +174,14 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, onReply }: A
               Attention Command Deck
             </div>
             <div className="mt-1 text-sm text-text-muted">
-              {counts.review} review · {counts.inbox} inbox · {counts.running} running · {counts.cleared} cleared
+              {channelId ? "Channel-filtered" : "Workspace"} queue · {counts.review} review · {counts.inbox} inbox · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-              onClick={() => setMode("runs")}
+              onClick={() => setDeckMode("runs")}
             >
               <Clock size={14} />
               Runs
@@ -182,6 +202,15 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, onReply }: A
             {notice}
           </div>
         )}
+        <div className="mt-3" data-testid="attention-command-deck-what-now">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">What to do now</div>
+          <div className="grid gap-2 sm:grid-cols-4">
+            <WhatNowButton active={mode === "review"} label="Review findings" count={counts.review} detail="Operator already classified these." onClick={() => setDeckMode("review")} />
+            <WhatNowButton active={mode === "inbox"} label="Sweep raw signals" count={counts.inbox} detail="Untriaged items still need a pass." onClick={() => setDeckMode("inbox")} />
+            <WhatNowButton active={mode === "runs"} label="Check runs" count={runs.length} detail={`${counts.running} item${counts.running === 1 ? "" : "s"} in flight.`} onClick={() => setDeckMode("runs")} />
+            <WhatNowButton active={mode === "cleared"} label="Cleared" count={counts.cleared + counts.closed} detail="Receipts and resolved noise." onClick={() => setDeckMode("cleared")} />
+          </div>
+        </div>
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
@@ -191,7 +220,7 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, onReply }: A
           items={activeList}
           selectedId={displayItem?.id ?? null}
           onModeChange={(next) => {
-            setMode(next);
+            setDeckMode(next);
             onSelect(null);
           }}
           onSelect={onSelect}
@@ -205,9 +234,27 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, onReply }: A
             <EmptyDeckState mode={mode} />
           )}
         </main>
-        <DeckSideRail runs={runs} buckets={buckets} onModeChange={setMode} onSelect={onSelect} />
+        <DeckSideRail runs={runs} buckets={buckets} onModeChange={setDeckMode} onSelect={onSelect} />
       </div>
     </div>
+  );
+}
+
+function WhatNowButton({ active, label, count, detail, onClick }: { active: boolean; label: string; count: number; detail: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`min-h-16 rounded-md px-3 py-2 text-left transition-colors ${
+        active ? "bg-accent/[0.08] text-text" : "bg-surface-overlay/30 text-text-muted hover:bg-surface-overlay/55 hover:text-text"
+      }`}
+      onClick={onClick}
+    >
+      <span className="flex items-center justify-between gap-2 text-sm font-medium">
+        <span>{label}</span>
+        <span className={active ? "text-accent" : "text-text"}>{count}</span>
+      </span>
+      <span className="mt-1 block text-xs leading-5 text-text-dim">{detail}</span>
+    </button>
   );
 }
 
@@ -292,7 +339,9 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
   const resolve = useResolveAttentionItem();
   const triageFeedback = useSubmitAttentionTriageFeedback();
   const triage = getOperatorTriage(item);
-  const reviewed = getAttentionWorkflowState(item) === "operator_review";
+  const workflowState = getAttentionWorkflowState(item);
+  const reviewed = workflowState === "operator_review";
+  const readonly = workflowState === "processed" || workflowState === "closed";
 
   return (
     <article className="mx-auto max-w-3xl">
@@ -307,20 +356,28 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {onReply && (
+          {readonly ? (
+            <span className="rounded-full bg-surface-overlay px-2.5 py-1 text-xs font-medium text-text-muted">
+              {workflowState === "closed" ? "Closed" : "Cleared by Operator"}
+            </span>
+          ) : onReply && (
             <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-accent hover:bg-accent/[0.08]" onClick={() => onReply(item)}>
               <MessageSquare size={15} />
               Reply
             </button>
           )}
-          <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={() => acknowledge.mutate(item.id)}>
-            <Check size={15} />
-            Acknowledge
-          </button>
-          <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={() => resolve.mutate(item.id)}>
-            <XCircle size={15} />
-            Resolve
-          </button>
+          {!readonly && (
+            <>
+              <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={() => acknowledge.mutate(item.id)}>
+                <Check size={15} />
+                Acknowledge
+              </button>
+              <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={() => resolve.mutate(item.id)}>
+                <XCircle size={15} />
+                Resolve
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -341,31 +398,33 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
               {triage.suggested_action}
             </p>
           )}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" className="rounded-md px-2.5 py-1.5 text-sm text-accent hover:bg-accent/[0.08]" onClick={() => triageFeedback.mutate({ itemId: item.id, verdict: "confirmed" })}>
-              Accept finding
-            </button>
-            <button
-              type="button"
-              className="rounded-md px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-              onClick={() => {
-                const note = window.prompt("What should Operator remember next time?", triage.summary ?? "");
-                if (note !== null) triageFeedback.mutate({ itemId: item.id, verdict: "wrong", note });
-              }}
-            >
-              Mark wrong
-            </button>
-            <button
-              type="button"
-              className="rounded-md px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-              onClick={() => {
-                const note = window.prompt("Routing correction for future Operator sweeps", triage.route ? `Suggested route should not be ${routeLabel(triage.route)}.` : "");
-                if (note !== null) triageFeedback.mutate({ itemId: item.id, verdict: "rerouted", note, route: triage.route ?? null });
-              }}
-            >
-              Change routing
-            </button>
-          </div>
+          {!readonly && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" className="rounded-md px-2.5 py-1.5 text-sm text-accent hover:bg-accent/[0.08]" onClick={() => triageFeedback.mutate({ itemId: item.id, verdict: "confirmed" })}>
+                Accept finding
+              </button>
+              <button
+                type="button"
+                className="rounded-md px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                onClick={() => {
+                  const note = window.prompt("What should Operator remember next time?", triage.summary ?? "");
+                  if (note !== null) triageFeedback.mutate({ itemId: item.id, verdict: "wrong", note });
+                }}
+              >
+                Mark wrong
+              </button>
+              <button
+                type="button"
+                className="rounded-md px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                onClick={() => {
+                  const note = window.prompt("Routing correction for future Operator sweeps", triage.route ? `Suggested route should not be ${routeLabel(triage.route)}.` : "");
+                  if (note !== null) triageFeedback.mutate({ itemId: item.id, verdict: "rerouted", note, route: triage.route ?? null });
+                }}
+              >
+                Change routing
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -392,7 +451,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
         )}
       </section>
 
-      <SendToBotDisclosure item={item} />
+      {!readonly && <SendToBotDisclosure item={item} />}
     </article>
   );
 }
@@ -490,7 +549,7 @@ function RunLogWorkspace({ pending, runs }: { pending: boolean; runs: AttentionT
 
         <section className="min-w-0">
           {selectedRun ? (
-            <RunTranscript run={selectedRun} />
+            <RunReceipt run={selectedRun} />
           ) : (
             <div className="rounded-md bg-surface-raised/35 px-4 py-8 text-center text-sm text-text-dim">
               Start a sweep to create a run log.
@@ -502,11 +561,27 @@ function RunLogWorkspace({ pending, runs }: { pending: boolean; runs: AttentionT
   );
 }
 
-function RunTranscript({ run }: { run: AttentionTriageRunResponse }) {
+function runBucketItems(run: AttentionTriageRunResponse) {
+  const runItems = run.items ?? [];
+  return {
+    review: sortAttention(runItems.filter((item) => getAttentionWorkflowState(item) === "operator_review")),
+    cleared: sortAttention(runItems.filter((item) => {
+      const state = getAttentionWorkflowState(item);
+      return state === "processed" || state === "closed";
+    })),
+    running: sortAttention(runItems.filter((item) => getAttentionWorkflowState(item) === "in_sweep")),
+  };
+}
+
+function RunReceipt({ run }: { run: AttentionTriageRunResponse }) {
   const status = runStatusLabel(run);
   const hasTranscript = Boolean(run.session_id && run.parent_channel_id);
+  const runItems = runBucketItems(run);
+  const reviewCount = run.counts?.ready_for_review ?? runItems.review.length;
+  const clearedCount = run.counts?.processed ?? runItems.cleared.length;
+  const runningCount = run.counts?.running ?? runItems.running.length;
   return (
-    <div className="space-y-3">
+    <div className="space-y-4" data-testid="attention-run-receipt">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-surface-overlay/35 px-4 py-3">
         <div>
           <div className="text-sm font-medium text-text">Operator sweep</div>
@@ -516,30 +591,65 @@ function RunTranscript({ run }: { run: AttentionTriageRunResponse }) {
         </div>
         <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">{status}</span>
       </div>
-      {run.counts && (
-        <div className="grid grid-cols-3 gap-2 text-sm">
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2"><span className="font-medium text-text">{run.counts.ready_for_review}</span> review</div>
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2"><span className="font-medium text-text">{run.counts.processed}</span> cleared</div>
-          <div className="rounded-md bg-surface-overlay/35 px-3 py-2"><span className="font-medium text-text">{run.counts.running}</span> running</div>
+
+      <div className="grid grid-cols-3 gap-2 text-sm">
+        <div className="rounded-md bg-surface-overlay/35 px-3 py-2"><span className="font-medium text-text">{reviewCount}</span> review</div>
+        <div className="rounded-md bg-surface-overlay/35 px-3 py-2"><span className="font-medium text-text">{clearedCount}</span> cleared</div>
+        <div className="rounded-md bg-surface-overlay/35 px-3 py-2"><span className="font-medium text-text">{runningCount}</span> running</div>
+      </div>
+
+      {run.error && (
+        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger-muted">
+          {run.error}
         </div>
       )}
-      <div className="min-h-[min(76vh,760px)] overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
-        {hasTranscript ? (
-          <div className="relative h-[min(76vh,760px)]">
-            <SessionChatView
-              sessionId={run.session_id!}
-              parentChannelId={run.parent_channel_id!}
-              botId={run.bot_id}
-              chatMode="default"
-              surface="operator-panel"
-              emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for Operator transcript...</div>}
-            />
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <RunItemList title="Ready for review" items={runItems.review} empty="No review items from this run." />
+        <RunItemList title="Cleared by Operator" items={runItems.cleared} empty="No cleared items from this run." />
+      </div>
+
+      <details className="rounded-md bg-surface-overlay/30 px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-text-muted hover:text-text">Transcript</summary>
+        <div className="mt-3 min-h-[min(72vh,720px)] overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
+          {hasTranscript ? (
+            <div className="relative h-[min(72vh,720px)]">
+              <SessionChatView
+                sessionId={run.session_id!}
+                parentChannelId={run.parent_channel_id!}
+                botId={run.bot_id}
+                chatMode="default"
+                surface="operator-panel"
+                emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for Operator transcript...</div>}
+              />
+            </div>
+          ) : (
+            <div className="px-4 py-8 text-center text-sm text-text-dim">Transcript is not available for this run.</div>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function RunItemList({ title, items, empty }: { title: string; items: WorkspaceAttentionItem[]; empty: string }) {
+  return (
+    <section className="rounded-md bg-surface-overlay/25 px-3 py-3">
+      <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+        <span>{title}</span>
+        <span>{items.length}</span>
+      </div>
+      <div className="space-y-1">
+        {items.length ? items.slice(0, 8).map((item) => (
+          <div key={item.id} className="rounded-md px-2 py-1.5 text-sm">
+            <div className="truncate font-medium text-text">{item.title}</div>
+            <div className="mt-0.5 truncate text-xs text-text-dim">{targetLabel(item)} · {routeLabel(getOperatorTriage(item)?.route)}</div>
           </div>
-        ) : (
-          <div className="px-4 py-8 text-center text-sm text-text-dim">Transcript is not available for this run.</div>
+        )) : (
+          <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/25 px-3 py-5 text-center text-xs text-text-dim">{empty}</div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
