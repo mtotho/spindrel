@@ -32,6 +32,7 @@ DEFAULT_DOCS_IMAGES = REPO_ROOT / "docs" / "images"
 
 DEFAULT_CODEX_CHANNEL_ID = "41fc9132-0e6a-4f95-bcf3-8b1edaf2dabc"
 DEFAULT_CLAUDE_CHANNEL_ID = "71eb14fd-a482-5bdd-a9a2-e60d9e951169"
+TERMINAL_WRITE_NOT_CONTAINS = ("harness-spindrel:", "assistant:e2e-test", "tool calls")
 
 
 @dataclass(frozen=True)
@@ -116,7 +117,7 @@ async def _capture_one(
     browser: Browser,
     spec: CaptureSpec,
     *,
-    api_url: str,
+    browser_api_url: str,
     api_key: str,
     output_dir: Path,
 ) -> Path:
@@ -125,7 +126,7 @@ async def _capture_one(
         viewport={"width": 1440, "height": 900},
         color_scheme=spec.theme,
     )
-    await context.add_init_script(_auth_init_script(api_url=api_url, api_key=api_key, theme=spec.theme))
+    await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
     page: Page = await context.new_page()
     await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
     if spec.slash_query:
@@ -222,7 +223,8 @@ def _style_command_specs(ui_url: str, channel_id: str, session_id: str) -> list[
 
 async def capture(args: argparse.Namespace) -> list[Path]:
     api_url = args.api_url.rstrip("/")
-    ui_url = args.ui_url.rstrip("/")
+    browser_url = args.browser_url.rstrip("/")
+    browser_api_url = args.browser_api_url.rstrip("/")
     api_key = args.api_key
     output_dir = Path(args.output_dir)
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -267,7 +269,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         specs: list[CaptureSpec] = [
             CaptureSpec(
                 name="harness-usage-logs-dark",
-                route=f"{ui_url}/admin/usage#Logs",
+                route=f"{browser_url}/admin/usage#Logs",
                 wait_js=(
                     "document.body.innerText.toLowerCase().includes('trace runs') "
                     "&& document.body.innerText.toLowerCase().includes('harness sdk')"
@@ -277,7 +279,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             ),
             CaptureSpec(
                 name="harness-usage-logs-light",
-                route=f"{ui_url}/admin/usage#Logs",
+                route=f"{browser_url}/admin/usage#Logs",
                 wait_js=(
                     "document.body.innerText.toLowerCase().includes('trace runs') "
                     "&& document.body.innerText.toLowerCase().includes('harness sdk')"
@@ -292,7 +294,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             write_session = sessions[(target.name, "write")]
             specs.append(CaptureSpec(
                 name=f"harness-{target.name}-bridge-default",
-                route=f"{ui_url}/channels/{target.channel_id}/session/{bridge_session}",
+                route=f"{browser_url}/channels/{target.channel_id}/session/{bridge_session}",
                 wait_js="document.body.innerText.includes('get_tool_info') && document.body.innerText.includes('list_channels')",
                 contains=("get_tool_info", "list_channels"),
                 not_contains=("harness-spindrel:",),
@@ -302,20 +304,20 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             ))
             specs.append(CaptureSpec(
                 name=f"harness-{target.name}-terminal-write",
-                route=f"{ui_url}/channels/{target.channel_id}/session/{write_session}",
+                route=f"{browser_url}/channels/{target.channel_id}/session/{write_session}",
                 wait_js=(
                     "document.body.innerText.toLowerCase().includes('file') "
                     "&& document.body.innerText.toLowerCase().includes('spindrel harness approval')"
                 ),
                 contains=("file", "spindrel harness approval"),
-                not_contains=("harness-spindrel:", "assistant:e2e-test"),
+                not_contains=TERMINAL_WRITE_NOT_CONTAINS,
                 theme="dark",
                 channel_id=target.channel_id,
                 chat_mode="terminal",
             ))
 
-        specs.extend(_style_command_specs(ui_url, args.codex_channel_id, sessions[("codex", "bridge")]))
-        specs.extend(_question_specs(ui_url, args.claude_channel_id))
+        specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
+        specs.extend(_question_specs(browser_url, args.claude_channel_id))
 
         paths: list[Path] = []
         async with async_playwright() as pw:
@@ -333,7 +335,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                     path = await _capture_one(
                         browser,
                         spec,
-                        api_url=api_url,
+                        browser_api_url=browser_api_url,
                         api_key=api_key,
                         output_dir=output_dir,
                     )
@@ -353,8 +355,14 @@ async def capture(args: argparse.Namespace) -> list[Path]:
 
 def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="harness_live_screenshots")
-    parser.add_argument("--api-url", default=_env("SPINDREL_URL", "http://10.10.30.208:8000"))
-    parser.add_argument("--ui-url", default=_env("SPINDREL_UI_URL", _env("SPINDREL_URL", "http://10.10.30.208:8000")))
+    default_api_url = _env("SPINDREL_URL", "http://10.10.30.208:8000")
+    default_ui_url = _env("SPINDREL_UI_URL", default_api_url)
+    default_browser_url = _env("SPINDREL_BROWSER_URL", default_ui_url)
+    default_browser_api_url = _env("SPINDREL_BROWSER_API_URL", default_browser_url)
+    parser.add_argument("--api-url", default=default_api_url)
+    parser.add_argument("--ui-url", default=default_ui_url)
+    parser.add_argument("--browser-url", default=default_browser_url)
+    parser.add_argument("--browser-api-url", default=default_browser_api_url)
     parser.add_argument("--api-key", default=_env("SPINDREL_API_KEY") or _env("E2E_API_KEY"))
     parser.add_argument("--output-dir", default=_env("DOCS_IMAGES_DIR", str(DEFAULT_DOCS_IMAGES)))
     parser.add_argument("--codex-channel-id", default=_env("HARNESS_PARITY_CODEX_CHANNEL_ID", DEFAULT_CODEX_CHANNEL_ID))

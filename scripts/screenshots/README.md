@@ -110,13 +110,16 @@ ssh spindrel-bot 'cd /opt/thoth-server && \
   PLAYWRIGHT_CONNECT_PROTOCOL=cdp \
   SPINDREL_URL="http://$app_ip:8000" \
   SPINDREL_UI_URL="http://$app_ip:8000" \
+  SPINDREL_BROWSER_URL="http://$app_ip:8000" \
   DOCS_IMAGES_DIR=/opt/thoth-server/docs/images \
   .venv/bin/python -m scripts.screenshots.harness_live'
 ```
 
-Use the matching API key for the instance being captured. The command above is
-for the main deployed server shape; adapt the host checkout, app container,
-browser container, and port after verification for e2e.
+Use the matching API key for the instance being captured. `SPINDREL_URL` is the
+URL used by the host-side Python process; `SPINDREL_BROWSER_URL` is the URL
+opened inside the Playwright container and injected into browser auth state.
+The command above is for the main deployed server shape; adapt the host
+checkout, app container, browser container, and port after verification for e2e.
 
 ## Usage
 

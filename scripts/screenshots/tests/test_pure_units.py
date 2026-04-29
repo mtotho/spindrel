@@ -246,6 +246,27 @@ def test_harness_live_style_command_specs_type_slash_query():
     assert all("Switch chat style" in spec.contains for spec in specs)
 
 
+def test_harness_live_parse_allows_browser_visible_url():
+    env = {
+        "SPINDREL_API_KEY": "test-key",
+        "SPINDREL_URL": "http://127.0.0.1:8000",
+        "SPINDREL_UI_URL": "http://127.0.0.1:8000",
+        "SPINDREL_BROWSER_URL": "http://172.18.0.1:8000",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        args = harness_live._parse([])
+
+    assert args.api_url == "http://127.0.0.1:8000"
+    assert args.ui_url == "http://127.0.0.1:8000"
+    assert args.browser_url == "http://172.18.0.1:8000"
+    assert args.browser_api_url == "http://172.18.0.1:8000"
+
+
+def test_harness_live_terminal_write_rejects_compact_tool_tape():
+    assert "tool calls" in harness_live.TERMINAL_WRITE_NOT_CONTAINS
+
+
 def test_playwright_runtime_candidates_prefer_remote_then_runtime_then_executable(monkeypatch):
     runtime_candidate = playwright_runtime.BrowserLaunchCandidate(
         kind="remote",
