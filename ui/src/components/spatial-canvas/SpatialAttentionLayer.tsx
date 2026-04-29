@@ -27,6 +27,7 @@ import { useUIStore } from "../../stores/ui";
 import { openTraceInspector } from "../../stores/traceInspector";
 import { SessionChatView } from "../chat/SessionChatView";
 
+const OPERATOR_BOT_ID = "orchestrator";
 const severityRank: Record<string, number> = { info: 0, warning: 1, error: 2, critical: 3 };
 
 function signalClass(item: WorkspaceAttentionItem): string {
@@ -234,6 +235,7 @@ export function AttentionHubContent({
 }) {
   const [creating, setCreating] = useState(false);
   const [triageRun, setTriageRun] = useState<AttentionTriageRunResponse | null>(null);
+  const [operatorRunOpen, setOperatorRunOpen] = useState(false);
   const [triageOptionsOpen, setTriageOptionsOpen] = useState(false);
   const [triageModel, setTriageModel] = useState("");
   const [triageProviderId, setTriageProviderId] = useState<string | null>(null);
@@ -241,7 +243,7 @@ export function AttentionHubContent({
   const startTriage = useStartAttentionTriageRun();
   const { data: bots = [] } = useBots();
   const selected = items.find((item) => item.id === selectedId) ?? null;
-  const operatorBot = bots.find((bot) => bot.id === "orchestrator");
+  const operatorBot = bots.find((bot) => bot.id === OPERATOR_BOT_ID);
   const operatorDefaultModel = operatorBot?.model ?? "operator default";
   const active = activeItems(items);
   const activeOccurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
@@ -271,6 +273,24 @@ export function AttentionHubContent({
     if (!ok) return;
     bulkAcknowledge.mutate({ scope: "workspace_visible" }, { onSuccess: () => onSelect(null) });
   };
+  const startOperatorSweep = () => {
+    if (!active.length || startTriage.isPending) return;
+    setCreating(false);
+    onSelect(null);
+    setOperatorRunOpen(true);
+    setTriageOptionsOpen(false);
+    startTriage.mutate(
+      {
+        model_override: triageModel || null,
+        model_provider_id_override: triageModel ? triageProviderId ?? null : null,
+      },
+      {
+        onSuccess: (run) => {
+          setTriageRun(run);
+        },
+      },
+    );
+  };
   return (
     <>
       <div className="flex items-center justify-between px-4 py-3">
@@ -295,13 +315,24 @@ export function AttentionHubContent({
           </button>
           <button
             type="button"
-            disabled={!active.length || startTriage.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:opacity-40"
-            onClick={() => setTriageOptionsOpen((value) => !value)}
+            disabled={!active.length && !triageRun}
+            className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:opacity-40 ${
+              operatorRunOpen ? "bg-accent/[0.08]" : ""
+            }`}
+            onClick={() => {
+              if (triageRun || startTriage.isPending || operatorRunOpen) {
+                setOperatorRunOpen(true);
+                setTriageOptionsOpen(false);
+                setCreating(false);
+                onSelect(null);
+                return;
+              }
+              setTriageOptionsOpen((value) => !value);
+            }}
             title="Configure an operator triage run for all active Attention Items"
           >
             {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            Operator
+            {triageRun || operatorRunOpen ? "Operator run" : "Operator sweep"}
           </button>
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">
             <Plus size={16} />
@@ -313,7 +344,37 @@ export function AttentionHubContent({
           )}
         </div>
       </div>
-      {creating ? (
+      {triageOptionsOpen && (
+        <div className="px-3 pb-2">
+          <OperatorTriageSetup
+            activeCount={active.length}
+            occurrenceCount={activeOccurrenceCount}
+            defaultModel={operatorDefaultModel}
+            model={triageModel}
+            providerId={triageProviderId}
+            pending={startTriage.isPending}
+            onModelChange={(model, providerId) => {
+              setTriageModel(model);
+              setTriageProviderId(model ? providerId ?? null : null);
+            }}
+            onCancel={() => setTriageOptionsOpen(false)}
+            onStart={startOperatorSweep}
+          />
+        </div>
+      )}
+      {operatorRunOpen ? (
+        <OperatorRunWorkspace
+          run={triageRun}
+          pending={startTriage.isPending}
+          error={startTriage.error}
+          grouped={grouped}
+          onBack={() => setOperatorRunOpen(false)}
+          onSelect={(item) => {
+            setOperatorRunOpen(false);
+            onSelect(item);
+          }}
+        />
+      ) : creating ? (
         <CreateAttentionForm onCreated={(item) => { setCreating(false); onSelect(item); }} />
       ) : selected ? (
         <AttentionDetail
@@ -325,34 +386,6 @@ export function AttentionHubContent({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {triageOptionsOpen && (
-            <OperatorTriageSetup
-              activeCount={active.length}
-              occurrenceCount={activeOccurrenceCount}
-              defaultModel={operatorDefaultModel}
-              model={triageModel}
-              providerId={triageProviderId}
-              pending={startTriage.isPending}
-              onModelChange={(model, providerId) => {
-                setTriageModel(model);
-                setTriageProviderId(model ? providerId ?? null : null);
-              }}
-              onStart={() => {
-                startTriage.mutate(
-                  {
-                    model_override: triageModel || null,
-                    model_provider_id_override: triageModel ? triageProviderId ?? null : null,
-                  },
-                  {
-                    onSuccess: (run) => {
-                      setTriageRun(run);
-                      setTriageOptionsOpen(false);
-                    },
-                  },
-                );
-              }}
-            />
-          )}
           {triageRun && <OperatorTriageRunPanel run={triageRun} />}
           <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
           <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
@@ -366,6 +399,66 @@ export function AttentionHubContent({
   );
 }
 
+function OperatorRunWorkspace({
+  run,
+  pending,
+  error,
+  grouped,
+  onBack,
+  onSelect,
+}: {
+  run: AttentionTriageRunResponse | null;
+  pending: boolean;
+  error: unknown;
+  grouped: {
+    review: WorkspaceAttentionItem[];
+    triage: WorkspaceAttentionItem[];
+    needs: WorkspaceAttentionItem[];
+    assigned: WorkspaceAttentionItem[];
+    system: WorkspaceAttentionItem[];
+    processed: WorkspaceAttentionItem[];
+  };
+  onBack: () => void;
+  onSelect: (item: WorkspaceAttentionItem) => void;
+}) {
+  const message = error instanceof Error ? error.message : error ? String(error) : null;
+  return (
+    <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>
+          Back to Attention
+        </button>
+        {pending && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-accent">
+            <Loader2 size={11} className="animate-spin" />
+            starting
+          </span>
+        )}
+      </div>
+      {run ? (
+        <OperatorTriageRunPanel run={run} />
+      ) : (
+        <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/35 p-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+            {pending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+            Operator run
+          </div>
+          <div className="text-sm text-text">
+            {message ? "Operator sweep could not start." : "Starting operator sweep..."}
+          </div>
+          <div className="text-xs leading-5 text-text-muted">
+            {message ?? "Creating the run and transcript. This panel will attach the live feed as soon as the server returns the session."}
+          </div>
+        </section>
+      )}
+      <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
+      <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
+      <AttentionLane title="Processed by operator" items={grouped.processed.slice(0, 16)} onSelect={onSelect} />
+      <AttentionLane title="Still unprocessed" items={[...grouped.needs, ...grouped.system, ...grouped.assigned].slice(0, 16)} onSelect={onSelect} />
+    </div>
+  );
+}
+
 function OperatorTriageSetup({
   activeCount,
   occurrenceCount,
@@ -374,6 +467,7 @@ function OperatorTriageSetup({
   providerId,
   pending,
   onModelChange,
+  onCancel,
   onStart,
 }: {
   activeCount: number;
@@ -383,32 +477,42 @@ function OperatorTriageSetup({
   providerId: string | null;
   pending: boolean;
   onModelChange: (model: string, providerId?: string | null) => void;
+  onCancel: () => void;
   onStart: () => void;
 }) {
   return (
-    <section className="mb-4 space-y-3 rounded-md bg-surface-overlay/35 p-3">
+    <section className="space-y-3 rounded-md bg-surface-overlay/35 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
             <Sparkles size={13} />
-            Operator triage
+            Operator sweep
           </div>
           <div className="mt-1 text-xs text-text-muted">
-            Read-only classify + report · {plural(activeCount, "active item")} · {plural(occurrenceCount, "occurrence")}
+            Runs across all active issues, not just the selected target · {plural(activeCount, "item")} · {plural(occurrenceCount, "occurrence")}
           </div>
         </div>
-        <button
-          type="button"
-          disabled={!activeCount || pending}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-40"
-          onClick={onStart}
-        >
-          {pending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          Start
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text"
+            onClick={onCancel}
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            disabled={!activeCount || pending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={onStart}
+          >
+            {pending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            Start sweep
+          </button>
+        </div>
       </div>
       <div className="space-y-1.5">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Model</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Model override</div>
         <LlmModelDropdown
           value={model}
           selectedProviderId={providerId}
@@ -497,6 +601,7 @@ function CreateAttentionForm({ onCreated }: { onCreated: (item: WorkspaceAttenti
   const assign = useAssignAttentionItem();
   const { data: channels = [] } = useChannels();
   const { data: bots = [] } = useBots();
+  const assignableBots = useMemo(() => bots.filter((bot) => bot.id !== OPERATOR_BOT_ID), [bots]);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [severity, setSeverity] = useState<AttentionSeverity>("warning");
@@ -544,7 +649,7 @@ function CreateAttentionForm({ onCreated }: { onCreated: (item: WorkspaceAttenti
       </div>
       <div className="space-y-2 rounded-md bg-surface-raised/45 p-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Assign Bot</div>
-        <BotPicker value={botId} onChange={setBotId} bots={bots} allowNone />
+        <BotPicker value={botId} onChange={setBotId} bots={assignableBots} allowNone />
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={`rounded-md px-2 py-1.5 text-xs ${mode === "next_heartbeat" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
           <button type="button" className={`rounded-md px-2 py-1.5 text-xs ${mode === "run_now" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("run_now")}>Run now</button>
@@ -577,11 +682,12 @@ function AttentionDetail({
   const assign = useAssignAttentionItem();
   const triageFeedback = useSubmitAttentionTriageFeedback();
   const { data: bots = [] } = useBots();
-  const [botId, setBotId] = useState(item.assigned_bot_id ?? "");
+  const assignableBots = useMemo(() => bots.filter((bot) => bot.id !== OPERATOR_BOT_ID), [bots]);
+  const [botId, setBotId] = useState(item.assigned_bot_id === OPERATOR_BOT_ID ? "" : item.assigned_bot_id ?? "");
   const [mode, setMode] = useState<AttentionAssignmentMode>(item.assignment_mode ?? "next_heartbeat");
   const [instructions, setInstructions] = useState(item.assignment_instructions ?? "");
   useEffect(() => {
-    setBotId(item.assigned_bot_id ?? "");
+    setBotId(item.assigned_bot_id === OPERATOR_BOT_ID ? "" : item.assigned_bot_id ?? "");
     setMode(item.assignment_mode ?? "next_heartbeat");
     setInstructions(item.assignment_instructions ?? "");
   }, [item.id, item.assigned_bot_id, item.assignment_mode, item.assignment_instructions]);
@@ -607,10 +713,10 @@ function AttentionDetail({
   };
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-auto px-3 pb-4 pt-2 md:px-4">
+    <div className="min-h-0 flex-1 space-y-3 overflow-auto px-3 pb-3 pt-1">
       <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>Back to all issues</button>
 
-      <section className="space-y-3 rounded-md bg-surface-raised/50 p-3">
+      <section className="space-y-2 rounded-md bg-surface-raised/35 p-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Target</div>
@@ -675,14 +781,17 @@ function AttentionDetail({
         )}
       </section>
 
-      <section className="space-y-3 rounded-md bg-surface-raised/55 p-3">
-        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80"><Bot size={13} /> Assignment</div>
-        <BotPicker value={botId} onChange={setBotId} bots={bots} allowNone />
+      <section className="space-y-2 rounded-md bg-surface-raised/35 p-2.5">
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80"><Bot size={13} /> Assign current issue</div>
+          <div className="mt-1 text-xs text-text-dim">Only sends issue {currentIndex + 1} to a normal bot. Use Operator sweep for all active issues.</div>
+        </div>
+        <BotPicker value={botId} onChange={setBotId} bots={assignableBots} allowNone />
         <div className="grid grid-cols-2 gap-2 rounded-md bg-surface-overlay/45 p-0.5">
           <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "next_heartbeat" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
           <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "run_now" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("run_now")}>Run now</button>
         </div>
-        <textarea className="min-h-24 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        <textarea className="min-h-20 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
         <button type="button" disabled={!botId || assign.isPending} className="rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50" onClick={() => assign.mutate({ itemId: item.id, bot_id: botId, mode, instructions })}>
           Assign
         </button>

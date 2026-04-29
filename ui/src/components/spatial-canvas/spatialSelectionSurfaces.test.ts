@@ -168,3 +168,21 @@ test("Map Brief warning lines expose concrete review targets", () => {
   assert.match(chromeSource, /signal\.correlation_id/);
   assert.match(typeSource, /correlation_id\?: string \| null/);
 });
+
+test("Attention operator sweep is global and normal assignment hides the operator bot", () => {
+  const source = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
+  assert.match(source, /const OPERATOR_BOT_ID = "orchestrator"/);
+  assert.match(source, /Operator sweep/);
+  assert.match(source, /Runs across all active issues, not just the selected target/);
+  assert.match(source, /Model override/);
+  assert.match(source, /Start sweep/);
+  assert.match(source, /setOperatorRunOpen\(true\)/);
+  assert.match(source, /Starting operator sweep/);
+  assert.match(source, /Creating the run and transcript/);
+  assert.match(source, /Ready for review/);
+  assert.match(source, /Processed by operator/);
+  assert.match(source, /bots\.filter\(\(bot\) => bot\.id !== OPERATOR_BOT_ID\)/);
+  assert.match(source, /Assign current issue/);
+  assert.match(source, /Only sends issue \{currentIndex \+ 1\} to a normal bot/);
+  assert.match(source, /bots=\{assignableBots\}/);
+});

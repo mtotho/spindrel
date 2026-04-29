@@ -13,6 +13,9 @@
 #   ./scripts/run_harness_parity_live.sh --tier writes
 #   ./scripts/run_harness_parity_live.sh --tier context
 #   ./scripts/run_harness_parity_live.sh --tier project
+#   ./scripts/run_harness_parity_live.sh --tier memory
+#   ./scripts/run_harness_parity_live.sh --tier skills
+#   ./scripts/run_harness_parity_live.sh --tier replay
 #   ./scripts/run_harness_parity_live.sh -k core
 
 set -euo pipefail
@@ -26,7 +29,7 @@ PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tier)
-            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, automation, writes, context, project}"
+            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, automation, writes, context, project, memory, skills, replay}"
             shift 2
             ;;
         --tier=*)
@@ -42,21 +45,22 @@ done
 
 cd "$PROJECT_ROOT"
 
-if [[ -z "${E2E_API_KEY:-}" && -f "$PROJECT_ROOT/.env" ]]; then
-    E2E_API_KEY="$(grep '^API_KEY=' "$PROJECT_ROOT/.env" | cut -d= -f2- || true)"
-fi
-
 if [[ -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
     E2E_API_KEY="$(docker exec agent-server-agent-server-1 printenv API_KEY 2>/dev/null || true)"
+fi
+
+if [[ -z "${E2E_API_KEY:-}" && -f "$PROJECT_ROOT/.env" ]]; then
+    E2E_API_KEY="$(grep '^API_KEY=' "$PROJECT_ROOT/.env" | cut -d= -f2- || true)"
 fi
 
 export E2E_MODE="external"
 export E2E_HOST="${E2E_HOST:-127.0.0.1}"
 export E2E_PORT="${E2E_PORT:-8000}"
 export E2E_API_KEY="${E2E_API_KEY:?API key required; set E2E_API_KEY or run on the server/container host}"
-export E2E_BOT_ID="${E2E_BOT_ID:-codex-bot}"
+export E2E_BOT_ID="${E2E_BOT_ID:-default}"
 export E2E_REQUEST_TIMEOUT="${E2E_REQUEST_TIMEOUT:-300}"
-export E2E_STARTUP_TIMEOUT="${E2E_STARTUP_TIMEOUT:-30}"
+export E2E_STARTUP_TIMEOUT="${E2E_STARTUP_TIMEOUT:-120}"
+export HARNESS_PARITY_HEALTH_WAIT_TIMEOUT="${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT:-120}"
 
 export HARNESS_PARITY_TIER="$TIER"
 export HARNESS_PARITY_TIMEOUT="${HARNESS_PARITY_TIMEOUT:-300}"
@@ -67,6 +71,34 @@ export HARNESS_PARITY_PLAYWRIGHT_HOST="${HARNESS_PARITY_PLAYWRIGHT_HOST:-playwri
 export HARNESS_PARITY_PLAYWRIGHT_CONTAINER="${HARNESS_PARITY_PLAYWRIGHT_CONTAINER:-spindrel-local-browser-automation-playwright-1}"
 export HARNESS_PARITY_PROJECT_PATH="${HARNESS_PARITY_PROJECT_PATH:-common/projects}"
 export HARNESS_PARITY_PROJECT_TIMEOUT="${HARNESS_PARITY_PROJECT_TIMEOUT:-600}"
+
+wait_for_server_health() {
+    local url="http://${E2E_HOST}:${E2E_PORT}/health"
+    local deadline=$((SECONDS + HARNESS_PARITY_HEALTH_WAIT_TIMEOUT))
+    while (( SECONDS < deadline )); do
+        if command -v curl >/dev/null 2>&1; then
+            if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
+                return 0
+            fi
+        else
+            if python - "$url" <<'PY' >/dev/null 2>&1
+import sys
+import urllib.request
+
+urllib.request.urlopen(sys.argv[1], timeout=5).read(1)
+PY
+            then
+                return 0
+            fi
+        fi
+        sleep 2
+    done
+    echo "Timed out waiting for server health at $url after ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}s" >&2
+    if command -v curl >/dev/null 2>&1; then
+        curl -v --max-time 5 "$url" >&2 || true
+    fi
+    return 1
+}
 
 if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
     browser_ip="$(docker inspect "$HARNESS_PARITY_PLAYWRIGHT_CONTAINER" \
@@ -82,15 +114,19 @@ echo "  Server: ${E2E_HOST}:${E2E_PORT}"
 echo "  Tier:   ${HARNESS_PARITY_TIER}"
 echo "  Codex:  ${HARNESS_PARITY_CODEX_CHANNEL_ID}"
 echo "  Claude: ${HARNESS_PARITY_CLAUDE_CHANNEL_ID}"
+echo "  Health bot: ${E2E_BOT_ID}"
 echo "  Browser host: ${HARNESS_PARITY_PLAYWRIGHT_HOST}"
 echo "  Browser ws: ${PLAYWRIGHT_WS_URL:-<auto/runtime-service/managed>}"
 echo "  Project path: ${HARNESS_PARITY_PROJECT_PATH}"
 echo "  Project timeout: ${HARNESS_PARITY_PROJECT_TIMEOUT}"
+echo "  Health wait: ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}"
 echo ""
 
 PYTEST_BIN=".venv/bin/pytest"
 if [[ ! -x "$PYTEST_BIN" ]]; then
     PYTEST_BIN="pytest"
 fi
+
+wait_for_server_health
 
 exec "$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs "${PYTEST_ARGS[@]}"

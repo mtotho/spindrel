@@ -81,6 +81,19 @@ Scratch app files are deleted through the workspace file API after the test.
 Screenshots land under `/tmp/spindrel-harness-parity/` unless
 `HARNESS_PARITY_ARTIFACT_DIR` is set.
 
+Deeper tiers build on that path:
+
+- `memory` seeds a bot memory reference file through the shared workspace API and verifies the harness only sees it after an explicit bridged `get_memory_file` call.
+- `skills` creates a temporary skill, tags it with `@skill:<id>`, and verifies a bridged `get_skill` call persists a renderable result envelope.
+- `replay` refetches a harness session after a bridge tool call and verifies the persisted transcript/tool-result metadata still renders from stored messages.
+
+The runner prefers the running app container's `API_KEY` over the host `.env`,
+waits for `/health` before pytest starts, and uses `E2E_BOT_ID=default` for the
+generic E2E fixture readiness check; Codex and Claude harness turns still
+target their configured channel/bot ids. When `PLAYWRIGHT_WS_URL` is not set,
+it resolves the local browser automation container IP and uses
+`PLAYWRIGHT_CONNECT_PROTOCOL=cdp`.
+
 When capturing docs screenshots, run the script from the host checkout but
 connect to the app through Docker networking. The browser itself runs inside the
 Playwright container, so from that browser `127.0.0.1:8000` means the Playwright

@@ -654,6 +654,25 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def write_workspace_file(self, workspace_id: str, path: str, content: str) -> dict:
+        resp = await self._client.put(
+            f"/api/v1/workspaces/{workspace_id}/files/content",
+            params={"path": path},
+            json={"content": content},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def mkdir_workspace_path(self, workspace_id: str, path: str) -> dict:
+        resp = await self._client.post(
+            f"/api/v1/workspaces/{workspace_id}/files/mkdir",
+            params={"path": path},
+        )
+        if resp.status_code == 400 and "exist" in resp.text.lower():
+            return {}
+        resp.raise_for_status()
+        return resp.json()
+
     async def delete_workspace_path(self, workspace_id: str, path: str) -> None:
         resp = await self._client.delete(
             f"/api/v1/workspaces/{workspace_id}/files",

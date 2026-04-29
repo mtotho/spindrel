@@ -92,7 +92,7 @@ The chat surface is the same surface every other Spindrel bot uses. The harness 
 
 ### Visual parity fixtures
 
-The checked-in harness screenshots below are regression fixtures for the web wrapper's CLI parity surface. They come from live Codex and Claude Code E2E channels and should be regenerated when tool-result rendering, terminal mode, question cards, or harness usage telemetry changes.
+The checked-in harness screenshots below are regression fixtures for the web wrapper's CLI parity surface. They come from live Codex and Claude Code E2E channels and should be regenerated when tool-result rendering, terminal mode, question cards, harness usage telemetry, explicit memory reads, or skill bridge rendering changes.
 
 ![Harness `/style` command picker in default chat mode](../images/harness-style-command-default-dark.png)
 
@@ -192,7 +192,7 @@ Scheduled and manual heartbeats on harness channels run through the native harne
 
 Scheduled/manual tasks that target a harness bot use the same automation seam. Task `execution_config.tools` and `execution_config.skills` are merged with any `@tool:` / `@skill:` tags in the task prompt, model/effort overrides are passed through to the runtime, and `skip_tool_approval=true` applies only to that automated run. Arbitrary `additional_tool_schemas` remain normal-agent-only unless a real bridge executor exists; harness automation should select registered Spindrel tools.
 
-When workspace-files memory is enabled on a harness bot, Spindrel injects a non-consuming host hint on each turn that points the runtime at the bot workspace and explains that durable memory files may exist there. The hint does not read, mutate, or paste `memory/MEMORY.md` into the native Codex/Claude prompt. Channel prompts are the right place for short harness-specific operating instructions; durable memory files remain file-backed context the harness must inspect explicitly through native filesystem tools or selected bridged Spindrel tools.
+When workspace-files memory is enabled on a harness bot, Spindrel injects a non-consuming host hint on each turn that points the runtime at the bot workspace and explains that durable memory files may exist there. The hint does not read, mutate, or paste `memory/MEMORY.md` into the native Codex/Claude prompt. Channel prompts are the right place for short harness-specific operating instructions; durable memory files remain file-backed context the harness must inspect explicitly through native filesystem tools or selected bridged Spindrel tools such as `get_memory_file`.
 
 ## Spindrel tool bridge
 
@@ -202,7 +202,7 @@ Calls route back through `dispatch_tool_call`, not directly into Python function
 
 The normal bot and channel tool pickers are intentionally still visible for harness bots. For harnesses they mean "make these Spindrel tools bridgeable to the runtime," not "inject these tools into Spindrel's normal LLM loop." The composer plus menu can also insert `@tool:<name>` for a one-turn bridge addition.
 
-The bridge is still early. Smoke-test SDK helper names on the deployed harness image before relying on it for production mutating tools.
+The bridge is still early. Smoke-test SDK helper names on the deployed harness image before relying on it for production mutating tools. The live parity suite has focused tiers for this surface: `memory` verifies hint-only memory plus explicit `get_memory_file`, `skills` verifies `@skill:<id>` plus `get_skill`, and `replay` verifies persisted bridge tool envelopes after message refetch.
 
 ## Spindrel skill bridge
 

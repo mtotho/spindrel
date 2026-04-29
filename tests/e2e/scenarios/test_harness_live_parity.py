@@ -13,6 +13,9 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 - ``writes``: automation plus safe temporary workspace write/read/delete.
 - ``context``: writes plus context-pressure and native compaction checks.
 - ``project``: context plus a plan-confirm-build static app workflow with screenshots.
+- ``memory``: project plus explicit workspace memory reads through the bridge.
+- ``skills``: memory plus tagged skill hints and bridged get_skill fetches.
+- ``replay``: skills plus persisted tool transcript replay after refetch.
 """
 
 from __future__ import annotations
@@ -48,6 +51,9 @@ TIER_ORDER = {
     "writes": 5,
     "context": 6,
     "project": 7,
+    "memory": 8,
+    "skills": 9,
+    "replay": 10,
 }
 
 
@@ -174,11 +180,23 @@ def _bridge_visible_names(tool_name: str) -> tuple[str, ...]:
     )))
 
 
+def _local_tool_prompt(tool_name: str) -> str:
+    return f"@tool:{tool_name}"
+
+
 def _configured_case(case: HarnessCase) -> tuple[str, str]:
     channel_id = os.environ.get(case.channel_env, "").strip()
     if not channel_id:
         pytest.skip(f"{case.channel_env} is not set")
     return channel_id, os.environ.get(case.bot_env, case.default_bot_id).strip()
+
+
+async def _shared_workspace_id_for_bot(client: E2EClient, bot_id: str) -> str:
+    bot = await client.get_bot(bot_id)
+    workspace_id = str(bot.get("shared_workspace_id") or "").strip()
+    if not workspace_id:
+        pytest.skip(f"bot {bot_id!r} is not attached to a shared workspace")
+    return workspace_id
 
 
 def _expected_usage_provider(case: HarnessCase) -> str:
@@ -340,7 +358,6 @@ def _has_persisted_tool_result_containing(message: dict, expected: str) -> bool:
     tool_results = meta.get("tool_results") if isinstance(meta, dict) else None
     return any(
         isinstance(result, dict)
-        and result.get("content_type") in {"text/plain", "text/markdown"}
         and (
             not tool_call_ids
             or not result.get("tool_call_id")
@@ -349,6 +366,42 @@ def _has_persisted_tool_result_containing(message: dict, expected: str) -> bool:
         and expected in str(result.get("body") or result.get("plain_body") or "")
         for result in (tool_results or [])
     )
+
+
+def _has_harness_hint_containing(message: dict, kind: str, expected: str) -> bool:
+    harness = _message_metadata(message).get("harness") or {}
+    hints = harness.get("last_hints_sent") or []
+    return any(
+        isinstance(hint, dict)
+        and hint.get("kind") == kind
+        and expected in str(hint.get("text") or hint.get("preview") or "")
+        for hint in hints
+    )
+
+
+def _assert_persisted_bridge_tool_result(
+    messages: list[dict],
+    *,
+    tool_name: str,
+    expected: str | None = None,
+) -> None:
+    assistants = _assistant_messages(messages)
+    visible_names = _bridge_visible_names(tool_name)
+    matching = [
+        message for message in assistants
+        if _message_mentions_any_tool(message, visible_names)
+    ]
+    assert matching, f"{visible_names} was not visible in persisted assistant messages"
+    assert any(_has_persisted_tool_transcript(message) for message in matching), (
+        f"{tool_name} did not persist canonical tool call transcript"
+    )
+    assert any(_has_persisted_tool_result_envelope(message) for message in matching), (
+        f"{tool_name} did not persist a ToolResultEnvelope for replay/UI rendering"
+    )
+    if expected is not None:
+        assert any(_has_persisted_tool_result_containing(message, expected) for message in matching), (
+            f"{tool_name} persisted results did not include expected content {expected!r}"
+        )
 
 
 def _has_get_tool_info_schema_envelope(message: dict, tool_name: str) -> bool:
@@ -1330,3 +1383,172 @@ async def test_live_harness_project_plan_build_and_screenshot(
         )
         restored = True
     assert restored
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_memory_hint_requires_explicit_read(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("memory")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex[:12]
+    memory_name = f"harness-parity-{case.name}-{marker}"
+    tool_name = "get_memory_file"
+    memory_tool_arg = f"reference/{memory_name}"
+    workspace_path = f"bots/{bot_id}/memory/reference/{memory_name}.md"
+    secret = f"harness memory secret {marker}"
+
+    try:
+        await client.mkdir_workspace_path(workspace_id, f"bots/{bot_id}/memory/reference")
+        await client.write_workspace_file(
+            workspace_id,
+            workspace_path,
+            f"# Harness Memory Parity\n\n{secret}\n",
+        )
+
+        unread = await client.chat_session_stream(
+            (
+                f"A memory reference file exists at {memory_tool_arg}. "
+                "Do not call tools, do not read files, and do not infer its contents. "
+                "Reply exactly: memory not loaded"
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(unread)
+        assert "memory not loaded" in unread.response_text.lower()
+        assert secret not in unread.response_text
+        assert not unread.tool_events, "memory file content was accessed before explicit tool use"
+
+        explicit = await client.chat_session_stream(
+            (
+                f"{_local_tool_prompt(tool_name)} "
+                f"Call the host-provided {tool_name} tool exactly once with "
+                f'name="{memory_tool_arg}". Do not use shell commands. '
+                "After the tool result, reply with only the exact secret phrase from the file."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(explicit)
+        assert secret in explicit.response_text
+        assert any(
+            event.type == "tool_start" and event.data.get("tool") in _bridge_visible_names(tool_name)
+            for event in explicit.events
+        ), f"harness did not call {tool_name}"
+
+        messages = await client.get_session_messages(session_id, limit=40)
+        assistants = _assistant_messages(messages)
+        assert any(_has_harness_hint_containing(message, "workspace_files_memory", "memory") for message in assistants), (
+            "workspace-files memory hint was not recorded as a harness hint"
+        )
+        _assert_persisted_bridge_tool_result(messages, tool_name=tool_name, expected=secret)
+    finally:
+        await client.delete_workspace_path(workspace_id, workspace_path)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_tagged_skill_fetch_persists_bridge_result(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+    marker = uuid.uuid4().hex[:12]
+    skill_id = f"e2e-skill-harness-parity-{case.name}-{marker}"
+    tool_name = "get_skill"
+    skill_phrase = f"harness skill secret {marker}"
+    create_resp = None
+
+    try:
+        create_resp = await client.post(
+            "/api/v1/admin/skills",
+            json={
+                "id": skill_id,
+                "name": f"Harness Parity Skill {case.name}",
+                "description": f"Temporary harness parity skill {marker}",
+                "content": f"# Harness Parity Skill\n\n{skill_phrase}\n",
+            },
+        )
+        create_resp.raise_for_status()
+
+        result = await client.chat_session_stream(
+            (
+                f"@skill:{skill_id} {_local_tool_prompt(tool_name)} "
+                f"Call the host-provided {tool_name} tool exactly once with "
+                f'skill_id="{skill_id}" and refresh=true. Do not use shell commands. '
+                "After the tool result, reply with only the exact secret phrase from the skill."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert skill_phrase in result.response_text
+        assert any(
+            event.type == "tool_start" and event.data.get("tool") in _bridge_visible_names(tool_name)
+            for event in result.events
+        ), f"harness did not call {tool_name}"
+
+        messages = await client.get_session_messages(session_id, limit=30)
+        assistants = _assistant_messages(messages)
+        assert any(_has_harness_hint_containing(message, "tagged_skills", skill_id) for message in assistants), (
+            "tagged skill index hint was not recorded for the harness turn"
+        )
+        _assert_persisted_bridge_tool_result(messages, tool_name=tool_name, expected=skill_phrase)
+    finally:
+        if create_resp is not None:
+            delete_resp = await client.delete(f"/api/v1/admin/skills/{skill_id}")
+            if delete_resp.status_code not in (200, 204, 404):
+                delete_resp.raise_for_status()
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_persisted_tool_replay_survives_refetch(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("replay")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    marker = uuid.uuid4().hex[:12]
+    tool_name = "list_channels"
+
+    result = await client.chat_session_stream(
+        (
+            f"{_local_tool_prompt(tool_name)} "
+            f"Call the host-provided {tool_name} tool exactly once. Do not use shell commands. "
+            f"After the tool result, reply exactly: replay ok {marker}"
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert f"replay ok {marker}" in result.response_text.lower()
+
+    first_fetch = await client.get_session_messages(session_id, limit=30)
+    second_fetch = await client.get_session_messages(session_id, limit=30)
+    for messages in (first_fetch, second_fetch):
+        assistants = _assistant_messages(messages)
+        assert any(marker in str(message.get("content") or "") for message in assistants), (
+            "assistant replay marker was not present after message refetch"
+        )
+        _assert_persisted_bridge_tool_result(messages, tool_name=tool_name)
