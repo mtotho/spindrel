@@ -94,7 +94,7 @@ async def _compute_cost_in_range(
         if not events:
             return 0.0, []
 
-        from app.routers.api_v1_admin.usage import (
+        from app.services.usage_costs import (
             _load_pricing_map, _compute_cost_for_events, _get_provider_type_map,
         )
         pricing = await _load_pricing_map(db)
@@ -109,7 +109,7 @@ async def _compute_cost_in_range(
 
 def _gather_context(events: list[TraceEvent], pricing: dict, ptype_map: dict) -> dict:
     """Compute top models, bots, and traces from a list of events."""
-    from app.routers.api_v1_admin.usage import _resolve_event_cost
+    from app.services.usage_costs import _resolve_event_cost
 
     model_costs: dict[str, dict] = {}  # model -> {cost, calls}
     bot_costs: dict[str, float] = {}
@@ -460,7 +460,7 @@ async def check_for_spike(
             spike_ratio = window_rate / baseline_rate
 
     # Gather context
-    from app.routers.api_v1_admin.usage import (
+    from app.services.usage_costs import (
         _load_pricing_map, _get_provider_type_map,
     )
     async with async_session() as db:

@@ -189,7 +189,6 @@ export function UsageDensityChrome({
   } | null>(null);
   const [stationMenuOpen, setStationMenuOpen] = useState(false);
   const stationMenuRef = useRef<HTMLDivElement | null>(null);
-  const objectClickTimerRef = useRef<number | null>(null);
   const [panelWidth, setPanelWidth] = useState(() => loadStarboardWidth());
   const activeStation = STATIONS.find((item) => item.id === station) ?? STATIONS[0];
   const selectStation = (nextStation: StarboardStation) => {
@@ -222,14 +221,6 @@ export function UsageDensityChrome({
     };
   }, [stationMenuOpen]);
 
-  useEffect(() => {
-    return () => {
-      if (objectClickTimerRef.current !== null) {
-        window.clearTimeout(objectClickTimerRef.current);
-      }
-    };
-  }, []);
-
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -251,25 +242,11 @@ export function UsageDensityChrome({
   };
 
   const handleObjectClick = (item: StarboardObjectItem) => {
-    if (!item.onDoubleClick) {
-      item.onSelect();
-      return;
-    }
-    if (objectClickTimerRef.current !== null) {
-      window.clearTimeout(objectClickTimerRef.current);
-    }
-    objectClickTimerRef.current = window.setTimeout(() => {
-      item.onSelect();
-      objectClickTimerRef.current = null;
-    }, 220);
+    item.onSelect();
   };
 
   const handleObjectDoubleClick = (item: StarboardObjectItem) => {
     if (!item.onDoubleClick) return;
-    if (objectClickTimerRef.current !== null) {
-      window.clearTimeout(objectClickTimerRef.current);
-      objectClickTimerRef.current = null;
-    }
     item.onDoubleClick();
   };
 

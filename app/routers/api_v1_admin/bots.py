@@ -134,6 +134,8 @@ class ResolvedPreview(BaseModel):
 
 class BotEditorDataOut(BaseModel):
     bot: BotOut
+    default_shared_workspace_id: Optional[str] = None
+    default_shared_workspace_name: Optional[str] = None
     tool_groups: list[ToolGroupOut] = []
     mcp_servers: list[str] = []
     client_tools: list[str] = []
@@ -166,7 +168,19 @@ async def admin_bot_editor_data(
 
     if is_new:
         from app.config import settings as _settings
-        bot_out = BotOut(id="", name="", model=_settings.DEFAULT_MODEL, system_prompt="")
+        bot_out = BotOut(
+            id="",
+            name="",
+            model=_settings.DEFAULT_MODEL,
+            system_prompt="",
+            memory_scheme="workspace-files",
+            history_mode="file",
+            workspace={
+                "enabled": True,
+                "bot_knowledge_auto_retrieval": True,
+                "indexing": {"enabled": True, "watch": True, "segments": []},
+            },
+        )
         all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
             _fetch_all_skills(db, bot_id=None),
             _fetch_tool_rows(db),
@@ -224,6 +238,10 @@ async def admin_bot_editor_data(
     from app.agent.model_params import MODEL_PARAM_SUPPORT, PARAM_DEFINITIONS
     from app.services.providers import supports_reasoning_set
 
+    default_ws = (await db.execute(
+        select(SharedWorkspace).order_by(SharedWorkspace.created_at.asc()).limit(1)
+    )).scalar_one_or_none()
+
     # Resolve preview (full tool picture at bot level)
     resolved_preview = None
     if not is_new:
@@ -236,6 +254,8 @@ async def admin_bot_editor_data(
 
     return BotEditorDataOut(
         bot=bot_out,
+        default_shared_workspace_id=str(default_ws.id) if default_ws else None,
+        default_shared_workspace_name=default_ws.name if default_ws else None,
         tool_groups=[ToolGroupOut(**g) for g in tool_groups],
         mcp_servers=mcp_servers,
         client_tools=client_tools,
@@ -781,6 +801,19 @@ async def admin_bot_create(
     await _sync_bot_api_key(db, row, DEFAULT_NEW_BOT_API_PERMISSIONS)
     await db.commit()
 
+    # New bots are permanent members of the default shared workspace. Do this
+    # synchronously so the create response and first editor reload agree with
+    # the singleton workspace model.
+    try:
+        from app.services.workspace_bootstrap import (
+            ensure_all_bots_enrolled,
+            ensure_default_workspace,
+        )
+        default_ws = await ensure_default_workspace(db)
+        await ensure_all_bots_enrolled(db, default_ws.id)
+    except Exception:
+        logger.warning("Failed to enroll new bot %s into default workspace", data.id, exc_info=True)
+
     if persona_content_val:
         await write_persona(data.id, persona_content_val)
 
@@ -801,7 +834,17 @@ async def admin_bot_create(
 
     await reload_bots()
 
-    bot = get_bot(data.id)
+    await db.refresh(row)
+    sw = (await db.execute(
+        select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == data.id)
+    )).scalar_one_or_none()
+    if sw:
+        row._sw_workspace_id = sw.workspace_id
+        row._sw_role = sw.role
+        row._sw_cwd_override = sw.cwd_override
+
+    from app.agent.bots import _bot_row_to_config
+    bot = _bot_row_to_config(row)
     return _bot_to_out(bot, api_permissions=await _get_bot_api_permissions(db, row))
 
 

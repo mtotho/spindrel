@@ -319,6 +319,25 @@ class TestBotCreate:
         assert row.memory_scheme == "workspace-files"
         _TEST_REGISTRY.pop("fresh-bot", None)
 
+    async def test_when_created_then_bot_is_enrolled_in_default_shared_workspace(self, client, db_session):
+        payload = {"id": "shared-fresh-bot", "name": "Shared Fresh", "model": "test/m"}
+
+        with patch("app.agent.bots.reload_bots", _register_new_bot_on_reload("shared-fresh-bot", "Shared Fresh")):
+            resp = await client.post("/api/v1/admin/bots", json=payload, headers=AUTH_HEADERS)
+
+        from app.db.models import SharedWorkspace, SharedWorkspaceBot
+        workspace = (await db_session.execute(select(SharedWorkspace))).scalar_one()
+        membership = (await db_session.execute(
+            select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == "shared-fresh-bot")
+        )).scalar_one()
+
+        assert resp.status_code == 201
+        assert resp.json()["shared_workspace_id"] == str(workspace.id)
+        assert resp.json()["shared_workspace_role"] == "member"
+        assert membership.workspace_id == workspace.id
+        assert membership.role == "member"
+        _TEST_REGISTRY.pop("shared-fresh-bot", None)
+
     async def test_when_created_then_bot_kb_auto_retrieval_defaults_true(self, client):
         payload = {"id": "kb-bot", "name": "KB Bot", "model": "test/m"}
 
@@ -743,6 +762,24 @@ class TestChannelEnrolledSkills:
 
 
 class TestBotEditorDataSkills:
+    async def test_new_bot_editor_data_uses_shared_workspace_defaults(self, client, db_session):
+        from app.db.models import SharedWorkspace
+
+        workspace = SharedWorkspace(name="Editor Default")
+        db_session.add(workspace)
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/admin/bots/new/editor-data", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["default_shared_workspace_id"] == str(workspace.id)
+        assert body["default_shared_workspace_name"] == "Editor Default"
+        assert body["bot"]["memory_scheme"] == "workspace-files"
+        assert body["bot"]["history_mode"] == "file"
+        assert body["bot"]["workspace"]["enabled"] is True
+        assert body["bot"]["workspace"]["bot_knowledge_auto_retrieval"] is True
+
     async def test_all_skills_use_metadata_description_and_filter_private_or_archived(self, client, db_session):
         from datetime import datetime, timezone
         from tests.factories import build_skill

@@ -10,29 +10,29 @@ class TestRecurrenceRunsPerDay:
     """Test _recurrence_runs_per_day helper."""
 
     def test_hourly(self):
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
         assert _recurrence_runs_per_day("+1h") == 24.0
 
     def test_30_minutes(self):
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
         assert _recurrence_runs_per_day("+30m") == 48.0
 
     def test_daily(self):
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
         assert _recurrence_runs_per_day("+1d") == 1.0
 
     def test_weekly(self):
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
         result = _recurrence_runs_per_day("+1w")
         assert abs(result - 1 / 7) < 0.001
 
     def test_invalid_returns_zero(self):
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
         assert _recurrence_runs_per_day("invalid") == 0.0
         assert _recurrence_runs_per_day("") == 0.0
 
     def test_whitespace_stripped(self):
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
         assert _recurrence_runs_per_day(" +2h ") == 12.0
 
 
@@ -165,7 +165,8 @@ class TestModelBasedTaskForecast:
 
     def test_plan_billed_model_contributes_zero(self):
         """Tasks using plan-billed models should not add to the forecast."""
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day, _is_plan_billed
+        from app.services.usage_forecast import _recurrence_runs_per_day
+        from app.services.usage_costs import _is_plan_billed
 
         runs_per_day = _recurrence_runs_per_day("+1h")
         assert runs_per_day == 24.0
@@ -204,7 +205,7 @@ class TestModelBasedTaskForecast:
 
     def test_task_daily_from_model_avg(self):
         """Daily cost = runs_per_day * avg_cost_per_call for the bot's model."""
-        from app.routers.api_v1_admin.usage import _recurrence_runs_per_day
+        from app.services.usage_forecast import _recurrence_runs_per_day
 
         model_avg_cost = {"gemini/gemini-2.0-flash": 0.001}
 

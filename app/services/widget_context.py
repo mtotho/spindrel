@@ -264,9 +264,9 @@ async def _summarize_context_tracker(
 
 
 async def _summarize_usage_forecast(db: "AsyncSession") -> str | None:
-    from app.routers.api_v1_admin.usage import usage_forecast
+    from app.services.usage_forecast import build_usage_forecast
 
-    forecast = await usage_forecast(db)
+    forecast = await build_usage_forecast(db)
     if hasattr(forecast, "model_dump"):
         forecast = forecast.model_dump()
     if not isinstance(forecast, dict):

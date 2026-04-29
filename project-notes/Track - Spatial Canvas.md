@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-28 (Map Brief quiet triage and selected-object wayfinding.)
+updated: 2026-04-28 (Actionable map cue model for existing primitives.)
 ---
 
 # Track — Spatial Canvas
@@ -155,6 +155,22 @@ understand what just separated. Selected-object anchors no longer render a
 second label for channels/bots/widgets; those objects keep their own tile label
 and the anchor is only the selection outline. Landmark anchors may still show
 their label because landmarks do not always have persistent tile text.
+
+Same-day actionable map pass: the backend map-state service now derives a
+read-only `cue` for every existing canvas object from current primitives:
+warnings become `investigate`, queued/running work becomes `next`, recent
+activity becomes `recent`, and idle objects stay `quiet`. Map Brief groups and
+sorts by those cues, selected-object briefs lead with the actionable cue, and
+zoomed-out clusters summarize aggregate work like "to inspect" or "next"
+without opening selection chrome. Quiet cues remain available to the inspector
+and grouping model but do not add noisy map pills.
+
+Same-day object reveal follow-up: Map Brief row clicks and Jump actions now use
+the animated camera tween path instead of immediate camera commits, preserving
+Starboard-aware framing while making object-to-object navigation feel spatial.
+The same object reveal animation is used for minimap clicks and palette-driven
+channel/widget fly-to actions; Map Brief single-click selection no longer waits
+on a double-click timer.
 
 | Phase | Status | Description |
 |---|---|---|

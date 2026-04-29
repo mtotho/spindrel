@@ -19,6 +19,7 @@ export function defaultChannelPanelPrefs() {
         sessionPanels: [],
         chatPaneLayout: defaultChannelChatPaneLayout(),
         hiddenSessionTabKeys: [],
+        sessionTabOrderKeys: [],
         topChromeCollapsed: false,
         collapseHintDismissed: false,
     };
@@ -47,6 +48,9 @@ function normalizeChannelPanelPrefs(prefs) {
         chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
         hiddenSessionTabKeys: Array.isArray(prefs?.hiddenSessionTabKeys)
             ? prefs.hiddenSessionTabKeys.filter((key) => typeof key === "string" && key.length > 0).slice(0, 40)
+            : [],
+        sessionTabOrderKeys: Array.isArray(prefs?.sessionTabOrderKeys)
+            ? prefs.sessionTabOrderKeys.filter((key) => typeof key === "string" && key.length > 0).slice(0, 40)
             : [],
         topChromeCollapsed: prefs?.topChromeCollapsed ?? base.topChromeCollapsed,
         collapseHintDismissed: prefs?.collapseHintDismissed ?? base.collapseHintDismissed,

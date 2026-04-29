@@ -85,7 +85,7 @@ async def _compute_spend(scope_type: str, scope_value: str, since: datetime) -> 
         if not events:
             return 0.0
 
-        from app.routers.api_v1_admin.usage import (
+        from app.services.usage_costs import (
             _load_pricing_map, _compute_cost_for_events, _get_provider_type_map,
         )
 

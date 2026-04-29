@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { buildBotSavePayload } from "./botEditorPayload.ts";
+import { buildBotSavePayload } from "./botEditorPayload.js";
 import type { BotConfig } from "../types/api";
 
 const original = {
@@ -8,6 +8,9 @@ const original = {
   model: "openai/gpt-4o",
   system_prompt: "Answer carefully.",
   model_provider_id: "openai",
+  shared_workspace_id: "workspace-1",
+  shared_workspace_role: "member",
+  harness_session_state: { opaque: true },
   api_permissions: ["legacy:scope"],
   memory: {
     enabled: false,
@@ -66,11 +69,28 @@ const original = {
 
 {
   const payload = buildBotSavePayload({
+    original,
+    draft: {
+      ...original,
+      shared_workspace_id: "workspace-2",
+      shared_workspace_role: "orchestrator",
+      harness_session_state: { changed: true },
+    },
+    isNew: false,
+  });
+
+  assert.deepEqual(payload, {});
+}
+
+{
+  const payload = buildBotSavePayload({
     draft: {
       id: "new-bot",
       name: "New Bot",
       model: "openai/gpt-5.4",
       memory: original.memory,
+      shared_workspace_id: "workspace-1",
+      shared_workspace_role: "member",
       created_at: "ignored",
     },
     isNew: true,

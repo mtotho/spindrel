@@ -1,7 +1,7 @@
 """Unit tests for usage cost helpers."""
 import pytest
 
-from app.routers.api_v1_admin.usage import (
+from app.services.usage_costs import (
     _parse_cost_str, _compute_cost, _lookup_pricing,
     _resolve_event_cost, _cache_discount_for_provider,
 )
@@ -64,33 +64,33 @@ class TestLookupPricing:
     def test_exact_match(self):
         pricing = {("prov1", "gpt-4"): ("$30.00", "$60.00")}
         result = _lookup_pricing(pricing, "prov1", "gpt-4")
-        assert result == ("$30.00", "$60.00")
+        assert result == ("$30.00", "$60.00", None)
 
     def test_fallback_no_provider(self):
         pricing = {("prov1", "gpt-4"): ("$30.00", "$60.00")}
         result = _lookup_pricing(pricing, None, "gpt-4")
-        assert result == ("$30.00", "$60.00")
+        assert result == ("$30.00", "$60.00", None)
 
     def test_no_match(self):
         pricing = {("prov1", "gpt-4"): ("$30.00", "$60.00")}
         result = _lookup_pricing(pricing, "prov1", "claude-3")
-        assert result == (None, None)
+        assert result == (None, None, None)
 
     def test_no_model(self):
         pricing = {("prov1", "gpt-4"): ("$30.00", "$60.00")}
         result = _lookup_pricing(pricing, "prov1", None)
-        assert result == (None, None)
+        assert result == (None, None, None)
 
     def test_provider_mismatch_falls_back_to_model(self):
         pricing = {("prov1", "gpt-4"): ("$30.00", "$60.00")}
         result = _lookup_pricing(pricing, "prov2", "gpt-4")
-        assert result == ("$30.00", "$60.00")
+        assert result == ("$30.00", "$60.00", None)
 
     def test_env_fallback_key(self):
         """No provider_id on event → should match __env__ sentinel from LiteLLM cache."""
         pricing = {("__env__", "gemini/gemini-2.5-flash"): ("$0.15", "$0.60")}
         result = _lookup_pricing(pricing, None, "gemini/gemini-2.5-flash")
-        assert result == ("$0.15", "$0.60")
+        assert result == ("$0.15", "$0.60", None)
 
     def test_db_overrides_env(self):
         """DB row should win over __env__ LiteLLM cache entry."""
@@ -99,7 +99,7 @@ class TestLookupPricing:
             ("prov1", "gpt-4"): ("$5.00", "$15.00"),
         }
         result = _lookup_pricing(pricing, "prov1", "gpt-4")
-        assert result == ("$5.00", "$15.00")
+        assert result == ("$5.00", "$15.00", None)
 
 
 class TestComputeCostWithCache:

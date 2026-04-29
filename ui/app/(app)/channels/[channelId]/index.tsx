@@ -104,7 +104,7 @@ import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
-import { useMarkRead, useMarkSessionVisible } from "@/src/api/hooks/useUnread";
+import { useMarkRead, useMarkSessionVisible, useUnreadState } from "@/src/api/hooks/useUnread";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
 
@@ -218,6 +218,7 @@ export default function ChatScreen() {
 
   const markChannelRead = useMarkRead();
   const markSessionVisible = useMarkSessionVisible();
+  const { data: unreadState } = useUnreadState();
 
   // Auto-collapse the global sidebar to its rail whenever the user enters a
   // chat. Maximises horizontal room for the centered chat column; the rail's
@@ -838,6 +839,7 @@ export default function ChatScreen() {
   );
   const activeSessionTabSurface: ChannelSessionSurface = routeSessionSurface
     ?? (canvasActive && focusedChatPane ? focusedChatPane.surface : { kind: "primary" });
+  const activeSessionTabKey = surfaceKey(activeSessionTabSurface);
   const sessionTabs = useMemo(
     () =>
       channelId
@@ -849,6 +851,8 @@ export default function ChatScreen() {
             activeSessionId: channel?.active_session_id,
             catalog: channelSessionCatalog,
             hiddenKeys: panelPrefs.hiddenSessionTabKeys,
+            orderKeys: panelPrefs.sessionTabOrderKeys,
+            unreadStates: unreadState?.states,
           })
         : [],
     [
@@ -858,9 +862,20 @@ export default function ChatScreen() {
       channelSessionCatalog,
       currentRouteHref,
       panelPrefs.hiddenSessionTabKeys,
+      panelPrefs.sessionTabOrderKeys,
       recentPages,
+      unreadState?.states,
     ],
   );
+  useEffect(() => {
+    if (!channelId) return;
+    if (panelPrefs.sessionTabOrderKeys.includes(activeSessionTabKey)) return;
+    patchChannelPanelPrefs(channelId, (current) => (
+      current.sessionTabOrderKeys.includes(activeSessionTabKey)
+        ? {}
+        : { sessionTabOrderKeys: [...current.sessionTabOrderKeys, activeSessionTabKey].slice(-40) }
+    ));
+  }, [activeSessionTabKey, channelId, panelPrefs.sessionTabOrderKeys, patchChannelPanelPrefs]);
   const unhideSessionTabSurface = useCallback((surface: ChannelSessionSurface) => {
     if (!channelId) return;
     const key = surfaceKey(surface);
@@ -882,6 +897,26 @@ export default function ChatScreen() {
       activateChannelSessionSurface(nextTab.surface, "switch");
     }
   }, [activateChannelSessionSurface, channelId, patchChannelPanelPrefs, sessionTabs]);
+  const handleReorderSessionTabs = useCallback((dragKey: string, targetKey: string) => {
+    if (!channelId || dragKey === targetKey) return;
+    patchChannelPanelPrefs(channelId, (current) => {
+      const visibleKeys = sessionTabs.map((tab) => tab.key);
+      const base = current.sessionTabOrderKeys.length > 0
+        ? current.sessionTabOrderKeys
+        : visibleKeys;
+      const withoutDrag = base.filter((key) => key !== dragKey);
+      const targetIndex = Math.max(0, withoutDrag.indexOf(targetKey));
+      const next = [
+        ...withoutDrag.slice(0, targetIndex),
+        dragKey,
+        ...withoutDrag.slice(targetIndex),
+      ];
+      for (const key of visibleKeys) {
+        if (!next.includes(key)) next.push(key);
+      }
+      return { sessionTabOrderKeys: next.slice(-40) };
+    });
+  }, [channelId, patchChannelPanelPrefs, sessionTabs]);
   const handleOverlayActivateSessionSurface = useCallback((surface: ChannelSessionSurface, intent: "switch" | "split") => {
     unhideSessionTabSurface(surface);
     activateChannelSessionSurface(surface, intent);
@@ -1751,6 +1786,7 @@ export default function ChatScreen() {
             tabs={sessionTabs}
             onSelect={handleSelectSessionTab}
             onClose={handleCloseSessionTab}
+            onReorder={handleReorderSessionTabs}
             onOpenSessions={openSessionsOverlay}
           />
         )}

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 
 def test_no_cached_tokens_uses_full_input_rate():
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost = _compute_cost(
         prompt_tokens=1_000_000,
@@ -27,7 +27,7 @@ def test_explicit_cached_rate_splits_cost():
     Without cache: 1M * $3.00/1M = $3.00.
     With cache + explicit $0.30 rate: 200k * $3.00 + 800k * $0.30 = $0.60 + $0.24 = $0.84.
     """
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost = _compute_cost(
         prompt_tokens=1_000_000,
@@ -44,7 +44,7 @@ def test_explicit_cached_rate_splits_cost():
 def test_falls_back_to_discount_when_no_explicit_rate():
     """When cached_input_rate_str is None but a cache_discount is supplied,
     fall back to the legacy percent-discount math (Anthropic 90%, OpenAI 50%)."""
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost = _compute_cost(
         prompt_tokens=1_000_000,
@@ -62,7 +62,7 @@ def test_explicit_rate_wins_over_discount():
     """If both a discount and an explicit rate are provided, the explicit rate
     is authoritative — the discount is ignored. This is what `_resolve_event_cost`
     arranges; this test pins the helper-level contract."""
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost_explicit = _compute_cost(
         prompt_tokens=1_000_000,
@@ -80,7 +80,7 @@ def test_explicit_rate_wins_over_discount():
 def test_uncached_floor_at_zero():
     """If cached_tokens > prompt_tokens (provider edge case), uncached bucket
     must clamp at zero rather than going negative and producing a credit."""
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost = _compute_cost(
         prompt_tokens=10,
@@ -97,7 +97,7 @@ def test_uncached_floor_at_zero():
 
 
 def test_completion_tokens_priced_separately():
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost = _compute_cost(
         prompt_tokens=0,
@@ -110,7 +110,7 @@ def test_completion_tokens_priced_separately():
 
 
 def test_no_pricing_returns_none():
-    from app.routers.api_v1_admin.usage import _compute_cost
+    from app.services.usage_costs import _compute_cost
 
     cost = _compute_cost(
         prompt_tokens=100,

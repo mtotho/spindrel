@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.db.models import Bot, BotSkillEnrollment, BotToolEnrollment, Skill, Task, ToolCall, TraceEvent
-from app.routers.api_v1_admin.usage import agent_smell
+from app.services.usage_anomalies import build_agent_smell as agent_smell
 
 
 def _bot(bot_id: str, *, emoji: str | None = None) -> Bot:

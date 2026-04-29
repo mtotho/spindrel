@@ -57,6 +57,15 @@ test("Map Brief jump frames targets left of an open Starboard panel", () => {
     assert.match(source, /panelRect\?\.left/);
     assert.match(source, /rect\.left/);
 });
+test("Map Brief object rows reveal targets with animated camera movement", () => {
+    const navigationSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialNavigation.tsx"), "utf8");
+    const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+    assert.match(navigationSource, /const OBJECT_REVEAL_MS = 460/);
+    assert.match(navigationSource, /flyToStarboardObject[\s\S]*animateCameraTo\(\{ x: targetX, y: targetY, scale: targetScale \}, OBJECT_REVEAL_MS\)/);
+    assert.match(navigationSource, /flyToWorldPoint[\s\S]*animateCameraTo\(\{ x: targetX, y: targetY, scale: targetScale \}, OBJECT_REVEAL_MS\)/);
+    assert.match(chromeSource, /const handleObjectClick = \(item: StarboardObjectItem\) => \{\s*item\.onSelect\(\);\s*\};/);
+    assert.doesNotMatch(chromeSource, /objectClickTimerRef/);
+});
 test("cluster focus can recover viewport metrics before flying bounds", () => {
     const source = readFileSync(resolve(SPATIAL_DIR, "useSpatialNavigation.tsx"), "utf8");
     assert.match(source, /querySelector\('\[data-spatial-canvas="true"\]'\)/);

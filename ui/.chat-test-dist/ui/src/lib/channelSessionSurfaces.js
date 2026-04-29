@@ -330,7 +330,7 @@ function metaForSessionTab(surface, row) {
     const stats = row ? getChannelSessionMeta(row) : "";
     return stats ? `${kind} · ${stats}` : kind;
 }
-export function buildChannelSessionTabItems({ channelId, recentPages, currentHref, activeSurface, activeSessionId, catalog, hiddenKeys, limit = 8, }) {
+export function buildChannelSessionTabItems({ channelId, recentPages, currentHref, activeSurface, activeSessionId, catalog, hiddenKeys, orderKeys, unreadStates, limit = 8, }) {
     const hidden = new Set(hiddenKeys ?? []);
     const active = activeSurface ?? { kind: "primary" };
     const activeKey = surfaceKey(active);
@@ -338,7 +338,8 @@ export function buildChannelSessionTabItems({ channelId, recentPages, currentHre
     if (currentHref)
         orderedPages.push({ href: currentHref });
     orderedPages.push(...(recentPages ?? []));
-    const tabs = [];
+    const unreadBySession = new Map((unreadStates ?? []).map((row) => [row.session_id, Math.max(0, row.unread_agent_reply_count)]));
+    const tabByKey = new Map();
     const seen = new Set();
     for (const page of orderedPages) {
         const surface = surfaceFromChannelHref(channelId, page.href);
@@ -351,7 +352,8 @@ export function buildChannelSessionTabItems({ channelId, recentPages, currentHre
         const row = catalogRowForSurface(surface, catalog, activeSessionId);
         const surfaceSessionId = surface.kind === "primary" ? null : surface.sessionId;
         const primary = surface.kind === "primary" || row?.is_active === true || surfaceSessionId === activeSessionId;
-        tabs.push({
+        const tabSessionId = surface.kind === "primary" ? activeSessionId : surface.sessionId;
+        tabByKey.set(key, {
             key,
             surface,
             href: buildChannelSessionRoute(channelId, surface),
@@ -360,11 +362,29 @@ export function buildChannelSessionTabItems({ channelId, recentPages, currentHre
             active: key === activeKey,
             primary,
             closeable: true,
+            unreadCount: tabSessionId ? unreadBySession.get(tabSessionId) ?? 0 : 0,
         });
+    }
+    const tabs = [];
+    const emitted = new Set();
+    for (const key of orderKeys ?? []) {
+        const tab = tabByKey.get(key);
+        if (!tab || emitted.has(key))
+            continue;
+        tabs.push(tab);
+        emitted.add(key);
+        if (tabs.length >= limit)
+            return tabs;
+    }
+    for (const [key, tab] of tabByKey) {
+        if (emitted.has(key))
+            continue;
+        tabs.push(tab);
+        emitted.add(key);
         if (tabs.length >= limit)
             break;
     }
-    return tabs.sort((a, b) => Number(b.active) - Number(a.active));
+    return tabs;
 }
 export function buildScratchChatSource({ channelId, botId, sessionId, }) {
     return {

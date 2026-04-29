@@ -234,6 +234,13 @@ const sessionTabs = buildChannelSessionTabItems({
     ],
     activeSurface: { kind: "channel", sessionId: "s2" },
     activeSessionId: "s1",
+    orderKeys: ["channel:s1", "channel:s2"],
+    unreadStates: [
+        {
+            session_id: "s2",
+            unread_agent_reply_count: 3,
+        },
+    ],
     catalog: [
         {
             session_id: "s1",
@@ -261,11 +268,26 @@ const sessionTabs = buildChannelSessionTabItems({
         },
     ],
 });
-assert.deepEqual(sessionTabs.map((tab) => tab.key), ["channel:s2", "channel:s1", "primary"]);
-assert.equal(sessionTabs[0]?.active, true);
-assert.equal(sessionTabs[1]?.primary, true);
-assert.equal(sessionTabs[1]?.label, "Primary work");
-assert.match(sessionTabs[1]?.meta ?? "", /Primary/);
+assert.deepEqual(sessionTabs.map((tab) => tab.key), ["channel:s1", "channel:s2", "primary"]);
+assert.equal(sessionTabs[0]?.primary, true);
+assert.equal(sessionTabs[0]?.label, "Primary work");
+assert.match(sessionTabs[0]?.meta ?? "", /Primary/);
+assert.equal(sessionTabs[1]?.active, true);
+assert.equal(sessionTabs[1]?.unreadCount, 3);
+const stableOrderTabs = buildChannelSessionTabItems({
+    channelId: "chan",
+    currentHref: "/channels/chan/session/s1?surface=channel",
+    recentPages: [
+        { href: "/channels/chan/session/s1?surface=channel" },
+        { href: "/channels/chan/session/s2?surface=channel" },
+    ],
+    activeSurface: { kind: "channel", sessionId: "s1" },
+    orderKeys: ["channel:s2", "channel:s1"],
+});
+assert.deepEqual(stableOrderTabs.map((tab) => [tab.key, tab.active]), [
+    ["channel:s2", false],
+    ["channel:s1", true],
+]);
 const hiddenTabs = buildChannelSessionTabItems({
     channelId: "chan",
     currentHref: "/channels/chan/session/s2?surface=channel",

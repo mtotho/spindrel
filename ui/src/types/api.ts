@@ -240,6 +240,8 @@ export interface ResolvedPreview {
 
 export interface BotEditorData {
   bot: BotConfig;
+  default_shared_workspace_id?: string | null;
+  default_shared_workspace_name?: string | null;
   tool_groups: ToolGroup[];
   mcp_servers: string[];
   client_tools: string[];

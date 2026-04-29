@@ -5,6 +5,9 @@ type BotSavePayload = Record<string, unknown>;
 const READ_ONLY_FIELDS = new Set([
   "created_at",
   "updated_at",
+  "shared_workspace_id",
+  "shared_workspace_role",
+  "harness_session_state",
 ]);
 
 function stableStringify(value: unknown): string {

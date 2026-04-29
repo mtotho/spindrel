@@ -1,8 +1,8 @@
 """exec_command tool — runs shell commands in the bot's workspace.
 
-When the bot has workspace.enabled=True, commands route through the WorkspaceService
-(Docker container or host, depending on workspace.type). Falls back to legacy
-bot_sandbox / host_exec for bots not yet migrated to workspace config.
+When the bot has workspace.enabled=True, commands route through the shared
+WorkspaceService server-subprocess path. Falls back to legacy bot_sandbox /
+host_exec for old configs that are not in a shared workspace.
 """
 import json
 import logging
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
         "name": "exec_command",
         "description": (
             "Execute a shell command in the bot's workspace. "
-            "Routes to Docker container or host depending on workspace config. "
+            "Runs as a server-side subprocess against the shared workspace. "
             "Supports pipes, shell features, and chaining (&&, ||). "
             "Use for build commands, git operations, file manipulation, running scripts, etc. "
             "For commands with verbose output (package managers, compilers, build tools), "

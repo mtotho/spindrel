@@ -102,7 +102,7 @@ class TestGatherContext:
         ]
         pricing = {}
         ptype_map = {}
-        with patch("app.routers.api_v1_admin.usage._resolve_event_cost", side_effect=lambda d, p, pt: d.get("response_cost", 0)):
+        with patch("app.services.usage_costs._resolve_event_cost", side_effect=lambda d, p, pt: d.get("response_cost", 0)):
             ctx = _gather_context(events, pricing, ptype_map)
 
         assert len(ctx["top_models"]) == 2
@@ -129,8 +129,8 @@ class TestCheckForSpike:
         with patch("app.services.usage_spike._compute_cost_in_range") as mock_cost, \
              patch("app.services.usage_spike._dispatch_alert", new_callable=AsyncMock, return_value=(1, 1, [])) as mock_dispatch, \
              patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.routers.api_v1_admin.usage._load_pricing_map", new_callable=AsyncMock, return_value={}), \
-             patch("app.routers.api_v1_admin.usage._get_provider_type_map", return_value={}), \
+             patch("app.services.usage_costs._load_pricing_map", new_callable=AsyncMock, return_value={}), \
+             patch("app.services.usage_costs._get_provider_type_map", return_value={}), \
              patch("app.services.usage_spike.load_spike_config", new_callable=AsyncMock):
 
             # Window: high cost, baseline: low cost
@@ -156,8 +156,8 @@ class TestCheckForSpike:
         with patch("app.services.usage_spike._compute_cost_in_range") as mock_cost, \
              patch("app.services.usage_spike._dispatch_alert", new_callable=AsyncMock, return_value=(1, 1, [])), \
              patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.routers.api_v1_admin.usage._load_pricing_map", new_callable=AsyncMock, return_value={}), \
-             patch("app.routers.api_v1_admin.usage._get_provider_type_map", return_value={}), \
+             patch("app.services.usage_costs._load_pricing_map", new_callable=AsyncMock, return_value={}), \
+             patch("app.services.usage_costs._get_provider_type_map", return_value={}), \
              patch("app.services.usage_spike.load_spike_config", new_callable=AsyncMock):
 
             # Window cost = 5.0 over 30min = 10.0/hr > 5.0 threshold
@@ -197,8 +197,8 @@ class TestCheckForSpike:
         with patch("app.services.usage_spike._compute_cost_in_range") as mock_cost, \
              patch("app.services.usage_spike._dispatch_alert", new_callable=AsyncMock, return_value=(0, 0, [])), \
              patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.routers.api_v1_admin.usage._load_pricing_map", new_callable=AsyncMock, return_value={}), \
-             patch("app.routers.api_v1_admin.usage._get_provider_type_map", return_value={}), \
+             patch("app.services.usage_costs._load_pricing_map", new_callable=AsyncMock, return_value={}), \
+             patch("app.services.usage_costs._get_provider_type_map", return_value={}), \
              patch("app.services.usage_spike.load_spike_config", new_callable=AsyncMock):
 
             mock_cost.side_effect = [
@@ -258,8 +258,8 @@ class TestCheckForSpike:
         with patch("app.services.usage_spike._compute_cost_in_range") as mock_cost, \
              patch("app.services.usage_spike._dispatch_alert", new_callable=AsyncMock, return_value=(0, 0, [])), \
              patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.routers.api_v1_admin.usage._load_pricing_map", new_callable=AsyncMock, return_value={}), \
-             patch("app.routers.api_v1_admin.usage._get_provider_type_map", return_value={}), \
+             patch("app.services.usage_costs._load_pricing_map", new_callable=AsyncMock, return_value={}), \
+             patch("app.services.usage_costs._get_provider_type_map", return_value={}), \
              patch("app.services.usage_spike.load_spike_config", new_callable=AsyncMock):
 
             mock_cost.side_effect = [
@@ -286,8 +286,8 @@ class TestCheckForSpike:
         with patch("app.services.usage_spike._compute_cost_in_range") as mock_cost, \
              patch("app.services.usage_spike._dispatch_alert", new_callable=AsyncMock, return_value=(1, 1, [])), \
              patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.routers.api_v1_admin.usage._load_pricing_map", new_callable=AsyncMock, return_value={}), \
-             patch("app.routers.api_v1_admin.usage._get_provider_type_map", return_value={}), \
+             patch("app.services.usage_costs._load_pricing_map", new_callable=AsyncMock, return_value={}), \
+             patch("app.services.usage_costs._get_provider_type_map", return_value={}), \
              patch("app.services.usage_spike.load_spike_config", new_callable=AsyncMock):
 
             mock_cost.side_effect = [

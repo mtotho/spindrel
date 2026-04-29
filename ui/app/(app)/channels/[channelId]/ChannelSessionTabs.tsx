@@ -1,5 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import { Search, StickyNote, X } from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Modifier,
+} from "@dnd-kit/core";
+import {
+  horizontalListSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical, Search, StickyNote, X } from "lucide-react";
 import {
   buildChannelSessionPickerEntries,
   buildChannelSessionPickerGroups,
@@ -17,85 +34,164 @@ interface ChannelSessionTabStripProps {
   tabs: ChannelSessionTabItem[];
   onSelect: (surface: ChannelSessionSurface) => void;
   onClose: (tab: ChannelSessionTabItem) => void;
+  onReorder: (dragKey: string, targetKey: string) => void;
   onOpenSessions?: () => void;
 }
+
+const restrictTabDragToRow: Modifier = ({ transform }) => ({
+  ...transform,
+  y: 0,
+});
 
 export function ChannelSessionTabStrip({
   tabs,
   onSelect,
   onClose,
+  onReorder,
   onOpenSessions,
 }: ChannelSessionTabStripProps) {
+  const tabKeys = useMemo(() => tabs.map((tab) => tab.key), [tabs]);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const handleDragEnd = (event: DragEndEvent) => {
+    const activeKey = String(event.active.id);
+    const overKey = event.over ? String(event.over.id) : null;
+    if (!overKey || activeKey === overKey) return;
+    onReorder(activeKey, overKey);
+  };
   if (tabs.length === 0) return null;
   return (
-    <div
-      data-testid="channel-session-tab-strip"
-      className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto px-3 pb-1 text-[12px]"
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictTabDragToRow]}
+      onDragEnd={handleDragEnd}
     >
-      {tabs.map((tab) => (
-        <div
-          key={tab.key}
-          data-testid="channel-session-tab"
-          data-session-tab-key={tab.key}
-          data-active={tab.active ? "true" : "false"}
-          data-primary={tab.primary ? "true" : "false"}
-          title={[tab.label, tab.meta].filter(Boolean).join("\n")}
-          className={[
-            "group relative flex h-8 max-w-[240px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-left transition-colors",
-            tab.active
-              ? "bg-accent/[0.08] text-text"
-              : "text-text-muted hover:bg-surface-overlay/60 hover:text-text",
-          ].join(" ")}
-        >
+      <div
+        data-testid="channel-session-tab-strip"
+        className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto px-3 pb-1 text-[12px]"
+      >
+        <SortableContext items={tabKeys} strategy={horizontalListSortingStrategy}>
+          {tabs.map((tab) => (
+            <SortableSessionTab
+              key={tab.key}
+              tab={tab}
+              onSelect={onSelect}
+              onClose={onClose}
+            />
+          ))}
+        </SortableContext>
+        {onOpenSessions && (
           <button
             type="button"
-            onClick={() => onSelect(tab.surface)}
-            className="flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-left"
+            onClick={onOpenSessions}
+            className="ml-1 flex h-8 shrink-0 items-center rounded-md px-2 text-[11px] text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
           >
-            {tab.primary && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />
-            )}
-            <span className="min-w-0 truncate">{tab.label}</span>
-            {tab.meta && (
-              <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
-                {tab.primary ? "Primary" : tab.surface.kind === "scratch" ? "Scratch" : "Session"}
-              </span>
-            )}
+            More
           </button>
-          <span
-            className={[
-              "absolute inset-x-2 bottom-0 h-px rounded-full transition-colors",
-              tab.active ? "bg-accent/80" : "bg-transparent",
-            ].join(" ")}
-            aria-hidden="true"
-          />
-          <button
-            type="button"
-            aria-label={`Close ${tab.label} tab`}
-            title="Close tab"
-            onClick={(event) => {
-              event.stopPropagation();
-              onClose(tab);
-            }}
-            className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim opacity-70 transition-colors hover:bg-surface-overlay hover:text-text group-hover:opacity-100"
-          >
-            <X size={12} />
-          </button>
-        </div>
-      ))}
-      {onOpenSessions && (
-        <button
-          type="button"
-          onClick={onOpenSessions}
-          className="ml-1 flex h-8 shrink-0 items-center rounded-md px-2 text-[11px] text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
-        >
-          More
-        </button>
-      )}
-    </div>
+        )}
+      </div>
+    </DndContext>
   );
 }
 
+interface SortableSessionTabProps {
+  tab: ChannelSessionTabItem;
+  onSelect: (surface: ChannelSessionSurface) => void;
+  onClose: (tab: ChannelSessionTabItem) => void;
+}
+
+function SortableSessionTab({ tab, onSelect, onClose }: SortableSessionTabProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: tab.key });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-testid="channel-session-tab"
+      data-session-tab-key={tab.key}
+      data-active={tab.active ? "true" : "false"}
+      data-primary={tab.primary ? "true" : "false"}
+      data-reorderable="true"
+      title={[tab.label, tab.meta].filter(Boolean).join("\n")}
+      className={[
+        "group relative flex h-8 max-w-[240px] shrink-0 touch-pan-x items-center gap-1 rounded-md px-1.5 text-left transition-colors",
+        tab.active
+          ? "bg-accent/[0.08] text-text"
+          : "text-text-muted hover:bg-surface-overlay/60 hover:text-text",
+        isDragging ? "z-10 shadow-sm opacity-95" : "",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        aria-label={`Reorder ${tab.label} tab`}
+        title="Reorder tab"
+        className="flex h-6 w-4 shrink-0 cursor-grab items-center justify-center rounded text-text-dim/60 transition-colors hover:bg-surface-overlay hover:text-text active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={12} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onSelect(tab.surface)}
+        className="flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-left"
+      >
+        {tab.primary && (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />
+        )}
+        <span className="min-w-0 truncate">{tab.label}</span>
+        {tab.unreadCount > 0 && (
+          <span
+            data-testid="channel-session-tab-unread"
+            className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 px-1 text-[9px] font-semibold text-accent"
+            title={`${tab.unreadCount} unread agent ${tab.unreadCount === 1 ? "reply" : "replies"}`}
+          >
+            {tab.unreadCount > 9 ? "9+" : tab.unreadCount}
+          </span>
+        )}
+        {tab.meta && (
+          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
+            {tab.primary ? "Primary" : tab.surface.kind === "scratch" ? "Scratch" : "Session"}
+          </span>
+        )}
+      </button>
+      <span
+        className={[
+          "absolute inset-x-2 bottom-0 h-px rounded-full transition-colors",
+          tab.active ? "bg-accent/80" : "bg-transparent",
+        ].join(" ")}
+        aria-hidden="true"
+      />
+      <button
+        type="button"
+        aria-label={`Close ${tab.label} tab`}
+        title="Close tab"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose(tab);
+        }}
+        className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-dim opacity-70 transition-colors hover:bg-surface-overlay hover:text-text group-hover:opacity-100"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
 interface ChannelSessionInlinePickerProps {
   channelId: string;
   channelLabel?: string | null;

@@ -62,7 +62,7 @@ Security posture:
 
 ## Docker sandboxes
 
-Docker sandboxes are optional long-lived containers for more isolated code execution. They are configured from the Admin UI and use the host Docker daemon when Spindrel itself runs in Docker.
+Docker sandboxes are optional long-lived containers for more isolated code execution. They use the host Docker daemon when Spindrel itself runs in Docker and are separate from the normal shared workspace settings.
 
 Use them when you need a pinned image, a constrained filesystem, network isolation, or resource limits. They are not the default workspace model anymore.
 

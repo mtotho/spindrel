@@ -37,6 +37,7 @@ import { CHANNEL_CLUSTER_EXIT_SCALE } from "./spatialClustering";
 
 const DIVE_MS = 300;
 const CLUSTER_FOCUS_MS = 520;
+const OBJECT_REVEAL_MS = 460;
 
 type UseSpatialNavigationArgs = Record<string, any>;
 
@@ -303,10 +304,10 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
         setLensEngaged(false);
         triggerLensSettle();
       }
-      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+      animateCameraTo({ x: targetX, y: targetY, scale: targetScale }, OBJECT_REVEAL_MS);
       return true;
     },
-    [nodes, lensEngaged, triggerLensSettle, scheduleCamera],
+    [animateCameraTo, nodes, lensEngaged, triggerLensSettle],
   );
 
   // Pan + scale the camera to a spatial node by id. Used for the widget-pick
@@ -328,10 +329,10 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
         setLensEngaged(false);
         triggerLensSettle();
       }
-      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+      animateCameraTo({ x: targetX, y: targetY, scale: targetScale }, OBJECT_REVEAL_MS);
       return true;
     },
-    [nodes, lensEngaged, triggerLensSettle, scheduleCamera],
+    [animateCameraTo, nodes, lensEngaged, triggerLensSettle],
   );
 
   // Register the channel-pick + widget-pick overrides + the active surface
@@ -443,9 +444,9 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
         setLensEngaged(false);
         triggerLensSettle();
       }
-      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+      animateCameraTo({ x: targetX, y: targetY, scale: targetScale }, OBJECT_REVEAL_MS);
     },
-    [lensEngaged, triggerLensSettle, scheduleCamera],
+    [animateCameraTo, lensEngaged, triggerLensSettle],
   );
 
   const flyToStarboardObject = useCallback(
@@ -462,9 +463,9 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
         setLensEngaged(false);
         triggerLensSettle();
       }
-      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+      animateCameraTo({ x: targetX, y: targetY, scale: targetScale }, OBJECT_REVEAL_MS);
     },
-    [lensEngaged, triggerLensSettle, scheduleCamera],
+    [animateCameraTo, lensEngaged, triggerLensSettle],
   );
 
   const focusNode = useCallback(

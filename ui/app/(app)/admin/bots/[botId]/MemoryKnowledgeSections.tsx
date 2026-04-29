@@ -362,7 +362,7 @@ export function MemorySection({
       <SettingsStatGrid
         items={[
           { label: "Mode", value: draft.memory_scheme === "workspace-files" ? "files" : memoryEnabled ? "legacy" : "off", tone: memoryEnabled ? "accent" : "default" },
-          { label: "Workspace", value: draft.shared_workspace_id ? "linked" : "local", tone: draft.shared_workspace_id ? "accent" : "default" },
+          { label: "Workspace", value: draft.shared_workspace_id ? "linked" : "pending", tone: "accent" },
           { label: "Skills", value: draft.skills?.length ?? 0 },
           { label: "Prompt", value: builtInPrompt ? "built-in" : "loading" },
         ]}

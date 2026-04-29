@@ -14,25 +14,25 @@ class TestIsPlanBilled:
         return p
 
     def test_returns_false_for_none_provider_and_no_model(self):
-        from app.routers.api_v1_admin.usage import _is_plan_billed
+        from app.services.usage_costs import _is_plan_billed
         with patch("app.services.providers._plan_billed_models", set()):
             assert _is_plan_billed(None, None) is False
 
     def test_returns_false_for_unknown_provider_id(self):
-        from app.routers.api_v1_admin.usage import _is_plan_billed
+        from app.services.usage_costs import _is_plan_billed
         with patch("app.services.providers._registry", {}), \
              patch("app.services.providers._plan_billed_models", set()):
             assert _is_plan_billed("nonexistent", None) is False
 
     def test_returns_false_for_usage_provider(self):
-        from app.routers.api_v1_admin.usage import _is_plan_billed
+        from app.services.usage_costs import _is_plan_billed
         provider = self._make_provider(billing_type="usage")
         with patch("app.services.providers._registry", {"my-provider": provider}), \
              patch("app.services.providers._plan_billed_models", set()):
             assert _is_plan_billed("my-provider", None) is False
 
     def test_returns_true_for_plan_provider(self):
-        from app.routers.api_v1_admin.usage import _is_plan_billed
+        from app.services.usage_costs import _is_plan_billed
         provider = self._make_provider(billing_type="plan", plan_cost=40.0, plan_period="monthly")
         with patch("app.services.providers._registry", {"minimax": provider}), \
              patch("app.services.providers._plan_billed_models", set()):
@@ -40,13 +40,13 @@ class TestIsPlanBilled:
 
     def test_returns_true_for_model_on_plan_provider(self):
         """Even if provider_id doesn't match, model name lookup should work."""
-        from app.routers.api_v1_admin.usage import _is_plan_billed
+        from app.services.usage_costs import _is_plan_billed
         with patch("app.services.providers._registry", {}), \
              patch("app.services.providers._plan_billed_models", {"minimax/MiniMax-M2.7"}):
             assert _is_plan_billed(None, "minimax/MiniMax-M2.7") is True
 
     def test_returns_false_for_unrelated_model(self):
-        from app.routers.api_v1_admin.usage import _is_plan_billed
+        from app.services.usage_costs import _is_plan_billed
         with patch("app.services.providers._registry", {}), \
              patch("app.services.providers._plan_billed_models", {"minimax/MiniMax-M2.7"}):
             assert _is_plan_billed(None, "gpt-4") is False
@@ -61,7 +61,7 @@ class TestResolveEventCostPlanProvider:
         return p
 
     def test_plan_provider_returns_zero_when_no_pricing(self):
-        from app.routers.api_v1_admin.usage import _resolve_event_cost
+        from app.services.usage_costs import _resolve_event_cost
         provider = self._make_provider(billing_type="plan")
         event_data = {
             "provider_id": "minimax",
@@ -76,7 +76,7 @@ class TestResolveEventCostPlanProvider:
 
     def test_plan_model_returns_zero_when_routed_through_different_provider(self):
         """Model belongs to a plan provider but call went through .env fallback."""
-        from app.routers.api_v1_admin.usage import _resolve_event_cost
+        from app.services.usage_costs import _resolve_event_cost
         event_data = {
             "provider_id": None,
             "model": "minimax/MiniMax-M2.7",
@@ -89,7 +89,7 @@ class TestResolveEventCostPlanProvider:
             assert cost == 0.0
 
     def test_usage_provider_returns_none_when_no_pricing(self):
-        from app.routers.api_v1_admin.usage import _resolve_event_cost
+        from app.services.usage_costs import _resolve_event_cost
         provider = self._make_provider(billing_type="usage")
         event_data = {
             "provider_id": "my-openai",
@@ -103,7 +103,7 @@ class TestResolveEventCostPlanProvider:
             assert cost is None
 
     def test_plan_provider_uses_response_cost_when_present(self):
-        from app.routers.api_v1_admin.usage import _resolve_event_cost
+        from app.services.usage_costs import _resolve_event_cost
         provider = self._make_provider(billing_type="plan")
         event_data = {
             "provider_id": "minimax",
@@ -140,7 +140,7 @@ class TestFixedPlanForecastComponent:
 
     def test_forecast_component_structure(self):
         """Verify the ForecastComponent can be created with fixed_plans source."""
-        from app.routers.api_v1_admin.usage import ForecastComponent
+        from app.schemas.usage import ForecastComponent
         comp = ForecastComponent(
             source="fixed_plans",
             label="Fixed plans",
