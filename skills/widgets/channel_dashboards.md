@@ -13,6 +13,7 @@ Six tools cover the full surface:
 
 | Tool | Purpose |
 |---|---|
+| `assess_widget_usefulness` | Structured read-only review of usefulness, health signals, duplicates, visibility, context export, and Project-bound context |
 | `describe_dashboard` | Read raw pin JSON + rendered ASCII preview |
 | `pin_widget` | Pin a library widget (builtin / integration / channel) at a zone + slot |
 | `move_pins` | Batch-update one or more pins' zone + `{x, y, w, h}` |
@@ -57,7 +58,7 @@ Only touch non-channel dashboards when the user explicitly references them ("pin
 
 Most layout requests follow the same four-step dance:
 
-1. **See** — call `describe_dashboard` first. Always. Don't propose changes against a dashboard you haven't inspected; pins may already exist in that zone, the preset may surprise you, panel mode may be active.
+1. **See** — for improvement reviews, call `assess_widget_usefulness` first. For layout changes, call `describe_dashboard` first. Don't propose changes against a dashboard you haven't inspected; pins may already exist in that zone, the preset may surprise you, panel mode may be active.
 2. **Propose** — reply with the ASCII preview you'd like to end at, prefixed with "here's what I'm thinking". Quote the legend so pin IDs are visible.
 3. **Wait** — do not execute without explicit user confirmation when the change moves or removes user-placed pins. Pinning a brand-new widget the user just asked for is fine to execute immediately.
 4. **Execute** — chain `pin_widget` / `move_pins` / `unpin_widget` calls. Render the post-execution ASCII preview to confirm the result.

@@ -28,11 +28,13 @@ def test_widget_improvement_healthcheck_defaults_to_normal_channel_task_payload(
         "widgets/channel_dashboards",
     ]
     assert defaults["tools"] == [
+        "assess_widget_usefulness",
         "describe_dashboard",
         "check_dashboard_widgets",
         "check_widget",
         "inspect_widget_pin",
     ]
+    assert "Call assess_widget_usefulness" in defaults["prompt"]
     assert "No actionable widget findings." in defaults["prompt"]
 
 

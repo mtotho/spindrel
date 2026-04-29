@@ -13,9 +13,10 @@ from typing import Any
 WIDGET_IMPROVEMENT_PROMPT = """Review this channel dashboard's widgets for usefulness and health.
 
 Use the widget inspection tools to understand the current dashboard before making recommendations:
-1. Call describe_dashboard for this channel.
-2. Call check_dashboard_widgets.
-3. Use check_widget or inspect_widget_pin when a specific widget or pin needs deeper inspection.
+1. Call assess_widget_usefulness for this channel.
+2. Call describe_dashboard only when you need raw pin/layout detail beyond the assessment.
+3. Call check_dashboard_widgets only when the assessment points to health/runtime concerns.
+4. Use check_widget or inspect_widget_pin when a specific widget or pin needs deeper inspection.
 
 Look for actionable issues:
 - broken, stale, or low-signal widgets
@@ -71,6 +72,7 @@ WIDGET_IMPROVEMENT_HEALTHCHECK = RunPreset(
         trigger_config={"type": "schedule"},
         skills=("widgets", "widgets/errors", "widgets/channel_dashboards"),
         tools=(
+            "assess_widget_usefulness",
             "describe_dashboard",
             "check_dashboard_widgets",
             "check_widget",
