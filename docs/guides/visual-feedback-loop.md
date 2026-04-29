@@ -173,8 +173,8 @@ browser URL automatically; see `scripts/screenshots/README.md` for the manual
 main-host Docker command.
 Question-card captures require a pending harness question and
 `HARNESS_VISUAL_QUESTION_SESSION_ID`; the normal bridge, terminal write,
-`/style` command-picker, and usage-log captures rediscover the latest E2E
-sessions from the configured harness channels.
+`/style` command-picker, native slash command, and usage-log captures rediscover
+the latest E2E sessions from the configured harness channels.
 
 ## Native Spindrel Plan Mode Run
 

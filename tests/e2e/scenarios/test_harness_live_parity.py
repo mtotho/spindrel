@@ -88,6 +88,7 @@ class HarnessCase:
     bot_env: str
     default_bot_id: str
     native_commands: tuple[str, ...]
+    direct_native_commands: tuple[tuple[str, str], ...]
     model_candidates: tuple[str, ...]
     effort_env: str
     model_env: str
@@ -101,6 +102,11 @@ HARNESSES = (
         bot_env="HARNESS_PARITY_CODEX_BOT_ID",
         default_bot_id="codex-bot",
         native_commands=("config", "mcp-status", "plugins", "skills", "features"),
+        direct_native_commands=(
+            ("plugins", "plugins"),
+            ("skills", "skills"),
+            ("mcp", "mcp-status"),
+        ),
         model_candidates=(
             "gpt-5.4-mini",
             "gpt-5.3-codex-spark",
@@ -115,6 +121,11 @@ HARNESSES = (
         bot_env="HARNESS_PARITY_CLAUDE_BOT_ID",
         default_bot_id="claude-code-bot",
         native_commands=("version", "auth"),
+        direct_native_commands=(
+            ("skills", "skills"),
+            ("plugin", "plugins"),
+            ("mcp", "mcp"),
+        ),
         model_candidates=("claude-haiku-4-5",),
         effort_env="HARNESS_PARITY_CLAUDE_EFFORT",
         model_env="HARNESS_PARITY_CLAUDE_MODEL",
@@ -1011,6 +1022,26 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             assert result["result_type"] == "harness_runtime_command"
             assert result["payload"]["command"] == command
             assert result["payload"]["status"] in {"ok", "error"}
+            assert result["payload"].get("detail") or result.get("fallback_text")
+
+        catalog = await client.get_runtime_capabilities(case.runtime)
+        native_catalog = {command["id"] for command in catalog.get("native_commands", [])}
+        aliases = {
+            alias
+            for command in catalog.get("native_commands", [])
+            for alias in command.get("aliases", [])
+        }
+        for slash_name, runtime_command in case.direct_native_commands:
+            assert slash_name in native_catalog or slash_name in aliases
+            result = await client.execute_slash_command(
+                slash_name,
+                session_id=session_id,
+                args=[],
+            )
+            assert result["result_type"] == "harness_runtime_command"
+            assert result["command_id"] == slash_name
+            assert result["payload"]["command"] == runtime_command
+            assert result["payload"]["status"] in {"ok", "error", "terminal_handoff"}
             assert result["payload"].get("detail") or result.get("fallback_text")
 
         context = await client.execute_slash_command("context", session_id=session_id)

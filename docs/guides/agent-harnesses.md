@@ -98,6 +98,10 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Harness `/style` command picker in terminal chat mode](../images/harness-style-command-terminal-dark.png)
 
+![Native harness slash picker showing Codex `/plugins`](../images/harness-native-slash-picker-dark.png)
+
+![Codex native `/plugins` result rendered in chat](../images/harness-codex-native-plugins-result-dark.png)
+
 ![Codex bridge tool result in default chat mode](../images/harness-codex-bridge-default.png)
 
 ![Claude Code bridge tool result in default chat mode](../images/harness-claude-bridge-default.png)

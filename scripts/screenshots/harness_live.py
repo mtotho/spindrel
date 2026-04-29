@@ -71,6 +71,8 @@ class CaptureSpec:
     channel_id: str | None = None
     chat_mode: str | None = None
     slash_query: str | None = None
+    submit_slash: bool = False
+    submit_ready_js: str | None = None
     viewport: tuple[int, int] = (1440, 900)
     click_selector: str | None = None
     after_click_selector: str | None = None
@@ -189,6 +191,10 @@ async def _capture_one(
             await editor.wait_for(state="visible", timeout=60_000)
             await editor.click()
             await page.keyboard.type(spec.slash_query)
+            if spec.submit_slash:
+                if spec.submit_ready_js:
+                    await page.wait_for_function(spec.submit_ready_js, timeout=60_000)
+                await page.keyboard.press("Enter")
         await page.wait_for_function(spec.wait_js, timeout=60_000)
         if spec.click_selector:
             target = page.locator(spec.click_selector).first
@@ -198,7 +204,7 @@ async def _capture_one(
                 await page.locator(spec.after_click_selector).first.wait_for(state="visible", timeout=60_000)
             elif spec.after_click_wait_js:
                 await page.wait_for_function(spec.after_click_wait_js, timeout=60_000)
-        await page.wait_for_timeout(750)
+        await page.wait_for_timeout(4500 if spec.submit_slash else 750)
         text = await page.locator("body").inner_text(timeout=5_000)
         lower = text.lower()
         missing = [needle for needle in spec.contains if needle.lower() not in lower]
@@ -282,6 +288,42 @@ def _style_command_specs(ui_url: str, channel_id: str, session_id: str) -> list[
             channel_id=channel_id,
             chat_mode="terminal",
             slash_query="/style",
+        ),
+    ]
+
+
+def _native_slash_specs(ui_url: str, channel_id: str, session_id: str) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+    picker_wait = (
+        "document.body.innerText.toLowerCase().includes('list codex plugins') "
+        "&& document.body.innerText.toLowerCase().includes('/plugins')"
+    )
+    result_wait = (
+        "document.body.innerText.toLowerCase().includes('codex plugins') "
+        "|| document.body.innerText.toLowerCase().includes('codex native command failed')"
+    )
+    return [
+        CaptureSpec(
+            name="harness-native-slash-picker-dark",
+            route=route,
+            wait_js=picker_wait,
+            contains=("/plugins", "List Codex plugins"),
+            theme="dark",
+            channel_id=channel_id,
+            chat_mode="default",
+            slash_query="/plugins",
+        ),
+        CaptureSpec(
+            name="harness-codex-native-plugins-result-dark",
+            route=route,
+            wait_js=result_wait,
+            contains=("Codex", "plugins"),
+            theme="dark",
+            channel_id=channel_id,
+            chat_mode="default",
+            slash_query="/plugins",
+            submit_slash=True,
+            submit_ready_js=picker_wait,
         ),
     ]
 
@@ -483,6 +525,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             specs.extend(_plan_mode_switcher_specs(browser_url, target, sessions[(target.name, "project")]))
 
         specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
+        specs.extend(_native_slash_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
         specs.extend(_native_edit_terminal_specs(browser_url, args.claude_channel_id, sessions[("claude", "native_edit")]))
         specs.extend(_question_specs(browser_url, args.claude_channel_id))
         specs = _filter_specs(specs, args.only)
