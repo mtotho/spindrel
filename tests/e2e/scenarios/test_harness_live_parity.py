@@ -1336,9 +1336,10 @@ async def test_live_harness_project_plan_build_and_screenshot(
         plan = await client.chat_session_stream(
             (
                 "Plan only. Do not create, edit, delete, run files, inspect files, or call tools. "
-                "Reply with exactly three short bullet points. "
-                f"The plan is for a static single-page app at absolute path {app_abs} using only "
-                f"index.html, styles.css, app.js, and README.md, visibly including marker {marker}."
+                "Do not ask clarification questions. Reply with exactly three short bullet points. "
+                f"The app is a tiny static harness status page at absolute path {app_abs}. "
+                "It must visibly show the title Harness Project Parity, the runtime name, "
+                f"and marker {marker}. Use only index.html, styles.css, app.js, and README.md."
             ),
             session_id=session_id,
             channel_id=channel_id,
