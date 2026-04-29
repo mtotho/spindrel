@@ -959,17 +959,47 @@ async def describe_dashboard(
         return json.dumps({"error": str(exc), "llm": f"describe_dashboard failed: {exc}"})
 
     enriched = await _enriched_pins(pin_dicts)
+    latest_health: dict[str, dict[str, Any]] = {}
+    channel_layout_mode: str | None = None
     if key.startswith("channel:"):
         from app.db.engine import async_session
+        from app.db.models import Channel
         from app.services.widget_context import enrich_pins_for_context_export
+        from app.services.widget_health import latest_health_for_pins
 
+        channel_ref = key.split(":", 1)[1]
         async with async_session() as db:
             enriched = await enrich_pins_for_context_export(
                 db,
                 enriched,
                 bot_id=current_bot_id.get() or "",
-                channel_id=key.split(":", 1)[1],
+                channel_id=channel_ref,
             )
+            latest_health = await latest_health_for_pins(
+                db,
+                [pin.get("id") for pin in enriched if pin.get("id")],
+            )
+            try:
+                channel_row = await db.get(Channel, uuid.UUID(channel_ref))
+            except (TypeError, ValueError):
+                channel_row = None
+            if channel_row is not None:
+                channel_layout_mode = (channel_row.config or {}).get("layout_mode") or "full"
+    else:
+        from app.db.engine import async_session
+        from app.services.widget_health import latest_health_for_pins
+
+        async with async_session() as db:
+            latest_health = await latest_health_for_pins(
+                db,
+                [pin.get("id") for pin in enriched if pin.get("id")],
+            )
+
+    if latest_health:
+        for pin in enriched:
+            health = latest_health.get(str(pin.get("id")))
+            if health:
+                pin["widget_health"] = health
 
     from app.services.dashboard_ascii import render_layout
     v = view if view in ("chat", "full", "both") else "both"
@@ -990,11 +1020,15 @@ async def describe_dashboard(
         f"{visible} visible in chat view; "
         f"{len(panel_pins)} panel pin(s)."
     )
+    if channel_layout_mode:
+        narrative += f" Channel chat layout mode: {channel_layout_mode}."
 
     return json.dumps({
         "dashboard_key": key,
         "dashboard": dashboard,
+        "channel_layout_mode": channel_layout_mode,
         "pins": enriched,
+        "widget_health": latest_health,
         "ascii_preview": ascii_preview,
         "llm": narrative + "\n\n" + ascii_preview,
     })

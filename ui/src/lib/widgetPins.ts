@@ -13,5 +13,6 @@ export function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
     widget_presentation: pin.widget_presentation ?? null,
     widget_contract: pin.widget_contract ?? null,
     config: pin.widget_config ?? {},
+    widget_health: pin.widget_health ?? null,
   };
 }

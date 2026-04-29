@@ -129,6 +129,35 @@ function DetailLine({
   );
 }
 
+function ListSection({
+  title,
+  items,
+  terminal,
+  emptyLabel,
+}: {
+  title: string;
+  items?: string[];
+  terminal: boolean;
+  emptyLabel?: string;
+}) {
+  const visibleItems = (items ?? []).filter((item) => item.trim().length > 0);
+  if (!visibleItems.length && !emptyLabel) return null;
+  return (
+    <Section title={title} terminal={terminal} quiet>
+      <div className="flex flex-col gap-1.5">
+        {visibleItems.length ? visibleItems.map((item) => (
+          <div key={item} className="flex min-w-0 items-start gap-2">
+            <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-surface-border" />
+            <span className={terminal ? "text-[11px] text-text-muted" : "text-xs text-text-muted"}>{item}</span>
+          </div>
+        )) : (
+          <div className={terminal ? "text-[11px] text-text-dim" : "text-xs text-text-dim"}>{emptyLabel}</div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 export function SessionPlanCard({
   plan,
   sessionId,
@@ -378,6 +407,10 @@ export function SessionPlanCard({
         <div className={terminal ? "text-[12px] text-text-muted" : "text-sm text-text-muted"}>{plan.scope}</div>
       </Section>
 
+      <ListSection title="Key Changes" items={plan.key_changes} terminal={terminal} />
+      <ListSection title="Interfaces" items={plan.interfaces} terminal={terminal} />
+      <ListSection title="Assumptions & Defaults" items={(plan.assumptions_and_defaults?.length ? plan.assumptions_and_defaults : plan.assumptions)} terminal={terminal} />
+
       <Section title="Checklist" terminal={terminal} quiet>
         <div className="flex flex-col gap-1.5">
           {plan.steps.map((step) => {
@@ -432,6 +465,10 @@ export function SessionPlanCard({
           </div>
         </Section>
       ) : null}
+
+      <ListSection title="Test Plan" items={plan.test_plan} terminal={terminal} />
+      <ListSection title="Acceptance Criteria" items={plan.acceptance_criteria} terminal={terminal} />
+      <ListSection title="Risks" items={plan.risks} terminal={terminal} />
 
       {revisionEntries.length > 1 ? (
         <Section title="Revision History" terminal={terminal} quiet>

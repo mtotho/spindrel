@@ -6,7 +6,7 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, MutableRefObject } from "react";
-import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2 } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2, ShieldCheck } from "lucide-react";
 import { Link, useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
@@ -20,7 +20,8 @@ import {
   hasPinnedWidgetIframeEntry,
   type WidgetLayout,
 } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
-import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/api";
+import type { PinnedWidget, ToolResultEnvelope, WidgetHealthSummary, WidgetScope } from "@/src/types/api";
+import { useCheckWidgetHealth } from "@/src/api/hooks/useWidgetHealth";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import {
@@ -83,6 +84,22 @@ function resolvePinnedTitle(widget: PinnedWidget): string {
   const rawPanelTitle = widget.envelope?.panel_title;
   if (typeof rawPanelTitle === "string" && rawPanelTitle.trim()) return rawPanelTitle.trim();
   return resolveDisplayName(widget);
+}
+
+function healthLabel(health: WidgetHealthSummary | null | undefined): string {
+  if (!health) return "Health not checked";
+  if (health.status === "healthy") return "Healthy";
+  if (health.status === "warning") return "Warnings";
+  if (health.status === "failing") return "Failing";
+  return "Unknown";
+}
+
+function healthClassName(health: WidgetHealthSummary | null | undefined): string {
+  const status = health?.status ?? "unknown";
+  if (status === "healthy") return "bg-success/15 text-success border-success/30";
+  if (status === "warning") return "bg-warning/15 text-warning border-warning/30";
+  if (status === "failing") return "bg-danger/15 text-danger border-danger/30";
+  return "bg-surface-overlay text-text-dim border-surface-border";
 }
 
 interface PinnedToolWidgetProps {
@@ -181,6 +198,9 @@ export function PinnedToolWidget({
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [localHealth, setLocalHealth] = useState<WidgetHealthSummary | null>(
+    widget.widget_health ?? null,
+  );
   const measureNodeRef = useRef<HTMLDivElement | null>(null);
   // Channel pins now live in the dashboard-pins store under the implicit
   // slug `channel:<uuid>`. Both scope.kind values read/write the same
@@ -199,6 +219,13 @@ export function PinnedToolWidget({
   );
   const widgetConfigRef = useRef(widgetConfig);
   widgetConfigRef.current = widgetConfig;
+  const checkHealthMutation = useCheckWidgetHealth();
+  const health = checkHealthMutation.data ?? localHealth ?? null;
+  const checkingHealth = checkHealthMutation.isPending;
+
+  useEffect(() => {
+    setLocalHealth(widget.widget_health ?? null);
+  }, [widget.widget_health]);
 
   const markPinRefreshed = useCallback((atIso: string) => {
     recentPinRefreshById.set(widget.id, atIso);
@@ -329,6 +356,12 @@ export function PinnedToolWidget({
   const refreshTooltip = lastRefreshedAt
     ? `${updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`} · ${new Date(lastRefreshedAt).toLocaleString()} · Click to refresh`
     : "Refresh";
+  const checkHealth = useCallback(() => {
+    checkHealthMutation.mutate(
+      { pinId: widget.id, includeBrowser: true },
+      { onSuccess: (next) => setLocalHealth(next) },
+    );
+  }, [checkHealthMutation, widget.id]);
   useEffect(() => {
     if (!controlsRef) return;
     controlsRef.current = { refresh: refreshState, refreshing, refreshTooltip };
@@ -960,6 +993,16 @@ export function PinnedToolWidget({
               <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
             </button>
           )}
+          <span
+            className={
+              "inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium opacity-90 " +
+              healthClassName(health)
+            }
+            title={health ? `${healthLabel(health)}: ${health.summary}` : "Health not checked"}
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+            <span className="truncate">{healthLabel(health)}</span>
+          </span>
           <Link
             to={widgetPinHref(widget.id)}
             className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
@@ -990,6 +1033,20 @@ export function PinnedToolWidget({
             title="Inspect — see live tool traffic, errors, logs"
           >
             <Bug size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
+          </button>
+          <button
+            type="button"
+            onClick={checkHealth}
+            className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
+            aria-label="Check widget health"
+            title="Check widget health"
+            disabled={checkingHealth}
+          >
+            <ShieldCheck
+              size={ctrlIconSize}
+              className={checkingHealth ? "animate-pulse" : ""}
+              style={{ color: t.textMuted, opacity: 0.6 }}
+            />
           </button>
           {channelId && (
             <PinToCanvasIconButton
@@ -1066,6 +1123,20 @@ export function PinnedToolWidget({
           >
             <Bug size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
           </button>
+          <button
+            type="button"
+            onClick={checkHealth}
+            className={ctrlBtnClass}
+            aria-label="Check widget health"
+            title="Check widget health"
+            disabled={checkingHealth}
+          >
+            <ShieldCheck
+              size={ctrlIconSize}
+              className={checkingHealth ? "animate-pulse" : ""}
+              style={{ color: t.textMuted, opacity: 0.7 }}
+            />
+          </button>
           {channelId && (
             <PinToCanvasIconButton
               widget={widget}
@@ -1090,15 +1161,39 @@ export function PinnedToolWidget({
       )}
 
       {runtimeRail && (
-        <Link
-          to={widgetPinHref(widget.id)}
-          className="absolute right-1 top-1 z-20 rounded-md border border-surface-border/40 bg-surface-raised/85 p-1.5 text-text-muted opacity-0 backdrop-blur-sm transition-opacity hover:bg-surface-overlay hover:text-text group-hover:opacity-100 focus:opacity-100"
-          aria-label="Open widget full screen"
-          title="Open full"
+        <div
+          className="absolute right-1 top-1 z-20 flex items-center gap-0.5 rounded-md border border-surface-border/40 bg-surface-raised/85 p-0.5 text-text-muted opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <Maximize2 size={ctrlIconSize} />
-        </Link>
+          <span
+            className={"h-2 w-2 rounded-full " + (health?.status === "healthy"
+              ? "bg-success"
+              : health?.status === "warning"
+                ? "bg-warning"
+                : health?.status === "failing"
+                  ? "bg-danger"
+                  : "bg-text-dim")}
+            title={health ? `${healthLabel(health)}: ${health.summary}` : "Health not checked"}
+          />
+          <button
+            type="button"
+            onClick={checkHealth}
+            className="rounded p-1 hover:bg-surface-overlay hover:text-text"
+            aria-label="Check widget health"
+            title="Check widget health"
+            disabled={checkingHealth}
+          >
+            <ShieldCheck size={ctrlIconSize} className={checkingHealth ? "animate-pulse" : ""} />
+          </button>
+          <Link
+            to={widgetPinHref(widget.id)}
+            className="rounded p-1 hover:bg-surface-overlay hover:text-text"
+            aria-label="Open widget full screen"
+            title="Open full"
+          >
+            <Maximize2 size={ctrlIconSize} />
+          </Link>
+        </div>
       )}
 
       {/* Body: component content. Dashboard scope fills the tile; channel

@@ -112,22 +112,22 @@ External harness parity screenshots use real live harness sessions rather than
 synthetic screenshot staging. They are documented in
 `agent-harnesses.md` and written to `docs/images/harness-*.png`.
 Run the project-build tier first when refreshing terminal/native tool-output
-fixtures, because those screenshots are captured from the latest live Codex and
-Claude project-build sessions.
+fixtures. The runner creates the live Codex and Claude project-build sessions,
+then automatically captures the checked-in docs images after pytest passes.
 
 ```bash
-SPINDREL_API_KEY=... \
-python -m scripts.screenshots.harness_live \
-  --api-url http://10.10.30.208:8000 \
-  --ui-url http://10.10.30.208:8000 \
-  --browser-url http://10.10.30.208:8000 \
-  --output-dir docs/images
+ssh spindrel-bot 'cd /opt/thoth-server && \
+  HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
+    -k project_plan_build_and_screenshot'
 ```
 
-Use a local dev UI in `--ui-url` when validating a UI patch before deploy, and
-use the deployed UI after deploy. When Playwright runs in the shared Docker
-browser runtime, `--browser-url` must be reachable from that browser container;
-see `scripts/screenshots/README.md` for the main-host Docker command.
+Set `HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` only for an intentionally
+diagnostic run. Use a local dev UI by running
+`python -m scripts.screenshots.harness_live` directly when validating a UI patch
+before deploy, and use the deployed UI after deploy. When Playwright runs in
+the shared Docker browser runtime, the runner resolves the container-reachable
+browser URL automatically; see `scripts/screenshots/README.md` for the manual
+main-host Docker command.
 Question-card captures require a pending harness question and
 `HARNESS_VISUAL_QUESTION_SESSION_ID`; the normal bridge, terminal write,
 `/style` command-picker, and usage-log captures rediscover the latest E2E
@@ -140,10 +140,11 @@ synthetic screenshot staging. First run the live diagnostics to create fresh
 detached sessions on the dedicated native-plan E2E channel:
 
 ```bash
-./scripts/run_spindrel_plan_live.sh --tier behavior
+./scripts/run_spindrel_plan_live.sh --tier quality
 ```
 
-The runner writes the latest session ids to
+Use `--tier behavior` for the faster protocol/behavior pass and `--tier
+quality` when validating professional-plan mechanics. The runner writes the latest session ids to
 `/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`. Capture the matching
 UI artifacts with:
 

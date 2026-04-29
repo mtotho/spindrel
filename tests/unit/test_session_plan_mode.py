@@ -25,6 +25,16 @@ def _patch_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr(spm, "ensure_channel_workspace", lambda _channel_id, _bot: str(tmp_path))
 
 
+def _professional_fields() -> dict:
+    return {
+        "key_changes": ["Implement the requested plan-mode behavior in the owning subsystem."],
+        "interfaces": ["No public API changes beyond the session plan response shape under test."],
+        "assumptions_and_defaults": ["Use existing session plan defaults unless a test overrides them."],
+        "test_plan": ["Run the focused session plan mode regression tests."],
+        "risks": ["Keep unrelated session-plan state transitions unchanged."],
+    }
+
+
 def test_create_plan_writes_markdown_and_metadata(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
@@ -150,6 +160,7 @@ def test_approve_plan_marks_first_step_in_progress(monkeypatch, tmp_path):
         summary="Build a transcript-first widget planner.",
         scope="Plan artifact approval and execution.",
         acceptance_criteria=["The first step starts after approval."],
+        **_professional_fields(),
     )
 
     plan = spm.approve_session_plan(session)
@@ -191,6 +202,7 @@ def test_done_step_auto_advances_and_finishes(monkeypatch, tmp_path):
         summary="Ship the widget in two verified steps.",
         scope="Widget implementation and verification.",
         acceptance_criteria=["Both steps complete in order."],
+        **_professional_fields(),
         steps=[
             {"id": "step-one", "label": "Step one"},
             {"id": "step-two", "label": "Step two"},
@@ -243,6 +255,95 @@ def test_approval_rejects_thin_plan_and_state_reports_validation(monkeypatch, tm
     assert "acceptance criterion" in str(excinfo.value.detail).lower()
 
 
+def test_approval_rejects_plan_missing_professional_contract(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    plan = spm.create_session_plan(
+        session,
+        title="Thin Professional Plan",
+        summary="Improve the plan mode mechanics.",
+        scope="Plan validation only; no UI changes.",
+        acceptance_criteria=["Approval rejects weak professional plans."],
+        steps=[{"id": "implement", "label": "Implement changes"}],
+    )
+
+    validation = spm.validate_plan_for_approval(plan)
+    codes = {issue["code"] for issue in validation["issues"]}
+
+    assert validation["ok"] is False
+    assert "missing_key_changes" in codes
+    assert "missing_interfaces" in codes
+    assert "missing_assumptions_and_defaults" in codes
+    assert "missing_test_plan" in codes
+    assert "vague_step_label" in codes
+
+
+def test_professional_plan_markdown_round_trips_new_sections(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    plan = spm.create_session_plan(
+        session,
+        title="Professional Plan",
+        summary="Exercise the richer plan artifact.",
+        scope="Artifact round-trip only; no execution.",
+        acceptance_criteria=["The richer sections survive parse/render."],
+        **_professional_fields(),
+        steps=[{"id": "round-trip", "label": "Round-trip the richer plan sections"}],
+    )
+
+    parsed = spm.parse_plan_markdown(spm.render_plan_markdown(plan), path=plan.path)
+
+    assert parsed.key_changes == plan.key_changes
+    assert parsed.interfaces == plan.interfaces
+    assert parsed.assumptions_and_defaults == plan.assumptions_and_defaults
+    assert parsed.test_plan == plan.test_plan
+    assert parsed.risks == plan.risks
+
+
+def test_legacy_plan_markdown_without_professional_sections_still_parses(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    markdown = f"""# Legacy Plan
+
+Status: draft
+Revision: 1
+Session: {session.id}
+Task: legacy-plan
+
+## Summary
+Legacy summary.
+
+## Scope
+Legacy scope.
+
+## Assumptions
+- None
+
+## Open Questions
+- None
+
+## Execution Checklist
+- [pending] inspect | Inspect legacy behavior
+
+## Artifacts
+- None
+
+## Acceptance Criteria
+- Legacy plan parses.
+
+## Outcome
+Pending execution.
+"""
+
+    parsed = spm.parse_plan_markdown(markdown)
+
+    assert parsed.key_changes == []
+    assert parsed.interfaces == []
+    assert parsed.assumptions_and_defaults == []
+    assert parsed.test_plan == []
+    assert parsed.risks == []
+
+
 def test_runtime_capsule_tracks_current_step_and_compaction_watermark(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
@@ -253,6 +354,7 @@ def test_runtime_capsule_tracks_current_step_and_compaction_watermark(monkeypatc
         summary="Track durable plan execution state.",
         scope="Plan runtime metadata.",
         acceptance_criteria=["Runtime identifies the active step."],
+        **_professional_fields(),
         steps=[
             {"id": "audit", "label": "Audit runtime fields"},
             {"id": "ship", "label": "Ship runtime fields"},
@@ -280,6 +382,7 @@ def test_execution_evidence_updates_adherence_and_runtime(monkeypatch, tmp_path)
         summary="Capture execution evidence.",
         scope="Plan adherence metadata.",
         acceptance_criteria=["Tool evidence is durable."],
+        **_professional_fields(),
         steps=[{"id": "run-tests", "label": "Run focused tests"}],
     )
     spm.approve_session_plan(session)
@@ -312,6 +415,7 @@ def test_missing_turn_outcome_marks_pending_and_blocks_mutation(monkeypatch, tmp
         summary="Require an execution turn outcome.",
         scope="Plan supervisor metadata.",
         acceptance_criteria=["Missing outcomes block further mutation."],
+        **_professional_fields(),
         steps=[{"id": "audit", "label": "Audit turn state"}],
     )
     spm.approve_session_plan(session)
@@ -358,6 +462,7 @@ def test_record_plan_progress_clears_pending_outcome(monkeypatch, tmp_path):
         summary="Clear pending execution outcome.",
         scope="Plan progress metadata.",
         acceptance_criteria=["Progress clears pending turn outcome."],
+        **_professional_fields(),
         steps=[{"id": "audit", "label": "Audit turn state"}],
     )
     spm.approve_session_plan(session)
@@ -401,6 +506,7 @@ def test_record_plan_progress_step_done_advances_plan(monkeypatch, tmp_path):
         summary="Step done outcome advances the checklist.",
         scope="Plan progress tool behavior.",
         acceptance_criteria=["Step done updates the active step."],
+        **_professional_fields(),
         steps=[
             {"id": "audit", "label": "Audit turn state"},
             {"id": "ship", "label": "Ship supervisor state"},
@@ -432,6 +538,7 @@ def test_executing_guard_blocks_mutating_tools_when_replan_pending(monkeypatch, 
         summary="Guard stale execution.",
         scope="Tool dispatch guard.",
         acceptance_criteria=["Replan blocks mutation."],
+        **_professional_fields(),
         steps=[{"id": "audit", "label": "Audit current state"}],
     )
     spm.approve_session_plan(session)
@@ -463,6 +570,7 @@ def test_blocked_plan_still_allows_replan_tool(monkeypatch, tmp_path):
         summary="Allow the replan escape hatch.",
         scope="Blocked execution tool guard.",
         acceptance_criteria=["Blocked plans can request a replan."],
+        **_professional_fields(),
         steps=[{"id": "audit", "label": "Audit blocked state"}],
     )
     spm.approve_session_plan(session)
@@ -491,6 +599,7 @@ def test_request_replan_preserves_accepted_revision_and_returns_to_planning(monk
         summary="Exercise replan transitions.",
         scope="Accepted revision handling.",
         acceptance_criteria=["A replan creates a new draft revision."],
+        **_professional_fields(),
         steps=[
             {"id": "audit", "label": "Audit the accepted plan"},
             {"id": "ship", "label": "Ship the accepted plan"},
@@ -564,6 +673,7 @@ def test_append_plan_artifact_persists(monkeypatch, tmp_path):
         summary="Ship a widget revision.",
         scope="Widget revision artifact tracking.",
         acceptance_criteria=["The artifact is recorded."],
+        **_professional_fields(),
     )
     spm.approve_session_plan(session)
 
@@ -596,6 +706,7 @@ def test_list_plan_revisions_includes_snapshots_and_current(monkeypatch, tmp_pat
         summary="Draft one",
         scope="Initial scope",
         acceptance_criteria=["The plan can be approved."],
+        **_professional_fields(),
     )
     spm.publish_session_plan(
         session,
@@ -603,6 +714,7 @@ def test_list_plan_revisions_includes_snapshots_and_current(monkeypatch, tmp_pat
         summary="Draft two",
         scope="Updated scope",
         acceptance_criteria=["The plan can be approved."],
+        **_professional_fields(),
         steps=[
             {"id": "audit", "label": "Audit the current plan flow"},
             {"id": "ship", "label": "Ship the hardening"},
@@ -629,6 +741,7 @@ def test_build_plan_revision_diff_uses_snapshot_content(monkeypatch, tmp_path):
         summary="Draft one",
         scope="Initial scope",
         acceptance_criteria=["The plan can be approved."],
+        **_professional_fields(),
     )
     spm.publish_session_plan(
         session,
@@ -636,6 +749,7 @@ def test_build_plan_revision_diff_uses_snapshot_content(monkeypatch, tmp_path):
         summary="Draft two",
         scope="Updated scope",
         acceptance_criteria=["The plan can be approved."],
+        **_professional_fields(),
         steps=[
             {"id": "audit", "label": "Audit the current plan flow"},
             {"id": "ship", "label": "Ship the hardening"},
@@ -663,7 +777,8 @@ def test_record_plan_semantic_review_updates_runtime_and_adherence(monkeypatch, 
         summary="Track semantic adherence separately from protocol adherence.",
         scope="Plan runtime metadata and review surfaces.",
         acceptance_criteria=["Semantic review is visible in runtime and adherence state."],
-        steps=[{"id": "ship", "label": "Implement the runtime review"}],
+        **_professional_fields(),
+        steps=[{"id": "ship", "label": "Wire semantic review runtime state"}],
     )
     spm.approve_session_plan(session)
 

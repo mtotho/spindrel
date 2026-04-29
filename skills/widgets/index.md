@@ -50,6 +50,7 @@ Bot control rule:
 - Discover widgets through the shared library/catalog tools.
 - Place them with `pin_widget`.
 - Interact with pinned widgets through `invoke_widget_action`.
+- Check whether they work with `check_widget(pin_id=...)` or `check_dashboard_widgets(...)`; `describe_dashboard` includes the latest persisted `widget_health` summary for each checked pin.
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
 - For presets, also inspect `dependency_contract`. A Home Assistant preset on the official HA MCP lane should stay on `GetLiveContext` / `Hass*` tools, not community `ha_get_state`.
 - For component/YAML widgets, follow the low-chrome component design language in `docs/widget-templates.md`: labels name the object, metadata is not default content, cards resize across compact/standard/expanded sizes, and chips are explicit chip variants.
@@ -61,8 +62,9 @@ Treat widgets with one operational loop regardless of runtime kind:
 
 1. Discover through the shared catalog.
 2. Place with `pin_widget`.
-3. Inspect declared actions before operating.
-4. Invoke through `invoke_widget_action`.
+3. Run `check_widget` after pinning, or `check_dashboard_widgets` for a dashboard-wide pass.
+4. Inspect declared actions before operating.
+5. Invoke through `invoke_widget_action`.
 
 The interface is unified even though the runtime is not. Bots should think in terms of library entries, pins, widget instances, declared actions, and explicit widget contracts, not iframe handlers vs native internals.
 
@@ -196,7 +198,7 @@ When the user says *"build me a dashboard for X"*:
 4. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two. See `widgets/dashboards.md`.
 5. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
 6. **Group it if it belongs with siblings** — set exactly one of `suite:` or `package:` in the HTML frontmatter or `widget.yaml`. Use a group when the widget is part of a related family the library should show together.
-7. **Preview** — call `preview_widget(...)` with the same args you plan to emit. Catch manifest, library-ref, and CSP problems before the next user-visible step.
+7. **Preview/check** — call `preview_widget(...)` with the same args you plan to emit, then `check_widget(...)` before or immediately after pinning. Catch manifest, library-ref, CSP, static lint, and runtime-health problems before the next user-visible step.
 8. **Emit or pin** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. The library resolves bot → workspace → core for unscoped refs; prefix with `bot/` or `workspace/` to disambiguate. User pins it to the dashboard.
 9. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
 10. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.

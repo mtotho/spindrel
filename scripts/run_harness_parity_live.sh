@@ -81,6 +81,19 @@ export HARNESS_PARITY_PLAYWRIGHT_HOST="${HARNESS_PARITY_PLAYWRIGHT_HOST:-playwri
 export HARNESS_PARITY_PLAYWRIGHT_CONTAINER="${HARNESS_PARITY_PLAYWRIGHT_CONTAINER:-spindrel-local-browser-automation-playwright-1}"
 export HARNESS_PARITY_PROJECT_PATH="${HARNESS_PARITY_PROJECT_PATH:-common/projects}"
 export HARNESS_PARITY_PROJECT_TIMEOUT="${HARNESS_PARITY_PROJECT_TIMEOUT:-600}"
+export HARNESS_PARITY_CAPTURE_SCREENSHOTS="${HARNESS_PARITY_CAPTURE_SCREENSHOTS:-auto}"
+export HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR="${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR:-$PROJECT_ROOT/docs/images}"
+
+is_local_e2e_host() {
+    case "$E2E_HOST" in
+        127.*|localhost|0.0.0.0|::1)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
 
 wait_for_server_health() {
     local url="http://${E2E_HOST}:${E2E_PORT}/health"
@@ -175,7 +188,7 @@ PY
     rm -f "$openapi_tmp"
 }
 
-if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
+if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then
     browser_ip="$(docker inspect "$HARNESS_PARITY_PLAYWRIGHT_CONTAINER" \
         --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
     if [[ -n "$browser_ip" ]]; then
@@ -184,7 +197,7 @@ if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
     fi
 fi
 
-if [[ -z "${SPINDREL_BROWSER_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
+if [[ -z "${SPINDREL_BROWSER_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then
     app_ip="$(docker inspect "$HARNESS_PARITY_AGENT_CONTAINER" \
         --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
     if [[ -n "$app_ip" ]]; then
@@ -204,6 +217,8 @@ echo "  Browser ws: ${PLAYWRIGHT_WS_URL:-<auto/runtime-service/managed>}"
 echo "  Browser URL: ${SPINDREL_BROWSER_URL:-<pytest default>}"
 echo "  Project path: ${HARNESS_PARITY_PROJECT_PATH}"
 echo "  Project timeout: ${HARNESS_PARITY_PROJECT_TIMEOUT}"
+echo "  Capture screenshots: ${HARNESS_PARITY_CAPTURE_SCREENSHOTS}"
+echo "  Screenshot output: ${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR}"
 echo "  Health wait: ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}"
 echo ""
 
@@ -215,4 +230,65 @@ fi
 wait_for_server_health
 preflight_api_surface
 
-exec "$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs "${PYTEST_ARGS[@]}"
+"$PYTEST_BIN" tests/e2e/scenarios/test_harness_live_parity.py -q -rs "${PYTEST_ARGS[@]}"
+
+tier_at_least() {
+    local current="$1"
+    local required="$2"
+    "$PYTHON_BIN" - "$current" "$required" <<'PY'
+import sys
+
+order = {
+    "core": 0,
+    "bridge": 1,
+    "terminal": 2,
+    "plan": 3,
+    "heartbeat": 4,
+    "automation": 5,
+    "writes": 6,
+    "context": 7,
+    "project": 8,
+    "memory": 9,
+    "skills": 10,
+    "replay": 11,
+}
+raise SystemExit(0 if order.get(sys.argv[1], 0) >= order[sys.argv[2]] else 1)
+PY
+}
+
+should_capture_screenshots() {
+    case "${HARNESS_PARITY_CAPTURE_SCREENSHOTS,,}" in
+        1|true|yes|on)
+            return 0
+            ;;
+        0|false|no|off)
+            return 1
+            ;;
+        auto)
+            tier_at_least "$HARNESS_PARITY_TIER" "project"
+            return
+            ;;
+        *)
+            echo "Invalid HARNESS_PARITY_CAPTURE_SCREENSHOTS='$HARNESS_PARITY_CAPTURE_SCREENSHOTS'; use auto, true, or false." >&2
+            return 2
+            ;;
+    esac
+}
+
+capture_status=0
+should_capture_screenshots || capture_status=$?
+if [[ "$capture_status" -eq 2 ]]; then
+    exit 2
+fi
+
+if [[ "$capture_status" -eq 0 ]]; then
+    echo ""
+    echo "=== Harness Live Screenshots ==="
+    "$PYTHON_BIN" -m scripts.screenshots.harness_live \
+        --api-url "http://${E2E_HOST}:${E2E_PORT}" \
+        --ui-url "${SPINDREL_UI_URL:-http://${E2E_HOST}:${E2E_PORT}}" \
+        --browser-url "${SPINDREL_BROWSER_URL:-${SPINDREL_UI_URL:-http://${E2E_HOST}:${E2E_PORT}}}" \
+        --browser-api-url "${SPINDREL_BROWSER_API_URL:-${SPINDREL_BROWSER_URL:-${SPINDREL_UI_URL:-http://${E2E_HOST}:${E2E_PORT}}}}" \
+        --api-key "$E2E_API_KEY" \
+        --output-dir "$HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR"
+fi

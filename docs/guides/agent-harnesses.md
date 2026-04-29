@@ -112,6 +112,14 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code native Edit diff output in terminal chat mode](../images/harness-claude-native-edit-terminal.png)
 
+![Codex mobile harness context panel](../images/harness-codex-mobile-context.png)
+
+![Claude Code mobile harness context panel](../images/harness-claude-mobile-context.png)
+
+![Codex terminal-mode plan switcher](../images/harness-codex-plan-mode-switcher.png)
+
+![Claude Code terminal-mode plan switcher](../images/harness-claude-plan-mode-switcher.png)
+
 ![Claude Code native question card in default dark mode](../images/harness-question-default-dark.png)
 
 ![Claude Code native question card in default light mode](../images/harness-question-default-light.png)
@@ -127,21 +135,14 @@ Regenerate the non-question fixtures with:
 ```bash
 HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
   -k project_plan_build_and_screenshot
-
-# Also preserve a recent Claude session containing "Harness Native Diff Preview"
-# when regenerating the native Edit diff fixture.
-
-SPINDREL_API_KEY=... \
-python -m scripts.screenshots.harness_live \
-  --api-url http://10.10.30.208:8000 \
-  --ui-url http://10.10.30.208:8000 \
-  --browser-url http://10.10.30.208:8000 \
-  --output-dir docs/images
 ```
 
-When using the shared Docker Playwright runtime, `--browser-url` must be
-reachable from inside the Playwright container. The exact main-host command
-with Docker container IP resolution lives in `scripts/screenshots/README.md`.
+Project-or-deeper live parity runs automatically capture the checked-in docs
+screenshots into `docs/images` after pytest passes. Set
+`HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip this, or
+`HARNESS_PARITY_CAPTURE_SCREENSHOTS=true` to force capture for a narrower tier.
+When using the shared Docker Playwright runtime, the runner resolves the
+container-reachable browser URL before capture.
 
 For question-card fixtures, first create or preserve a live pending
 `core/harness_question` session, set `HARNESS_VISUAL_QUESTION_SESSION_ID`, then

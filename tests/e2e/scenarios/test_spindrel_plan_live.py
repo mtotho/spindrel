@@ -16,6 +16,7 @@ Tiers are controlled by ``SPINDREL_PLAN_TIER``:
 - ``guardrails``: replan plus planning-mode mutating-tool denial.
 - ``replay``: guardrails plus persisted transcript reload checks.
 - ``behavior``: replay plus realistic planning/execution behavior pressure.
+- ``quality``: behavior plus professional-plan quality contract checks.
 """
 
 from __future__ import annotations
@@ -54,6 +55,7 @@ TIER_ORDER = {
     "guardrails": 7,
     "replay": 8,
     "behavior": 9,
+    "quality": 10,
 }
 
 
@@ -229,6 +231,10 @@ async def _create_approved_execution_plan(client: E2EClient, session_id: str, *,
             "title": title,
             "summary": "Verify native Spindrel plan execution parity.",
             "scope": "Live E2E diagnostics only; do not modify repository files.",
+            "key_changes": ["Exercise approved native plan execution state."],
+            "interfaces": ["No public API changes; live diagnostic state only."],
+            "assumptions_and_defaults": ["Use the dedicated live E2E channel and detached sessions."],
+            "test_plan": ["Record progress through the native plan progress tool."],
             "acceptance_criteria": ["Plan progress can be recorded"],
             "steps": [
                 {"id": "step-1", "label": "Begin approved execution"},
@@ -312,6 +318,10 @@ async def test_live_spindrel_publish_plan_artifact(client: E2EClient) -> None:
             f"Publish a plan with title {title!r}. "
             "Use summary 'Verify native Spindrel plan mode can publish and render a plan artifact.' "
             "Use scope 'Live E2E diagnostics only; do not modify repository files.' "
+            "Use key_changes ['Exercise the native publish_plan artifact path']. "
+            "Use interfaces ['No public API changes; transcript envelope only']. "
+            "Use assumptions_and_defaults ['Use the dedicated live E2E channel and detached session']. "
+            "Use test_plan ['Fetch session plan state and transcript messages after publish']. "
             "Use exactly three pending steps: "
             "'Start native plan mode', 'Publish the inline plan artifact', "
             "and 'Capture docs screenshots'. "
@@ -348,6 +358,10 @@ async def test_live_spindrel_approve_plan_state_transition(client: E2EClient) ->
             "title": "Native Spindrel Plan Approval Diagnostic",
             "summary": "Verify native plan approval transitions the session to execution.",
             "scope": "State transition only; no agent turn or repository mutation.",
+            "key_changes": ["Exercise native plan approval state transition."],
+            "interfaces": ["No public API changes; session plan response only."],
+            "assumptions_and_defaults": ["Use a detached live E2E session."],
+            "test_plan": ["Approve revision 1 and inspect plan state."],
             "acceptance_criteria": ["Plan state moves to executing"],
             "steps": [
                 {"id": "start", "label": "Start native plan mode"},
@@ -417,6 +431,10 @@ async def test_live_spindrel_plan_question_answers_feed_publish(client: E2EClien
             f"Publish a plan titled {plan_title!r}. "
             "The summary must include 'answer handoff'. "
             "Use scope 'Live E2E diagnostics only; do not modify repository files.' "
+            "Use key_changes ['Reflect submitted plan answers in the draft']. "
+            "Use interfaces ['No public API changes; plan artifact only']. "
+            "Use assumptions_and_defaults ['Submitted plan-question answers are the source of truth']. "
+            "Use test_plan ['Fetch the plan and assert submitted answers are visible']. "
             "Use exactly two pending steps: 'Read submitted plan answers' and 'Publish answered plan'. "
             "Use acceptance criterion 'Plan includes submitted answer handoff'."
         ),
@@ -550,6 +568,10 @@ async def test_live_spindrel_plan_transcript_replay_persists_envelopes(client: E
             f"Publish a plan with title {title!r}. "
             "Use summary 'Verify persisted transcript replay keeps native plan envelopes.' "
             "Use scope 'Live E2E diagnostics only.' "
+            "Use key_changes ['Persist a replayable native plan envelope']. "
+            "Use interfaces ['No public API changes; transcript envelope only']. "
+            "Use assumptions_and_defaults ['Reloading messages should preserve the same envelope body']. "
+            "Use test_plan ['Read messages twice and compare plan envelopes']. "
             "Use exactly two pending steps: 'Publish replay plan' and 'Reload transcript'. "
             "Use acceptance criterion 'Reloaded messages include a Spindrel plan envelope'."
         ),
@@ -799,6 +821,10 @@ async def test_live_spindrel_behavior_revision_and_validation_rejections(client:
             "revision": 1,
             "summary": "Verify stale revision protection.",
             "scope": "State transition validation only.",
+            "key_changes": ["Exercise stale revision validation."],
+            "interfaces": ["No public API changes; route state only."],
+            "assumptions_and_defaults": ["Revision 1 remains stale after patching to revision 2."],
+            "test_plan": ["Approve revision 2 and reject stale revision 1 mutations."],
             "acceptance_criteria": ["Stale revisions are rejected."],
         },
     )
@@ -824,3 +850,80 @@ async def test_live_spindrel_behavior_revision_and_validation_rejections(client:
     )
     assert stale_replan.status_code == 409, stale_replan.text
     _record_session("behavior_conflict", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_quality_rejects_weak_professional_plan(client: E2EClient) -> None:
+    _requires_tier("quality")
+    channel_id, session_id, bot_id = await _fresh_session(client, "quality_reject")
+    await client.start_session_plan_mode(session_id)
+
+    weak = await client.create_session_plan(
+        session_id,
+        {
+            "title": "Native Spindrel Weak Quality Diagnostic",
+            "summary": "Verify professional quality gates reject weak drafts.",
+            "scope": "Validation only; no execution or repository mutation.",
+            "acceptance_criteria": ["Weak drafts cannot be approved."],
+            "steps": [{"id": "implement", "label": "Implement changes"}],
+        },
+    )
+    assert weak["revision"] == 1
+
+    state = await client.get_session_plan_state(session_id)
+    validation = state.get("validation") or {}
+    codes = {issue.get("code") for issue in validation.get("issues") or []}
+    assert validation.get("ok") is False, validation
+    assert "missing_key_changes" in codes
+    assert "missing_interfaces" in codes
+    assert "missing_assumptions_and_defaults" in codes
+    assert "missing_test_plan" in codes
+    assert "vague_step_label" in codes
+
+    approval = await client.post(f"/sessions/{session_id}/plan/approve", json={"revision": 1})
+    assert approval.status_code == 422, approval.text
+    _record_session("quality_reject", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_quality_publishes_professional_plan_contract(client: E2EClient) -> None:
+    _requires_tier("quality")
+    channel_id, session_id, bot_id = await _fresh_session(client, "quality_publish")
+    await client.start_session_plan_mode(session_id)
+    title = f"Native Spindrel Quality Plan {int(time.time())}"
+
+    result = await client.chat_session_stream(
+        (
+            "Native quality diagnostic. Use @tool:publish_plan now. Do not ask follow-up questions. "
+            f"Publish a professional plan titled {title!r}. "
+            "Use summary 'Verify native Spindrel plan mode publishes a professional plan contract.' "
+            "Use scope 'Live E2E diagnostics only; no repository mutation is in scope.' "
+            "Use key_changes ['Add deterministic quality gates to native plan approval', "
+            "'Surface professional plan sections in the transcript card']. "
+            "Use interfaces ['Session plan payload includes key_changes, interfaces, assumptions_and_defaults, test_plan, and risks']. "
+            "Use assumptions_and_defaults ['Backward-compatible parsing keeps older plan files readable']. "
+            "Use test_plan ['Assert plan validation is ok after publish', 'Reload transcript and inspect the plan envelope']. "
+            "Use risks ['Prompt-only improvements are insufficient without validation']. "
+            "Use acceptance criteria 'Validation has no blocking professional-contract issues'. "
+            "Use exactly three pending steps: 'Inspect current plan mechanics', "
+            "'Implement quality validation', and 'Run quality-tier diagnostics'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "publish_plan" in result.tools_used
+
+    plan = await client.get_session_plan(session_id)
+    assert plan["title"] == title
+    assert plan.get("key_changes"), plan
+    assert plan.get("interfaces"), plan
+    assert plan.get("assumptions_and_defaults"), plan
+    assert plan.get("test_plan"), plan
+    assert (plan.get("validation") or {}).get("ok") is True, plan.get("validation")
+    serialized = json.dumps(plan).lower()
+    assert "professional plan contract" in serialized
+    assert "quality validation" in serialized
+    _record_session("quality_publish", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

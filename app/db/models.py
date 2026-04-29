@@ -2492,6 +2492,59 @@ class WidgetDashboardPin(Base):
     )
 
 
+class WidgetHealthCheck(Base):
+    """Persisted widget health-check summary.
+
+    Raw widget debug events stay in the short-lived in-memory ring. This row is
+    the durable, clipped read model consumed by dashboard tools and UI badges.
+    """
+
+    __tablename__ = "widget_health_checks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    pin_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("widget_dashboard_pins.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    target_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    target_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    phases: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    issues: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    event_counts: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    checked_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_widget_health_checks_pin_checked",
+            "pin_id",
+            text("checked_at DESC"),
+        ),
+        Index(
+            "ix_widget_health_checks_target_checked",
+            "target_kind",
+            "target_ref",
+            text("checked_at DESC"),
+        ),
+    )
+
+
 class WidgetCronSubscription(Base):
     """One scheduled ``@on_cron`` handler declared by a pinned widget bundle.
 

@@ -116,21 +116,39 @@ _VALID_STEP_STATUSES = {
 _SECTION_ORDER = (
     "summary",
     "scope",
+    "key_changes",
+    "interfaces",
     "assumptions",
+    "assumptions_and_defaults",
     "open_questions",
     "steps",
+    "test_plan",
     "artifacts",
     "acceptance_criteria",
+    "risks",
     "outcome",
 )
+_OPTIONAL_SECTION_KEYS = {
+    "key_changes",
+    "interfaces",
+    "assumptions_and_defaults",
+    "test_plan",
+    "artifacts",
+    "risks",
+}
 _SECTION_LABELS = {
     "summary": "Summary",
     "scope": "Scope",
+    "key_changes": "Key Changes",
+    "interfaces": "Interfaces",
     "assumptions": "Assumptions",
+    "assumptions_and_defaults": "Assumptions And Defaults",
     "open_questions": "Open Questions",
     "steps": "Execution Checklist",
+    "test_plan": "Test Plan",
     "artifacts": "Artifacts",
     "acceptance_criteria": "Acceptance Criteria",
+    "risks": "Risks",
     "outcome": "Outcome",
 }
 _SECTION_RE = re.compile(r"^##\s+(?P<title>.+?)\s*$", re.MULTILINE)
@@ -375,11 +393,16 @@ class SessionPlan:
     task_slug: str
     summary: str
     scope: str
+    key_changes: list[str]
+    interfaces: list[str]
     assumptions: list[str]
+    assumptions_and_defaults: list[str]
     open_questions: list[str]
     steps: list[PlanStep]
+    test_plan: list[str]
     artifacts: list[PlanArtifact]
     acceptance_criteria: list[str]
+    risks: list[str]
     outcome: str
     path: str | None = None
 
@@ -392,11 +415,16 @@ class SessionPlan:
             "task_slug": self.task_slug,
             "summary": self.summary,
             "scope": self.scope,
+            "key_changes": list(self.key_changes),
+            "interfaces": list(self.interfaces),
             "assumptions": list(self.assumptions),
+            "assumptions_and_defaults": list(self.assumptions_and_defaults),
             "open_questions": list(self.open_questions),
             "steps": [step.as_dict() for step in self.steps],
+            "test_plan": list(self.test_plan),
             "artifacts": [artifact.as_dict() for artifact in self.artifacts],
             "acceptance_criteria": list(self.acceptance_criteria),
+            "risks": list(self.risks),
             "outcome": self.outcome,
             "path": self.path,
         }
@@ -405,8 +433,8 @@ class SessionPlan:
 def _default_steps(title: str) -> list[PlanStep]:
     return [
         PlanStep(id="clarify-scope", label=f"Clarify scope and constraints for {title}"),
-        PlanStep(id="implementation", label="Implement the agreed changes"),
-        PlanStep(id="verify", label="Verify the result and summarize any follow-up"),
+        PlanStep(id="apply-changes", label="Apply the planned implementation changes"),
+        PlanStep(id="verify-result", label="Run verification and summarize any follow-up"),
     ]
 
 
@@ -438,16 +466,26 @@ def render_plan_markdown(plan: SessionPlan) -> str:
         f"{_normalize_free_text(plan.summary, 'Pending summary.')}\n\n"
         f"## Scope\n"
         f"{_normalize_free_text(plan.scope, 'Pending scope.')}\n\n"
+        f"## Key Changes\n"
+        f"{_format_list(plan.key_changes)}\n\n"
+        f"## Interfaces\n"
+        f"{_format_list(plan.interfaces)}\n\n"
         f"## Assumptions\n"
         f"{_format_list(plan.assumptions)}\n\n"
+        f"## Assumptions And Defaults\n"
+        f"{_format_list(plan.assumptions_and_defaults)}\n\n"
         f"## Open Questions\n"
         f"{_format_list(plan.open_questions)}\n\n"
         f"## Execution Checklist\n"
         f"{steps_block}\n\n"
+        f"## Test Plan\n"
+        f"{_format_list(plan.test_plan)}\n\n"
         f"## Artifacts\n"
         f"{artifacts_block}\n\n"
         f"## Acceptance Criteria\n"
         f"{_format_list(plan.acceptance_criteria)}\n\n"
+        f"## Risks\n"
+        f"{_format_list(plan.risks)}\n\n"
         f"## Outcome\n"
         f"{_normalize_free_text(plan.outcome, 'Pending execution.')}\n"
     )
@@ -484,7 +522,7 @@ def parse_plan_markdown(markdown: str, *, path: str | None = None) -> SessionPla
     session_id = uuid.UUID(session_match.group(1))
     task_slug = task_match.group(1).strip()
     sections = _extract_sections(markdown)
-    missing = [name for name in _SECTION_ORDER if name != "artifacts" and name not in sections]
+    missing = [name for name in _SECTION_ORDER if name not in _OPTIONAL_SECTION_KEYS and name not in sections]
     if missing:
         raise ValueError(f"Plan markdown is missing required sections: {missing}")
     sections.setdefault("artifacts", "- None")
@@ -543,11 +581,16 @@ def parse_plan_markdown(markdown: str, *, path: str | None = None) -> SessionPla
         task_slug=task_slug,
         summary=sections["summary"].strip(),
         scope=sections["scope"].strip(),
+        key_changes=_clean_list(sections.get("key_changes", "").splitlines()),
+        interfaces=_clean_list(sections.get("interfaces", "").splitlines()),
         assumptions=_clean_list(sections["assumptions"].splitlines()),
+        assumptions_and_defaults=_clean_list(sections.get("assumptions_and_defaults", "").splitlines()),
         open_questions=_clean_list(sections["open_questions"].splitlines()),
         steps=steps,
+        test_plan=_clean_list(sections.get("test_plan", "").splitlines()),
         artifacts=artifacts,
         acceptance_criteria=_clean_list(sections["acceptance_criteria"].splitlines()),
+        risks=_clean_list(sections.get("risks", "").splitlines()),
         outcome=sections["outcome"].strip(),
         path=path,
     )
@@ -1173,16 +1216,26 @@ def _changed_sections(previous: SessionPlan | None, current: SessionPlan) -> lis
         changed.append("summary")
     if previous.scope != current.scope:
         changed.append("scope")
+    if previous.key_changes != current.key_changes:
+        changed.append("key_changes")
+    if previous.interfaces != current.interfaces:
+        changed.append("interfaces")
     if previous.assumptions != current.assumptions:
         changed.append("assumptions")
+    if previous.assumptions_and_defaults != current.assumptions_and_defaults:
+        changed.append("assumptions_and_defaults")
     if previous.open_questions != current.open_questions:
         changed.append("open_questions")
     if [step.as_dict() for step in previous.steps] != [step.as_dict() for step in current.steps]:
         changed.append("steps")
     if [artifact.as_dict() for artifact in previous.artifacts] != [artifact.as_dict() for artifact in current.artifacts]:
         changed.append("artifacts")
+    if previous.test_plan != current.test_plan:
+        changed.append("test_plan")
     if previous.acceptance_criteria != current.acceptance_criteria:
         changed.append("acceptance_criteria")
+    if previous.risks != current.risks:
+        changed.append("risks")
     if previous.outcome != current.outcome:
         changed.append("outcome")
     return changed
@@ -1344,9 +1397,14 @@ def create_session_plan(
     title: str,
     summary: str | None = None,
     scope: str | None = None,
+    key_changes: list[str] | None = None,
+    interfaces: list[str] | None = None,
     assumptions: list[str] | None = None,
+    assumptions_and_defaults: list[str] | None = None,
     open_questions: list[str] | None = None,
     acceptance_criteria: list[str] | None = None,
+    test_plan: list[str] | None = None,
+    risks: list[str] | None = None,
     steps: list[dict[str, Any]] | None = None,
 ) -> SessionPlan:
     task_slug = slugify_task(title)
@@ -1369,11 +1427,16 @@ def create_session_plan(
         task_slug=task_slug,
         summary=_normalize_free_text(summary, "Pending summary."),
         scope=_normalize_free_text(scope, "Pending scope."),
+        key_changes=[item.strip() for item in (key_changes or []) if item.strip()],
+        interfaces=[item.strip() for item in (interfaces or []) if item.strip()],
         assumptions=[item.strip() for item in (assumptions or []) if item.strip()],
+        assumptions_and_defaults=[item.strip() for item in (assumptions_and_defaults or []) if item.strip()],
         open_questions=[item.strip() for item in (open_questions or []) if item.strip()],
         steps=plan_steps,
+        test_plan=[item.strip() for item in (test_plan or []) if item.strip()],
         artifacts=[],
         acceptance_criteria=[item.strip() for item in (acceptance_criteria or []) if item.strip()],
+        risks=[item.strip() for item in (risks or []) if item.strip()],
         outcome="Pending execution.",
     )
     return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING, reason="create_plan")
@@ -1385,9 +1448,14 @@ def publish_session_plan(
     title: str,
     summary: str | None = None,
     scope: str | None = None,
+    key_changes: list[str] | None = None,
+    interfaces: list[str] | None = None,
     assumptions: list[str] | None = None,
+    assumptions_and_defaults: list[str] | None = None,
     open_questions: list[str] | None = None,
     acceptance_criteria: list[str] | None = None,
+    test_plan: list[str] | None = None,
+    risks: list[str] | None = None,
     steps: list[dict[str, Any]] | None = None,
     outcome: str | None = None,
 ) -> SessionPlan:
@@ -1398,21 +1466,36 @@ def publish_session_plan(
             title=title,
             summary=summary,
             scope=scope,
+            key_changes=key_changes,
+            interfaces=interfaces,
             assumptions=assumptions,
+            assumptions_and_defaults=assumptions_and_defaults,
             open_questions=open_questions,
             acceptance_criteria=acceptance_criteria,
+            test_plan=test_plan,
+            risks=risks,
             steps=steps,
         )
 
     existing.title = title.strip() or existing.title
     existing.summary = _normalize_free_text(summary, existing.summary)
     existing.scope = _normalize_free_text(scope, existing.scope)
+    if key_changes is not None:
+        existing.key_changes = [item.strip() for item in key_changes if item.strip()]
+    if interfaces is not None:
+        existing.interfaces = [item.strip() for item in interfaces if item.strip()]
     if assumptions is not None:
         existing.assumptions = [item.strip() for item in assumptions if item.strip()]
+    if assumptions_and_defaults is not None:
+        existing.assumptions_and_defaults = [item.strip() for item in assumptions_and_defaults if item.strip()]
     if open_questions is not None:
         existing.open_questions = [item.strip() for item in open_questions if item.strip()]
     if acceptance_criteria is not None:
         existing.acceptance_criteria = [item.strip() for item in acceptance_criteria if item.strip()]
+    if test_plan is not None:
+        existing.test_plan = [item.strip() for item in test_plan if item.strip()]
+    if risks is not None:
+        existing.risks = [item.strip() for item in risks if item.strip()]
     if outcome is not None:
         existing.outcome = outcome.strip() or existing.outcome
     if steps is not None:
@@ -1443,9 +1526,14 @@ def update_session_plan(
     title: str | None = None,
     summary: str | None = None,
     scope: str | None = None,
+    key_changes: list[str] | None = None,
+    interfaces: list[str] | None = None,
     assumptions: list[str] | None = None,
+    assumptions_and_defaults: list[str] | None = None,
     open_questions: list[str] | None = None,
     acceptance_criteria: list[str] | None = None,
+    test_plan: list[str] | None = None,
+    risks: list[str] | None = None,
     outcome: str | None = None,
 ) -> SessionPlan:
     plan = load_session_plan(session, required=True)
@@ -1458,12 +1546,22 @@ def update_session_plan(
         plan.summary = _normalize_free_text(summary, plan.summary)
     if scope is not None:
         plan.scope = _normalize_free_text(scope, plan.scope)
+    if key_changes is not None:
+        plan.key_changes = [item.strip() for item in key_changes if item.strip()]
+    if interfaces is not None:
+        plan.interfaces = [item.strip() for item in interfaces if item.strip()]
     if assumptions is not None:
         plan.assumptions = [item.strip() for item in assumptions if item.strip()]
+    if assumptions_and_defaults is not None:
+        plan.assumptions_and_defaults = [item.strip() for item in assumptions_and_defaults if item.strip()]
     if open_questions is not None:
         plan.open_questions = [item.strip() for item in open_questions if item.strip()]
     if acceptance_criteria is not None:
         plan.acceptance_criteria = [item.strip() for item in acceptance_criteria if item.strip()]
+    if test_plan is not None:
+        plan.test_plan = [item.strip() for item in test_plan if item.strip()]
+    if risks is not None:
+        plan.risks = [item.strip() for item in risks if item.strip()]
     if outcome is not None:
         plan.outcome = outcome.strip() or plan.outcome
     plan.revision += 1
@@ -1504,6 +1602,38 @@ def _validation_issue(
     }
 
 
+def _has_substantive_list_item(items: list[str], placeholders: set[str] | None = None) -> bool:
+    placeholders = placeholders or {"none", "n/a", "na", "pending", "todo", "tbd"}
+    return any(not _is_placeholder_text(item, placeholders) for item in items)
+
+
+def _is_vague_step_label(label: str) -> bool:
+    text = " ".join(label.strip().lower().split())
+    if not text:
+        return True
+    vague_exact = {
+        "implement",
+        "implementation",
+        "implement changes",
+        "implement the changes",
+        "implement the agreed changes",
+        "make changes",
+        "fix issue",
+        "fix bug",
+        "test",
+        "test it",
+        "verify",
+        "ship",
+        "do work",
+    }
+    if text in vague_exact:
+        return True
+    words = text.split()
+    if len(words) <= 3 and any(word in {"implement", "fix", "update", "test", "verify"} for word in words):
+        return True
+    return False
+
+
 def validate_plan_for_approval(
     plan: SessionPlan | None,
     *,
@@ -1529,6 +1659,31 @@ def validate_plan_for_approval(
                 "Plan scope must define what is in and out of the work.",
                 field="scope",
             ))
+        elif not re.search(r"\b(out of scope|not in scope|non-goal|non-goals|only|exclude|excludes|excluded)\b", plan.scope.lower()):
+            issues.append(_validation_issue(
+                "scope_missing_boundary",
+                "Plan scope should state an explicit boundary or non-goal.",
+                field="scope",
+                severity=PLAN_VALIDATION_WARNING,
+            ))
+        if not _has_substantive_list_item(plan.key_changes):
+            issues.append(_validation_issue(
+                "missing_key_changes",
+                "Add key implementation changes before approval, or explicitly state that no implementation changes are needed.",
+                field="key_changes",
+            ))
+        if not _has_substantive_list_item(plan.interfaces):
+            issues.append(_validation_issue(
+                "missing_interfaces",
+                "Add public API/type/interface impact before approval, even if the answer is no interface changes.",
+                field="interfaces",
+            ))
+        if not _has_substantive_list_item(plan.assumptions_and_defaults) and not _has_substantive_list_item(plan.assumptions):
+            issues.append(_validation_issue(
+                "missing_assumptions_and_defaults",
+                "Record assumptions/defaults before approval, even if there are no unresolved assumptions.",
+                field="assumptions_and_defaults",
+            ))
         if plan.open_questions:
             issues.append(_validation_issue(
                 "open_questions",
@@ -1546,6 +1701,12 @@ def validate_plan_for_approval(
                 "missing_steps",
                 "Plan must have at least one execution step.",
                 field="steps",
+            ))
+        if not _has_substantive_list_item(plan.test_plan):
+            issues.append(_validation_issue(
+                "missing_test_plan",
+                "Add a concrete verification/test plan before approval.",
+                field="test_plan",
             ))
         seen_step_ids: set[str] = set()
         for idx, step in enumerate(plan.steps):
@@ -1581,6 +1742,12 @@ def validate_plan_for_approval(
                     f"Step {step.id!r} needs a concrete action label.",
                     field=f"{field}.label",
                 ))
+            elif _is_vague_step_label(step.label):
+                issues.append(_validation_issue(
+                    "vague_step_label",
+                    f"Step {step.id!r} needs a concrete, outcome-oriented action label.",
+                    field=f"{field}.label",
+                ))
         if len(plan.steps) == 1:
             issues.append(_validation_issue(
                 "single_step_plan",
@@ -1593,9 +1760,14 @@ def validate_plan_for_approval(
                 plan.title,
                 plan.summary,
                 plan.scope,
+                " ".join(plan.key_changes),
+                " ".join(plan.interfaces),
                 " ".join(plan.assumptions),
+                " ".join(plan.assumptions_and_defaults),
                 " ".join(plan.open_questions),
                 " ".join(plan.acceptance_criteria),
+                " ".join(plan.test_plan),
+                " ".join(plan.risks),
                 " ".join(step.label for step in plan.steps),
             ]).lower()
             missing_decisions = [
@@ -1963,10 +2135,28 @@ def build_plan_artifact_context(session: Session) -> str | None:
         lines.append(f"Summary: {_clip_plan_context(plan.summary, 600)}")
     if plan.scope:
         lines.append(f"Scope: {_clip_plan_context(plan.scope, 600)}")
+    if plan.key_changes:
+        lines.append(
+            "Key changes:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}" for item in plan.key_changes[:8]
+            )
+        )
+    if plan.interfaces:
+        lines.append(
+            "Interface impact:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}" for item in plan.interfaces[:8]
+            )
+        )
     if plan.assumptions:
         lines.append(
             "Assumptions:\n" + "\n".join(
                 f"- {_clip_plan_context(item, 180)}" for item in plan.assumptions[:8]
+            )
+        )
+    if plan.assumptions_and_defaults:
+        lines.append(
+            "Assumptions/defaults:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}" for item in plan.assumptions_and_defaults[:8]
             )
         )
     if plan.open_questions and mode == PLAN_MODE_PLANNING:
@@ -1988,11 +2178,25 @@ def build_plan_artifact_context(session: Session) -> str | None:
                 for step in plan.steps[:12]
             )
         )
+    if plan.test_plan:
+        lines.append(
+            "Test plan:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}"
+                for item in plan.test_plan[:8]
+            )
+        )
     if plan.acceptance_criteria:
         lines.append(
             "Acceptance criteria:\n" + "\n".join(
                 f"- {_clip_plan_context(item, 180)}"
                 for item in plan.acceptance_criteria[:8]
+            )
+        )
+    if plan.risks:
+        lines.append(
+            "Risks:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}"
+                for item in plan.risks[:5]
             )
         )
     if plan.artifacts and mode in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE}:
@@ -2022,10 +2226,11 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         if mode == PLAN_MODE_PLANNING:
             lines = [
                 "Plan mode is active. Stay in planning mode: do not execute implementation changes, do not edit non-plan files, and do not answer with long freeform proposals before the scope is clear.",
-                "Your first job in plan mode is to narrow scope. Ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
+                "Your first job in plan mode is to narrow scope. Explore/read available context first when possible, then ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
+                "A publishable plan must be decision-complete: goal and success criteria clear, scope and non-goals explicit, key implementation changes named, interface/API/type impact stated, assumptions/defaults recorded, concrete execution steps listed, and verification/test plan included.",
                 "Treat the visible planning-state capsule as durable notes for the back-and-forth: preserve confirmed decisions, open questions, constraints, assumptions, non-goals, evidence, and preference changes there instead of relying only on chat history.",
                 "Formatting contract: keep chat replies short, avoid giant markdown sections/lists unless the user explicitly asks for a prose writeup, and use tools for structured planning surfaces instead of hand-formatting them in chat.",
-                "Do not publish a plan until the user has answered the key scope questions or explicitly said to proceed with assumptions.",
+                "Do not publish a plan until the user has answered the key scope questions or explicitly said to proceed with assumptions; when proceeding with assumptions, record those defaults in the plan.",
                 "When you are ready to propose the actual plan, use publish_plan instead of writing a giant markdown response in chat. Keep conversational replies short and scoped to the next decision.",
             ]
             if settings.PLAN_MODE_SUBAGENT_GUIDANCE_ENABLED:
@@ -2042,6 +2247,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             "and do not edit non-plan files or execute implementation changes."
         )
         lines.append("Use the planning-state capsule as durable notes for confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes.")
+        lines.append("Before approval, the plan artifact must include key changes, interface impact, assumptions/defaults, concrete steps, acceptance criteria, and a test plan. Revise with publish_plan instead of asking approval for a thin draft.")
         lines.append("Formatting contract: keep planning chat terse and decision-oriented; use publish_plan for the structured draft and avoid restating the whole plan in normal assistant prose.")
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Current revision: {plan.revision} ({plan.status})")

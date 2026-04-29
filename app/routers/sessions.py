@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -114,11 +114,16 @@ class SessionPlanOut(BaseModel):
     task_slug: str
     summary: str
     scope: str
+    key_changes: list[str] = Field(default_factory=list)
+    interfaces: list[str] = Field(default_factory=list)
     assumptions: list[str]
+    assumptions_and_defaults: list[str] = Field(default_factory=list)
     open_questions: list[str]
     steps: list[PlanStepOut]
+    test_plan: list[str] = Field(default_factory=list)
     artifacts: list[PlanArtifactOut]
     acceptance_criteria: list[str]
+    risks: list[str] = Field(default_factory=list)
     outcome: str
     path: Optional[str] = None
     mode: str
@@ -149,9 +154,14 @@ class SessionPlanCreateRequest(BaseModel):
     title: str
     summary: Optional[str] = None
     scope: Optional[str] = None
+    key_changes: Optional[list[str]] = None
+    interfaces: Optional[list[str]] = None
     assumptions: Optional[list[str]] = None
+    assumptions_and_defaults: Optional[list[str]] = None
     open_questions: Optional[list[str]] = None
     acceptance_criteria: Optional[list[str]] = None
+    test_plan: Optional[list[str]] = None
+    risks: Optional[list[str]] = None
     steps: Optional[list[dict[str, Any]]] = None
 
 
@@ -160,9 +170,14 @@ class SessionPlanUpdateRequest(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     scope: Optional[str] = None
+    key_changes: Optional[list[str]] = None
+    interfaces: Optional[list[str]] = None
     assumptions: Optional[list[str]] = None
+    assumptions_and_defaults: Optional[list[str]] = None
     open_questions: Optional[list[str]] = None
     acceptance_criteria: Optional[list[str]] = None
+    test_plan: Optional[list[str]] = None
+    risks: Optional[list[str]] = None
     outcome: Optional[str] = None
 
 
@@ -475,9 +490,14 @@ async def start_session_plan(
         title=body.title,
         summary=body.summary,
         scope=body.scope,
+        key_changes=body.key_changes,
+        interfaces=body.interfaces,
         assumptions=body.assumptions,
+        assumptions_and_defaults=body.assumptions_and_defaults,
         open_questions=body.open_questions,
         acceptance_criteria=body.acceptance_criteria,
+        test_plan=body.test_plan,
+        risks=body.risks,
         steps=body.steps,
     )
     await db.commit()
@@ -502,9 +522,14 @@ async def patch_session_plan(
         title=body.title,
         summary=body.summary,
         scope=body.scope,
+        key_changes=body.key_changes,
+        interfaces=body.interfaces,
         assumptions=body.assumptions,
+        assumptions_and_defaults=body.assumptions_and_defaults,
         open_questions=body.open_questions,
         acceptance_criteria=body.acceptance_criteria,
+        test_plan=body.test_plan,
+        risks=body.risks,
         outcome=body.outcome,
     )
     await db.commit()

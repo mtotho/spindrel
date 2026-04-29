@@ -182,11 +182,16 @@ export interface SessionPlan {
   task_slug: string;
   summary: string;
   scope: string;
+  key_changes?: string[];
+  interfaces?: string[];
   assumptions: string[];
+  assumptions_and_defaults?: string[];
   open_questions: string[];
   steps: SessionPlanStep[];
+  test_plan?: string[];
   artifacts: SessionPlanArtifact[];
   acceptance_criteria: string[];
+  risks?: string[];
   outcome: string;
   path?: string | null;
   mode: "chat" | "planning" | "executing" | "blocked" | "done";

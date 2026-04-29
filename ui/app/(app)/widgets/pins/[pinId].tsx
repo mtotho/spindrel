@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bot, Bug, ExternalLink, Hash, LayoutDashboard, Menu, Minimize2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Bot, Bug, ExternalLink, Hash, LayoutDashboard, Menu, Minimize2, RefreshCw, ShieldCheck } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PinnedToolWidget, type PinnedToolWidgetControls } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { WidgetInspector } from "@/app/(app)/channels/[channelId]/WidgetInspector";
 import { useDashboardPin } from "@/src/api/hooks/useDashboardPin";
+import { useCheckWidgetHealth } from "@/src/api/hooks/useWidgetHealth";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useSpatialNodes } from "@/src/api/hooks/useWorkspaceSpatial";
@@ -16,6 +17,13 @@ import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { readContextualNavigationState } from "@/src/lib/contextualNavigation";
 import { useUIStore } from "@/src/stores/ui";
 import type { ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
+
+function healthTone(status: string | undefined): string {
+  if (status === "healthy") return "border-success/30 bg-success/10 text-success";
+  if (status === "warning") return "border-warning/30 bg-warning/10 text-warning";
+  if (status === "failing") return "border-danger/30 bg-danger/10 text-danger";
+  return "border-surface-border bg-surface-overlay text-text-dim";
+}
 
 function dashboardHref(pin: WidgetDashboardPin): string {
   if (isWorkspaceSpatialSlug(pin.dashboard_key)) return "/canvas";
@@ -55,6 +63,7 @@ export default function WidgetPinPage() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [pageRefreshing, setPageRefreshing] = useState(false);
   const { data: pin, isLoading, error, refetch } = useDashboardPin(pinId);
+  const checkHealthMutation = useCheckWidgetHealth();
   const { data: sourceChannel } = useChannel(pin?.source_channel_id ?? undefined);
   const { data: bots = [] } = useBots();
   const hydrateDashboard = useDashboardPinsStore((s) => s.hydrate);
@@ -89,6 +98,7 @@ export default function WidgetPinPage() {
     : isChannelSlug(pin?.dashboard_key)
       ? "Channel dashboard"
       : pin?.dashboard_key ?? "Dashboard";
+  const health = checkHealthMutation.data ?? pin?.widget_health ?? null;
 
   const goBack = () => {
     const contextualBack = readContextualNavigationState(location.state);
@@ -115,6 +125,11 @@ export default function WidgetPinPage() {
     } finally {
       setPageRefreshing(false);
     }
+  };
+  const checkHealth = async () => {
+    if (!pin) return;
+    await checkHealthMutation.mutateAsync({ pinId: pin.id, includeBrowser: true });
+    await refetch();
   };
 
   const handleEnvelopeUpdate = (widgetId: string, envelope: ToolResultEnvelope) => {
@@ -187,6 +202,16 @@ export default function WidgetPinPage() {
               >
                 <Bug size={15} className="text-text-muted" />
               </button>
+              <button
+                type="button"
+                onClick={() => void checkHealth()}
+                disabled={checkHealthMutation.isPending}
+                className="header-icon-btn h-9 w-9"
+                title="Check widget health"
+                aria-label="Check widget health"
+              >
+                <ShieldCheck size={15} className={checkHealthMutation.isPending ? "animate-pulse text-text-muted" : "text-text-muted"} />
+              </button>
               {isMobile && (
                 <button
                   type="button"
@@ -245,6 +270,13 @@ export default function WidgetPinPage() {
               <span>{dashboardLabel}</span>
               <span>Pin {shortId(pin.id)}</span>
               <span>{pin.tool_name}</span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${healthTone(health?.status)}`}
+                title={health?.summary ?? "Health not checked"}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                {health?.status ?? "unchecked"}
+              </span>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {pin.source_channel_id && (

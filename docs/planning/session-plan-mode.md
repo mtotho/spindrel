@@ -197,6 +197,12 @@ The intended flow is:
 
 If the model jumps straight to a giant prose proposal before narrowing scope, that is a plan-mode failure.
 
+Published plans are expected to be implementation-ready, not just plausible.
+Before approval, the artifact must make the plan decision-complete: intended
+outcome, scope boundaries, key changes, interface impact, assumptions/defaults,
+execution steps, acceptance criteria, and verification plan are all visible in
+the structured plan card.
+
 ## Runtime Injection
 
 Plan mode is not primarily a skill.
@@ -230,6 +236,8 @@ The injected rules are currently:
 - prefer `ask_plan_questions` when multiple structured answers would help
 - keep formatting terse; avoid giant markdown sections/lists unless explicitly asked
 - do not publish a plan until key scope questions are answered or the user explicitly says to proceed with assumptions
+- when proceeding with assumptions, record those defaults in the plan instead of leaving intent implicit
+- a publishable plan must include key changes, interface/API/type impact, assumptions/defaults, concrete steps, acceptance criteria, and a test plan
 - when ready, use `publish_plan` instead of writing a giant markdown response in chat
 - keep conversational replies short and scoped to the next decision
 
@@ -309,6 +317,7 @@ Expected use:
 - only once the agent has enough information to propose a concrete draft
 - not as a placeholder
 - not as a substitute for clarifying questions
+- must include professional-plan fields: key changes, interface impact, assumptions/defaults, concrete steps, acceptance criteria, and test plan
 
 This is the only correct way for the model to create the first visible plan.
 
@@ -473,12 +482,21 @@ Required sections:
 
 - `Summary`
 - `Scope`
+- `Key Changes`
+- `Interfaces`
 - `Assumptions`
+- `Assumptions And Defaults`
 - `Open Questions`
 - `Execution Checklist`
+- `Test Plan`
 - `Artifacts`
 - `Acceptance Criteria`
+- `Risks`
 - `Outcome`
+
+Older artifacts without the newer professional-plan sections remain readable.
+New approvable drafts must populate the professional sections through
+`publish_plan` or the session-plan API.
 
 Checklist lines use stable step ids and explicit statuses.
 
@@ -535,12 +553,24 @@ Current blocking issues:
 
 - missing or placeholder summary
 - missing or placeholder scope
+- missing key implementation changes
+- missing interface/API/type impact
+- missing assumptions/defaults
 - unresolved open questions
 - no acceptance criteria
+- no test plan
 - no execution steps
 - invalid or duplicate step ids
 - invalid step statuses
 - placeholder step labels
+- vague step labels such as generic “implement changes” / “test it” items
+
+Current warnings:
+
+- scope does not state a visible boundary or non-goal
+- a single-step plan may be too compressed
+- confirmed planning-state decisions are not visibly reflected in the draft
+- planning-state open questions were not carried forward or resolved
 
 Validation is returned on:
 
@@ -789,6 +819,7 @@ What v1 does well:
 - metadata-backed adherence/evidence ledger for execution
 - executing-mode tool guard for stale, blocked, or replan-pending state
 - deterministic approval validation
+- professional-plan quality gates for key changes, interfaces, assumptions/defaults, concrete steps, and test plan
 - explicit replan transition back to planning
 - turn-end supervisor for missing execution outcomes
 - explicit progress outcome tool that can clear supervisor warnings and advance steps
@@ -813,14 +844,14 @@ These are known gaps between the current v1 and the fuller planning system we li
 - no explicit “agent may propose entering plan mode” tool yet
   entry is still user/control-driven in practice
 - no mature behavioral eval suite for the whole planning loop
-  the deterministic protocol is covered and the live behavior tier now catches the highest-risk regressions; we still need broader model-behavior evals for question quality and semantic step satisfaction under realistic transcripts
+  the deterministic protocol is covered and the live behavior/quality tiers now catch the highest-risk regressions; we still need broader model-behavior evals for question quality and semantic step satisfaction under realistic transcripts
 
 ## Future Ideas
 
 Potential next steps, roughly in order of usefulness:
 
 - expand plan validation heuristics
-  examples: max-step heuristics, vague-step detection, required done-condition checks, oversized-plan warnings
+  examples: max-step heuristics, required done-condition checks, oversized-plan warnings
 - add behavioral evals for turn-outcome adherence
   the agent should reliably record progress, blocker, replan, verification, or no-progress reason before ending an execution turn under realistic context pressure
 - add agent-side “propose plan mode” tooling
@@ -829,8 +860,8 @@ Potential next steps, roughly in order of usefulness:
   especially useful once plans become a normal part of medium-sized engineering sessions
 - add a detached step executor
   once the step contract is reliable enough, the loop can move out of the foreground session turn path
-- add explicit tests/evals for planning quality
-  not just unit tests for plumbing, but behavioral tests that catch regressions like “model dumps wall of text instead of asking questions”
+- add broader tests/evals for planning quality
+  not just unit tests for plumbing, but behavioral tests that catch regressions in question quality, assumption handling, and semantic step satisfaction
 
 ## Maintenance Rule
 

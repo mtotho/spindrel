@@ -262,10 +262,13 @@ def _plan_mode_switcher_specs(ui_url: str, target: RuntimeTarget, session_id: st
         CaptureSpec(
             name=f"harness-{target.name}-plan-mode-switcher",
             route=route,
-            wait_js="document.querySelector('[data-testid=\"composer-plan-mode-control\"]') !== null",
+            wait_js=(
+                "document.querySelector('[data-testid=\"composer-plan-mode-control\"]') !== null "
+                "&& document.body.innerText.includes('Harness Project Parity')"
+            ),
             click_selector='[data-testid="composer-plan-mode-control"]',
             after_click_wait_js="document.body.innerText.toLowerCase().includes('plan mode')",
-            contains=("plan mode",),
+            contains=("Harness Project Parity", "plan mode"),
             theme="dark",
             channel_id=target.channel_id,
             chat_mode="terminal",

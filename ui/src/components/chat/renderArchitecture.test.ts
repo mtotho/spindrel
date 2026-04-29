@@ -243,9 +243,12 @@ test("mobile channel header does not make the whole title open context chrome", 
   );
 
   assert.match(channelHeader, /import \{ useIsMobile \} from "@\/src\/hooks\/useIsMobile";/);
+  assert.match(channelHeader, /import \{ useMatch, useNavigate \} from "react-router-dom";/);
   assert.match(channelHeader, /isMobile: routeIsMobile/);
   assert.match(channelHeader, /const detectedMobile = useIsMobile\(\);/);
   assert.match(channelHeader, /const isMobile = routeIsMobile \|\| detectedMobile;/);
+  assert.match(channelHeader, /const routeSessionMatch = useMatch\("\/channels\/:channelId\/session\/:sessionId"\);/);
+  assert.match(channelHeader, /const effectiveSessionId = sessionId \?\? routeSessionId;/);
   assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !bot\.harness_runtime && !!onContextBudgetClick;/);
   assert.match(channelHeader, /data-testid="channel-header-title-region"/);
   assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
@@ -253,6 +256,7 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.match(channelHeader, /className="header-bot-label"/);
   assert.doesNotMatch(channelHeader, /compact && !contextNeedsAttention\) return null;/);
   assert.doesNotMatch(channelHeader, /if \(!data\) return null;/);
+  assert.match(channelHeader, /sessionId=\{effectiveSessionId\}/);
   assert.match(channelHeader, /data-testid=\{compact \? "harness-context-chip-mobile" : "harness-context-chip"\}/);
   assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
   assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Sparkles, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, ShieldCheck, Sparkles, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -14,6 +14,7 @@ import {
 import "react-grid-layout/css/styles.css";
 import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
+import { useCheckDashboardWidgetHealth } from "@/src/api/hooks/useWidgetHealth";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import type {
@@ -80,6 +81,7 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
     pinned_at: pin.pinned_at ?? new Date().toISOString(),
     widget_contract: pin.widget_contract ?? null,
     config: pin.widget_config ?? {},
+    widget_health: pin.widget_health ?? null,
   };
 }
 
@@ -121,7 +123,8 @@ export default function WidgetsDashboardPage() {
   // existing SSE.
   useWidgetStreamBroker(channelScopedId ?? undefined);
 
-  const { pins, isLoading, error } = useDashboardPins(slug);
+  const { pins, isLoading, error, refetch: refetchPins } = useDashboardPins(slug);
+  const checkDashboardHealth = useCheckDashboardWidgetHealth();
   const unpinWidget = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
@@ -151,6 +154,22 @@ export default function WidgetsDashboardPage() {
     () => pins.filter((p) => isRailPin(p)).length,
     [pins],
   );
+  const healthCounts = useMemo(() => {
+    const counts = { healthy: 0, warning: 0, failing: 0, unknown: 0, unchecked: 0 };
+    for (const pin of pins) {
+      const status = pin.widget_health?.status;
+      if (status === "healthy" || status === "warning" || status === "failing" || status === "unknown") counts[status] += 1;
+      else counts.unchecked += 1;
+    }
+    return counts;
+  }, [pins]);
+  const dashboardHealthLabel = useMemo(() => {
+    if (healthCounts.failing) return `${healthCounts.failing} failing`;
+    if (healthCounts.warning) return `${healthCounts.warning} warning`;
+    if (healthCounts.unknown) return `${healthCounts.unknown} unknown`;
+    if (healthCounts.unchecked) return `${healthCounts.unchecked} unchecked`;
+    return "all healthy";
+  }, [healthCounts]);
   /** Panel-mode short-circuit: when the dashboard's `grid_config.layout_mode`
    *  is `'panel'` AND a panel pin exists, the right side becomes the panel
    *  pin and the left becomes a narrow RGL strip with rail-zone pins only.
@@ -480,6 +499,24 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
+      {pins.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            checkDashboardHealth.mutate(
+              { dashboardKey: slug, limit: Math.min(pins.length, 50), includeBrowser: true },
+              { onSuccess: () => { void refetchPins(); } },
+            );
+          }}
+          disabled={checkDashboardHealth.isPending}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-surface-border px-2.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text disabled:opacity-50"
+          aria-label="Check dashboard widget health"
+          title="Check dashboard widget health"
+        >
+          <ShieldCheck size={13} className={checkDashboardHealth.isPending ? "animate-pulse" : ""} />
+          <span className="hidden md:inline">Check</span>
+        </button>
+      )}
       {/* Kiosk button intentionally removed from the top bar. Kiosk mode is
           auto-entered via `?kiosk=true` in the URL — see the mount-time
           handler that consumes the flag. Removed because the button clutters
@@ -603,6 +640,20 @@ export default function WidgetsDashboardPage() {
           + (layoutEditable && !inPanelMode ? "pb-[40vh]" : "")
         }
       >
+        {!isLoading && !error && pins.length > 0 && !kiosk && (
+          <div className="mx-auto mb-3 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-[12px] text-text-muted">
+            <div className="flex min-w-0 items-center gap-2">
+              <ShieldCheck size={14} className="shrink-0 text-text-dim" />
+              <span className="font-medium text-text">Widget health</span>
+              <span className="truncate">{dashboardHealthLabel}</span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {healthCounts.failing > 0 && <span className="text-danger">{healthCounts.failing} failing</span>}
+              {healthCounts.warning > 0 && <span className="text-warning">{healthCounts.warning} warning</span>}
+              {healthCounts.unchecked > 0 && <span>{healthCounts.unchecked} unchecked</span>}
+            </div>
+          </div>
+        )}
         {layoutError && (
           <div
             className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"

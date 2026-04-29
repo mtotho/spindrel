@@ -78,8 +78,12 @@ ssh spindrel-bot 'cd /opt/thoth-server && \
 ```
 
 Scratch app files are deleted through the workspace file API after the test.
-Screenshots land under `/tmp/spindrel-harness-parity/` unless
-`HARNESS_PARITY_ARTIFACT_DIR` is set.
+Per-test diagnostic screenshots land under `/tmp/spindrel-harness-parity/`
+unless `HARNESS_PARITY_ARTIFACT_DIR` is set. For `project` and deeper tiers,
+`run_harness_parity_live.sh` also runs the live harness screenshot capturer
+after pytest passes and writes the docs fixtures to `docs/images` by default.
+Use `HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR` to change that destination, or
+`HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip docs fixture capture.
 
 Deeper tiers build on that path:
 

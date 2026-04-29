@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useMatch, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
@@ -133,6 +133,9 @@ export function ChannelHeader({
   const detectedMobile = useIsMobile();
   const isMobile = routeIsMobile || detectedMobile;
   const navigate = useNavigate();
+  const routeSessionMatch = useMatch("/channels/:channelId/session/:sessionId");
+  const routeSessionId = routeSessionMatch?.params.sessionId ?? null;
+  const effectiveSessionId = sessionId ?? routeSessionId;
   const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
   const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);
   const mobileOverflowMenuRef = React.useRef<HTMLDivElement | null>(null);
@@ -563,7 +566,7 @@ export function ChannelHeader({
             {bot.harness_runtime && (
               <HarnessHeaderChrome
                 runtime={bot.harness_runtime}
-                sessionId={sessionId ?? null}
+                sessionId={effectiveSessionId}
                 compact={isMobile}
                 t={t}
               />

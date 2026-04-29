@@ -116,7 +116,18 @@ async def get_dashboard_pins(
     await get_dashboard(db, slug)
     pins = await list_pins(db, dashboard_key=slug)
     await touch_last_viewed(db, slug)
-    return {"pins": [serialize_pin(p) for p in pins]}
+    serialized = [serialize_pin(p) for p in pins]
+    try:
+        from app.services.widget_health import latest_health_for_pins
+
+        latest_health = await latest_health_for_pins(db, [pin["id"] for pin in serialized])
+        for pin in serialized:
+            health = latest_health.get(str(pin.get("id")))
+            if health:
+                pin["widget_health"] = health
+    except Exception:
+        logger.debug("Failed to attach latest widget health summaries", exc_info=True)
+    return {"pins": serialized}
 
 
 @router.post(
@@ -160,7 +171,17 @@ async def get_dashboard_pin(
 ):
     """Return a single dashboard pin by id."""
     pin = await get_pin(db, pin_id)
-    return serialize_pin(pin)
+    data = serialize_pin(pin)
+    try:
+        from app.services.widget_health import latest_health_for_pins
+
+        latest = await latest_health_for_pins(db, [pin_id])
+        health = latest.get(str(pin_id))
+        if health:
+            data["widget_health"] = health
+    except Exception:
+        logger.debug("Failed to attach latest widget health summary", exc_info=True)
+    return data
 
 
 @router.get(

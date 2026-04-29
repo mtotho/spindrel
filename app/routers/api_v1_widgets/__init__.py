@@ -7,12 +7,13 @@ mirroring the ``api_v1_admin/`` package layout. Sub-routers:
 - ``pins`` — pin CRUD, layout, panel promotion, refresh
 - ``library`` — read-only widget catalog, library, manifests, content serving
 - ``presets`` — preset templates, suites, previews, recent-call render
+- ``health`` — pinned/draft widget health checks and latest summaries
 """
 from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import dashboards, library, pins, presets
+from . import dashboards, health, library, pins, presets
 
 
 router = APIRouter(prefix="/widgets", tags=["widget-dashboard"])
@@ -20,3 +21,4 @@ router.include_router(dashboards.router)
 router.include_router(pins.router)
 router.include_router(library.router)
 router.include_router(presets.router)
+router.include_router(health.router)

@@ -333,6 +333,8 @@ def test_harness_live_plan_mode_switcher_specs_are_docs_fixtures():
     assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
     assert specs[0].chat_mode == "terminal"
     assert specs[0].click_selector == '[data-testid="composer-plan-mode-control"]'
+    assert "Harness Project Parity" in specs[0].wait_js
+    assert "Harness Project Parity" in specs[0].contains
     assert "plan mode" in specs[0].contains
 
 

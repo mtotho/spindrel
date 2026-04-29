@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import uuid
 
@@ -47,6 +46,13 @@ from app.agent.loop_pre_llm import LoopPreLlmIterationDone, stream_loop_pre_llm_
 from app.agent.loop_recovery import LoopRecoveryDone, stream_loop_recovery
 from app.agent.loop_setup import LoopSetupDone, stream_loop_setup
 from app.agent.loop_state import LoopRunContext, LoopRunState
+from app.agent.loop_stream import (
+    StreamPostAssemblyDone,
+    prepare_stream_setup,
+    stream_context_assembly_events,
+    stream_post_assembly_events,
+    stream_tool_loop_events,
+)
 from app.agent.loop_tool_iteration import LoopToolIterationDone, stream_loop_tool_iteration
 from app.agent.message_utils import (
     _event_with_compaction_tag,
@@ -368,121 +374,28 @@ async def run_stream(
     client can post child-bot messages first (giving them an earlier timestamp), then post
     the parent's response as a new message — ensuring correct visual ordering.
     """
-    # Reset per-request embedding cache so identical queries across skills/memory/knowledge/tools
-    # hit the cache instead of making redundant API calls.
-    from app.agent.embeddings import clear_embed_cache
-    clear_embed_cache()
-
-    # Reset per-request task creation counter
-    from app.agent.context import task_creation_count
-    task_creation_count.set(0)
-
-    # Track whether this is the outermost run_stream invocation (not a nested call from
-    # run_immediate).  Only the outermost instance manages the delegation-post queue;
-    # nested calls (child runs inside delegate_to_agent) share the same list so their
-    # queued posts bubble up to the outermost emitter.
-    from app.agent.context import current_pending_delegation_posts, current_turn_responded_bots
-    _is_outermost_stream = current_pending_delegation_posts.get() is None
-    _delegation_posts: list = []
-    if _is_outermost_stream:
-        current_pending_delegation_posts.set(_delegation_posts)
-        # Reset anti-loop tracker for this user turn
-        current_turn_responded_bots.set({bot.id})
-    else:
-        # Reuse the outer list so deeply-nested delegation posts still reach the surface.
-        _delegation_posts = current_pending_delegation_posts.get()  # type: ignore[assignment]
-
-    set_agent_context(
+    setup = await prepare_stream_setup(
+        messages=messages,
+        bot=bot,
         session_id=session_id,
         client_id=client_id,
-        bot_id=bot.id,
         correlation_id=correlation_id,
-        channel_id=channel_id,
-        memory_cross_channel=None,  # DB memory deprecated
-        memory_cross_client=None,
-        memory_cross_bot=None,
-        memory_similarity_threshold=None,
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
+        channel_id=channel_id,
+        injected_tools=injected_tools,
+        audio_data=audio_data,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
+        context_profile_name=context_profile_name,
+        settings_obj=settings,
+        logger=logger,
+        set_agent_context_fn=set_agent_context,
+        resolve_effective_provider_fn=_resolve_effective_provider,
     )
-    from app.agent.context import current_injected_tools
-    current_injected_tools.set(injected_tools)
-    native_audio = audio_data is not None
-    turn_start = len(messages)
-
-    # Channel-persisted `/effort` override. Read from channel.config once per
-    # outermost turn and set the ContextVar so nested run_stream / delegation
-    # children inherit via snapshot/restore. Nested calls skip the DB hit —
-    # they read the ContextVar already set by the outermost caller.
-    from app.agent.context import current_effort_override as _effort_ctx
-    if _effort_ctx.get() is None and channel_id is not None:
-        try:
-            from app.db.engine import async_session as _effort_session_factory
-            from app.db.models import Channel as _EffortChannel
-            async with _effort_session_factory() as _effort_db:
-                _ch = await _effort_db.get(_EffortChannel, channel_id)
-                if _ch is not None:
-                    _override = (_ch.config or {}).get("effort_override")
-                    if _override in ("off", "low", "medium", "high"):
-                        _effort_ctx.set(_override)
-        except Exception:
-            logger.debug("effort override lookup failed", exc_info=True)
-
-    # Apply channel-level model/provider override before any provider-sensitive
-    # prompt rendering or budget accounting. Context assembly still records the
-    # channel settings in AssemblyResult, but the effective call parameters need
-    # to be known before assembly starts.
-    if model_override is None and channel_id is not None:
-        try:
-            from app.db.engine import async_session as _model_session_factory
-            from app.db.models import Channel as _ModelChannel
-            async with _model_session_factory() as _model_db:
-                _ch = await _model_db.get(_ModelChannel, channel_id)
-                if _ch is not None and _ch.model_override:
-                    model_override = _ch.model_override
-                    provider_id_override = provider_id_override or getattr(
-                        _ch,
-                        "model_provider_id_override",
-                        None,
-                    )
-        except Exception:
-            logger.debug("channel model override lookup failed", exc_info=True)
-
-    from app.agent.context import current_run_origin
-    from app.agent.context_profiles import resolve_context_profile
-
-    _resolved_context_profile = context_profile_name
-    if _resolved_context_profile is None:
-        _origin = current_run_origin.get(None)
-        _session = None
-        if session_id is not None:
-            try:
-                from app.db.engine import async_session as _async_session
-                from app.db.models import Session as _Session
-                async with _async_session() as _profile_db:
-                    _session = await _profile_db.get(_Session, session_id)
-            except Exception:
-                logger.debug("context profile session lookup failed", exc_info=True)
-        _resolved_context_profile = resolve_context_profile(
-            session=_session,
-            origin=_origin,
-        ).name
-
-    # --- context budget ---
-    _budget = None
-    if settings.CONTEXT_BUDGET_ENABLED:
-        from app.agent.context_budget import ContextBudget, get_model_context_window
-        _effective_model = model_override or bot.model
-        _effective_provider = _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id)
-        _window = get_model_context_window(_effective_model, _effective_provider)
-        _reserve_ratio = settings.CONTEXT_BUDGET_RESERVE_RATIO
-        _budget = ContextBudget(
-            total_tokens=_window,
-            reserve_tokens=int(_window * _reserve_ratio),
-        )
-
     assembly_result = AssemblyResult()
-    async for event in assemble_context(
+    async for event in stream_context_assembly_events(
+        assemble_context_fn=assemble_context,
         messages=messages,
         bot=bot,
         user_message=user_message,
@@ -493,242 +406,70 @@ async def run_stream(
         audio_data=audio_data,
         audio_format=audio_format,
         attachments=attachments,
-        native_audio=native_audio,
-        result=assembly_result,
+        native_audio=setup.native_audio,
+        assembly_result=assembly_result,
         system_preamble=system_preamble,
-        budget=_budget,
+        budget=setup.budget,
         task_mode=task_mode,
         skip_skill_inject=skip_skill_inject,
-        context_profile_name=_resolved_context_profile,
-        model_override=model_override,
-        provider_id_override=provider_id_override,
-        tool_surface_policy=(run_control_policy or {}).get("tool_surface"),
+        context_profile_name=setup.context_profile_name,
+        model_override=setup.model_override,
+        provider_id_override=setup.provider_id_override,
+        run_control_policy=run_control_policy,
     ):
         yield event
 
-    # --- post-assembly: account for tool schemas in budget ---
-    if _budget is not None and assembly_result.pre_selected_tools:
-        import json as _json
-        _tool_schema_chars = sum(len(_json.dumps(t)) for t in assembly_result.pre_selected_tools)
-        from app.agent.context_budget import estimate_tokens as _est
-        _budget.consume("tool_schemas", _est("x" * _tool_schema_chars))
-        logger.debug("Budget after assembly: %s", _budget.to_dict())
-
-    # Emit budget info event for downstream consumers (e.g. compaction trigger)
-    if _budget is not None:
-        _budget_dict = _budget.to_dict()
-        _policy = assembly_result.context_policy or {}
-        yield {
-            "type": "context_budget",
-            "utilization": round(_budget.utilization, 3),
-            "total_tokens": _budget.total_tokens,
-            "consumed_tokens": _budget.consumed_tokens,
-            "remaining_tokens": _budget.remaining,
-            "available_budget": _budget_dict["available_budget"],
-            "base_tokens": _budget_dict["base_tokens"],
-            "live_history_tokens": _budget_dict["live_history_tokens"],
-            "live_history_utilization": _budget_dict["live_history_utilization"],
-            "static_injection_tokens": _budget_dict["static_injection_tokens"],
-            "tool_schema_tokens": _budget_dict["tool_schema_tokens"],
-            "context_profile": _resolved_context_profile,
-            "context_origin": assembly_result.context_origin,
-            "live_history_turns": _policy.get("live_history_turns"),
-            "mandatory_static_injections": _policy.get("mandatory_static_injections") or [],
-            "optional_static_injections": _policy.get("optional_static_injections") or [],
-        }
-
-    # Surface skills-still-in-context for the UI "skill orb" on the persisted
-    # assistant message. Sourced from conversation-history scan in assembly.
-    if assembly_result.skills_in_context:
-        yield {
-            "type": "active_skills",
-            "skills": assembly_result.skills_in_context,
-        }
-
-    # --- RAG re-ranking ---
-    from app.services.reranking import rerank_rag_context
-    _rerank_result = await rerank_rag_context(
-        messages, user_message,
-        provider_id=settings.RAG_RERANK_MODEL_PROVIDER_ID or _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id),
-    )
-    if _rerank_result is not None:
-        logger.info(
-            "RAG re-rank: %d→%d chunks, %d→%d chars",
-            _rerank_result.original_chunks, _rerank_result.kept_chunks,
-            _rerank_result.original_chars, _rerank_result.kept_chars,
-        )
-        if correlation_id is not None:
-            safe_create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="rag_rerank",
-                data={
-                    "original_chunks": _rerank_result.original_chunks,
-                    "kept_chunks": _rerank_result.kept_chunks,
-                    "original_chars": _rerank_result.original_chars,
-                    "kept_chars": _rerank_result.kept_chars,
-                },
-            ))
-        yield {
-            "type": "rag_rerank",
-            "original_chunks": _rerank_result.original_chunks,
-            "kept_chunks": _rerank_result.kept_chunks,
-            "original_chars": _rerank_result.original_chars,
-            "kept_chars": _rerank_result.kept_chars,
-        }
-
-    # --- auto-inject: synthetic get_skill() tool call/result pairs ---
-    # When context assembly identified enrolled skills to auto-inject, emit
-    # them as synthetic tool call/result pairs so the content persists in
-    # conversation history (system messages are ephemeral and get filtered
-    # out at persist time). This matches the shape of a real get_skill() call
-    # so the content gets _no_prune protection and survives across turns.
-    if assembly_result.auto_inject_skills:
-        import hashlib as _hashlib
-        from app.agent.context import current_skills_in_context
-        _resident_skills = list(current_skills_in_context.get() or [])
-        for _ai_skill in assembly_result.auto_inject_skills:
-            _ai_sid = _ai_skill["skill_id"]
-            _ai_tcid = f"auto_inject_{_hashlib.md5(_ai_sid.encode()).hexdigest()[:12]}"
-            messages.append({
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{
-                    "id": _ai_tcid,
-                    "type": "function",
-                    "function": {
-                        "name": "get_skill",
-                        "arguments": json.dumps({"skill_id": _ai_sid}),
-                    },
-                }],
-            })
-            messages.append({
-                "role": "tool",
-                "tool_call_id": _ai_tcid,
-                "content": _ai_skill["content"],
-                "_no_prune": True,
-                "_auto_inject": True,
-            })
-            if not any(
-                isinstance(_entry, dict) and _entry.get("skill_id") == _ai_sid
-                for _entry in _resident_skills
-            ):
-                _resident_skills.insert(0, {
-                    "skill_id": _ai_sid,
-                    "skill_name": _ai_skill["content"].splitlines()[0].removeprefix("# ").strip() or _ai_sid,
-                    "source": "auto_injected",
-                    "messages_ago": 0,
-                })
-        current_skills_in_context.set(_resident_skills)
-        logger.info(
-            "Auto-injected %d skill(s) as synthetic get_skill() pairs: %s",
-            len(assembly_result.auto_inject_skills),
-            [s["skill_id"] for s in assembly_result.auto_inject_skills],
-        )
-
-    # Apply channel-level model override (lower priority than per-turn)
-    if model_override is None and assembly_result.channel_model_override:
-        model_override = assembly_result.channel_model_override
-        provider_id_override = provider_id_override or assembly_result.channel_provider_id_override
-
-    # Expose effective model/provider to tools (e.g. delegation callback propagation)
-    from app.agent.context import current_model_override, current_provider_id_override, current_channel_model_tier_overrides
-    current_model_override.set(model_override)
-    current_provider_id_override.set(provider_id_override)
-    # Expose channel tier overrides to delegation tools (always set to avoid staleness)
-    current_channel_model_tier_overrides.set(assembly_result.channel_model_tier_overrides)
-
-    max_iterations_override = assembly_result.channel_max_iterations
-    pre_selected_tools = assembly_result.pre_selected_tools
-    _authorized_tool_names = assembly_result.authorized_tool_names
-    user_msg_index = assembly_result.user_msg_index
-
-    # Apply tool injections from context assembly (memory scheme, channel workspace)
-    # so the tool loop sees the full tool list even when tool_retrieval=false.
-    if assembly_result.effective_local_tools and list(bot.local_tools) != assembly_result.effective_local_tools:
-        from dataclasses import replace as _dc_replace
-        bot = _dc_replace(bot, local_tools=assembly_result.effective_local_tools)
-
-# Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
-    _fallback_models = fallback_models if fallback_models is not None else (assembly_result.channel_fallback_models or bot.fallback_models or [])
-
-    # Check usage limits before entering the agent loop
-    from app.services.usage_limits import check_usage_limits, UsageLimitExceeded
-    try:
-        await check_usage_limits(model_override or bot.model, bot.id)
-    except UsageLimitExceeded as exc:
-        yield {"type": "error", "code": "usage_limit_exceeded", "message": str(exc)}
+    post_assembly: StreamPostAssemblyDone | None = None
+    async for event in stream_post_assembly_events(
+        messages=messages,
+        bot=bot,
+        user_message=user_message,
+        session_id=session_id,
+        client_id=client_id,
+        correlation_id=correlation_id,
+        model_override=setup.model_override,
+        provider_id_override=setup.provider_id_override,
+        fallback_models=fallback_models,
+        assembly_result=assembly_result,
+        budget=setup.budget,
+        context_profile_name=setup.context_profile_name,
+        settings_obj=settings,
+        logger=logger,
+        resolve_effective_provider_fn=_resolve_effective_provider,
+        record_trace_event_fn=_record_trace_event,
+        safe_create_task_fn=safe_create_task,
+    ):
+        if isinstance(event, StreamPostAssemblyDone):
+            post_assembly = event
+            continue
+        yield event
+    if post_assembly is None or post_assembly.return_stream:
         return
 
-    # Only the outermost run_stream buffers the response and emits delegation_post events.
-    # Nested calls (child agents inside delegate_to_agent) just pass events through.
-    if _is_outermost_stream:
-        _last_response: dict | None = None
-        async for event in run_agent_tool_loop(
-            messages,
-            bot,
-            session_id=session_id,
-            client_id=client_id,
-            model_override=model_override,
-            provider_id_override=provider_id_override,
-            turn_start=turn_start,
-            native_audio=native_audio,
-            user_msg_index=user_msg_index,
-            pre_selected_tools=pre_selected_tools,
-            authorized_tool_names=_authorized_tool_names,
-            correlation_id=correlation_id,
-            channel_id=channel_id,
-            max_iterations=max_iterations_override,
-            fallback_models=_fallback_models,
-            skip_tool_policy=skip_tool_policy,
-            context_profile_name=_resolved_context_profile,
-            run_control_policy=run_control_policy,
-        ):
-            if event.get("type") == "response":
-                _last_response = event
-            else:
-                yield event
-        # Emit child-bot delegation posts BEFORE the parent response so the Slack client
-        # can post child messages first (lower Slack timestamp) then repost the parent.
-        for _dp in _delegation_posts:
-            yield {
-                "type": "delegation_post",
-                "bot_id": _dp["bot_id"],
-                "text": _dp["text"],
-                "reply_in_thread": _dp.get("reply_in_thread", False),
-                "client_actions": _dp.get("client_actions", []),
-            }
-        # Signal the UI to poll for async results (deferred delegations,
-        # scheduled tasks, etc.) that will arrive after the stream closes.
-        _pending = task_creation_count.get(0)
-        if _pending > 0:
-            yield {"type": "pending_tasks", "count": _pending}
-        if _last_response is not None:
-            yield _last_response
-    else:
-        async for event in run_agent_tool_loop(
-            messages,
-            bot,
-            session_id=session_id,
-            client_id=client_id,
-            model_override=model_override,
-            provider_id_override=provider_id_override,
-            turn_start=turn_start,
-            native_audio=native_audio,
-            user_msg_index=user_msg_index,
-            pre_selected_tools=pre_selected_tools,
-            authorized_tool_names=_authorized_tool_names,
-            correlation_id=correlation_id,
-            channel_id=channel_id,
-            max_iterations=max_iterations_override,
-            fallback_models=_fallback_models,
-            skip_tool_policy=skip_tool_policy,
-            context_profile_name=_resolved_context_profile,
-            run_control_policy=run_control_policy,
-        ):
-            yield event
+    async for event in stream_tool_loop_events(
+        run_agent_tool_loop_fn=run_agent_tool_loop,
+        messages=messages,
+        bot=post_assembly.bot,
+        session_id=session_id,
+        client_id=client_id,
+        model_override=post_assembly.model_override,
+        provider_id_override=post_assembly.provider_id_override,
+        turn_start=setup.turn_start,
+        native_audio=setup.native_audio,
+        user_msg_index=post_assembly.user_msg_index,
+        pre_selected_tools=post_assembly.pre_selected_tools,
+        authorized_tool_names=post_assembly.authorized_tool_names,
+        correlation_id=correlation_id,
+        channel_id=channel_id,
+        max_iterations=post_assembly.max_iterations,
+        fallback_models=post_assembly.fallback_models,
+        skip_tool_policy=skip_tool_policy,
+        context_profile_name=setup.context_profile_name,
+        run_control_policy=run_control_policy,
+        is_outermost_stream=setup.is_outermost_stream,
+        delegation_posts=setup.delegation_posts,
+    ):
+        yield event
 
 
 async def run(

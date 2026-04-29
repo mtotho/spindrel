@@ -278,19 +278,22 @@ Cost: ~3 MB raw / ~600 KB gzipped for the three vendored bundles, parsed once pe
 
 ### Authoring feedback loop — what bots can call
 
-Both flavors share the same two-tool authoring loop. There is no JSX server-side typecheck or external linter — the loop is the lint.
+Both flavors share the same authoring loop. There is no JSX server-side typecheck or external linter — the loop is the lint.
 
 | Tool | When | What it surfaces |
 |---|---|---|
 | `preview_widget` | Pre-pin dry-run | Manifest errors, CSP rejections, library-ref / path-resolution failures, mode-conflict input errors. Returns the same envelope shape `emit_html_widget` would produce, plus a structured `errors: [{phase, message, severity}]` list. Does **not** compile JSX (Babel runs in the iframe, not on the server). |
+| `check_widget` | Draft or pinned health check | For drafts, wraps `preview_widget` and static lint checks. For pins, persists a latest health summary (`healthy`, `warning`, `failing`, `unknown`) from static validation, runtime debug events, and an opportunistic Playwright smoke check when `BASE_URL` + browser runtime are available. |
+| `check_dashboard_widgets` | Dashboard-wide health check | Runs `check_widget` across dashboard pins and stores latest summaries so `describe_dashboard`, dashboard UI badges, and bot follow-up turns have the same health read model. |
 | `inspect_widget_pin` | Post-pin runtime trace | Reads the in-memory debug ring (cap 50, newest-first) for a pinned widget: every `callTool` request+response (real envelope shape — no guessing the JSON path), every `loadAttachment` result, every uncaught JS error / unhandled promise rejection / `console.*` call / `spindrel.log.*` entry. For `runtime: react`, Babel compile errors are mirrored to `spindrel.log.error` so they show up here with the same shape as a runtime JS error. |
 
 Iteration recipe for a React widget:
 
 1. Author v1, `preview_widget` to catch envelope/CSP/path errors.
-2. Pin it.
-3. Call `inspect_widget_pin(pin_id)` — read the `tool-call` event's `response` for ground-truth tool envelopes, read `error` / `rejection` / `log` events for JSX compile errors and JS bugs.
-4. Rewrite against confirmed shape; re-emit. No fallback chains.
+2. Run `check_widget(...)` on the draft, then pin it when the static result is clean enough.
+3. Run `check_widget(pin_id=...)` after pinning to persist the latest health summary.
+4. If health is failing or the widget renders blank data, call `inspect_widget_pin(pin_id)` — read the `tool-call` event's `response` for ground-truth tool envelopes, read `error` / `rejection` / `log` events for JSX compile errors and JS bugs.
+5. Rewrite against confirmed shape; re-emit. No fallback chains.
 
 ## Native widgets
 

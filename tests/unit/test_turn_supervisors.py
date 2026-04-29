@@ -23,6 +23,15 @@ def _patch_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr(spm, "ensure_channel_workspace", lambda _channel_id, _bot: str(tmp_path))
 
 
+def _professional_fields() -> dict:
+    return {
+        "key_changes": ["Exercise turn supervisor plan metadata."],
+        "interfaces": ["No public interface changes in this supervisor test."],
+        "assumptions_and_defaults": ["Use existing supervisor defaults."],
+        "test_plan": ["Run the focused turn supervisor regression."],
+    }
+
+
 async def test_turn_supervisor_errors_are_swallowed(monkeypatch):
     called = False
 
@@ -59,6 +68,7 @@ async def test_plan_supervisor_marks_missing_outcome_pending(
         summary="Require a turn-end outcome.",
         scope="Internal supervisor enforcement.",
         acceptance_criteria=["Missing outcomes are recorded."],
+        **_professional_fields(),
         steps=[{"id": "audit", "label": "Audit supervisor state"}],
     )
     spm.approve_session_plan(session)

@@ -11,6 +11,15 @@ from tests.integration.conftest import AUTH_HEADERS
 pytestmark = pytest.mark.asyncio
 
 
+def _professional_fields() -> dict:
+    return {
+        "key_changes": ["Update the session plan route behavior under test."],
+        "interfaces": ["Session plan response includes route-visible plan state only."],
+        "assumptions_and_defaults": ["Use existing route defaults unless this test overrides them."],
+        "test_plan": ["Exercise the session plan router integration path."],
+    }
+
+
 class TestSessionMessagesRouter:
     async def test_get_session_messages_hides_internal_rows_but_keeps_pipeline_steps(self, client, db_session):
         session_id = uuid.uuid4()
@@ -164,6 +173,7 @@ class TestSessionMessagesRouter:
             summary="Draft one",
             scope="Initial scope",
             acceptance_criteria=["The current revision can be approved."],
+            **_professional_fields(),
         )
         spm.publish_session_plan(
             session,
@@ -171,6 +181,7 @@ class TestSessionMessagesRouter:
             summary="Draft two",
             scope="Revised scope",
             acceptance_criteria=["The current revision can be approved."],
+            **_professional_fields(),
             steps=[
                 {"id": "audit", "label": "Audit current behavior"},
                 {"id": "ship", "label": "Ship the remaining fixes"},
@@ -263,7 +274,8 @@ class TestSessionMessagesRouter:
             summary="Check that outcomes are evidence-backed.",
             scope="Plan execution review.",
             acceptance_criteria=["The review is persisted on the plan."],
-            steps=[{"id": "verify", "label": "Verify the change"}],
+            **_professional_fields(),
+            steps=[{"id": "verify", "label": "Run semantic review verification"}],
         )
         spm.approve_session_plan(session)
         spm.record_plan_progress_outcome(

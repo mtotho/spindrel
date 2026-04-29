@@ -1,5 +1,9 @@
 """Phase B.5 targeted sweep of loop.py core gaps (#4, #5, #30)."""
 from __future__ import annotations
+import ast
+import inspect
+import json
+import textwrap
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -762,3 +766,100 @@ class TestDelegationPostOrdering:
         types = [e["type"] for e in events]
         assert "response" in types
         assert "delegation_post" not in types
+
+
+class TestRunStreamArchitecture:
+    def test_run_stream_stays_stage_only(self):
+        import app.agent.loop as loop_mod
+
+        source = textwrap.dedent(inspect.getsource(loop_mod.run_stream))
+        tree = ast.parse(source)
+        fn = tree.body[0]
+
+        assert isinstance(fn, ast.AsyncFunctionDef)
+        assert fn.end_lineno - fn.lineno + 1 <= 150
+        for forbidden in (
+            "current_pending_delegation_posts",
+            "ContextBudget",
+            "rerank_rag_context",
+            "auto_inject_skills",
+            "check_usage_limits",
+        ):
+            assert forbidden not in source
+        for helper in (
+            "prepare_stream_setup",
+            "stream_context_assembly_events",
+            "stream_post_assembly_events",
+            "stream_tool_loop_events",
+        ):
+            assert helper in source
+
+    def test_auto_injected_skills_append_synthetic_tool_pairs(self):
+        from app.agent.context import current_skills_in_context
+        from app.agent.loop_stream import apply_auto_injected_skills
+
+        token = current_skills_in_context.set([])
+        messages = [{"role": "user", "content": "Use the skill"}]
+        result = AssemblyResult()
+        result.auto_inject_skills.append({
+            "skill_id": "skill-1",
+            "content": "# Deploy Plan\nFollow these steps.",
+        })
+
+        try:
+            apply_auto_injected_skills(
+                messages=messages,
+                assembly_result=result,
+                logger=MagicMock(),
+            )
+            resident = current_skills_in_context.get()
+        finally:
+            current_skills_in_context.reset(token)
+
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["tool_calls"][0]["function"]["name"] == "get_skill"
+        assert json.loads(messages[1]["tool_calls"][0]["function"]["arguments"]) == {
+            "skill_id": "skill-1",
+        }
+        assert messages[2] == {
+            "role": "tool",
+            "tool_call_id": messages[1]["tool_calls"][0]["id"],
+            "content": "# Deploy Plan\nFollow these steps.",
+            "_no_prune": True,
+            "_auto_inject": True,
+        }
+        assert resident[0]["skill_id"] == "skill-1"
+        assert resident[0]["skill_name"] == "Deploy Plan"
+
+    @pytest.mark.asyncio
+    async def test_usage_limit_error_returns_before_tool_loop(self):
+        from app.agent.loop import run_stream
+        from app.services.usage_limits import UsageLimitExceeded
+
+        async def _mock_loop(*args, **kwargs):
+            yield {"type": "response", "text": "should not run"}
+
+        bot = _make_bot()
+        events = []
+        loop_mock = MagicMock(side_effect=_mock_loop)
+        with patch("app.agent.loop.assemble_context", _noop_assemble_context), \
+             patch("app.agent.loop.run_agent_tool_loop", loop_mock), \
+             patch(
+                 "app.services.usage_limits.check_usage_limits",
+                 new_callable=AsyncMock,
+                 side_effect=UsageLimitExceeded("limit hit"),
+             ), \
+             patch("app.services.reranking.rerank_rag_context", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.set_agent_context"), \
+             patch("app.agent.embeddings.clear_embed_cache"), \
+             patch("app.agent.loop.settings") as ms:
+            ms.CONTEXT_BUDGET_ENABLED = False
+            async for evt in run_stream(
+                [{"role": "user", "content": "hi"}],
+                bot,
+                user_message="hi",
+            ):
+                events.append(evt)
+
+        assert events == [{"type": "error", "code": "usage_limit_exceeded", "message": "limit hit"}]
+        loop_mock.assert_not_called()

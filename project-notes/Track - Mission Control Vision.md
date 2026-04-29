@@ -207,6 +207,14 @@ modes, makes cleared items read-only, keeps normal bot assignment collapsed, and
 shows Operator run receipts before exposing transcript evidence. Transcript is
 deliberate evidence, not the default run workspace.
 
+Same-day route consolidation: the current user-facing funnel is **Mission
+Control Review**, backed by `/hub/attention`. Shared command-center links,
+Starboard Attention summaries, map warning affordances, and the legacy
+`/hub/mission-control` entry should all route there until the durable mission
+substrate exists. Starboard remains the contextual inspector/launcher, not the
+review workbench. The older Mission Control draft surface stays experimental
+and must not be treated as the canonical place for Attention triage.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

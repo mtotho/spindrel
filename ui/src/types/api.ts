@@ -423,6 +423,7 @@ export interface PinnedWidget {
    *  `widget_config` on dashboard pins and `{{widget_config.*}}` in templates;
    *  `{{config.*}}` remains as a compatibility alias. */
   config?: Record<string, unknown>;
+  widget_health?: WidgetHealthSummary | null;
 }
 
 /** Scanner result for a standalone HTML widget discovered in a channel's
@@ -668,8 +669,39 @@ export interface WidgetDashboardPin {
     args_schema?: Record<string, unknown>;
     returns_schema?: Record<string, unknown> | null;
   }>;
+  widget_health?: WidgetHealthSummary | null;
   pinned_at: string | null;
   updated_at: string | null;
+}
+
+export type WidgetHealthStatus = "healthy" | "warning" | "failing" | "unknown";
+
+export interface WidgetHealthIssue {
+  phase: string;
+  severity: "error" | "warning" | "info" | string;
+  message: string;
+  kind?: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface WidgetHealthPhase {
+  name: string;
+  status: WidgetHealthStatus | string;
+  message: string;
+  duration_ms?: number;
+}
+
+export interface WidgetHealthSummary {
+  check_id: string;
+  pin_id: string | null;
+  target_kind: string;
+  target_ref: string;
+  status: WidgetHealthStatus;
+  summary: string;
+  phases: WidgetHealthPhase[];
+  issues: WidgetHealthIssue[];
+  event_counts: Record<string, number>;
+  checked_at: string;
 }
 
 /** {x, y, w, h} in the 12-column dashboard grid. Empty object when unset. */
