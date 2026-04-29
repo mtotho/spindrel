@@ -239,3 +239,18 @@ test("Operator sweep transcript uses a full-width chat surface instead of a nest
   assert.match(cssSource, /overflow-x: hidden/);
   assert.doesNotMatch(attentionSource, /rounded-md bg-surface-raised\/70/);
 });
+
+test("Starboard attention station is a summary that launches the command deck", () => {
+  const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+  const deckSource = readFileSync(resolve(process.cwd(), "src/components/attention/AttentionCommandDeck.tsx"), "utf8");
+  assert.match(chromeSource, /AttentionStarboardSummary/);
+  assert.match(chromeSource, /data-testid="starboard-attention-summary"/);
+  assert.match(chromeSource, /Open deck/);
+  assert.match(chromeSource, /attentionHubHref/);
+  assert.doesNotMatch(chromeSource, /<AttentionHubContent/);
+  assert.match(deckSource, /Attention Command Deck/);
+  assert.match(deckSource, /Sweep inbox/);
+  assert.match(deckSource, /Run log/);
+  assert.match(deckSource, /Send this issue to a bot/);
+  assert.match(deckSource, /<details/);
+});

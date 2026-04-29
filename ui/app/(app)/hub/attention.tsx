@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/src/components/layout/PageHeader";
-import { AttentionHubContent } from "@/src/components/spatial-canvas/SpatialAttentionLayer";
+import { AttentionCommandDeck } from "@/src/components/attention/AttentionCommandDeck";
 import { useWorkspaceAttention, useMarkAttentionResponded, type WorkspaceAttentionItem } from "@/src/api/hooks/useWorkspaceAttention";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useDraftsStore } from "@/src/stores/drafts";
@@ -53,14 +53,14 @@ export default function HubAttentionPage() {
         variant="detail"
         parentLabel="Hub"
         title="Attention"
-        subtitle="Issues, assignments, and replies"
+        subtitle="Review findings, sweep raw signals, and inspect run evidence"
         backTo="/"
         chrome="flow"
         showMenuWithBack
       />
       <main className="min-h-0 flex-1 px-2 pb-2 md:px-4 md:pb-4">
-        <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-md bg-surface-raised/55">
-          <AttentionHubContent
+        <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden rounded-md bg-surface-raised/55">
+          <AttentionCommandDeck
             items={items}
             selectedId={selectedId}
             onSelect={selectItem}

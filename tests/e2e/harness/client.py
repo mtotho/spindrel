@@ -512,6 +512,12 @@ class E2EClient:
     async def create_channel_session(self, channel_id: str) -> str:
         """POST /api/v1/channels/{channel_id}/sessions and return the new session id."""
         resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions")
+        if resp.status_code == 404:
+            raise RuntimeError(
+                "deployed server is missing /api/v1/channels/{channel_id}/sessions; "
+                "redeploy the build that includes channel-session APIs before running "
+                "harness parity"
+            )
         resp.raise_for_status()
         return str(resp.json()["new_session_id"])
 
@@ -613,11 +619,23 @@ class E2EClient:
 
     async def list_docker_stacks(self) -> list[dict]:
         resp = await self._client.get("/api/v1/admin/docker-stacks")
+        if resp.status_code == 404:
+            raise RuntimeError(
+                "deployed server is missing /api/v1/admin/docker-stacks; "
+                "redeploy the build that includes app/routers/api_v1_admin/docker_stacks.py "
+                "before running browser-runtime harness parity"
+            )
         resp.raise_for_status()
         return list(resp.json() or [])
 
     async def get_docker_stack_status(self, stack_id: str) -> list[dict]:
         resp = await self._client.get(f"/api/v1/admin/docker-stacks/{stack_id}/status")
+        if resp.status_code == 404:
+            raise RuntimeError(
+                "deployed server is missing docker-stack status diagnostics; "
+                "redeploy the build that includes app/routers/api_v1_admin/docker_stacks.py "
+                "before running browser-runtime harness parity"
+            )
         resp.raise_for_status()
         return list(resp.json() or [])
 

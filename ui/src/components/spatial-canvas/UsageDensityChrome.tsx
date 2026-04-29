@@ -4,18 +4,18 @@ import { Activity, AlertTriangle, Bot, Box, CheckCircle, ChevronDown, Clock, Com
 import { useQueryClient } from "@tanstack/react-query";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
-import { AttentionHubContent } from "./SpatialAttentionLayer";
 import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
 import { useBulkAcknowledgeAttentionItems } from "../../api/hooks/useWorkspaceAttention";
 import type { AttentionTargetKind, WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
-import { activeAttentionItems, getAttentionWorkflowState } from "./SpatialAttentionModel";
+import { activeAttentionItems, attentionItemTriageLabel, bucketAttentionItems, getAttentionWorkflowState, sweepCandidateItems } from "./SpatialAttentionModel";
 import { WORKSPACE_MAP_STATE_KEY } from "../../api/hooks/useWorkspaceMapState";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
 import { openTraceInspector } from "../../stores/traceInspector";
+import { attentionHubHref } from "../../lib/hubRoutes";
 import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
@@ -537,11 +537,11 @@ export function UsageDensityChrome({
                   </div>
                 </div>
               ) : station === "attention" ? (
-                <AttentionHubContent
+                <AttentionStarboardSummary
                   items={attentionItems}
                   selectedId={selectedAttentionId}
                   onSelect={onSelectAttention}
-                  onReply={onReplyAttention}
+                  navigate={navigate}
                 />
               ) : station === "health" ? (
                 <SummaryPanel embedded />
@@ -685,6 +685,145 @@ function ObjectListGroup({
         })}
       </div>
     </section>
+  );
+}
+
+function AttentionStarboardSummary({
+  items,
+  selectedId,
+  onSelect,
+  navigate,
+}: {
+  items: WorkspaceAttentionItem[];
+  selectedId?: string | null;
+  onSelect: (item: WorkspaceAttentionItem | null) => void;
+  navigate?: (to: string, options?: any) => void;
+}) {
+  const active = activeAttentionItems(items);
+  const buckets = bucketAttentionItems(items);
+  const inbox = [...buckets.untriaged, ...buckets.assigned];
+  const sweepable = sweepCandidateItems(items);
+  const nextItem = buckets.review[0] ?? inbox[0] ?? buckets.triage[0] ?? null;
+  const openDeck = (item?: WorkspaceAttentionItem | null) => {
+    navigate?.(attentionHubHref(item?.id ?? null));
+  };
+  const previewItems = [nextItem, ...buckets.review.filter((item) => item.id !== nextItem?.id), ...inbox.filter((item) => item.id !== nextItem?.id)]
+    .filter(Boolean)
+    .slice(0, 5) as WorkspaceAttentionItem[];
+
+  return (
+    <div data-testid="starboard-attention-summary" className="space-y-4">
+      <section className="rounded-md bg-surface-overlay/35 px-3 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim/80">
+              <Radar size={13} />
+              Attention
+            </div>
+            <div className="mt-1 text-sm font-medium text-text">Map summary</div>
+            <div className="mt-1 text-xs leading-5 text-text-muted">
+              Starboard shows the local signal. Use the Command Deck for triage, findings, and run logs.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12]"
+            onClick={() => openDeck(nextItem)}
+          >
+            <ExternalLink size={13} />
+            Open deck
+          </button>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-2">
+        <AttentionMetric label="Review" value={buckets.review.length} tone="accent" />
+        <AttentionMetric label="Inbox" value={inbox.length} tone={inbox.length ? "danger" : "muted"} />
+        <AttentionMetric label="Running" value={buckets.triage.length} tone={buckets.triage.length ? "accent" : "muted"} />
+        <AttentionMetric label="Cleared" value={buckets.processed.length} tone="muted" />
+      </section>
+
+      {nextItem ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+            <span>Next from map</span>
+            <span>{active.length}</span>
+          </div>
+          <button
+            type="button"
+            className="block w-full rounded-md bg-accent/[0.08] px-3 py-2 text-left hover:bg-accent/[0.12]"
+            onClick={() => openDeck(nextItem)}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <span className="min-w-0 truncate text-sm font-medium text-text">{nextItem.title}</span>
+              <span className="shrink-0 text-[10px] text-accent">{attentionItemTriageLabel(nextItem)}</span>
+            </div>
+            <div className="mt-1 truncate text-xs text-text-muted">
+              {nextItem.channel_name ?? nextItem.target_kind}
+            </div>
+          </button>
+        </section>
+      ) : (
+        <section className="rounded-md border border-dashed border-surface-border bg-surface-raised/35 px-3 py-6 text-center text-sm text-text-dim">
+          No active Attention items.
+        </section>
+      )}
+
+      {previewItems.length > 1 && (
+        <section>
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Nearby queue</div>
+          <div className="space-y-1">
+            {previewItems.slice(1).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-overlay/55 ${
+                  selectedId === item.id ? "bg-accent/[0.08] text-text" : "text-text-muted"
+                }`}
+                onClick={() => {
+                  onSelect(item);
+                  openDeck(item);
+                }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="min-w-0 truncate">{item.title}</span>
+                  <span className="shrink-0 text-[10px] text-text-dim">{item.severity}</span>
+                </div>
+                <div className="mt-1 truncate text-xs text-text-dim">{attentionItemTriageLabel(item)} · {item.channel_name ?? item.target_kind}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-md bg-surface-raised/35 px-3 py-3">
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+          <Sparkles size={13} />
+          Operator
+        </div>
+        <div className="mt-2 text-sm text-text-muted">
+          {sweepable.length ? `${sweepable.length} raw item${sweepable.length === 1 ? "" : "s"} ready for sweep.` : "No raw items are ready for a new sweep."}
+        </div>
+        <button
+          type="button"
+          className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.08]"
+          onClick={() => openDeck()}
+        >
+          <ExternalLink size={13} />
+          Open Command Deck
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function AttentionMetric({ label, value, tone }: { label: string; value: number; tone: "accent" | "danger" | "muted" }) {
+  const toneClass = tone === "accent" ? "text-accent" : tone === "danger" ? "text-danger" : "text-text-muted";
+  return (
+    <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">{label}</div>
+      <div className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</div>
+    </div>
   );
 }
 
