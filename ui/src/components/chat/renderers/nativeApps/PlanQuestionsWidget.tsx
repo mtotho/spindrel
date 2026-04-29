@@ -42,6 +42,19 @@ export function PlanQuestionsWidget({
   const [busy, setBusy] = useState(false);
   const [showCompactForm, setShowCompactForm] = useState(false);
   const isTerminal = hostSurface === "plain";
+  const requiredQuestions = questions.filter((question) => question.required);
+  const answeredRequiredCount = requiredQuestions.filter((question) => String(values[question.id] ?? "").trim()).length;
+  const missingRequired = requiredQuestions.filter((question) => !String(values[question.id] ?? "").trim());
+  const nextMissingRequired = missingRequired[0];
+  const requiredStatus = requiredQuestions.length
+    ? `${answeredRequiredCount}/${requiredQuestions.length} required answered`
+    : `${questions.length} optional question${questions.length === 1 ? "" : "s"}`;
+  const focusText = error
+    ?? (submitted
+      ? "Saved to chat history and sent to the agent."
+      : nextMissingRequired
+        ? `Next: ${nextMissingRequired.label}`
+        : "Ready to submit.");
 
   if (!questions.length) {
     return <PreviewCard title={title} description="No questions were provided." t={t} />;
@@ -54,9 +67,8 @@ export function PlanQuestionsWidget({
   };
 
   const buildAnswerText = () => {
-    const missing = questions.filter((q) => q.required && !String(values[q.id] ?? "").trim());
-    if (missing.length) {
-      setError(`Answer ${missing.length === 1 ? "this required question" : "the required questions"} first.`);
+    if (missingRequired.length) {
+      setError(`Answer ${missingRequired.length === 1 ? "this required question" : "the required questions"} first.`);
       return null;
     }
     const lines: string[] = ["Plan answers:"];
@@ -143,22 +155,22 @@ export function PlanQuestionsWidget({
               fontSize: isTerminal ? 9.5 : 10,
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              color: t.textDim,
+              color: nextMissingRequired ? t.warning : t.textDim,
             }}
           >
-            {questions.length} question{questions.length === 1 ? "" : "s"} pending
+            {requiredStatus}
           </div>
           <div style={{ color: t.text, fontSize: isTerminal ? 12 : 13, fontWeight: 600 }}>
             {title}
           </div>
-          {intro ? <div style={{ color: t.textMuted, fontSize: isTerminal ? 11 : 12, lineHeight: 1.4 }}>{intro}</div> : null}
-          <div style={{ color: t.textMuted, fontSize: isTerminal ? 11 : 12 }}>
-            First prompt: {questions[0]?.label}
+          <div style={{ color: error ? t.danger : nextMissingRequired ? t.text : t.textMuted, fontSize: isTerminal ? 11 : 12, lineHeight: 1.4, fontWeight: nextMissingRequired ? 600 : 500 }}>
+            {focusText}
           </div>
+          {intro ? <div style={{ color: t.textDim, fontSize: isTerminal ? 10.5 : 11.5, lineHeight: 1.4 }}>{intro}</div> : null}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 11, color: error ? t.danger : t.textDim }}>
-            {error ?? (submitted ? "Saved to chat history." : "Answers become a real user message.")}
+            {nextMissingRequired ? "Required answer needed." : "Answers become a real user message."}
           </span>
           <button
             type="button"
@@ -183,6 +195,32 @@ export function PlanQuestionsWidget({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 8 : 10 }}>
+      <div
+        style={{
+          border: isTerminal ? "none" : `1px solid ${nextMissingRequired ? t.warning : t.surfaceBorder}`,
+          borderRadius: isTerminal ? 0 : 6,
+          background: isTerminal ? "transparent" : t.surface,
+          padding: isTerminal ? 0 : "8px 10px",
+          display: "flex",
+          flexDirection: "column",
+          gap: isTerminal ? 3 : 4,
+        }}
+      >
+        <div
+          style={{
+            fontSize: isTerminal ? 9.5 : 10,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            color: nextMissingRequired ? t.warning : t.textDim,
+            fontWeight: 700,
+          }}
+        >
+          {requiredStatus}
+        </div>
+        <div style={{ color: error ? t.danger : t.text, fontSize: isTerminal ? 12 : 13, fontWeight: 650, lineHeight: 1.35 }}>
+          {focusText}
+        </div>
+      </div>
       {intro ? <div style={{ fontSize: isTerminal ? 11.5 : 12.5, color: t.textMuted, lineHeight: 1.45 }}>{intro}</div> : null}
       {!intro ? (
         <div
@@ -199,11 +237,12 @@ export function PlanQuestionsWidget({
       <div style={{ display: "flex", flexDirection: "column", gap: isTerminal ? 7 : 8 }}>
         {questions.map((question) => {
           const value = values[question.id] ?? "";
+          const missing = question.required && !value.trim();
           return (
             <div
               key={question.id}
               style={{
-                border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+                border: isTerminal ? "none" : `1px solid ${missing ? t.warning : t.surfaceBorder}`,
                 borderRadius: isTerminal ? 0 : 6,
                 background: isTerminal ? "transparent" : t.surface,
                 padding: isTerminal ? 0 : 9,
@@ -213,9 +252,26 @@ export function PlanQuestionsWidget({
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <div style={{ fontSize: isTerminal ? 11.5 : 12.5, fontWeight: 600, color: t.text }}>
-                  {question.label}
-                  {question.required ? <span style={{ color: t.danger }}> *</span> : null}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: isTerminal ? 11.5 : 12.5, fontWeight: 650, color: t.text }}>
+                    {question.label}
+                  </div>
+                  {question.required ? (
+                    <span
+                      style={{
+                        borderRadius: 999,
+                        background: missing ? t.warningSubtle : t.surfaceRaised,
+                        color: missing ? t.warning : t.textDim,
+                        padding: isTerminal ? "1px 5px" : "2px 6px",
+                        fontSize: isTerminal ? 9.5 : 10,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Required
+                    </span>
+                  ) : null}
                 </div>
                 {question.help ? <div style={{ fontSize: isTerminal ? 10.5 : 11.5, color: t.textDim }}>{question.help}</div> : null}
               </div>

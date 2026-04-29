@@ -2,11 +2,10 @@
 knowledge, enriched."""
 from __future__ import annotations
 
-import json
 import logging
 import time as _time
 import uuid
-from datetime import datetime, time as dt_time, timedelta, timezone
+from datetime import datetime, time as dt_time, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -36,6 +35,19 @@ from app.db.models import (
 )
 from app.config import settings
 from app.dependencies import get_db, require_scopes
+from app.schemas.channels import (
+    AdminChannelOut as ChannelOut,
+    ChannelDetailOut,
+    ChannelEntitySummary,
+    ChannelListOut,
+    ChannelSettingsOut,
+)
+from app.services.channel_read_models import (
+    build_admin_channel_out,
+    build_admin_channel_settings_out,
+    load_admin_activity_maps,
+    load_heartbeat_map,
+)
 from app.services.channels import apply_channel_visibility
 from app.services.context_preview import build_context_preview_response
 from app.services.heartbeat_policy import DEFAULT_HEARTBEAT_EXECUTION_POLICY, HEARTBEAT_EXECUTION_PRESETS
@@ -44,7 +56,6 @@ from app.services.projects import (
     PROJECT_WORKSPACE_ID_KEY,
     normalize_project_path,
     resolve_channel_work_surface,
-    resolve_project_workspace_id,
 )
 from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
 
@@ -56,15 +67,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SectionScope = Literal["current", "all"]
-
-
-def _resolve_workspace_id(bot_id: str) -> str | None:
-    """Get the shared workspace ID for a bot, if any."""
-    try:
-        bot = get_bot(bot_id)
-        return bot.shared_workspace_id
-    except Exception:
-        return None
 
 
 def _is_harness_bot(bot_id: str | None) -> bool:
@@ -103,46 +105,6 @@ def _validate_heartbeat_runner_model(
             status_code=400,
             detail="Harness channels that run heartbeats with the Spindrel agent require an explicit heartbeat model.",
         )
-
-
-_PREVIEW_MAX_LEN = 80
-
-
-def _format_message_preview(content: str) -> str:
-    """Compact a message body for the channel-tile preview line.
-
-    Collapses interior whitespace to single spaces, trims, and truncates
-    to ``_PREVIEW_MAX_LEN`` chars with an ellipsis. Empty bodies become
-    ``""`` so the caller can short-circuit.
-    """
-    flat = " ".join(content.split())
-    if len(flat) <= _PREVIEW_MAX_LEN:
-        return flat
-    return flat[:_PREVIEW_MAX_LEN].rstrip() + "…"
-
-
-def _resolve_index_segment_defaults(bot_id: str) -> dict:
-    """Resolve effective default values for index segment fields from bot config."""
-    try:
-        bot = get_bot(bot_id)
-        from app.services.bot_indexing import resolve_for
-        plan = resolve_for(bot, scope="workspace")
-        if plan is not None:
-            return {
-                "embedding_model": plan.embedding_model,
-                "patterns": plan.patterns,
-                "similarity_threshold": plan.similarity_threshold,
-                "top_k": plan.top_k,
-            }
-    except Exception:
-        pass
-    from app.config import settings as _s
-    return {
-        "embedding_model": _s.EMBEDDING_MODEL,
-        "patterns": ["**/*.py", "**/*.md", "**/*.yaml"],
-        "similarity_threshold": _s.FS_INDEX_SIMILARITY_THRESHOLD,
-        "top_k": _s.FS_INDEX_TOP_K,
-    }
 
 
 def _section_session_label(session: Session | None, active_session_id: uuid.UUID | None) -> str:
@@ -228,88 +190,6 @@ async def _count_eligible_messages_for_session(db: AsyncSession, session: Sessio
 # ---------------------------------------------------------------------------
 # Channel schemas
 # ---------------------------------------------------------------------------
-
-class IntegrationBindingOut(BaseModel):
-    id: uuid.UUID
-    channel_id: uuid.UUID
-    integration_type: str
-    client_id: str
-    dispatch_config: Optional[dict] = None
-    display_name: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectSummaryOut(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    name: str
-    root_path: str
-    slug: str
-
-    model_config = {"from_attributes": True}
-
-
-class ChannelOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    bot_id: str
-    client_id: Optional[str] = None
-    integration: Optional[str] = None
-    active_session_id: Optional[uuid.UUID] = None
-    require_mention: bool = True
-    passive_memory: bool = True
-    private: bool = False
-    protected: bool = False
-    user_id: Optional[uuid.UUID] = None
-    display_name: Optional[str] = None
-    model_override: Optional[str] = None
-    model_provider_id_override: Optional[str] = None
-    integrations: list[IntegrationBindingOut] = []
-    member_bots: list[dict] = []
-    heartbeat_enabled: bool = False
-    heartbeat_in_quiet_hours: bool = False
-    workspace_id: Optional[uuid.UUID] = None
-    resolved_workspace_id: Optional[str] = None
-    project_id: Optional[uuid.UUID] = None
-    project: Optional[ProjectSummaryOut] = None
-    category: Optional[str] = None
-    tags: list[str] = []
-    last_message_at: Optional[datetime] = None
-    # Spatial canvas + future activity-aware surfaces. Computed in the
-    # channel-list path alongside ``last_message_at``; cheap to add since the
-    # session join is already in flight.
-    recent_message_count_24h: int = 0
-    last_message_preview: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ChannelListOut(BaseModel):
-    channels: list[ChannelOut]
-    total: int
-    page: int
-    page_size: int
-
-
-class ChannelEntitySummary(BaseModel):
-    session_count: int = 0
-    message_count: int = 0
-    memory_count: int = 0
-    task_count: int = 0
-    active_session_message_count: int = 0
-
-
-class ChannelDetailOut(BaseModel):
-    channel: ChannelOut
-    entities: ChannelEntitySummary
-
-    model_config = {"from_attributes": True}
-
 
 class SessionOut(BaseModel):
     id: uuid.UUID
@@ -537,98 +417,6 @@ class TaskListOut(BaseModel):
     tasks: list[TaskOut]
 
 
-class ChannelSettingsOut(BaseModel):
-    """All channel settings — superset of ChannelOut."""
-    id: uuid.UUID
-    name: str
-    bot_id: str
-    client_id: Optional[str] = None
-    integration: Optional[str] = None
-    active_session_id: Optional[uuid.UUID] = None
-    require_mention: bool = True
-    passive_memory: bool = True
-    private: bool = False
-    protected: bool = False
-    user_id: Optional[uuid.UUID] = None
-    allow_bot_messages: bool = False
-    workspace_rag: bool = True
-    thinking_display: str = "append"
-    tool_output_display: str = "compact"
-    max_iterations: Optional[int] = None
-    task_max_run_seconds: Optional[int] = None
-    channel_prompt: Optional[str] = None
-    channel_prompt_workspace_file_path: Optional[str] = None
-    channel_prompt_workspace_id: Optional[uuid.UUID] = None
-    context_compaction: bool = True
-    compaction_interval: Optional[int] = None
-    compaction_keep_turns: Optional[int] = None
-    memory_knowledge_compaction_prompt: Optional[str] = None
-    compaction_prompt_template_id: Optional[uuid.UUID] = None
-    compaction_workspace_file_path: Optional[str] = None
-    compaction_workspace_id: Optional[uuid.UUID] = None
-    history_mode: Optional[str] = None
-    compaction_model: Optional[str] = None
-    compaction_model_provider_id: Optional[str] = None
-    trigger_heartbeat_before_compaction: Optional[bool] = None
-    # Memory flush (dedicated pre-compaction memory save)
-    memory_flush_enabled: Optional[bool] = None
-    memory_flush_model: Optional[str] = None
-    memory_flush_model_provider_id: Optional[str] = None
-    memory_flush_prompt: Optional[str] = None
-    memory_flush_prompt_template_id: Optional[uuid.UUID] = None
-    memory_flush_workspace_file_path: Optional[str] = None
-    memory_flush_workspace_id: Optional[uuid.UUID] = None
-    section_index_count: Optional[int] = None
-    section_index_verbosity: Optional[str] = None
-    model_override: Optional[str] = None
-    model_provider_id_override: Optional[str] = None
-    # Tool / skill restrictions
-    local_tools_disabled: Optional[list[str]] = None
-    mcp_servers_disabled: Optional[list[str]] = None
-    client_tools_disabled: Optional[list[str]] = None
-    # Workspace overrides (null = inherit from workspace)
-    workspace_base_prompt_enabled: Optional[bool] = None
-    workspace_schema_template_id: Optional[uuid.UUID] = None
-    workspace_schema_content: Optional[str] = None
-    index_segments: list[dict] = []
-    # Model tier overrides (sparse — only override tiers you want to change)
-    model_tier_overrides: dict = {}
-    # Resolved defaults for index segment fields (computed, not stored)
-    index_segment_defaults: Optional[dict] = None
-    # Workspace scope
-    workspace_id: Optional[uuid.UUID] = None
-    # Resolved workspace ID from bot config (computed, not stored)
-    resolved_workspace_id: Optional[str] = None
-    project_id: Optional[uuid.UUID] = None
-    project: Optional[ProjectSummaryOut] = None
-    # Harness/project file scope. project_path is workspace-relative.
-    project_workspace_id: Optional[str] = None
-    project_path: Optional[str] = None
-    resolved_project_workspace_id: Optional[str] = None
-    category: Optional[str] = None
-    tags: list[str] = []
-    # Phase 5: pipeline_mode controls launchpad/findings visibility for the
-    # channel. "auto" (default) → visible when subscriptions exist. Stored
-    # in the JSONB config column; surfaced at the top level for UI.
-    pipeline_mode: str = "auto"
-    # Chat-screen layout mode. Controls which dashboard zones render on the
-    # chat screen. Stored in channel.config["layout_mode"]; default "full".
-    layout_mode: str = "full"
-    # Chat presentation mode for the main channel surface. Stored in
-    # channel.config["chat_mode"]; default "default".
-    chat_mode: str = "default"
-    # Header strip shell treatment for header-zone widgets. Stored in
-    # channel.config["header_backdrop_mode"]; unset/default resolves to glass.
-    header_backdrop_mode: str = "glass"
-    # Composer plan-control visibility. Stored in channel.config; absent/auto
-    # hides dormant controls on non-harness channels while preserving /plan.
-    plan_mode_control: str = "auto"
-    widget_theme_ref: Optional[str] = None
-    pinned_widget_context_enabled: bool = True
-
-    model_config = {"from_attributes": True}
-
-
 class ChannelSettingsUpdate(BaseModel):
     """Writable channel settings."""
     name: Optional[str] = None
@@ -764,12 +552,13 @@ async def admin_channels_list(
     channels = (await db.execute(
         stmt.options(
             selectinload(Channel.integrations),
+            selectinload(Channel.bot_members),
             selectinload(Channel.project),
         ).offset(offset).limit(page_size)
     )).scalars().all()
 
     return ChannelListOut(
-        channels=[ChannelOut.model_validate(ch) for ch in channels],
+        channels=[build_admin_channel_out(ch, get_bot_fn=get_bot) for ch in channels],
         total=total,
         page=page,
         page_size=page_size,
@@ -835,11 +624,8 @@ async def admin_channel_detail(
             .where(Message.session_id == channel.active_session_id)
         )).scalar_one()
 
-    from app.routers.api_v1_channels import _enrich_bot_members
-    channel_out = ChannelOut.model_validate(channel)
-    channel_out.member_bots = _enrich_bot_members(channel)
     return ChannelDetailOut(
-        channel=channel_out,
+        channel=build_admin_channel_out(channel, get_bot_fn=get_bot),
         entities=ChannelEntitySummary(
             session_count=session_count,
             message_count=message_count,
@@ -854,33 +640,6 @@ async def admin_channel_detail(
 # Channel settings
 # ---------------------------------------------------------------------------
 
-async def _fill_channel_project_settings(db: AsyncSession, out: ChannelSettingsOut, channel: Channel) -> None:
-    out.project_id = channel.project_id
-    if channel.project_id:
-        project = await db.get(Project, channel.project_id)
-        if project is not None:
-            out.project = ProjectSummaryOut.model_validate(project)
-            out.project_workspace_id = str(project.workspace_id)
-            out.project_path = project.root_path
-            out.resolved_project_workspace_id = str(project.workspace_id)
-            return
-    cfg = channel.config or {}
-    out.project_workspace_id = (
-        str(cfg.get(PROJECT_WORKSPACE_ID_KEY))
-        if cfg.get(PROJECT_WORKSPACE_ID_KEY)
-        else None
-    )
-    try:
-        out.project_path = normalize_project_path(cfg.get(PROJECT_PATH_KEY))
-    except ValueError:
-        out.project_path = None
-    try:
-        bot = get_bot(channel.bot_id)
-    except Exception:
-        bot = None
-    out.resolved_project_workspace_id = resolve_project_workspace_id(channel, bot)
-
-
 @router.get("/channels/{channel_id}/settings", response_model=ChannelSettingsOut)
 async def admin_channel_settings(
     channel_id: uuid.UUID,
@@ -893,21 +652,7 @@ async def admin_channel_settings(
         raise HTTPException(status_code=404, detail="Channel not found")
     if channel.project_id:
         await db.refresh(channel, ["project"])
-    out = ChannelSettingsOut.model_validate(channel)
-    out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
-    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
-    out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
-    out.category = (channel.metadata_ or {}).get("category")
-    out.tags = (channel.metadata_ or {}).get("tags", [])
-    out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
-    out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
-    out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
-    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
-    out.plan_mode_control = (channel.config or {}).get("plan_mode_control") or "auto"
-    out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
-    out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
-    await _fill_channel_project_settings(db, out, channel)
-    return out
+    return await build_admin_channel_settings_out(db, channel, get_bot_fn=get_bot)
 
 
 @router.api_route("/channels/{channel_id}/settings", methods=["PUT", "PATCH"], response_model=ChannelSettingsOut)
@@ -1137,21 +882,7 @@ async def admin_channel_settings_update(
     await db.refresh(channel)
     if channel.project_id:
         await db.refresh(channel, ["project"])
-    out = ChannelSettingsOut.model_validate(channel)
-    out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
-    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
-    out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
-    out.category = (channel.metadata_ or {}).get("category")
-    out.tags = (channel.metadata_ or {}).get("tags", [])
-    out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
-    out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
-    out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
-    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
-    out.plan_mode_control = (channel.config or {}).get("plan_mode_control") or "auto"
-    out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
-    out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
-    await _fill_channel_project_settings(db, out, channel)
-    return out
+    return await build_admin_channel_settings_out(db, channel, get_bot_fn=get_bot)
 
 
 @router.get("/channels/{channel_id}/enrolled-skills", response_model=list[EnrolledChannelSkillOut])
@@ -2629,6 +2360,7 @@ async def admin_channels_enriched(
 
     stmt = stmt_base.options(
         selectinload(Channel.integrations),
+        selectinload(Channel.bot_members),
         selectinload(Channel.project),
     )
 
@@ -2638,97 +2370,23 @@ async def admin_channels_enriched(
     )).scalars().all()
 
     display_names = await _resolve_display_names(channels)
-
-    # Batch-load heartbeat rows for all channels
     channel_ids = [ch.id for ch in channels]
-    hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
-    last_active_map: dict[uuid.UUID, datetime] = {}
-    recent_count_map: dict[uuid.UUID, int] = {}
-    preview_map: dict[uuid.UUID, str] = {}
-    if channel_ids:
-        hb_rows = (await db.execute(
-            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
-        )).scalars().all()
-        hb_map = {hb.channel_id: hb for hb in hb_rows}
-
-        # Per-channel last activity via most recent session. Session.last_active
-        # is updated whenever a message is persisted (see app/services/sessions.py),
-        # so it tracks "last message time" without hitting the messages table.
-        activity_rows = (await db.execute(
-            select(
-                Session.channel_id,
-                func.max(Session.last_active).label("last_active"),
-            )
-            .where(Session.channel_id.in_(channel_ids))
-            .group_by(Session.channel_id)
-        )).all()
-        last_active_map = {r.channel_id: r.last_active for r in activity_rows if r.channel_id}
-
-        # Recent-message count over the last 24h, grouped by channel. Used by
-        # the spatial canvas channel tile + any future "is this channel hot?"
-        # surface. Joins through Session because ``Message.channel_id`` does
-        # not exist; the FK lives on the session row.
-        cutoff_24h = datetime.now(timezone.utc) - timedelta(hours=24)
-        recent_count_rows = (await db.execute(
-            select(
-                Session.channel_id.label("channel_id"),
-                func.count(Message.id).label("cnt"),
-            )
-            .join(Message, Message.session_id == Session.id)
-            .where(Session.channel_id.in_(channel_ids))
-            .where(Message.created_at >= cutoff_24h)
-            .where(Message.role.in_(("user", "assistant")))
-            .group_by(Session.channel_id)
-        )).all()
-        recent_count_map = {r.channel_id: int(r.cnt) for r in recent_count_rows if r.channel_id}
-
-        # Latest message body per channel for the snapshot-tier preview text.
-        # ROW_NUMBER window keeps it to one query — works on PostgreSQL and
-        # SQLite (the test backend) alike. Tool-call-only assistant messages
-        # have NULL content and are excluded.
-        rn = func.row_number().over(
-            partition_by=Session.channel_id,
-            order_by=Message.created_at.desc(),
-        ).label("rn")
-        preview_subq = (
-            select(
-                Session.channel_id.label("channel_id"),
-                Message.content.label("content"),
-                rn,
-            )
-            .join(Message, Message.session_id == Session.id)
-            .where(Session.channel_id.in_(channel_ids))
-            .where(Message.role.in_(("user", "assistant")))
-            .where(Message.content.isnot(None))
-            .subquery()
-        )
-        preview_rows = (await db.execute(
-            select(preview_subq.c.channel_id, preview_subq.c.content)
-            .where(preview_subq.c.rn == 1)
-        )).all()
-        for r in preview_rows:
-            if not r.channel_id or not r.content:
-                continue
-            preview_map[r.channel_id] = _format_message_preview(r.content)
-
-    from app.services.heartbeat import _is_heartbeat_in_quiet_hours
+    hb_map = await load_heartbeat_map(db, channel_ids)
+    last_active_map, recent_count_map, preview_map = await load_admin_activity_maps(db, channel_ids)
 
     enriched = []
     for ch in channels:
-        out = ChannelOut.model_validate(ch)
-        out.display_name = display_names.get(ch.id)
-        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
-        out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(ch.bot_id)
-        out.category = (ch.metadata_ or {}).get("category")
-        out.tags = (ch.metadata_ or {}).get("tags", [])
-        out.last_message_at = last_active_map.get(ch.id)
-        out.recent_message_count_24h = recent_count_map.get(ch.id, 0)
-        out.last_message_preview = preview_map.get(ch.id)
-        hb = hb_map.get(ch.id)
-        if hb and hb.enabled:
-            out.heartbeat_enabled = True
-            out.heartbeat_in_quiet_hours = _is_heartbeat_in_quiet_hours(hb)
-        enriched.append(out)
+        enriched.append(
+            build_admin_channel_out(
+                ch,
+                display_name=display_names.get(ch.id),
+                last_message_at=last_active_map.get(ch.id),
+                recent_message_count_24h=recent_count_map.get(ch.id, 0),
+                last_message_preview=preview_map.get(ch.id),
+                heartbeat=hb_map.get(ch.id),
+                get_bot_fn=get_bot,
+            )
+        )
 
     return ChannelListOut(
         channels=enriched,

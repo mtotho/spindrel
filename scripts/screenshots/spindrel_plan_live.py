@@ -105,6 +105,10 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
         ),
         "pending_session_id": args.pending_session_id or artifact.get("pending_session_id", ""),
         "quality_session_id": args.quality_session_id or artifact.get("quality_publish_session_id", ""),
+        "stress_readability_session_id": (
+            args.stress_readability_session_id
+            or artifact.get("stress_readability_session_id", "")
+        ),
     }
 
 
@@ -119,6 +123,7 @@ def _build_specs(
     replan_session_id: str = "",
     pending_session_id: str = "",
     quality_session_id: str = "",
+    stress_readability_session_id: str = "",
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
     if question_session_id:
@@ -302,6 +307,42 @@ def _build_specs(
             channel_id=channel_id,
             chat_mode="terminal",
         ))
+    if stress_readability_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{stress_readability_session_id}"
+        wait = (
+            "document.querySelector('[data-plan-focus]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel stress readability') "
+            "&& document.body.innerText.toLowerCase().includes('ready for approval') "
+            "&& document.body.innerText.toLowerCase().includes('key changes')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-stress-readability-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Stress Readability", "Ready for approval", "Key Changes"),
+            scroll_text="Native Spindrel Stress Readability",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-stress-readability-mobile-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Stress Readability", "Ready for approval", "Key Changes"),
+            viewport=(390, 844),
+            scroll_text="Native Spindrel Stress Readability",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-stress-readability-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Stress Readability", "Ready for approval", "Key Changes"),
+            scroll_text="Native Spindrel Stress Readability",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ))
     return specs
 
 
@@ -321,6 +362,7 @@ async def _assert_sessions_exist(
     replan_session_id: str,
     pending_session_id: str,
     quality_session_id: str,
+    stress_readability_session_id: str,
 ) -> None:
     for session_id in (
         question_session_id,
@@ -330,6 +372,7 @@ async def _assert_sessions_exist(
         replan_session_id,
         pending_session_id,
         quality_session_id,
+        stress_readability_session_id,
     ):
         if session_id:
             await _api(client, "GET", f"/sessions/{session_id}/plan-state")
@@ -390,6 +433,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         replan_session_id=resolved["replan_session_id"],
         pending_session_id=resolved["pending_session_id"],
         quality_session_id=resolved["quality_session_id"],
+        stress_readability_session_id=resolved["stress_readability_session_id"],
     )
     if not specs:
         raise SystemExit(
@@ -414,6 +458,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             replan_session_id=resolved["replan_session_id"],
             pending_session_id=resolved["pending_session_id"],
             quality_session_id=resolved["quality_session_id"],
+            stress_readability_session_id=resolved["stress_readability_session_id"],
         )
 
         paths: list[Path] = []
@@ -471,6 +516,7 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--replan-session-id", default=_env("SPINDREL_PLAN_REPLAN_SESSION_ID"))
     parser.add_argument("--pending-session-id", default=_env("SPINDREL_PLAN_PENDING_SESSION_ID"))
     parser.add_argument("--quality-session-id", default=_env("SPINDREL_PLAN_QUALITY_SESSION_ID"))
+    parser.add_argument("--stress-readability-session-id", default=_env("SPINDREL_PLAN_STRESS_READABILITY_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:
         args.api_key = _require_env("SPINDREL_API_KEY")

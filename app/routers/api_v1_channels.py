@@ -28,7 +28,20 @@ from app.services.channels import (
     create_detached_channel_session, reset_channel_session, switch_channel_session,
 )
 from app.services import channel_integrations as channel_integration_service
+from app.schemas.channels import (
+    ChannelBotMemberOut,
+    ChannelOut,
+    ChannelListItemOut,
+    IntegrationBindingOut,
+)
 from app.services import session_locks
+from app.services.channel_read_models import (
+    build_public_channel_list_item_out,
+    build_public_channel_out,
+    enrich_bot_members,
+    load_heartbeat_map,
+    load_project_map,
+)
 from app.services.sessions import store_passive_message
 from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
 from app.services.channel_sessions import (
@@ -79,69 +92,6 @@ class ChannelCreate(BaseModel):
     member_bot_ids: Optional[list[str]] = None
 
 
-class ChannelBotMemberOut(BaseModel):
-    id: uuid.UUID
-    channel_id: uuid.UUID
-    bot_id: str
-    bot_name: Optional[str] = None
-    config: dict = {}
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class IntegrationBindingOut(BaseModel):
-    id: uuid.UUID
-    channel_id: uuid.UUID
-    integration_type: str
-    client_id: str
-    dispatch_config: Optional[dict] = None
-    display_name: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ProjectSummaryOut(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    name: str
-    root_path: str
-    slug: str
-
-    model_config = {"from_attributes": True}
-
-
-class ChannelOut(BaseModel):
-    id: uuid.UUID
-    name: str
-    bot_id: str
-    client_id: Optional[str]
-    integration: Optional[str]
-    active_session_id: Optional[uuid.UUID]
-    require_mention: bool
-    passive_memory: bool
-    private: bool = False
-    protected: bool = False
-    user_id: Optional[uuid.UUID] = None
-    model_override: Optional[str] = None
-    model_provider_id_override: Optional[str] = None
-    integrations: list[IntegrationBindingOut] = []
-    member_bots: list[ChannelBotMemberOut] = []
-    workspace_id: Optional[uuid.UUID] = None
-    resolved_workspace_id: Optional[str] = None
-    project_id: Optional[uuid.UUID] = None
-    project: Optional[ProjectSummaryOut] = None
-    config: dict = {}
-    category: Optional[str] = None
-    tags: list[str] = []
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class IntegrationBindRequest(BaseModel):
     integration_type: str
     client_id: str
@@ -190,12 +140,6 @@ class HistoryMessageOut(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
-
-
-class ChannelListItemOut(ChannelOut):
-    """Extended channel item with optional heartbeat status."""
-    heartbeat_enabled: Optional[bool] = None
-    heartbeat_next_run_at: Optional[datetime] = None
 
 
 class ChannelConfigOut(BaseModel):
@@ -361,17 +305,7 @@ class ChannelConfigUpdate(BaseModel):
 
 
 def _enrich_bot_members(channel: Channel) -> list[ChannelBotMemberOut]:
-    """Enrich bot member rows with bot names from the registry."""
-    from app.agent.bots import get_bot as _get_bot
-    result = []
-    for bm in (channel.bot_members or []):
-        out = ChannelBotMemberOut.model_validate(bm)
-        try:
-            out.bot_name = _get_bot(bm.bot_id).name
-        except Exception:
-            out.bot_name = bm.bot_id
-        result.append(out)
-    return result
+    return enrich_bot_members(channel)
 
 
 # ---------------------------------------------------------------------------
@@ -491,14 +425,8 @@ async def create_channel(
 
     await db.commit()
     await db.refresh(channel, ["integrations", "bot_members", "project"])
-    out = ChannelOut.model_validate(channel)
-    if channel.project_id:
-        project = await db.get(Project, channel.project_id)
-        out.project = ProjectSummaryOut.model_validate(project) if project else None
-    out.category = (channel.metadata_ or {}).get("category")
-    out.tags = (channel.metadata_ or {}).get("tags", [])
-    out.member_bots = _enrich_bot_members(channel)
-    return out
+    project = await db.get(Project, channel.project_id) if channel.project_id else None
+    return build_public_channel_out(channel, project=project)
 
 
 @router.get("", response_model=Union[list[ChannelListItemOut], list[ChannelOut]])
@@ -522,58 +450,19 @@ async def list_channels(
         from app.services.channels import bot_channel_filter
         stmt = stmt.where(bot_channel_filter(bot_id))
     channels = (await db.execute(stmt)).scalars().all()
-    project_ids = [ch.project_id for ch in channels if ch.project_id]
-    project_map: dict[uuid.UUID, Project] = {}
-    if project_ids:
-        projects = (await db.execute(select(Project).where(Project.id.in_(project_ids)))).scalars().all()
-        project_map = {project.id: project for project in projects}
-
-    def _enrich(ch: Channel) -> ChannelOut:
-        out = ChannelOut.model_validate(ch)
-        if ch.project_id and ch.project_id in project_map:
-            out.project = ProjectSummaryOut.model_validate(project_map[ch.project_id])
-        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
-        try:
-            from app.agent.bots import get_bot
-            bot = get_bot(ch.bot_id)
-            out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
-        except Exception:
-            out.resolved_workspace_id = ws_id_str
-        out.category = (ch.metadata_ or {}).get("category")
-        out.tags = (ch.metadata_ or {}).get("tags", [])
-        out.member_bots = _enrich_bot_members(ch)
-        return out
+    project_map = await load_project_map(db, channels)
 
     if not include_heartbeat:
-        return [_enrich(ch) for ch in channels]
+        return [build_public_channel_out(ch, project_map=project_map) for ch in channels]
 
     # Batch-load heartbeat rows
     channel_ids = [ch.id for ch in channels]
-    hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
-    if channel_ids:
-        hb_rows = (await db.execute(
-            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
-        )).scalars().all()
-        hb_map = {hb.channel_id: hb for hb in hb_rows}
+    hb_map = await load_heartbeat_map(db, channel_ids)
 
     result = []
     for ch in channels:
-        item = ChannelListItemOut.model_validate(ch)
-        if ch.project_id and ch.project_id in project_map:
-            item.project = ProjectSummaryOut.model_validate(project_map[ch.project_id])
-        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
-        try:
-            from app.agent.bots import get_bot as _get_bot
-            _b = _get_bot(ch.bot_id)
-            item.resolved_workspace_id = ws_id_str or _b.shared_workspace_id
-        except Exception:
-            item.resolved_workspace_id = ws_id_str
-        item.category = (ch.metadata_ or {}).get("category")
-        item.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
-        item.heartbeat_enabled = hb.enabled if hb else False
-        item.heartbeat_next_run_at = hb.next_run_at if hb else None
-        result.append(item)
+        result.append(build_public_channel_list_item_out(ch, heartbeat=hb, project_map=project_map))
     return result
 
 
@@ -593,22 +482,8 @@ async def get_channel(
     channel = (await db.execute(stmt)).scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    out = ChannelOut.model_validate(channel)
-    if channel.project_id:
-        project = await db.get(Project, channel.project_id)
-        out.project = ProjectSummaryOut.model_validate(project) if project else None
-    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
-    try:
-        from app.agent.bots import get_bot
-        bot = get_bot(channel.bot_id)
-        out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
-    except Exception:
-        out.resolved_workspace_id = ws_id_str
-        logger.debug("Could not resolve workspace_id for channel %s bot %s", channel.id, channel.bot_id)
-    out.category = (channel.metadata_ or {}).get("category")
-    out.tags = (channel.metadata_ or {}).get("tags", [])
-    out.member_bots = _enrich_bot_members(channel)
-    return out
+    project = await db.get(Project, channel.project_id) if channel.project_id else None
+    return build_public_channel_out(channel, project=project)
 
 
 @router.get("/{channel_id}/config", response_model=ChannelConfigOut)
@@ -1042,12 +917,9 @@ async def update_channel(
 
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(channel, ["integrations", "project"])
-    out = ChannelOut.model_validate(channel)
-    if channel.project_id:
-        project = await db.get(Project, channel.project_id)
-        out.project = ProjectSummaryOut.model_validate(project) if project else None
-    return out
+    await db.refresh(channel, ["integrations", "bot_members", "project"])
+    project = await db.get(Project, channel.project_id) if channel.project_id else None
+    return build_public_channel_out(channel, project=project)
 
 
 @router.post("/{channel_id}/messages", response_model=InjectResponse, status_code=201)

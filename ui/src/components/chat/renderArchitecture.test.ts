@@ -86,11 +86,16 @@ test("native plan replay hydrates out-of-line envelopes before rendering plan ca
   assert.match(terminalToolTranscript, /application\/vnd\.spindrel\.plan\+json/);
   assert.match(terminalToolTranscript, /rendererVariant="terminal-chat"/);
   assert.match(sessionPlanCard, /data-plan-card-mode=\{chatMode\}/);
+  assert.match(sessionPlanCard, /data-plan-focus/);
+  assert.match(sessionPlanCard, /derivePlanFocus/);
+  assert.match(sessionPlanCard, /maxItems = 4/);
   assert.match(sessionPlanCard, /TERMINAL_FONT_STACK/);
   assert.doesNotMatch(sessionPlanCard, /useThemeTokens/);
 
   assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/plan\/question-answers/);
   assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/messages/);
+  assert.match(planQuestions, /requiredStatus/);
+  assert.match(planQuestions, /Next: \$\{nextMissingRequired\.label\}/);
   assert.match(planQuestions, /source:\s*"plan_questions"/);
   assert.match(planQuestions, /run_agent:\s*true/);
 });

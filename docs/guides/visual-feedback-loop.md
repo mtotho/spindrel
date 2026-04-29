@@ -183,13 +183,14 @@ synthetic screenshot staging. First run the live diagnostics to create fresh
 detached sessions on the dedicated native-plan E2E channel:
 
 ```bash
-./scripts/run_spindrel_plan_live.sh --tier quality
+./scripts/run_spindrel_plan_live.sh --tier stress
 ```
 
 Use `--tier behavior` for the faster protocol/behavior pass and `--tier
-quality` when validating professional-plan mechanics. The runner writes the latest session ids to
-`/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`. Capture the matching
-UI artifacts with:
+quality` when validating professional-plan mechanics. Use `--tier stress` when
+validating retry/revision pressure and plan-card readability. The runner writes
+the latest session ids to `/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`.
+Capture the matching UI artifacts with:
 
 ```bash
 SPINDREL_API_KEY=... \
@@ -215,6 +216,11 @@ spindrel-plan-replan-pending-default-dark.png
 spindrel-plan-replan-pending-terminal-dark.png
 spindrel-plan-pending-outcome-default-dark.png
 spindrel-plan-pending-outcome-terminal-dark.png
+spindrel-plan-quality-contract-default-dark.png
+spindrel-plan-quality-contract-terminal-dark.png
+spindrel-plan-stress-readability-default-dark.png
+spindrel-plan-stress-readability-mobile-dark.png
+spindrel-plan-stress-readability-terminal-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same

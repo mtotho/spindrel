@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { TERMINAL_FONT_STACK } from "@/src/components/chat/CodePreviewRenderer";
-import type { SessionPlan, SessionPlanRevisionDiff, SessionPlanStep } from "./useSessionPlanMode";
+import type { PlanValidationIssue, SessionPlan, SessionPlanRevisionDiff, SessionPlanStep } from "./useSessionPlanMode";
 
 type PlanCardChatMode = "default" | "terminal";
 
@@ -134,28 +134,139 @@ function ListSection({
   items,
   terminal,
   emptyLabel,
+  maxItems = 4,
+  moreLabel = "more",
 }: {
   title: string;
   items?: string[];
   terminal: boolean;
   emptyLabel?: string;
+  maxItems?: number;
+  moreLabel?: string;
 }) {
   const visibleItems = (items ?? []).filter((item) => item.trim().length > 0);
+  const shownItems = visibleItems.slice(0, maxItems);
+  const hiddenCount = Math.max(0, visibleItems.length - shownItems.length);
   if (!visibleItems.length && !emptyLabel) return null;
   return (
     <Section title={title} terminal={terminal} quiet>
       <div className="flex flex-col gap-1.5">
-        {visibleItems.length ? visibleItems.map((item) => (
-          <div key={item} className="flex min-w-0 items-start gap-2">
+        {visibleItems.length ? shownItems.map((item, idx) => (
+          <div key={`${title}-${idx}-${item}`} className="flex min-w-0 items-start gap-2">
             <span className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-surface-border" />
             <span className={terminal ? "text-[11px] text-text-muted" : "text-xs text-text-muted"}>{item}</span>
           </div>
         )) : (
           <div className={terminal ? "text-[11px] text-text-dim" : "text-xs text-text-dim"}>{emptyLabel}</div>
         )}
+        {hiddenCount > 0 ? (
+          <div className={terminal ? "text-[11px] text-text-dim" : "text-xs text-text-dim"}>
+            +{hiddenCount} {moreLabel}
+          </div>
+        ) : null}
       </div>
     </Section>
   );
+}
+
+type PlanFocus = {
+  label: string;
+  text: string;
+  tone: Tone;
+  detail?: string;
+};
+
+function cleanReason(value?: string | null): string {
+  return value ? value.replaceAll("_", " ") : "";
+}
+
+function latestPlanningText(items?: { text?: string }[]): string | null {
+  const text = items?.length ? items[items.length - 1]?.text?.trim() : "";
+  return text || null;
+}
+
+function derivePlanFocus({
+  plan,
+  blockingIssues,
+  runtime,
+  planningState,
+  pendingOutcome,
+}: {
+  plan: SessionPlan;
+  blockingIssues: PlanValidationIssue[];
+  runtime: SessionPlan["runtime"];
+  planningState: SessionPlan["planning_state"];
+  pendingOutcome: NonNullable<SessionPlan["runtime"]>["pending_turn_outcome"] | undefined | null;
+}): PlanFocus {
+  if (blockingIssues.length > 0) {
+    return {
+      label: "Approval blocker",
+      text: blockingIssues[0]?.message || "Resolve the blocking validation issue before approval.",
+      tone: "warning",
+      detail: blockingIssues.length > 1 ? `${blockingIssues.length - 1} more blocker${blockingIssues.length === 2 ? "" : "s"}` : undefined,
+    };
+  }
+
+  if (pendingOutcome) {
+    return {
+      label: "Next required action",
+      text: "Record progress, verification, blocker, replan, or no-progress before more execution.",
+      tone: "warning",
+      detail: cleanReason(pendingOutcome.reason) || undefined,
+    };
+  }
+
+  if (runtime?.replan?.reason) {
+    return {
+      label: "Current focus",
+      text: runtime.replan.reason,
+      tone: "warning",
+      detail: runtime.accepted_revision ? `accepted rev ${runtime.accepted_revision}` : undefined,
+    };
+  }
+
+  const openQuestion = latestPlanningText(planningState?.open_questions);
+  if (plan.mode === "planning" && openQuestion) {
+    return {
+      label: "Next decision",
+      text: openQuestion,
+      tone: "warning",
+      detail: `${planningState?.open_questions.length ?? 1} open question${planningState?.open_questions.length === 1 ? "" : "s"}`,
+    };
+  }
+
+  const activeStepId = runtime?.current_step_id || runtime?.next_step_id;
+  const activeStep = activeStepId ? plan.steps.find((step) => step.id === activeStepId) : null;
+  if (activeStep) {
+    return {
+      label: runtime?.current_step_id ? "Current step" : "Next step",
+      text: activeStep.label,
+      tone: activeStep.status === "blocked" ? "danger" : activeStep.status === "done" ? "success" : "accent",
+      detail: activeStep.note || activeStep.id,
+    };
+  }
+
+  if (plan.mode === "planning") {
+    return {
+      label: "Ready for approval",
+      text: "Approve and execute when this contract matches the task.",
+      tone: "accent",
+    };
+  }
+
+  if (plan.mode === "done") {
+    return {
+      label: "Plan complete",
+      text: plan.outcome || plan.summary || "All tracked plan work is complete.",
+      tone: "success",
+    };
+  }
+
+  return {
+    label: "Current focus",
+    text: runtime?.next_action || plan.summary || "Review the active plan state.",
+    tone: MODE_META[plan.mode]?.tone ?? "neutral",
+  };
 }
 
 export function SessionPlanCard({
@@ -244,6 +355,22 @@ export function SessionPlanCard({
     pendingOutcome?.reason ? `pending ${pendingOutcome.reason}` : null,
     runtime?.replan?.reason ? `replan ${runtime.replan.reason}` : null,
   ].filter((bit): bit is string => !!bit);
+  const planFocus = derivePlanFocus({ plan, blockingIssues, runtime, planningState, pendingOutcome });
+  const focusClass = terminal
+    ? "rounded-sm bg-surface-overlay/20 px-2 py-1.5"
+    : "rounded-md bg-surface-overlay/35 px-3 py-2";
+  const focusedStepId = runtime?.current_step_id || runtime?.next_step_id || null;
+  const visibleSteps = plan.steps.length <= 6
+    ? plan.steps
+    : Array.from(
+      new Map(
+        [
+          ...plan.steps.slice(0, 5),
+          ...plan.steps.filter((step) => step.id === focusedStepId),
+        ].map((step) => [step.id, step] as const),
+      ).values(),
+    ).slice(0, 6);
+  const hiddenStepCount = Math.max(0, plan.steps.length - visibleSteps.length);
 
   return (
     <div
@@ -275,6 +402,20 @@ export function SessionPlanCard({
         </div>
         {showPath && plan.path ? (
           <div className="text-[11px] text-text-dim" style={{ fontFamily: TERMINAL_FONT_STACK }}>{plan.path}</div>
+        ) : null}
+      </div>
+
+      <div data-plan-focus className={focusClass}>
+        <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${toneText(planFocus.tone)}`}>
+          {planFocus.label}
+        </div>
+        <div className={terminal ? "mt-1 text-[12px] font-medium text-text" : "mt-1 text-sm font-medium text-text"}>
+          {planFocus.text}
+        </div>
+        {planFocus.detail ? (
+          <div className={terminal ? "mt-1 text-[11px] text-text-dim" : "mt-1 text-xs text-text-dim"}>
+            {planFocus.detail}
+          </div>
         ) : null}
       </div>
 
@@ -413,7 +554,7 @@ export function SessionPlanCard({
 
       <Section title="Checklist" terminal={terminal} quiet>
         <div className="flex flex-col gap-1.5">
-          {plan.steps.map((step) => {
+          {visibleSteps.map((step) => {
             const stepMeta = STEP_META[step.status] ?? STEP_META.pending;
             const StepIcon = stepMeta.Icon;
             return (
@@ -453,15 +594,25 @@ export function SessionPlanCard({
               </div>
             );
           })}
+          {hiddenStepCount > 0 ? (
+            <div className={terminal ? "text-[11px] text-text-dim" : "text-xs text-text-dim"}>
+              +{hiddenStepCount} more step{hiddenStepCount === 1 ? "" : "s"}
+            </div>
+          ) : null}
         </div>
       </Section>
 
       {plan.open_questions.length > 0 ? (
         <Section title="Open Questions" terminal={terminal} quiet>
           <div className="flex flex-col gap-1">
-            {plan.open_questions.map((item) => (
+            {plan.open_questions.slice(0, 4).map((item) => (
               <div key={item} className={terminal ? "text-[11px] text-text-muted" : "text-xs text-text-muted"}>{item}</div>
             ))}
+            {plan.open_questions.length > 4 ? (
+              <div className={terminal ? "text-[11px] text-text-dim" : "text-xs text-text-dim"}>
+                +{plan.open_questions.length - 4} more questions
+              </div>
+            ) : null}
           </div>
         </Section>
       ) : null}

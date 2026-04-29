@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-29 (architecture audit refreshed; harness turn host seam shipped)
+updated: 2026-04-29 (architecture audit refreshed; channel read-model seam shipped)
 ---
 # Track — Code Quality & Refactoring
 
@@ -14,12 +14,12 @@ Fresh scan used the `improve-codebase-architecture` deep Module lens: Interface,
 
 **Shipped from this audit:**
 - **Harness turn host seam.** `app.services.agent_harnesses.turn_host` now owns host-side harness orchestration: runtime lookup/failure shaping, prior harness session id, settings/approval/project/context hints, `TurnContext` construction, cancel/error/success persistence, consumed hint cleanup, usage recording, native plan mirroring, and auto-compaction. `app.services.turn_worker._run_harness_turn` is now a compatibility wrapper that preserves existing monkeypatch surfaces. `tests/unit/test_harness_turn_host_architecture.py` keeps the wrapper small and pins the host ownership.
+- **Channel read-model seam.** `app.schemas.channels` now owns shared public/admin channel response schemas, and `app.services.channel_read_models` owns channel/project/member-bot/workspace/settings/activity projection. Public/admin channel routers call the read-model service instead of duplicating output shaping, and admin no longer imports `_enrich_bot_members` from the public router. `tests/unit/test_channel_read_models_architecture.py` pins the schema/service ownership and blocks private router-to-router imports from returning.
 
-**Live queue after the harness pass:**
-1. **Channel read-model Module** — public/admin channel routers still duplicate channel/project projection schemas and admin imports `_enrich_bot_members` from the public router. Extract a shared read-model/settings Module so routers are thin Adapters.
-2. **Channel route controller Locality** — `ui/app/(app)/channels/[channelId]/index.tsx` remains ~2.5k LOC after the top-tab/session-pane extractions. Continue moving route policy into focused hooks/controllers.
-3. **Startup bootstrap phases** — runtime/env seams shipped, but `app.main::lifespan` still owns blocking bootstrap ordering. Consider a startup bootstrap Module if future startup changes keep landing there.
-4. **Platform slash-command residue** — server-owned `/context`, `/compact`, and `/model` already use the shared slash command host. Remaining duplication is platform-local `/ask`, `/todos`, `/health`, `/audit`, and `/model list`; defer until those commands change.
+**Live queue after the channel read-model pass:**
+1. **Channel route controller Locality** — `ui/app/(app)/channels/[channelId]/index.tsx` remains ~2.5k LOC after the top-tab/session-pane extractions. Continue moving route policy into focused hooks/controllers.
+2. **Startup bootstrap phases** — runtime/env seams shipped, but `app.main::lifespan` still owns blocking bootstrap ordering. Consider a startup bootstrap Module if future startup changes keep landing there.
+3. **Platform slash-command residue** — server-owned `/context`, `/compact`, and `/model` already use the shared slash command host. Remaining duplication is platform-local `/ask`, `/todos`, `/health`, `/audit`, and `/model list`; defer until those commands change.
 
 **Watched, not current queue:**
 - **Project Work Surface** — intentionally handed to the active Project workspace session; do not duplicate it here.
@@ -31,6 +31,7 @@ Per `feedback_living_tracks_never_close`: never flip this track to complete when
 
 ## Maintenance pass (2026-04-29)
 
+- **Channel read-model deepening shipped.** `app/schemas/channels.py` is the shared channel response schema Module, while `app/services/channel_read_models.py` owns public/admin channel projections: project summaries, resolved workspace id, category/tags, member-bot display names, admin settings defaults/project file-scope fields, heartbeat maps, and enriched-list activity previews. `app/routers/api_v1_channels.py` and `app/routers/api_v1_admin/channels.py` now act as thinner Adapters for these read paths; the admin router no longer imports the public router's `_enrich_bot_members`. Added `tests/unit/test_channel_read_models_architecture.py` to keep schemas out of routers and block private router-to-router imports. Verification: redirected-bytecode compile passed for routers/schema/service/test; channel read-model architecture passed with 3 tests; focused channel unit slice passed with 11 tests / 9 skipped; import/boundary slice passed with 6 tests; local DB-backed integration selections skipped under the current profile.
 - **Harness turn host deepening shipped.** `app/services/agent_harnesses/turn_host.py` is now the host Module for harness turns, while `app/services/turn_worker.py::_run_harness_turn` remains a wrapper that passes the existing `turn_worker` patchable dependencies into the host. The public turn behavior and private compatibility names used by tests are preserved. Added `tests/unit/test_harness_turn_host_architecture.py` so `turn_worker` cannot silently regain settings/path/context/persistence/usage/auto-compaction policy. Verification: `PYTHONPYCACHEPREFIX=/tmp/pycache-agent-server python -m py_compile app/services/turn_worker.py app/services/agent_harnesses/turn_host.py` passed; `pytest tests/unit/test_harness_turn_host_architecture.py tests/unit/test_turn_worker_harness_context.py -q` passed with 12 tests; broader harness/startup/slash slice passed with 37 tests / 21 skipped.
 - **Audit cleanup.** Removed stale live `knowledge.py` bug text because the legacy knowledge module is gone, and dropped the stale file-sync fixture follow-up after `pytest tests/unit/test_file_sync.py -q` passed with 12 tests / 8 skipped. Keep historical RFCs below only as regression rationale, not live work.
 

@@ -17,6 +17,7 @@ Tiers are controlled by ``SPINDREL_PLAN_TIER``:
 - ``replay``: guardrails plus persisted transcript reload checks.
 - ``behavior``: replay plus realistic planning/execution behavior pressure.
 - ``quality``: behavior plus professional-plan quality contract checks.
+- ``stress``: quality plus revision, recovery, partial-answer, and rendering pressure.
 """
 
 from __future__ import annotations
@@ -56,6 +57,7 @@ TIER_ORDER = {
     "replay": 8,
     "behavior": 9,
     "quality": 10,
+    "stress": 11,
 }
 
 
@@ -203,6 +205,13 @@ def _plan_envelope_bodies(messages: list[dict]) -> list[dict]:
 def _plan_runtime(state: dict) -> dict:
     runtime = state.get("runtime")
     return runtime if isinstance(runtime, dict) else {}
+
+
+def _assert_terse_tool_turn(result: StreamResult, *, max_chars: int = 900) -> None:
+    text = result.response_text.strip()
+    assert len(text) <= max_chars, text
+    forbidden = ("## ", "### ", "- [ ]", "Key Changes", "Acceptance Criteria", "Test Plan")
+    assert not any(marker in text for marker in forbidden), text
 
 
 async def _shared_workspace_id_for_bot(client: E2EClient, bot_id: str) -> str:
@@ -957,3 +966,237 @@ async def test_live_spindrel_quality_publishes_professional_plan_contract(client
     assert "professional plan contract" in serialized
     assert "quality validation" in serialized
     _record_session("quality_publish", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_stress_publish_validation_retry_recovers(client: E2EClient) -> None:
+    _requires_tier("stress")
+    channel_id, session_id, bot_id = await _fresh_session(client, "stress_retry")
+    await client.start_session_plan_mode(session_id)
+    title = f"Native Spindrel Stress Retry {int(time.time())}"
+
+    result = await client.chat_session_stream(
+        (
+            "Native stress diagnostic. Use @tool:publish_plan now. Do not ask follow-up questions. "
+            "First try the exact step labels requested here, then recover if the tool rejects a weak label. "
+            f"Publish a professional plan titled {title!r}. "
+            "Use summary 'Verify native Spindrel plan publish recovery after a rejected weak step label.' "
+            "Use scope 'Live E2E diagnostics only; no repository mutation is in scope.' "
+            "Use key_changes ['Exercise publish_plan validation recovery', 'Preserve a concise assistant turn after recovery']. "
+            "Use interfaces ['Session transcript receives one valid plan envelope after retry']. "
+            "Use assumptions_and_defaults ['The validation layer rejects vague implementation labels']. "
+            "Use test_plan ['Assert the final plan validation is ok', 'Assert the final transcript contains a plan envelope']. "
+            "Use risks ['The model may stop after a tool validation error unless recovery remains enabled']. "
+            "Use acceptance criteria 'Final plan validation is ok after retry' and 'Assistant response stays terse'. "
+            "Use exactly three pending steps: 'Inspect stress preconditions', 'Implement changes', "
+            "and 'Run stress retry diagnostics'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "publish_plan" in result.tools_used
+    _assert_terse_tool_turn(result)
+
+    plan = await client.get_session_plan(session_id)
+    assert plan["title"] == title
+    assert (plan.get("validation") or {}).get("ok") is True, plan.get("validation")
+    labels = [step.get("label", "") for step in plan.get("steps") or []]
+    assert "Implement changes" not in labels
+    messages = _assistant_messages(await client.get_session_messages(session_id, limit=40))
+    assert _has_plan_envelope(messages, title)
+    _record_session("stress_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_stress_revisions_stay_tool_driven_and_concise(client: E2EClient) -> None:
+    _requires_tier("stress")
+    channel_id, session_id, bot_id = await _fresh_session(client, "stress_revision")
+    await client.start_session_plan_mode(session_id)
+    title = f"Native Spindrel Stress Revision {int(time.time())}"
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": title,
+            "summary": "Verify native revision handling before the agent revises the plan.",
+            "scope": "Live E2E diagnostics only; do not modify repository files.",
+            "key_changes": ["Create the initial revision for a stress revision check."],
+            "interfaces": ["Session plan revision endpoint and transcript envelope only."],
+            "assumptions_and_defaults": ["Revision 1 is valid before the model revises it."],
+            "test_plan": ["Ask the native agent to revise the plan with publish_plan."],
+            "acceptance_criteria": ["Revision 2 is created through publish_plan."],
+            "steps": [
+                {"id": "baseline", "label": "Create the baseline plan revision"},
+                {"id": "revise", "label": "Publish the requested revision"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+
+    result = await client.chat_session_stream(
+        (
+            "Native stress diagnostic. Revise the current plan using @tool:publish_plan now, not prose. "
+            f"Keep the title {title!r}. "
+            "Use summary 'Verify native revision handling stays concise and tool driven.' "
+            "Use scope 'Live E2E diagnostics only; do not modify repository files or channel configuration.' "
+            "Use key_changes ['Revise the baseline plan through publish_plan', "
+            "'Add a screenshot-readability verification path']. "
+            "Use interfaces ['Session plan revision endpoint', 'Inline plan transcript envelope']. "
+            "Use assumptions_and_defaults ['The active session already has revision 1', "
+            "'The assistant should not duplicate the full plan in prose after tool success']. "
+            "Use test_plan ['Fetch plan state and assert revision 2', 'Capture stress readability screenshots']. "
+            "Use risks ['Long revision summaries can drown the actionable next step']. "
+            "Use acceptance criteria 'Revision 2 is active' and 'Assistant text remains below 900 characters'. "
+            "Use exactly three pending steps: 'Inspect the active revision', 'Publish the revised contract', "
+            "and 'Capture revision readability evidence'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "publish_plan" in result.tools_used
+    _assert_terse_tool_turn(result)
+
+    plan = await client.get_session_plan(session_id)
+    assert plan["revision"] == 2
+    serialized = json.dumps(plan).lower()
+    assert "screenshot-readability" in serialized or "screenshot readability" in serialized
+    assert len(plan.get("revisions") or []) >= 2
+    _record_session("stress_revision", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_stress_partial_answers_reask_missing_scope(client: E2EClient) -> None:
+    _requires_tier("stress")
+    channel_id, session_id, bot_id = await _fresh_session(client, "stress_partial_answers")
+    await client.start_session_plan_mode(session_id)
+    question_title = "Stress partial planning questions"
+
+    questions = await client.chat_session_stream(
+        (
+            "Native stress diagnostic. Use @tool:ask_plan_questions now. "
+            f"Ask exactly three required questions in a structured card titled {question_title!r}. "
+            "The labels must be exactly 'Target subsystem', 'Mutation scope', and 'Done signal'. "
+            "Do not publish a plan yet."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(questions)
+    assert "ask_plan_questions" in questions.tools_used
+
+    answered_state = await client.submit_plan_question_answers(
+        session_id,
+        title=question_title,
+        answers=[
+            {
+                "question_id": "target",
+                "label": "Target subsystem",
+                "answer": "Native plan card hierarchy and plan-question readability.",
+            },
+        ],
+    )
+    decisions = json.dumps((answered_state.get("planning_state") or {}).get("decisions") or [])
+    assert "Native plan card hierarchy" in decisions
+
+    result = await client.chat_session_stream(
+        (
+            "Native stress diagnostic. Only one required answer has been supplied. "
+            "Do not proceed with assumptions and do not publish a plan. "
+            "Use @tool:ask_plan_questions now to ask only for the missing Mutation scope and Done signal."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "ask_plan_questions" in result.tools_used
+    assert "publish_plan" not in result.tools_used
+
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "planning"
+    assert state["has_plan"] is False
+    messages = _assistant_messages(await client.get_session_messages(session_id, limit=50))
+    serialized_messages = json.dumps(messages).lower()
+    assert "mutation scope" in serialized_messages
+    assert "done signal" in serialized_messages
+    _record_session("stress_partial_answers", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_stress_long_plan_readability_fixture(client: E2EClient) -> None:
+    _requires_tier("stress")
+    channel_id, session_id, bot_id = await _fresh_session(client, "stress_readability")
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": "Native Spindrel Stress Readability",
+            "summary": "Verify long native plans render with a clear current focus instead of a wall of text.",
+            "scope": "Live visual diagnostics only; use this session as the screenshot fixture for plan hierarchy.",
+            "key_changes": [
+                "Prioritize the next decision or action at the top of the card.",
+                "Keep lower-priority implementation detail below the primary focus.",
+                "Cap long repeated sections so mobile screenshots remain scannable.",
+                "Preserve terminal mode readability with low chrome and monospace rhythm.",
+                "Keep validation state visible without turning warnings into the whole card.",
+                "Make revision history available after the user has seen the active plan.",
+            ],
+            "interfaces": [
+                "Session plan payload remains backward compatible.",
+                "Plan card derives display priority from existing runtime and validation fields.",
+                "Screenshot capture consumes the live detached session id.",
+                "Terminal chat mode uses the same plan payload with terminal-specific chrome.",
+                "Mobile chat uses full-width content rows rather than avatar-indented cards.",
+            ],
+            "assumptions_and_defaults": [
+                "The user needs the next action before the full contract.",
+                "A compact summary is more useful than repeating every section at equal weight.",
+                "Existing plan validation remains the source of approval truth.",
+                "Long lists should disclose counts when only the first items are visible.",
+                "Screenshots should be generated from real live sessions after deploy.",
+            ],
+            "test_plan": [
+                "Run stress-tier native plan diagnostics on the live server.",
+                "Capture default, mobile, and terminal screenshots for this session.",
+                "Inspect the mobile image for full-width incoming plan content.",
+                "Inspect terminal mode for low chrome and readable hierarchy.",
+                "Run TypeScript and screenshot drift checks before publishing docs artifacts.",
+            ],
+            "risks": [
+                "Hiding too much detail could obscure a required acceptance criterion.",
+                "Adding too much visual treatment could violate command-surface UI rules.",
+                "Live model variance could make stress tests noisy without deterministic fixtures.",
+                "Mobile composer overlap can hide the lower half of long cards.",
+                "Terminal mode can become visually noisy if default card chrome leaks through.",
+            ],
+            "acceptance_criteria": [
+                "Current focus appears above detailed sections.",
+                "Long sections show capped content with remaining counts.",
+                "Mobile screenshots show the plan card using the content width.",
+                "Terminal screenshots show the same hierarchy without heavy card chrome.",
+                "Stress-tier diagnostics produce sessions for visual feedback artifacts.",
+            ],
+            "steps": [
+                {"id": "stress-tier", "label": "Run native stress diagnostics"},
+                {"id": "readability", "label": "Capture readability screenshots"},
+                {"id": "mobile", "label": "Inspect mobile full-width rendering"},
+                {"id": "terminal", "label": "Inspect terminal plan rendering"},
+                {"id": "docs", "label": "Reference artifacts from the visual feedback guide"},
+                {"id": "verify", "label": "Run focused verification commands"},
+                {"id": "deploy", "label": "Verify artifacts after the next deployment"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+    assert (created.get("validation") or {}).get("ok") is True, created.get("validation")
+    assert len(created.get("key_changes") or []) >= 6
+    assert len(created.get("steps") or []) >= 7
+    _record_session("stress_readability", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
