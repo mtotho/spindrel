@@ -1,10 +1,9 @@
-import { FolderKanban, Layers, Plus } from "lucide-react";
+import { ExternalLink, FileText, FolderKanban, KeyRound, Layers, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
   useCreateProject,
-  useCreateProjectBlueprint,
   useCreateProjectFromBlueprint,
   useProjectBlueprints,
   useProjects,
@@ -28,15 +27,10 @@ export default function ProjectsIndex() {
   const { data: workspaces } = useWorkspaces();
   const createProject = useCreateProject();
   const createFromBlueprint = useCreateProjectFromBlueprint();
-  const createBlueprint = useCreateProjectBlueprint();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [rootPath, setRootPath] = useState("common/projects");
   const [selectedBlueprintId, setSelectedBlueprintId] = useState("");
-  const [blueprintName, setBlueprintName] = useState("");
-  const [blueprintRootPattern, setBlueprintRootPattern] = useState("common/projects/{slug}");
-  const [blueprintFolders, setBlueprintFolders] = useState(".spindrel,.spindrel/knowledge-base");
-  const [blueprintSecrets, setBlueprintSecrets] = useState("");
   const defaultWorkspaceId = workspaces?.[0]?.id;
 
   const attachedCount = useMemo(
@@ -53,9 +47,10 @@ export default function ProjectsIndex() {
     ],
     [blueprints],
   );
-
-  const splitList = (value: string) =>
-    value.split(",").map((item) => item.trim()).filter(Boolean);
+  const selectedBlueprint = useMemo(
+    () => (blueprints ?? []).find((blueprint) => blueprint.id === selectedBlueprintId) ?? null,
+    [blueprints, selectedBlueprintId],
+  );
 
   const submit = () => {
     const trimmedName = name.trim();
@@ -91,24 +86,6 @@ export default function ProjectsIndex() {
     });
   };
 
-  const submitBlueprint = () => {
-    const trimmedName = blueprintName.trim();
-    if (!trimmedName || createBlueprint.isPending) return;
-    createBlueprint.mutate({
-      name: trimmedName,
-      default_root_path_pattern: blueprintRootPattern.trim() || "common/projects/{slug}",
-      folders: splitList(blueprintFolders),
-      required_secrets: splitList(blueprintSecrets),
-    }, {
-      onSuccess: () => {
-        setBlueprintName("");
-        setBlueprintRootPattern("common/projects/{slug}");
-        setBlueprintFolders(".spindrel,.spindrel/knowledge-base");
-        setBlueprintSecrets("");
-      },
-    });
-  };
-
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <PageHeader
@@ -127,7 +104,7 @@ export default function ProjectsIndex() {
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-5 py-5 md:px-6">
           {creating && (
-            <div data-testid="project-workspace-create-form" className="rounded-md bg-surface-raised/35 px-3 py-3">
+            <div data-testid="project-workspace-create-form" className="flex flex-col gap-3 rounded-md bg-surface-raised/35 px-3 py-3">
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1fr)_auto] md:items-end">
                 <FormRow label="Project name">
                   <TextInput
@@ -166,6 +143,31 @@ export default function ProjectsIndex() {
                   }
                 />
               </div>
+              {selectedBlueprint && (
+                <div data-testid="project-create-blueprint-preview" className="grid gap-2 md:grid-cols-3">
+                  <SettingsControlRow
+                    compact
+                    leading={<Layers size={14} />}
+                    title={selectedBlueprint.name}
+                    description={<span className="font-mono">/{selectedBlueprint.default_root_path_pattern ?? "common/projects/{slug}"}</span>}
+                    meta={<QuietPill label="blueprint" />}
+                  />
+                  <SettingsControlRow
+                    compact
+                    leading={<FileText size={14} />}
+                    title="Starter surface"
+                    description={`${selectedBlueprint.folders?.length ?? 0} folders, ${Object.keys(selectedBlueprint.files ?? {}).length} files`}
+                    meta={<QuietPill label={`${Object.keys(selectedBlueprint.knowledge_files ?? {}).length} knowledge`} />}
+                  />
+                  <SettingsControlRow
+                    compact
+                    leading={<KeyRound size={14} />}
+                    title="Declarations"
+                    description={`${selectedBlueprint.repos?.length ?? 0} repos, ${Object.keys(selectedBlueprint.env ?? {}).length} env keys`}
+                    meta={<QuietPill label={`${selectedBlueprint.required_secrets?.length ?? 0} secrets`} />}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -210,45 +212,10 @@ export default function ProjectsIndex() {
 
           <Section
             title="Blueprints"
-            description="Reusable recipes for new Project roots. v0 materializes folders, starter files, knowledge files, env defaults, repo declarations, and secret binding slots."
+            description="Reusable recipes for new Project roots. They define starter files, knowledge files, repo declarations, env defaults, and secret binding slots."
+            action={<ActionButton label="Manage Blueprints" icon={<ExternalLink size={14} />} onPress={() => navigate("/admin/projects/blueprints")} />}
           >
             <div className="flex flex-col gap-3">
-              <div className="grid gap-3 rounded-md bg-surface-raised/35 px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
-                <FormRow label="Blueprint name">
-                  <TextInput
-                    value={blueprintName}
-                    onChangeText={setBlueprintName}
-                    placeholder="Node service"
-                  />
-                </FormRow>
-                <FormRow label="Root pattern">
-                  <TextInput
-                    value={blueprintRootPattern}
-                    onChangeText={setBlueprintRootPattern}
-                    placeholder="common/projects/{slug}"
-                  />
-                </FormRow>
-                <FormRow label="Folders">
-                  <TextInput
-                    value={blueprintFolders}
-                    onChangeText={setBlueprintFolders}
-                    placeholder=".spindrel,docs"
-                  />
-                </FormRow>
-                <FormRow label="Required secrets">
-                  <TextInput
-                    value={blueprintSecrets}
-                    onChangeText={setBlueprintSecrets}
-                    placeholder="GITHUB_TOKEN"
-                  />
-                </FormRow>
-                <ActionButton
-                  label="Add"
-                  icon={<Plus size={14} />}
-                  disabled={!blueprintName.trim() || createBlueprint.isPending}
-                  onPress={submitBlueprint}
-                />
-              </div>
               <div data-testid="project-blueprint-list" className="flex flex-col gap-2">
                 <SettingsGroupLabel
                   label="Available blueprints"
@@ -261,6 +228,7 @@ export default function ProjectsIndex() {
                   (blueprints ?? []).map((blueprint) => (
                     <SettingsControlRow
                       key={blueprint.id}
+                      onClick={() => navigate(`/admin/projects/blueprints/${blueprint.id}`)}
                       leading={<Layers size={15} />}
                       title={blueprint.name}
                       description={<span className="font-mono">/{blueprint.default_root_path_pattern ?? "common/projects/{slug}"}</span>}

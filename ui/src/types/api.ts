@@ -704,6 +704,37 @@ export interface WidgetHealthSummary {
   checked_at: string;
 }
 
+export type WidgetUsefulnessStatus = "healthy" | "has_suggestions" | "needs_attention" | "action_required" | string;
+export type WidgetUsefulnessSeverity = "info" | "low" | "medium" | "high" | string;
+export type WidgetUsefulnessSurface = "dashboard" | "chat" | "project" | string;
+
+export interface WidgetUsefulnessRecommendation {
+  type: string;
+  severity: WidgetUsefulnessSeverity;
+  surface: WidgetUsefulnessSurface;
+  pin_id: string | null;
+  label: string | null;
+  reason: string;
+  evidence: Record<string, unknown>;
+  suggested_next_action: string;
+  requires_policy_decision: boolean;
+}
+
+export interface WidgetUsefulnessAssessment {
+  channel_id: string;
+  channel_name: string | null;
+  dashboard_key: string;
+  status: WidgetUsefulnessStatus;
+  summary: string;
+  pin_count: number;
+  chat_visible_pin_count: number;
+  layout_mode: string;
+  project_scope_available: boolean;
+  project: Record<string, unknown> | null;
+  context_export: Record<string, unknown>;
+  recommendations: WidgetUsefulnessRecommendation[];
+}
+
 /** {x, y, w, h} in the 12-column dashboard grid. Empty object when unset. */
 export interface GridLayoutItem {
   x: number;

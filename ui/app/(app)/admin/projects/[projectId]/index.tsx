@@ -105,7 +105,7 @@ function ProjectBlueprintSection({ project }: { project: Project }) {
         ) : undefined
       }
     >
-      <div className="flex flex-col gap-3">
+      <div data-testid="project-blueprint-section" className="flex flex-col gap-3">
         <SettingsControlRow
           leading={<Layers size={14} />}
           title={project.blueprint?.name ?? "No blueprint applied"}

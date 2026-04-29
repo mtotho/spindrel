@@ -56,6 +56,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [Pipelines](pipelines.md) | Task pipelines (cron, scheduled, per-channel) |
 | [Plan Mode](plan-mode.md) | Agent plan-mode behavior |
 | [Programmatic Tool Calling](programmatic-tool-calling.md) | `run_script` + returns schema |
+| [Projects](projects.md) | Shared Project roots, Blueprints, channel membership, Project-root work surfaces |
 | [Providers](providers.md) | LLM providers + provider-dialect templating |
 | [PWA & Push](pwa-push.md) | PWA installation + Web Push |
 | [Secrets & Redaction](secrets.md) | Secret stores + redaction rules |

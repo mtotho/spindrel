@@ -27,7 +27,7 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
     - **Runtime:** `Claude Code`
     - **Workspace path (override):** leave blank — the bot uses its standard Spindrel workspace.
 
-    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. Or create/select a channel **Project** rooted at a workspace-relative path such as `common/projects`; in Docker that resolves inside the app container to `/workspace-data/shared/<workspace_id>/common/projects`. In that layout the harness cwd is the Project root and repos are child directories such as `./spindrel`, matching a local workspace root like `/home/mtoth/personal` with a repo under `./agent-server`.
+    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. Or create/select a channel **Project** rooted at a workspace-relative path such as `common/projects`; in Docker that resolves inside the app container to `/workspace-data/shared/<workspace_id>/common/projects`. In that layout the harness cwd is the Project root and repos are child directories such as `./spindrel`, matching a local workspace root like `/home/mtoth/personal` with a repo under `./agent-server`. See [Projects](projects.md) for Project roots, Blueprints, and channel membership.
 
     System prompt and normal prompt/RAG context fields are inert when a runtime is set — the harness owns its native context. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override. Spindrel tool enrollment still matters: selected local/MCP tools are the source for the harness bridge.
 
@@ -103,6 +103,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 ![Codex native `/plugins` result rendered in chat](../images/harness-codex-native-plugins-result-dark.png)
 
 ![Claude Code native `/skills` result rendered in chat](../images/harness-claude-native-skills-result-dark.png)
+
+![Claude Code project-local native skill invocation rendered in chat](../images/harness-claude-native-custom-skill-result-dark.png)
 
 ![Codex bridge tool result in default chat mode](../images/harness-codex-bridge-default.png)
 
@@ -181,6 +183,8 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 
 Unknown slash-looking text that is not in the Spindrel catalog is not rejected by the composer. In harness sessions it is sent as the user message so runtime-native slash loaders, including project-local Claude skills such as `/my-skill`, can handle it inside the native session.
 
+Native installs stay runtime-owned. Claude project-local skills live under the harness cwd at `.claude/skills/<name>/SKILL.md`; user/global Claude skills, Claude plugins, Codex plugins, Codex marketplaces, and Codex MCP config remain in the runtime's own config locations. Spindrel routes, renders, approves, or opens a terminal handoff; it does not mirror these registries into Spindrel skills or plugin tables.
+
 ## Support levels
 
 | Surface | Current level | Notes |
@@ -250,7 +254,7 @@ Just put files in the workspace directory. The harness reads what's there:
 - Want your dotfiles' `CLAUDE.md` in the bot's view? `git clone git@github.com:me/dotfiles /data/harness/my-project/.dotfiles` (or whatever layout makes sense — the harness sees a normal filesystem).
 - Want your vault available? `git clone git@github.com:me/vault /data/harness/my-project/vault` and reference it from your project-level `CLAUDE.md`.
 - Want a Spindrel skill for one turn? Use the composer plus menu or type `@skill:<id>`. The harness gets a tagged-skill index hint and can fetch the body through bridged `get_skill` when the bridge is available.
-- Want a Claude-native skill? Copy its markdown into `<workdir>/.claude/skills/<name>.md` and the harness will pick it up via its own skill loader. Spindrel does not automatically sync into that directory yet.
+- Want a Claude-native skill? Copy its markdown into `<workdir>/.claude/skills/<name>/SKILL.md` and the harness will pick it up via its own skill loader. Spindrel does not automatically sync into that directory yet.
 
 There is intentionally no UI for this in v1. The directory IS the contract.
 

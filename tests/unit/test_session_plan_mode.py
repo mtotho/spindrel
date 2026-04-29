@@ -905,3 +905,52 @@ def test_record_plan_semantic_review_updates_runtime_and_adherence(monkeypatch, 
     assert runtime["latest_semantic_review"]["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
     assert adherence["latest_semantic_review"]["reason"].startswith("The turn included")
     assert adherence["semantic_reviews"][-1]["recommended_action"] == "continue"
+
+
+def test_needs_replan_semantic_review_blocks_mutation_but_allows_replan(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Semantic Replan Guard",
+        summary="Block execution when review says the plan is stale.",
+        scope="Execution guard behavior.",
+        acceptance_criteria=["Needs-replan semantic review blocks further mutation."],
+        **_professional_fields(),
+        steps=[{"id": "ship", "label": "Ship the planned behavior"}],
+    )
+    spm.approve_session_plan(session)
+
+    spm.record_plan_semantic_review(
+        session,
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "step_id": "ship",
+            "outcome": "step_done",
+            "verdict": spm.PLAN_SEMANTIC_REVIEW_NEEDS_REPLAN,
+            "confidence": 0.97,
+            "reason": "Execution evidence showed the accepted plan is stale.",
+            "recommended_action": "request_replan",
+        },
+    )
+
+    assert not spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="request_plan_replan",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    reason = spm.plan_mode_tool_denial_reason(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+    assert reason is not None
+    assert "needs replanning" in reason

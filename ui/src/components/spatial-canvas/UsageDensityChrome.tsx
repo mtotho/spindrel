@@ -1,19 +1,13 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Activity, AlertTriangle, Bot, Box, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Sparkles, Wind, X } from "lucide-react";
-import type { DensityWindow } from "./UsageDensityLayer";
-import type { DensityIntensity } from "./spatialGeometry";
-import { CanvasLibraryContent } from "./CanvasLibrarySheet";
-import { CommandCenter } from "../command-center/CommandCenter";
-import { BloatStationContent } from "./BloatSatellite";
+import { Activity, AlertTriangle, Bot, Box, Clock, Eye, ExternalLink, Hash, History, Info, LayoutList, MapPin, MessageCircle, PanelRightOpen, Radar, Search, Settings2, Sparkles, X } from "lucide-react";
 import type { AttentionTargetKind, WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
-import { activeAttentionItems, bucketAttentionItems, getAttentionWorkflowState, sweepCandidateItems } from "./SpatialAttentionModel";
+import { activeAttentionItems, getAttentionWorkflowState } from "./SpatialAttentionModel";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
 import { openTraceInspector } from "../../stores/traceInspector";
 import { attentionDeckHref } from "../../lib/hubRoutes";
-import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
   id: string;
@@ -38,13 +32,11 @@ export interface StarboardObjectAction {
   disabled?: boolean;
 }
 
-export type StarboardStation = "hub" | "attention" | "launch" | "health" | "smell" | "objects" | "controls";
+export type StarboardStation = "objects";
 
 interface UsageDensityChromeProps {
   open: boolean;
-  station: StarboardStation;
   onOpenChange: (open: boolean) => void;
-  onStationChange: (station: StarboardStation) => void;
   objects: StarboardObjectItem[];
   attentionItems: WorkspaceAttentionItem[];
   selectedAttentionId: string | null;
@@ -53,20 +45,6 @@ interface UsageDensityChromeProps {
   navigate?: (to: string, options?: any) => void;
   selectedObject?: StarboardObjectItem | null;
 }
-
-const WINDOWS: DensityWindow[] = ["24h", "7d", "30d"];
-
-const INTENSITY_LABEL: Record<DensityIntensity, string> = {
-  off: "Activity off",
-  subtle: "Activity",
-  bold: "Activity bold",
-};
-
-const INTENSITY_HINT: Record<DensityIntensity, string> = {
-  off: "Activity halos hidden — click to enable",
-  subtle: "Subtle activity halos — click to brighten",
-  bold: "Bold activity halos — click to hide",
-};
 
 const STARBOARD_TAB_KEY = "spatial.starboard.activeTab";
 const STARBOARD_DEFAULT_MIGRATION_KEY = "spatial.starboard.mapBriefDefault.v1";
@@ -81,16 +59,6 @@ const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   landmark: "Landmark",
 };
 
-const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; group: "Map" | "Operator" | "Signals" | "Tools"; icon: ReactNode }> = [
-  { id: "objects", label: "Map Brief", eyebrow: "Objects, state, and next actions", group: "Map", icon: <LayoutList size={15} /> },
-  { id: "hub", label: "Mission Control", eyebrow: "Experimental operator surface", group: "Operator", icon: <Home size={15} /> },
-  { id: "attention", label: "Attention", eyebrow: "Issues and assignments", group: "Signals", icon: <Radar size={15} /> },
-  { id: "health", label: "Daily Health", eyebrow: "Server rollup", group: "Signals", icon: <Activity size={15} /> },
-  { id: "smell", label: "Context Bloat", eyebrow: "Unused tools and skills", group: "Signals", icon: <Wind size={15} /> },
-  { id: "launch", label: "Launch Bay", eyebrow: "Add to canvas", group: "Tools", icon: <Plus size={15} /> },
-  { id: "controls", label: "Controls", eyebrow: "Canvas behavior", group: "Tools", icon: <Settings2 size={15} /> },
-];
-
 type ObjectGroup = {
   id: "investigate" | "next" | "recent" | "quiet";
   label: string;
@@ -99,39 +67,12 @@ type ObjectGroup = {
 
 export function loadStarboardStation(): StarboardStation {
   try {
-    const stored = window.localStorage.getItem(STARBOARD_TAB_KEY);
-    if (stored === "hub" && window.localStorage.getItem(STARBOARD_DEFAULT_MIGRATION_KEY) !== "done") {
-      window.localStorage.setItem(STARBOARD_DEFAULT_MIGRATION_KEY, "done");
-      window.localStorage.setItem(STARBOARD_TAB_KEY, "objects");
-      return "objects";
-    }
-    return stored === "objects" || stored === "controls" || stored === "attention" || stored === "launch" || stored === "health" || stored === "smell" || stored === "hub" ? stored : "objects";
+    window.localStorage.setItem(STARBOARD_DEFAULT_MIGRATION_KEY, "done");
+    window.localStorage.setItem(STARBOARD_TAB_KEY, "objects");
+    return "objects";
   } catch {
     return "objects";
   }
-}
-
-/** Three-dot intensity indicator inside the button — visualizes off/subtle/bold. */
-function IntensityPips({ intensity }: { intensity: DensityIntensity }) {
-  const filled = intensity === "off" ? 0 : intensity === "subtle" ? 1 : 2;
-  return (
-    <span className="inline-flex flex-row items-center gap-[3px] mr-1">
-      {[0, 1].map((i) => (
-        <span
-          key={i}
-          className="block rounded-full"
-          style={{
-            width: 5,
-            height: 5,
-            background:
-              i < filled
-                ? "currentColor"
-                : "rgb(var(--color-text) / 0.25)",
-          }}
-        />
-      ))}
-    </span>
-  );
 }
 
 export function UsageDensityChrome({
@@ -319,14 +260,6 @@ export function UsageDensityChrome({
   );
 }
 
-function persistStarboardTab(tab: StarboardStation) {
-  try {
-    window.localStorage.setItem(STARBOARD_TAB_KEY, tab);
-  } catch {
-    /* storage disabled */
-  }
-}
-
 function loadStarboardWidth(): number {
   try {
     const stored = Number(window.localStorage.getItem(STARBOARD_WIDTH_KEY));
@@ -438,79 +371,9 @@ function ObjectListGroup({
   );
 }
 
-function AttentionStarboardSummary({
-  items,
-  navigate,
-}: {
-  items: WorkspaceAttentionItem[];
-  navigate?: (to: string, options?: any) => void;
-}) {
-  const buckets = bucketAttentionItems(items);
-  const inbox = [...buckets.untriaged, ...buckets.assigned];
-  const sweepable = sweepCandidateItems(items);
-  const nextItem = buckets.review[0] ?? inbox[0] ?? buckets.triage[0] ?? null;
-  const openReview = () => {
-    navigate?.(attentionDeckHref({ itemId: nextItem?.id ?? null, mode: nextItem ? null : inbox.length ? "inbox" : "review" }));
-  };
-
-  return (
-    <div data-testid="starboard-attention-summary" className="space-y-4">
-      <section className="rounded-md bg-surface-overlay/35 px-3 py-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim/80">
-          <Radar size={13} />
-          Mission Control Review
-        </div>
-        <div className="mt-2 text-sm font-medium text-text">
-          {nextItem ? nextItem.title : "No active findings"}
-        </div>
-        <div className="mt-1 text-xs leading-5 text-text-muted">
-          Starboard only summarizes the local signal. Review and sweep work happens in the full review surface.
-        </div>
-        <div className="mt-3">
-          <button
-            type="button"
-            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12]"
-            onClick={openReview}
-          >
-            <ExternalLink size={13} />
-            Open Review
-          </button>
-        </div>
-      </section>
-
-      <section className="grid grid-cols-2 gap-2">
-        <AttentionMetric label="Review" value={buckets.review.length} tone="accent" />
-        <AttentionMetric label="Inbox" value={inbox.length} tone={inbox.length ? "danger" : "muted"} />
-        <AttentionMetric label="Running" value={buckets.triage.length} tone={buckets.triage.length ? "accent" : "muted"} />
-        <AttentionMetric label="Cleared" value={buckets.processed.length} tone="muted" />
-      </section>
-
-      <section className="rounded-md bg-surface-raised/35 px-3 py-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-          <Sparkles size={13} />
-          Operator
-        </div>
-        <div className="mt-2 text-sm text-text-muted">
-          {sweepable.length ? `${sweepable.length} raw item${sweepable.length === 1 ? "" : "s"} ready for sweep.` : "No raw items are ready for a new sweep."}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function attentionPrimaryActionLabel(item: WorkspaceAttentionItem | null): string {
   if (!item) return "Review signal";
-  return getAttentionWorkflowState(item) === "operator_review" ? "Review finding" : "Review raw signal";
-}
-
-function AttentionMetric({ label, value, tone }: { label: string; value: number; tone: "accent" | "danger" | "muted" }) {
-  const toneClass = tone === "accent" ? "text-accent" : tone === "danger" ? "text-danger" : "text-text-muted";
-  return (
-    <div className="rounded-md bg-surface-overlay/35 px-3 py-2">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">{label}</div>
-      <div className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</div>
-    </div>
-  );
+  return getAttentionWorkflowState(item) === "operator_review" ? "Review finding" : "Review item";
 }
 
 function SelectedObjectInspector({
@@ -913,27 +776,4 @@ function kindIcon(kind: StarboardObjectItem["kind"]) {
   if (kind === "bot") return <Bot size={15} />;
   if (kind === "landmark") return <Radar size={15} />;
   return <MapPin size={15} />;
-}
-
-function PanelSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
-  return (
-    <section className="mb-5">
-      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">
-        {icon}
-        <span>{title}</span>
-      </div>
-      <div className="space-y-1 rounded-md bg-surface-overlay/30 p-2">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function SettingRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay/60 hover:text-text">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
 }

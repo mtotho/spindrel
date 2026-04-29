@@ -389,7 +389,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
   } | null>(null);
   const [selectedAttentionId, setSelectedAttentionId] = useState<string | null>(null);
   const [starboardOpen, setStarboardOpen] = useState(false);
-  const [starboardStation, setStarboardStation] = useState<StarboardStation>(loadStarboardStation);
+  const [, setStarboardStation] = useState<StarboardStation>(loadStarboardStation);
   const [canvasLibraryOpen, setCanvasLibraryOpen] = useState(false);
   const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
@@ -975,9 +975,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         highlightedActionCueId={highlightedActionCueId}
         setHighlightedActionCueId={setHighlightedActionCueId}
         starboardOpen={starboardOpen}
-        starboardStation={starboardStation}
         setStarboardOpen={setStarboardOpen}
-        setStarboardStation={setStarboardStation}
         attentionItems={attentionItems}
         selectedAttentionId={selectedAttentionId}
         setSelectedAttentionId={setSelectedAttentionId}

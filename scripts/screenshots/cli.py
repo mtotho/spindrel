@@ -24,6 +24,7 @@ from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
     ATTENTION_SPECS,
     CHANNEL_QUICK_AUTOMATION_SPECS,
+    CHANNEL_WIDGET_USEFULNESS_SPECS,
     CHANNEL_SESSION_TAB_SPECS,
     CORE_FEATURE_SPECS,
     DOCS_REPAIR_SPECS,
@@ -67,6 +68,8 @@ from scripts.screenshots.stage.scenarios.integration_chat import (
     teardown_integration_chat,
 )
 from scripts.screenshots.stage.scenarios.projects import (
+    BLUEPRINT_PROJECT_SLUG,
+    BLUEPRINT_SLUG,
     PROJECT_CHANNEL_CLIENT_ID,
     PROJECT_SLUG,
     stage_project_workspace,
@@ -94,6 +97,11 @@ from scripts.screenshots.stage.scenarios.channel_quick_automations import (
     stage_channel_quick_automations,
     teardown_channel_quick_automations,
 )
+from scripts.screenshots.stage.scenarios.channel_widget_usefulness import (
+    CHANNEL_WIDGET_USEFULNESS_CLIENT_ID,
+    stage_channel_widget_usefulness,
+    teardown_channel_widget_usefulness,
+)
 from scripts.screenshots.stage.scenarios.voice_input import (
     VOICE_INPUT_CHANNEL_CLIENT_ID,
     stage_voice_input,
@@ -111,7 +119,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "voice-input", "channel-session-tabs", "channel-quick-automations", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard", "project-workspace"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "voice-input", "channel-session-tabs", "channel-quick-automations", "channel-widget-usefulness", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard", "project-workspace"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -235,6 +243,13 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             state = stage_channel_quick_automations(client, dry_run=dry_run)
         print("staged (channel-quick-automations):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "channel-widget-usefulness":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_channel_widget_usefulness(client, dry_run=dry_run)
+        print("staged (channel-widget-usefulness):")
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
@@ -425,6 +440,15 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
                 )
             placeholders["channel_quick_automations"] = str(ch["id"])
             spec_list = CHANNEL_QUICK_AUTOMATION_SPECS
+        elif only == "channel-widget-usefulness":
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            ch = all_channels.get(CHANNEL_WIDGET_USEFULNESS_CLIENT_ID)
+            if not ch:
+                raise SystemExit(
+                    "screenshot:channel-widget-usefulness channel not found. Run `stage --only channel-widget-usefulness` first."
+                )
+            placeholders["channel_widget_usefulness"] = str(ch["id"])
+            spec_list = CHANNEL_WIDGET_USEFULNESS_SPECS
         elif only == "project-workspace":
             all_channels = {c.get("client_id"): c for c in client.list_channels()}
             ch = all_channels.get(PROJECT_CHANNEL_CLIENT_ID)
@@ -440,8 +464,26 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
                 raise SystemExit(
                     "screenshot-project-workspace Project not found. Run `stage --only project-workspace` first."
                 )
+            blueprint = next(
+                (b for b in client.list_project_blueprints() if b.get("slug") == BLUEPRINT_SLUG),
+                None,
+            )
+            if not blueprint:
+                raise SystemExit(
+                    "screenshot-service-blueprint not found. Run `stage --only project-workspace` first."
+                )
+            blueprint_project = next(
+                (p for p in client.list_projects() if p.get("slug") == BLUEPRINT_PROJECT_SLUG),
+                None,
+            )
+            if not blueprint_project:
+                raise SystemExit(
+                    "screenshot-blueprint-project Project not found. Run `stage --only project-workspace` first."
+                )
             placeholders["project_workspace"] = str(ch["id"])
             placeholders["project_workspace_project"] = str(project["id"])
+            placeholders["project_workspace_blueprint"] = str(blueprint["id"])
+            placeholders["project_workspace_blueprint_project"] = str(blueprint_project["id"])
             spec_list = PROJECT_WORKSPACE_SPECS
         elif only == "mobile-home":
             spec_list = MOBILE_HOME_SPECS
@@ -669,6 +711,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_channel_quick_automations(client)
         print("teardown (channel-quick-automations): removed seeded quick-automations channel")
+        return
+    if only == "channel-widget-usefulness":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_channel_widget_usefulness(client)
+        print("teardown (channel-widget-usefulness): removed seeded widget-usefulness channel")
         return
     if only == "voice-input":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:

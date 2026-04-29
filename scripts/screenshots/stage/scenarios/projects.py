@@ -14,6 +14,12 @@ PROJECT_ATTACH_CLIENT_ID = "screenshot:project-workspace-attachable"
 PROJECT_SLUG = "screenshot-project-workspace"
 PROJECT_NAME = "Screenshot Project Workspace"
 PROJECT_ROOT = "common/projects/spindrel-screenshot"
+BLUEPRINT_SLUG = "screenshot-service-blueprint"
+BLUEPRINT_NAME = "Screenshot Service Blueprint"
+BLUEPRINT_PROJECT_SLUG = "screenshot-blueprint-project"
+BLUEPRINT_PROJECT_NAME = "Screenshot Blueprint Project"
+BLUEPRINT_PROJECT_ROOT = "common/projects/spindrel-blueprint"
+BOUND_SECRET_NAME = "SCREENSHOT_PROJECT_GITHUB_TOKEN"
 
 
 def stage_project_workspace(
@@ -26,6 +32,8 @@ def stage_project_workspace(
         state.channels["project_workspace"] = "dry-run-channel"
         state.bots["project_bot"] = PROJECT_BOT_ID
         state.dashboards["project_workspace_project"] = "dry-run-project"
+        state.dashboards["project_workspace_blueprint"] = "dry-run-blueprint"
+        state.dashboards["project_workspace_blueprint_project"] = "dry-run-blueprint-project"
         return state
 
     workspaces = client.list_workspaces()
@@ -36,8 +44,8 @@ def stage_project_workspace(
     bot = client.ensure_bot(
         bot_id=PROJECT_BOT_ID,
         name="Project Screenshot Bot",
-        model="gemini-2.5-flash",
-        model_provider_id="gemini",
+        model="llama3.2",
+        model_provider_id="ollama",
         system_prompt=(
             "You are a screenshot fixture bot. When asked to use memory, call the "
             "host-provided memory tool exactly as requested and then answer briefly."
@@ -45,8 +53,8 @@ def stage_project_workspace(
     )
     client.update_bot(
         str(bot["id"]),
-        model="gemini-2.5-flash",
-        model_provider_id="gemini",
+        model="llama3.2",
+        model_provider_id="ollama",
         memory_scheme="workspace-files",
     )
     state.bots["project_bot"] = PROJECT_BOT_ID
@@ -61,6 +69,52 @@ def stage_project_workspace(
     )
     project_id = str(project["id"])
     state.dashboards["project_workspace_project"] = project_id
+
+    existing_secret = next((s for s in client.list_secret_values() if s.get("name") == BOUND_SECRET_NAME), None)
+    if existing_secret is None:
+        existing_secret = client.create_secret_value(
+            name=BOUND_SECRET_NAME,
+            value="screenshot-token",
+            description="Project Blueprint screenshot secret binding.",
+        )
+    blueprint = client.ensure_project_blueprint(
+        name=BLUEPRINT_NAME,
+        slug=BLUEPRINT_SLUG,
+        default_root_path_pattern="common/projects/{slug}",
+        description="Reusable screenshot recipe with files, knowledge, repo declarations, env defaults, and secret slots.",
+        prompt="Use the Blueprint starter surface before making changes.",
+        prompt_file_path=".spindrel/project-prompt.md",
+        folders=[".spindrel", ".spindrel/knowledge-base", "docs", "src"],
+        files={
+            "README.md": "# Blueprint Project\n\nCreated from a Project Blueprint.\n",
+            "docs/plan.md": "# Plan\n\nTrack the setup here.\n",
+        },
+        knowledge_files={"overview.md": "This Project was created from the screenshot Blueprint.\n"},
+        repos=[{
+            "name": "agent-server",
+            "url": "https://github.com/example/agent-server.git",
+            "path": "agent-server",
+            "branch": "main",
+        }],
+        env={"NODE_ENV": "development", "PROJECT_KIND": "screenshot"},
+        required_secrets=[BOUND_SECRET_NAME, "SCREENSHOT_PROJECT_NPM_TOKEN"],
+    )
+    blueprint_id = str(blueprint["id"])
+    state.dashboards["project_workspace_blueprint"] = blueprint_id
+    blueprint_project = client.create_project_from_blueprint(
+        blueprint_id=blueprint_id,
+        workspace_id=workspace_id,
+        name=BLUEPRINT_PROJECT_NAME,
+        slug=BLUEPRINT_PROJECT_SLUG,
+        root_path=BLUEPRINT_PROJECT_ROOT,
+        secret_bindings={BOUND_SECRET_NAME: str(existing_secret["id"])},
+    )
+    blueprint_project_id = str(blueprint_project["id"])
+    state.dashboards["project_workspace_blueprint_project"] = blueprint_project_id
+    client.update_project_secret_bindings(
+        blueprint_project_id,
+        {BOUND_SECRET_NAME: str(existing_secret["id"]), "SCREENSHOT_PROJECT_NPM_TOKEN": None},
+    )
 
     channel = client.ensure_channel(
         client_id=PROJECT_CHANNEL_CLIENT_ID,

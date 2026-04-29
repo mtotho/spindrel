@@ -97,6 +97,8 @@ const AdminNotifications = lazy(() => import("@/app/(app)/admin/notifications/in
 const AdminPromptTemplates = lazy(() => import("@/app/(app)/admin/prompt-templates/index"));
 const AdminPromptTemplateDetail = lazy(() => import("@/app/(app)/admin/prompt-templates/[templateId]/index"));
 const AdminProjectsIndex = lazy(() => import("@/app/(app)/admin/projects/index"));
+const AdminProjectBlueprintsIndex = lazy(() => import("@/app/(app)/admin/projects/blueprints/index"));
+const AdminProjectBlueprintDetail = lazy(() => import("@/app/(app)/admin/projects/blueprints/[blueprintId]/index"));
 const AdminProjectDetail = lazy(() => import("@/app/(app)/admin/projects/[projectId]/index"));
 const AdminProviders = lazy(() => import("@/app/(app)/admin/providers/index"));
 const AdminProviderDetail = lazy(() => import("@/app/(app)/admin/providers/[providerId]/index"));
@@ -251,6 +253,8 @@ export const router = createBrowserRouter([
               { path: "prompt-templates", element: <AdminPromptTemplates /> },
               { path: "prompt-templates/:templateId", element: <AdminPromptTemplateDetail /> },
               { path: "projects", element: <AdminProjectsIndex /> },
+              { path: "projects/blueprints", element: <AdminProjectBlueprintsIndex /> },
+              { path: "projects/blueprints/:blueprintId", element: <AdminProjectBlueprintDetail /> },
               { path: "projects/:projectId", element: <AdminProjectDetail /> },
               { path: "providers", element: <AdminProviders /> },
               { path: "providers/:providerId", element: <AdminProviderDetail /> },

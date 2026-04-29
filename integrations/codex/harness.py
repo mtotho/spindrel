@@ -382,6 +382,7 @@ class CodexRuntime:
         del ctx
         args = tuple(arg for arg in args if arg)
         if args and args != ("list",):
+            suggested_command = _codex_native_terminal_command(command_id, args)
             return HarnessRuntimeCommandResult(
                 command_id=command_id,
                 title="Unsupported Codex command arguments",
@@ -390,7 +391,7 @@ class CodexRuntime:
                     "Spindrel. Use the in-app terminal for interactive or mutating subcommands."
                 ),
                 status="terminal_handoff",
-                payload={"args": list(args), "suggested_command": "codex " + " ".join((command_id, *args))},
+                payload={"args": list(args), "suggested_command": suggested_command},
             )
         methods = {
             "config": (schema.METHOD_CONFIG_READ, {}),
@@ -450,6 +451,15 @@ class CodexRuntime:
             )
         _AUTH_STATUS_CACHE[self.name] = (time.monotonic(), status)
         return status
+
+
+def _codex_native_terminal_command(command_id: str, args: tuple[str, ...]) -> str:
+    cli_command = {
+        "mcp-status": "mcp",
+        "plugins": "plugin",
+        "features": "features",
+    }.get(command_id, command_id)
+    return " ".join(("codex", cli_command, *args))
 
 
 def _build_turn_input(prompt: str, ctx: TurnContext) -> list[dict[str, Any]]:

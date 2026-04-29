@@ -1,5 +1,5 @@
 import type React from "react";
-import { Activity, Bot, Command, Eye, MapPinned, Move, Navigation, PanelRightOpen, Route, Settings2 } from "lucide-react";
+import { Activity, Bot, Command, Eye, MapPinned, Move, Route, Settings2 } from "lucide-react";
 import { buildChannelSessionRoute, type ChannelSessionSurface } from "../../lib/channelSessionSurfaces";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import { useUIStore } from "../../stores/ui";
@@ -30,7 +30,6 @@ type SpatialCanvasOverlaysProps = Record<string, any> & {
   setLandmarkBeaconsVisible: React.Dispatch<React.SetStateAction<any>>;
   setAttentionSignalsVisible: React.Dispatch<React.SetStateAction<any>>;
   setStarboardOpen: React.Dispatch<React.SetStateAction<any>>;
-  setStarboardStation: React.Dispatch<React.SetStateAction<any>>;
   setSelectedAttentionId: React.Dispatch<React.SetStateAction<any>>;
   setMemorySelection: React.Dispatch<React.SetStateAction<any>>;
   setMinimapVisible: React.Dispatch<React.SetStateAction<any>>;
@@ -64,7 +63,6 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     setPinPositionOverride,
     canvasLibraryOpen,
     setCanvasLibraryOpen,
-    openStarboardLaunch,
     interactionMode,
     setInteractionMode,
     densityIntensity,
@@ -91,9 +89,7 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     highlightedActionCueId,
     setHighlightedActionCueId,
     starboardOpen,
-    starboardStation,
     setStarboardOpen,
-    setStarboardStation,
     attentionItems,
     selectedAttentionId,
     setSelectedAttentionId,
@@ -209,9 +205,7 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
         <UsageDensityChrome
           objects={starboardObjects}
           open={starboardOpen}
-          station={starboardStation}
           onOpenChange={setStarboardOpen}
-          onStationChange={setStarboardStation}
           attentionItems={attentionItems ?? []}
           selectedAttentionId={selectedAttentionId}
           onSelectAttention={(item: WorkspaceAttentionItem | null) => setSelectedAttentionId(item?.id ?? null)}

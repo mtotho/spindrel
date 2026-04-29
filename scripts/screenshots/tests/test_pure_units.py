@@ -24,6 +24,7 @@ from scripts.screenshots import playwright_runtime
 from scripts.screenshots import spindrel_plan_live
 from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
+    CHANNEL_WIDGET_USEFULNESS_SPECS,
     FLAGSHIP_SPECS,
     PROJECT_WORKSPACE_SPECS,
     SPATIAL_CHECK_SPECS,
@@ -175,12 +176,17 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         {
             "project_workspace": "channel-1",
             "project_workspace_project": "project-1",
+            "project_workspace_blueprint": "blueprint-1",
+            "project_workspace_blueprint_project": "blueprint-project-1",
         },
     )
 
     assert {spec.output for spec in resolved} == {
         "project-workspace-list.png",
         "project-workspace-detail.png",
+        "project-workspace-blueprints.png",
+        "project-workspace-blueprint-editor.png",
+        "project-workspace-settings-blueprint.png",
         "project-workspace-terminal.png",
         "project-workspace-channels.png",
         "project-workspace-channel-settings.png",
@@ -189,10 +195,30 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert all(spec.assert_js for spec in resolved)
     routes = {spec.name: spec.route for spec in resolved}
     assert routes["project-workspace-detail"] == "/admin/projects/project-1"
+    assert routes["project-workspace-blueprints"] == "/admin/projects/blueprints"
+    assert routes["project-workspace-blueprint-editor"] == "/admin/projects/blueprints/blueprint-1"
+    assert routes["project-workspace-settings-blueprint"] == "/admin/projects/blueprint-project-1#Settings"
     assert routes["project-workspace-terminal"] == "/admin/projects/project-1#Terminal"
     assert routes["project-workspace-channels"] == "/admin/projects/project-1#Channels"
     assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"
     assert routes["project-workspace-memory-tool"] == "/channels/channel-1"
+
+
+def test_channel_widget_usefulness_specs_have_assertions_and_artifacts():
+    resolved = resolve_specs(
+        CHANNEL_WIDGET_USEFULNESS_SPECS,
+        {"channel_widget_usefulness": "channel-1"},
+    )
+
+    assert {spec.output for spec in resolved} == {
+        "channel-widget-usefulness-dashboard.png",
+        "channel-widget-usefulness-drawer.png",
+        "channel-widget-usefulness-settings.png",
+    }
+    assert all(spec.assert_js for spec in resolved)
+    routes = {spec.name: spec.route for spec in resolved}
+    assert routes["channel-widget-usefulness-dashboard"] == "/widgets/channel/channel-1"
+    assert routes["channel-widget-usefulness-settings"] == "/channels/channel-1/settings#dashboard"
 
 
 def test_resolve_specs_preserves_assertions():
@@ -300,6 +326,21 @@ def test_harness_live_native_slash_specs_use_clean_runtime_sessions():
     assert specs[2].submit_slash is True
     assert specs[2].submit_ready_js
     assert "Claude Code" in specs[2].contains
+
+
+def test_harness_live_claude_custom_skill_spec_targets_preseeded_session():
+    specs = harness_live._claude_custom_skill_specs(
+        "http://ui",
+        "channel-1",
+        "session-1",
+        expected_phrase="NATIVE-SKILL-SCREENSHOT-test",
+    )
+
+    assert [spec.name for spec in specs] == ["harness-claude-native-custom-skill-result-dark"]
+    assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
+    assert specs[0].slash_query is None
+    assert specs[0].submit_slash is False
+    assert "NATIVE-SKILL-SCREENSHOT-test" in specs[0].contains
 
 
 def test_harness_live_project_terminal_specs_are_docs_fixtures():

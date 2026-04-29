@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, ShieldCheck, Sparkles, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Sparkles, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -32,6 +32,7 @@ import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
 import { EditModeGridGuides } from "./EditModeGridGuides";
 import { ChannelDashboardMultiCanvas } from "./ChannelDashboardMultiCanvas";
 import { KioskExitChip } from "./KioskExitChip";
+import { WidgetUsefulnessStrip } from "./WidgetUsefulnessReview";
 import {
   channelIdFromSlug,
   channelSlug,
@@ -289,6 +290,15 @@ export default function WidgetsDashboardPage() {
     window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1400);
   }, []);
 
+  const focusPin = useCallback((pinId: string) => {
+    setHighlightPinId(pinId);
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-pin-id="${pinId}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1600);
+  }, []);
+
   /** ChatSession dock — channel mode on channel-scoped widget dashboards.
    *  Mirrors the channel's main chat (same session, same store slot, same SSE).
    *  The dock's Maximize button navigates to `/channels/:channelId`. Not
@@ -499,24 +509,6 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
-      {pins.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            checkDashboardHealth.mutate(
-              { dashboardKey: slug, limit: Math.min(pins.length, 50), includeBrowser: true },
-              { onSuccess: () => { void refetchPins(); } },
-            );
-          }}
-          disabled={checkDashboardHealth.isPending}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-surface-border px-2.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text disabled:opacity-50"
-          aria-label="Check dashboard widget health"
-          title="Check dashboard widget health"
-        >
-          <ShieldCheck size={13} className={checkDashboardHealth.isPending ? "animate-pulse" : ""} />
-          <span className="hidden md:inline">Check</span>
-        </button>
-      )}
       {/* Kiosk button intentionally removed from the top bar. Kiosk mode is
           auto-entered via `?kiosk=true` in the URL — see the mount-time
           handler that consumes the flag. Removed because the button clutters
@@ -640,19 +632,23 @@ export default function WidgetsDashboardPage() {
           + (layoutEditable && !inPanelMode ? "pb-[40vh]" : "")
         }
       >
-        {!isLoading && !error && pins.length > 0 && !kiosk && (
-          <div className="mx-auto mb-3 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-md border border-surface-border bg-surface-raised px-3 py-2 text-[12px] text-text-muted">
-            <div className="flex min-w-0 items-center gap-2">
-              <ShieldCheck size={14} className="shrink-0 text-text-dim" />
-              <span className="font-medium text-text">Widget health</span>
-              <span className="truncate">{dashboardHealthLabel}</span>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {healthCounts.failing > 0 && <span className="text-danger">{healthCounts.failing} failing</span>}
-              {healthCounts.warning > 0 && <span className="text-warning">{healthCounts.warning} warning</span>}
-              {healthCounts.unchecked > 0 && <span>{healthCounts.unchecked} unchecked</span>}
-            </div>
-          </div>
+        {!isLoading && !error && pins.length > 0 && !kiosk && isChannelScoped && channelScopedId && (
+          <WidgetUsefulnessStrip
+            channelId={channelScopedId}
+            healthLabel={dashboardHealthLabel}
+            healthCounts={healthCounts}
+            checkingHealth={checkDashboardHealth.isPending}
+            onCheckHealth={() => {
+              checkDashboardHealth.mutate(
+                { dashboardKey: slug, limit: Math.min(pins.length, 50), includeBrowser: true },
+                { onSuccess: () => { void refetchPins(); } },
+              );
+            }}
+            onFocusPin={focusPin}
+            onEditPin={(id) => setEditingPinId(id)}
+            onEditLayout={() => setEditMode(true)}
+            onOpenSettings={() => navigate(`/channels/${channelScopedId}/settings#dashboard`)}
+          />
         )}
         {layoutError && (
           <div

@@ -118,6 +118,16 @@ class TestProjectsApi:
         assert patched_bindings["NPM_TOKEN"]["secret_value_id"] == str(secret_two.id)
         assert patched_bindings["NPM_TOKEN"]["bound"] is True
 
+        deleted = await client.delete(f"/api/v1/projects/blueprints/{blueprint['id']}", headers=AUTH_HEADERS)
+        assert deleted.status_code == 204
+
+        fetched_after_delete = await client.get(f"/api/v1/projects/{body['id']}", headers=AUTH_HEADERS)
+        assert fetched_after_delete.status_code == 200
+        deleted_body = fetched_after_delete.json()
+        assert deleted_body["applied_blueprint_id"] is None
+        assert deleted_body["blueprint"] is None
+        assert deleted_body["metadata_"]["blueprint_snapshot"]["name"] == "Blueprint API"
+
     async def test_project_channels_lists_attached_channels(self, client, db_session):
         workspace = await _workspace(db_session)
         created = await client.post(

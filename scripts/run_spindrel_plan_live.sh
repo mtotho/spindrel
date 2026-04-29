@@ -12,6 +12,8 @@
 #   ./scripts/run_spindrel_plan_live.sh --tier replay
 #   ./scripts/run_spindrel_plan_live.sh --tier behavior
 #   ./scripts/run_spindrel_plan_live.sh --tier quality
+#   ./scripts/run_spindrel_plan_live.sh --tier stress
+#   ./scripts/run_spindrel_plan_live.sh --tier adherence
 #   ./scripts/run_spindrel_plan_live.sh -k publish_plan
 
 set -euo pipefail
@@ -25,7 +27,7 @@ PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tier)
-            TIER="${2:?--tier requires one of: core, questions, publish, approve, answers, progress, replan, guardrails, replay, behavior, quality}"
+            TIER="${2:?--tier requires one of: core, questions, publish, approve, answers, progress, replan, guardrails, replay, behavior, quality, stress, adherence}"
             shift 2
             ;;
         --tier=*)

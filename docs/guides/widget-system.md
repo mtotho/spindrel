@@ -288,6 +288,11 @@ Both flavors share the same authoring loop. There is no JSX server-side typechec
 | `assess_widget_usefulness` | Dashboard usefulness review | Read-only channel dashboard assessment for health signals, duplicates, hidden chat surfaces, context-export gaps, actionability hints, and Project-bound starter coverage. |
 | `inspect_widget_pin` | Post-pin runtime trace | Reads the in-memory debug ring (cap 50, newest-first) for a pinned widget: every `callTool` request+response (real envelope shape — no guessing the JSON path), every `loadAttachment` result, every uncaught JS error / unhandled promise rejection / `console.*` call / `spindrel.log.*` entry. For `runtime: react`, Babel compile errors are mirrored to `spindrel.log.error` so they show up here with the same shape as a runtime JS error. |
 
+The channel dashboard UI surfaces the same usefulness assessment as a read-only
+review strip and drawer. Channel Settings -> Dashboard shows a compact summary
+so users can see whether a dashboard needs attention before opening the full
+canvas.
+
 Iteration recipe for a React widget:
 
 1. Author v1, `preview_widget` to catch envelope/CSP/path errors.

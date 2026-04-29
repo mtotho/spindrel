@@ -147,7 +147,20 @@ async def _default_workspace_id(db: AsyncSession) -> uuid.UUID:
 
 
 async def _project_out(db: AsyncSession, project: Project) -> ProjectOut:
-    out = ProjectOut.model_validate(project)
+    out = ProjectOut(
+        id=project.id,
+        workspace_id=project.workspace_id,
+        applied_blueprint_id=project.applied_blueprint_id,
+        name=project.name,
+        slug=project.slug,
+        description=project.description,
+        root_path=project.root_path,
+        prompt=project.prompt,
+        prompt_file_path=project.prompt_file_path,
+        metadata_=project.metadata_ or {},
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+    )
     out.resolved = project_directory_payload(project_directory_from_project(project))
     if project.applied_blueprint_id:
         blueprint = await db.get(ProjectBlueprint, project.applied_blueprint_id)
@@ -316,6 +329,28 @@ async def update_project_blueprint(
         raise HTTPException(status_code=409, detail=f"project blueprint update failed: {exc}") from exc
     await db.refresh(blueprint)
     return _blueprint_out(blueprint)
+
+
+@router.delete("/blueprints/{blueprint_id}", status_code=204)
+async def delete_project_blueprint(
+    blueprint_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    blueprint = await db.get(ProjectBlueprint, blueprint_id)
+    if blueprint is None:
+        raise HTTPException(status_code=404, detail="project blueprint not found")
+    projects = (await db.execute(
+        select(Project).where(Project.applied_blueprint_id == blueprint_id)
+    )).scalars().all()
+    for project in projects:
+        project.applied_blueprint_id = None
+    await db.delete(blueprint)
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=f"project blueprint delete failed: {exc}") from exc
 
 
 @router.post("/from-blueprint", response_model=ProjectOut, status_code=201)

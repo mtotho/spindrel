@@ -89,6 +89,7 @@ class HarnessCase:
     default_bot_id: str
     native_commands: tuple[str, ...]
     direct_native_commands: tuple[tuple[str, str], ...]
+    native_terminal_handoff_commands: tuple[tuple[str, tuple[str, ...], str], ...]
     model_candidates: tuple[str, ...]
     effort_env: str
     model_env: str
@@ -106,6 +107,9 @@ HARNESSES = (
             ("plugins", "plugins"),
             ("skills", "skills"),
             ("mcp", "mcp-status"),
+        ),
+        native_terminal_handoff_commands=(
+            ("plugin", ("install", "spindrel-fixture-nonexistent"), "codex plugin install spindrel-fixture-nonexistent"),
         ),
         model_candidates=(
             "gpt-5.4-mini",
@@ -125,6 +129,9 @@ HARNESSES = (
             ("skills", "skills"),
             ("plugin", "plugins"),
             ("mcp", "mcp"),
+        ),
+        native_terminal_handoff_commands=(
+            ("plugin", ("install", "spindrel-fixture-nonexistent"), "claude plugin install spindrel-fixture-nonexistent"),
         ),
         model_candidates=("claude-haiku-4-5",),
         effort_env="HARNESS_PARITY_CLAUDE_EFFORT",
@@ -1109,6 +1116,110 @@ async def test_live_harness_core_native_slash_direct_commands(
         assert result["payload"]["command"] == runtime_command
         assert result["payload"]["status"] == "ok"
         assert result["payload"].get("detail") or result.get("fallback_text")
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_core_native_slash_mutating_commands_handoff(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    channel_id, session_id, _bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+
+    for slash_name, args, suggested_command in case.native_terminal_handoff_commands:
+        result = await client.execute_slash_command(
+            slash_name,
+            session_id=session_id,
+            args=list(args),
+        )
+        assert result["result_type"] == "harness_runtime_command"
+        assert result["command_id"] == slash_name
+        assert result["payload"]["status"] == "terminal_handoff"
+        assert result["payload"]["data"]["suggested_command"] == suggested_command
+        assert result["payload"].get("detail") or result.get("fallback_text")
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_claude_project_local_native_skill_invocation(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "claude":
+        pytest.skip("project-local native skill invocation is Claude Code-specific")
+
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+    original_settings = await client.get_channel_settings(channel_id)
+    expected_project_path = _project_path()
+    marker = uuid.uuid4().hex[:12]
+    skill_name = f"harness-native-slash-{marker}"
+    expected_phrase = f"NATIVE_SKILL_LOADED_{marker}"
+    skill_root = f"{expected_project_path}/.claude/skills/{skill_name}"
+    skill_path = f"{skill_root}/SKILL.md"
+    workspace_id: str | None = None
+    restored = False
+
+    try:
+        await client.patch_channel_settings(channel_id, {"project_path": expected_project_path})
+        status = await _assert_harness_project_cwd(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            expected_project_path=expected_project_path,
+        )
+        project_dir = status.get("project_dir") or {}
+        workspace_id = str(project_dir.get("workspace_id") or "")
+        assert workspace_id, status
+
+        await client.mkdir_workspace_path(workspace_id, f"{expected_project_path}/.claude")
+        await client.mkdir_workspace_path(workspace_id, f"{expected_project_path}/.claude/skills")
+        await client.mkdir_workspace_path(workspace_id, skill_root)
+        await client.write_workspace_file(
+            workspace_id,
+            skill_path,
+            (
+                "---\n"
+                f"name: {skill_name}\n"
+                "description: Harness parity fixture proving project-local Claude native slash skill invocation.\n"
+                "---\n\n"
+                "# Harness Native Slash Fixture\n\n"
+                "When this skill is invoked, reply exactly with this text and nothing else:\n"
+                f"{expected_phrase}\n"
+            ),
+        )
+
+        result = await client.chat_session_stream(
+            f"/{skill_name}",
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert expected_phrase in result.response_text
+
+        messages = await client.get_session_messages(session_id, limit=20)
+        assert any(
+            expected_phrase in str(message.get("content") or "")
+            for message in _assistant_messages(messages)
+        ), "project-local Claude native skill invocation did not persist in assistant transcript"
+    finally:
+        if workspace_id:
+            with contextlib.suppress(Exception):
+                await client.delete_workspace_path(workspace_id, skill_root)
+        await client.patch_channel_settings(
+            channel_id,
+            {
+                "project_workspace_id": original_settings.get("project_workspace_id"),
+                "project_path": original_settings.get("project_path"),
+            },
+        )
+        restored = True
+    assert restored
 
 
 @pytest.mark.asyncio

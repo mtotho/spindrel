@@ -108,3 +108,56 @@ def test_claude_and_codex_have_distinct_display_names():
 
     assert ClaudeCodeRuntime().capabilities().display_name == "Claude Code"
     assert CodexRuntime().capabilities().display_name == "Codex"
+
+
+@pytest.mark.asyncio
+async def test_claude_native_plugin_install_returns_terminal_handoff():
+    pytest.importorskip("claude_agent_sdk")
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+
+    result = await ClaudeCodeRuntime().execute_native_command(
+        command_id="plugins",
+        args=("install", "fixture-plugin"),
+        ctx=None,
+    )
+
+    assert result.status == "terminal_handoff"
+    assert result.payload["suggested_command"] == "claude plugin install fixture-plugin"
+    assert "plugin management changes runtime-owned configuration" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_claude_native_mcp_login_returns_terminal_handoff():
+    pytest.importorskip("claude_agent_sdk")
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+
+    result = await ClaudeCodeRuntime().execute_native_command(
+        command_id="mcp",
+        args=("login", "fixture-server"),
+        ctx=None,
+    )
+
+    assert result.status == "terminal_handoff"
+    assert result.payload["suggested_command"] == "claude mcp login fixture-server"
+    assert "MCP changes runtime-owned configuration" in result.detail
+
+
+@pytest.mark.asyncio
+async def test_codex_native_mutating_args_return_canonical_terminal_command():
+    from integrations.codex.harness import CodexRuntime
+
+    plugin = await CodexRuntime().execute_native_command(
+        command_id="plugins",
+        args=("install", "fixture-plugin"),
+        ctx=None,
+    )
+    mcp = await CodexRuntime().execute_native_command(
+        command_id="mcp-status",
+        args=("add", "fixture-server"),
+        ctx=None,
+    )
+
+    assert plugin.status == "terminal_handoff"
+    assert plugin.payload["suggested_command"] == "codex plugin install fixture-plugin"
+    assert mcp.status == "terminal_handoff"
+    assert mcp.payload["suggested_command"] == "codex mcp add fixture-server"

@@ -116,7 +116,7 @@ test("Map Brief active attention is actionable without opening the Attention pan
   assert.match(source, /data-testid="map-brief-attention-actions"/);
   assert.match(source, /attentionDeckHref/);
   assert.match(source, /Review finding/);
-  assert.match(source, /Review raw signal/);
+  assert.match(source, /Review item/);
   assert.match(source, /operator-reviewed finding/);
   assert.match(source, /attentionPrimaryActionLabel/);
   assert.doesNotMatch(source, /Acknowledge target/);
@@ -140,8 +140,9 @@ test("spatial glanceability uses shared cue markers and compass without side str
   const modelSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialStarboardModels.tsx"), "utf8");
   const routerSource = readFileSync(resolve(process.cwd(), "src/router.tsx"), "utf8");
   assert.match(cueSource, /data-testid="spatial-action-cue-marker"/);
-  assert.match(cueSource, /pointer-events-auto/);
-  assert.match(cueSource, /item\.onSelect\(\)/);
+  assert.match(cueSource, /aria-hidden="true"/);
+  assert.doesNotMatch(cueSource, /aria-label=\{`\$\{cueLabel\(item\)\}: \$\{item\.label\}`\}/);
+  assert.doesNotMatch(cueSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*item\.onSelect\(\);/);
   assert.match(cueSource, /data-testid="spatial-action-compass"/);
   assert.match(cueSource, /data-spatial-action-compass-collapsed/);
   assert.match(cueSource, /topActionCompassItems/);
@@ -252,17 +253,25 @@ test("Operator sweep transcript uses a full-width chat surface instead of a nest
   assert.doesNotMatch(attentionSource, /rounded-md bg-surface-raised\/70/);
 });
 
-test("Starboard attention station is only a launcher for Mission Control Review", () => {
+test("Starboard is an object inspector and Mission Control Review owns decisions", () => {
   const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+  const overlaySource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasOverlays.tsx"), "utf8");
   const deckSource = readFileSync(resolve(process.cwd(), "src/components/attention/AttentionCommandDeck.tsx"), "utf8");
   const rootSource = readFileSync(resolve(process.cwd(), "src/layouts/RootLayout.tsx"), "utf8");
   const hubPageSource = readFileSync(resolve(process.cwd(), "app/(app)/hub/attention.tsx"), "utf8");
   const commandCenterSource = readFileSync(resolve(process.cwd(), "app/(app)/hub/command-center.tsx"), "utf8");
   const channelHeaderSource = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
-  assert.match(chromeSource, /AttentionStarboardSummary/);
-  assert.match(chromeSource, /data-testid="starboard-attention-summary"/);
-  assert.match(chromeSource, /Open Review/);
+  assert.match(chromeSource, /data-testid="starboard-map-brief"/);
+  assert.match(chromeSource, /data-testid="map-brief-selected-object"/);
+  assert.match(chromeSource, /Object inspector/);
   assert.match(chromeSource, /attentionDeckHref/);
+  assert.doesNotMatch(chromeSource, /stationMenuOpen/);
+  assert.doesNotMatch(chromeSource, /data-testid="starboard-attention-summary"/);
+  assert.doesNotMatch(chromeSource, /CommandCenter embedded/);
+  assert.doesNotMatch(chromeSource, /CanvasLibraryContent/);
+  assert.match(overlaySource, /data-testid="canvas-view-controls"/);
+  assert.match(overlaySource, /CanvasLibrarySheet/);
+  assert.match(overlaySource, /View settings stay on the canvas/);
   assert.doesNotMatch(chromeSource, /Open deck/);
   assert.doesNotMatch(chromeSource, /Open Command Deck/);
   assert.doesNotMatch(chromeSource, /<AttentionHubContent/);
@@ -277,12 +286,15 @@ test("Starboard attention station is only a launcher for Mission Control Review"
   assert.match(channelHeaderSource, /attentionDeckHref\(\{ channelId, mode: "inbox" \}\)/);
   assert.match(deckSource, /Mission Control Review/);
   assert.match(deckSource, /attention-command-deck-what-now/);
-  assert.match(deckSource, /Best next click/);
-  assert.match(deckSource, /Current review/);
+  assert.match(deckSource, /Next decision/);
   assert.match(deckSource, /Reviewing now/);
-  assert.match(deckSource, /Show first finding/);
+  assert.match(deckSource, /Reviewing now/);
+  assert.match(deckSource, /Open first finding/);
   assert.match(deckSource, /Run Operator sweep/);
-  assert.match(deckSource, /Raw signals waiting/);
+  assert.match(deckSource, /Unreviewed items/);
+  assert.doesNotMatch(deckSource, /Raw signals waiting/);
+  assert.doesNotMatch(deckSource, /DeckSideRail/);
+  assert.doesNotMatch(deckSource, /Review first finding/);
   assert.match(deckSource, /selectedRunId/);
   assert.match(deckSource, /onRunSelect/);
   assert.match(deckSource, /Transcript evidence/);
@@ -291,9 +303,7 @@ test("Starboard attention station is only a launcher for Mission Control Review"
   assert.match(deckSource, /onSelect\(null\);\n    setDeckMode\("runs"\)/);
   assert.match(deckSource, /focusReviewFinding/);
   assert.match(deckSource, /Pick a run in the center panel/);
-  assert.match(deckSource, /mode === "runs" \? "lg:grid-cols-\[280px_minmax\(0,1fr\)\]"/);
-  assert.match(deckSource, /mode !== "runs"/);
-  assert.match(deckSource, /You are reviewing this finding now/);
+  assert.match(deckSource, /lg:grid-cols-\[280px_minmax\(0,1fr\)\]/);
   assert.match(deckSource, /return "Code fix"/);
   assert.match(deckSource, /humanizeSuggestedAction/);
   assert.match(deckSource, /Run log/);

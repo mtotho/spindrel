@@ -244,6 +244,92 @@ class SpindrelClient:
             return r.json()
         return self._post("/api/v1/projects", json=body).json()
 
+    def list_project_blueprints(self) -> list[dict]:
+        r = self._http.get("/api/v1/projects/blueprints")
+        if r.status_code == 404:
+            raise RuntimeError(
+                "Project Blueprint screenshot staging requires an e2e server with /api/v1/projects/blueprints."
+            )
+        r.raise_for_status()
+        return r.json()
+
+    def ensure_project_blueprint(
+        self,
+        *,
+        name: str,
+        slug: str,
+        default_root_path_pattern: str,
+        description: str | None = None,
+        prompt: str | None = None,
+        prompt_file_path: str | None = None,
+        folders: list[str] | None = None,
+        files: dict[str, str] | None = None,
+        knowledge_files: dict[str, str] | None = None,
+        repos: list[dict] | None = None,
+        env: dict[str, str] | None = None,
+        required_secrets: list[str] | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "default_root_path_pattern": default_root_path_pattern,
+            "prompt": prompt,
+            "prompt_file_path": prompt_file_path,
+            "folders": folders or [],
+            "files": files or {},
+            "knowledge_files": knowledge_files or {},
+            "repos": repos or [],
+            "env": env or {},
+            "required_secrets": required_secrets or [],
+        }
+        existing = next((b for b in self.list_project_blueprints() if b.get("slug") == slug), None)
+        if existing:
+            if self._dry_run:
+                logger.info("DRY-RUN PATCH /projects/blueprints/%s body=%s", existing.get("id"), body)
+                return {**existing, **body}
+            r = self._http.patch(f"/api/v1/projects/blueprints/{existing['id']}", json=body)
+            if r.status_code >= 400:
+                logger.error("PATCH /projects/blueprints/%s -> %s body=%s", existing["id"], r.status_code, r.text[:300])
+            r.raise_for_status()
+            return r.json()
+        return self._post("/api/v1/projects/blueprints", json=body).json()
+
+    def create_project_from_blueprint(
+        self,
+        *,
+        blueprint_id: str,
+        workspace_id: str,
+        name: str,
+        slug: str,
+        root_path: str,
+        secret_bindings: dict[str, str | None] | None = None,
+    ) -> dict:
+        existing = next((p for p in self.list_projects() if p.get("slug") == slug), None)
+        if existing:
+            return existing
+        return self._post(
+            "/api/v1/projects/from-blueprint",
+            json={
+                "blueprint_id": blueprint_id,
+                "workspace_id": workspace_id,
+                "name": name,
+                "slug": slug,
+                "root_path": root_path,
+                "secret_bindings": secret_bindings or {},
+            },
+        ).json()
+
+    def update_project_secret_bindings(self, project_id: str, bindings: dict[str, str | None]) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /projects/%s/secret-bindings bindings=%s", project_id, sorted(bindings))
+            return {"id": project_id, "dry_run": True}
+        r = self._http.patch(f"/api/v1/projects/{project_id}/secret-bindings", json={"bindings": bindings})
+        if r.status_code >= 400:
+            logger.error("PATCH /projects/%s/secret-bindings -> %s body=%s", project_id, r.status_code, r.text[:300])
+        r.raise_for_status()
+        return r.json()
+
     # --- skills ------------------------------------------------------------
 
     def list_skills(self, *, limit: int = 100) -> list[dict]:

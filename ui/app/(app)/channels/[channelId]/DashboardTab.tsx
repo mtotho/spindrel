@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { LayoutDashboard } from "lucide-react";
 import { CHANNEL_SLUG_PREFIX } from "@/src/stores/dashboards";
 import { DashboardConfigForm } from "../../widgets/DashboardConfigForm";
+import { WidgetUsefulnessSettingsSummary } from "../../widgets/WidgetUsefulnessReview";
 import { Section } from "@/src/components/shared/FormControls";
 
 interface Props {
@@ -28,6 +29,7 @@ export function DashboardTab({ channelId }: Props) {
         </Link>
       }
     >
+      <WidgetUsefulnessSettingsSummary channelId={channelId} />
       <DashboardConfigForm slug={slug} variant="tab" />
     </Section>
   );

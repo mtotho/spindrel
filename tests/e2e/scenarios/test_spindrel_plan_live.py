@@ -18,6 +18,7 @@ Tiers are controlled by ``SPINDREL_PLAN_TIER``:
 - ``behavior``: replay plus realistic planning/execution behavior pressure.
 - ``quality``: behavior plus professional-plan quality contract checks.
 - ``stress``: quality plus revision, recovery, partial-answer, and rendering pressure.
+- ``adherence``: stress plus approved-plan execution and semantic adherence review.
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ TIER_ORDER = {
     "behavior": 9,
     "quality": 10,
     "stress": 11,
+    "adherence": 12,
 }
 
 
@@ -232,25 +234,77 @@ async def _workspace_file_exists(client: E2EClient, workspace_id: str, path: str
     return True
 
 
-async def _create_approved_execution_plan(client: E2EClient, session_id: str, *, title: str) -> dict:
+async def _read_workspace_file_with_retry(
+    client: E2EClient,
+    workspace_id: str,
+    path: str,
+    *,
+    timeout: float = 10.0,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            return await client.read_workspace_file(workspace_id, path)
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(0.5)
+    if last_error is not None:
+        raise last_error
+    raise AssertionError(f"workspace file was not readable: {path}")
+
+
+async def _create_approved_execution_plan(
+    client: E2EClient,
+    session_id: str,
+    *,
+    title: str,
+    channel_id: str | None = None,
+    bot_id: str | None = None,
+    publish_envelope: bool = False,
+) -> dict:
     await client.start_session_plan_mode(session_id)
-    created = await client.create_session_plan(
-        session_id,
-        {
-            "title": title,
-            "summary": "Verify native Spindrel plan execution parity.",
-            "scope": "Live E2E diagnostics only; do not modify repository files.",
-            "key_changes": ["Exercise approved native plan execution state."],
-            "interfaces": ["No public API changes; live diagnostic state only."],
-            "assumptions_and_defaults": ["Use the dedicated live E2E channel and detached sessions."],
-            "test_plan": ["Record progress through the native plan progress tool."],
-            "acceptance_criteria": ["Plan progress can be recorded"],
-            "steps": [
-                {"id": "step-1", "label": "Begin approved execution"},
-                {"id": "step-2", "label": "Record execution outcome"},
-            ],
-        },
-    )
+    if publish_envelope:
+        assert channel_id, "channel_id is required when publish_envelope=True"
+        result = await client.chat_session_stream(
+            (
+                "Native execution fixture. Use @tool:publish_plan now and do not ask follow-up questions. "
+                f"Publish a plan titled {title!r}. "
+                "Use summary 'Verify native Spindrel plan execution parity.' "
+                "Use scope 'Live E2E diagnostics only; do not modify repository files.' "
+                "Use key_changes ['Exercise approved native plan execution state']. "
+                "Use interfaces ['No public API changes; live diagnostic state only']. "
+                "Use assumptions_and_defaults ['Use the dedicated live E2E channel and detached sessions']. "
+                "Use test_plan ['Record progress through the native plan progress tool']. "
+                "Use acceptance criterion 'Plan progress can be recorded'. "
+                "Use exactly two pending steps: 'Begin approved execution' and 'Record execution outcome'."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert "publish_plan" in result.tools_used
+        created = await client.get_session_plan(session_id)
+    else:
+        created = await client.create_session_plan(
+            session_id,
+            {
+                "title": title,
+                "summary": "Verify native Spindrel plan execution parity.",
+                "scope": "Live E2E diagnostics only; do not modify repository files.",
+                "key_changes": ["Exercise approved native plan execution state."],
+                "interfaces": ["No public API changes; live diagnostic state only."],
+                "assumptions_and_defaults": ["Use the dedicated live E2E channel and detached sessions."],
+                "test_plan": ["Record progress through the native plan progress tool."],
+                "acceptance_criteria": ["Plan progress can be recorded"],
+                "steps": [
+                    {"id": "step-1", "label": "Begin approved execution"},
+                    {"id": "step-2", "label": "Record execution outcome"},
+                ],
+            },
+        )
     assert created["revision"] == 1
     approved = await client.approve_session_plan(session_id, revision=1)
     assert approved["mode"] == "executing"
@@ -740,7 +794,14 @@ async def test_live_spindrel_behavior_missing_outcome_blocks_next_mutation(clien
     rel_path = f".spindrel-plan-parity/pending-outcome-{uuid.uuid4().hex}.txt"
     await client.delete_workspace_path(workspace_id, rel_path)
     title = f"Native Spindrel Pending Outcome Parity {int(time.time())}"
-    await _create_approved_execution_plan(client, session_id, title=title)
+    await _create_approved_execution_plan(
+        client,
+        session_id,
+        title=title,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        publish_envelope=True,
+    )
 
     no_outcome = await client.chat_session_stream(
         (
@@ -1175,3 +1236,81 @@ async def test_live_spindrel_stress_long_plan_readability_fixture(client: E2ECli
     messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
     assert _has_plan_envelope(messages, "Native Spindrel Stress Readability")
     _record_session("stress_readability", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_executes_plan_records_and_reviews(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_review")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex
+    rel_path = f".spindrel-plan-parity/adherence-{marker}.txt"
+    exact_content = f"native plan adherence {marker}"
+    title = f"Native Spindrel Adherence Review {int(time.time())}"
+    await client.delete_workspace_path(workspace_id, rel_path)
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": title,
+            "summary": "Verify native Spindrel plan execution creates planned evidence and can be reviewed.",
+            "scope": f"Live E2E diagnostics only; create only {rel_path!r}.",
+            "key_changes": [f"Create the planned adherence marker file {rel_path}."],
+            "interfaces": ["No public API changes; workspace artifact and plan adherence state only."],
+            "assumptions_and_defaults": ["Use the dedicated live E2E channel and detached session."],
+            "test_plan": ["Read the workspace marker file and run the plan adherence review endpoint."],
+            "risks": ["The agent may record completion without producing the planned artifact."],
+            "acceptance_criteria": [f"Workspace file {rel_path} contains the exact marker."],
+            "steps": [
+                {"id": "create-marker", "label": "Create the planned adherence marker file"},
+                {"id": "review-adherence", "label": "Review plan adherence evidence"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+    approved = await client.approve_session_plan(session_id, revision=1)
+    assert approved["mode"] == "executing"
+
+    result = await client.chat_session_stream(
+        (
+            "Native adherence diagnostic. Execute only the current approved plan step. "
+            f"Use @tool:file with operation 'create' to write relative file {rel_path!r} "
+            f"with exactly this content: {exact_content!r}. "
+            "Then use @tool:record_plan_progress with outcome 'step_done', "
+            "step_id 'create-marker', summary 'Created the planned adherence marker file', "
+            f"and evidence {rel_path!r}. Do not edit anything else."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "file" in result.tools_used
+    assert "record_plan_progress" in result.tools_used
+
+    file_body = await _read_workspace_file_with_retry(client, workspace_id, rel_path)
+    assert str(file_body.get("content") or "").strip() == exact_content
+
+    state = await client.get_session_plan_state(session_id)
+    latest = ((state.get("adherence") or {}).get("latest_outcome") or {})
+    assert latest.get("outcome") == "step_done"
+    assert latest.get("step_id") == "create-marker"
+    assert rel_path in str(latest.get("evidence") or "")
+
+    plan = await client.get_session_plan(session_id)
+    steps = {step["id"]: step for step in plan.get("steps") or []}
+    assert steps["create-marker"]["status"] == "done"
+    assert steps["review-adherence"]["status"] == "in_progress"
+
+    review_resp = await client.post(f"/sessions/{session_id}/plan/review-adherence", json={})
+    assert review_resp.status_code == 200, review_resp.text
+    reviewed = review_resp.json()
+    review = ((reviewed.get("adherence") or {}).get("latest_semantic_review") or {})
+    assert review.get("verdict") == "supported", review
+    assert review.get("semantic_status") == "ok", review
+    assert "step_done_supported_by_mutation" in (review.get("deterministic_flags") or [])
+    runtime = reviewed.get("runtime") or {}
+    assert runtime.get("latest_semantic_review"), runtime
+    _record_session("adherence_review", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

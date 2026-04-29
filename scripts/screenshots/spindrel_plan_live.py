@@ -109,6 +109,10 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
             args.stress_readability_session_id
             or artifact.get("stress_readability_session_id", "")
         ),
+        "adherence_review_session_id": (
+            args.adherence_review_session_id
+            or artifact.get("adherence_review_session_id", "")
+        ),
     }
 
 
@@ -124,6 +128,7 @@ def _build_specs(
     pending_session_id: str = "",
     quality_session_id: str = "",
     stress_readability_session_id: str = "",
+    adherence_review_session_id: str = "",
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
     if question_session_id:
@@ -269,8 +274,8 @@ def _build_specs(
             name="spindrel-plan-pending-outcome-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Next required action",),
-            scroll_text="Next required action",
+            contains=("Record progress",),
+            scroll_plan_text="Record progress",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -278,8 +283,8 @@ def _build_specs(
             name="spindrel-plan-pending-outcome-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Next required action",),
-            scroll_text="Next required action",
+            contains=("Record progress",),
+            scroll_plan_text="Record progress",
             channel_id=channel_id,
             chat_mode="terminal",
         ))
@@ -344,6 +349,32 @@ def _build_specs(
             channel_id=channel_id,
             chat_mode="terminal",
         ))
+    if adherence_review_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{adherence_review_session_id}"
+        wait = (
+            "document.querySelector('[data-plan-card-mode]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel adherence review') "
+            "&& document.body.innerText.toLowerCase().includes('review') "
+            "&& document.body.innerText.toLowerCase().includes('supported')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-adherence-review-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Adherence Review", "supported"),
+            scroll_plan_text="Native Spindrel Adherence Review",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-adherence-review-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Adherence Review", "supported"),
+            scroll_plan_text="Native Spindrel Adherence Review",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ))
     return specs
 
 
@@ -364,6 +395,7 @@ async def _assert_sessions_exist(
     pending_session_id: str,
     quality_session_id: str,
     stress_readability_session_id: str,
+    adherence_review_session_id: str,
 ) -> None:
     for session_id in (
         question_session_id,
@@ -374,6 +406,7 @@ async def _assert_sessions_exist(
         pending_session_id,
         quality_session_id,
         stress_readability_session_id,
+        adherence_review_session_id,
     ):
         if session_id:
             await _api(client, "GET", f"/sessions/{session_id}/plan-state")
@@ -435,6 +468,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         pending_session_id=resolved["pending_session_id"],
         quality_session_id=resolved["quality_session_id"],
         stress_readability_session_id=resolved["stress_readability_session_id"],
+        adherence_review_session_id=resolved["adherence_review_session_id"],
     )
     if not specs:
         raise SystemExit(
@@ -460,6 +494,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             pending_session_id=resolved["pending_session_id"],
             quality_session_id=resolved["quality_session_id"],
             stress_readability_session_id=resolved["stress_readability_session_id"],
+            adherence_review_session_id=resolved["adherence_review_session_id"],
         )
 
         paths: list[Path] = []
@@ -518,6 +553,7 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--pending-session-id", default=_env("SPINDREL_PLAN_PENDING_SESSION_ID"))
     parser.add_argument("--quality-session-id", default=_env("SPINDREL_PLAN_QUALITY_SESSION_ID"))
     parser.add_argument("--stress-readability-session-id", default=_env("SPINDREL_PLAN_STRESS_READABILITY_SESSION_ID"))
+    parser.add_argument("--adherence-review-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_REVIEW_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:
         args.api_key = _require_env("SPINDREL_API_KEY")

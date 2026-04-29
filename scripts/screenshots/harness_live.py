@@ -19,6 +19,7 @@ import contextlib
 import fnmatch
 import json
 import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -34,6 +35,8 @@ DEFAULT_OUTPUT_DIR = Path("/tmp/spindrel-harness-live-screenshots")
 
 DEFAULT_CODEX_CHANNEL_ID = "41fc9132-0e6a-4f95-bcf3-8b1edaf2dabc"
 DEFAULT_CLAUDE_CHANNEL_ID = "71eb14fd-a482-5bdd-a9a2-e60d9e951169"
+CLAUDE_CUSTOM_SKILL_PREFIX = "harness-native-slash-shot"
+CLAUDE_CUSTOM_SKILL_PHRASE_PREFIX = "NATIVE-SKILL-SCREENSHOT"
 TERMINAL_WRITE_NOT_CONTAINS = ("harness-spindrel:", "assistant:e2e-test", "tool calls")
 HARNESS_CONTEXT_CHIP_SELECTOR = (
     '[data-testid="harness-context-chip-mobile"], '
@@ -73,6 +76,8 @@ class CaptureSpec:
     slash_query: str | None = None
     submit_slash: bool = False
     submit_ready_js: str | None = None
+    submit_key: str = "Enter"
+    submit_selector: str | None = None
     viewport: tuple[int, int] = (1440, 900)
     click_selector: str | None = None
     after_click_selector: str | None = None
@@ -177,6 +182,114 @@ async def _create_channel_session(client: httpx.AsyncClient, *, channel_id: str)
     return str(data["new_session_id"])
 
 
+def _workspace_path(*parts: str) -> str:
+    return "/".join(part.strip("/") for part in parts if part and part.strip("/"))
+
+
+async def _mkdir_workspace_path(client: httpx.AsyncClient, *, workspace_id: str, path: str) -> None:
+    resp = await client.post(f"/api/v1/workspaces/{workspace_id}/files/mkdir", params={"path": path})
+    if resp.status_code == 400 and "exist" in resp.text.lower():
+        return
+    resp.raise_for_status()
+
+
+async def _write_workspace_file(
+    client: httpx.AsyncClient,
+    *,
+    workspace_id: str,
+    path: str,
+    content: str,
+) -> None:
+    resp = await client.put(
+        f"/api/v1/workspaces/{workspace_id}/files/content",
+        params={"path": path},
+        json={"content": content},
+    )
+    resp.raise_for_status()
+
+
+async def _delete_workspace_path(client: httpx.AsyncClient, *, workspace_id: str, path: str) -> None:
+    resp = await client.delete(f"/api/v1/workspaces/{workspace_id}/files", params={"path": path})
+    if resp.status_code in (200, 204, 404):
+        return
+    if resp.status_code == 400 and "not" in resp.text.lower():
+        return
+    resp.raise_for_status()
+
+
+async def _ensure_claude_custom_skill_fixture(
+    client: httpx.AsyncClient,
+    *,
+    channel_id: str,
+) -> tuple[str, str, str, str]:
+    settings = await _api(client, "GET", f"/api/v1/admin/channels/{channel_id}/settings")
+    workspace_id = str(
+        settings.get("resolved_project_workspace_id")
+        or settings.get("project_workspace_id")
+        or settings.get("workspace_id")
+        or ""
+    )
+    if not workspace_id:
+        raise SystemExit(f"Channel {channel_id} does not expose a project workspace for native skill capture")
+    suffix = uuid.uuid4().hex[:8]
+    skill_name = f"{CLAUDE_CUSTOM_SKILL_PREFIX}-{suffix}"
+    skill_phrase = f"{CLAUDE_CUSTOM_SKILL_PHRASE_PREFIX}_{suffix}"
+    project_path = str(settings.get("project_path") or "").strip("/")
+    claude_dir = _workspace_path(project_path, ".claude")
+    skills_dir = _workspace_path(claude_dir, "skills")
+    skill_dir = _workspace_path(skills_dir, skill_name)
+    skill_path = _workspace_path(skill_dir, "SKILL.md")
+    await _mkdir_workspace_path(client, workspace_id=workspace_id, path=claude_dir)
+    await _mkdir_workspace_path(client, workspace_id=workspace_id, path=skills_dir)
+    await _mkdir_workspace_path(client, workspace_id=workspace_id, path=skill_dir)
+    await _write_workspace_file(
+        client,
+        workspace_id=workspace_id,
+        path=skill_path,
+        content=(
+            "---\n"
+            f"name: {skill_name}\n"
+            "description: Harness screenshot fixture proving project-local Claude native slash skill invocation.\n"
+            "---\n\n"
+            "# Harness Native Slash Fixture\n\n"
+            "When this skill is invoked, reply exactly with this text and nothing else:\n"
+            f"{skill_phrase}\n"
+        ),
+    )
+    return workspace_id, skill_dir, skill_name, skill_phrase
+
+
+async def _post_chat_and_wait_for_text(
+    client: httpx.AsyncClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    bot_id: str,
+    message: str,
+    needle: str,
+) -> None:
+    resp = await client.post(
+        "/chat",
+        json={
+            "message": message,
+            "channel_id": channel_id,
+            "session_id": session_id,
+            "bot_id": bot_id,
+            "external_delivery": "none",
+            "msg_metadata": {"sender_type": "human", "source": "harness-visual-capture"},
+        },
+    )
+    resp.raise_for_status()
+    deadline = asyncio.get_running_loop().time() + 90.0
+    while asyncio.get_running_loop().time() < deadline:
+        messages = await _api(client, "GET", f"/api/v1/sessions/{session_id}/messages", params={"limit": 20})
+        haystack = json.dumps(messages, default=str)
+        if needle in haystack:
+            return
+        await asyncio.sleep(1.0)
+    raise TimeoutError(f"Timed out waiting for seeded chat text {needle!r} in session {session_id}")
+
+
 async def _capture_one(
     browser: Browser,
     spec: CaptureSpec,
@@ -206,7 +319,10 @@ async def _capture_one(
             if spec.submit_slash:
                 if spec.submit_ready_js:
                     await page.wait_for_function(spec.submit_ready_js, timeout=60_000)
-                await page.keyboard.press("Enter")
+                if spec.submit_selector:
+                    await page.locator(spec.submit_selector).first.click()
+                else:
+                    await page.keyboard.press(spec.submit_key)
         await page.wait_for_function(spec.wait_js, timeout=60_000)
         if spec.click_selector:
             target = page.locator(spec.click_selector).first
@@ -365,6 +481,28 @@ def _native_slash_specs(
     ]
 
 
+def _claude_custom_skill_specs(
+    ui_url: str,
+    channel_id: str,
+    session_id: str,
+    *,
+    expected_phrase: str = f"{CLAUDE_CUSTOM_SKILL_PHRASE_PREFIX}_fixture",
+) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+    wait = f"document.body.innerText.includes({json.dumps(expected_phrase)})"
+    return [
+        CaptureSpec(
+            name="harness-claude-native-custom-skill-result-dark",
+            route=route,
+            wait_js=wait,
+            contains=(expected_phrase,),
+            theme="dark",
+            channel_id=channel_id,
+            chat_mode="default",
+        ),
+    ]
+
+
 def _mobile_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -> list[CaptureSpec]:
     route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
     return [
@@ -500,6 +638,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             for target in targets
         }
         sessions: dict[tuple[str, str], str] = {}
+        cleanup_workspace_paths: list[tuple[str, str]] = []
 
         specs: list[CaptureSpec] = _usage_log_specs(browser_url, args.codex_channel_id)
 
@@ -598,6 +737,34 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 claude_session_id=claude_native_session,
             ))
 
+        custom_skill_names = ("harness-claude-native-custom-skill-result-dark",)
+        if _should_include(args.only, *custom_skill_names):
+            workspace_id, skill_dir, skill_name, skill_phrase = await _ensure_claude_custom_skill_fixture(
+                client,
+                channel_id=args.claude_channel_id,
+            )
+            cleanup_workspace_paths.append((workspace_id, skill_dir))
+            claude_custom_skill_session = await _create_channel_session(
+                client,
+                channel_id=args.claude_channel_id,
+            )
+            sessions[("claude", "custom_skill")] = claude_custom_skill_session
+            settings = await _api(client, "GET", f"/api/v1/admin/channels/{args.claude_channel_id}/settings")
+            await _post_chat_and_wait_for_text(
+                client,
+                channel_id=args.claude_channel_id,
+                session_id=claude_custom_skill_session,
+                bot_id=str(settings.get("bot_id") or "claude-code-bot"),
+                message=f"/{skill_name}",
+                needle=skill_phrase,
+            )
+            specs.extend(_claude_custom_skill_specs(
+                browser_url,
+                args.claude_channel_id,
+                claude_custom_skill_session,
+                expected_phrase=skill_phrase,
+            ))
+
         if _should_include(args.only, "harness-claude-native-edit-terminal"):
             native_edit_session = await _find_session(
                 client,
@@ -650,6 +817,9 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                         f"/api/v1/channels/{channel_id}/config",
                         json={"chat_mode": config.get("chat_mode") or "default"},
                     )
+                for workspace_id, path in cleanup_workspace_paths:
+                    with contextlib.suppress(Exception):
+                        await _delete_workspace_path(client, workspace_id=workspace_id, path=path)
             if failures:
                 summary = "; ".join(f"{name}: {message}" for name, message in failures)
                 raise SystemExit(f"{len(failures)} harness screenshot capture(s) failed: {summary}")

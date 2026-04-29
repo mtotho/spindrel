@@ -66,6 +66,18 @@ test("composer submit resolves native harness slash commands with optional args"
   );
 });
 
+test("composer submit sends unknown slash-looking text as chat", () => {
+  assert.deepEqual(
+    resolveComposerSubmitIntent({
+      rawMessage: "/harness-native-slash-fixture abc123",
+      pendingFiles: [],
+      slashSurface: "session",
+      slashCatalog: catalog,
+    }),
+    { kind: "send", message: "/harness-native-slash-fixture abc123", files: undefined },
+  );
+});
+
 test("composer submit sends slash-looking text normally when files are attached", () => {
   const file = { name: "note.txt", base64: "eA==" };
 

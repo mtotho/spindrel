@@ -995,7 +995,6 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
 
 
 _OPEN_STARBOARD_OBJECTS_JS = (
-    "localStorage.setItem('spatial.starboard.activeTab', 'objects');"
     "localStorage.setItem('spatial.starboard.width', '600');"
     "const btn = document.querySelector('button[title=\"Open Starboard\"]');"
     " if (btn && btn.getAttribute('aria-expanded') !== 'true') btn.click();"
@@ -1049,7 +1048,7 @@ _ASSERT_MAP_BRIEF_SELECTION_JS = (
     "const selected = document.querySelector('[data-testid=\"map-brief-selected-object\"]');"
     "const anchor = document.querySelector('[data-spatial-selected-anchor=\"true\"]');"
     "if (!panel) throw new Error('Starboard panel did not open');"
-    "if (!brief) throw new Error('Map Brief station did not render');"
+    "if (!brief) throw new Error('Starboard object inspector did not render');"
     "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected in Map Brief');"
     "if (!document.querySelector('[data-testid=\"map-brief-attention-actions\"]')) throw new Error('selected brief does not expose inline attention actions');"
     "if (!/Acknowledge target/.test(selected.textContent || '')) throw new Error('selected brief cannot acknowledge the active target');"
@@ -1087,6 +1086,29 @@ _ASSERT_JUMP_LEFT_OF_STARBOARD_JS = (
     "if (!(anchorRect.right < panelRect.left - 24)) {"
     "  throw new Error(`jump target is under Starboard: anchor.right=${anchorRect.right}, panel.left=${panelRect.left}`);"
     "}"
+)
+
+_OPEN_CANVAS_VIEW_CONTROLS_JS = (
+    "const view = document.querySelector('summary[aria-label=\"Canvas view controls\"]');"
+    " if (!view) throw new Error('canvas view controls button not found');"
+    " view.click();"
+    " const t0 = Date.now();"
+    " while (Date.now() - t0 < 3000) {"
+    "   if (document.querySelector('[data-testid=\"canvas-view-controls\"]')) break;"
+    "   await new Promise(r => setTimeout(r, 100));"
+    " }"
+    " await new Promise(r => setTimeout(r, 250));"
+)
+
+_ASSERT_CANVAS_VIEW_CONTROLS_JS = (
+    "const panel = document.querySelector('[data-testid=\"canvas-view-controls\"]');"
+    "if (!panel) throw new Error('canvas view controls popover did not open');"
+    "const text = panel.textContent || '';"
+    "for (const label of ['Attention markers', 'Connection lines', 'Activity halos', 'Window', 'Show bots', 'Trails']) {"
+    "  if (!text.includes(label)) throw new Error(`missing canvas view control: ${label}`);"
+    "}"
+    "if (!text.includes('View settings stay on the canvas.')) throw new Error('view controls do not explain their ownership');"
+    "if (document.querySelector('[data-starboard-panel=\"true\"]')) throw new Error('view controls opened Starboard');"
 )
 
 _ASSERT_CHANNEL_SCHEDULE_SATELLITES_JS = (
@@ -1137,6 +1159,20 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ],
         pre_capture_js=_OPEN_STARBOARD_OBJECTS_JS + _SELECT_QA_CHANNEL_JS,
         assert_js=_ASSERT_MAP_BRIEF_SELECTION_JS,
+    ),
+    ScreenshotSpec(
+        name="spatial-check-canvas-view-controls",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-check-canvas-view-controls.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+        ],
+        pre_capture_js=_OPEN_CANVAS_VIEW_CONTROLS_JS,
+        assert_js=_ASSERT_CANVAS_VIEW_CONTROLS_JS,
     ),
     ScreenshotSpec(
         name="spatial-check-jump-starboard-framing",
@@ -1347,9 +1383,10 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
-            "if (!text.includes('Findings') || !text.includes('Raw') || !text.includes('Runs') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
+            "if (!text.includes('Findings') || !text.includes('Unreviewed') || !text.includes('Runs') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
             "if (!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('what-now lane missing');"
             "if (text.includes('Open in Attention') || text.includes('Open deck')) throw new Error('legacy attention launcher copy is visible');"
+            "if (text.includes('Raw signal') || text.includes('raw signal') || text.includes('Next best click')) throw new Error('legacy review language is visible');"
         ),
     ),
     ScreenshotSpec(
@@ -2099,6 +2136,171 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
+# Channel widget-usefulness review — validates the human-facing usefulness
+# assessment on channel dashboards and channel settings.
+# ---------------------------------------------------------------------------
+
+_WIDGET_USEFULNESS_READY = (
+    "!!document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]') "
+    "&& /Widget review/.test(document.body.innerText) "
+    "&& /overlap|hidden|context|finding/i.test(document.body.innerText)"
+)
+
+_OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
+    "const waitFor = async (predicate, label, timeout = 10000) => {"
+    "  const started = Date.now();"
+    "  while (Date.now() - started < timeout) {"
+    "    if (predicate()) return;"
+    "    await new Promise((resolve) => setTimeout(resolve, 120));"
+    "  }"
+    "  throw new Error(`timed out waiting for ${label}`);"
+    "};"
+    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]'), 'review strip');"
+    "const strip = document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]');"
+    "const button = [...strip.querySelectorAll('button')].find((el) => /Review/.test(el.textContent || ''));"
+    "if (!button) throw new Error('review button missing');"
+    "button.click();"
+    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]'), 'review drawer');"
+)
+
+_ASSERT_WIDGET_USEFULNESS_STRIP_JS = (
+    "const strip = document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]');"
+    "if (!strip) throw new Error('review strip missing');"
+    "const text = document.body.innerText || strip.textContent || '';"
+    "if (!/Widget review/.test(text)) throw new Error('review label missing');"
+    "if (!/chat-visible|Health/.test(text)) throw new Error('review metrics missing');"
+    "if (!/Review/.test(text)) throw new Error('review action missing');"
+)
+
+_ASSERT_WIDGET_USEFULNESS_DRAWER_JS = (
+    "const drawer = document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]');"
+    "if (!drawer) throw new Error('review drawer missing');"
+    "const text = drawer.textContent || '';"
+    "if (!/Widget review/.test(text)) throw new Error('drawer title missing');"
+    "if (!/policy decision|Focus pin|Edit layout/.test(text)) throw new Error('actionable finding controls missing');"
+    "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('findings missing');"
+)
+
+_WIDGET_USEFULNESS_ENDPOINT_INIT = """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  const assessment = {
+    channel_id: "screenshot-channel",
+    channel_name: "Widget usefulness review",
+    dashboard_key: "channel:screenshot-channel",
+    status: "needs_attention",
+    summary: "3 widget usefulness finding(s): 2 pinned widgets appear to overlap in purpose.",
+    pin_count: 3,
+    chat_visible_pin_count: 0,
+    layout_mode: "rail-chat",
+    project_scope_available: false,
+    project: null,
+    context_export: { exported_count: 0, export_enabled_count: 0 },
+    recommendations: [
+      {
+        type: "duplicate",
+        severity: "medium",
+        surface: "dashboard",
+        pin_id: "screenshot-pin-notes",
+        label: "Usefulness notes",
+        reason: "2 pinned widgets appear to overlap in purpose.",
+        suggested_next_action: "Review these pins and consolidate, rename, or resize them if they serve the same job.",
+        requires_policy_decision: true,
+        evidence: { pin_ids: ["screenshot-pin-notes", "screenshot-pin-notes-copy"], labels: ["Usefulness notes", "Usefulness notes copy"] }
+      },
+      {
+        type: "visibility",
+        severity: "medium",
+        surface: "chat",
+        pin_id: "screenshot-pin-dock",
+        label: "Usefulness dock panel",
+        reason: "Pin is in the dock zone, but channel layout mode 'rail-chat' hides that zone in chat.",
+        suggested_next_action: "Move the pin to a visible zone or change the channel presentation mode if this widget should be visible while chatting.",
+        requires_policy_decision: true,
+        evidence: { layout_mode: "rail-chat", zone: "dock", visible_zones: ["rail"] }
+      },
+      {
+        type: "context",
+        severity: "low",
+        surface: "chat",
+        pin_id: null,
+        label: null,
+        reason: "No pinned widgets currently export useful context into the channel prompt.",
+        suggested_next_action: "Enable context_export on widgets whose state should guide future chat turns, or leave disabled for purely visual widgets.",
+        requires_policy_decision: true,
+        evidence: { export_enabled_count: 0, exported_count: 0 }
+      }
+    ]
+  };
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (/\\/api\\/v1\\/admin\\/channels\\/[^/]+\\/widget-usefulness$/.test(url.pathname)) {
+        return new Response(JSON.stringify(assessment), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+"""
+
+CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="channel-widget-usefulness-dashboard",
+        route="/widgets/channel/{channel_widget_usefulness}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_WIDGET_USEFULNESS_READY,
+        output="channel-widget-usefulness-dashboard.png",
+        color_scheme="dark",
+        extra_init_scripts=[_WIDGET_USEFULNESS_ENDPOINT_INIT],
+        assert_js=_ASSERT_WIDGET_USEFULNESS_STRIP_JS,
+    ),
+    ScreenshotSpec(
+        name="channel-widget-usefulness-drawer",
+        route="/widgets/channel/{channel_widget_usefulness}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_WIDGET_USEFULNESS_READY,
+        output="channel-widget-usefulness-drawer.png",
+        color_scheme="dark",
+        extra_init_scripts=[_WIDGET_USEFULNESS_ENDPOINT_INIT],
+        pre_capture_js=_OPEN_WIDGET_USEFULNESS_DRAWER_JS,
+        assert_js=_ASSERT_WIDGET_USEFULNESS_DRAWER_JS,
+    ),
+    ScreenshotSpec(
+        name="channel-widget-usefulness-settings",
+        route="/channels/{channel_widget_usefulness}/settings#dashboard",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"channel-widget-usefulness-settings-summary\"]') "
+            "&& /Widget usefulness/.test(document.body.innerText)"
+        ),
+        output="channel-widget-usefulness-settings.png",
+        color_scheme="dark",
+        extra_init_scripts=[_WIDGET_USEFULNESS_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const summary = document.querySelector('[data-testid=\"channel-widget-usefulness-settings-summary\"]');"
+            "if (summary) summary.scrollIntoView({ block: 'center', inline: 'nearest' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
+        assert_js=(
+            "const summary = document.querySelector('[data-testid=\"channel-widget-usefulness-settings-summary\"]');"
+            "if (!summary) throw new Error('settings summary missing');"
+            "const text = document.body.innerText || summary.textContent || '';"
+            "if (!/Widget usefulness/.test(text)) throw new Error('settings usefulness title missing');"
+            "if (!/pins|findings|layout/.test(text)) throw new Error('settings usefulness metrics missing');"
+        ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Project workspace captures — validates the shared Project primitive across
 # admin Projects, channel settings, Project-rooted files, and memory-tool
 # transcript presentation. Staging creates one reusable Project and attaches a
@@ -2138,6 +2340,68 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "return { ok: text.includes('README.md') "
             "&& text.includes('common/projects/spindrel-screenshot'), "
             "detail: 'Project detail did not show the Project-rooted file browser' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-blueprints",
+        route="/admin/projects/blueprints",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-blueprints-page\"]') "
+            "&& document.body.innerText.includes('Screenshot Service Blueprint')"
+        ),
+        output="project-workspace-blueprints.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Screenshot Service Blueprint') "
+            "&& text.includes('common/projects/{slug}') "
+            "&& text.includes('2 files') "
+            "&& text.includes('1 repos'), "
+            "detail: 'Project Blueprint library did not show the seeded recipe declarations' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-blueprint-editor",
+        route="/admin/projects/blueprints/{project_workspace_blueprint}",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-blueprint-editor\"]') "
+            "&& document.body.innerText.includes('Screenshot Service Blueprint') "
+            "&& document.body.innerText.includes('Repo Declarations')"
+        ),
+        output="project-workspace-blueprint-editor.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('README.md') "
+            "&& text.includes('overview.md') "
+            "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
+            "&& text.includes('agent-server'), "
+            "detail: 'Project Blueprint editor did not expose files, knowledge, repos, and secrets' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-settings-blueprint",
+        route="/admin/projects/{project_workspace_blueprint_project}#Settings",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-blueprint-section\"]') "
+            "&& document.body.innerText.includes('Screenshot Service Blueprint')"
+        ),
+        output="project-workspace-settings-blueprint.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Secret bindings') "
+            "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
+            "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN') "
+            "&& text.includes('Repo declarations') "
+            "&& text.includes('Env defaults'), "
+            "detail: 'Project settings did not expose applied Blueprint declarations and bindings' };"
         ),
     ),
     ScreenshotSpec(

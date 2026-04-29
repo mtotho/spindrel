@@ -57,6 +57,18 @@ import claude_agent_sdk as _claude_agent_sdk_probe  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+_CLAUDE_PLUGIN_MUTATING_SUBCOMMANDS = {
+    "disable",
+    "enable",
+    "i",
+    "install",
+    "remove",
+    "uninstall",
+    "update",
+}
+_CLAUDE_MCP_MUTATING_SUBCOMMANDS = {"add", "login", "logout", "remove"}
+
+
 # Per-mode SDK ``allowed_tools`` resolver.
 #
 # ``allowed_tools`` short-circuits the SDK's permission prompter — listed
@@ -483,6 +495,9 @@ class ClaudeCodeRuntime:
                 payload={"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr},
             )
         cli_command = _claude_management_command(command_id, args)
+        terminal_handoff = _claude_management_terminal_handoff(command_id, args)
+        if terminal_handoff is not None:
+            return terminal_handoff
         if cli_command is not None:
             try:
                 proc = subprocess.run(
@@ -519,6 +534,51 @@ class ClaudeCodeRuntime:
             detail=f"Claude Code native command {command_id!r} is not whitelisted.",
             status="unsupported",
         )
+
+
+def _native_terminal_handoff(
+    *,
+    command_id: str,
+    args: tuple[str, ...],
+    suggested_command: str,
+    detail: str,
+) -> HarnessRuntimeCommandResult:
+    return HarnessRuntimeCommandResult(
+        command_id=command_id,
+        title="Open terminal for native command",
+        detail=detail,
+        status="terminal_handoff",
+        payload={"args": list(args), "suggested_command": suggested_command},
+    )
+
+
+def _claude_management_terminal_handoff(
+    command_id: str,
+    args: tuple[str, ...],
+) -> HarnessRuntimeCommandResult | None:
+    cleaned_args = tuple(arg.strip() for arg in args if arg and arg.strip())
+    first = cleaned_args[0].lower() if cleaned_args else ""
+    if command_id in {"plugins", "plugin"} and first in _CLAUDE_PLUGIN_MUTATING_SUBCOMMANDS:
+        return _native_terminal_handoff(
+            command_id=command_id,
+            args=cleaned_args,
+            suggested_command=" ".join(("claude", "plugin", *cleaned_args)),
+            detail=(
+                "Claude Code plugin management changes runtime-owned configuration. "
+                "Open a terminal to run this interactive or mutating command."
+            ),
+        )
+    if command_id == "mcp" and first in _CLAUDE_MCP_MUTATING_SUBCOMMANDS:
+        return _native_terminal_handoff(
+            command_id=command_id,
+            args=cleaned_args,
+            suggested_command=" ".join(("claude", "mcp", *cleaned_args)),
+            detail=(
+                "Claude Code MCP changes runtime-owned configuration or OAuth state. "
+                "Open a terminal to run this interactive or mutating command."
+            ),
+        )
+    return None
 
 
 def _claude_management_command(command_id: str, args: tuple[str, ...]) -> list[str] | None:

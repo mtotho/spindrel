@@ -44,6 +44,7 @@ _VERIFY_COMMAND_RE = re.compile(
     re.I,
 )
 _REPLAN_EVENT_RE = re.compile(r"replan", re.I)
+_PLAN_OUTCOME_TOOL_NAMES = {"record_plan_progress", "request_plan_replan"}
 
 _JUDGE_RUBRIC = """
 You are reviewing whether an execution turn actually supports the recorded plan outcome.
@@ -196,6 +197,7 @@ def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[s
     flags: list[str] = []
     outcome = str(bundle["outcome"].get("outcome") or "")
     features = bundle["features"]
+    supporting_success = bool(features.get("had_supporting_successful_tool", features["had_successful_tool"]))
 
     if features["requested_replan"] and outcome not in {PLAN_PROGRESS_OUTCOME_BLOCKED, PLAN_PROGRESS_OUTCOME_NO_PROGRESS}:
         flags.append("requested_replan_conflicts_with_success_claim")
@@ -221,7 +223,7 @@ def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[s
             "recommended_action": "repeat_step",
         }
 
-    if not features["had_successful_tool"] and outcome in {
+    if not supporting_success and outcome in {
         PLAN_PROGRESS_OUTCOME_STEP_DONE,
         PLAN_PROGRESS_OUTCOME_VERIFICATION,
     }:
@@ -234,6 +236,21 @@ def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[s
             "recommended_action": "repeat_step",
         }
 
+    if (
+        outcome == PLAN_PROGRESS_OUTCOME_VERIFICATION
+        and supporting_success
+        and features["had_verification_signal"]
+        and not features["had_any_error"]
+    ):
+        flags.append("verification_supported_by_successful_check")
+        return flags, {
+            "verdict": PLAN_SEMANTIC_REVIEW_SUPPORTED,
+            "semantic_status": PLAN_SEMANTIC_STATUS_OK,
+            "confidence": 0.9,
+            "reason": "The turn included a successful verification action that supports the recorded verification outcome.",
+            "recommended_action": "continue",
+        }
+
     if outcome == PLAN_PROGRESS_OUTCOME_VERIFICATION and not features["had_verification_signal"]:
         flags.append("verification_without_verification_signal")
         return flags, {
@@ -243,6 +260,30 @@ def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[s
             "reason": "The outcome claims verification, but the turn evidence does not show a clear verification action or command.",
             "recommended_action": "review_manually",
         }
+
+    if (
+        outcome == PLAN_PROGRESS_OUTCOME_STEP_DONE
+        and features.get("had_supporting_mutation")
+        and not features["had_any_error"]
+        and bundle["step"]["execution_oriented"]
+    ):
+        evidence_text = json.dumps(
+            [
+                bundle["outcome"].get("summary"),
+                bundle["outcome"].get("evidence"),
+            ],
+            default=str,
+        ).lower()
+        touched_paths = [str(path).lower() for path in features.get("touched_paths") or []]
+        if not touched_paths or any(path and path in evidence_text for path in touched_paths):
+            flags.append("step_done_supported_by_mutation")
+            return flags, {
+                "verdict": PLAN_SEMANTIC_REVIEW_SUPPORTED,
+                "semantic_status": PLAN_SEMANTIC_STATUS_OK,
+                "confidence": 0.88,
+                "reason": "The turn included a successful mutating action that supports the recorded step completion.",
+                "recommended_action": "continue",
+            }
 
     if outcome == PLAN_PROGRESS_OUTCOME_STEP_DONE and features["read_only_only"] and bundle["step"]["execution_oriented"]:
         flags.append("step_done_from_read_only_turn")
@@ -325,20 +366,30 @@ async def review_plan_adherence(
     had_successful_tool = False
     had_any_error = False
     had_mutation = False
+    had_supporting_mutation = False
     had_verification_signal = False
+    had_supporting_successful_tool = False
     tier_observations: list[str] = []
+    supporting_tier_observations: list[str] = []
 
     for tool in tool_calls:
         arguments = copy.deepcopy(tool.arguments or {})
         command_samples.extend(item for item in _extract_commands(arguments) if item not in command_samples)
         touched_paths.extend(item for item in _extract_paths(arguments) if item not in touched_paths)
         tier = get_tool_safety_tier(tool.tool_name)
+        is_plan_outcome_tool = tool.tool_name in _PLAN_OUTCOME_TOOL_NAMES
         if tier != "unknown":
             tier_observations.append(tier)
+            if not is_plan_outcome_tool:
+                supporting_tier_observations.append(tier)
         if tier in {"mutating", "exec_capable", "control_plane"}:
             had_mutation = True
+            if not is_plan_outcome_tool:
+                had_supporting_mutation = True
         if tool.status == "done" and not tool.error:
             had_successful_tool = True
+            if not is_plan_outcome_tool:
+                had_supporting_successful_tool = True
         if tool.error or tool.status in {"error", "denied", "expired"}:
             had_any_error = True
         if _VERIFY_TOOL_RE.search(tool.tool_name):
@@ -359,7 +410,11 @@ async def review_plan_adherence(
         for event in trace_events
     )
 
-    read_only_only = bool(tool_calls) and bool(tier_observations) and all(tier == "readonly" for tier in tier_observations)
+    read_only_only = (
+        bool(tool_calls)
+        and bool(supporting_tier_observations)
+        and all(tier == "readonly" for tier in supporting_tier_observations)
+    )
     all_tool_calls_failed = bool(tool_calls) and not had_successful_tool and had_any_error
 
     assistant_summary = _clip_plan_context(assistant_message.content, 500) if assistant_message and assistant_message.content else None
@@ -402,7 +457,9 @@ async def review_plan_adherence(
             "all_tool_calls_failed": all_tool_calls_failed,
             "read_only_only": read_only_only,
             "had_mutation": had_mutation,
+            "had_supporting_mutation": had_supporting_mutation,
             "had_verification_signal": had_verification_signal,
+            "had_supporting_successful_tool": had_supporting_successful_tool,
             "requested_replan": requested_replan,
             "tool_names": tool_names[:10],
             "touched_paths": touched_paths[:8],
@@ -470,7 +527,9 @@ async def review_plan_adherence(
             "had_any_error": had_any_error,
             "read_only_only": read_only_only,
             "had_mutation": had_mutation,
+            "had_supporting_mutation": had_supporting_mutation,
             "had_verification_signal": had_verification_signal,
+            "had_supporting_successful_tool": had_supporting_successful_tool,
             "requested_replan": requested_replan,
             "trace_event_types": [event.event_type for event in trace_events[:8]],
         },

@@ -72,6 +72,59 @@ docs/images/channel-quick-automation-drawer-mobile.png
 Inspect the preset surface and both drawer captures. The scenario opens the
 drawer only; it must not create a scheduled task during capture.
 
+## Channel Widget Usefulness Loop
+
+Use this target when changing the channel dashboard widget review strip,
+usefulness drawer, or Channel Settings -> Dashboard usefulness summary.
+
+```bash
+python -m scripts.screenshots stage --only channel-widget-usefulness
+python -m scripts.screenshots capture --only channel-widget-usefulness
+python -m scripts.screenshots check
+```
+
+Expected documentation artifacts:
+
+```text
+docs/images/channel-widget-usefulness-dashboard.png
+docs/images/channel-widget-usefulness-drawer.png
+docs/images/channel-widget-usefulness-settings.png
+```
+
+Inspect the strip, drawer, and settings summary. The staged dashboard should
+show real duplicate/visibility pin state. Capture uses a narrow browser shim
+for the read-only assessment endpoint when the shared e2e API lags the UI
+branch; it must not create or mutate widgets during capture.
+
+## Project Workspace Loop
+
+Use this target when changing Project workspace pages, Project Blueprints,
+channel Project bindings, or Project-rooted file/terminal behavior.
+
+```bash
+python -m scripts.screenshots stage --only project-workspace
+python -m scripts.screenshots capture --only project-workspace
+python -m scripts.screenshots check
+```
+
+Expected documentation artifacts:
+
+```text
+docs/images/project-workspace-list.png
+docs/images/project-workspace-detail.png
+docs/images/project-workspace-blueprints.png
+docs/images/project-workspace-blueprint-editor.png
+docs/images/project-workspace-settings-blueprint.png
+docs/images/project-workspace-terminal.png
+docs/images/project-workspace-channels.png
+docs/images/project-workspace-channel-settings.png
+docs/images/project-workspace-memory-tool.png
+```
+
+Inspect all nine images before closing out. The bundle checks Project admin
+surfaces, Blueprint management, applied Blueprint settings, channel settings,
+Project-rooted file/terminal behavior, and the memory-tool transcript envelope.
+
 ## Widget Authoring Runtime Loop
 
 Use this loop when changing the tool-widget package editor or validating draft

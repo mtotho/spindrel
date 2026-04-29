@@ -39,6 +39,14 @@ export function useProjectBlueprints() {
   });
 }
 
+export function useProjectBlueprint(blueprintId: string | undefined) {
+  return useQuery({
+    queryKey: ["project-blueprints", blueprintId],
+    queryFn: () => apiFetch<ProjectBlueprint>(`/api/v1/projects/blueprints/${blueprintId}`),
+    enabled: !!blueprintId,
+  });
+}
+
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
@@ -54,6 +62,31 @@ export function useCreateProjectBlueprint() {
     mutationFn: (data: ProjectBlueprintWrite) =>
       apiFetch<ProjectBlueprint>("/api/v1/projects/blueprints", { method: "POST", body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["project-blueprints"] }),
+  });
+}
+
+export function useUpdateProjectBlueprint(blueprintId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProjectBlueprintWrite) =>
+      apiFetch<ProjectBlueprint>(`/api/v1/projects/blueprints/${blueprintId}`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-blueprints"] });
+      qc.invalidateQueries({ queryKey: ["project-blueprints", blueprintId] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+}
+
+export function useDeleteProjectBlueprint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (blueprintId: string) =>
+      apiFetch<void>(`/api/v1/projects/blueprints/${blueprintId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-blueprints"] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
 }
 

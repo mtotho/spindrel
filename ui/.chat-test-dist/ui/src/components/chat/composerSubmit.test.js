@@ -18,6 +18,14 @@ const catalog = [
         local_only: false,
         args: [],
     },
+    {
+        id: "plugins",
+        label: "plugins",
+        description: "List native plugins",
+        surfaces: ["channel", "session"],
+        local_only: false,
+        args: [{ name: "args", source: "free_text", required: false, enum: null }],
+    },
 ];
 test("composer submit resolves valid slash commands before normal sends", () => {
     assert.deepEqual(resolveComposerSubmitIntent({
@@ -34,6 +42,22 @@ test("composer submit reports missing slash args instead of sending as chat", ()
         slashSurface: "channel",
         slashCatalog: catalog,
     }), { kind: "missing_slash_args", id: "find", missing: ["query"] });
+});
+test("composer submit resolves native harness slash commands with optional args", () => {
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "/plugins list",
+        pendingFiles: [],
+        slashSurface: "channel",
+        slashCatalog: catalog,
+    }), { kind: "slash", id: "plugins", args: ["list"] });
+});
+test("composer submit sends unknown slash-looking text as chat", () => {
+    assert.deepEqual(resolveComposerSubmitIntent({
+        rawMessage: "/harness-native-slash-fixture abc123",
+        pendingFiles: [],
+        slashSurface: "session",
+        slashCatalog: catalog,
+    }), { kind: "send", message: "/harness-native-slash-fixture abc123", files: undefined });
 });
 test("composer submit sends slash-looking text normally when files are attached", () => {
     const file = { name: "note.txt", base64: "eA==" };

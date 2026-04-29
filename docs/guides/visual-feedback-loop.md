@@ -97,6 +97,9 @@ Expected artifacts:
 ```text
 project-workspace-list.png
 project-workspace-detail.png
+project-workspace-blueprints.png
+project-workspace-blueprint-editor.png
+project-workspace-settings-blueprint.png
 project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
@@ -105,9 +108,10 @@ project-workspace-memory-tool.png
 
 The staging step creates a reusable screenshot Project, attaches one channel to
 it, creates one attachable channel, writes a file through the channel workspace
-API, and seeds a memory-tool turn. Inspect all six images before closing out:
-the bundle intentionally checks both the Project admin surface and the channel
-transcript.
+API, seeds a Blueprint-created Project with secret bindings, and seeds a
+memory-tool turn. Inspect all nine images before closing out: the bundle
+intentionally checks Project admin surfaces, Blueprint management, Project
+settings, and the channel transcript.
 
 ## Channel Quick Automations Run
 
@@ -132,6 +136,32 @@ The staging step creates one reusable channel with a screenshot bot. The
 capture opens the quick-automation preset drawer without creating a task, so it
 is safe to rerun. Inspect all three images before closing out: the bundle
 checks the in-settings preset surface plus desktop and mobile drawer framing.
+
+## Channel Widget Usefulness Run
+
+Use this bundle when changing the channel dashboard widget review strip,
+usefulness drawer, or Channel Settings -> Dashboard usefulness summary:
+
+```bash
+python -m scripts.screenshots stage --only channel-widget-usefulness
+python -m scripts.screenshots capture --only channel-widget-usefulness
+python -m scripts.screenshots check
+```
+
+Expected artifacts:
+
+```text
+channel-widget-usefulness-dashboard.png
+channel-widget-usefulness-drawer.png
+channel-widget-usefulness-settings.png
+```
+
+The staging step creates one channel with duplicate native widgets and a dock
+widget hidden by the channel's chat layout mode. Capture uses a narrow browser
+shim for the read-only assessment endpoint so artifacts stay deterministic when
+the shared e2e API lags the UI branch; the dashboard pins themselves are real.
+Inspect all three images before closeout: the bundle checks the dashboard
+strip, the read-only review drawer, and the compact settings summary.
 
 ## Widget Authoring Runtime Check
 
@@ -187,13 +217,15 @@ synthetic screenshot staging. First run the live diagnostics to create fresh
 detached sessions on the dedicated native-plan E2E channel:
 
 ```bash
-./scripts/run_spindrel_plan_live.sh --tier stress
+./scripts/run_spindrel_plan_live.sh --tier adherence
 ```
 
 Use `--tier behavior` for the faster protocol/behavior pass and `--tier
 quality` when validating professional-plan mechanics. Use `--tier stress` when
-validating retry/revision pressure and plan-card readability. The runner writes
-the latest session ids to `/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`.
+validating retry/revision pressure and plan-card readability. Use `--tier
+adherence` when validating approved-plan execution, recorded evidence, and the
+semantic adherence review. The runner writes the latest session ids to
+`/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`.
 Capture the matching UI artifacts with:
 
 ```bash
@@ -225,6 +257,8 @@ spindrel-plan-quality-contract-terminal-dark.png
 spindrel-plan-stress-readability-default-dark.png
 spindrel-plan-stress-readability-mobile-dark.png
 spindrel-plan-stress-readability-terminal-dark.png
+spindrel-plan-adherence-review-default-dark.png
+spindrel-plan-adherence-review-terminal-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same
