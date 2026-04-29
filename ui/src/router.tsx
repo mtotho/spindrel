@@ -137,9 +137,11 @@ export const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
-      // Auth routes (no AppShell)
+      // Routes without AppShell. Runtime preview stays isolated so browser
+      // smoke checks do not pick up sidebar/background polling noise.
       { path: "login", element: <LoginPage /> },
       { path: "setup", element: <SetupPage /> },
+      { path: "widgets/dev/runtime-preview", element: <WidgetAuthoringRuntimePreview /> },
 
       // Authenticated routes (wrapped in AppShell)
       {
@@ -207,7 +209,6 @@ export const router = createBrowserRouter([
           // readable while the underlying row is the same.
           { path: "widgets", element: <WidgetsRedirect /> },
           { path: "widgets/dev", element: <WidgetsDevPanel /> },
-          { path: "widgets/dev/runtime-preview", element: <WidgetAuthoringRuntimePreview /> },
           { path: "widgets/channel/:channelId/settings", element: <ChannelDashboardSettingsRedirect /> },
           { path: "widgets/channel/:channelId", element: <WidgetsDashboard /> },
           { path: "widgets/pins/:pinId", element: <WidgetPinPage /> },
