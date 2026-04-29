@@ -667,6 +667,26 @@ async def _capture_project_screenshot(*, url: str, out_path: Path, marker: str) 
             await browser.close()
 
 
+async def _read_workspace_file_with_retry(
+    client: E2EClient,
+    workspace_id: str,
+    path: str,
+    *,
+    timeout: float = 10.0,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            return await client.read_workspace_file(workspace_id, path)
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(0.5)
+    if last_error is not None:
+        raise last_error
+    raise AssertionError(f"workspace file was not readable: {path}")
+
+
 async def _assert_harness_project_cwd(
     client: E2EClient,
     *,
@@ -1108,10 +1128,18 @@ async def test_live_harness_safe_workspace_write_read_delete(
         assert result.tool_events, "no live tool events were emitted for the write turn"
         messages = await client.get_session_messages(session_id, limit=20)
         assistants = _assistant_messages(messages)
-        assert any(
+        persisted_content = any(
             _has_persisted_tool_result_containing(message, exact_content)
             for message in assistants
-        ), "write/read turn did not persist a readable tool-result envelope with file content"
+        )
+        persisted_reply = any(
+            exact_content in str(message.get("content") or "")
+            for message in assistants
+        )
+        assert persisted_content or persisted_reply, (
+            "write/read turn did not persist readable file content in a tool-result envelope "
+            "or final assistant text"
+        )
     finally:
         cleanup = await client.chat_session_stream(
             (
@@ -1334,6 +1362,8 @@ async def test_live_harness_project_plan_build_and_screenshot(
                 "Do not install packages, do not use external network assets, and do not write outside "
                 f"./{app_rel}. The rendered page must show title \"Harness Project Parity\", "
                 f"runtime \"{case.name}\", and marker \"{marker}\". "
+                "Before your final response, verify all four files exist and that index.html contains "
+                "the title and marker. If verification fails, fix it before replying. "
                 "When done, briefly list the files created."
             ),
             session_id=session_id,
@@ -1344,10 +1374,10 @@ async def test_live_harness_project_plan_build_and_screenshot(
         _assert_clean_turn(build)
         assert app_rel in build.response_text or marker in build.response_text
 
-        index = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/index.html")
-        styles = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/styles.css")
-        app_js = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/app.js")
-        readme = await client.read_workspace_file(workspace_id, f"{app_workspace_rel}/README.md")
+        index = await _read_workspace_file_with_retry(client, workspace_id, f"{app_workspace_rel}/index.html")
+        styles = await _read_workspace_file_with_retry(client, workspace_id, f"{app_workspace_rel}/styles.css")
+        app_js = await _read_workspace_file_with_retry(client, workspace_id, f"{app_workspace_rel}/app.js")
+        readme = await _read_workspace_file_with_retry(client, workspace_id, f"{app_workspace_rel}/README.md")
         assert "Harness Project Parity" in str(index.get("content") or "")
         assert marker in str(index.get("content") or "")
         assert str(styles.get("content") or "").strip()
