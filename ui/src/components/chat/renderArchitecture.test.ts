@@ -85,6 +85,14 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
   assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
 });
 
+test("terminal tool transcript keeps sequential rows instead of compact tape", () => {
+  const toolBadges = readChatFile("ToolBadges.tsx");
+
+  assert.match(toolBadges, /const isTerminalMode = chatMode === "terminal"/);
+  assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
+  assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
+});
+
 test("ChatSession stays a source router over dedicated source-mode modules", () => {
   const chatSession = readChatFile("ChatSession.tsx");
 
