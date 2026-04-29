@@ -27,11 +27,15 @@ def stage_channel_widget_usefulness(
     channel = client.ensure_channel(
         client_id=CHANNEL_WIDGET_USEFULNESS_CLIENT_ID,
         bot_id=bot_id,
-        name="Widget usefulness review",
+        name="Widget usefulness proposals",
         category="Showcase",
     )
     channel_id = str(channel["id"])
-    client.update_channel_settings(channel_id, layout_mode="rail-chat")
+    client.update_channel_settings(
+        channel_id,
+        layout_mode="rail-chat",
+        widget_agency_mode="propose_and_fix",
+    )
 
     dashboard_key = dashboard_scenarios.dashboard_key_for_channel(channel_id)
     expected_labels = {

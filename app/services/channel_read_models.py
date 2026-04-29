@@ -266,6 +266,7 @@ async def build_admin_channel_settings_out(
     out.header_backdrop_mode = cfg.get("header_backdrop_mode") or "glass"
     out.plan_mode_control = cfg.get("plan_mode_control") or "auto"
     out.widget_theme_ref = cfg.get("widget_theme_ref")
+    out.widget_agency_mode = cfg.get("widget_agency_mode") or "propose"
     out.pinned_widget_context_enabled = cfg.get("pinned_widget_context_enabled", True)
     await fill_channel_project_settings(db, out, channel, get_bot_fn=get_bot_fn)
     return out

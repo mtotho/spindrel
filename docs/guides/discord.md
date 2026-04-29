@@ -130,7 +130,7 @@ Navigate to the admin panel > Channels. Create or edit a channel with:
 
 Multiple bots can serve the same Discord channel:
 - Default bot handles default @mentions; passive messages are channel context
-- `/ask other-bot question` routes to a specific bot
+- `/ask other-bot question` routes to the primary bot or a configured member bot
 - `/bot new-bot` switches the default for the channel
 
 ## Slash Commands Reference
@@ -142,7 +142,7 @@ View or switch the active bot for the current channel.
 List all available bots with their names and models. The current bot is highlighted.
 
 ### `/ask <bot_id> <message>`
-Send a one-off message to a specific bot without switching the channel default.
+Send a one-off message to the primary bot or a configured member bot without switching the channel default. The `bot_id` option autocompletes channel targets when Discord provides autocomplete.
 
 ### `/context [contents]`
 Show the context breakdown for the current session:
@@ -153,7 +153,7 @@ Show the context breakdown for the current session:
 Trigger context compaction for the current session. Creates a summary watermark.
 
 ### `/todos [done]`
-Show pending todos. Use `done` to show completed items.
+Retired. Use the channel Todo widget in Spindrel.
 
 ### `/model [name|clear|list]`
 - No args: Show current model override

@@ -107,7 +107,7 @@ export function WidgetUsefulnessToolbarButton({
   const assessment = query.data;
   const tone = statusTone(assessment?.status);
   const findingCount = assessment?.recommendations.length ?? 0;
-  const label = findingCount > 0 ? `${findingCount} findings` : "Review widgets";
+  const label = findingCount > 0 ? `${findingCount} proposals` : "Widget proposals";
 
   return (
     <>
@@ -119,8 +119,8 @@ export function WidgetUsefulnessToolbarButton({
           (findingCount > 0 ? "text-warning-muted hover:text-warning-muted" : "text-text-muted hover:text-text")
         }
         data-testid="widget-usefulness-review-trigger"
-        aria-label="Review dashboard widgets"
-        title={assessment?.summary ?? "Review dashboard widgets"}
+        aria-label="Open dashboard widget proposals"
+        title={assessment?.summary ?? "Open dashboard widget proposals"}
       >
         {query.isLoading ? <Spinner /> : tone.icon}
         <span className="hidden lg:inline">{label}</span>
@@ -156,7 +156,7 @@ export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: stri
         <div className="flex min-w-0 items-center gap-2">
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone.className}`}>
             {query.isLoading ? <Spinner /> : tone.icon}
-            {query.isLoading ? "Reviewing" : tone.label}
+            {query.isLoading ? "Checking" : tone.label}
           </span>
           <span className="text-[13px] font-semibold text-text">Widget usefulness</span>
         </div>
@@ -170,14 +170,15 @@ export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: stri
         </button>
       </div>
       <p className="text-[12px] leading-relaxed text-text-dim">
-        {finding ? finding.reason : assessment?.summary ?? "Review dashboard coverage, hidden chat surfaces, context export, and widget health from the dashboard."}
+        {finding ? finding.reason : assessment?.summary ?? "Check dashboard coverage, hidden chat surfaces, context export, and widget health from the dashboard."}
       </p>
       {assessment && (
         <div className="flex flex-wrap gap-1.5">
           <Pill>{assessment.pin_count} pins</Pill>
           <Pill>{assessment.chat_visible_pin_count} chat-visible</Pill>
           <Pill>layout:{assessment.layout_mode}</Pill>
-          {assessment.recommendations.length > 0 && <Pill className="bg-warning/10 text-warning-muted">{assessment.recommendations.length} findings</Pill>}
+          <Pill>{assessment.widget_agency_mode === "propose_and_fix" ? "propose + fix" : "propose"}</Pill>
+          {assessment.recommendations.length > 0 && <Pill className="bg-warning/10 text-warning-muted">{assessment.recommendations.length} proposals</Pill>}
         </div>
       )}
       {query.error && (
@@ -221,14 +222,14 @@ function WidgetUsefulnessDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex justify-end" data-testid="widget-usefulness-review-drawer">
-      <button type="button" aria-label="Close widget review" className="absolute inset-0 bg-black/35" onClick={onClose} />
+      <button type="button" aria-label="Close widget proposals" className="absolute inset-0 bg-black/35" onClick={onClose} />
       <div className="relative flex h-full w-full max-w-[760px] flex-col border-l border-surface-border bg-surface shadow-2xl">
         <div className="flex min-h-[68px] items-start justify-between gap-3 border-b border-surface-border px-5 py-4">
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Widget review</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Widget proposals</div>
             <h2 className="mt-1 truncate text-[16px] font-semibold text-text">{assessment?.channel_name ?? "Channel dashboard"}</h2>
             <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-text-dim">
-              Read-only assessment of usefulness, visibility, prompt context, and health signals.
+              Usefulness, visibility, prompt context, and health signals. Bot edits follow this channel's widget agency setting.
             </p>
           </div>
           <button
@@ -246,13 +247,14 @@ function WidgetUsefulnessDrawer({
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone.className}`}>
                   {isLoading ? <Spinner /> : tone.icon}
-                  {isLoading ? "Reviewing" : tone.label}
+                  {isLoading ? "Checking" : tone.label}
                 </span>
                 {assessment && (
                   <>
                     <Pill>{assessment.pin_count} pins</Pill>
                     <Pill>{assessment.chat_visible_pin_count} chat-visible</Pill>
                     <Pill>layout:{assessment.layout_mode}</Pill>
+                    <Pill>{assessment.widget_agency_mode === "propose_and_fix" ? "propose + fix" : "propose"}</Pill>
                     {assessment.project_scope_available && <Pill><Sparkles size={11} /> Project</Pill>}
                   </>
                 )}
@@ -265,7 +267,7 @@ function WidgetUsefulnessDrawer({
 
             {!isLoading && !errorMessage && recommendations.length === 0 && (
               <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/30 px-4 py-8 text-center text-[13px] text-text-dim">
-                No actionable widget findings.
+                No actionable widget proposals.
               </div>
             )}
 
@@ -325,7 +327,7 @@ function WidgetUsefulnessDrawer({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border px-5 py-3">
           <p className="max-w-[48ch] text-[11px] leading-relaxed text-text-dim">
-            This review does not apply changes. Findings that require policy decisions stay human-owned.
+            In Propose mode, bots publish proposals only. In Propose + fix mode, approved bot tasks can apply safe dashboard changes and report what changed.
           </p>
           <div className="flex items-center gap-1.5">
             {onCheckHealth && (

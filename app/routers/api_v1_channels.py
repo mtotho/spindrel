@@ -207,6 +207,7 @@ class ChannelConfigOut(BaseModel):
     header_backdrop_mode: str = "glass"
     plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None
+    widget_agency_mode: str = "propose"
     harness_auto_compaction_enabled: bool = True
     harness_auto_compaction_soft_remaining_pct: int = 60
     harness_auto_compaction_hard_remaining_pct: int = 10
@@ -282,6 +283,7 @@ class ChannelConfigUpdate(BaseModel):
     header_backdrop_mode: Optional[str] = None
     plan_mode_control: Optional[str] = None
     widget_theme_ref: Optional[str] = None
+    widget_agency_mode: Optional[str] = None
     harness_auto_compaction_enabled: Optional[bool] = None
     harness_auto_compaction_soft_remaining_pct: Optional[int] = None
     harness_auto_compaction_hard_remaining_pct: Optional[int] = None
@@ -590,6 +592,13 @@ async def update_channel_config(
             raise HTTPException(status_code=404, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+    if "widget_agency_mode" in ch_updates and ch_updates["widget_agency_mode"] is not None:
+        _valid_widget_agency_modes = {"propose", "propose_and_fix"}
+        if ch_updates["widget_agency_mode"] not in _valid_widget_agency_modes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid widget_agency_mode. Valid: {sorted(_valid_widget_agency_modes)}",
+            )
 
     # layout_mode is stored inside the channel's JSONB config, not as a top-
     # level column. Split it out so the generic setattr loop below doesn't
@@ -614,6 +623,10 @@ async def update_channel_config(
     )
     has_widget_theme_ref_update = "widget_theme_ref" in ch_updates
     widget_theme_ref_update = ch_updates.pop("widget_theme_ref", None) if has_widget_theme_ref_update else None
+    has_widget_agency_mode_update = "widget_agency_mode" in ch_updates
+    widget_agency_mode_update = (
+        ch_updates.pop("widget_agency_mode", None) if has_widget_agency_mode_update else None
+    )
     harness_auto_keys = {
         "harness_auto_compaction_enabled",
         "harness_auto_compaction_soft_remaining_pct",
@@ -699,6 +712,18 @@ async def update_channel_config(
             cfg.pop("widget_theme_ref", None)
         else:
             cfg["widget_theme_ref"] = normalized
+        channel.config = cfg
+        flag_modified(channel, "config")
+        channel.updated_at = now
+
+    if has_widget_agency_mode_update:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        if widget_agency_mode_update in (None, "propose"):
+            cfg.pop("widget_agency_mode", None)
+        else:
+            cfg["widget_agency_mode"] = widget_agency_mode_update
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -820,6 +845,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "header_backdrop_mode": (channel.config or {}).get("header_backdrop_mode", "glass"),
         "plan_mode_control": (channel.config or {}).get("plan_mode_control", "auto"),
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
+        "widget_agency_mode": (channel.config or {}).get("widget_agency_mode", "propose"),
         "harness_auto_compaction_enabled": ((channel.config or {}).get("harness_auto_compaction") or {}).get("enabled", True),
         "harness_auto_compaction_soft_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("soft_remaining_pct", 60),
         "harness_auto_compaction_hard_remaining_pct": ((channel.config or {}).get("harness_auto_compaction") or {}).get("hard_remaining_pct", 10),

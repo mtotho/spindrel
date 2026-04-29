@@ -43,12 +43,12 @@ done
 
 cd "$PROJECT_ROOT"
 
-if [[ -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
-    E2E_API_KEY="$(docker exec agent-server-agent-server-1 printenv API_KEY 2>/dev/null || true)"
-fi
-
 if [[ -z "${E2E_API_KEY:-}" && -f "$PROJECT_ROOT/.env" ]]; then
     E2E_API_KEY="$(grep '^API_KEY=' "$PROJECT_ROOT/.env" | cut -d= -f2- || true)"
+fi
+
+if [[ -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
+    E2E_API_KEY="$(docker exec agent-server-agent-server-1 printenv API_KEY 2>/dev/null || true)"
 fi
 
 export E2E_MODE="external"

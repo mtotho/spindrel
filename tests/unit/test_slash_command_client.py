@@ -4,8 +4,11 @@ from __future__ import annotations
 import pytest
 
 from integrations.slash_command_client import (
+    SlashCommandAskTarget,
     SlashCommandClient,
     SlashCommandClientError,
+    format_ask_target_options,
+    resolve_ask_target,
 )
 
 
@@ -28,8 +31,18 @@ class _HTTP:
 
     async def post(self, url, *, json, headers, timeout):
         self.calls.append({
+            "method": "POST",
             "url": url,
             "json": json,
+            "headers": headers,
+            "timeout": timeout,
+        })
+        return self.responses.pop(0)
+
+    async def get(self, url, *, headers, timeout):
+        self.calls.append({
+            "method": "GET",
+            "url": url,
             "headers": headers,
             "timeout": timeout,
         })
@@ -119,3 +132,55 @@ async def test_missing_channel_id_is_an_error():
             bot_id="bot",
             command_id="context",
         )
+
+
+@pytest.mark.asyncio
+async def test_list_channel_ask_targets_returns_primary_then_members():
+    http = _HTTP([
+        _Response(200, {"id": "channel-1", "bot_id": "primary"}),
+        _Response(200, {
+            "id": "channel-1",
+            "bot_id": "primary",
+            "member_bots": [
+                {"bot_id": "qa", "bot_name": "Quality"},
+                {"bot_id": "builder", "bot_name": None},
+                {"bot_id": "primary", "bot_name": "Primary duplicate"},
+            ],
+        }),
+        _Response(200, [
+            {"id": "primary", "name": "Primary Bot"},
+            {"id": "builder", "name": "Builder Bot"},
+        ]),
+    ])
+    client = SlashCommandClient("http://agent.test", "secret", http=http)
+
+    targets = await client.list_channel_ask_targets(
+        client_id="slack:C123",
+        bot_id="primary",
+    )
+
+    assert [(t.bot_id, t.label, t.is_primary, t.is_member) for t in targets] == [
+        ("primary", "Primary Bot", True, False),
+        ("qa", "Quality", False, True),
+        ("builder", "Builder Bot", False, True),
+    ]
+    assert http.calls[1]["method"] == "GET"
+    assert http.calls[1]["url"] == "http://agent.test/api/v1/channels/channel-1"
+    assert http.calls[2]["url"] == "http://agent.test/bots"
+
+
+def test_ask_target_format_and_resolution_are_channel_scoped():
+    targets = [
+        SlashCommandAskTarget("primary", "Primary Bot", is_primary=True),
+        SlashCommandAskTarget("qa", "Quality", is_member=True),
+    ]
+
+    assert resolve_ask_target(targets, "quality") is targets[1]
+    assert resolve_ask_target(targets, "unknown") is None
+    assert format_ask_target_options(targets, command="/ask") == (
+        "Usage: `/ask <bot-id> <message>`\n"
+        "\n"
+        "Available in this channel:\n"
+        "  `primary` - Primary Bot (primary)\n"
+        "  `qa` - Quality (member)"
+    )

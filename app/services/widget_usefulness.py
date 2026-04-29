@@ -23,6 +23,13 @@ _LAYOUT_VISIBLE_ZONES = {
     "dashboard-only": set(),
 }
 _SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3}
+_WIDGET_AGENCY_MODES = {"propose", "propose_and_fix"}
+
+
+def normalize_widget_agency_mode(value: object) -> str:
+    if isinstance(value, str) and value in _WIDGET_AGENCY_MODES:
+        return value
+    return "propose"
 
 
 def _label(pin: dict[str, Any]) -> str:
@@ -159,6 +166,7 @@ def assess_widget_usefulness_from_data(
     """
     cfg = channel_config or {}
     layout_mode = str(cfg.get("layout_mode") or "full")
+    widget_agency_mode = normalize_widget_agency_mode(cfg.get("widget_agency_mode"))
     visible_zones = _chat_visible_zones(layout_mode)
     health_by_pin = widget_health or {}
     recommendations: list[dict[str, Any]] = []
@@ -292,9 +300,9 @@ def assess_widget_usefulness_from_data(
     status = _overall_recommendation_status(recommendations)
     project_scope_available = bool(project)
     summary = (
-        "No actionable widget findings."
+        "No actionable widget proposals."
         if not recommendations
-        else f"{len(recommendations)} widget usefulness finding(s): {recommendations[0]['reason']}"
+        else f"{len(recommendations)} widget usefulness proposal(s): {recommendations[0]['reason']}"
     )
     return {
         "channel_id": channel_id,
@@ -305,6 +313,7 @@ def assess_widget_usefulness_from_data(
         "pin_count": len(pins),
         "chat_visible_pin_count": chat_visible_count,
         "layout_mode": layout_mode,
+        "widget_agency_mode": widget_agency_mode,
         "project_scope_available": project_scope_available,
         "project": project,
         "context_export": context_snapshot or {

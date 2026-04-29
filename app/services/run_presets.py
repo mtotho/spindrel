@@ -10,13 +10,16 @@ from dataclasses import dataclass
 from typing import Any
 
 
-WIDGET_IMPROVEMENT_PROMPT = """Review this channel dashboard's widgets for usefulness and health.
+WIDGET_IMPROVEMENT_PROMPT = """Improve this channel dashboard's widgets for usefulness and health.
 
-Use the widget inspection tools to understand the current dashboard before making recommendations:
+Use the widget inspection tools to understand the current dashboard before proposing or changing anything:
 1. Call assess_widget_usefulness for this channel.
 2. Call describe_dashboard only when you need raw pin/layout detail beyond the assessment.
 3. Call check_dashboard_widgets only when the assessment points to health/runtime concerns.
 4. Use check_widget or inspect_widget_pin when a specific widget or pin needs deeper inspection.
+5. Read widget_agency_mode from the assessment:
+   - propose: return concise proposals only.
+   - propose_and_fix: apply safe dashboard fixes with the dashboard tools, then explain what changed and why.
 
 Look for actionable issues:
 - broken, stale, or low-signal widgets
@@ -25,9 +28,9 @@ Look for actionable issues:
 - missing coverage where a widget would make the channel easier to operate
 - places where existing widgets could be clearer, smaller, or more task-focused
 
-Return concise findings with concrete next actions. If there are no actionable findings, say: No actionable widget findings.
+Return concise proposals with concrete next actions. If there are no actionable proposals, say: No actionable widget proposals.
 
-Do not create, move, delete, or rewrite widgets unless the user has separately asked for that change."""
+Safe fixes in propose_and_fix mode are limited to dashboard operations: move/resize pins, change zones, remove obvious duplicates, pin clearly identified existing widgets, and adjust dashboard chrome. Do not rewrite widget source code in this task."""
 
 
 @dataclass(frozen=True)
@@ -77,11 +80,15 @@ WIDGET_IMPROVEMENT_HEALTHCHECK = RunPreset(
             "check_dashboard_widgets",
             "check_widget",
             "inspect_widget_pin",
+            "move_pins",
+            "unpin_widget",
+            "pin_widget",
+            "set_dashboard_chrome",
         ),
-        post_final_to_channel=False,
+        post_final_to_channel=True,
         history_mode="recent",
         history_recent_count=30,
-        skip_tool_approval=False,
+        skip_tool_approval=True,
     ),
 )
 

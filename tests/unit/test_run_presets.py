@@ -20,8 +20,8 @@ def test_widget_improvement_healthcheck_defaults_to_normal_channel_task_payload(
     assert defaults["trigger_config"] == {"type": "schedule"}
     assert defaults["history_mode"] == "recent"
     assert defaults["history_recent_count"] == 30
-    assert defaults["post_final_to_channel"] is False
-    assert defaults["skip_tool_approval"] is False
+    assert defaults["post_final_to_channel"] is True
+    assert defaults["skip_tool_approval"] is True
     assert defaults["skills"] == [
         "widgets",
         "widgets/errors",
@@ -33,9 +33,14 @@ def test_widget_improvement_healthcheck_defaults_to_normal_channel_task_payload(
         "check_dashboard_widgets",
         "check_widget",
         "inspect_widget_pin",
+        "move_pins",
+        "unpin_widget",
+        "pin_widget",
+        "set_dashboard_chrome",
     ]
     assert "Call assess_widget_usefulness" in defaults["prompt"]
-    assert "No actionable widget findings." in defaults["prompt"]
+    assert "propose_and_fix" in defaults["prompt"]
+    assert "No actionable widget proposals." in defaults["prompt"]
 
 
 def test_list_run_presets_can_filter_by_surface():

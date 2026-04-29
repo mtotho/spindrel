@@ -366,6 +366,8 @@ export interface Channel {
     pinned_widget_context_enabled?: boolean;
     /** Channel-scoped HTML widget SDK theme override. */
     widget_theme_ref?: string | null;
+    /** Bot agency policy for channel dashboard widgets. */
+    widget_agency_mode?: "propose" | "propose_and_fix";
     /** Workspace-relative project directory used as the channel file root and harness CWD. */
     project_path?: string | null;
     project_workspace_id?: string | null;
@@ -729,6 +731,7 @@ export interface WidgetUsefulnessAssessment {
   pin_count: number;
   chat_visible_pin_count: number;
   layout_mode: string;
+  widget_agency_mode: "propose" | "propose_and_fix" | string;
   project_scope_available: boolean;
   project: Record<string, unknown> | null;
   context_export: Record<string, unknown>;
@@ -854,6 +857,8 @@ export interface ChannelSettings {
   plan_mode_control?: "auto" | "show" | "hide";
   /** Channel-scoped HTML widget SDK theme override. Null/absent inherits the global default. */
   widget_theme_ref?: string | null;
+  /** Bot agency policy for channel dashboard widgets. */
+  widget_agency_mode?: "propose" | "propose_and_fix";
 }
 
 export interface WidgetTheme {

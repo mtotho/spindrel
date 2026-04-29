@@ -15,14 +15,19 @@ from agent_client import (
     ensure_channel,
     fetch_server_health,
     fetch_session_context_contents,
-    fetch_todos,
     get_channel_session_id,
     list_bots,
     list_models,
-    stream_chat,
+    submit_chat,
 )
-from formatting import format_last_active, format_response_for_discord, format_tool_status, split_for_discord
-from integrations.slash_command_client import SlashCommandClient, SlashCommandClientError
+from formatting import format_last_active, split_for_discord
+from integrations.slash_command_client import (
+    SlashCommandAskTarget,
+    SlashCommandClient,
+    SlashCommandClientError,
+    format_ask_target_options,
+    resolve_ask_target,
+)
 from session_helpers import discord_client_id
 from discord_settings import AGENT_BASE_URL, API_KEY, DISCORD_TOKEN, get_bot_display_info
 from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
@@ -66,6 +71,36 @@ async def _send_backend_command(
     await _send_chunks(interaction, result.fallback_text or "(no result)")
 
 
+async def _ask_targets_for_channel(channel_id: str, bot_id: str) -> list[SlashCommandAskTarget]:
+    return await _slash_client.list_channel_ask_targets(
+        client_id=discord_client_id(channel_id),
+        bot_id=bot_id,
+    )
+
+
+async def _ask_bot_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    channel_id = str(interaction.channel_id)
+    state = get_channel_state(channel_id)
+    try:
+        targets = await _ask_targets_for_channel(channel_id, state["bot_id"])
+    except Exception:
+        return []
+
+    query = current.lower().strip()
+    choices: list[app_commands.Choice[str]] = []
+    for target in targets:
+        label = f"{target.label} ({'primary' if target.is_primary else 'member'})"
+        if query and query not in target.bot_id.lower() and query not in target.label.lower():
+            continue
+        choices.append(app_commands.Choice(name=label[:100], value=target.bot_id[:100]))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
 def register_slash_commands(tree: app_commands.CommandTree) -> None:
     """Register all Discord application commands on the command tree."""
 
@@ -103,22 +138,33 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
         await interaction.followup.send("\n".join(lines))
 
     @tree.command(name="ask", description="Route a message to a specific bot")
-    @app_commands.describe(bot_id="Target bot ID", message="Message to send")
-    async def cmd_ask(interaction: discord.Interaction, bot_id: str, message: str):
-        await interaction.response.defer()
+    @app_commands.describe(bot_id="Target channel bot", message="Message to send")
+    @app_commands.autocomplete(bot_id=_ask_bot_autocomplete)
+    async def cmd_ask(
+        interaction: discord.Interaction,
+        bot_id: str | None = None,
+        message: str | None = None,
+    ):
+        await interaction.response.defer(ephemeral=not (bot_id and message))
         channel_id = str(interaction.channel_id)
         user = str(interaction.user.id)
+        state = get_channel_state(channel_id)
 
         try:
-            bots_list = await list_bots()
-            valid = {b["id"] for b in bots_list}
-        except Exception:
-            valid = set()
+            targets = await _ask_targets_for_channel(channel_id, state["bot_id"])
+        except SlashCommandClientError as exc:
+            await interaction.followup.send(f"Error: {exc}")
+            return
 
-        if bot_id not in valid:
+        if not bot_id or not message:
+            await _send_chunks(interaction, format_ask_target_options(targets, command="/ask"))
+            return
+
+        target = resolve_ask_target(targets, bot_id)
+        if not target:
             await interaction.followup.send(
-                f"Unknown bot `{bot_id}`.\n"
-                f"Available: {', '.join(f'`{b}`' for b in sorted(valid))}"
+                f"Unknown bot `{bot_id}` for this channel.\n"
+                f"{format_ask_target_options(targets, command='/ask')}"
             )
             return
 
@@ -132,46 +178,27 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             "sender_display_name": interaction.user.display_name,
             "channel_external_id": str(channel_id),
             "mention_token": f"<@{user}>",
-            "recipient_id": f"bot:{bot_id}",
+            "recipient_id": f"bot:{target.bot_id}",
             "trigger_rag": True,
         }
-        full_message = message
         dispatch_config = {
             "channel_id": channel_id,
             "token": DISCORD_TOKEN,
         }
 
-        thinking_msg = await interaction.followup.send("\u23f3 *thinking...*", wait=True)
-
         try:
-            async for event in stream_chat(
-                message=full_message,
-                bot_id=bot_id,
+            await submit_chat(
+                message=message,
+                bot_id=target.bot_id,
                 client_id=client_id,
                 dispatch_type="discord",
                 dispatch_config=dispatch_config,
                 msg_metadata=msg_metadata,
-            ):
-                etype = event.get("type")
-                if etype == "tool_start":
-                    tool = event.get("tool", "tool")
-                    status = format_tool_status(tool, event.get("args"))
-                    await thinking_msg.edit(content=status)
-                elif etype == "queued":
-                    try:
-                        await thinking_msg.delete()
-                    except Exception:
-                        pass
-                    return
-                elif etype == "response":
-                    reply = (event.get("text") or "").strip()
-                    formatted = format_response_for_discord(reply)
-                    chunks = split_for_discord(formatted)
-                    await thinking_msg.edit(content=chunks[0])
-                    for chunk in chunks[1:]:
-                        await interaction.followup.send(chunk)
+            )
+            await interaction.followup.send(f"Queued request for `{target.bot_id}`.")
         except Exception as e:
-            await thinking_msg.edit(content=f"*Error: {str(e)[:500]}*")
+            logger.exception("submit_chat failed for Discord /ask in channel %s", channel_id)
+            await interaction.followup.send(f"*Error: {str(e)[:500]}*")
 
     @tree.command(name="context", description="Show context breakdown for current session")
     @app_commands.describe(subcommand="Optional: 'contents' to see actual messages")
@@ -241,48 +268,7 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
     @app_commands.describe(status="'done' to show completed, otherwise shows pending")
     async def cmd_todos(interaction: discord.Interaction, status: str | None = None):
         await interaction.response.defer(ephemeral=True)
-        channel_id = str(interaction.channel_id)
-        state = get_channel_state(channel_id)
-        bot_id = state["bot_id"]
-
-        client_id = discord_client_id(channel_id)
-        ch_data = await ensure_channel(client_id, bot_id)
-        if not ch_data or not ch_data.get("id"):
-            await interaction.followup.send("No channel registered yet. Send a message first.")
-            return
-        channel_uuid = ch_data["id"]
-
-        fetch_status = "done" if status and status.lower() == "done" else "pending"
-        try:
-            todos = await fetch_todos(bot_id, channel_uuid, status=fetch_status)
-        except Exception as e:
-            await interaction.followup.send(f"Error fetching todos: {e}")
-            return
-
-        if not todos:
-            label = "completed" if fetch_status == "done" else "pending"
-            await interaction.followup.send(f"No {label} todos for `{bot_id}` in this channel.")
-            return
-
-        groups: dict[int, list[dict]] = {}
-        for t in todos:
-            p = t.get("priority", 0)
-            groups.setdefault(p, []).append(t)
-
-        lines: list[str] = []
-        heading = "Recently Completed" if fetch_status == "done" else "Pending Todos"
-        lines.append(f"**{heading}** \u2014 `{bot_id}`")
-
-        for priority in sorted(groups.keys(), reverse=True):
-            if priority > 0:
-                lines.append(f"\n**Priority {priority}**")
-            elif len(groups) > 1:
-                lines.append("\n**Normal**")
-            for t in groups[priority]:
-                icon = "\u2713" if t["status"] == "done" else "\u25cb"
-                lines.append(f"  {icon} {t['content']}")
-
-        await _send_chunks(interaction, "\n".join(lines))
+        await interaction.followup.send("`/todos` is retired. Use the channel Todo widget in Spindrel instead.")
 
     @tree.command(name="health", description="Quick server health check")
     async def cmd_health(interaction: discord.Interaction):

@@ -26,8 +26,41 @@ from typing import Any
 
 from app.agent.context import current_bot_id, current_channel_id
 from app.tools.registry import register
+from app.services.widget_usefulness import normalize_widget_agency_mode
 
 logger = logging.getLogger(__name__)
+
+
+def _channel_id_from_dashboard_key(dashboard_key: str) -> uuid.UUID | None:
+    if not dashboard_key.startswith("channel:"):
+        return None
+    try:
+        return uuid.UUID(dashboard_key.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return None
+
+
+async def _widget_agency_mutation_error(dashboard_key: str) -> str | None:
+    """Return a policy error when bot widget edits are proposal-only."""
+    channel_id = _channel_id_from_dashboard_key(dashboard_key)
+    if channel_id is None:
+        return None
+
+    from app.db.engine import async_session
+    from app.db.models import Channel
+
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        cfg = channel.config if channel is not None and isinstance(channel.config, dict) else {}
+    mode = normalize_widget_agency_mode(cfg.get("widget_agency_mode"))
+    if mode == "propose_and_fix":
+        return None
+    return (
+        "Widget changes are proposal-only for this channel. "
+        "Set Channel Settings -> Presentation -> Bot widget agency to "
+        "'Propose + fix' before bots can create, move, delete, or adjust "
+        "channel dashboard widgets."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1067,6 +1100,9 @@ async def pin_widget(
     key, err = _resolve_dashboard_key(dashboard_key, channel_id)
     if err:
         return json.dumps({"error": err, "llm": err})
+    policy_err = await _widget_agency_mutation_error(key)
+    if policy_err:
+        return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
 
     entry, err = await _resolve_widget_entry(
         widget,
@@ -1293,6 +1329,9 @@ async def move_pins(
     key, err = _resolve_dashboard_key(dashboard_key, channel_id)
     if err:
         return json.dumps({"error": err, "llm": err})
+    policy_err = await _widget_agency_mutation_error(key)
+    if policy_err:
+        return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
 
     from app.db.engine import async_session
     from app.services.dashboard_pins import apply_layout_bulk, list_pins, serialize_pin
@@ -1367,10 +1406,14 @@ async def unpin_widget(
         return json.dumps({"error": f"invalid pin_id: {pin_id!r}"})
 
     from app.db.engine import async_session
-    from app.services.dashboard_pins import delete_pin
+    from app.services.dashboard_pins import delete_pin, get_pin
 
     async with async_session() as db:
         try:
+            pin = await get_pin(db, pid)
+            policy_err = await _widget_agency_mutation_error(pin.dashboard_key)
+            if policy_err:
+                return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
             result = await delete_pin(
                 db, pid, delete_bundle_data=bool(delete_bundle_data),
             )
@@ -1397,10 +1440,14 @@ async def promote_panel(pin_id: str) -> str:
         return json.dumps({"error": f"invalid pin_id: {pin_id!r}"})
 
     from app.db.engine import async_session
-    from app.services.dashboard_pins import promote_pin_to_panel
+    from app.services.dashboard_pins import get_pin, promote_pin_to_panel
 
     async with async_session() as db:
         try:
+            pin = await get_pin(db, pid)
+            policy_err = await _widget_agency_mutation_error(pin.dashboard_key)
+            if policy_err:
+                return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
             pin_dict = await promote_pin_to_panel(db, pid)
         except Exception as exc:
             logger.exception("promote_panel failed")
@@ -1429,10 +1476,14 @@ async def demote_panel(pin_id: str) -> str:
         return json.dumps({"error": f"invalid pin_id: {pin_id!r}"})
 
     from app.db.engine import async_session
-    from app.services.dashboard_pins import demote_pin_from_panel
+    from app.services.dashboard_pins import demote_pin_from_panel, get_pin
 
     async with async_session() as db:
         try:
+            pin = await get_pin(db, pid)
+            policy_err = await _widget_agency_mutation_error(pin.dashboard_key)
+            if policy_err:
+                return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
             pin_dict = await demote_pin_from_panel(db, pid)
         except Exception as exc:
             logger.exception("demote_panel failed")
@@ -1468,6 +1519,9 @@ async def set_dashboard_chrome(
     key, err = _resolve_dashboard_key(dashboard_key, channel_id)
     if err:
         return json.dumps({"error": err, "llm": err})
+    policy_err = await _widget_agency_mutation_error(key)
+    if policy_err:
+        return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
 
     from app.db.engine import async_session
     from app.services.dashboards import (

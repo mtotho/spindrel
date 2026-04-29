@@ -491,6 +491,7 @@ class ChannelSettingsUpdate(BaseModel):
     # Composer plan-control visibility. "auto" clears the JSONB key.
     plan_mode_control: Optional[str] = None
     widget_theme_ref: Optional[str] = None
+    widget_agency_mode: Optional[str] = None
     pinned_widget_context_enabled: Optional[bool] = None
 
 
@@ -852,6 +853,22 @@ async def admin_channel_settings_update(
             cfg.pop("widget_theme_ref", None)
         else:
             cfg["widget_theme_ref"] = normalized
+        channel.config = cfg
+        flag_modified(channel, "config")
+
+    if "widget_agency_mode" in updates:
+        wam = updates.pop("widget_agency_mode")
+        _valid_widget_agency_modes = {"propose", "propose_and_fix"}
+        if wam is not None and wam not in _valid_widget_agency_modes:
+            raise HTTPException(
+                status_code=422,
+                detail=f"widget_agency_mode must be one of: {sorted(_valid_widget_agency_modes)}",
+            )
+        cfg = dict(channel.config or {})
+        if wam in (None, "propose"):
+            cfg.pop("widget_agency_mode", None)
+        else:
+            cfg["widget_agency_mode"] = wam
         channel.config = cfg
         flag_modified(channel, "config")
 

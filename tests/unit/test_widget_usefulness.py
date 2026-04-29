@@ -109,6 +109,16 @@ def test_hidden_chat_zone_is_reported_for_layout_mode() -> None:
     assert visibility["surface"] == "chat"
     assert visibility["evidence"]["layout_mode"] == "rail-chat"
     assert visibility["evidence"]["zone"] == "dock"
+    assert result["widget_agency_mode"] == "propose"
+
+
+def test_widget_agency_mode_surfaces_when_channel_allows_fixes() -> None:
+    result = _assess(
+        [_pin("Weather", pin_id="weather-1")],
+        channel_config={"widget_agency_mode": "propose_and_fix"},
+    )
+
+    assert result["widget_agency_mode"] == "propose_and_fix"
 
 
 def test_context_export_gap_is_reported_when_nothing_reaches_prompt() -> None:
@@ -145,7 +155,7 @@ def test_actionable_widget_without_hint_is_reported() -> None:
     assert actionability["evidence"]["action_ids"] == ["add", "toggle"]
 
 
-def test_no_findings_returns_no_actionable_widget_findings() -> None:
+def test_no_findings_returns_no_actionable_widget_proposals() -> None:
     pin = _pin(
         "Notes",
         zone="rail",
@@ -159,5 +169,5 @@ def test_no_findings_returns_no_actionable_widget_findings() -> None:
     )
 
     assert result["status"] == "healthy"
-    assert result["summary"] == "No actionable widget findings."
+    assert result["summary"] == "No actionable widget proposals."
     assert result["recommendations"] == []

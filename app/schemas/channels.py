@@ -203,6 +203,7 @@ class ChannelSettingsOut(BaseModel):
     header_backdrop_mode: str = "glass"
     plan_mode_control: str = "auto"
     widget_theme_ref: Optional[str] = None
+    widget_agency_mode: str = "propose"
     pinned_widget_context_enabled: bool = True
 
     model_config = {"from_attributes": True}

@@ -43,10 +43,10 @@ Commands sync automatically when the bot connects. Available commands:
 |---------|-------------|
 | `/bot [bot_id]` | View or switch the active bot |
 | `/bots` | List all available bots |
-| `/ask <bot_id> <message>` | Send a message to a specific bot |
+| `/ask <bot_id> <message>` | Send a message to the primary bot or a configured member bot |
 | `/context [contents]` | Show context breakdown |
 | `/compact` | Compact session context |
-| `/todos [done]` | Show pending/completed todos |
+| `/todos [done]` | Retired; use the channel Todo widget in Spindrel |
 | `/model [name\|clear\|list]` | View or change model override |
 | `/health` | Server health check |
 

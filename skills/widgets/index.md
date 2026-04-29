@@ -50,7 +50,7 @@ Bot control rule:
 - Discover widgets through the shared library/catalog tools.
 - Place them with `pin_widget`.
 - Interact with pinned widgets through `invoke_widget_action`.
-- Assess whether they are useful with `assess_widget_usefulness(...)`; start there for recurring widget improvement reviews.
+- Assess whether they are useful with `assess_widget_usefulness(...)`; start there for recurring widget improvement proposals. Read `widget_agency_mode` before changing channel dashboard widgets.
 - Check whether they work with `check_widget(pin_id=...)` or `check_dashboard_widgets(...)`; `describe_dashboard` includes the latest persisted `widget_health` summary for each checked pin.
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
 - For presets, also inspect `dependency_contract`. A Home Assistant preset on the official HA MCP lane should stay on `GetLiveContext` / `Hass*` tools, not community `ha_get_state`.
@@ -63,7 +63,7 @@ Treat widgets with one operational loop regardless of runtime kind:
 
 1. Discover through the shared catalog.
 2. Place with `pin_widget`.
-3. Run `assess_widget_usefulness` when reviewing an existing channel dashboard for value, coverage, duplicates, visibility, and context export.
+3. Run `assess_widget_usefulness` when improving an existing channel dashboard for value, coverage, duplicates, visibility, and context export.
 4. Run `check_widget` after pinning, or `check_dashboard_widgets` for a dashboard-wide pass.
 5. Inspect declared actions before operating.
 6. Invoke through `invoke_widget_action`.

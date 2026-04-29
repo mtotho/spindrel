@@ -50,7 +50,7 @@ Optional scopes (each unlocks a specific affordance — see corresponding sectio
 
 | Command | Description |
 |---|---|
-| `/ask <bot-id> <message>` | Route a message to a specific bot. Bot replies in the channel with its display name. `/ask` alone lists available bots. |
+| `/ask <bot-id> <message>` | Route a message to the primary bot or a configured member bot. `/ask` alone opens a chooser when Slack supports it, otherwise lists channel targets. |
 | `/bot [id]` | Show or switch the default bot for this channel. Session is unchanged. |
 | `/bots` | List all available bots and their IDs. |
 | `/context` | Show the current context window breakdown (chars per role). |
@@ -127,7 +127,7 @@ Configure per-channel behavior in **Admin > Channels** (select a channel, then t
 
 | Setting | Default | Description |
 |---|---|---|
-| **Default Bot** | `SLACK_DEFAULT_BOT` | The bot that responds to @mentions in this channel. Other bots can be addressed with `/ask <bot-id>`. |
+| **Default Bot** | `SLACK_DEFAULT_BOT` | The bot that responds to default @mentions in this channel. Configured member bots can be addressed with `/ask <bot-id>`. |
 | **Require @mention** | `true` | When checked, only @mentions trigger the agent. All other messages are stored passively as channel context. When unchecked, the bot replies to every message. |
 | **Passive memory** | `true` | When compaction runs, passive channel messages are included in the transcript so channel participants can extract channel activity into memory. |
 
@@ -149,7 +149,7 @@ whether they later learn from overheard messages.
 /ask calculator-bot what is the square root of 144?
 ```
 
-Routes a message to `calculator-bot` directly. The bot replies in the channel with its configured display name and icon. The channel's shared session ensures it has full context of prior conversations. `/ask` with no arguments lists available bots.
+Routes a message to `calculator-bot` directly when it is the primary bot or a configured member of the channel. The bot replies in the channel with its configured display name and icon. The channel's shared session ensures it has full context of prior conversations. `/ask` with no arguments opens a chooser when available and otherwise lists channel targets.
 
 **Using delegation:** The default bot can delegate to other bots internally via `delegate_to_agent`. The delegated bot's response is posted to the channel attributed to its display name.
 

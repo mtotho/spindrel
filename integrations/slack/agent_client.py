@@ -139,17 +139,6 @@ async def store_passive_message_http(
         r.raise_for_status()
 
 
-async def fetch_todos(bot_id: str, channel_id: str, status: str = "pending") -> list[dict]:
-    """Fetch todos from the agent server API."""
-    r = await http.get(
-        f"{AGENT_BASE_URL}/api/v1/todos",
-        params={"bot_id": bot_id, "channel_id": channel_id, "status": status},
-        headers={"Authorization": f"Bearer {API_KEY}"},
-    )
-    r.raise_for_status()
-    return r.json()
-
-
 async def fetch_session_context(session_id: str) -> dict:
     r = await http.get(
         f"{AGENT_BASE_URL}/sessions/{session_id}/context",

@@ -614,6 +614,21 @@ export function PresentationSection({
               />
             </FormRow>
           </Col>
+          <Col minWidth={isMobile ? 0 : 260}>
+            <FormRow
+              label="Bot widget agency"
+              description="Controls whether bots may only propose dashboard widget improvements or also apply safe fixes."
+            >
+              <SelectInput
+                value={(form.widget_agency_mode ?? "propose") as string}
+                onChange={(v) => patch("widget_agency_mode", v as ChannelSettings["widget_agency_mode"])}
+                options={[
+                  { label: "Propose", value: "propose" },
+                  { label: "Propose + fix", value: "propose_and_fix" },
+                ]}
+              />
+            </FormRow>
+          </Col>
         </Row>
         <Toggle
           value={compactToolResults}

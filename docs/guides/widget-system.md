@@ -285,13 +285,14 @@ Both flavors share the same authoring loop. There is no JSX server-side typechec
 | `preview_widget` | Pre-pin dry-run | Manifest errors, CSP rejections, library-ref / path-resolution failures, mode-conflict input errors. Returns the same envelope shape `emit_html_widget` would produce, plus a structured `errors: [{phase, message, severity}]` list. Does **not** compile JSX (Babel runs in the iframe, not on the server). |
 | `check_widget` | Draft or pinned health check | For drafts, wraps `preview_widget` and static lint checks. For pins, persists a latest health summary (`healthy`, `warning`, `failing`, `unknown`) from static validation, runtime debug events, and an opportunistic Playwright smoke check when `BASE_URL` + browser runtime are available. |
 | `check_dashboard_widgets` | Dashboard-wide health check | Runs `check_widget` across dashboard pins and stores latest summaries so `describe_dashboard`, dashboard UI badges, and bot follow-up turns have the same health read model. |
-| `assess_widget_usefulness` | Dashboard usefulness review | Read-only channel dashboard assessment for health signals, duplicates, hidden chat surfaces, context-export gaps, actionability hints, and Project-bound starter coverage. |
+| `assess_widget_usefulness` | Dashboard usefulness proposals | Channel dashboard assessment for health signals, duplicates, hidden chat surfaces, context-export gaps, actionability hints, Project-bound starter coverage, and the channel's widget agency mode. |
 | `inspect_widget_pin` | Post-pin runtime trace | Reads the in-memory debug ring (cap 50, newest-first) for a pinned widget: every `callTool` request+response (real envelope shape — no guessing the JSON path), every `loadAttachment` result, every uncaught JS error / unhandled promise rejection / `console.*` call / `spindrel.log.*` entry. For `runtime: react`, Babel compile errors are mirrored to `spindrel.log.error` so they show up here with the same shape as a runtime JS error. |
 
-The channel dashboard UI surfaces the same usefulness assessment as a read-only
-review strip and drawer. Channel Settings -> Dashboard shows a compact summary
-so users can see whether a dashboard needs attention before opening the full
-canvas.
+The channel dashboard UI surfaces the same usefulness assessment as compact
+proposal affordances and a drawer. Channel Settings -> Dashboard shows a compact
+summary plus the Bot widget agency setting: `propose` means bots can only publish
+proposals, while `propose_and_fix` lets scheduled or chat-triggered bot work
+apply safe dashboard fixes and report what changed.
 
 Iteration recipe for a React widget:
 

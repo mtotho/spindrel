@@ -44,6 +44,7 @@ _RETURNS = {
         "pin_count": {"type": "integer"},
         "chat_visible_pin_count": {"type": "integer"},
         "layout_mode": {"type": "string"},
+        "widget_agency_mode": {"type": "string"},
         "project_scope_available": {"type": "boolean"},
         "project": {"type": ["object", "null"]},
         "context_export": {"type": "object"},

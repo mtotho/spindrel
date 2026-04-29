@@ -185,9 +185,12 @@ from app.services.integration_settings import (  # noqa: E402, F401
 # ---------------------------------------------------------------------------
 
 from integrations.slash_command_client import (  # noqa: E402, F401
+    SlashCommandAskTarget,
     SlashCommandClient,
     SlashCommandClientError,
     SlashCommandExecution,
+    format_ask_target_options,
+    resolve_ask_target,
 )
 
 # ---------------------------------------------------------------------------

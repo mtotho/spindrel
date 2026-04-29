@@ -36,3 +36,19 @@ def test_server_owned_platform_commands_do_not_call_legacy_endpoints_directly():
         source = _read(path)
         for needle in forbidden:
             assert needle not in source, f"{path}: {needle} should go through slash host"
+
+
+def test_platform_ask_is_channel_participant_scoped_and_todos_is_retired():
+    for path in (SLACK_SLASH, DISCORD_SLASH):
+        source = _read(path)
+        assert "list_channel_ask_targets" in source
+        assert "resolve_ask_target" in source
+        assert "fetch_todos" not in source
+        assert "/api/v1/todos" not in source
+        assert "`/todos` is retired" in source
+
+
+def test_discord_slash_ask_uses_enqueue_boundary_not_legacy_streaming():
+    source = _read(DISCORD_SLASH)
+    assert "submit_chat" in source
+    assert "stream_chat" not in source

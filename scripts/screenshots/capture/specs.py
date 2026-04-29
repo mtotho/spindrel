@@ -2136,13 +2136,13 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
-# Channel widget-usefulness review — validates the human-facing usefulness
-# assessment on channel dashboards and channel settings.
+# Channel widget-usefulness proposals — validates the human-facing usefulness
+# proposal surface on channel dashboards and channel settings.
 # ---------------------------------------------------------------------------
 
 _WIDGET_USEFULNESS_READY = (
     "!!document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]') "
-    "&& /finding/i.test(document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]')?.textContent || '')"
+    "&& /proposal/i.test(document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]')?.textContent || '')"
 )
 
 _OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
@@ -2154,18 +2154,18 @@ _OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
     "  }"
     "  throw new Error(`timed out waiting for ${label}`);"
     "};"
-    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]'), 'review trigger');"
+    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]'), 'proposal trigger');"
     "const button = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
-    "if (!button) throw new Error('review button missing');"
+    "if (!button) throw new Error('proposal button missing');"
     "button.click();"
     "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]'), 'review drawer');"
 )
 
 _ASSERT_WIDGET_USEFULNESS_STRIP_JS = (
     "const trigger = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
-    "if (!trigger) throw new Error('review trigger missing');"
+    "if (!trigger) throw new Error('proposal trigger missing');"
     "const text = document.body.innerText || trigger.textContent || '';"
-    "if (!/3 findings|findings/.test(text)) throw new Error('review trigger finding count missing');"
+    "if (!/3 proposals|proposals/.test(text)) throw new Error('proposal trigger count missing');"
     "if (document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]')) throw new Error('persistent review strip should not render');"
 )
 
@@ -2173,9 +2173,9 @@ _ASSERT_WIDGET_USEFULNESS_DRAWER_JS = (
     "const drawer = document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]');"
     "if (!drawer) throw new Error('review drawer missing');"
     "const text = drawer.textContent || '';"
-    "if (!/Widget review/.test(text)) throw new Error('drawer title missing');"
-    "if (!/policy decision|Focus pin|Edit layout/.test(text)) throw new Error('actionable finding controls missing');"
-    "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('findings missing');"
+    "if (!/Widget proposals/.test(text)) throw new Error('drawer title missing');"
+    "if (!/policy decision|Focus pin|Edit layout/.test(text)) throw new Error('actionable proposal controls missing');"
+    "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('proposals missing');"
 )
 
 _WIDGET_USEFULNESS_ENDPOINT_INIT = """
@@ -2186,10 +2186,11 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
     channel_name: "Widget usefulness review",
     dashboard_key: "channel:screenshot-channel",
     status: "needs_attention",
-    summary: "3 widget usefulness finding(s): 2 pinned widgets appear to overlap in purpose.",
+    summary: "3 widget usefulness proposal(s): 2 pinned widgets appear to overlap in purpose.",
     pin_count: 3,
     chat_visible_pin_count: 0,
     layout_mode: "rail-chat",
+    widget_agency_mode: "propose_and_fix",
     project_scope_available: false,
     project: null,
     context_export: { exported_count: 0, export_enabled_count: 0 },
@@ -2291,7 +2292,7 @@ CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
             "if (!summary) throw new Error('settings summary missing');"
             "const text = document.body.innerText || summary.textContent || '';"
             "if (!/Widget usefulness/.test(text)) throw new Error('settings usefulness title missing');"
-            "if (!/pins|findings|layout/.test(text)) throw new Error('settings usefulness metrics missing');"
+            "if (!/pins|proposals|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
         ),
     ),
 ]

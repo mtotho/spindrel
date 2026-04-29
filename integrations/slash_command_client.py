@@ -31,6 +31,14 @@ class SlashCommandExecution:
         )
 
 
+@dataclass(frozen=True)
+class SlashCommandAskTarget:
+    bot_id: str
+    label: str
+    is_primary: bool = False
+    is_member: bool = False
+
+
 class SlashCommandClientError(RuntimeError):
     """Raised when the slash-command host rejects or fails a command."""
 
@@ -54,6 +62,16 @@ class SlashCommandClient:
             return {}
         return {"Authorization": f"Bearer {self.api_key}"}
 
+    async def _get_json(self, path: str, *, timeout: float = 10.0) -> Any:
+        response = await self._http.get(
+            f"{self.base_url}{path}",
+            headers=self._headers(),
+            timeout=timeout,
+        )
+        if response.status_code >= 400:
+            raise SlashCommandClientError(_response_error(response))
+        return response.json()
+
     async def ensure_channel(self, *, client_id: str, bot_id: str) -> dict[str, Any]:
         response = await self._http.post(
             f"{self.base_url}/api/v1/channels",
@@ -64,6 +82,76 @@ class SlashCommandClient:
         if response.status_code >= 400:
             raise SlashCommandClientError(_response_error(response))
         return dict(response.json())
+
+    async def list_channel_ask_targets(
+        self,
+        *,
+        client_id: str,
+        bot_id: str,
+    ) -> list[SlashCommandAskTarget]:
+        """Return the bots that can be actively addressed in this channel.
+
+        The web UI lets any configured bot be added as a channel member. Active
+        routing is narrower: the target set is the channel's primary bot plus
+        configured member bots.
+        """
+        channel = await self.ensure_channel(client_id=client_id, bot_id=bot_id)
+        channel_id = channel.get("id")
+        if not channel_id:
+            raise SlashCommandClientError("Server did not return a channel id.")
+
+        full_channel = await self._get_json(f"/api/v1/channels/{channel_id}")
+        if isinstance(full_channel, dict):
+            channel = full_channel
+
+        bot_labels = await self._bot_labels()
+        primary_bot_id = str(channel.get("bot_id") or bot_id)
+        targets: list[SlashCommandAskTarget] = [
+            SlashCommandAskTarget(
+                bot_id=primary_bot_id,
+                label=bot_labels.get(primary_bot_id) or primary_bot_id,
+                is_primary=True,
+            )
+        ]
+        seen = {primary_bot_id}
+
+        for member in channel.get("member_bots") or []:
+            if not isinstance(member, dict):
+                continue
+            member_bot_id = str(member.get("bot_id") or "")
+            if not member_bot_id or member_bot_id in seen:
+                continue
+            targets.append(
+                SlashCommandAskTarget(
+                    bot_id=member_bot_id,
+                    label=str(
+                        member.get("bot_name")
+                        or bot_labels.get(member_bot_id)
+                        or member_bot_id
+                    ),
+                    is_member=True,
+                )
+            )
+            seen.add(member_bot_id)
+
+        return targets
+
+    async def _bot_labels(self) -> dict[str, str]:
+        try:
+            bots_payload = await self._get_json("/bots")
+        except Exception:
+            return {}
+        if not isinstance(bots_payload, list):
+            return {}
+        labels: dict[str, str] = {}
+        for bot in bots_payload:
+            if not isinstance(bot, dict):
+                continue
+            bot_id = str(bot.get("id") or "")
+            if not bot_id:
+                continue
+            labels[bot_id] = str(bot.get("name") or bot_id)
+        return labels
 
     async def execute(
         self,
@@ -114,6 +202,38 @@ class SlashCommandClient:
             current_session_id=current_session_id,
             args=args,
         )
+
+
+def resolve_ask_target(
+    targets: list[SlashCommandAskTarget],
+    raw_target: str,
+) -> SlashCommandAskTarget | None:
+    target = raw_target.strip().lower()
+    if not target:
+        return None
+    for candidate in targets:
+        if candidate.bot_id.lower() == target or candidate.label.lower() == target:
+            return candidate
+    return None
+
+
+def format_ask_target_options(
+    targets: list[SlashCommandAskTarget],
+    *,
+    command: str = "/ask",
+) -> str:
+    if not targets:
+        return "No bot targets are configured for this channel."
+
+    lines = [
+        f"Usage: `{command} <bot-id> <message>`",
+        "",
+        "Available in this channel:",
+    ]
+    for target in targets:
+        role = "primary" if target.is_primary else "member"
+        lines.append(f"  `{target.bot_id}` - {target.label} ({role})")
+    return "\n".join(lines)
 
 
 def _response_error(response: httpx.Response) -> str:

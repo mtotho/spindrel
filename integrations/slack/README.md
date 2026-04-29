@@ -26,11 +26,11 @@ Register these in your Slack app's slash command config.
 |---------|-------------|
 | `/bot [bot-id]` | Show or switch the active bot for this channel |
 | `/bots` | List all available bots |
-| `/ask <bot-id> <message>` | Send a one-off message to a specific bot |
+| `/ask <bot-id> <message>` | Send a one-off message to the primary bot or a configured member bot |
 | `/model [model\|list\|clear]` | View, set, or clear the model override |
 | `/context [contents]` | Show context breakdown or dump full context |
 | `/compact` | Force context compaction |
-| `/todos [done]` | Show pending or completed todos |
+| `/todos [done]` | Retired; use the channel Todo widget in Spindrel |
 | `/health` | Server health check |
 | `/audit [#channel\|off]` | Set or clear the audit channel for tool call logging |
 

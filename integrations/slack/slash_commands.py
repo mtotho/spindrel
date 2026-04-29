@@ -1,6 +1,7 @@
 """Slash commands: /bot, /bots, /ask, /context, /compact, /todos, /health."""
 
 import asyncio
+import json
 import logging
 import sys
 from pathlib import Path
@@ -13,14 +14,19 @@ from agent_client import (
     ensure_channel,
     fetch_server_health,
     fetch_session_context_contents,
-    fetch_todos,
     get_channel_session_id,
     list_bots,
     list_models,
     submit_chat,
 )
 from formatting import format_last_active, split_for_slack
-from integrations.slash_command_client import SlashCommandClient, SlashCommandClientError
+from integrations.slash_command_client import (
+    SlashCommandAskTarget,
+    SlashCommandClient,
+    SlashCommandClientError,
+    format_ask_target_options,
+    resolve_ask_target,
+)
 from message_handlers import _resolve_slack_display_name
 from session_helpers import slack_client_id
 from slack_settings import AGENT_BASE_URL, API_KEY, BOT_TOKEN, get_bot_display_info
@@ -56,6 +62,96 @@ async def _respond_backend_command(
     text = result.fallback_text or "(no result)"
     for chunk in split_for_slack(text, limit=3000):
         await respond(chunk)
+
+
+async def _ask_targets_for_channel(channel: str, bot_id: str) -> list[SlashCommandAskTarget]:
+    return await _slash_client.list_channel_ask_targets(
+        client_id=slack_client_id(channel),
+        bot_id=bot_id,
+    )
+
+
+def _plain_text(text: str, *, limit: int = 75) -> str:
+    return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
+
+
+def _ask_modal_view(channel: str, user: str, targets: list[SlashCommandAskTarget]) -> dict:
+    return {
+        "type": "modal",
+        "callback_id": "spindrel_ask_bot",
+        "title": {"type": "plain_text", "text": "Ask bot"},
+        "submit": {"type": "plain_text", "text": "Send"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "private_metadata": json.dumps({"channel": channel, "user": user}),
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": "target",
+                "label": {"type": "plain_text", "text": "Bot"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "bot_id",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": _plain_text(
+                                    f"{target.label} ({'primary' if target.is_primary else 'member'})"
+                                ),
+                            },
+                            "value": str(index),
+                        }
+                        for index, target in enumerate(targets)
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "message",
+                "label": {"type": "plain_text", "text": "Message"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "text",
+                    "multiline": True,
+                },
+            },
+        ],
+    }
+
+
+async def _submit_slack_ask(
+    *,
+    client,
+    channel: str,
+    user: str,
+    target: SlashCommandAskTarget,
+    message: str,
+) -> None:
+    sender_display_name = await _resolve_slack_display_name(client, user)
+    msg_metadata = {
+        "passive": False,
+        "source": "slack",
+        "sender_type": "human",
+        "sender_id": f"slack:{user}",
+        "sender_display_name": sender_display_name,
+        "channel_external_id": channel,
+        "mention_token": f"<@{user}>",
+        "recipient_id": f"bot:{target.bot_id}",
+        "trigger_rag": True,
+    }
+    dispatch_config = {
+        "channel_id": channel,
+        "thread_ts": None,
+        "token": BOT_TOKEN,
+    }
+    await submit_chat(
+        message=message,
+        bot_id=target.bot_id,
+        client_id=slack_client_id(channel),
+        dispatch_type="slack",
+        dispatch_config=dispatch_config,
+        msg_metadata=msg_metadata,
+    )
 
 
 def register_slash_commands(app):
@@ -97,90 +193,132 @@ def register_slash_commands(app):
 
     @app.command("/ask")
     async def cmd_ask(ack, command, client, respond):
-        """Route a message to a specific bot: /ask <bot-id> <message>"""
+        """Route a message to a channel participant: /ask <bot-id> <message>"""
         await ack()
         channel = command.get("channel_id") or ""
         user = command.get("user_id") or "unknown"
         text = (command.get("text") or "").strip()
+        state = get_channel_state(channel)
+
+        try:
+            targets = await _ask_targets_for_channel(channel, state["bot_id"])
+        except SlashCommandClientError as exc:
+            await respond(f"Error: {exc}")
+            return
 
         if not text:
-            bots_list = await list_bots()
-            lines = ["Usage: `/ask <bot-id> <message>`", "", "*Available bots:*"]
-            lines += [f"  `{b['id']}` — {b['name']}" for b in bots_list]
-            await respond("\n".join(lines))
+            trigger_id = command.get("trigger_id")
+            if trigger_id:
+                try:
+                    await client.views_open(
+                        trigger_id=trigger_id,
+                        view=_ask_modal_view(channel, user, targets),
+                    )
+                    return
+                except Exception:
+                    logger.exception("Failed to open Slack /ask modal for channel %s", channel)
+            await respond(format_ask_target_options(targets, command="/ask"))
             return
 
         parts = text.split(None, 1)
         if len(parts) < 2:
-            await respond("Usage: `/ask <bot-id> <message>`\nExample: `/ask calculator-bot what is 2+2?`")
+            await respond(format_ask_target_options(targets, command="/ask"))
             return
 
-        target_bot_id = parts[0].lower()
+        target = resolve_ask_target(targets, parts[0])
         message = parts[1].strip()
 
         if not message:
             await respond("Please provide a message after the bot ID.")
             return
 
-        try:
-            bots_list = await list_bots()
-            valid = {b["id"] for b in bots_list}
-        except Exception:
-            valid = set()
-
-        if target_bot_id not in valid:
+        if not target:
             await respond(
-                f"Unknown bot `{target_bot_id}`.\n"
-                f"Available: {', '.join(f'`{b}`' for b in sorted(valid))}"
+                f"Unknown bot `{parts[0]}` for this channel.\n"
+                f"{format_ask_target_options(targets, command='/ask')}"
             )
             return
 
-        client_id = slack_client_id(channel)
-
-        _sender_display_name = await _resolve_slack_display_name(client, user)
-
-        # Ingest contract: content = raw text; identity in metadata.
-        msg_metadata = {
-            "passive": False,
-            "source": "slack",
-            "sender_type": "human",
-            "sender_id": f"slack:{user}",
-            "sender_display_name": _sender_display_name,
-            "channel_external_id": channel,
-            "mention_token": f"<@{user}>",
-            "recipient_id": f"bot:{target_bot_id}",
-            "trigger_rag": True,
-        }
-
-        full_message = message
-
-        dispatch_config = {
-            "channel_id": channel,
-            "thread_ts": None,
-            "token": BOT_TOKEN,
-        }
-
-        # Phase F: enqueue the turn on the server (POST /chat → 202) and
-        # let the main-process SlackRenderer drive delivery via the bus.
-        # The renderer posts its own "thinking..." placeholder on
-        # TURN_STARTED and updates it with streaming tokens + the final
-        # reply — this subprocess no longer touches chat.update itself.
-        # Mirrors the inbound-message path in message_handlers.py.
         try:
-            await submit_chat(
-                message=full_message,
-                bot_id=target_bot_id,
-                client_id=client_id,
-                dispatch_type="slack",
-                dispatch_config=dispatch_config,
-                msg_metadata=msg_metadata,
+            await _submit_slack_ask(
+                client=client,
+                channel=channel,
+                user=user,
+                target=target,
+                message=message,
             )
+            await respond(f"Queued request for `{target.bot_id}`.")
         except Exception as e:
             logger.exception("submit_chat failed for /ask in channel %s", channel)
             try:
                 await client.chat_postMessage(
                     channel=channel,
                     text=f"_Failed to enqueue request: {str(e)[:200]}_",
+                )
+            except Exception:
+                pass
+
+    @app.view("spindrel_ask_bot")
+    async def handle_ask_modal(ack, body, client, view):
+        values = view.get("state", {}).get("values", {})
+        selected = (
+            values.get("target", {})
+            .get("bot_id", {})
+            .get("selected_option", {})
+            .get("value")
+        )
+        message = (
+            values.get("message", {})
+            .get("text", {})
+            .get("value")
+            or ""
+        ).strip()
+        if not message:
+            await ack(response_action="errors", errors={"message": "Message is required."})
+            return
+        await ack()
+
+        metadata = {}
+        try:
+            metadata = json.loads(view.get("private_metadata") or "{}")
+        except Exception:
+            pass
+        channel = str(metadata.get("channel") or "")
+        user = str(metadata.get("user") or body.get("user", {}).get("id") or "unknown")
+        if not channel or not selected:
+            return
+
+        state = get_channel_state(channel)
+        try:
+            targets = await _ask_targets_for_channel(channel, state["bot_id"])
+            selected_index = int(selected) if selected.isdigit() else -1
+            target = targets[selected_index] if 0 <= selected_index < len(targets) else None
+            if not target:
+                await client.chat_postEphemeral(
+                    channel=channel,
+                    user=user,
+                    text=f"`{selected}` is not a bot target in this channel.",
+                )
+                return
+            await _submit_slack_ask(
+                client=client,
+                channel=channel,
+                user=user,
+                target=target,
+                message=message,
+            )
+            await client.chat_postEphemeral(
+                channel=channel,
+                user=user,
+                text=f"Queued request for `{target.bot_id}`.",
+            )
+        except Exception as exc:
+            logger.exception("Slack /ask modal submit failed for channel %s", channel)
+            try:
+                await client.chat_postEphemeral(
+                    channel=channel,
+                    user=user,
+                    text=f"Failed to enqueue request: {str(exc)[:200]}",
                 )
             except Exception:
                 pass
@@ -255,53 +393,9 @@ def register_slash_commands(app):
 
     @app.command("/todos")
     async def cmd_todos(ack, command, respond):
-        """Show pending todos for the current channel/bot. `/todos done` shows completed."""
+        """Deprecated legacy todo command."""
         await ack()
-        channel = command.get("channel_id") or ""
-        state = get_channel_state(channel)
-        bot_id = state["bot_id"]
-        arg = (command.get("text") or "").strip().lower()
-
-        # We need the server-side channel UUID, not the Slack channel ID.
-        client_id = slack_client_id(channel)
-        ch_data = await ensure_channel(client_id, bot_id)
-        if not ch_data or not ch_data.get("id"):
-            await respond("No channel registered yet. Send a message first.")
-            return
-        channel_uuid = ch_data["id"]
-
-        status = "done" if arg == "done" else "pending"
-        try:
-            todos = await fetch_todos(bot_id, channel_uuid, status=status)
-        except Exception as e:
-            await respond(f"Error fetching todos: {e}")
-            return
-
-        if not todos:
-            label = "completed" if status == "done" else "pending"
-            await respond(f"No {label} todos for `{bot_id}` in this channel.")
-            return
-
-        # Group by priority (descending).
-        groups: dict[int, list[dict]] = {}
-        for t in todos:
-            p = t.get("priority", 0)
-            groups.setdefault(p, []).append(t)
-
-        lines: list[str] = []
-        heading = "Recently Completed" if status == "done" else "Pending Todos"
-        lines.append(f"*{heading}* — `{bot_id}`")
-
-        for priority in sorted(groups.keys(), reverse=True):
-            if priority > 0:
-                lines.append(f"\n*Priority {priority}*")
-            elif len(groups) > 1:
-                lines.append("\n*Normal*")
-            for t in groups[priority]:
-                icon = "✓" if t["status"] == "done" else "○"
-                lines.append(f"  {icon} {t['content']}")
-
-        await respond("\n".join(lines))
+        await respond("`/todos` is retired. Use the channel Todo widget in Spindrel instead.")
 
     @app.command("/health")
     async def cmd_status(ack, command, respond):
