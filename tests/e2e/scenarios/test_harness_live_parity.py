@@ -588,6 +588,69 @@ async def test_live_harness_safe_workspace_write_read_delete(
         _assert_clean_turn(cleanup)
 
 
+@pytest.mark.asyncio
+async def test_live_claude_harness_default_mode_write_approval_resume(
+    client: E2EClient,
+) -> None:
+    _requires_tier("writes")
+    case = HARNESSES[1]
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    marker = uuid.uuid4().hex
+    rel_path = f".spindrel-harness-parity/claude-approval-{marker}.txt"
+    exact_content = f"spindrel harness approval {marker}"
+
+    try:
+        approval_mode = await client.set_session_approval_mode(session_id, "default")
+        assert approval_mode["mode"] == "default"
+
+        result = await client.chat_session_stream(
+            (
+                f"Create or overwrite the relative file {rel_path!r} with exactly "
+                f"{exact_content!r}. Then read it back and report only the exact file content. "
+                "Do not edit anything else."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+            approval_decision={
+                "approved": True,
+                "decided_by": "e2e_harness_parity",
+                "bypass_rest_of_turn": True,
+            },
+        )
+        _assert_clean_turn(result)
+        assert marker in result.response_text
+        assert any(event.type == "approval_request" for event in result.events), (
+            "Claude default mode write did not request harness approval"
+        )
+        assert any(
+            event.type == "approval_resolved" and event.data.get("decision") == "approved"
+            for event in result.events
+        ), "Claude harness approval did not resolve as approved"
+
+        messages = await client.get_session_messages(session_id, limit=20)
+        assistants = _assistant_messages(messages)
+        assert any(
+            _has_persisted_tool_result_containing(message, exact_content)
+            for message in assistants
+        ), "approved Claude write/read did not persist readable result content"
+    finally:
+        await client.set_session_approval_mode(session_id, "bypassPermissions")
+        cleanup = await client.chat_session_stream(
+            (
+                f"Delete only the relative file {rel_path!r} if it exists. "
+                "Do not delete any other files or directories."
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(cleanup)
+
+
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
 async def test_live_harness_context_pressure_and_native_compact(

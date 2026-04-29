@@ -1,16 +1,42 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import uuid
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import EffectiveTools
+from app.services.agent_harnesses.approvals import AllowDeny
+from app.services.agent_harnesses.base import TurnContext
 from app.services.agent_harnesses.tools import resolve_harness_bridge_inventory
+from app.services.agent_harnesses import tools as harness_tools
 
 
 class _Db:
     async def get(self, *_args, **_kwargs):
         return None
+
+
+def _turn_ctx(*, mode: str = "default", session_plan_mode: str = "chat") -> TurnContext:
+    @contextlib.asynccontextmanager
+    async def _unexpected_db():
+        raise AssertionError("db should not be opened")
+        yield  # pragma: no cover
+
+    return TurnContext(
+        spindrel_session_id=uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        bot_id="harness-bot",
+        turn_id=uuid.uuid4(),
+        workdir="/tmp",
+        harness_session_id=None,
+        permission_mode=mode,
+        db_session_factory=_unexpected_db,
+        session_plan_mode=session_plan_mode,
+    )
 
 
 def _schema(name: str) -> dict:
@@ -305,3 +331,56 @@ def test_bridge_inventory_reports_missing_memory_baseline_tool():
     assert "search_memory" in inventory.required_baseline_tools
     assert inventory.missing_baseline_tools == ("search_memory",)
     assert "local tools not registered: search_memory" in inventory.errors
+
+
+def test_bridge_accept_edits_only_autoapproves_file_edit_style_ops():
+    edit_runtime = harness_tools._SpindrelBridgeApprovalRuntime(
+        tool_name="file",
+        arguments={"operation": "overwrite"},
+        safety_tier="mutating",
+    )
+    delete_runtime = harness_tools._SpindrelBridgeApprovalRuntime(
+        tool_name="file",
+        arguments={"operation": "delete"},
+        safety_tier="mutating",
+    )
+    control_runtime = harness_tools._SpindrelBridgeApprovalRuntime(
+        tool_name="manage_bot_skill",
+        arguments={"action": "update"},
+        safety_tier="control_plane",
+    )
+
+    assert not edit_runtime.prompts_in_accept_edits("file")
+    assert delete_runtime.prompts_in_accept_edits("file")
+    assert control_runtime.prompts_in_accept_edits("manage_bot_skill")
+
+
+@pytest.mark.asyncio
+async def test_bridge_mutating_tool_requires_harness_approval_before_dispatch(monkeypatch):
+    dispatch = AsyncMock()
+    approvals: list[dict] = []
+
+    async def _deny_approval(**kwargs):
+        approvals.append(kwargs)
+        return AllowDeny.deny("approval required")
+
+    monkeypatch.setattr(harness_tools, "request_harness_approval", _deny_approval)
+    monkeypatch.setattr(harness_tools, "dispatch_tool_call", dispatch)
+    monkeypatch.setattr(
+        "app.tools.registry.get_tool_safety_tier",
+        lambda name: "mutating" if name == "file" else "readonly",
+    )
+
+    result = await harness_tools.execute_harness_spindrel_tool_result(
+        _turn_ctx(mode="default"),
+        tool_name="file",
+        arguments={"operation": "overwrite", "path": "x.txt", "content": "x"},
+        allowed_tool_names={"file"},
+    )
+
+    assert result.is_error
+    assert "approval required" in result.text
+    dispatch.assert_not_awaited()
+    assert approvals
+    assert approvals[0]["tool_name"] == "file"
+    assert approvals[0]["ctx"].permission_mode == "default"

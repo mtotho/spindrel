@@ -8,7 +8,7 @@ centralized.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import logging
 import uuid
@@ -30,6 +30,7 @@ from app.services.agent_harnesses.base import (
     HarnessToolSpec,
     TurnContext,
 )
+from app.services.agent_harnesses.approvals import AllowDeny, request_harness_approval
 from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
@@ -60,6 +61,63 @@ class HarnessSpindrelToolResult:
     surface: str | None = None
     summary: dict[str, Any] | None = None
     is_error: bool = False
+
+
+class _SpindrelBridgeApprovalRuntime:
+    """Harness-approval classifier for host-provided bridge tools.
+
+    Native runtimes classify their own tool names (Claude ``Write``, Codex
+    shell/apply-patch, etc.). Bridge tools need the same mode semantics before
+    they enter Spindrel's normal dispatcher; otherwise a runtime can bypass
+    ``default`` approval mode by choosing ``mcp__spindrel__file`` instead of
+    its native file-write tool.
+    """
+
+    def __init__(self, *, tool_name: str, arguments: dict[str, Any], safety_tier: str) -> None:
+        self._tool_name = tool_name
+        self._arguments = arguments
+        self._safety_tier = safety_tier
+
+    def readonly_tools(self) -> frozenset[str]:
+        if self._safety_tier == "readonly":
+            return frozenset({self._tool_name})
+        return frozenset()
+
+    def prompts_in_accept_edits(self, tool_name: str) -> bool:
+        return not _bridge_accept_edits_autoapproves(
+            tool_name,
+            self._arguments,
+            safety_tier=self._safety_tier,
+        )
+
+    def autoapprove_in_plan(self, tool_name: str) -> bool:
+        return False
+
+
+_FILE_ACCEPT_EDITS_OPS: frozenset[str] = frozenset({
+    "create",
+    "overwrite",
+    "append",
+    "edit",
+    "json_patch",
+    "restore",
+    "mkdir",
+    "move",
+})
+
+
+def _bridge_accept_edits_autoapproves(
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    safety_tier: str,
+) -> bool:
+    if safety_tier == "readonly":
+        return True
+    if tool_name != "file":
+        return False
+    operation = str(arguments.get("operation") or "").strip()
+    return operation in _FILE_ACCEPT_EDITS_OPS
 
 
 async def apply_tool_bridge(
@@ -451,6 +509,16 @@ async def execute_harness_spindrel_tool_result(
     """Execute one bridged Spindrel tool and keep its UI presentation data."""
     if allowed_tool_names is None:
         raise ValueError("allowed_tool_names is required for harness bridge tool execution")
+    approval = await _request_bridge_tool_approval(
+        ctx,
+        tool_name=tool_name,
+        arguments=arguments or {},
+    )
+    if not approval.allow:
+        return HarnessSpindrelToolResult(
+            text=f"Tool call denied or expired: {approval.reason or 'denied'}",
+            is_error=True,
+        )
     bot = get_bot(ctx.bot_id)
     args = json.dumps(arguments or {})
     tool_call_id = f"harness-spindrel:{uuid.uuid4()}"
@@ -536,4 +604,30 @@ async def execute_harness_spindrel_tool_result(
         surface=event.get("surface") if isinstance(event.get("surface"), str) else None,
         summary=summary if isinstance(summary, dict) else None,
         is_error=bool(event.get("error")),
+    )
+
+
+async def _request_bridge_tool_approval(
+    ctx: TurnContext,
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> AllowDeny:
+    from app.tools.registry import get_tool_safety_tier
+
+    permission_mode = "plan" if ctx.session_plan_mode == "planning" else ctx.permission_mode
+    approval_ctx = ctx if permission_mode == ctx.permission_mode else replace(
+        ctx,
+        permission_mode=permission_mode,
+    )
+    runtime = _SpindrelBridgeApprovalRuntime(
+        tool_name=tool_name,
+        arguments=arguments,
+        safety_tier=get_tool_safety_tier(tool_name),
+    )
+    return await request_harness_approval(
+        ctx=approval_ctx,
+        runtime=runtime,
+        tool_name=tool_name,
+        tool_input=arguments,
     )

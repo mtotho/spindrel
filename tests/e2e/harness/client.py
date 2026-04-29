@@ -130,6 +130,7 @@ class E2EClient:
         bot_id: str | None = None,
         timeout: float | None = None,
         harness_question_answer: dict[str, Any] | None = None,
+        approval_decision: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> StreamResult:
         """Send a chat turn to a detached session and consume its channel bus.
@@ -150,6 +151,7 @@ class E2EClient:
             event_channel_id=channel_id,
             session_id=session_id,
             harness_question_answer=harness_question_answer,
+            approval_decision=approval_decision,
             **kwargs,
         )
 
@@ -172,6 +174,7 @@ class E2EClient:
         timeout: float | None = None,
         event_channel_id: str | None = None,
         harness_question_answer: dict[str, Any] | None = None,
+        approval_decision: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """POST /chat, then tail the channel-events bus until TURN_ENDED.
@@ -240,6 +243,7 @@ class E2EClient:
         final_client_actions: list[dict] = []
         final_raw: dict = body
         answered_harness_questions: set[str] = set()
+        decided_approvals: set[str] = set()
 
         sse_url = f"/api/v1/channels/{chan_id}/events"
         sse_params = {"since": "0"}
@@ -309,6 +313,12 @@ class E2EClient:
                             }))
                         elif kind == "approval_requested":
                             legacy_events.append(("approval_request", dict(epayload)))
+                            await self._maybe_decide_approval(
+                                epayload,
+                                session_id=session_id,
+                                decision=approval_decision,
+                                decided=decided_approvals,
+                            )
                         elif kind == "approval_resolved":
                             legacy_events.append(("approval_resolved", dict(epayload)))
                         elif kind == "context_budget":
@@ -446,6 +456,33 @@ class E2EClient:
         )
         resp.raise_for_status()
         answered.add(interaction_id)
+
+    async def _maybe_decide_approval(
+        self,
+        event_payload: dict[str, Any],
+        *,
+        session_id: str,
+        decision: dict[str, Any] | None,
+        decided: set[str],
+    ) -> None:
+        if not decision:
+            return
+        if str(event_payload.get("session_id") or "") != str(session_id):
+            return
+        approval_id = str(event_payload.get("approval_id") or "").strip()
+        if not approval_id or approval_id in decided:
+            return
+        payload = {
+            "approved": bool(decision.get("approved", True)),
+            "decided_by": str(decision.get("decided_by") or "e2e_harness_parity"),
+            "bypass_rest_of_turn": bool(decision.get("bypass_rest_of_turn", False)),
+        }
+        resp = await self._client.post(
+            f"/api/v1/approvals/{approval_id}/decide",
+            json=payload,
+        )
+        resp.raise_for_status()
+        decided.add(approval_id)
 
     # -- Admin/utility endpoints --
 
