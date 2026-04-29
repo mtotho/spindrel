@@ -10,12 +10,26 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface FileTreePanelProps {
   workspaceId: string;
+  rootPath?: string;
+  rootLabel?: string;
   mobile?: boolean;
   indexedPaths?: Set<string>;
 }
 
-export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePanelProps) {
+function normalizeRootPath(path: string | null | undefined): string {
+  const stripped = (path ?? "").replace(/^\/+|\/+$/g, "");
+  return stripped ? `/${stripped}` : "/";
+}
+
+function joinRoot(rootPath: string, name: string): string {
+  const root = rootPath.replace(/^\/+|\/+$/g, "");
+  return [root, name].filter(Boolean).join("/");
+}
+
+export function FileTreePanel({ workspaceId, rootPath, rootLabel = "Explorer", mobile, indexedPaths }: FileTreePanelProps) {
   const t = useThemeTokens();
+  const normalizedRootPath = normalizeRootPath(rootPath);
+  const normalizedRootRelative = normalizedRootPath === "/" ? "" : normalizedRootPath.replace(/^\/+/, "");
   const treeWidth = useFileBrowserStore((s) => s.treeWidth);
   const setTreeWidth = useFileBrowserStore((s) => s.setTreeWidth);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
@@ -49,12 +63,13 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
     const type = creatingAtRoot?.type;
     setCreatingAtRoot(null);
     if (!name || !type) return;
+    const path = joinRoot(normalizedRootPath, name);
     if (type === "folder") {
-      mkdirMutation.mutate(name);
+      mkdirMutation.mutate(path);
     } else {
-      writeMutation.mutate({ path: name, content: "" });
+      writeMutation.mutate({ path, content: "" });
     }
-  }, [createName, creatingAtRoot, mkdirMutation, writeMutation]);
+  }, [createName, creatingAtRoot, mkdirMutation, normalizedRootPath, writeMutation]);
 
   const handleCreateKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -66,7 +81,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
     }
   }, [commitRootCreate]);
 
-  const { data, isLoading } = useWorkspaceFiles(workspaceId, "/");
+  const { data, isLoading } = useWorkspaceFiles(workspaceId, normalizedRootPath);
 
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -115,7 +130,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
       >
         <Folder size={14} color={t.textDim} />
         <span style={{ fontSize: 11, color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
-          Explorer
+          {rootLabel}
         </span>
       </div>
 
@@ -174,7 +189,8 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
           const srcPath = e.dataTransfer.getData("text/plain");
           if (!srcPath) return;
           // Don't move if already at root level (no directory separator beyond first segment)
-          if (!srcPath.includes("/")) return;
+          const srcParent = srcPath.includes("/") ? srcPath.substring(0, srcPath.lastIndexOf("/")) : "";
+          if (srcParent === normalizedRootRelative) return;
           const srcName = srcPath.split("/").pop() || srcPath;
           setPendingRootMove({ src: srcPath, srcName });
         }}
@@ -226,7 +242,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
               </div>
             )}
             {sortedEntries.length === 0 && !creatingAtRoot ? (
-              <div style={{ padding: 16, color: t.textDim, fontSize: 12 }}>Empty workspace</div>
+              <div style={{ padding: 16, color: t.textDim, fontSize: 12 }}>Empty {rootLabel.toLowerCase()}</div>
             ) : (
               sortedEntries.map((entry) => (
                 <FileTreeNode
@@ -257,13 +273,13 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
       <ConfirmDialog
         open={pendingRootMove !== null}
         title="Move File"
-        message={pendingRootMove ? `Move "${pendingRootMove.srcName}" to root?` : ""}
+        message={pendingRootMove ? `Move "${pendingRootMove.srcName}" to ${rootLabel.toLowerCase()} root?` : ""}
         confirmLabel="Move"
         variant="default"
         onConfirm={() => {
           if (pendingRootMove) {
             const src = pendingRootMove.src;
-            moveMutation.mutate({ src, dst: "/" }, {
+            moveMutation.mutate({ src, dst: normalizedRootPath }, {
               onSuccess: () => { closeFile(src, "left"); closeFile(src, "right"); },
             });
           }

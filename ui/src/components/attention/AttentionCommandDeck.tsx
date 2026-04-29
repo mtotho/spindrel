@@ -49,8 +49,10 @@ interface AttentionCommandDeckProps {
   selectedId: string | null;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
   initialMode?: DeckMode | null;
+  selectedRunId?: string | null;
   channelId?: string | null;
   onModeChange?: (mode: DeckMode) => void;
+  onRunSelect?: (runId: string | null) => void;
   onReply?: (item: WorkspaceAttentionItem) => void;
 }
 
@@ -105,7 +107,17 @@ function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentio
   return [...buckets.triage, ...buckets.review];
 }
 
-export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode, channelId, onModeChange, onReply }: AttentionCommandDeckProps) {
+export function AttentionCommandDeck({
+  items,
+  selectedId,
+  onSelect,
+  initialMode,
+  selectedRunId,
+  channelId,
+  onModeChange,
+  onRunSelect,
+  onReply,
+}: AttentionCommandDeckProps) {
   const [mode, setModeState] = useState<DeckMode>(() => initialMode ?? "review");
   const [notice, setNotice] = useState<string | null>(null);
   const [runModePinned, setRunModePinned] = useState(false);
@@ -137,7 +149,10 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
   };
 
   useEffect(() => {
-    if (initialMode) setModeState(initialMode);
+    if (initialMode) {
+      setModeState(initialMode);
+      setRunModePinned(initialMode === "runs");
+    }
   }, [initialMode]);
 
   useEffect(() => {
@@ -178,13 +193,57 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
     setDeckMode("runs");
     setSweepStarting(true);
     startTriage.mutate({}, {
-      onSuccess: () => setNotice("Operator sweep started. Review will update when the run reports back."),
+      onSuccess: (run) => {
+        onRunSelect?.(run.task_id);
+        setNotice("Operator sweep started. Stay on the run log while findings arrive.");
+      },
       onError: (error) => {
         setSweepStarting(false);
         setNotice(error instanceof Error ? error.message : "Operator sweep could not start.");
       },
     });
   };
+
+  const whatNow = (() => {
+    if (sweepBusy) {
+      return {
+        eyebrow: "Operator running",
+        title: "Watch the active sweep",
+        detail: "Raw signals are being classified into findings or cleared receipts.",
+        action: "View run log",
+        icon: <Loader2 size={15} className="animate-spin" />,
+        onClick: () => setDeckMode("runs"),
+      };
+    }
+    if (counts.review > 0) {
+      return {
+        eyebrow: "Best next click",
+        title: "Review the first Operator finding",
+        detail: `${counts.review} finding${counts.review === 1 ? "" : "s"} already classified and waiting for a decision.`,
+        action: "Review first finding",
+        icon: <Sparkles size={15} />,
+        onClick: () => setDeckMode("review"),
+      };
+    }
+    if (counts.inbox > 0) {
+      return {
+        eyebrow: "Raw signals waiting",
+        title: "Run Operator sweep",
+        detail: `${counts.inbox} raw signal${counts.inbox === 1 ? "" : "s"} can be classified before you review them manually.`,
+        action: "Start sweep",
+        icon: <Sparkles size={15} />,
+        onClick: startSweep,
+      };
+    }
+    return {
+      eyebrow: "No active review",
+      title: "Check cleared receipts",
+      detail: `${counts.cleared + counts.closed} cleared item${counts.cleared + counts.closed === 1 ? "" : "s"} are available for audit.`,
+      action: "View cleared",
+      icon: <Archive size={15} />,
+      onClick: () => setDeckMode("cleared"),
+    };
+  })();
 
   return (
     <div className="flex h-full min-h-0 flex-col text-text">
@@ -224,13 +283,27 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
             {notice}
           </div>
         )}
-        <div className="mt-3" data-testid="attention-command-deck-what-now">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Recommended</div>
-          <div className="grid gap-2 sm:grid-cols-4">
-            <WhatNowButton active={mode === "review"} label="Review first finding" count={counts.review} detail="Operator already classified these." onClick={() => setDeckMode("review")} />
-            <WhatNowButton active={mode === "inbox"} label="Sweep raw signals" count={counts.inbox} detail={counts.inbox ? "Starts Operator on the raw queue." : "No raw signals waiting."} onClick={counts.inbox ? startSweep : () => setDeckMode("inbox")} />
-            <WhatNowButton active={mode === "runs"} label="View sweep status" count={runs.length} detail={sweepBusy ? "Operator is running now." : `${counts.running} item${counts.running === 1 ? "" : "s"} in flight.`} onClick={() => setDeckMode("runs")} />
-            <WhatNowButton active={mode === "cleared"} label="All clear" count={counts.cleared + counts.closed} detail="Receipts and resolved noise." onClick={() => setDeckMode("cleared")} />
+        <div className="mt-3 rounded-md bg-surface-overlay/35 px-3 py-3" data-testid="attention-command-deck-what-now">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">{whatNow.eyebrow}</div>
+              <div className="mt-1 text-sm font-medium text-text">{whatNow.title}</div>
+              <div className="mt-1 text-xs leading-5 text-text-muted">{whatNow.detail}</div>
+            </div>
+            <button
+              type="button"
+              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12]"
+              onClick={whatNow.onClick}
+            >
+              {whatNow.icon}
+              {whatNow.action}
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+            <QueueChip active={mode === "review"} label="Findings" count={counts.review} onClick={() => setDeckMode("review")} />
+            <QueueChip active={mode === "inbox"} label="Raw" count={counts.inbox} onClick={() => setDeckMode("inbox")} />
+            <QueueChip active={mode === "runs"} label="Runs" count={runs.length || counts.running} onClick={() => setDeckMode("runs")} />
+            <QueueChip active={mode === "cleared"} label="Cleared" count={counts.cleared + counts.closed} onClick={() => setDeckMode("cleared")} />
           </div>
         </div>
       </div>
@@ -249,33 +322,30 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
         />
         <main className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 lg:border-l lg:border-t-0">
           {mode === "runs" ? (
-            <RunLogWorkspace pending={sweepBusy} runs={runs} />
+            <RunLogWorkspace pending={sweepBusy} runs={runs} selectedRunId={selectedRunId} onRunSelect={onRunSelect} />
           ) : displayItem ? (
             <DeckItemDetail item={displayItem} onReply={onReply} />
           ) : (
             <EmptyDeckState mode={mode} />
           )}
         </main>
-        <DeckSideRail runs={runs} buckets={buckets} onModeChange={setDeckMode} onSelect={onSelect} />
+        <DeckSideRail runs={runs} buckets={buckets} onModeChange={setDeckMode} onRunSelect={onRunSelect} onSelect={onSelect} />
       </div>
     </div>
   );
 }
 
-function WhatNowButton({ active, label, count, detail, onClick }: { active: boolean; label: string; count: number; detail: string; onClick: () => void }) {
+function QueueChip({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
   return (
     <button
       type="button"
-      className={`min-h-16 rounded-md px-3 py-2 text-left transition-colors ${
-        active ? "bg-accent/[0.08] text-text" : "bg-surface-overlay/30 text-text-muted hover:bg-surface-overlay/55 hover:text-text"
+      className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 transition-colors ${
+        active ? "bg-accent/[0.08] text-accent" : "bg-surface-raised/50 text-text-muted hover:bg-surface-overlay/60 hover:text-text"
       }`}
       onClick={onClick}
     >
-      <span className="flex items-center justify-between gap-2 text-sm font-medium">
-        <span>{label}</span>
-        <span className={active ? "text-accent" : "text-text"}>{count}</span>
-      </span>
-      <span className="mt-1 block text-xs leading-5 text-text-dim">{detail}</span>
+      <span>{label}</span>
+      <span className="text-[11px] text-text-dim">{count}</span>
     </button>
   );
 }
@@ -520,9 +590,24 @@ function SendToBotDisclosure({ item }: { item: WorkspaceAttentionItem }) {
   );
 }
 
-function RunLogWorkspace({ pending, runs }: { pending: boolean; runs: AttentionTriageRunResponse[] }) {
+function RunLogWorkspace({
+  pending,
+  runs,
+  selectedRunId,
+  onRunSelect,
+}: {
+  pending: boolean;
+  runs: AttentionTriageRunResponse[];
+  selectedRunId?: string | null;
+  onRunSelect?: (runId: string | null) => void;
+}) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const selectedRun = runs.find((run) => run.task_id === selectedTaskId) ?? runs[0] ?? null;
+  const activeRunId = selectedRunId ?? selectedTaskId;
+  const selectedRun = runs.find((run) => run.task_id === activeRunId) ?? runs[0] ?? null;
+  const selectRun = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    onRunSelect?.(taskId);
+  };
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -552,7 +637,7 @@ function RunLogWorkspace({ pending, runs }: { pending: boolean; runs: AttentionT
               className={`block w-full rounded-md px-3 py-2 text-left text-sm ${
                 selectedRun?.task_id === run.task_id ? "bg-accent/[0.08] text-text" : "text-text-muted hover:bg-surface-overlay/55 hover:text-text"
               }`}
-              onClick={() => setSelectedTaskId(run.task_id)}
+              onClick={() => selectRun(run.task_id)}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate font-medium">{formatRunTime(run.created_at)}</span>
@@ -679,11 +764,13 @@ function DeckSideRail({
   runs,
   buckets,
   onModeChange,
+  onRunSelect,
   onSelect,
 }: {
   runs: AttentionTriageRunResponse[];
   buckets: AttentionBuckets;
   onModeChange: (mode: DeckMode) => void;
+  onRunSelect?: (runId: string | null) => void;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
 }) {
   const latest = runs[0] ?? null;
@@ -719,7 +806,14 @@ function DeckSideRail({
             <div className="mt-1 text-xs text-text-muted">
               {latest.item_count} items · {latest.counts?.ready_for_review ?? 0} review · {latest.counts?.processed ?? 0} cleared
             </div>
-            <button type="button" className="mt-3 rounded-md px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.08]" onClick={() => onModeChange("runs")}>
+            <button
+              type="button"
+              className="mt-3 rounded-md px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.08]"
+              onClick={() => {
+                onModeChange("runs");
+                onRunSelect?.(latest.task_id);
+              }}
+            >
               Open run log
             </button>
           </>

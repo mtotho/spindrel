@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig
@@ -156,3 +158,119 @@ async def test_plan_mode_structured_question_card_synthesizes_tool_call():
     assert "Quality readiness questions" in call["function"]["arguments"]
     assert state.messages[-1]["content"] == ""
     assert state.messages[-1]["tool_calls"] == msg.tool_calls
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_publish_validation_error_retries_repaired_tool_call():
+    async def _fail_no_tool(**kwargs):
+        raise AssertionError("publish_plan validation recovery should continue to tool iteration")
+        yield {}
+
+    prior_args = {
+        "title": "Native Spindrel Plan Parity",
+        "summary": "Verify native Spindrel plan mode can publish and render a plan artifact.",
+        "scope": "Live E2E diagnostics only; do not modify repository files.",
+        "key_changes": ["Exercise native plan publication mechanics."],
+        "interfaces": ["No public API or UI interface changes."],
+        "assumptions_and_defaults": ["Live diagnostics can use the dedicated E2E channel."],
+        "acceptance_criteria": ["Plan state has revision 1."],
+        "test_plan": ["Inspect the rendered plan artifact."],
+        "steps": [
+            {"id": "step-1", "label": "Start native plan mode"},
+            {"id": "step-2", "label": "Publish the inline plan artifact"},
+            {"id": "step-3", "label": "Capture docs screenshots"},
+            {"id": "step-4", "label": "Verify"},
+        ],
+    }
+    state = LoopRunState(
+        messages=[
+            {"role": "system", "content": "Plan mode is active. Use publish_plan for structured drafts."},
+            {"role": "user", "content": "Publish a professional native plan."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "tc_publish",
+                    "type": "function",
+                    "function": {
+                        "name": "publish_plan",
+                        "arguments": json.dumps(prior_args),
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "tc_publish",
+                "content": "Step 'step-4' needs a concrete, outcome-oriented action label.",
+            },
+            {
+                "role": "assistant",
+                "content": "I hit a plan validation issue. If you want, I can republish it.",
+            },
+        ],
+        tool_calls_made=["publish_plan"],
+    )
+    msg = AccumulatedMessage(content="I hit a plan validation issue. If you want, I can republish it.")
+
+    outputs, _ = await _collect(
+        accumulated_msg=msg,
+        state=state,
+        tools_param=[{"type": "function", "function": {"name": "publish_plan"}}],
+        handle_no_tool_calls_path_fn=_fail_no_tool,
+    )
+
+    assert outputs == [LoopRecoveryDone(has_tool_calls=True)]
+    assert msg.content == ""
+    assert msg.tool_calls
+    call = msg.tool_calls[0]
+    assert call["function"]["name"] == "publish_plan"
+    repaired_args = json.loads(call["function"]["arguments"])
+    repaired_step = repaired_args["steps"][3]
+    assert repaired_step["id"] == "step-4"
+    assert repaired_step["label"] == "Verify Native Spindrel Plan Parity against acceptance criteria"
+    assert state.messages[-1]["content"] == ""
+    assert state.messages[-1]["tool_calls"] == msg.tool_calls
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_publish_validation_retry_runs_once():
+    state = LoopRunState(
+        messages=[
+            {"role": "system", "content": "Plan mode is active. Use publish_plan for structured drafts."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "tc_publish",
+                    "type": "function",
+                    "function": {
+                        "name": "publish_plan",
+                        "arguments": json.dumps({
+                            "title": "Plan Retry",
+                            "summary": "Retry a failed plan.",
+                            "scope": "Recovery only.",
+                            "steps": [{"id": "step-1", "label": "Verify"}],
+                        }),
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "tc_publish",
+                "content": "Step 'step-1' needs a concrete, outcome-oriented action label.",
+            },
+            {"role": "assistant", "content": "I still cannot publish this."},
+        ],
+        tool_calls_made=["publish_plan", "publish_plan"],
+    )
+
+    outputs, _ = await _collect(
+        accumulated_msg=AccumulatedMessage(content="I still cannot publish this."),
+        state=state,
+        tools_param=[{"type": "function", "function": {"name": "publish_plan"}}],
+    )
+
+    assert outputs == [
+        {"type": "response", "text": "I still cannot publish this."},
+        LoopRecoveryDone(has_tool_calls=False, return_loop=True),
+    ]

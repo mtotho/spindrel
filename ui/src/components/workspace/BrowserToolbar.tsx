@@ -14,12 +14,25 @@ import { useThemeTokens } from "../../theme/tokens";
 
 interface BrowserToolbarProps {
   workspace: SharedWorkspace;
+  title?: string;
+  rootPath?: string;
+  rootLabel?: string;
+  settingsHref?: string;
   onUpload: () => void;
   onOpenTerminal?: (workspaceRelativePath: string) => void;
   isMobile?: boolean;
 }
 
-export function BrowserToolbar({ workspace, onUpload, onOpenTerminal, isMobile }: BrowserToolbarProps) {
+export function BrowserToolbar({
+  workspace,
+  title,
+  rootPath,
+  rootLabel = "Workspace",
+  settingsHref,
+  onUpload,
+  onOpenTerminal,
+  isMobile,
+}: BrowserToolbarProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const splitMode = useFileBrowserStore((s) => s.splitMode);
@@ -34,8 +47,9 @@ export function BrowserToolbar({ workspace, onUpload, onOpenTerminal, isMobile }
   const [creating, setCreating] = useState<"file" | "folder" | null>(null);
   const [newName, setNewName] = useState("");
 
-  // Determine current directory for new file/folder
-  const currentDir = leftActive ? leftActive.substring(0, leftActive.lastIndexOf("/")) || "/" : "/";
+  const normalizedRoot = (rootPath ?? "").replace(/^\/+|\/+$/g, "");
+  const rootDir = normalizedRoot ? normalizedRoot : "/";
+  const currentDir = leftActive ? leftActive.substring(0, leftActive.lastIndexOf("/")) || rootDir : rootDir;
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -97,16 +111,16 @@ export function BrowserToolbar({ workspace, onUpload, onOpenTerminal, isMobile }
             textOverflow: "ellipsis",
           }}
         >
-          {workspace.name}
+          {title ?? workspace.name}
         </span>
       </div>
 
       {/* Breadcrumb — hide on mobile */}
-      {!isMobile && leftActive && (
+      {!isMobile && (
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 2, color: t.textDim, fontSize: 12, overflow: "hidden" }}>
           <ChevronRight size={12} color={t.textDim} />
           <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {leftActive}
+            {leftActive || `${rootLabel}: ${rootDir === "/" ? "/" : rootDir}`}
           </span>
         </div>
       )}
@@ -168,7 +182,7 @@ export function BrowserToolbar({ workspace, onUpload, onOpenTerminal, isMobile }
       <ToolbarButton
         icon={<Settings size={14} />}
         title="Settings"
-        onClick={() => navigate(`/admin/workspaces/${workspace.id}`)}
+        onClick={() => navigate(settingsHref ?? `/admin/workspaces/${workspace.id}`)}
       />
     </div>
   );

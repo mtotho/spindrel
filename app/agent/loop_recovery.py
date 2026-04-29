@@ -1,3 +1,4 @@
+import copy
 import json
 import re
 import uuid
@@ -38,7 +39,11 @@ async def stream_loop_recovery(
     )
 
     if not accumulated_msg.tool_calls:
-        synthetic_tool_call = _synthesize_required_plan_question_tool_call(
+        synthetic_tool_call = _synthesize_publish_plan_retry_tool_call(
+            messages=state.messages,
+            tools_param=tools_param,
+            tools_used=state.tool_calls_made,
+        ) or _synthesize_required_plan_question_tool_call(
             accumulated_msg=accumulated_msg,
             messages=state.messages,
             tools_param=tools_param,
@@ -115,6 +120,139 @@ def _extract_question_card_title(text: str) -> str | None:
             if title:
                 return title
     return None
+
+
+def _latest_tool_message(messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for message in reversed(messages):
+        if message.get("role") == "tool":
+            return message
+    return None
+
+
+def _latest_tool_call_for_result(
+    messages: list[dict[str, Any]],
+    tool_message: dict[str, Any],
+    name: str,
+) -> dict[str, Any] | None:
+    tool_call_id = tool_message.get("tool_call_id")
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        tool_calls = message.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for tool_call in reversed(tool_calls):
+            if not isinstance(tool_call, dict):
+                continue
+            function = tool_call.get("function")
+            if not isinstance(function, dict) or function.get("name") != name:
+                continue
+            if tool_call_id and tool_call.get("id") != tool_call_id:
+                continue
+            return tool_call
+    return None
+
+
+def _parse_tool_arguments(tool_call: dict[str, Any]) -> dict[str, Any] | None:
+    function = tool_call.get("function")
+    if not isinstance(function, dict):
+        return None
+    raw_args = function.get("arguments")
+    if isinstance(raw_args, dict):
+        return copy.deepcopy(raw_args)
+    if not isinstance(raw_args, str) or not raw_args.strip():
+        return None
+    try:
+        parsed = json.loads(raw_args)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_step_ids_from_publish_error(error_text: str) -> set[str]:
+    return set(re.findall(r"Step\s+['\"]([^'\"]+)['\"]\s+needs a concrete", error_text, flags=re.IGNORECASE))
+
+
+def _publish_retry_subject(args: dict[str, Any]) -> str:
+    for key in ("title", "summary", "scope"):
+        value = str(args.get(key) or "").strip()
+        if value:
+            return " ".join(value.split())
+    return "the accepted plan"
+
+
+def _repair_publish_step_label(label: str, args: dict[str, Any]) -> str:
+    clean = " ".join(str(label or "").split())
+    subject = _publish_retry_subject(args)
+    lowered = clean.lower()
+    if not clean or lowered.startswith("step "):
+        return f"Verify {subject} against acceptance criteria"
+    if lowered in {"test", "verify", "validate"}:
+        return f"{clean.capitalize()} {subject} against acceptance criteria"
+    if lowered in {"implement", "implementation", "implement changes", "implement the changes", "make changes"}:
+        return f"Implement scoped changes for {subject}"
+    if lowered in {"fix issue", "fix bug", "update", "update changes"}:
+        return f"{clean.capitalize()} in {subject}"
+    if subject.lower() not in lowered:
+        return f"{clean} for {subject}"
+    return f"{clean} against acceptance criteria"
+
+
+def _synthesize_publish_plan_retry_tool_call(
+    *,
+    messages: list[dict[str, Any]],
+    tools_param: list[dict[str, Any]] | None,
+    tools_used: list[str],
+) -> dict[str, Any] | None:
+    if not _tool_available(tools_param, "publish_plan"):
+        return None
+    if tools_used.count("publish_plan") >= 2:
+        return None
+    if not _plan_mode_context_active(messages):
+        return None
+
+    tool_message = _latest_tool_message(messages)
+    if tool_message is None:
+        return None
+    error_text = str(tool_message.get("content") or "")
+    if "needs a concrete" not in error_text or "action label" not in error_text:
+        return None
+
+    prior_call = _latest_tool_call_for_result(messages, tool_message, "publish_plan")
+    if prior_call is None:
+        return None
+    args = _parse_tool_arguments(prior_call)
+    if args is None:
+        return None
+    steps = args.get("steps")
+    if not isinstance(steps, list):
+        return None
+
+    target_step_ids = _extract_step_ids_from_publish_error(error_text)
+    repaired = False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_id = str(step.get("id") or "")
+        if target_step_ids and step_id not in target_step_ids:
+            continue
+        original = str(step.get("label") or "")
+        repaired_label = _repair_publish_step_label(original, args)
+        if repaired_label != original:
+            step["label"] = repaired_label
+            repaired = True
+
+    if not repaired:
+        return None
+
+    return {
+        "id": f"synthetic_publish_plan_retry_{uuid.uuid4().hex[:12]}",
+        "type": "function",
+        "function": {
+            "name": "publish_plan",
+            "arguments": json.dumps(args),
+        },
+    }
 
 
 def _synthesize_required_plan_question_tool_call(

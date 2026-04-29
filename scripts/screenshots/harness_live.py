@@ -35,6 +35,20 @@ DEFAULT_DOCS_IMAGES = REPO_ROOT / "docs" / "images"
 DEFAULT_CODEX_CHANNEL_ID = "41fc9132-0e6a-4f95-bcf3-8b1edaf2dabc"
 DEFAULT_CLAUDE_CHANNEL_ID = "71eb14fd-a482-5bdd-a9a2-e60d9e951169"
 TERMINAL_WRITE_NOT_CONTAINS = ("harness-spindrel:", "assistant:e2e-test", "tool calls")
+HARNESS_CONTEXT_CHIP_SELECTOR = (
+    '[data-testid="harness-context-chip-mobile"], '
+    '[data-testid="harness-context-chip"]'
+)
+HARNESS_CONTEXT_PANEL_READY_JS = (
+    "(() => {"
+    "const panel = document.querySelector('[data-testid=\"harness-context-panel-mobile\"], "
+    "[data-testid=\"harness-context-panel\"]');"
+    "if (!panel) return false;"
+    "const rect = panel.getBoundingClientRect();"
+    "return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0 "
+    "&& rect.right <= window.innerWidth + 1 && rect.bottom <= window.innerHeight + 1;"
+    "})()"
+)
 
 
 @dataclass(frozen=True)
@@ -271,9 +285,9 @@ def _mobile_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -
         CaptureSpec(
             name=f"harness-{target.name}-mobile-context",
             route=route,
-            wait_js="document.querySelector('[data-testid=\"harness-context-chip-mobile\"]') !== null",
-            click_selector='[data-testid="harness-context-chip-mobile"]',
-            after_click_wait_js="document.querySelector('[data-testid=\"harness-context-panel-mobile\"]') !== null",
+            wait_js=f"document.querySelector({json.dumps(HARNESS_CONTEXT_CHIP_SELECTOR)}) !== null",
+            click_selector=HARNESS_CONTEXT_CHIP_SELECTOR,
+            after_click_wait_js=HARNESS_CONTEXT_PANEL_READY_JS,
             contains=("Harness context", "Context", "CWD"),
             theme="dark",
             channel_id=target.channel_id,
@@ -299,6 +313,30 @@ def _plan_mode_switcher_specs(ui_url: str, target: RuntimeTarget, session_id: st
             theme="dark",
             channel_id=target.channel_id,
             chat_mode="terminal",
+        ),
+    ]
+
+
+def _usage_log_specs(browser_url: str, channel_id: str) -> list[CaptureSpec]:
+    route = f"{browser_url}/admin/usage?channel_id={channel_id}&after=30d#Logs"
+    wait = (
+        "document.body.innerText.toLowerCase().includes('trace runs') "
+        "&& document.body.innerText.toLowerCase().includes('harness sdk')"
+    )
+    return [
+        CaptureSpec(
+            name="harness-usage-logs-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Usage", "Trace Runs", "harness SDK"),
+            theme="dark",
+        ),
+        CaptureSpec(
+            name="harness-usage-logs-light",
+            route=route,
+            wait_js=wait,
+            contains=("Usage", "Trace Runs", "harness SDK"),
+            theme="light",
         ),
     ]
 
@@ -404,28 +442,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             label_fragment="Harness Native Diff Preview",
         )
 
-        specs: list[CaptureSpec] = [
-            CaptureSpec(
-                name="harness-usage-logs-dark",
-                route=f"{browser_url}/admin/usage#Logs",
-                wait_js=(
-                    "document.body.innerText.toLowerCase().includes('trace runs') "
-                    "&& document.body.innerText.toLowerCase().includes('harness sdk')"
-                ),
-                contains=("Usage", "Trace Runs", "Harness SDK"),
-                theme="dark",
-            ),
-            CaptureSpec(
-                name="harness-usage-logs-light",
-                route=f"{browser_url}/admin/usage#Logs",
-                wait_js=(
-                    "document.body.innerText.toLowerCase().includes('trace runs') "
-                    "&& document.body.innerText.toLowerCase().includes('harness sdk')"
-                ),
-                contains=("Usage", "Trace Runs", "Harness SDK"),
-                theme="light",
-            ),
-        ]
+        specs: list[CaptureSpec] = _usage_log_specs(browser_url, args.codex_channel_id)
 
         for target in targets:
             bridge_session = sessions[(target.name, "bridge")]

@@ -76,6 +76,11 @@ def stage_project_workspace(
         chat_mode="terminal",
         tool_output_display="expanded",
     )
+    client.write_workspace_file(
+        workspace_id,
+        f"{PROJECT_ROOT}/README.md",
+        "# Screenshot Project Workspace\n\nThis file is rooted at the shared Project, not the channel workspace.\n",
+    )
     client.write_channel_workspace_file(
         channel_id,
         "README.md",

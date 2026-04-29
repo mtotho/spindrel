@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Eye, EyeOff, Filter, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
@@ -158,12 +159,13 @@ function FilterBar({
 export default function UsageScreen() {
   const { refreshing, onRefresh } = usePageRefresh();
   const [tab, setTab] = useHashTab<Tab>("Overview", TABS);
-  const [timePreset, setTimePreset] = useState("24h");
-  const [botFilter, setBotFilter] = useState("");
-  const [modelFilter, setModelFilter] = useState("");
-  const [providerFilter, setProviderFilter] = useState("");
-  const [channelFilter, setChannelFilter] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("");
+  const [searchParams] = useSearchParams();
+  const [timePreset, setTimePreset] = useState(() => searchParams.get("after") || "24h");
+  const [botFilter, setBotFilter] = useState(() => searchParams.get("bot_id") || "");
+  const [modelFilter, setModelFilter] = useState(() => searchParams.get("model") || "");
+  const [providerFilter, setProviderFilter] = useState(() => searchParams.get("provider_id") || "");
+  const [channelFilter, setChannelFilter] = useState(() => searchParams.get("channel_id") || "");
+  const [sourceFilter, setSourceFilter] = useState(() => searchParams.get("source_type") || "");
 
   const { data: summaryForFilters } = useUsageSummary({ after: timePreset });
   const modelNames = useMemo(

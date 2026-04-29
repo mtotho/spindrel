@@ -180,12 +180,14 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert {spec.output for spec in resolved} == {
         "project-workspace-list.png",
         "project-workspace-detail.png",
+        "project-workspace-terminal.png",
         "project-workspace-channel-settings.png",
         "project-workspace-memory-tool.png",
     }
     assert all(spec.assert_js for spec in resolved)
     routes = {spec.name: spec.route for spec in resolved}
     assert routes["project-workspace-detail"] == "/admin/projects/project-1"
+    assert routes["project-workspace-terminal"] == "/admin/projects/project-1#Terminal"
     assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"
     assert routes["project-workspace-memory-tool"] == "/channels/channel-1"
 
@@ -351,8 +353,23 @@ def test_harness_live_mobile_context_specs_are_docs_fixtures():
     assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
     assert specs[0].chat_mode == "terminal"
     assert specs[0].viewport == (390, 844)
-    assert specs[0].click_selector == '[data-testid="harness-context-chip-mobile"]'
+    assert specs[0].click_selector == harness_live.HARNESS_CONTEXT_CHIP_SELECTOR
+    assert "harness-context-chip-mobile" in specs[0].wait_js
+    assert "harness-context-panel-mobile" in specs[0].after_click_wait_js
+    assert "getBoundingClientRect" in specs[0].after_click_wait_js
     assert "Harness context" in specs[0].contains
+
+
+def test_harness_live_usage_log_specs_target_harness_channel():
+    specs = harness_live._usage_log_specs("http://ui", "channel-1")
+
+    assert [spec.name for spec in specs] == [
+        "harness-usage-logs-dark",
+        "harness-usage-logs-light",
+    ]
+    assert all(spec.route == "http://ui/admin/usage?channel_id=channel-1&after=30d#Logs" for spec in specs)
+    assert all("harness sdk" in spec.wait_js for spec in specs)
+    assert all("harness SDK" in spec.contains for spec in specs)
 
 
 def test_harness_live_plan_mode_switcher_specs_are_docs_fixtures():

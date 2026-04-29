@@ -17,7 +17,8 @@ export default function HubAttentionPage() {
   const requestedChannelId = searchParams.get("channel");
   const requestedTargetKind = searchParams.get("target_kind") as AttentionTargetKind | null;
   const requestedTargetId = searchParams.get("target_id");
-  const requestedMode = readDeckMode(searchParams.get("mode"));
+  const requestedRunId = searchParams.get("run");
+  const requestedMode = readDeckMode(searchParams.get("mode")) ?? (requestedRunId ? "runs" : null);
   const { data: items = [] } = useWorkspaceAttention(requestedChannelId || undefined);
   const { data: channels = [] } = useChannels();
   const markAttentionResponded = useMarkAttentionResponded();
@@ -57,6 +58,16 @@ export default function HubAttentionPage() {
     const next = new URLSearchParams(searchParams);
     next.set("mode", mode);
     if (mode === "runs") next.delete("item");
+    else next.delete("run");
+    setSearchParams(next, { replace: true });
+  };
+
+  const selectRun = (runId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("mode", "runs");
+    next.delete("item");
+    if (runId) next.set("run", runId);
+    else next.delete("run");
     setSearchParams(next, { replace: true });
   };
 
@@ -94,8 +105,10 @@ export default function HubAttentionPage() {
             selectedId={selectedId}
             onSelect={selectItem}
             initialMode={requestedMode}
+            selectedRunId={requestedRunId}
             channelId={requestedChannelId}
             onModeChange={selectMode}
+            onRunSelect={selectRun}
             onReply={replyToItem}
           />
         </div>

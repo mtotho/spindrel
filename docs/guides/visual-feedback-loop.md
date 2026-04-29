@@ -97,13 +97,14 @@ Expected artifacts:
 ```text
 project-workspace-list.png
 project-workspace-detail.png
+project-workspace-terminal.png
 project-workspace-channel-settings.png
 project-workspace-memory-tool.png
 ```
 
 The staging step creates a reusable screenshot Project, attaches one channel to
 it, writes a file through the channel workspace API, and seeds a memory-tool
-turn. Inspect all four images before closing out: the bundle intentionally
+turn. Inspect all five images before closing out: the bundle intentionally
 checks both the Project admin surface and the channel transcript.
 
 ## Harness Parity Run

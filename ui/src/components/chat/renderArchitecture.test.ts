@@ -262,6 +262,20 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
 });
 
+test("usage page honors deep-link filters for trace screenshots", () => {
+  const usagePage = readFileSync(
+    resolve(process.cwd(), "app/(app)/admin/usage/index.tsx"),
+    "utf8",
+  );
+
+  assert.match(usagePage, /import \{ useSearchParams \} from "react-router-dom";/);
+  assert.match(usagePage, /const \[searchParams\] = useSearchParams\(\);/);
+  assert.match(usagePage, /useState\(\(\) => searchParams\.get\("after"\) \|\| "24h"\)/);
+  assert.match(usagePage, /useState\(\(\) => searchParams\.get\("bot_id"\) \|\| ""\)/);
+  assert.match(usagePage, /useState\(\(\) => searchParams\.get\("channel_id"\) \|\| ""\)/);
+  assert.match(usagePage, /useState\(\(\) => searchParams\.get\("source_type"\) \|\| ""\)/);
+});
+
 test("harness context pressure avoids soft alert chrome", () => {
   const channelPage = readFileSync(
     resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),

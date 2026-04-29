@@ -124,7 +124,10 @@ test("spatial glanceability uses shared cue markers and compass without side str
     const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
     const overlaySource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasOverlays.tsx"), "utf8");
     const modelSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialStarboardModels.tsx"), "utf8");
+    const routerSource = readFileSync(resolve(process.cwd(), "src/router.tsx"), "utf8");
     assert.match(cueSource, /data-testid="spatial-action-cue-marker"/);
+    assert.match(cueSource, /pointer-events-auto/);
+    assert.match(cueSource, /item\.onSelect\(\)/);
     assert.match(cueSource, /data-testid="spatial-action-compass"/);
     assert.match(cueSource, /data-spatial-action-compass-collapsed/);
     assert.match(cueSource, /topActionCompassItems/);
@@ -142,6 +145,8 @@ test("spatial glanceability uses shared cue markers and compass without side str
     assert.match(modelSource, /attentionReviewHref/);
     assert.match(modelSource, /Review in Mission Control/);
     assert.match(modelSource, /attentionDeckHref\(\{ itemId: direct\.id \}\)/);
+    assert.match(routerSource, /const HubAttentionPage = lazy/);
+    assert.match(routerSource, /\{ path: "hub\/attention", element: <HubAttentionPage \/> \}/);
     assert.doesNotMatch(cueSource, /data-spatial-action-cue-halo/);
     assert.doesNotMatch(cueSource, /border-l-/);
     assert.doesNotMatch(cueSource, /animate-/);
@@ -249,6 +254,10 @@ test("Starboard attention station is only a launcher for Mission Control Review"
     assert.match(deckSource, /Mission Control Review/);
     assert.match(deckSource, /Recommended/);
     assert.match(deckSource, /Run Operator sweep/);
+    assert.match(deckSource, /Sweep raw signals/);
+    assert.match(deckSource, /runModePinned/);
+    assert.match(deckSource, /sweepBusy/);
+    assert.match(deckSource, /onSelect\(null\);\n    setDeckMode\("runs"\)/);
     assert.match(deckSource, /Run log/);
     assert.match(deckSource, /RunReceipt/);
     assert.match(deckSource, /attention-run-receipt/);

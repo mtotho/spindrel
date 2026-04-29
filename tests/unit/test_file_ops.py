@@ -3,7 +3,9 @@ import json
 import os
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,6 +36,7 @@ from app.tools.local.file_ops import (
     _RECENT_READS,
     _retention_for,
     file as file_tool,
+    current_channel_id,
     MAX_CONTENT_BYTES,
     MAX_READ_LINES,
     DEFAULT_READ_LINES,
@@ -1246,6 +1249,38 @@ class TestFileTool:
         parsed = json.loads(result)
         assert parsed["ok"] is True
         assert (ws / "out.txt").read_text() == "hi"
+
+    @pytest.mark.asyncio
+    async def test_relative_create_uses_project_root_when_channel_bound(self, mock_ctx, tmp_path):
+        _ws, bot = mock_ctx
+        project_root = tmp_path / "shared" / "common" / "projects" / "demo"
+        project_root.mkdir(parents=True)
+
+        class _SessionContext:
+            async def __aenter__(self):
+                return object()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        async def _project_dir(_db, channel_id, _bot):
+            assert str(channel_id) == channel_id_str
+            return SimpleNamespace(host_path=str(project_root))
+
+        channel_id_str = str(uuid.uuid4())
+        token = current_channel_id.set(channel_id_str)
+        try:
+            with (
+                patch("app.db.engine.async_session", lambda: _SessionContext()),
+                patch("app.services.projects.resolve_project_directory_for_channel_id", _project_dir),
+            ):
+                result = await file_tool(operation="create", path="notes.md", content="project scoped")
+        finally:
+            current_channel_id.reset(token)
+
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert (project_root / "notes.md").read_text() == "project scoped"
 
     @pytest.mark.asyncio
     async def test_append(self, mock_ctx):

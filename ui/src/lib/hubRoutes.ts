@@ -12,6 +12,7 @@ export interface AttentionDeckHrefOptions {
   itemId?: string | null;
   channelId?: string | null;
   mode?: AttentionDeckMode | null;
+  runId?: string | null;
   targetKind?: AttentionTargetKind | null;
   targetId?: string | null;
 }
@@ -21,6 +22,7 @@ export function attentionDeckHref(options: AttentionDeckHrefOptions = {}): strin
   if (options.itemId) params.set("item", options.itemId);
   if (options.channelId) params.set("channel", options.channelId);
   if (options.mode) params.set("mode", options.mode);
+  if (options.runId) params.set("run", options.runId);
   if (options.targetKind) params.set("target_kind", options.targetKind);
   if (options.targetId) params.set("target_id", options.targetId);
   const query = params.toString();

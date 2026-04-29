@@ -1936,15 +1936,35 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"project-workspace-file-scope\"]') "
-            "&& document.body.innerText.includes('Project workspace demo')"
+            "!!document.querySelector('[data-testid=\"project-workspace-files\"]') "
+            "&& document.body.innerText.includes('README.md')"
         ),
         output="project-workspace-detail.png",
         color_scheme="dark",
         assert_js=(
-            "return { ok: document.body.innerText.includes('workspace://') "
-            "&& document.body.innerText.includes('Project workspace demo'), "
-            "detail: 'Project detail did not show file scope and attached channel' };"
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('README.md') "
+            "&& text.includes('common/projects/spindrel-screenshot'), "
+            "detail: 'Project detail did not show the Project-rooted file browser' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-terminal",
+        route="/admin/projects/{project_workspace_project}#Terminal",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-terminal\"]') "
+            "&& document.body.innerText.includes('/common/projects/spindrel-screenshot') "
+            "&& !!document.querySelector('.xterm') "
+            "&& !document.body.innerText.includes('Starting shell')"
+        ),
+        output="project-workspace-terminal.png",
+        color_scheme="dark",
+        assert_js=(
+            "return { ok: document.body.innerText.includes('Terminal') "
+            "&& document.body.innerText.includes('/common/projects/spindrel-screenshot'), "
+            "detail: 'Project terminal tab did not show Project cwd' };"
         ),
     ),
     ScreenshotSpec(

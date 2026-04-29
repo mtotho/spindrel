@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -60,6 +62,25 @@ from app.schemas.chat import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@dataclass
+class _PreparedChatInput:
+    message: str
+    audio_data: str | None
+    audio_format: str | None
+    att_payload: list[dict] | None
+
+
+@dataclass
+class _NormalChatRun:
+    channel: Any
+    session_id: uuid.UUID
+    messages: list[dict]
+    bot: Any
+    primary_bot_id: str
+    ctx: Any
+    session_scoped_delivery: bool
 
 
 @router.post("/chat/check-secrets", response_model=SecretCheckResponse)
@@ -111,6 +132,73 @@ async def bots(
             entry["audio_input"] = b.audio_input
         result.append(entry)
     return result
+
+
+def _apply_web_user_metadata(req: ChatRequest, user: User | None) -> None:
+    if user is None:
+        return
+    req.msg_metadata = {
+        **(req.msg_metadata or {}),
+        "source": "web",
+        "sender_type": "human",
+        "sender_id": f"user:{user.id}",
+        "sender_display_name": user.display_name,
+    }
+
+
+async def _prepare_chat_input(req: ChatRequest) -> _PreparedChatInput:
+    audio_data = None
+    audio_format = None
+    message = req.message
+
+    if req.audio_data:
+        try:
+            decoded_audio = decode_base64_audio(req.audio_data, req.audio_format)
+        except AudioInputError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if _resolve_audio_native(req):
+            audio_data = req.audio_data
+            audio_format = decoded_audio.format
+            if not message:
+                message = "[audio message]"
+            logger.info(
+                "POST /chat  bot=%s  session=%s  native_audio fmt=%s",
+                req.bot_id, req.session_id, audio_format,
+            )
+        else:
+            logger.info(
+                "POST /chat  bot=%s  session=%s  transcribing audio",
+                req.bot_id, req.session_id,
+            )
+            from app.agent.hooks import HookContext, fire_hook_with_override
+
+            override = await fire_hook_with_override("before_transcription", HookContext(
+                bot_id=req.bot_id,
+                extra={
+                    "audio_format": req.audio_format or "m4a",
+                    "audio_size_bytes": len(decoded_audio.data),
+                    "source": "chat",
+                },
+            ))
+            if isinstance(override, str) and override.strip():
+                message = override
+            else:
+                message = await _transcribe_audio_data(req.audio_data, req.audio_format)
+            if not message.strip():
+                raise HTTPException(status_code=400, detail="No speech detected in audio")
+
+    if not message and not req.attachments:
+        raise HTTPException(status_code=400, detail="No message, audio, or attachments provided")
+
+    if not message.strip() and req.attachments:
+        message = "[User sent attachment(s)]"
+
+    return _PreparedChatInput(
+        message=message,
+        audio_data=audio_data,
+        audio_format=audio_format,
+        att_payload=[a.model_dump() for a in req.attachments] if req.attachments else None,
+    )
 
 
 async def _maybe_route_inbound_thread(db: AsyncSession, req: ChatRequest) -> None:
@@ -178,6 +266,278 @@ async def _maybe_route_inbound_thread(db: AsyncSession, req: ChatRequest) -> Non
     )
 
 
+async def _maybe_enqueue_sub_session_chat(
+    *,
+    req: ChatRequest,
+    db: AsyncSession,
+    user: User | None,
+    prepared: _PreparedChatInput,
+) -> JSONResponse | None:
+    if req.session_id is None and req.dispatch_type and req.dispatch_config:
+        await _maybe_route_inbound_thread(db, req)
+
+    sub_chat = await _try_resolve_sub_session_chat(db, req, user=user)
+    if sub_chat is None:
+        return None
+    return await _enqueue_sub_session_turn(
+        req=req,
+        user=user,
+        bot=get_bot(req.bot_id),
+        message=prepared.message,
+        att_payload=prepared.att_payload,
+        audio_data=prepared.audio_data,
+        audio_format=prepared.audio_format,
+        sub_chat=sub_chat,
+        db=db,
+    )
+
+
+async def _resolve_normal_chat_run(
+    *,
+    req: ChatRequest,
+    db: AsyncSession,
+    user: User | None,
+    bot,
+    message: str,
+) -> _NormalChatRun:
+    try:
+        channel, session_id, messages, _is_integration = await _resolve_channel_and_session(
+            db, req, user=user, preserve_metadata=True,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Session error: {exc}") from exc
+
+    primary_bot_id = bot.id
+    bot, member_config = await maybe_route_to_member_bot(db, channel, bot, message)
+    ctx = await prepare_bot_context(
+        messages=messages,
+        bot=bot,
+        primary_bot_id=primary_bot_id,
+        channel_id=channel.id,
+        member_config=member_config,
+        user_message=message,
+        msg_metadata=req.msg_metadata,
+        db=db,
+    )
+    return _NormalChatRun(
+        channel=channel,
+        session_id=session_id,
+        messages=messages,
+        bot=bot,
+        primary_bot_id=primary_bot_id,
+        ctx=ctx,
+        session_scoped_delivery=req.external_delivery == "none",
+    )
+
+
+async def _queue_channel_task(
+    *,
+    db: AsyncSession,
+    req: ChatRequest,
+    run: _NormalChatRun,
+    message: str,
+) -> TaskModel:
+    queued_task = TaskModel(
+        bot_id=req.bot_id,
+        client_id=req.client_id,
+        session_id=run.session_id,
+        channel_id=run.channel.id,
+        prompt=message,
+        status="pending",
+        created_at=datetime.now(timezone.utc),
+        execution_config={"session_scoped": True, "external_delivery": req.external_delivery}
+        if run.session_scoped_delivery else None,
+    )
+    db.add(queued_task)
+    return queued_task
+
+
+async def _maybe_short_circuit_normal_chat(
+    *,
+    req: ChatRequest,
+    db: AsyncSession,
+    run: _NormalChatRun,
+    message: str,
+) -> JSONResponse | None:
+    if req.passive:
+        await store_passive_message(
+            db, run.session_id, message, req.msg_metadata or {}, channel_id=run.channel.id,
+        )
+        return JSONResponse(
+            {"session_id": str(run.session_id), "passive": True},
+            status_code=202,
+        )
+
+    sender_type = (req.msg_metadata or {}).get("sender_type", "")
+    if sender_type != "human" and _channel_throttled(str(run.channel.id)):
+        await store_passive_message(
+            db, run.session_id, message,
+            {**(req.msg_metadata or {}), "throttled": True},
+            channel_id=run.channel.id,
+        )
+        return JSONResponse(
+            {"session_id": str(run.session_id), "throttled": True},
+            status_code=202,
+        )
+    _record_channel_run(str(run.channel.id))
+
+    if not _settings.SYSTEM_PAUSED:
+        return None
+    if _settings.SYSTEM_PAUSE_BEHAVIOR == "drop":
+        return JSONResponse(
+            {"detail": "System is paused. Messages are being dropped."},
+            status_code=503,
+        )
+    queued_task = await _queue_channel_task(db=db, req=req, run=run, message=message)
+    await db.commit()
+    await db.refresh(queued_task)
+    logger.info("System paused — queued message as task %s", queued_task.id)
+    return JSONResponse(
+        {
+            "session_id": str(run.session_id),
+            "queued": True,
+            "task_id": str(queued_task.id),
+            "reason": "system_paused",
+            "session_scoped": run.session_scoped_delivery,
+        },
+        status_code=202,
+    )
+
+
+async def _prepare_attachment_records(
+    *,
+    req: ChatRequest,
+    db: AsyncSession,
+    run: _NormalChatRun,
+    prepared: _PreparedChatInput,
+) -> uuid.UUID | None:
+    pre_user_msg_id: uuid.UUID | None = None
+    if not req.file_metadata:
+        return pre_user_msg_id
+
+    pre_user_msg_id = uuid.uuid4()
+    db.add(MessageModel(
+        id=pre_user_msg_id,
+        session_id=run.session_id,
+        role="user",
+        content=prepared.message,
+        metadata_=dict(req.msg_metadata or {}),
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    if req.msg_metadata is None:
+        req.msg_metadata = {}
+    req.msg_metadata["_pre_user_msg_id"] = str(pre_user_msg_id)
+
+    source = (req.msg_metadata or {}).get("source", "web")
+    created_attachments = await _create_attachments_from_metadata(
+        req.file_metadata, run.channel.id, source, bot_id=req.bot_id,
+        message_id=pre_user_msg_id,
+    )
+    if prepared.att_payload:
+        for entry in prepared.att_payload:
+            matched_id = None
+            for attachment in created_attachments:
+                if attachment.filename == entry.get("name"):
+                    matched_id = str(attachment.id)
+                    break
+            if matched_id:
+                entry["attachment_id"] = matched_id
+    return pre_user_msg_id
+
+
+async def _start_or_queue_normal_turn(
+    *,
+    req: ChatRequest,
+    db: AsyncSession,
+    user: User | None,
+    run: _NormalChatRun,
+    prepared: _PreparedChatInput,
+    pre_user_msg_id: uuid.UUID | None,
+) -> tuple[JSONResponse, bool]:
+    try:
+        handle: TurnHandle = await start_turn(
+            channel_id=run.channel.id,
+            session_id=run.session_id,
+            bot=run.bot,
+            primary_bot_id=run.primary_bot_id,
+            messages=run.messages,
+            user_message=prepared.message,
+            ctx=run.ctx,
+            req=req,
+            user=user,
+            audio_data=prepared.audio_data,
+            audio_format=prepared.audio_format,
+            att_payload=prepared.att_payload,
+            session_scoped=run.session_scoped_delivery,
+        )
+    except SessionBusyError:
+        queued_task = await _queue_channel_task(db=db, req=req, run=run, message=prepared.message)
+        if not pre_user_msg_id:
+            queued_meta = dict(req.msg_metadata or {})
+            queued_meta.pop("_pre_user_msg_id", None)
+            db.add(MessageModel(
+                session_id=run.session_id,
+                role="user",
+                content=prepared.message,
+                metadata_=queued_meta,
+                created_at=datetime.now(timezone.utc),
+            ))
+        await db.commit()
+        await db.refresh(queued_task)
+        logger.info(
+            "Session %s busy — queued message as task %s",
+            run.session_id, queued_task.id,
+        )
+        return JSONResponse(
+            {
+                "session_id": str(run.session_id),
+                "queued": True,
+                "task_id": str(queued_task.id),
+                "session_scoped": run.session_scoped_delivery,
+            },
+            status_code=202,
+        ), False
+
+    return JSONResponse(
+        {
+            "session_id": str(handle.session_id),
+            "channel_id": str(handle.channel_id),
+            "turn_id": str(handle.turn_id),
+            "session_scoped": run.session_scoped_delivery,
+        },
+        status_code=202,
+    ), True
+
+
+async def _mark_attention_item_responded(
+    *,
+    req: ChatRequest,
+    db: AsyncSession,
+    user: User | None,
+    pre_user_msg_id: uuid.UUID | None,
+) -> None:
+    attention_item_id = (req.msg_metadata or {}).get("attention_item_id")
+    if not attention_item_id:
+        return
+    try:
+        from app.services.workspace_attention import actor_label, mark_attention_responded
+        await mark_attention_responded(
+            db,
+            uuid.UUID(str(attention_item_id)),
+            response_message_id=pre_user_msg_id,
+            responded_by=actor_label(user),
+        )
+    except Exception:
+        logger.warning(
+            "Failed to mark attention item responded: %s",
+            attention_item_id,
+            exc_info=True,
+        )
+
+
 async def _enqueue_chat_turn(
     req: ChatRequest,
     db: AsyncSession,
@@ -190,332 +550,63 @@ async def _enqueue_chat_turn(
     """
     user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
+    _apply_web_user_metadata(req, user)
+    prepared = await _prepare_chat_input(req)
 
-    if user is not None:
-        req.msg_metadata = {
-            **(req.msg_metadata or {}),
-            "source": "web",
-            "sender_type": "human",
-            "sender_id": f"user:{user.id}",
-            "sender_display_name": user.display_name,
-        }
-
-    audio_data = None
-    audio_format = None
-    message = req.message
-
-    if req.audio_data:
-        try:
-            _decoded_audio = decode_base64_audio(req.audio_data, req.audio_format)
-        except AudioInputError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if _resolve_audio_native(req):
-            audio_data = req.audio_data
-            audio_format = _decoded_audio.format
-            if not message:
-                message = "[audio message]"
-            logger.info(
-                "POST /chat  bot=%s  session=%s  native_audio fmt=%s",
-                req.bot_id, req.session_id, audio_format,
-            )
-        else:
-            logger.info(
-                "POST /chat  bot=%s  session=%s  transcribing audio",
-                req.bot_id, req.session_id,
-            )
-            from app.agent.hooks import HookContext, fire_hook_with_override
-            _override = await fire_hook_with_override("before_transcription", HookContext(
-                bot_id=req.bot_id,
-                extra={
-                    "audio_format": req.audio_format or "m4a",
-                    "audio_size_bytes": len(_decoded_audio.data),
-                    "source": "chat",
-                },
-            ))
-            if isinstance(_override, str) and _override.strip():
-                message = _override
-            else:
-                message = await _transcribe_audio_data(req.audio_data, req.audio_format)
-            if not message.strip():
-                raise HTTPException(status_code=400, detail="No speech detected in audio")
-
-    if not message and not req.attachments:
-        raise HTTPException(status_code=400, detail="No message, audio, or attachments provided")
-
-    if not message.strip() and req.attachments:
-        message = "[User sent attachment(s)]"
-
-    att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
-
-    # --- External thread auto-routing ----------------------------------
-    # When an inbound integration event carries a native thread id (Slack
-    # ``thread_ts``, Discord thread channel, etc.) and the caller did not
-    # specify a ``session_id`` explicitly, resolve-or-spawn the matching
-    # Spindrel thread sub-session and rewrite ``req.session_id`` so the
-    # sub-session branch below catches it. Keeps the thread UX in sync
-    # across platforms without Slack-specific code on the chat router.
-    if req.session_id is None and req.dispatch_type and req.dispatch_config:
-        await _maybe_route_inbound_thread(db, req)
-
-    # --- Sub-session follow-up branch ----------------------------------
-    # A POST whose ``session_id`` names a terminal pipeline run's
-    # sub-session routes through a dedicated shorter path: the parent
-    # channel is used only for bus routing + membership auth, history
-    # scope is the sub-session's own Messages, the bot is forced to
-    # the run's task.bot_id, and outbox writes are suppressed so external
-    # renderers (Slack etc.) don't receive the follow-up.
-    sub_chat = await _try_resolve_sub_session_chat(db, req, user=user)
-    if sub_chat is not None:
-        return await _enqueue_sub_session_turn(
-            req=req,
-            user=user,
-            bot=get_bot(req.bot_id),
-            message=message,
-            att_payload=att_payload,
-            audio_data=audio_data,
-            audio_format=audio_format,
-            sub_chat=sub_chat,
-            db=db,
-        )
-    # --- End sub-session branch ---------------------------------------
-
-    try:
-        channel, session_id, messages, _is_integration = await _resolve_channel_and_session(
-            db, req, user=user, preserve_metadata=True,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Session error: {e}")
-
-    channel_id = channel.id
-    session_scoped_delivery = req.external_delivery == "none"
-
-    # Multi-bot channel: if user @-tagged a member bot, route to that bot.
-    _primary_bot_id = bot.id
-    bot, _member_config = await maybe_route_to_member_bot(db, channel, bot, message)
-
-    ctx = await prepare_bot_context(
-        messages=messages,
-        bot=bot,
-        primary_bot_id=_primary_bot_id,
-        channel_id=channel_id,
-        member_config=_member_config,
-        user_message=message,
-        msg_metadata=req.msg_metadata,
+    sub_session_response = await _maybe_enqueue_sub_session_chat(
+        req=req,
         db=db,
+        user=user,
+        prepared=prepared,
+    )
+    if sub_session_response is not None:
+        return sub_session_response
+
+    run = await _resolve_normal_chat_run(
+        req=req,
+        db=db,
+        user=user,
+        bot=bot,
+        message=prepared.message,
     )
 
     logger.info(
         "POST /chat  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
-        bot.id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80],
+        run.bot.id, run.channel.id, run.session_id, req.passive,
+        len(req.file_metadata), prepared.message[:80],
     )
 
-    # Passive path: store message without running agent.
-    if req.passive:
-        await store_passive_message(
-            db, session_id, message, req.msg_metadata or {}, channel_id=channel_id,
-        )
-        return JSONResponse(
-            {"session_id": str(session_id), "passive": True},
-            status_code=202,
-        )
+    short_circuit_response = await _maybe_short_circuit_normal_chat(
+        req=req,
+        db=db,
+        run=run,
+        message=prepared.message,
+    )
+    if short_circuit_response is not None:
+        return short_circuit_response
 
-    # Channel throttle: prevent bot-to-bot infinite loops. Human messages from
-    # the web UI are exempt.
-    _sender_type = (req.msg_metadata or {}).get("sender_type", "")
-    if _sender_type != "human" and _channel_throttled(str(channel_id)):
-        await store_passive_message(
-            db, session_id, message,
-            {**(req.msg_metadata or {}), "throttled": True},
-            channel_id=channel_id,
-        )
-        return JSONResponse(
-            {"session_id": str(session_id), "throttled": True},
-            status_code=202,
-        )
-    _record_channel_run(str(channel_id))
-
-    # System pause: queue or drop new traffic while paused.
-    if _settings.SYSTEM_PAUSED:
-        if _settings.SYSTEM_PAUSE_BEHAVIOR == "drop":
-            return JSONResponse(
-                {"detail": "System is paused. Messages are being dropped."},
-                status_code=503,
-            )
-        queued_task = TaskModel(
-            bot_id=req.bot_id,
-            client_id=req.client_id,
-            session_id=session_id,
-            channel_id=channel_id,
-            prompt=message,
-            status="pending",
-            created_at=datetime.now(timezone.utc),
-            execution_config={"session_scoped": True, "external_delivery": req.external_delivery}
-            if session_scoped_delivery else None,
-        )
-        db.add(queued_task)
-        await db.commit()
-        await db.refresh(queued_task)
-        logger.info("System paused — queued message as task %s", queued_task.id)
-        return JSONResponse(
-            {
-                "session_id": str(session_id),
-                "queued": True,
-                "task_id": str(queued_task.id),
-                "reason": "system_paused",
-                "session_scoped": session_scoped_delivery,
-            },
-            status_code=202,
-        )
-
-    # Pre-allocate a user message UUID so attachments can be linked at
-    # creation time instead of via the fragile orphan-linking sweep in
-    # persist_turn (which races with concurrent turns). The message row
-    # itself is also pre-persisted here so the attachment FK resolves —
-    # turn_worker's _persist_and_publish_user_message is idempotent on
-    # pre_allocated_id (it will find the existing row and only publish).
-    pre_user_msg_id: uuid.UUID | None = None
-    if req.file_metadata:
-        pre_user_msg_id = uuid.uuid4()
-        _stub_meta = dict(req.msg_metadata or {})
-        db.add(MessageModel(
-            id=pre_user_msg_id,
-            session_id=session_id,
-            role="user",
-            content=message,
-            metadata_=_stub_meta,
-            created_at=datetime.now(timezone.utc),
-        ))
-        await db.commit()
-        if req.msg_metadata is None:
-            req.msg_metadata = {}
-        req.msg_metadata["_pre_user_msg_id"] = str(pre_user_msg_id)
-
-    # Eager attachment records so the agent loop can see them.
-    # Capture the created rows and thread their UUIDs into ``att_payload``
-    # so the LLM can reference them directly (e.g. via
-    # ``generate_image(attachment_ids=...)``) instead of hallucinating a
-    # UUID for a fresh upload it has never been told the id of.
-    if req.file_metadata:
-        source = (req.msg_metadata or {}).get("source", "web")
-        created_attachments = await _create_attachments_from_metadata(
-            req.file_metadata, channel_id, source, bot_id=req.bot_id,
-            message_id=pre_user_msg_id,
-        )
-        if att_payload:
-            # file_metadata covers every upload (images + text), while
-            # att_payload only contains vision-eligible entries. Match by
-            # (filename, size_bytes) to thread the id onto the right
-            # payload entry — filename alone can collide for duplicate
-            # uploads in the same turn.
-            _by_key = {
-                (att.filename, att.size_bytes): str(att.id)
-                for att in created_attachments
-            }
-            for entry in att_payload:
-                key = (entry.get("name"), None)
-                # Size isn't on the Attachment pydantic model, so fall
-                # back to filename-only lookup when we can't match the
-                # exact key.
-                matched_id: str | None = None
-                for (fname, _size), aid in _by_key.items():
-                    if fname == entry.get("name"):
-                        matched_id = aid
-                        break
-                if matched_id:
-                    entry["attachment_id"] = matched_id
-
-    # Spawn the background turn worker. start_turn returns immediately.
-    try:
-        handle: TurnHandle = await start_turn(
-            channel_id=channel_id,
-            session_id=session_id,
-            bot=bot,
-            primary_bot_id=_primary_bot_id,
-            messages=messages,
-            user_message=message,
-            ctx=ctx,
+    pre_user_msg_id = await _prepare_attachment_records(
+        req=req,
+        db=db,
+        run=run,
+        prepared=prepared,
+    )
+    response, turn_started = await _start_or_queue_normal_turn(
+        req=req,
+        db=db,
+        user=user,
+        run=run,
+        prepared=prepared,
+        pre_user_msg_id=pre_user_msg_id,
+    )
+    if turn_started:
+        await _mark_attention_item_responded(
             req=req,
+            db=db,
             user=user,
-            audio_data=audio_data,
-            audio_format=audio_format,
-            att_payload=att_payload,
-            session_scoped=session_scoped_delivery,
+            pre_user_msg_id=pre_user_msg_id,
         )
-    except SessionBusyError:
-        # Session has an in-flight turn — queue this message as a Task so
-        # the task worker picks it up after the active loop releases the lock.
-        queued_task = TaskModel(
-            bot_id=req.bot_id,
-            client_id=req.client_id,
-            session_id=session_id,
-            channel_id=channel_id,
-            prompt=message,
-            status="pending",
-            created_at=datetime.now(timezone.utc),
-            execution_config={"session_scoped": True, "external_delivery": req.external_delivery}
-            if session_scoped_delivery else None,
-        )
-        db.add(queued_task)
-        # Persist the user message so the UI's DB refetch sees it
-        # (prevents the optimistic message from vanishing). When
-        # file_metadata is present the row was already pre-persisted above
-        # so attachment FKs could resolve — skip re-insert in that case.
-        if not pre_user_msg_id:
-            _queued_meta = dict(req.msg_metadata or {})
-            _queued_meta.pop("_pre_user_msg_id", None)  # strip internal key
-            _queued_kw: dict = dict(
-                session_id=session_id,
-                role="user",
-                content=message,
-                metadata_=_queued_meta,
-                created_at=datetime.now(timezone.utc),
-            )
-            user_msg = MessageModel(**_queued_kw)
-            db.add(user_msg)
-        await db.commit()
-        await db.refresh(queued_task)
-        logger.info(
-            "Session %s busy — queued message as task %s",
-            session_id, queued_task.id,
-        )
-        return JSONResponse(
-            {
-                "session_id": str(session_id),
-                "queued": True,
-                "task_id": str(queued_task.id),
-                "session_scoped": session_scoped_delivery,
-            },
-            status_code=202,
-        )
-
-    _attention_item_id = (req.msg_metadata or {}).get("attention_item_id")
-    if _attention_item_id:
-        try:
-            from app.services.workspace_attention import actor_label, mark_attention_responded
-            await mark_attention_responded(
-                db,
-                uuid.UUID(str(_attention_item_id)),
-                response_message_id=pre_user_msg_id,
-                responded_by=actor_label(user),
-            )
-        except Exception:
-            logger.warning(
-                "Failed to mark attention item responded: %s",
-                _attention_item_id,
-                exc_info=True,
-            )
-
-    return JSONResponse(
-        {
-            "session_id": str(handle.session_id),
-            "channel_id": str(handle.channel_id),
-            "turn_id": str(handle.turn_id),
-            "session_scoped": session_scoped_delivery,
-        },
-        status_code=202,
-    )
+    return response
 
 
 async def _enqueue_sub_session_turn(
