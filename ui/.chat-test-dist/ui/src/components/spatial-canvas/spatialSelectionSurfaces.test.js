@@ -101,15 +101,14 @@ test("Map Brief selected object uses quiet triage instead of side-stripe chrome"
 });
 test("Map Brief active attention is actionable without opening the Attention panel first", () => {
     const source = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
-    assert.match(source, /useBulkAcknowledgeAttentionItems/);
-    assert.match(source, /WORKSPACE_MAP_STATE_KEY/);
     assert.match(source, /findActiveAttentionItemsForObject/);
     assert.match(source, /data-testid="map-brief-attention-actions"/);
-    assert.match(source, /Acknowledge target/);
-    assert.match(source, /scope:\s*"target"/);
-    assert.match(source, /Open review/);
+    assert.match(source, /attentionDeckHref/);
+    assert.match(source, /Review in Mission Control/);
     assert.match(source, /operator-reviewed finding/);
-    assert.match(source, /label: hasOperatorReview \? "Review finding" : "Review issue"/);
+    assert.match(source, /label: "Review in Mission Control"/);
+    assert.doesNotMatch(source, /Acknowledge target/);
+    assert.doesNotMatch(source, /Open in Attention/);
 });
 test("clusters surface aggregate actionable cues without opening selection chrome", () => {
     const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
@@ -140,6 +139,9 @@ test("spatial glanceability uses shared cue markers and compass without side str
     assert.match(overlaySource, /<ActionCompass/);
     assert.match(modelSource, /worldW: node\.world_w/);
     assert.match(modelSource, /worldH: node\.world_h/);
+    assert.match(modelSource, /attentionReviewHref/);
+    assert.match(modelSource, /Review in Mission Control/);
+    assert.match(modelSource, /attentionDeckHref\(\{ itemId: direct\.id \}\)/);
     assert.doesNotMatch(cueSource, /data-spatial-action-cue-halo/);
     assert.doesNotMatch(cueSource, /border-l-/);
     assert.doesNotMatch(cueSource, /animate-/);
@@ -148,7 +150,7 @@ test("Map Brief warning lines expose concrete review targets", () => {
     const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
     const typeSource = readFileSync(resolve(process.cwd(), "src/api/types/workspaceMapState.ts"), "utf8");
     assert.match(chromeSource, /data-testid="map-brief-signal-action"/);
-    assert.match(chromeSource, /Review finding/);
+    assert.match(chromeSource, /Review in Mission Control/);
     assert.match(chromeSource, /Open trace/);
     assert.match(chromeSource, /Open automation/);
     assert.match(chromeSource, /openTraceInspector/);
@@ -223,24 +225,30 @@ test("Operator sweep transcript uses a full-width chat surface instead of a nest
     assert.match(cssSource, /overflow-x: hidden/);
     assert.doesNotMatch(attentionSource, /rounded-md bg-surface-raised\/70/);
 });
-test("Starboard attention station is a summary that launches the command deck", () => {
+test("Starboard attention station is only a launcher for Mission Control Review", () => {
     const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
     const deckSource = readFileSync(resolve(process.cwd(), "src/components/attention/AttentionCommandDeck.tsx"), "utf8");
     const rootSource = readFileSync(resolve(process.cwd(), "src/layouts/RootLayout.tsx"), "utf8");
     const hubPageSource = readFileSync(resolve(process.cwd(), "app/(app)/hub/attention.tsx"), "utf8");
+    const commandCenterSource = readFileSync(resolve(process.cwd(), "app/(app)/hub/command-center.tsx"), "utf8");
     const channelHeaderSource = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
     assert.match(chromeSource, /AttentionStarboardSummary/);
     assert.match(chromeSource, /data-testid="starboard-attention-summary"/);
-    assert.match(chromeSource, /Open deck/);
-    assert.match(chromeSource, /attentionHubHref/);
+    assert.match(chromeSource, /Review in Mission Control/);
+    assert.match(chromeSource, /attentionDeckHref/);
+    assert.doesNotMatch(chromeSource, /Open deck/);
+    assert.doesNotMatch(chromeSource, /Open Command Deck/);
     assert.doesNotMatch(chromeSource, /<AttentionHubContent/);
     assert.doesNotMatch(rootSource, /AttentionHubDrawerRoot/);
     assert.match(hubPageSource, /requestedChannelId/);
     assert.match(hubPageSource, /requestedMode/);
+    assert.match(hubPageSource, /requestedTargetKind/);
+    assert.match(commandCenterSource, /Navigate/);
+    assert.match(commandCenterSource, /attentionDeckHref/);
     assert.match(channelHeaderSource, /attentionDeckHref\(\{ channelId, mode: "inbox" \}\)/);
-    assert.match(deckSource, /Attention Command Deck/);
-    assert.match(deckSource, /What to do now/);
-    assert.match(deckSource, /Sweep inbox/);
+    assert.match(deckSource, /Mission Control Review/);
+    assert.match(deckSource, /Recommended/);
+    assert.match(deckSource, /Run Operator sweep/);
     assert.match(deckSource, /Run log/);
     assert.match(deckSource, /RunReceipt/);
     assert.match(deckSource, /attention-run-receipt/);

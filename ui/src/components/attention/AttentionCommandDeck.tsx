@@ -678,7 +678,7 @@ function DeckSideRail({
             <div className="mt-2 text-sm font-medium text-text">{nextReview.title}</div>
             <div className="mt-1 text-xs text-text-muted">Operator has marked this for review.</div>
             <button type="button" className="mt-3 rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12]" onClick={() => onSelect(nextReview)}>
-              Review finding
+              Review first finding
             </button>
           </>
         ) : (

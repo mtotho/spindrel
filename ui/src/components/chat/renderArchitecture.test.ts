@@ -252,6 +252,7 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.match(channelHeader, /isMobile \? \(/);
   assert.match(channelHeader, /className="header-bot-label"/);
   assert.doesNotMatch(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+  assert.doesNotMatch(channelHeader, /if \(!data\) return null;/);
   assert.match(channelHeader, /data-testid=\{compact \? "harness-context-chip-mobile" : "harness-context-chip"\}/);
   assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
   assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);

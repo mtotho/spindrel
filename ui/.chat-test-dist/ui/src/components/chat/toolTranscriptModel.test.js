@@ -264,10 +264,10 @@ test("terminal mode keeps native Write text envelopes in transcript rows for cod
                 surface: "rich_result",
                 status: "done",
                 summary: {
-                    kind: "result",
-                    subject_type: "generic",
+                    kind: "write",
+                    subject_type: "file",
                     label: "Wrote index.html",
-                    preview_text: "Wrote index.html",
+                    path: "index.html",
                 },
                 envelope: {
                     content_type: "text/plain",
@@ -284,7 +284,11 @@ test("terminal mode keeps native Write text envelopes in transcript rows for cod
     assert.equal(items[0]?.kind, "transcript");
     if (items[0]?.kind !== "transcript")
         throw new Error("expected transcript item");
+    assert.equal(items[0].entries[0]?.kind, "file");
     assert.equal(items[0].entries[0]?.label, "Wrote index.html");
+    assert.equal(items[0].entries[0]?.target, "index.html");
+    assert.equal(items[0].entries[0]?.previewText, null);
+    assert.equal(items[0].entries[0]?.detailKind, "expandable");
     assert.equal(items[0].entries[0]?.env?.body, "<!DOCTYPE html>\n<html>\n</html>");
 });
 test("live and persisted tool calls render identically through the canonical builder", () => {

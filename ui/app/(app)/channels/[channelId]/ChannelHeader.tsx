@@ -859,7 +859,49 @@ function HarnessStatusPill({
 }) {
   const { data } = useSessionHarnessStatus(sessionId);
   const [open, setOpen] = React.useState(false);
-  if (!data) return null;
+  if (!data) {
+    const loadingLabel = compact ? "ctx" : "ctx loading";
+    return (
+      <span className="relative inline-flex shrink-0">
+        <button
+          type="button"
+          data-testid={compact ? "harness-context-chip-mobile" : "harness-context-chip"}
+          onClick={() => setOpen((v) => !v)}
+          className={
+            compact
+              ? "inline-flex h-5 min-w-5 items-center justify-center rounded bg-surface-overlay px-1 text-[10px] text-text-muted hover:text-text"
+              : "inline-flex max-w-[14rem] items-center gap-1 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text"
+          }
+          style={{ color: t.textMuted, fontFamily: "'Menlo', monospace" }}
+          title="Harness context is loading."
+        >
+          {loadingLabel}
+        </button>
+        {open && (
+          <div
+            data-testid={compact ? "harness-context-panel-mobile" : "harness-context-panel"}
+            className={
+              compact
+                ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+                : "absolute right-0 top-full z-[1000] mt-2 w-80 rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+            }
+            style={{ fontFamily: "system-ui, sans-serif" }}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="font-medium text-text">Harness context</div>
+              <button type="button" onClick={() => setOpen(false)} className="rounded bg-transparent p-1 text-text-dim hover:bg-surface-overlay hover:text-text" aria-label="Close context details">
+                <CloseIcon size={12} />
+              </button>
+            </div>
+            <div className="grid gap-1">
+              <div><span className="text-text-dim">Context</span> loading</div>
+              <div><span className="text-text-dim">CWD</span> loading</div>
+            </div>
+          </div>
+        )}
+      </span>
+    );
+  }
   const resume = data.harness_session_id
     ? data.harness_session_id.slice(0, 8)
     : "new";

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { useMissionControl } from "@/src/api/hooks/useMissionControl";
+import { attentionDeckHref } from "@/src/lib/hubRoutes";
 import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
 import { formatTimeUntil } from "@/src/components/spatial-canvas/spatialActivity";
 import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
@@ -36,10 +37,11 @@ export function CommandCenterWidget({
 
   const rows = data.lanes.filter((bot) => bot.missions.length > 0 || bot.attention_signals.length > 0).slice(0, profile.compact ? 2 : 5);
   const first = rows[0];
+  const reviewHref = attentionDeckHref();
 
   if (profile.compact) {
     return (
-      <Link to="/hub/mission-control" style={{ color: "inherit", textDecoration: "none" }}>
+      <Link to={reviewHref} style={{ color: "inherit", textDecoration: "none" }}>
         <div style={{ display: "flex", minHeight: "100%", flexDirection: "column", gap: 10 }}>
           <div style={{ border: `1px solid ${t.surfaceBorder}`, borderRadius: 8, background: t.surface, padding: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, color: t.textDim, fontSize: 11 }}>
@@ -69,7 +71,7 @@ export function CommandCenterWidget({
         <div style={{ color: t.textDim, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>
           Mission Control
         </div>
-        <Link to="/hub/mission-control" style={{ color: t.accent, fontSize: 11, textDecoration: "none" }}>
+        <Link to={reviewHref} style={{ color: t.accent, fontSize: 11, textDecoration: "none" }}>
           Open
         </Link>
       </div>
@@ -88,7 +90,7 @@ export function CommandCenterWidget({
       </div>
       <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
         {rows.length ? rows.map((bot) => (
-          <Link key={bot.bot_id} to="/hub/mission-control" style={{ color: "inherit", textDecoration: "none" }}>
+          <Link key={bot.bot_id} to={reviewHref} style={{ color: "inherit", textDecoration: "none" }}>
             <div style={{ borderTop: `1px solid ${t.surfaceBorder}`, padding: "8px 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text, fontSize: 13 }}>

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -46,6 +47,27 @@ STATUS_RANK = {
     "error": 6,
 }
 CUE_RANK = {"quiet": 0, "recent": 1, "next": 2, "investigate": 3}
+
+
+@dataclass(frozen=True)
+class MapStateSeed:
+    channels: list[Channel]
+    channel_by_id: dict[uuid.UUID, Channel]
+    visible_channel_ids: set[uuid.UUID]
+    node_pairs: list[tuple[WorkspaceSpatialNode, WidgetDashboardPin | None]]
+    node_by_channel: dict[uuid.UUID, WorkspaceSpatialNode]
+    node_by_bot: dict[str, WorkspaceSpatialNode]
+    node_by_pin: dict[uuid.UUID, WorkspaceSpatialNode]
+    pin_by_id: dict[uuid.UUID, WidgetDashboardPin]
+    objects: dict[str, dict[str, Any]]
+    daily_health: WorkspaceSpatialNode | None
+    memory_observatory: WorkspaceSpatialNode | None
+
+
+@dataclass(frozen=True)
+class WidgetSubscriptionIndex:
+    cron_by_pin: dict[uuid.UUID, list[WidgetCronSubscription]]
+    event_by_pin: dict[uuid.UUID, list[WidgetEventSubscription]]
 
 
 def _now() -> datetime:
@@ -355,14 +377,23 @@ async def _recent_trace_errors(
     return filtered
 
 
-async def build_workspace_map_state(
-    db: AsyncSession,
-    *,
-    auth: Any,
-    recent_limit: int = 80,
-    upcoming_limit: int = 100,
-) -> dict[str, Any]:
-    """Build a map-ready projection over existing workspace primitives."""
+def _unique_nodes(nodes: list[WorkspaceSpatialNode]) -> list[WorkspaceSpatialNode]:
+    return list({node.id: node for node in nodes}.values())
+
+
+def _node_for_uuid(
+    value: Any,
+    mapping: dict[uuid.UUID, WorkspaceSpatialNode],
+) -> WorkspaceSpatialNode | None:
+    if not value:
+        return None
+    try:
+        return mapping.get(uuid.UUID(str(value)))
+    except ValueError:
+        return None
+
+
+async def _load_map_state_seed(db: AsyncSession, auth: Any) -> MapStateSeed:
     channels = await _visible_channels(db, auth)
     channel_by_id = {channel.id: channel for channel in channels}
     visible_channel_ids = set(channel_by_id)
@@ -371,17 +402,36 @@ async def build_workspace_map_state(
     node_by_bot = {node.bot_id: node for node, _pin in node_pairs if node.bot_id}
     node_by_pin = {node.widget_pin_id: node for node, _pin in node_pairs if node.widget_pin_id}
     pin_by_id = {pin.id: pin for _node, pin in node_pairs if pin is not None}
-    objects: dict[str, dict[str, Any]] = {
+    objects = {
         str(node.id): _empty_object(node, channel_by_id, pin)
         for node, pin in node_pairs
     }
+    daily_health = next((node for node, _pin in node_pairs if node.landmark_kind == "daily_health"), None)
+    memory_observatory = next(
+        (node for node, _pin in node_pairs if node.landmark_kind == "memory_observatory"),
+        None,
+    )
+    return MapStateSeed(
+        channels=channels,
+        channel_by_id=channel_by_id,
+        visible_channel_ids=visible_channel_ids,
+        node_pairs=node_pairs,
+        node_by_channel=node_by_channel,
+        node_by_bot=node_by_bot,
+        node_by_pin=node_by_pin,
+        pin_by_id=pin_by_id,
+        objects=objects,
+        daily_health=daily_health,
+        memory_observatory=memory_observatory,
+    )
 
-    # Channel room attachments.
-    for channel in channels:
-        node = node_by_channel.get(channel.id)
+
+def _attach_channel_rooms(seed: MapStateSeed) -> None:
+    for channel in seed.channels:
+        node = seed.node_by_channel.get(channel.id)
         if not node:
             continue
-        obj = objects[str(node.id)]
+        obj = seed.objects[str(node.id)]
         member_ids = [member.bot_id for member in (channel.bot_members or [])]
         bot_ids = list(dict.fromkeys([channel.bot_id, *member_ids]))
         integrations = [
@@ -407,33 +457,47 @@ async def build_workspace_map_state(
         obj["counts"]["bots"] = len(bot_ids)
         obj["counts"]["integrations"] = len(integrations)
 
-    # Widget source and subscriptions.
-    pin_ids = set(pin_by_id)
+
+async def _load_widget_subscription_index(
+    db: AsyncSession,
+    seed: MapStateSeed,
+) -> WidgetSubscriptionIndex:
     cron_by_pin: dict[uuid.UUID, list[WidgetCronSubscription]] = defaultdict(list)
     event_by_pin: dict[uuid.UUID, list[WidgetEventSubscription]] = defaultdict(list)
-    if pin_ids:
-        for row in (await db.execute(
-            select(WidgetCronSubscription).where(WidgetCronSubscription.pin_id.in_(pin_ids))
-        )).scalars().all():
-            cron_by_pin[row.pin_id].append(row)
-        for row in (await db.execute(
-            select(WidgetEventSubscription).where(WidgetEventSubscription.pin_id.in_(pin_ids))
-        )).scalars().all():
-            event_by_pin[row.pin_id].append(row)
+    pin_ids = set(seed.pin_by_id)
+    if not pin_ids:
+        return WidgetSubscriptionIndex(cron_by_pin=cron_by_pin, event_by_pin=event_by_pin)
 
+    for row in (await db.execute(
+        select(WidgetCronSubscription).where(WidgetCronSubscription.pin_id.in_(pin_ids))
+    )).scalars().all():
+        cron_by_pin[row.pin_id].append(row)
+    for row in (await db.execute(
+        select(WidgetEventSubscription).where(WidgetEventSubscription.pin_id.in_(pin_ids))
+    )).scalars().all():
+        event_by_pin[row.pin_id].append(row)
+    return WidgetSubscriptionIndex(cron_by_pin=cron_by_pin, event_by_pin=event_by_pin)
+
+
+def _attach_widgets(seed: MapStateSeed, subscriptions: WidgetSubscriptionIndex) -> None:
     widgets_by_channel: dict[uuid.UUID, list[dict[str, Any]]] = defaultdict(list)
-    for pin_id, pin in pin_by_id.items():
-        node = node_by_pin.get(pin_id)
+    max_dt = datetime.max.replace(tzinfo=timezone.utc)
+    for pin_id, pin in seed.pin_by_id.items():
+        node = seed.node_by_pin.get(pin_id)
         if not node:
             continue
-        obj = objects[str(node.id)]
-        crons = sorted(cron_by_pin.get(pin_id, []), key=lambda row: row.next_fire_at or datetime.max.replace(tzinfo=timezone.utc))
-        events = event_by_pin.get(pin_id, [])
+        obj = seed.objects[str(node.id)]
+        crons = sorted(
+            subscriptions.cron_by_pin.get(pin_id, []),
+            key=lambda row: row.next_fire_at or max_dt,
+        )
+        events = subscriptions.event_by_pin.get(pin_id, [])
         next_cron = crons[0] if crons else None
+        source_channel = seed.channel_by_id.get(pin.source_channel_id)
         obj["source"] = {
             "widget_pin_id": str(pin.id),
             "source_channel_id": str(pin.source_channel_id) if pin.source_channel_id else None,
-            "source_channel_name": channel_by_id.get(pin.source_channel_id).name if pin.source_channel_id in channel_by_id else None,
+            "source_channel_name": source_channel.name if source_channel else None,
             "source_bot_id": pin.source_bot_id,
             "source_bot_name": _bot_name(pin.source_bot_id),
             "tool_name": pin.tool_name,
@@ -458,72 +522,66 @@ async def build_workspace_map_state(
             })
 
     for channel_id, widgets in widgets_by_channel.items():
-        node = node_by_channel.get(channel_id)
-        if node and str(node.id) in objects:
-            objects[str(node.id)]["attached"]["widgets"] = widgets
-            objects[str(node.id)]["counts"]["widgets"] = len(widgets)
+        node = seed.node_by_channel.get(channel_id)
+        if node and str(node.id) in seed.objects:
+            seed.objects[str(node.id)]["attached"]["widgets"] = widgets
+            seed.objects[str(node.id)]["counts"]["widgets"] = len(widgets)
 
-    # Heartbeat state.
-    if visible_channel_ids:
-        heartbeats = list((await db.execute(
-            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(visible_channel_ids))
-        )).scalars().all())
-        for heartbeat in heartbeats:
-            node = node_by_channel.get(heartbeat.channel_id)
-            if not node:
-                continue
-            obj = objects[str(node.id)]
-            obj["attached"]["heartbeat"] = {
-                "enabled": bool(heartbeat.enabled),
-                "interval_minutes": heartbeat.interval_minutes,
-                "next_run_at": _iso(heartbeat.next_run_at),
-                "last_run_at": _iso(heartbeat.last_run_at),
-                "last_error": _truncate(heartbeat.last_error),
-                "run_count": heartbeat.run_count,
-            }
-            if heartbeat.last_error:
-                obj["warnings"].append({
-                    "kind": "heartbeat",
-                    "severity": "error",
-                    "title": "Heartbeat failed",
-                    "message": _truncate(heartbeat.last_error),
-                    "last_seen_at": _iso(heartbeat.last_run_at),
-                })
-                obj["counts"]["warnings"] += 1
-                _merge_state(obj, status="error", severity="error", reason="Heartbeat failed")
-            elif heartbeat.enabled and heartbeat.next_run_at:
-                if not obj["next"] or str(heartbeat.next_run_at.isoformat()) < str(obj["next"].get("scheduled_at") or "9999"):
-                    obj["next"] = {"kind": "heartbeat", "title": "Heartbeat", "scheduled_at": _iso(heartbeat.next_run_at)}
-                obj["counts"]["upcoming"] += 1
-                _merge_state(obj, status="scheduled", reason="Heartbeat scheduled")
 
-    # Upcoming activity and recent task reality.
-    upcoming = await list_upcoming_activity(
-        db,
-        limit=upcoming_limit,
-        auth=auth,
-        include_memory_hygiene=True,
-        include_channelless_tasks=True,
-    )
+async def _attach_heartbeats(db: AsyncSession, seed: MapStateSeed) -> None:
+    if not seed.visible_channel_ids:
+        return
+    heartbeats = list((await db.execute(
+        select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(seed.visible_channel_ids))
+    )).scalars().all())
+    for heartbeat in heartbeats:
+        node = seed.node_by_channel.get(heartbeat.channel_id)
+        if not node:
+            continue
+        obj = seed.objects[str(node.id)]
+        obj["attached"]["heartbeat"] = {
+            "enabled": bool(heartbeat.enabled),
+            "interval_minutes": heartbeat.interval_minutes,
+            "next_run_at": _iso(heartbeat.next_run_at),
+            "last_run_at": _iso(heartbeat.last_run_at),
+            "last_error": _truncate(heartbeat.last_error),
+            "run_count": heartbeat.run_count,
+        }
+        if heartbeat.last_error:
+            obj["warnings"].append({
+                "kind": "heartbeat",
+                "severity": "error",
+                "title": "Heartbeat failed",
+                "message": _truncate(heartbeat.last_error),
+                "last_seen_at": _iso(heartbeat.last_run_at),
+            })
+            obj["counts"]["warnings"] += 1
+            _merge_state(obj, status="error", severity="error", reason="Heartbeat failed")
+        elif heartbeat.enabled and heartbeat.next_run_at:
+            if not obj["next"] or str(heartbeat.next_run_at.isoformat()) < str(obj["next"].get("scheduled_at") or "9999"):
+                obj["next"] = {"kind": "heartbeat", "title": "Heartbeat", "scheduled_at": _iso(heartbeat.next_run_at)}
+            obj["counts"]["upcoming"] += 1
+            _merge_state(obj, status="scheduled", reason="Heartbeat scheduled")
+
+
+def _nodes_for_upcoming_item(seed: MapStateSeed, item: dict[str, Any]) -> list[WorkspaceSpatialNode]:
+    candidates: list[WorkspaceSpatialNode] = []
+    if node := _node_for_uuid(item.get("channel_id"), seed.node_by_channel):
+        candidates.append(node)
+    bot_id = item.get("bot_id")
+    if bot_id and seed.node_by_bot.get(str(bot_id)):
+        candidates.append(seed.node_by_bot[str(bot_id)])
+    if item.get("type") == "memory_hygiene" and seed.memory_observatory:
+        candidates.append(seed.memory_observatory)
+    return _unique_nodes(candidates)
+
+
+def _attach_upcoming(seed: MapStateSeed, upcoming: list[dict[str, Any]]) -> None:
     for item in upcoming:
         channel_id = item.get("channel_id")
         bot_id = item.get("bot_id")
-        candidates: list[WorkspaceSpatialNode] = []
-        if channel_id:
-            try:
-                node = node_by_channel.get(uuid.UUID(str(channel_id)))
-                if node:
-                    candidates.append(node)
-            except ValueError:
-                pass
-        if bot_id and node_by_bot.get(str(bot_id)):
-            candidates.append(node_by_bot[str(bot_id)])
-        if item.get("type") == "memory_hygiene":
-            landmark = next((node for node, _pin in node_pairs if node.landmark_kind == "memory_observatory"), None)
-            if landmark:
-                candidates.append(landmark)
-        for node in {candidate.id: candidate for candidate in candidates}.values():
-            obj = objects.get(str(node.id))
+        for node in _nodes_for_upcoming_item(seed, item):
+            obj = seed.objects.get(str(node.id))
             if not obj:
                 continue
             obj["counts"]["upcoming"] += 1
@@ -541,18 +599,26 @@ async def build_workspace_map_state(
                 obj["next"] = next_item
             _merge_state(obj, status="scheduled", reason=f"{item.get('title') or item.get('type')} scheduled")
 
-    recent_tasks = await _recent_tasks(db, visible_channel_ids=visible_channel_ids, limit=recent_limit)
-    channel_for_task = {channel.id: channel for channel in channels}
+
+def _nodes_for_task(seed: MapStateSeed, task: Task) -> list[WorkspaceSpatialNode]:
+    candidates: list[WorkspaceSpatialNode] = []
+    if task.channel_id and seed.node_by_channel.get(task.channel_id):
+        candidates.append(seed.node_by_channel[task.channel_id])
+    if task.bot_id and seed.node_by_bot.get(task.bot_id):
+        candidates.append(seed.node_by_bot[task.bot_id])
+    return _unique_nodes(candidates)
+
+
+def _attach_recent_tasks(
+    seed: MapStateSeed,
+    recent_tasks: list[Task],
+    channel_for_task: dict[uuid.UUID, Channel],
+) -> None:
     for task in recent_tasks:
         signal = _task_signal(task, channel_for_task.get(task.channel_id) if task.channel_id else None)
         status = _status_from_task(task)
-        candidates = []
-        if task.channel_id and node_by_channel.get(task.channel_id):
-            candidates.append(node_by_channel[task.channel_id])
-        if task.bot_id and node_by_bot.get(task.bot_id):
-            candidates.append(node_by_bot[task.bot_id])
-        for node in {candidate.id: candidate for candidate in candidates}.values():
-            obj = objects.get(str(node.id))
+        for node in _nodes_for_task(seed, task):
+            obj = seed.objects.get(str(node.id))
             if not obj:
                 continue
             obj["recent"].append(signal)
@@ -570,29 +636,51 @@ async def build_workspace_map_state(
                 obj["counts"]["warnings"] += 1
             _merge_state(obj, status=status, severity="error" if task.error else None, reason=signal["title"])
 
-    # Attention remains a warning overlay, not the object model.
-    for item in await _active_attention(db, visible_channel_ids=visible_channel_ids):
-        nodes: list[WorkspaceSpatialNode] = []
-        if item.target_kind == "channel":
-            try:
-                node = node_by_channel.get(uuid.UUID(str(item.target_id)))
-                if node:
-                    nodes.append(node)
-            except ValueError:
-                pass
-        elif item.target_kind == "bot" and node_by_bot.get(item.target_id):
-            nodes.append(node_by_bot[item.target_id])
-        elif item.target_kind == "widget":
-            try:
-                node = node_by_pin.get(uuid.UUID(str(item.target_id)))
-                if node:
-                    nodes.append(node)
-            except ValueError:
-                pass
-        elif item.channel_id and node_by_channel.get(item.channel_id):
-            nodes.append(node_by_channel[item.channel_id])
-        for node in {candidate.id: candidate for candidate in nodes}.values():
-            obj = objects.get(str(node.id))
+
+async def _attach_activity(
+    db: AsyncSession,
+    seed: MapStateSeed,
+    *,
+    auth: Any,
+    recent_limit: int,
+    upcoming_limit: int,
+) -> tuple[list[dict[str, Any]], list[Task], dict[uuid.UUID, Channel]]:
+    upcoming = await list_upcoming_activity(
+        db,
+        limit=upcoming_limit,
+        auth=auth,
+        include_memory_hygiene=True,
+        include_channelless_tasks=True,
+    )
+    _attach_upcoming(seed, upcoming)
+    recent_tasks = await _recent_tasks(db, visible_channel_ids=seed.visible_channel_ids, limit=recent_limit)
+    channel_for_task = {channel.id: channel for channel in seed.channels}
+    _attach_recent_tasks(seed, recent_tasks, channel_for_task)
+    return upcoming, recent_tasks, channel_for_task
+
+
+def _nodes_for_attention_item(
+    seed: MapStateSeed,
+    item: WorkspaceAttentionItem,
+) -> list[WorkspaceSpatialNode]:
+    nodes: list[WorkspaceSpatialNode] = []
+    if item.target_kind == "channel":
+        if node := _node_for_uuid(item.target_id, seed.node_by_channel):
+            nodes.append(node)
+    elif item.target_kind == "bot" and seed.node_by_bot.get(item.target_id):
+        nodes.append(seed.node_by_bot[item.target_id])
+    elif item.target_kind == "widget":
+        if node := _node_for_uuid(item.target_id, seed.node_by_pin):
+            nodes.append(node)
+    elif item.channel_id and seed.node_by_channel.get(item.channel_id):
+        nodes.append(seed.node_by_channel[item.channel_id])
+    return _unique_nodes(nodes)
+
+
+async def _attach_attention(db: AsyncSession, seed: MapStateSeed) -> None:
+    for item in await _active_attention(db, visible_channel_ids=seed.visible_channel_ids):
+        for node in _nodes_for_attention_item(seed, item):
+            obj = seed.objects.get(str(node.id))
             if not obj:
                 continue
             warning = {
@@ -612,28 +700,25 @@ async def build_workspace_map_state(
                 reason=item.title,
             )
 
-    # Trace errors attach to their target objects when the trace already carries
-    # channel/bot identity. Only unmapped system errors roll up to Daily Health.
-    daily_health = next((node for node, _pin in node_pairs if node.landmark_kind == "daily_health"), None)
-    trace_errors = await _recent_trace_errors(db, visible_channel_ids=visible_channel_ids)
+
+def _nodes_for_trace_signal(seed: MapStateSeed, signal: dict[str, Any]) -> list[WorkspaceSpatialNode]:
+    candidates: list[WorkspaceSpatialNode] = []
+    if node := _node_for_uuid(signal.get("channel_id"), seed.node_by_channel):
+        candidates.append(node)
+    bot_id = signal.get("bot_id")
+    if bot_id and seed.node_by_bot.get(str(bot_id)):
+        candidates.append(seed.node_by_bot[str(bot_id)])
+    return _unique_nodes(candidates)
+
+
+async def _attach_trace_errors(db: AsyncSession, seed: MapStateSeed) -> None:
+    trace_errors = await _recent_trace_errors(db, visible_channel_ids=seed.visible_channel_ids)
     unmapped_trace_errors: list[TraceEvent] = []
     for ev in trace_errors:
         signal = _trace_signal(ev)
-        candidates: list[WorkspaceSpatialNode] = []
-        channel_id = signal.get("channel_id")
-        if channel_id:
-            try:
-                node = node_by_channel.get(uuid.UUID(str(channel_id)))
-                if node:
-                    candidates.append(node)
-            except ValueError:
-                pass
-        bot_id = signal.get("bot_id")
-        if bot_id and node_by_bot.get(str(bot_id)):
-            candidates.append(node_by_bot[str(bot_id)])
         mapped = False
-        for node in {candidate.id: candidate for candidate in candidates}.values():
-            obj = objects.get(str(node.id))
+        for node in _nodes_for_trace_signal(seed, signal):
+            obj = seed.objects.get(str(node.id))
             if not obj:
                 continue
             obj["warnings"].append(signal)
@@ -646,51 +731,63 @@ async def build_workspace_map_state(
         if not mapped:
             unmapped_trace_errors.append(ev)
 
-    if daily_health and unmapped_trace_errors:
-        obj = objects[str(daily_health.id)]
+    if seed.daily_health and unmapped_trace_errors:
+        obj = seed.objects[str(seed.daily_health.id)]
         for ev in unmapped_trace_errors[:8]:
             obj["warnings"].append(_trace_signal(ev))
             obj["counts"]["warnings"] += 1
         _merge_state(obj, status="error", severity="error", reason="Recent system errors")
 
-    # Bot source summaries.
+
+def _attach_bot_summaries(seed: MapStateSeed) -> None:
     bot_channel_ids: dict[str, set[str]] = defaultdict(set)
-    for channel in channels:
+    for channel in seed.channels:
         bot_channel_ids[channel.bot_id].add(str(channel.id))
         for member in channel.bot_members or []:
             bot_channel_ids[member.bot_id].add(str(channel.id))
     for bot in list_bots():
-        node = node_by_bot.get(bot.id)
-        if node and str(node.id) in objects:
-            objects[str(node.id)]["source"] = {
+        node = seed.node_by_bot.get(bot.id)
+        if node and str(node.id) in seed.objects:
+            seed.objects[str(node.id)]["source"] = {
                 "bot_id": bot.id,
                 "bot_name": getattr(bot, "display_name", None) or bot.name,
                 "model": getattr(bot, "model", None),
                 "harness_runtime": getattr(bot, "harness_runtime", None),
             }
-            objects[str(node.id)]["attached"]["channel_ids"] = sorted(bot_channel_ids.get(bot.id, set()))
+            seed.objects[str(node.id)]["attached"]["channel_ids"] = sorted(bot_channel_ids.get(bot.id, set()))
 
-    # Landmarks that are not otherwise active still expose their domain.
-    for node, _pin in node_pairs:
+
+def _attach_landmarks(seed: MapStateSeed, upcoming: list[dict[str, Any]]) -> None:
+    for node, _pin in seed.node_pairs:
         if not node.landmark_kind:
             continue
-        obj = objects[str(node.id)]
+        obj = seed.objects[str(node.id)]
         obj["source"] = {"landmark_kind": node.landmark_kind}
         if node.landmark_kind == "now_well" and upcoming:
             obj["next"] = upcoming[0]
             obj["counts"]["upcoming"] = len(upcoming)
             _merge_state(obj, status="scheduled", reason=f"{upcoming[0].get('title') or 'Work'} upcoming")
         if node.landmark_kind == "attention_hub":
-            total_warnings = sum(1 for entry in objects.values() for _warning in entry["warnings"])
+            total_warnings = sum(1 for entry in seed.objects.values() for _warning in entry["warnings"])
             obj["counts"]["warnings"] = total_warnings
             if total_warnings:
                 _merge_state(obj, status="warning", severity="warning", reason=f"{total_warnings} warnings")
 
-    for obj in objects.values():
+
+def _finalize_map_state_response(
+    seed: MapStateSeed,
+    *,
+    upcoming: list[dict[str, Any]],
+    recent_tasks: list[Task],
+    channel_for_task: dict[uuid.UUID, Channel],
+    upcoming_limit: int,
+    recent_limit: int,
+) -> dict[str, Any]:
+    for obj in seed.objects.values():
         obj["cue"] = _derive_cue(obj)
 
     rows = sorted(
-        objects.values(),
+        seed.objects.values(),
         key=lambda item: (
             CUE_RANK.get(item["cue"]["intent"], 0),
             item["cue"]["priority"],
@@ -715,6 +812,42 @@ async def build_workspace_map_state(
         "objects": rows,
         "objects_by_node_id": {item["node_id"]: item for item in rows},
         "upcoming": upcoming[:upcoming_limit],
-        "recent": [_task_signal(task, channel_for_task.get(task.channel_id) if task.channel_id else None) for task in recent_tasks[:recent_limit]],
+        "recent": [
+            _task_signal(task, channel_for_task.get(task.channel_id) if task.channel_id else None)
+            for task in recent_tasks[:recent_limit]
+        ],
         "source": "existing_primitives",
     }
+
+
+async def build_workspace_map_state(
+    db: AsyncSession,
+    *,
+    auth: Any,
+    recent_limit: int = 80,
+    upcoming_limit: int = 100,
+) -> dict[str, Any]:
+    """Build a map-ready projection over existing workspace primitives."""
+    seed = await _load_map_state_seed(db, auth)
+    _attach_channel_rooms(seed)
+    _attach_widgets(seed, await _load_widget_subscription_index(db, seed))
+    await _attach_heartbeats(db, seed)
+    upcoming, recent_tasks, channel_for_task = await _attach_activity(
+        db,
+        seed,
+        auth=auth,
+        recent_limit=recent_limit,
+        upcoming_limit=upcoming_limit,
+    )
+    await _attach_attention(db, seed)
+    await _attach_trace_errors(db, seed)
+    _attach_bot_summaries(seed)
+    _attach_landmarks(seed, upcoming)
+    return _finalize_map_state_response(
+        seed,
+        upcoming=upcoming,
+        recent_tasks=recent_tasks,
+        channel_for_task=channel_for_task,
+        upcoming_limit=upcoming_limit,
+        recent_limit=recent_limit,
+    )

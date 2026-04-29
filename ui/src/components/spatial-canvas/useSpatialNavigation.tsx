@@ -560,7 +560,7 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       },
       {
         id: "canvas-open-attention-hub",
-        label: "Canvas: Open Attention Hub",
+        label: "Canvas: Open Mission Control Review",
         category: "Canvas",
         icon: Radar,
         onSelect: () => openStarboardAttention(),

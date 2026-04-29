@@ -9,6 +9,7 @@ test("hub route helpers point mobile sections at durable surfaces", () => {
   assert.equal(attentionHubHref("item/1"), "/hub/attention?item=item%2F1");
   assert.equal(attentionDeckHref({ channelId: "channel/1", mode: "inbox" }), "/hub/attention?channel=channel%2F1&mode=inbox");
   assert.equal(attentionDeckHref({ itemId: "item/1", channelId: "channel/1", mode: "review" }), "/hub/attention?item=item%2F1&channel=channel%2F1&mode=review");
+  assert.equal(attentionDeckHref({ targetKind: "channel", targetId: "channel/1", mode: "inbox" }), "/hub/attention?mode=inbox&target_kind=channel&target_id=channel%2F1");
   assert.equal(DAILY_HEALTH_HREF, "/hub/daily-health");
   assert.equal(CONTEXT_BLOAT_HREF, "/hub/context-bloat");
   assert.equal(MEMORY_CENTER_HREF, "/admin/learning#Memory");

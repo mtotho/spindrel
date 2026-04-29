@@ -3,6 +3,7 @@ import { Bot, ChevronRight, Radar, Route, Sparkles } from "lucide-react";
 
 import { useMissionControl } from "../../../api/hooks/useMissionControl";
 import { contextualNavigationState } from "../../../lib/contextualNavigation";
+import { attentionDeckHref } from "../../../lib/hubRoutes";
 import { SectionHeading } from "./SectionHeading";
 
 const HUB_BACK_STATE = contextualNavigationState("/", "Home");
@@ -36,6 +37,7 @@ export function MissionControlSection() {
     Boolean(data.assistant_brief);
 
   if (!hasSignal) return null;
+  const reviewHref = attentionDeckHref();
 
   return (
     <section className="flex flex-col gap-2">
@@ -44,13 +46,13 @@ export function MissionControlSection() {
         label="Mission Control"
         count={data.summary.active_missions + data.drafts.length}
         action={
-          <Link to="/hub/mission-control" state={HUB_BACK_STATE} className="text-[11px] font-medium text-accent">
+          <Link to={reviewHref} state={HUB_BACK_STATE} className="text-[11px] font-medium text-accent">
             Open
           </Link>
         }
       />
       <Link
-        to="/hub/mission-control"
+        to={reviewHref}
         state={HUB_BACK_STATE}
         className="group rounded-md bg-surface-raised/45 px-3 py-3 transition-colors hover:bg-surface-overlay/45"
       >

@@ -7,7 +7,7 @@ import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
 import type { AttentionTargetKind, WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
-import { bucketAttentionItems, getAttentionWorkflowState, sweepCandidateItems } from "./SpatialAttentionModel";
+import { activeAttentionItems, bucketAttentionItems, getAttentionWorkflowState, sweepCandidateItems } from "./SpatialAttentionModel";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";

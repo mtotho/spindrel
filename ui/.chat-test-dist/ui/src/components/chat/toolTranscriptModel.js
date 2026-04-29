@@ -223,6 +223,11 @@ function summarizeDiffMeta(summary) {
     }
     return null;
 }
+function summaryFileTarget(summary) {
+    if (!summary)
+        return null;
+    return summary.path || summary.target_label || null;
+}
 export function extractDiffText(env) {
     if (!env)
         return null;
@@ -447,6 +452,23 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             tone: "muted",
         };
     }
+    if (summary.kind === "write" && summary.subject_type === "file") {
+        return {
+            id: `${toolName}:${summary.label}`,
+            kind: "file",
+            label: summary.label,
+            metaLabel: null,
+            previewText,
+            target: summaryFileTarget(summary),
+            env: result,
+            summary,
+            isError: false,
+            isRunning: false,
+            detailKind: result ? "expandable" : "none",
+            detail: extractNonJsonOutput(result),
+            tone: "muted",
+        };
+    }
     return {
         id: `${toolName}:${summary.label}`,
         kind: "activity",
@@ -552,6 +574,14 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
                 },
             };
         }
+        if (renderMode === "terminal" && surface === "widget" && richSurface === "rich_result" && result) {
+            return {
+                kind: "rich_result",
+                key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
+                envelope: result,
+                summary: toolCall.summary ?? null,
+            };
+        }
         if (renderMode === "terminal" && richSurface === "rich_result" && result) {
             return {
                 key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
@@ -582,6 +612,14 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
                 toolName: toolCall.name,
                 recordId: envelope.record_id ?? undefined,
             },
+        };
+    }
+    if (renderMode === "terminal" && surface === "widget" && richSurface === "rich_result" && envelope) {
+        return {
+            kind: "rich_result",
+            key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
+            envelope,
+            summary: toolCall.summary ?? null,
         };
     }
     if (renderMode === "terminal" && richSurface === "rich_result" && envelope) {
