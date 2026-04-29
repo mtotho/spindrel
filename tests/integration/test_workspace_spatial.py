@@ -491,10 +491,14 @@ class TestWorkspaceMapState:
         assert room["counts"]["upcoming"] >= 1
         assert room["counts"]["warnings"] >= 2
         assert room["severity"] == "critical"
+        assert room["cue"]["intent"] == "investigate"
+        assert room["cue"]["label"] == "Investigate"
+        assert room["cue"]["priority"] > actor["cue"]["priority"]
         assert any(w["kind"] == "attention" for w in room["warnings"])
         assert any(r["title"] == "Deploy check" for r in room["recent"])
         assert actor["kind"] == "bot"
         assert actor["source"]["bot_id"] == "test-bot"
+        assert actor["cue"]["intent"] == "investigate"
         assert any(r["title"] == "Deploy check" for r in actor["recent"])
 
     async def test_map_state_maps_trace_errors_to_channel_and_bot_objects(self, client, db_session):
@@ -536,9 +540,13 @@ class TestWorkspaceMapState:
         daily_health = next(obj for obj in payload["objects"] if obj["kind"] == "landmark" and obj["target_id"] == "daily_health")
 
         assert any(w["kind"] == "trace" and w["title"] == "mermaid_to_excalidraw failed" for w in room["warnings"])
+        assert room["cue"]["intent"] == "investigate"
+        assert room["cue"]["signal_kind"] == "trace"
         assert any(r["kind"] == "trace" and r["title"] == "mermaid_to_excalidraw failed" for r in actor["recent"])
         assert not any(w["title"] == "mermaid_to_excalidraw failed" for w in daily_health["warnings"])
         assert any(w["title"] == "unmapped system failure" for w in daily_health["warnings"])
+        assert daily_health["cue"]["intent"] == "investigate"
+        assert daily_health["cue"]["target_surface"] == "health"
 
     async def test_map_state_describes_workspace_widget_sources_and_crons(self, client, db_session):
         ch = await _create_channel(client, name="Widgets")
@@ -578,6 +586,39 @@ class TestWorkspaceMapState:
         assert widget["attached"]["cron_count"] == 1
         assert widget["next"]["kind"] == "widget_cron"
         assert widget["status"] == "scheduled"
+        assert widget["cue"]["intent"] == "next"
+        assert widget["cue"]["reason"] == "refresh"
+
+    async def test_map_state_cues_recent_and_quiet_objects(self, client, db_session):
+        quiet = await _create_channel(client, name="Quiet")
+        recent = await _create_channel(client, name="Recent")
+        now = datetime.now(timezone.utc)
+
+        nodes_resp = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert nodes_resp.status_code == 200
+        quiet_node = next(n for n in nodes_resp.json()["nodes"] if n["channel_id"] == quiet["id"])
+        recent_node = next(n for n in nodes_resp.json()["nodes"] if n["channel_id"] == recent["id"])
+
+        db_session.add(Task(
+            bot_id="test-bot",
+            channel_id=uuid.UUID(recent["id"]),
+            prompt="Summarize latest notes",
+            title="Notes summary",
+            status="completed",
+            task_type="manual",
+            result="Done",
+            created_at=now - timedelta(minutes=20),
+            completed_at=now - timedelta(minutes=18),
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/workspace/spatial/map-state", headers=AUTH_HEADERS)
+        assert resp.status_code == 200, resp.text
+        by_node = resp.json()["objects_by_node_id"]
+        assert by_node[quiet_node["id"]]["cue"]["intent"] == "quiet"
+        assert by_node[quiet_node["id"]]["cue"]["label"] == "Quiet"
+        assert by_node[recent_node["id"]]["cue"]["intent"] == "recent"
+        assert by_node[recent_node["id"]]["cue"]["reason"] == "Notes summary"
 
     async def test_channel_native_pin_projects_same_instance_to_canvas(self, client, db_session):
         from app.services.dashboard_pins import create_pin, list_pins

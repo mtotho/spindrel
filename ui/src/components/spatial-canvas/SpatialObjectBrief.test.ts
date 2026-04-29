@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSpatialObjectBrief } from "./SpatialObjectBrief.js";
+import { mapCueIntent, mapCueRank, mapStateLabel, mapStateMeta } from "./SpatialObjectStatus.js";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 
 const base: WorkspaceMapObjectState = {
@@ -79,4 +80,50 @@ test("buildSpatialObjectBrief dedupes repeated recent signals", () => {
   );
   assert.equal(brief?.recent.length, 1);
   assert.match(brief?.summary ?? "", /Recent: Heartbeat/);
+});
+
+test("buildSpatialObjectBrief leads with the map cue when present", () => {
+  const brief = buildSpatialObjectBrief(
+    {
+      ...base,
+      status: "scheduled",
+      cue: {
+        intent: "next",
+        label: "Next up",
+        reason: "Heartbeat",
+        priority: 62,
+        target_surface: "channel",
+        signal_kind: "heartbeat",
+        signal_title: "Heartbeat",
+      },
+      next: {
+        kind: "heartbeat",
+        title: "Heartbeat",
+        scheduled_at: "2026-04-28T16:00:00Z",
+      },
+    },
+    Date.parse("2026-04-28T12:00:00Z"),
+  );
+  assert.equal(brief?.headline, "Next up");
+  assert.match(brief?.summary ?? "", /Next: Heartbeat/);
+});
+
+test("map status helpers prefer cue intent over raw status", () => {
+  const state: WorkspaceMapObjectState = {
+    ...base,
+    status: "scheduled",
+    cue: {
+      intent: "investigate",
+      label: "Investigate",
+      reason: "Trace error",
+      priority: 94,
+      target_surface: "channel",
+      signal_kind: "trace",
+      signal_title: "Trace error",
+    },
+  };
+  assert.equal(mapCueIntent(state), "investigate");
+  assert.equal(mapCueRank(state), 3);
+  assert.equal(mapStateLabel(state), "Investigate");
+  assert.equal(mapStateMeta(state), "Trace error");
 });

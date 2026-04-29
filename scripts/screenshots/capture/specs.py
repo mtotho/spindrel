@@ -742,6 +742,32 @@ def _omnipanel_mobile_init_script(chat_main_id: str) -> str:
     )
 
 
+def _channel_session_tabs_init_script(channel_id: str, latest_session_id: str, older_session_id: str) -> str:
+    """Seed local browser recents for the desktop channel session tab strip."""
+    latest_href = f"/channels/{channel_id}/session/{latest_session_id}?surface=channel"
+    older_href = f"/channels/{channel_id}/session/{older_session_id}?surface=channel"
+    primary_href = f"/channels/{channel_id}"
+    return (
+        "(() => {\n"
+        "  const KEY = 'spindrel-ui';\n"
+        "  let raw = localStorage.getItem(KEY);\n"
+        "  let obj = raw ? JSON.parse(raw) : { state: {}, version: 0 };\n"
+        "  obj.state = obj.state || {};\n"
+        "  obj.state.channelPanelPrefs = obj.state.channelPanelPrefs || {};\n"
+        f"  obj.state.channelPanelPrefs[{channel_id!r}] = Object.assign(\n"
+        f"    obj.state.channelPanelPrefs[{channel_id!r}] || {{}},\n"
+        "    { hiddenSessionTabKeys: [], chatPaneLayout: { panes: [{ id: 'primary', surface: { kind: 'primary' } }], focusedPaneId: 'primary', widths: { primary: 1 }, maximizedPaneId: null, miniPane: null } }\n"
+        "  );\n"
+        "  obj.state.recentPages = [\n"
+        f"    {{ href: {latest_href!r}, label: 'Latest session · #Session tabs demo', version: 2 }},\n"
+        f"    {{ href: {older_href!r}, label: 'Planning session · #Session tabs demo', version: 2 }},\n"
+        f"    {{ href: {primary_href!r}, label: 'Session tabs demo', version: 2 }}\n"
+        "  ];\n"
+        "  localStorage.setItem(KEY, JSON.stringify(obj));\n"
+        "})();"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Spatial Canvas specs — five hero captures referenced by
 # ``docs/guides/spatial-canvas.md``. Each spec seeds the canvas's
@@ -973,6 +999,8 @@ _ASSERT_MAP_BRIEF_SELECTION_JS = (
     "if (!panel) throw new Error('Starboard panel did not open');"
     "if (!brief) throw new Error('Map Brief station did not render');"
     "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected in Map Brief');"
+    "if (!/(Investigate|Next up|Review recent|Quiet)/.test(selected.textContent || '')) throw new Error('selected brief does not lead with an actionable cue');"
+    "if (!/(Investigate|Next up|Recently changed|Quiet nearby|Nearby quiet)/.test(brief.textContent || '')) throw new Error('Map Brief object list is not grouped by actionable cue');"
     "if (!anchor) throw new Error('selected spatial anchor did not render');"
     "if (document.querySelector('[data-spatial-selected-anchor-label=\"true\"]')) throw new Error('selected channel rendered duplicate anchor label');"
     "const selectedStyle = getComputedStyle(selected);"
@@ -1435,6 +1463,72 @@ ATTACHMENT_CHECK_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
+# Channel session-tab checks — local browser recents + close-to-inline-picker.
+# ---------------------------------------------------------------------------
+
+_SESSION_TABS_READY = (
+    "document.querySelectorAll('[data-testid=\"channel-session-tab\"]').length >= 3"
+    " && document.querySelector('[data-testid=\"channel-session-tab-strip\"]')"
+)
+
+_ASSERT_SESSION_TABS_JS = (
+    "const tabs = [...document.querySelectorAll('[data-testid=\"channel-session-tab\"]')];"
+    "if (tabs.length < 3) throw new Error(`expected at least 3 session tabs, saw ${tabs.length}`);"
+    "if (tabs[0].getAttribute('data-active') !== 'true') throw new Error('first tab is not active');"
+    "if (!tabs.some((tab) => tab.getAttribute('data-primary') === 'true')) throw new Error('primary session indicator missing');"
+)
+
+_CLOSE_ALL_SESSION_TABS_JS = (
+    "const waitFor = async (predicate, label) => {"
+    "  const started = Date.now();"
+    "  while (Date.now() - started < 8000) {"
+    "    if (predicate()) return;"
+    "    await new Promise((resolve) => setTimeout(resolve, 100));"
+    "  }"
+    "  throw new Error(`timed out waiting for ${label}`);"
+    "};"
+    "for (let i = 0; i < 8; i += 1) {"
+    "  const tab = document.querySelector('[data-testid=\"channel-session-tab\"]');"
+    "  if (!tab) break;"
+    "  const close = tab.querySelector('button[aria-label^=\"Close\"]');"
+    "  if (!close) throw new Error('tab close button missing');"
+    "  close.click();"
+    "  await new Promise((resolve) => setTimeout(resolve, 200));"
+    "}"
+    "await waitFor(() => !!document.querySelector('[data-testid=\"channel-session-inline-picker\"]'), 'inline picker');"
+)
+
+CHANNEL_SESSION_TAB_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="channel-session-tabs",
+        route="/channels/{channel_session_tabs}/session/{session_tabs_latest}?surface=channel",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SESSION_TABS_READY,
+        output="channel-session-tabs.png",
+        color_scheme="dark",
+        extra_init_scripts=["CHANNEL_SESSION_TABS_INIT"],
+        assert_js=_ASSERT_SESSION_TABS_JS,
+    ),
+    ScreenshotSpec(
+        name="channel-session-tabs-inline-picker",
+        route="/channels/{channel_session_tabs}/session/{session_tabs_latest}?surface=channel",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SESSION_TABS_READY,
+        output="channel-session-tabs-inline-picker.png",
+        color_scheme="dark",
+        extra_init_scripts=["CHANNEL_SESSION_TABS_INIT"],
+        pre_capture_js=_CLOSE_ALL_SESSION_TABS_JS,
+        assert_js=(
+            "if (!document.querySelector('[data-testid=\"channel-session-inline-picker\"]')) throw new Error('inline picker missing after closing tabs');"
+            "if (document.querySelector('[data-testid=\"channel-session-tab-strip\"]')) throw new Error('tab strip still visible after closing all tabs');"
+        ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Integration-chat captures — heroes that show the integration *delivering*,
 # not the admin page. Each spec routes to a channel where the agent loop
 # already ran (see ``stage_integration_chat``) and the persisted assistant
@@ -1816,6 +1910,17 @@ def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[S
                         f"spec {s.name!r} needs chat_main in staged state"
                     )
                 init_scripts.append(_omnipanel_mobile_init_script(chat_main_id))
+            elif js == "CHANNEL_SESSION_TABS_INIT":
+                channel_id = staged.get("channel_session_tabs")
+                latest_session_id = staged.get("session_tabs_latest")
+                older_session_id = staged.get("session_tabs_older")
+                if not channel_id or not latest_session_id or not older_session_id:
+                    raise KeyError(
+                        f"spec {s.name!r} needs channel_session_tabs/session_tabs_latest/session_tabs_older in staged state"
+                    )
+                init_scripts.append(
+                    _channel_session_tabs_init_script(channel_id, latest_session_id, older_session_id)
+                )
             else:
                 init_scripts.append(js)
 

@@ -90,6 +90,7 @@
     "src/components/spatial-canvas/spatialCanvasPointer.ts",
     "src/components/spatial-canvas/spatialCanvasPointer.test.ts",
     "src/components/spatial-canvas/spatialSelectionSurfaces.test.ts",
+    "src/components/spatial-canvas/SpatialObjectStatus.tsx",
     "src/components/spatial-canvas/SpatialObjectBrief.ts",
     "src/components/spatial-canvas/SpatialObjectBrief.test.ts",
     "src/components/palette/types.ts",

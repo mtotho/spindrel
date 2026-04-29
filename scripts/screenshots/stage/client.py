@@ -273,6 +273,14 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def list_channel_sessions(self, channel_id: str, *, limit: int = 20) -> list[dict]:
+        r = self._http.get(
+            f"/api/v1/channels/{channel_id}/sessions",
+            params={"limit": limit},
+        )
+        r.raise_for_status()
+        return r.json().get("sessions", [])
+
     def seed_turn(
         self,
         *,

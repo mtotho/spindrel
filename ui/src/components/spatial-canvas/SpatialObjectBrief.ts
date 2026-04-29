@@ -112,22 +112,31 @@ export function buildSpatialObjectBrief(state?: WorkspaceMapObjectState | null, 
   const nextTitle = titleForSignal(next);
   const recentTitle = titleForSignal(recent[0]);
   const warningTitle = titleForSignal(warnings[0]);
+  const cue = state.cue ?? null;
   const tone: ObjectBriefTone =
-    state.status === "error" || state.severity === "critical" || state.severity === "error"
+    cue?.intent === "investigate" || state.status === "error" || state.severity === "critical" || state.severity === "error"
       ? "danger"
       : state.status === "warning" || state.severity === "warning"
         ? "warning"
-        : state.status === "running" || state.status === "scheduled" || state.status === "active"
+        : cue?.intent === "next" || state.status === "running" || state.status === "scheduled" || state.status === "active"
           ? "active"
           : "muted";
-  let headline = "Quiet";
+  let headline = cue?.label || "Quiet";
   if (state.status === "error") headline = warningTitle || state.primary_signal || "Needs attention";
   else if (state.status === "warning") headline = warningTitle || state.primary_signal || "Warning";
   else if (state.status === "running") headline = state.primary_signal || "Running";
   else if (state.status === "scheduled") headline = nextTitle || state.primary_signal || "Scheduled";
   else if (state.status === "recent") headline = recentTitle || state.primary_signal || "Recently active";
+  if (cue?.label) headline = cue.label;
 
   const parts: string[] = [];
+  if (
+    cue?.reason
+    && cue.intent !== "quiet"
+    && cue.reason !== nextTitle
+    && cue.reason !== recentTitle
+    && cue.reason !== warningTitle
+  ) parts.push(cue.reason);
   if (nextTitle) {
     const when = relativeTime(next?.scheduled_at || next?.created_at || null, now);
     parts.push(when ? `Next: ${nextTitle} (${when})` : `Next: ${nextTitle}`);
@@ -137,7 +146,7 @@ export function buildSpatialObjectBrief(state?: WorkspaceMapObjectState | null, 
     parts.push(when ? `Recent: ${recentTitle} (${when})` : `Recent: ${recentTitle}`);
   }
   if (warnings.length) parts.push(`${warnings.length} warning${warnings.length === 1 ? "" : "s"}`);
-  const summary = parts.join(" · ") || "No scheduled work or recent warnings on this object.";
+  const summary = parts.join(" · ") || cue?.reason || "No scheduled work or recent warnings on this object.";
 
   return {
     headline,

@@ -18,7 +18,7 @@ import { NowWell } from "./NowWell";
 import { SpatialAttentionSignal } from "./SpatialAttentionLayer";
 import { SpatialMissionLayer } from "./SpatialMissionLayer";
 import { buildSpatialObjectBrief } from "./SpatialObjectBrief";
-import { ObjectStatusPill } from "./SpatialObjectStatus";
+import { ObjectStatusPill, mapCueIntent } from "./SpatialObjectStatus";
 import { TaskDefinitionTile } from "./TaskDefinitionTile";
 import { UpcomingFirePulse } from "./UpcomingFirePulse";
 import { UpcomingTile } from "./UpcomingTile";
@@ -416,6 +416,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 maxClusterTokens={maxClusterTokens}
                 widgetCount={widgetSatellitesByClusterId.get(cluster.id)?.length ?? 0}
                 widgetOpacity={widgetOverviewOpacity}
+                cueSummary={clusterCueSummary(cluster, mapState)}
                 onFocus={() => {
                   setSelectedSpatialObject(null);
                   setContextMenu(null);
@@ -740,10 +741,23 @@ function buildSelectedAnchor({
 }
 
 function selectedTone(state: any): "danger" | "warning" | "active" | "muted" {
-  if (state?.status === "error" || state?.severity === "critical" || state?.severity === "error") return "danger";
+  if (mapCueIntent(state) === "investigate" || state?.status === "error" || state?.severity === "critical" || state?.severity === "error") return "danger";
   if (state?.status === "warning" || state?.severity === "warning") return "warning";
-  if (state?.status === "running" || state?.status === "scheduled" || state?.status === "active") return "active";
+  if (mapCueIntent(state) === "next" || state?.status === "running" || state?.status === "scheduled" || state?.status === "active") return "active";
   return "muted";
+}
+
+function clusterCueSummary(cluster: any, mapState: any): string | null {
+  const counts = { investigate: 0, next: 0, recent: 0 };
+  for (const member of cluster.members ?? []) {
+    const state = mapState?.objects_by_node_id?.[member.node.id] ?? null;
+    const intent = mapCueIntent(state);
+    if (intent === "investigate" || intent === "next" || intent === "recent") counts[intent] += 1;
+  }
+  if (counts.investigate) return `${counts.investigate} to inspect`;
+  if (counts.next) return `${counts.next} next`;
+  if (counts.recent) return `${counts.recent} recent`;
+  return null;
 }
 
 function SelectedObjectAnchor({

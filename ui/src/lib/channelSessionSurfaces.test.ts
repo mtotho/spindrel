@@ -6,6 +6,7 @@ import {
   buildChannelSessionPickerEntries,
   buildChannelSessionPickerGroups,
   buildChannelSessionRoute,
+  buildChannelSessionTabItems,
   buildScratchChatSource,
   getScratchSessionLabel,
   isUntouchedDraftSession,
@@ -276,3 +277,71 @@ assert.deepEqual(browseGroups[0]?.entries.map((entry) => entry.id), ["old"]);
 const searchGroups = buildChannelSessionPickerGroups(catalogEntries, "rollback");
 assert.deepEqual(searchGroups.map((group) => group.id), ["results"]);
 assert.deepEqual(searchGroups[0]?.entries.map((entry) => entry.id), ["old"]);
+
+const sessionTabs = buildChannelSessionTabItems({
+  channelId: "chan",
+  currentHref: "/channels/chan/session/s2?surface=channel",
+  recentPages: [
+    { href: "/channels/chan/session/s1?surface=channel", label: "First pass · #ops" },
+    { href: "/channels/chan", label: "ops" },
+    { href: "/channels/other/session/skip?surface=channel", label: "Skip" },
+    { href: "/channels/chan/session/s2?surface=channel", label: "Second pass · #ops" },
+  ],
+  activeSurface: { kind: "channel", sessionId: "s2" },
+  activeSessionId: "s1",
+  catalog: [
+    {
+      session_id: "s1",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-23T00:00:00Z",
+      last_active: "2026-04-24T00:00:00Z",
+      label: "Primary work",
+      message_count: 9,
+      section_count: 1,
+      is_active: true,
+      is_current: false,
+    },
+    {
+      session_id: "s2",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-25T00:00:00Z",
+      last_active: "2026-04-25T00:00:00Z",
+      label: "Second pass",
+      message_count: 2,
+      section_count: 0,
+      is_active: false,
+      is_current: false,
+    },
+  ],
+});
+assert.deepEqual(sessionTabs.map((tab) => tab.key), ["channel:s2", "channel:s1", "primary"]);
+assert.equal(sessionTabs[0]?.active, true);
+assert.equal(sessionTabs[1]?.primary, true);
+assert.equal(sessionTabs[1]?.label, "Primary work");
+assert.match(sessionTabs[1]?.meta ?? "", /Primary/);
+
+const hiddenTabs = buildChannelSessionTabItems({
+  channelId: "chan",
+  currentHref: "/channels/chan/session/s2?surface=channel",
+  recentPages: [
+    { href: "/channels/chan/session/s1?surface=channel" },
+    { href: "/channels/chan/session/s2?surface=channel" },
+  ],
+  activeSurface: { kind: "channel", sessionId: "s2" },
+  hiddenKeys: ["channel:s2", "channel:s1"],
+});
+assert.deepEqual(hiddenTabs, []);
+
+const scratchTabs = buildChannelSessionTabItems({
+  channelId: "chan",
+  currentHref: "/channels/chan/session/scratch?scratch=true",
+  activeSurface: { kind: "scratch", sessionId: "scratch" },
+  recentPages: [
+    { href: "/channels/chan/session/scratch?scratch=true", label: "Scratch idea · #ops" },
+  ],
+});
+assert.deepEqual(scratchTabs.map((tab) => [tab.key, tab.label, tab.active]), [
+  ["scratch:scratch", "Scratch idea", true],
+]);

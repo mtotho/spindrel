@@ -54,6 +54,7 @@ export interface ChannelPanelPrefs {
   } | null;
   sessionPanels: ChannelSessionPanel[];
   chatPaneLayout: ChannelChatPaneLayout;
+  hiddenSessionTabKeys: string[];
   topChromeCollapsed: boolean;
   collapseHintDismissed: boolean;
 }
@@ -76,6 +77,7 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     focusModePrior: null,
     sessionPanels: [],
     chatPaneLayout: defaultChannelChatPaneLayout(),
+    hiddenSessionTabKeys: [],
     topChromeCollapsed: false,
     collapseHintDismissed: false,
   };
@@ -105,6 +107,9 @@ function normalizeChannelPanelPrefs(
     focusModePrior,
     sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
     chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
+    hiddenSessionTabKeys: Array.isArray(prefs?.hiddenSessionTabKeys)
+      ? prefs.hiddenSessionTabKeys.filter((key): key is string => typeof key === "string" && key.length > 0).slice(0, 40)
+      : [],
     topChromeCollapsed: prefs?.topChromeCollapsed ?? base.topChromeCollapsed,
     collapseHintDismissed: prefs?.collapseHintDismissed ?? base.collapseHintDismissed,
   };

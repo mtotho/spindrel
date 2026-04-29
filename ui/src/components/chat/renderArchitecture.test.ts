@@ -280,3 +280,26 @@ test("channel route delegates session pane orchestration to its local controller
   assert.match(paneController, /const activateChannelSessionSurface = useCallback/);
   assert.match(paneController, /usePromoteScratchSession/);
 });
+
+test("channel route renders desktop session tabs through dedicated components and pure model", () => {
+  const channelRoute = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),
+    "utf8",
+  );
+  const sessionTabs = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelSessionTabs.tsx"),
+    "utf8",
+  );
+  const sessionSurfaces = readFileSync(
+    resolve(process.cwd(), "src/lib/channelSessionSurfaces.ts"),
+    "utf8",
+  );
+
+  assert.match(channelRoute, /buildChannelSessionTabItems/);
+  assert.match(channelRoute, /<ChannelSessionTabStrip/);
+  assert.match(channelRoute, /<ChannelSessionInlinePicker/);
+  assert.match(channelRoute, /hiddenSessionTabKeys/);
+  assert.match(sessionTabs, /data-testid="channel-session-tab-strip"/);
+  assert.match(sessionTabs, /data-testid="channel-session-inline-picker"/);
+  assert.match(sessionSurfaces, /export function buildChannelSessionTabItems/);
+});

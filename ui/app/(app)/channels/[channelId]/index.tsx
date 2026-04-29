@@ -51,6 +51,7 @@ import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
 import { ChannelChatPaneGroup } from "./ChannelChatPaneGroup";
+import { ChannelSessionInlinePicker, ChannelSessionTabStrip } from "./ChannelSessionTabs";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import {
   CHANNEL_CHAT_MIN_WIDTH,
@@ -88,6 +89,12 @@ import {
   formatThreadRecentLabel,
   parseChannelRecentRoute,
 } from "@/src/lib/recentPages";
+import {
+  buildChannelSessionTabItems,
+  surfaceKey,
+  type ChannelSessionSurface,
+  type ChannelSessionTabItem,
+} from "@/src/lib/channelSessionSurfaces";
 import {
   CHANNEL_FILES_PATH_PARAM,
   CHANNEL_OPEN_FILE_PARAM,
@@ -224,20 +231,23 @@ export default function ChatScreen() {
 
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
   const loc = useLocation();
+  const currentRouteHref = useMemo(
+    () => buildRecentHref(loc.pathname, loc.search, loc.hash),
+    [loc.hash, loc.pathname, loc.search],
+  );
   useEffect(() => {
     if (!channel?.name) return;
-    const currentHref = buildRecentHref(loc.pathname, loc.search, loc.hash);
-    const parsed = parseChannelRecentRoute(currentHref);
+    const parsed = parseChannelRecentRoute(currentRouteHref);
     if (parsed?.kind === "session") {
-      enrichRecentPage(currentHref, formatSessionRecentLabel(channel.name));
+      enrichRecentPage(currentRouteHref, formatSessionRecentLabel(channel.name));
       return;
     }
     if (parsed?.kind === "thread") {
-      enrichRecentPage(currentHref, formatThreadRecentLabel(channel.name));
+      enrichRecentPage(currentRouteHref, formatThreadRecentLabel(channel.name));
       return;
     }
-    enrichRecentPage(currentHref, channel.name);
-  }, [channel?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
+    enrichRecentPage(currentRouteHref, channel.name);
+  }, [channel?.name, currentRouteHref, enrichRecentPage]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [findingsPanelOpen, setFindingsPanelOpen] = useState(false);
@@ -711,6 +721,7 @@ export default function ChatScreen() {
   const channelPanelPrefs = useUIStore((s) =>
     channelId ? s.channelPanelPrefs[channelId] : undefined,
   );
+  const recentPages = useUIStore((s) => s.recentPages);
   const splitMode = useUIStore((s) => s.fileExplorerSplit);
   const setSplitMode = useUIStore((s) => s.setFileExplorerSplit);
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
@@ -818,6 +829,63 @@ export default function ChatScreen() {
         } : null
       )
     : null;
+  const focusedChatPane = useMemo(
+    () =>
+      panelPrefs.chatPaneLayout.panes.find((pane) => pane.id === panelPrefs.chatPaneLayout.focusedPaneId)
+      ?? panelPrefs.chatPaneLayout.panes[0]
+      ?? null,
+    [panelPrefs.chatPaneLayout.focusedPaneId, panelPrefs.chatPaneLayout.panes],
+  );
+  const activeSessionTabSurface: ChannelSessionSurface = routeSessionSurface
+    ?? (canvasActive && focusedChatPane ? focusedChatPane.surface : { kind: "primary" });
+  const sessionTabs = useMemo(
+    () =>
+      channelId
+        ? buildChannelSessionTabItems({
+            channelId,
+            recentPages,
+            currentHref: currentRouteHref,
+            activeSurface: activeSessionTabSurface,
+            activeSessionId: channel?.active_session_id,
+            catalog: channelSessionCatalog,
+            hiddenKeys: panelPrefs.hiddenSessionTabKeys,
+          })
+        : [],
+    [
+      activeSessionTabSurface,
+      channel?.active_session_id,
+      channelId,
+      channelSessionCatalog,
+      currentRouteHref,
+      panelPrefs.hiddenSessionTabKeys,
+      recentPages,
+    ],
+  );
+  const unhideSessionTabSurface = useCallback((surface: ChannelSessionSurface) => {
+    if (!channelId) return;
+    const key = surfaceKey(surface);
+    patchChannelPanelPrefs(channelId, (current) => ({
+      hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== key),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const handleSelectSessionTab = useCallback((surface: ChannelSessionSurface) => {
+    unhideSessionTabSurface(surface);
+    activateChannelSessionSurface(surface, "switch");
+  }, [activateChannelSessionSurface, unhideSessionTabSurface]);
+  const handleCloseSessionTab = useCallback((tab: ChannelSessionTabItem) => {
+    if (!channelId) return;
+    const nextTab = tab.active ? sessionTabs.find((candidate) => candidate.key !== tab.key) ?? null : null;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      hiddenSessionTabKeys: Array.from(new Set([...current.hiddenSessionTabKeys, tab.key])).slice(-40),
+    }));
+    if (nextTab) {
+      activateChannelSessionSurface(nextTab.surface, "switch");
+    }
+  }, [activateChannelSessionSurface, channelId, patchChannelPanelPrefs, sessionTabs]);
+  const handleOverlayActivateSessionSurface = useCallback((surface: ChannelSessionSurface, intent: "switch" | "split") => {
+    unhideSessionTabSurface(surface);
+    activateChannelSessionSurface(surface, intent);
+  }, [activateChannelSessionSurface, unhideSessionTabSurface]);
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
     if (tab === "files") {
@@ -960,6 +1028,11 @@ export default function ChatScreen() {
   const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
   const showDockZone = layoutMode === "full";
   const dashboardOnly = layoutMode === "dashboard-only";
+  const showSessionInlinePicker = !isMobile
+    && !!channelId
+    && !isSystemChannel
+    && !dashboardOnly
+    && sessionTabs.length === 0;
   const dockBlockedByFileViewer = showFileViewer && !splitMode;
   const panelLayout = resolveChannelPanelLayout({
     availableWidth: viewportWidth || 0,
@@ -1673,6 +1746,14 @@ export default function ChatScreen() {
           onOpenSessions={openSessionsOverlay}
           scratchFullpageMode={routeSessionSurface ? {} : undefined}
         />
+        {!isMobile && channelId && !isSystemChannel && !dashboardOnly && (
+          <ChannelSessionTabStrip
+            tabs={sessionTabs}
+            onSelect={handleSelectSessionTab}
+            onClose={handleCloseSessionTab}
+            onOpenSessions={openSessionsOverlay}
+          />
+        )}
         {/* Desktop: integration dots inlined into ChannelHeader subtitle.
             Mobile: retain the compact scrolling bar (no subtitle row to inline into). */}
         {channelId && isMobile && <ActiveBadgeBar channelId={channelId} compact />}
@@ -1918,10 +1999,20 @@ export default function ChatScreen() {
             {/* Chat column — messages + input stacked vertically. The full-width
                 ChannelHeader now lives ABOVE this flex-row, so the column is
                 header-free and the message area doesn't need a top-offset. */}
-            {!dashboardOnly && sessionColumnNode && (
+            {!dashboardOnly && showSessionInlinePicker && !showFileViewer && channelId && (
+              <ChannelSessionInlinePicker
+                channelId={channelId}
+                channelLabel={displayName}
+                selectedSessionId={selectedPickerSessionId}
+                onActivateSurface={handleOverlayActivateSessionSurface}
+                onOpenSessions={openSessionsOverlay}
+                onUnhideSurface={unhideSessionTabSurface}
+              />
+            )}
+            {!dashboardOnly && !showSessionInlinePicker && sessionColumnNode && (
               sessionColumnNode
             )}
-            {!dashboardOnly && !sessionColumnNode && (!showFileViewer || splitMode) && (
+            {!dashboardOnly && !showSessionInlinePicker && !sessionColumnNode && (!showFileViewer || splitMode) && (
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 {canvasActive
                   && !panelPrefs.collapseHintDismissed
@@ -2183,7 +2274,7 @@ export default function ChatScreen() {
           botId={channel?.bot_id}
           channelLabel={displayName}
           selectedSessionId={selectedPickerSessionId}
-          onActivateSurface={activateChannelSessionSurface}
+          onActivateSurface={handleOverlayActivateSessionSurface}
           allowSplit={!isMobile}
           mode={sessionsOverlayMode}
           hiddenSurfaces={pickerHiddenSurfaces}

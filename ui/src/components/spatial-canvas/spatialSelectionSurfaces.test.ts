@@ -90,8 +90,22 @@ test("Map Brief selected object uses quiet triage instead of side-stripe chrome"
   assert.match(source, /data-brief-tone=\{tone\}/);
   assert.match(source, /SelectedObjectMetaChips/);
   assert.match(source, /selectedInspectorToneClass/);
+  assert.match(source, /label: "Investigate"/);
+  assert.match(source, /label: "Next up"/);
+  assert.match(source, /label: "Recently changed"/);
+  assert.match(source, /mapCueIntent/);
   assert.doesNotMatch(source, /border-l-2/);
   assert.doesNotMatch(source, /border-l-danger/);
   assert.doesNotMatch(source, /border-l-warning/);
   assert.doesNotMatch(source, /border-l-accent/);
+});
+
+test("clusters surface aggregate actionable cues without opening selection chrome", () => {
+  const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
+  const markerSource = readFileSync(resolve(SPATIAL_DIR, "ChannelClusterMarker.tsx"), "utf8");
+  assert.match(worldSource, /clusterCueSummary/);
+  assert.match(worldSource, /to inspect/);
+  assert.match(worldSource, /cueSummary=\{clusterCueSummary\(cluster, mapState\)\}/);
+  assert.match(markerSource, /cueSummary/);
+  assert.match(markerSource, /near \$\{channelName\(cluster\)\}/);
 });

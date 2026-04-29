@@ -30,6 +30,22 @@ export interface ChannelSessionPickerGroup {
   entries: ChannelSessionPickerEntry[];
 }
 
+export interface ChannelSessionRecentPageLike {
+  href: string;
+  label?: string | null;
+}
+
+export interface ChannelSessionTabItem {
+  key: string;
+  surface: ChannelSessionSurface;
+  href: string;
+  label: string;
+  meta: string | null;
+  active: boolean;
+  primary: boolean;
+  closeable: boolean;
+}
+
 export interface ScratchSessionLike {
   session_id?: string;
   bot_id?: string;
@@ -420,6 +436,121 @@ export function buildChannelSessionRoute(channelId: string, surface: ChannelSess
   if (surface.kind === "primary") return `/channels/${channelId}`;
   if (surface.kind === "channel") return `/channels/${channelId}/session/${surface.sessionId}?surface=channel`;
   return `/channels/${channelId}/session/${surface.sessionId}?scratch=true`;
+}
+
+function splitRecentLabel(label?: string | null): string | null {
+  const trimmed = label?.trim();
+  if (!trimmed) return null;
+  const channelSeparator = trimmed.lastIndexOf(" · #");
+  return channelSeparator > 0 ? trimmed.slice(0, channelSeparator).trim() || null : trimmed;
+}
+
+function surfaceFromChannelHref(
+  channelId: string,
+  href: string,
+): ChannelSessionSurface | null {
+  const [pathAndSearch] = href.split("#", 1);
+  const queryIndex = pathAndSearch.indexOf("?");
+  const pathname = queryIndex === -1 ? pathAndSearch : pathAndSearch.slice(0, queryIndex);
+  const params = new URLSearchParams(queryIndex === -1 ? "" : pathAndSearch.slice(queryIndex + 1));
+  const channelRoute = pathname.match(/^\/channels\/([^/?#]+)$/);
+  if (channelRoute) {
+    return channelRoute[1] === channelId ? { kind: "primary" } : null;
+  }
+  const sessionRoute = pathname.match(/^\/channels\/([^/]+)\/session\/([^/?#]+)$/);
+  if (!sessionRoute || sessionRoute[1] !== channelId) return null;
+  return params.get("scratch") === "true"
+    ? { kind: "scratch", sessionId: sessionRoute[2]! }
+    : { kind: "channel", sessionId: sessionRoute[2]! };
+}
+
+function catalogRowForSurface(
+  surface: ChannelSessionSurface,
+  catalog?: readonly ChannelSessionCatalogItem[] | null,
+  activeSessionId?: string | null,
+): ChannelSessionCatalogItem | null {
+  const sessionId = surface.kind === "primary" ? activeSessionId : surface.sessionId;
+  if (!sessionId) return null;
+  return catalog?.find((row) => row.session_id === sessionId) ?? null;
+}
+
+function labelForSessionTab(
+  surface: ChannelSessionSurface,
+  row: ChannelSessionCatalogItem | null,
+  recentLabel?: string | null,
+): string {
+  const fromRow = row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim();
+  if (fromRow) return fromRow;
+  const fromRecent = splitRecentLabel(recentLabel);
+  if (fromRecent && fromRecent !== "Session") return fromRecent;
+  if (surface.kind === "primary") return "Primary session";
+  if (surface.kind === "scratch") return "Untitled session";
+  return "Previous chat";
+}
+
+function metaForSessionTab(
+  surface: ChannelSessionSurface,
+  row: ChannelSessionCatalogItem | null,
+): string | null {
+  const kind = surface.kind === "primary" || row?.is_active
+    ? "Primary"
+    : surface.kind === "scratch"
+      ? "Scratch"
+      : "Previous";
+  const stats = row ? getChannelSessionMeta(row) : "";
+  return stats ? `${kind} · ${stats}` : kind;
+}
+
+export function buildChannelSessionTabItems({
+  channelId,
+  recentPages,
+  currentHref,
+  activeSurface,
+  activeSessionId,
+  catalog,
+  hiddenKeys,
+  limit = 8,
+}: {
+  channelId: string;
+  recentPages?: readonly ChannelSessionRecentPageLike[] | null;
+  currentHref?: string | null;
+  activeSurface?: ChannelSessionSurface | null;
+  activeSessionId?: string | null;
+  catalog?: readonly ChannelSessionCatalogItem[] | null;
+  hiddenKeys?: readonly string[] | null;
+  limit?: number;
+}): ChannelSessionTabItem[] {
+  const hidden = new Set(hiddenKeys ?? []);
+  const active = activeSurface ?? { kind: "primary" as const };
+  const activeKey = surfaceKey(active);
+  const orderedPages: ChannelSessionRecentPageLike[] = [];
+  if (currentHref) orderedPages.push({ href: currentHref });
+  orderedPages.push(...(recentPages ?? []));
+
+  const tabs: ChannelSessionTabItem[] = [];
+  const seen = new Set<string>();
+  for (const page of orderedPages) {
+    const surface = surfaceFromChannelHref(channelId, page.href);
+    if (!surface) continue;
+    const key = surfaceKey(surface);
+    if (seen.has(key) || hidden.has(key)) continue;
+    seen.add(key);
+    const row = catalogRowForSurface(surface, catalog, activeSessionId);
+    const surfaceSessionId = surface.kind === "primary" ? null : surface.sessionId;
+    const primary = surface.kind === "primary" || row?.is_active === true || surfaceSessionId === activeSessionId;
+    tabs.push({
+      key,
+      surface,
+      href: buildChannelSessionRoute(channelId, surface),
+      label: labelForSessionTab(surface, row, page.label),
+      meta: metaForSessionTab(surface, row),
+      active: key === activeKey,
+      primary,
+      closeable: true,
+    });
+    if (tabs.length >= limit) break;
+  }
+  return tabs.sort((a, b) => Number(b.active) - Number(a.active));
 }
 
 export function buildScratchChatSource({

@@ -9,7 +9,7 @@ import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
-import { ObjectStatusPill, mapStateMeta } from "./SpatialObjectStatus";
+import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
 import SummaryPanel from "../system-health/SummaryPanel";
 
@@ -107,7 +107,7 @@ const STATIONS: Array<{ id: StarboardStation; label: string; eyebrow: string; gr
 ];
 
 type ObjectGroup = {
-  id: "attention" | "nearby" | "all";
+  id: "investigate" | "next" | "recent" | "quiet";
   label: string;
   items: StarboardObjectItem[];
 };
@@ -514,7 +514,7 @@ export function UsageDensityChrome({
                       <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{visibleObjects.length}</span>
                     </div>
                     <div className="mt-1 text-sm text-text-muted">
-                      {selectedObject ? "Warnings first, then nearest useful neighbors." : "Select an object to inspect source, recent activity, warnings, and actions."}
+                      {selectedObject ? "Best next steps first, then nearby quiet objects." : "Objects grouped by what the map thinks is worth doing next."}
                     </div>
                   </div>
                   <label className="mb-3 flex items-center gap-2 rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text">
@@ -612,24 +612,28 @@ function clampStarboardWidth(width: number, maxWidth = Math.max(MIN_STARBOARD_WI
 
 function buildObjectGroups(objects: StarboardObjectItem[], selectedObject?: StarboardObjectItem | null): ObjectGroup[] {
   const selectedId = selectedObject?.id ?? null;
-  const candidates = objects.filter((item) => item.id !== selectedId);
-  const attention = candidates.filter((item) => objectNeedsAttention(item));
-  const used = new Set(attention.map((item) => item.id));
-  const byDistance = candidates
-    .filter((item) => !used.has(item.id))
+  const candidates = objects
+    .filter((item) => item.id !== selectedId)
     .slice()
-    .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label));
-  const nearby = byDistance.slice(0, selectedObject ? 10 : 8);
-  for (const item of nearby) used.add(item.id);
-  const rest = candidates.filter((item) => !used.has(item.id));
+    .sort((a, b) => cuePriority(b) - cuePriority(a) || a.distance - b.distance || a.label.localeCompare(b.label));
+  const investigate = candidates.filter((item) => mapCueIntent(item.workState) === "investigate");
+  const next = candidates.filter((item) => mapCueIntent(item.workState) === "next");
+  const recent = candidates.filter((item) => mapCueIntent(item.workState) === "recent");
+  const quiet = candidates.filter((item) => mapCueIntent(item.workState) === "quiet").slice(0, selectedObject ? 10 : 8);
   const groups: ObjectGroup[] = [];
-  if (attention.length) groups.push({ id: "attention", label: "Needs attention", items: attention });
-  if (nearby.length) groups.push({ id: "nearby", label: selectedObject ? "Nearby" : "Near view", items: nearby });
-  if (rest.length) groups.push({ id: "all", label: "All", items: rest });
+  if (investigate.length) groups.push({ id: "investigate", label: "Investigate", items: investigate });
+  if (next.length) groups.push({ id: "next", label: "Next up", items: next });
+  if (recent.length) groups.push({ id: "recent", label: "Recently changed", items: recent });
+  if (quiet.length) groups.push({ id: "quiet", label: selectedObject ? "Nearby quiet" : "Quiet nearby", items: quiet });
   return groups;
 }
 
+function cuePriority(item: StarboardObjectItem): number {
+  return (mapCueRank(item.workState) * 1000) + (item.workState?.cue?.priority ?? 0);
+}
+
 function objectNeedsAttention(item: StarboardObjectItem): boolean {
+  if (mapCueIntent(item.workState) === "investigate") return true;
   const status = item.workState?.status;
   return status === "error" || status === "warning" || item.workState?.severity === "critical" || item.workState?.severity === "error" || item.workState?.severity === "warning";
 }

@@ -588,16 +588,17 @@ async def test_live_harness_safe_workspace_write_read_delete(
         _assert_clean_turn(cleanup)
 
 
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
-async def test_live_claude_harness_default_mode_write_approval_resume(
+async def test_live_harness_default_mode_bridge_write_approval_resume(
     client: E2EClient,
+    case: HarnessCase,
 ) -> None:
     _requires_tier("writes")
-    case = HARNESSES[1]
     channel_id, session_id, bot_id = await _fresh_session(client, case)
     await _configure_low_cost_session(client, case, session_id)
     marker = uuid.uuid4().hex
-    rel_path = f".spindrel-harness-parity/claude-approval-{marker}.txt"
+    rel_path = f".spindrel-harness-parity/{case.name}-bridge-approval-{marker}.txt"
     exact_content = f"spindrel harness approval {marker}"
 
     try:
@@ -606,9 +607,11 @@ async def test_live_claude_harness_default_mode_write_approval_resume(
 
         result = await client.chat_session_stream(
             (
+                "Use the Spindrel host file bridge tool for this task "
+                "(Codex dynamic tool `file`; Claude MCP tool `mcp__spindrel__file`). "
                 f"Create or overwrite the relative file {rel_path!r} with exactly "
                 f"{exact_content!r}. Then read it back and report only the exact file content. "
-                "Do not edit anything else."
+                "Do not use shell commands and do not edit anything else."
             ),
             session_id=session_id,
             channel_id=channel_id,
@@ -633,9 +636,13 @@ async def test_live_claude_harness_default_mode_write_approval_resume(
         messages = await client.get_session_messages(session_id, limit=20)
         assistants = _assistant_messages(messages)
         assert any(
+            _message_mentions_any_tool(message, _bridge_visible_names("file"))
+            for message in assistants
+        ), "default-mode approval smoke did not exercise the Spindrel file bridge"
+        assert any(
             _has_persisted_tool_result_containing(message, exact_content)
             for message in assistants
-        ), "approved Claude write/read did not persist readable result content"
+        ), "approved bridge write/read did not persist readable result content"
     finally:
         await client.set_session_approval_mode(session_id, "bypassPermissions")
         cleanup = await client.chat_session_stream(

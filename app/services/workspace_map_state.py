@@ -45,6 +45,7 @@ STATUS_RANK = {
     "warning": 5,
     "error": 6,
 }
+CUE_RANK = {"quiet": 0, "recent": 1, "next": 2, "investigate": 3}
 
 
 def _now() -> datetime:
@@ -133,6 +134,102 @@ def _merge_state(base: dict[str, Any], *, status: str, severity: str | None = No
         base["severity"] = severity
 
 
+def _signal_title(signal: dict[str, Any] | None) -> str | None:
+    if not signal:
+        return None
+    value = signal.get("title") or signal.get("kind")
+    return str(value).strip() if value else None
+
+
+def _signal_reason(signal: dict[str, Any] | None) -> str | None:
+    if not signal:
+        return None
+    for key in ("message", "error", "result"):
+        value = signal.get(key)
+        if value:
+            return _truncate(str(value), 140)
+    return _signal_title(signal)
+
+
+def _target_surface(obj: dict[str, Any], signal: dict[str, Any] | None = None) -> str:
+    if signal and signal.get("kind") == "attention":
+        return "attention"
+    if obj["kind"] == "landmark":
+        target = obj.get("target_id")
+        if target == "daily_health":
+            return "health"
+        if target == "attention_hub":
+            return "attention"
+    return obj["kind"]
+
+
+def _cue_priority(obj: dict[str, Any], intent: str) -> int:
+    if intent == "investigate":
+        severity = obj.get("severity") or "info"
+        return 80 + SEVERITY_RANK.get(severity, 1) * 5 + min(obj["counts"]["warnings"], 4)
+    if intent == "next":
+        return 60 + min(obj["counts"]["upcoming"], 8)
+    if intent == "recent":
+        return 35 + min(obj["counts"]["recent"], 8)
+    return 5
+
+
+def _derive_cue(obj: dict[str, Any]) -> dict[str, Any]:
+    """Return the user-facing next-step cue for a map object.
+
+    Cues are intentionally derived, not persisted. They translate the raw
+    status/warning/upcoming/recent fields into the small set of map decisions
+    a user needs while scanning.
+    """
+    if obj["warnings"]:
+        signal = obj["warnings"][0]
+        title = _signal_title(signal) or obj.get("primary_signal") or "Needs attention"
+        reason = _signal_reason(signal) or title
+        return {
+            "intent": "investigate",
+            "label": "Investigate",
+            "reason": reason,
+            "priority": _cue_priority(obj, "investigate"),
+            "target_surface": _target_surface(obj, signal),
+            "signal_kind": signal.get("kind"),
+            "signal_title": title,
+        }
+    if obj.get("next") or obj["status"] == "running":
+        signal = obj.get("next") or {}
+        title = _signal_title(signal) or obj.get("primary_signal") or "Work queued"
+        label = "Watch run" if obj["status"] == "running" else "Next up"
+        return {
+            "intent": "next",
+            "label": label,
+            "reason": title,
+            "priority": _cue_priority(obj, "next"),
+            "target_surface": _target_surface(obj, signal),
+            "signal_kind": signal.get("kind"),
+            "signal_title": title,
+        }
+    if obj["recent"]:
+        signal = obj["recent"][0]
+        title = _signal_title(signal) or obj.get("primary_signal") or "Recent work"
+        return {
+            "intent": "recent",
+            "label": "Review recent",
+            "reason": title,
+            "priority": _cue_priority(obj, "recent"),
+            "target_surface": _target_surface(obj, signal),
+            "signal_kind": signal.get("kind"),
+            "signal_title": title,
+        }
+    return {
+        "intent": "quiet",
+        "label": "Quiet",
+        "reason": "No scheduled work or recent warnings.",
+        "priority": _cue_priority(obj, "quiet"),
+        "target_surface": _target_surface(obj),
+        "signal_kind": None,
+        "signal_title": None,
+    }
+
+
 def _node_kind(node: WorkspaceSpatialNode) -> str:
     if node.channel_id:
         return "channel"
@@ -180,6 +277,7 @@ def _empty_object(node: WorkspaceSpatialNode, channel_by_id: dict[uuid.UUID, Cha
         "next": None,
         "recent": [],
         "warnings": [],
+        "cue": None,
         "source": {},
         "attached": {},
     }
@@ -587,7 +685,19 @@ async def build_workspace_map_state(
             if total_warnings:
                 _merge_state(obj, status="warning", severity="warning", reason=f"{total_warnings} warnings")
 
-    rows = sorted(objects.values(), key=lambda item: (STATUS_RANK.get(item["status"], 0), item["label"].lower()), reverse=True)
+    for obj in objects.values():
+        obj["cue"] = _derive_cue(obj)
+
+    rows = sorted(
+        objects.values(),
+        key=lambda item: (
+            CUE_RANK.get(item["cue"]["intent"], 0),
+            item["cue"]["priority"],
+            STATUS_RANK.get(item["status"], 0),
+            item["label"].lower(),
+        ),
+        reverse=True,
+    )
     summary = {
         "objects": len(rows),
         "channels": sum(1 for item in rows if item["kind"] == "channel"),

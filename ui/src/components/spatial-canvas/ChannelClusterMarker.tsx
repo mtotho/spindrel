@@ -11,6 +11,7 @@ interface ChannelClusterMarkerProps {
   maxClusterTokens: number;
   widgetCount?: number;
   widgetOpacity?: number;
+  cueSummary?: string | null;
   onFocus: () => void;
 }
 
@@ -25,6 +26,7 @@ export function ChannelClusterMarker({
   maxClusterTokens,
   widgetCount = 0,
   widgetOpacity = 0,
+  cueSummary = null,
   onFocus,
 }: ChannelClusterMarkerProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -135,7 +137,7 @@ export function ChannelClusterMarker({
           {cluster.members.length} channels
         </span>
         <span className="max-w-full truncate text-xs font-medium text-text-muted whitespace-nowrap">
-          near {channelName(cluster)}
+          {cueSummary ?? `near ${channelName(cluster)}`}
         </span>
       </div>
     </button>

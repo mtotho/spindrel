@@ -1,8 +1,18 @@
 import { AlertTriangle, Clock, History, Play, Radio } from "lucide-react";
-import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
+import type { WorkspaceMapCueIntent, WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
+
+export function mapCueIntent(state?: WorkspaceMapObjectState | null): WorkspaceMapCueIntent {
+  return state?.cue?.intent ?? (
+    state?.status === "error" || state?.status === "warning" ? "investigate"
+      : state?.status === "running" || state?.status === "scheduled" || state?.status === "active" ? "next"
+        : state?.status === "recent" ? "recent"
+          : "quiet"
+  );
+}
 
 export function mapStateLabel(state?: WorkspaceMapObjectState | null): string | null {
   if (!state) return null;
+  if (state.cue?.label) return state.cue.label;
   if (state.status === "error") return state.primary_signal || "Error";
   if (state.status === "warning") return state.primary_signal || "Warning";
   if (state.status === "running") return state.primary_signal || "Running";
@@ -13,6 +23,7 @@ export function mapStateLabel(state?: WorkspaceMapObjectState | null): string | 
 
 export function mapStateMeta(state?: WorkspaceMapObjectState | null): string | null {
   if (!state) return null;
+  if (state.cue?.reason && state.cue.intent !== "quiet") return state.cue.reason;
   const parts: string[] = [];
   if (state.counts.upcoming > 0) parts.push(`${state.counts.upcoming} next`);
   if (state.counts.recent > 0) parts.push(`${state.counts.recent} recent`);
@@ -22,10 +33,23 @@ export function mapStateMeta(state?: WorkspaceMapObjectState | null): string | n
 
 export function mapStateTone(state?: WorkspaceMapObjectState | null): "danger" | "warning" | "accent" | "muted" {
   if (!state) return "muted";
+  const intent = mapCueIntent(state);
+  if (intent === "investigate") {
+    return state.severity === "warning" ? "warning" : "danger";
+  }
+  if (intent === "next") return "accent";
   if (state.status === "error" || state.severity === "critical" || state.severity === "error") return "danger";
   if (state.status === "warning" || state.severity === "warning") return "warning";
   if (state.status === "running" || state.status === "scheduled" || state.status === "active") return "accent";
   return "muted";
+}
+
+export function mapCueRank(state?: WorkspaceMapObjectState | null): number {
+  const intent = mapCueIntent(state);
+  if (intent === "investigate") return 3;
+  if (intent === "next") return 2;
+  if (intent === "recent") return 1;
+  return 0;
 }
 
 export function statusRingClass(state?: WorkspaceMapObjectState | null): string {
@@ -45,11 +69,12 @@ export function ObjectStatusPill({
   compact?: boolean;
   iconOnly?: boolean;
 }) {
+  if (mapCueIntent(state) === "quiet") return null;
   const label = mapStateLabel(state);
   if (!state || !label) return null;
   const tone = mapStateTone(state);
   const Icon =
-    tone === "danger" || tone === "warning"
+    mapCueIntent(state) === "investigate" || tone === "danger" || tone === "warning"
       ? AlertTriangle
       : state.status === "running"
         ? Play

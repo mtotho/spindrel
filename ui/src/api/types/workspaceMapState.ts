@@ -8,6 +8,17 @@ export type WorkspaceMapObjectStatus =
   | "warning"
   | "error";
 export type WorkspaceMapSeverity = "info" | "warning" | "error" | "critical";
+export type WorkspaceMapCueIntent = "investigate" | "next" | "recent" | "quiet";
+
+export interface WorkspaceMapCue {
+  intent: WorkspaceMapCueIntent;
+  label: string;
+  reason: string;
+  priority: number;
+  target_surface: string;
+  signal_kind?: string | null;
+  signal_title?: string | null;
+}
 
 export interface WorkspaceMapSignal {
   id?: string;
@@ -49,6 +60,7 @@ export interface WorkspaceMapObjectState {
   next?: WorkspaceMapSignal | null;
   recent: WorkspaceMapSignal[];
   warnings: WorkspaceMapSignal[];
+  cue?: WorkspaceMapCue | null;
   source: Record<string, unknown>;
   attached: Record<string, unknown>;
 }
@@ -71,4 +83,3 @@ export interface WorkspaceMapState {
   upcoming: WorkspaceMapSignal[];
   recent: WorkspaceMapSignal[];
 }
-
