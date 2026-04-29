@@ -351,6 +351,9 @@ class ClaudeCodeRuntime:
             final_text="".join(final_text_parts),
             cost_usd=result_meta.get("total_cost_usd"),
             usage=result_meta.get("usage"),
+            metadata={
+                "claude_native_slash_commands": result_meta.get("claude_native_slash_commands") or [],
+            },
         )
 
     async def compact_session(
@@ -1035,9 +1038,43 @@ def _bridge_message(
         return
 
     if isinstance(msg, SystemMessage):
+        slash_commands = _extract_claude_system_slash_commands(msg)
+        if slash_commands:
+            result_meta["claude_native_slash_commands"] = slash_commands
         # System messages carry CLI metadata (init, task lifecycle, mirror
         # errors). None of them belong on the user-facing chat surface in v1.
         return
+
+
+def _extract_claude_system_slash_commands(msg: Any) -> list[dict[str, Any]]:
+    """Best-effort extraction of SDK system/init slash command inventory."""
+    raw: Any
+    if isinstance(msg, dict):
+        raw = msg
+    else:
+        raw = getattr(msg, "__dict__", {})
+    found = _find_slash_command_payload(raw)
+    if isinstance(found, list):
+        return [item for item in found if isinstance(item, dict)]
+    return []
+
+
+def _find_slash_command_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        if isinstance(value.get("slash_commands"), list):
+            return value["slash_commands"]
+        if isinstance(value.get("slashCommands"), list):
+            return value["slashCommands"]
+        for child in value.values():
+            found = _find_slash_command_payload(child)
+            if found is not None:
+                return found
+    if isinstance(value, (list, tuple)):
+        for child in value:
+            found = _find_slash_command_payload(child)
+            if found is not None:
+                return found
+    return None
 
 
 def _bridge_compact_message(

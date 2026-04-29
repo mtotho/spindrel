@@ -4,6 +4,11 @@ The canonical session-planning spec now lives at:
 
 - [docs/planning/session-plan-mode.md](../planning/session-plan-mode.md)
 
+For the public native-planning walkthrough, screenshot gallery, and live parity
+verification workflow, see:
+
+- [Native Planning](native-planning.md)
+
 Use that document as the source of truth for:
 
 - runtime context injection

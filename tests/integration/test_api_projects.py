@@ -6,6 +6,7 @@ import uuid
 import pytest
 
 from app.db.models import Channel, SecretValue, SharedWorkspace
+from app.services.encryption import encrypt
 from tests.integration.conftest import AUTH_HEADERS
 
 pytestmark = pytest.mark.asyncio
@@ -127,6 +128,54 @@ class TestProjectsApi:
         assert deleted_body["applied_blueprint_id"] is None
         assert deleted_body["blueprint"] is None
         assert deleted_body["metadata_"]["blueprint_snapshot"]["name"] == "Blueprint API"
+
+    async def test_project_setup_readiness_uses_snapshot_and_redacts_secret_values(self, client, db_session, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "app.services.shared_workspace.local_workspace_base",
+            lambda: str(tmp_path),
+        )
+        workspace = await _workspace(db_session)
+        secret = SecretValue(name=f"GITHUB_TOKEN_{uuid.uuid4().hex[:8]}", value=encrypt("ghp_super_secret_setup_token"))
+        db_session.add(secret)
+        await db_session.flush()
+
+        blueprint_resp = await client.post(
+            "/api/v1/projects/blueprints",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Setup Blueprint API",
+                "repos": [{"name": "spindrel", "url": "https://github.com/mtotho/spindrel.git", "path": "spindrel"}],
+                "env": {"NODE_ENV": "development"},
+                "required_secrets": [secret.name, "NPM_TOKEN"],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert blueprint_resp.status_code == 201
+        blueprint = blueprint_resp.json()
+
+        created = await client.post(
+            "/api/v1/projects/from-blueprint",
+            json={
+                "blueprint_id": blueprint["id"],
+                "workspace_id": str(workspace.id),
+                "name": "Setup Project",
+                "secret_bindings": {secret.name: str(secret.id)},
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        setup = await client.get(f"/api/v1/projects/{project_id}/setup", headers=AUTH_HEADERS)
+        assert setup.status_code == 200
+        body = setup.json()
+        assert body["plan"]["ready"] is False
+        assert body["plan"]["missing_secrets"] == ["NPM_TOKEN"]
+        assert body["plan"]["repos"][0]["url"] == "https://github.com/mtotho/spindrel.git"
+        assert "ghp_super_secret_setup_token" not in str(body)
+
+        not_ready = await client.post(f"/api/v1/projects/{project_id}/setup/runs", headers=AUTH_HEADERS)
+        assert not_ready.status_code == 409
 
     async def test_project_channels_lists_attached_channels(self, client, db_session):
         workspace = await _workspace(db_session)

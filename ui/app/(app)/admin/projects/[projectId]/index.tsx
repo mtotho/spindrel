@@ -1,8 +1,8 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, FileText, FolderOpen, Hash, KeyRound, Layers, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, Hash, KeyRound, Layers, Play, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useProject, useProjectChannels, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useProject, useProjectChannels, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
@@ -19,19 +19,20 @@ import {
   SaveStatusPill,
   SettingsControlRow,
   SettingsGroupLabel,
+  StatusBadge,
 } from "@/src/components/shared/SettingsControls";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { WorkspaceFileBrowserSurface } from "@/src/components/workspace/WorkspaceFileBrowserSurface";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import type { Channel, Project } from "@/src/types/api";
+import type { Channel, Project, ProjectSetup } from "@/src/types/api";
 
 const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
 
-type ProjectTab = "Files" | "Terminal" | "Settings" | "Channels";
+type ProjectTab = "Files" | "Terminal" | "Setup" | "Settings" | "Channels";
 
-const TABS: ProjectTab[] = ["Files", "Terminal", "Settings", "Channels"];
+const TABS: ProjectTab[] = ["Files", "Terminal", "Setup", "Settings", "Channels"];
 
 function HeaderLink({ to, children, icon }: { to: string; children: React.ReactNode; icon: React.ReactNode }) {
   return (
@@ -170,6 +171,203 @@ function ProjectBlueprintSection({ project }: { project: Project }) {
         )}
       </div>
     </Section>
+  );
+}
+
+function formatRunTime(value?: string | null) {
+  if (!value) return "pending";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function setupTone(status: string): "success" | "warning" | "danger" | "neutral" {
+  if (status === "succeeded" || status === "cloned" || status === "already_present") return "success";
+  if (status === "failed" || status === "invalid") return "danger";
+  if (status === "running") return "warning";
+  return "neutral";
+}
+
+function ProjectSetupSection({ project, setup }: { project: Project; setup?: ProjectSetup }) {
+  const { data: secrets = [] } = useSecretValues();
+  const updateBindings = useUpdateProjectSecretBindings(project.id);
+  const runSetup = useRunProjectSetup(project.id);
+  const [bindingsDraft, setBindingsDraft] = useState<Record<string, string>>({});
+
+  const plan = setup?.plan;
+  const repos = Array.isArray(plan?.repos) ? plan.repos : [];
+  const secretSlots = Array.isArray(plan?.secret_slots) ? plan.secret_slots : [];
+  const runs = setup?.runs ?? [];
+  const latestRun = runs[0];
+  const currentBindings = useMemo(
+    () => Object.fromEntries((project.secret_bindings ?? []).map((binding) => [binding.logical_name, binding.secret_value_id ?? ""])),
+    [project.secret_bindings],
+  );
+  const secretOptions = useMemo(
+    () => [
+      { label: "Unbound", value: "" },
+      ...secrets.map((secret) => ({
+        label: secret.name,
+        value: secret.id,
+      })),
+    ],
+    [secrets],
+  );
+
+  useEffect(() => {
+    setBindingsDraft(currentBindings);
+  }, [currentBindings]);
+
+  const bindingsDirty = JSON.stringify(bindingsDraft) !== JSON.stringify(currentBindings);
+  const missingSecrets = plan?.missing_secrets ?? [];
+  const invalidRepos = repos.filter((repo) => repo.status === "invalid");
+  const readyLabel = plan?.ready ? "Ready to clone" : repos.length === 0 ? "No repos declared" : missingSecrets.length > 0 ? "Missing secrets" : "Needs review";
+  const readyTone = plan?.ready ? "success" : repos.length === 0 || invalidRepos.length > 0 ? "danger" : "warning";
+
+  const saveBindings = () => {
+    const payload = Object.fromEntries(
+      Object.entries(bindingsDraft).map(([name, secretId]) => [name, secretId || null]),
+    );
+    updateBindings.mutate(payload);
+  };
+
+  return (
+    <div data-testid="project-workspace-setup" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
+      <Section
+        title="Setup"
+        description="Clone the repos declared by this Project's applied Blueprint snapshot."
+        action={
+          <ActionButton
+            label={runSetup.isPending ? "Running" : "Run Setup"}
+            icon={<Play size={14} />}
+            disabled={!plan?.ready || runSetup.isPending}
+            onPress={() => runSetup.mutate()}
+          />
+        }
+      >
+        <div data-testid="project-workspace-setup-ready" className="flex flex-col gap-3">
+          <SettingsControlRow
+            leading={plan?.ready ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+            title={readyLabel}
+            description={
+              plan?.ready
+                ? "Setup can clone declared repositories into this Project root."
+                : missingSecrets.length > 0
+                  ? missingSecrets.join(", ")
+                  : invalidRepos.length > 0
+                    ? "One or more repo declarations need a safe path or supported URL."
+                    : "Add repo declarations to the Blueprint before running setup."
+            }
+            meta={<StatusBadge label={readyLabel} variant={readyTone} />}
+          />
+          {runSetup.error && (
+            <SettingsControlRow
+              leading={<AlertTriangle size={14} />}
+              title="Setup did not start"
+              description={runSetup.error instanceof Error ? runSetup.error.message : "The setup request failed."}
+              meta={<StatusBadge label="failed" variant="danger" />}
+            />
+          )}
+        </div>
+      </Section>
+
+      <Section title="Repo Plan" description="Targets are Project-relative. Existing paths are reported and left untouched.">
+        <div className="flex flex-col gap-2">
+          <SettingsGroupLabel label="Repos" count={repos.length} icon={<FolderGit2 size={13} className="text-text-dim" />} />
+          {repos.length === 0 ? (
+            <EmptyState message="This Project snapshot does not declare any repos yet." />
+          ) : (
+            repos.map((repo, index) => (
+              <SettingsControlRow
+                key={`${repo.path ?? repo.name}-${index}`}
+                leading={<FolderGit2 size={14} />}
+                title={String(repo.name || repo.path || "repo")}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate font-mono text-xs">{String(repo.url || "missing url")}</span>
+                    <span className="truncate font-mono text-[11px] text-text-dim">/{project.root_path}/{String(repo.path || "")}</span>
+                    {Array.isArray(repo.errors) && repo.errors.length > 0 && (
+                      <span className="text-xs text-danger-muted">{repo.errors.join(", ")}</span>
+                    )}
+                  </span>
+                }
+                meta={<StatusBadge label={String(repo.status || "pending")} variant={setupTone(String(repo.status || "pending"))} />}
+              />
+            ))
+          )}
+        </div>
+      </Section>
+
+      {secretSlots.length > 0 && (
+        <Section
+          title="Secret Slots"
+          description="Bindings are scoped to this Project and backed by the encrypted secret vault."
+          action={
+            <ActionButton
+              label="Save Bindings"
+              icon={<Save size={14} />}
+              disabled={!bindingsDirty || updateBindings.isPending}
+              onPress={saveBindings}
+            />
+          }
+        >
+          <div className="grid gap-2 md:grid-cols-2">
+            {secretSlots.map((slot) => (
+              <SettingsControlRow
+                key={String(slot.logical_name)}
+                leading={<KeyRound size={14} />}
+                title={String(slot.logical_name)}
+                description={String(slot.secret_value_name || "No secret bound")}
+                meta={<StatusBadge label={slot.bound ? "bound" : "missing"} variant={slot.bound ? "success" : "warning"} />}
+                action={
+                  <div className="w-[220px]">
+                    <SelectInput
+                      value={bindingsDraft[String(slot.logical_name)] ?? ""}
+                      onChange={(value) => setBindingsDraft((current) => ({ ...current, [String(slot.logical_name)]: value }))}
+                      options={secretOptions}
+                    />
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <Section title="Run History" description="Logs are redacted before they are stored or returned.">
+        <div data-testid="project-workspace-setup-run-history" className="flex flex-col gap-2">
+          {!latestRun ? (
+            <EmptyState message="Setup has not run for this Project." />
+          ) : (
+            <>
+              <SettingsControlRow
+                leading={<Clock3 size={14} />}
+                title={`Latest run ${latestRun.status}`}
+                description={formatRunTime(latestRun.completed_at ?? latestRun.started_at)}
+                meta={<StatusBadge label={latestRun.status} variant={setupTone(latestRun.status)} />}
+              />
+              {(latestRun.result?.repos ?? []).map((repo: Record<string, any>, index: number) => (
+                <SettingsControlRow
+                  key={`${repo.path ?? index}-result`}
+                  leading={<FolderGit2 size={14} />}
+                  title={String(repo.path || repo.name || "repo")}
+                  description={String(repo.message || "No output recorded.")}
+                  meta={<StatusBadge label={String(repo.status || "unknown")} variant={setupTone(String(repo.status || "unknown"))} />}
+                />
+              ))}
+              {(latestRun.logs ?? []).length > 0 && (
+                <pre className="max-h-[220px] overflow-auto rounded-md bg-surface-raised/45 px-3 py-2 font-mono text-[11px] leading-5 text-text-muted">
+                  {(latestRun.logs ?? []).join("\n")}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+      </Section>
+    </div>
   );
 }
 
@@ -343,6 +541,7 @@ export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const { data: project, isLoading } = useProject(projectId);
   const { data: channels } = useProjectChannels(projectId);
+  const { data: setup } = useProjectSetup(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id);
   const updateProject = useUpdateProject(projectId);
   const [tab, setTab] = useHashTab<ProjectTab>("Files", TABS);
@@ -424,6 +623,12 @@ export default function ProjectDetail() {
             <Suspense fallback={<div className="flex flex-1 items-center justify-center text-[12px] text-zinc-500">Starting terminal...</div>}>
               <TerminalPanel cwd={terminalCwd} />
             </Suspense>
+          </div>
+        )}
+
+        {tab === "Setup" && (
+          <div className="h-full overflow-auto">
+            <ProjectSetupSection project={project} setup={setup} />
           </div>
         )}
 

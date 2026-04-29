@@ -36,6 +36,12 @@ from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
 
+_PLAN_DRAFT_TOOL_NAMES: tuple[str, ...] = ("ask_plan_questions", "publish_plan")
+_PLAN_EXECUTION_TOOL_NAMES: tuple[str, ...] = ("record_plan_progress", "request_plan_replan")
+_PLAN_CONTROL_TOOL_NAMES: frozenset[str] = frozenset(
+    (*_PLAN_DRAFT_TOOL_NAMES, *_PLAN_EXECUTION_TOOL_NAMES)
+)
+
 __all__ = [
     "HarnessBridgeInventory",
     "HarnessToolSpec",
@@ -79,6 +85,8 @@ class _SpindrelBridgeApprovalRuntime:
         self._safety_tier = safety_tier
 
     def readonly_tools(self) -> frozenset[str]:
+        if self._tool_name in _PLAN_CONTROL_TOOL_NAMES:
+            return frozenset({self._tool_name})
         if self._safety_tier == "readonly":
             return frozenset({self._tool_name})
         return frozenset()
@@ -164,6 +172,7 @@ async def apply_tool_bridge(
                 bot_id=ctx.bot_id,
                 channel_id=ctx.channel_id,
                 explicit_tool_names=ctx.ephemeral_tool_names,
+                session_plan_mode=ctx.session_plan_mode,
             )
         specs = inventory.specs
         ignored_client_tools = inventory.ignored_client_tools
@@ -293,6 +302,7 @@ async def list_harness_spindrel_tools(
         bot_id=ctx.bot_id,
         channel_id=ctx.channel_id,
         explicit_tool_names=ctx.ephemeral_tool_names,
+        session_plan_mode=ctx.session_plan_mode,
     )
     return inventory.specs
 
@@ -303,12 +313,14 @@ async def resolve_harness_bridge_inventory(
     bot_id: str,
     channel_id: uuid.UUID | None,
     explicit_tool_names: tuple[str, ...] | list[str] = (),
+    session_plan_mode: str = "chat",
 ) -> HarnessBridgeInventory:
     specs, errors = await _collect_harness_spindrel_tools_for(
         db,
         bot_id=bot_id,
         channel_id=channel_id,
         explicit_tool_names=explicit_tool_names,
+        session_plan_mode=session_plan_mode,
     )
     bot = get_bot(bot_id)
     channel = await _load_channel_for_effective_tools(db, channel_id)
@@ -355,6 +367,7 @@ async def list_harness_spindrel_tools_for(
     bot_id: str,
     channel_id: uuid.UUID | None,
     explicit_tool_names: tuple[str, ...] | list[str] = (),
+    session_plan_mode: str = "chat",
 ) -> tuple[HarnessToolSpec, ...]:
     """Return effective server-executable Spindrel bridge tools."""
     specs, _errors = await _collect_harness_spindrel_tools_for(
@@ -362,6 +375,7 @@ async def list_harness_spindrel_tools_for(
         bot_id=bot_id,
         channel_id=channel_id,
         explicit_tool_names=explicit_tool_names,
+        session_plan_mode=session_plan_mode,
     )
     return specs
 
@@ -372,6 +386,7 @@ async def _collect_harness_spindrel_tools_for(
     bot_id: str,
     channel_id: uuid.UUID | None,
     explicit_tool_names: tuple[str, ...] | list[str] = (),
+    session_plan_mode: str = "chat",
 ) -> tuple[tuple[HarnessToolSpec, ...], tuple[str, ...]]:
     """Return bridgeable tools plus non-fatal inventory errors."""
     bot = get_bot(bot_id)
@@ -396,6 +411,7 @@ async def _collect_harness_spindrel_tools_for(
         + list(eff.pinned_tools or ())
         + enrolled_names
         + list(explicit_tool_names or ())
+        + list(_plan_control_tools_for_mode(session_plan_mode))
     ))
     try:
         local_schemas = get_local_tool_schemas(local_names)
@@ -434,6 +450,14 @@ async def _collect_harness_spindrel_tools_for(
         seen.add(spec.name)
         specs.append(spec)
     return tuple(specs), tuple(errors)
+
+
+def _plan_control_tools_for_mode(session_plan_mode: str) -> tuple[str, ...]:
+    if session_plan_mode == "planning":
+        return _PLAN_DRAFT_TOOL_NAMES
+    if session_plan_mode in {"executing", "blocked"}:
+        return _PLAN_EXECUTION_TOOL_NAMES
+    return ()
 
 
 async def _load_channel_for_effective_tools(

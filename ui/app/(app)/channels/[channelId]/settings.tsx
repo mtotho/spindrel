@@ -479,7 +479,7 @@ export default function ChannelSettingsScreen() {
           <PresentationTabSections form={form} patch={patch} channelId={channelId!} />
         )}
         {tab === "dashboard" && (
-          <DashboardTab channelId={channelId!} />
+          <DashboardTab channelId={channelId!} form={form} patch={patch} />
         )}
         {tab === "knowledge" && (
           <>

@@ -51,7 +51,7 @@ export interface TiptapChatInputProps {
   onTextChange: (markdown: string) => void;
   onSubmit: () => void;
   onImagePaste?: (files: File[]) => void;
-  onSlashCommand?: (id: string, args?: string[]) => void;
+  onSlashCommand?: (id: string, args?: string[], argsText?: string) => void;
   slashSurface?: SlashCommandSurface;
   availableSlashCommands?: SlashCommandId[];
   disabled?: boolean;
@@ -342,7 +342,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
                   showCmdMenuRef.current = false;
                   setShowCmdMenu(false);
                   cmdArgModeRef.current = null;
-                  onSlashCommandRef.current?.(argMode.commandId, [item.value]);
+                  onSlashCommandRef.current?.(argMode.commandId, [item.value], item.value);
                   return true;
                 }
                 // Mode A: picking a command. If it requires args, fill the

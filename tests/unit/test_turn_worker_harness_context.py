@@ -10,6 +10,7 @@ import pytest
 from app.services.agent_harnesses.base import TurnResult
 from app.services.agent_harnesses.base import render_context_hints_for_prompt
 from app.services.agent_harnesses.project import build_workspace_files_memory_hint
+from app.services.agent_harnesses.turn_host import _build_harness_plan_tool_hint
 from app.services.turn_worker import (
     _codex_plan_evidence,
     _mirror_harness_native_plan_state,
@@ -443,6 +444,20 @@ async def test_harness_workspace_files_memory_hint_points_without_loading_conten
     assert "Your persistent memory" not in rendered
     assert "curated stable facts" not in rendered
     assert "secret-memory-marker" not in rendered
+
+
+async def test_harness_plan_mode_hint_names_canonical_plan_tools():
+    draft_hint = _build_harness_plan_tool_hint("planning")
+    exec_hint = _build_harness_plan_tool_hint("executing")
+
+    assert draft_hint is not None
+    assert draft_hint.kind == "session_plan_mode"
+    assert "ask_plan_questions" in draft_hint.text
+    assert "publish_plan" in draft_hint.text
+    assert exec_hint is not None
+    assert "record_plan_progress" in exec_hint.text
+    assert "request_plan_replan" in exec_hint.text
+    assert _build_harness_plan_tool_hint("chat") is None
 
 
 async def test_harness_heartbeat_turn_marks_persisted_rows(monkeypatch):

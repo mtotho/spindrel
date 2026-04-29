@@ -194,6 +194,7 @@ class SlashCommandContext:
     session_id: uuid.UUID | None
     current_session_id: uuid.UUID | None
     args: list[str]
+    args_text: str | None
     db: AsyncSession
 
 
@@ -858,14 +859,24 @@ async def _execute_native_runtime_command(
         session_plan_mode=get_session_plan_mode(session),
         harness_metadata=harness_meta or {},
     )
-    if not bool(getattr(command_spec, "readonly", True)):
+    requires_approval = not bool(getattr(command_spec, "readonly", True))
+    classifier = getattr(runtime, "native_command_requires_approval", None)
+    if callable(classifier):
+        requires_approval = bool(
+            classifier(command_id=command_id, args=command_args, args_text=ctx.args_text)
+        )
+    if requires_approval:
         from app.services.agent_harnesses.approvals import request_harness_approval
 
         decision = await request_harness_approval(
             ctx=turn_ctx,
             runtime=runtime,
             tool_name=f"/{command_id}",
-            tool_input={"args": list(command_args), "runtime_command": command_id},
+            tool_input={
+                "args": list(command_args),
+                "args_text": ctx.args_text,
+                "runtime_command": command_id,
+            },
         )
         if not decision.allow:
             return SlashCommandResult(
@@ -1859,12 +1870,14 @@ async def execute_slash_command(
     db: AsyncSession,
     current_session_id: uuid.UUID | None = None,
     args: list[str] | None = None,
+    args_text: str | None = None,
 ) -> SlashCommandResult:
     if bool(channel_id) == bool(session_id):
         raise ValueError("Exactly one of channel_id or session_id is required")
     if current_session_id is not None and channel_id is None:
         raise ValueError("current_session_id is only valid with channel_id")
     args = list(args or [])
+    args_text = args_text if args_text is not None else " ".join(args)
 
     surface: Literal["channel", "session"] = (
         "channel" if channel_id is not None else "session"
@@ -1897,6 +1910,7 @@ async def execute_slash_command(
         session_id=session_id,
         current_session_id=current_session_id,
         args=args,
+        args_text=args_text,
         db=db,
     )
     if spec is None:

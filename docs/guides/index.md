@@ -52,6 +52,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [Knowledge Bases](knowledge-bases.md) | Per-channel + per-bot knowledge folders |
 | [Local Machine Control](local-machine-control.md) | Machine-control subsystem + providers |
 | [MCP Servers](mcp-servers.md) | ModelContext Protocol server setup |
+| [Native Planning](native-planning.md) | Native Spindrel plan mode UX, screenshots, and live parity verification |
 | [Notifications](notifications.md) | Reusable notification targets, bot grants, delivery audit, Usage Alert integration |
 | [Pipelines](pipelines.md) | Task pipelines (cron, scheduled, per-channel) |
 | [Plan Mode](plan-mode.md) | Agent plan-mode behavior |

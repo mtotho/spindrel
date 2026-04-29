@@ -44,7 +44,7 @@ export function useSlashCommandExecutor({
   localHandlers,
 }: Options) {
   return useCallback(
-    async (id: string, args: string[] = []) => {
+    async (id: string, args: string[] = [], argsText?: string) => {
       if (!availableCommands.includes(id as SlashCommandId)) return;
       const spec = catalog.find((c) => c.id === id);
       if (!spec) {
@@ -80,6 +80,7 @@ export function useSlashCommandExecutor({
         channelId,
         sessionId,
         args,
+        argsText,
       });
       if (!body) return;
       const pendingSessionId = sessionId ?? "";

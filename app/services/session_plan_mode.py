@@ -56,6 +56,10 @@ _PLANNING_STATE_LIST_LIMIT = 12
 _ADHERENCE_EVIDENCE_LIMIT = 20
 _ADHERENCE_OUTCOME_LIMIT = 20
 _ADHERENCE_SEMANTIC_REVIEW_LIMIT = 12
+_INCOMPLETE_STEP_DONE_NOTE_RE = re.compile(
+    r"\b(awaiting|pending|unverified|not verified|needs verification|needs review|todo|not done)\b",
+    re.I,
+)
 
 PLAN_PROGRESS_OUTCOME_PROGRESS = "progress"
 PLAN_PROGRESS_OUTCOME_VERIFICATION = "verification"
@@ -957,6 +961,15 @@ def record_plan_progress_outcome(
         raise UnprocessableError(f"{outcome} requires a plan step.")
     if outcome == PLAN_PROGRESS_OUTCOME_NO_PROGRESS and not (evidence or status_note):
         raise UnprocessableError("no_progress requires evidence or a status note.")
+    if outcome == PLAN_PROGRESS_OUTCOME_STEP_DONE:
+        if not str(evidence or "").strip():
+            raise UnprocessableError("step_done requires concrete evidence for the completed step.")
+        completion_note = " ".join(part for part in [summary_text, status_note or ""] if part).strip()
+        if _INCOMPLETE_STEP_DONE_NOTE_RE.search(completion_note):
+            raise UnprocessableError(
+                "step_done cannot describe pending, awaiting, or unverified work. "
+                "Use progress, verification, blocked, or no_progress until the step is actually complete."
+            )
 
     if outcome == PLAN_PROGRESS_OUTCOME_STEP_DONE:
         plan = update_plan_step_status(
@@ -2430,6 +2443,10 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         lines.append(
             "Before ending an execution turn, use record_plan_progress to record progress, verification, step_done, blocked, or no_progress. "
             "If a prior turn has a pending outcome, record that outcome before using more mutating tools."
+        )
+        lines.append(
+            "Only record step_done after the current step is actually complete and any requested verification/readback has succeeded. "
+            "If verification is still pending or failed, record progress, verification, blocked, or no_progress instead."
         )
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Accepted revision: {accepted_revision}; plan status: {plan.status}")

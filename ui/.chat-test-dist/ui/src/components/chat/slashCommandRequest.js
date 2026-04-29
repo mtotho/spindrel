@@ -1,4 +1,5 @@
-export function buildSlashCommandExecuteBody({ commandId, surface, channelId, sessionId, args = [], }) {
+export function buildSlashCommandExecuteBody({ commandId, surface, channelId, sessionId, args = [], argsText, }) {
+    const rawArgs = argsText ?? args.join(" ");
     if (surface === "channel") {
         if (!channelId)
             return null;
@@ -9,6 +10,7 @@ export function buildSlashCommandExecuteBody({ commandId, surface, channelId, se
             current_session_id: sessionId ?? null,
             surface: "web",
             args,
+            args_text: rawArgs,
         };
     }
     if (!sessionId)
@@ -20,5 +22,6 @@ export function buildSlashCommandExecuteBody({ commandId, surface, channelId, se
         current_session_id: null,
         surface: "web",
         args,
+        args_text: rawArgs,
     };
 }

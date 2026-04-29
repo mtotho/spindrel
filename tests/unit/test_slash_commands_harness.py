@@ -45,6 +45,7 @@ class _StubRuntime:
     """A harness runtime with a tiny allowlist + no effort knob."""
 
     name = _RUNTIME_NAME
+    approval_checks: list[dict] = []
 
     def readonly_tools(self):
         return frozenset()
@@ -54,6 +55,20 @@ class _StubRuntime:
 
     def autoapprove_in_plan(self, tool_name: str) -> bool:
         return False
+
+    def native_command_requires_approval(
+        self,
+        *,
+        command_id: str,
+        args: tuple[str, ...],
+        args_text: str | None = None,
+    ) -> bool:
+        self.approval_checks.append({
+            "command_id": command_id,
+            "args": args,
+            "args_text": args_text,
+        })
+        return command_id == "mutate"
 
     def capabilities(self) -> RuntimeCapabilities:
         return RuntimeCapabilities(
@@ -91,6 +106,7 @@ class _StubRuntime:
 
 @pytest.fixture(autouse=True)
 def _register_stub_runtime():
+    _StubRuntime.approval_checks = []
     register_runtime(_RUNTIME_NAME, _StubRuntime())
     yield
     unregister_runtime(_RUNTIME_NAME)
@@ -523,7 +539,10 @@ async def test_mutating_harness_native_command_requires_approval(db_session, mon
     async def _deny(**kwargs):
         from app.services.agent_harnesses.approvals import AllowDeny
 
+        _deny.calls.append(kwargs)
         return AllowDeny.deny("blocked by test")
+
+    _deny.calls = []
 
     monkeypatch.setattr(
         "app.services.agent_harnesses.approvals.request_harness_approval",
@@ -535,13 +554,16 @@ async def test_mutating_harness_native_command_requires_approval(db_session, mon
         channel_id=channel.id,
         session_id=None,
         db=db_session,
-        args=[],
+        args=["install", "fixture plugin"],
+        args_text='install "fixture plugin"',
     )
 
     assert result.command_id == "mutate"
     assert result.payload["status"] == "denied"
     assert result.payload["command"] == "mutate"
     assert "blocked by test" in result.fallback_text
+    assert _StubRuntime.approval_checks[-1]["args_text"] == 'install "fixture plugin"'
+    assert _deny.calls[-1]["tool_input"]["args_text"] == 'install "fixture plugin"'
 
 
 async def test_harness_runtime_command_rejects_unlisted_runtime_command(db_session):

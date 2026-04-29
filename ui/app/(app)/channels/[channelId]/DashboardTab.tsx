@@ -3,13 +3,16 @@ import { LayoutDashboard } from "lucide-react";
 import { CHANNEL_SLUG_PREFIX } from "@/src/stores/dashboards";
 import { DashboardConfigForm } from "../../widgets/DashboardConfigForm";
 import { WidgetUsefulnessSettingsSummary } from "../../widgets/WidgetUsefulnessReview";
-import { Section } from "@/src/components/shared/FormControls";
+import { FormRow, Section, SelectInput } from "@/src/components/shared/FormControls";
+import type { ChannelSettings } from "@/src/types/api";
 
 interface Props {
   channelId: string;
+  form: Partial<ChannelSettings>;
+  patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
 }
 
-export function DashboardTab({ channelId }: Props) {
+export function DashboardTab({ channelId, form, patch }: Props) {
   const slug = `${CHANNEL_SLUG_PREFIX}${channelId}`;
   return (
     <Section
@@ -30,6 +33,19 @@ export function DashboardTab({ channelId }: Props) {
       }
     >
       <WidgetUsefulnessSettingsSummary channelId={channelId} />
+      <FormRow
+        label="Bot widget agency"
+        description="Controls whether bots may only propose dashboard widget improvements or also apply safe fixes."
+      >
+        <SelectInput
+          value={(form.widget_agency_mode ?? "propose") as string}
+          onChange={(v) => patch("widget_agency_mode", v as ChannelSettings["widget_agency_mode"])}
+          options={[
+            { label: "Propose", value: "propose" },
+            { label: "Propose + fix", value: "propose_and_fix" },
+          ]}
+        />
+      </FormRow>
       <DashboardConfigForm slug={slug} variant="tab" />
     </Section>
   );

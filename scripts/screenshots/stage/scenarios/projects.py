@@ -20,6 +20,7 @@ BLUEPRINT_PROJECT_SLUG = "screenshot-blueprint-project"
 BLUEPRINT_PROJECT_NAME = "Screenshot Blueprint Project"
 BLUEPRINT_PROJECT_ROOT = "common/projects/spindrel-blueprint"
 BOUND_SECRET_NAME = "SCREENSHOT_PROJECT_GITHUB_TOKEN"
+SECOND_BOUND_SECRET_NAME = "SCREENSHOT_PROJECT_NPM_TOKEN"
 
 
 def stage_project_workspace(
@@ -77,6 +78,13 @@ def stage_project_workspace(
             value="screenshot-token",
             description="Project Blueprint screenshot secret binding.",
         )
+    existing_secret_two = next((s for s in client.list_secret_values() if s.get("name") == SECOND_BOUND_SECRET_NAME), None)
+    if existing_secret_two is None:
+        existing_secret_two = client.create_secret_value(
+            name=SECOND_BOUND_SECRET_NAME,
+            value="screenshot-token-two",
+            description="Second Project Blueprint screenshot secret binding.",
+        )
     blueprint = client.ensure_project_blueprint(
         name=BLUEPRINT_NAME,
         slug=BLUEPRINT_SLUG,
@@ -91,13 +99,13 @@ def stage_project_workspace(
         },
         knowledge_files={"overview.md": "This Project was created from the screenshot Blueprint.\n"},
         repos=[{
-            "name": "agent-server",
-            "url": "https://github.com/example/agent-server.git",
-            "path": "agent-server",
+            "name": "spindrel",
+            "url": "https://github.com/mtotho/spindrel.git",
+            "path": "spindrel",
             "branch": "main",
         }],
         env={"NODE_ENV": "development", "PROJECT_KIND": "screenshot"},
-        required_secrets=[BOUND_SECRET_NAME, "SCREENSHOT_PROJECT_NPM_TOKEN"],
+        required_secrets=[BOUND_SECRET_NAME, SECOND_BOUND_SECRET_NAME],
     )
     blueprint_id = str(blueprint["id"])
     state.dashboards["project_workspace_blueprint"] = blueprint_id
@@ -107,14 +115,17 @@ def stage_project_workspace(
         name=BLUEPRINT_PROJECT_NAME,
         slug=BLUEPRINT_PROJECT_SLUG,
         root_path=BLUEPRINT_PROJECT_ROOT,
-        secret_bindings={BOUND_SECRET_NAME: str(existing_secret["id"])},
+        secret_bindings={BOUND_SECRET_NAME: str(existing_secret["id"]), SECOND_BOUND_SECRET_NAME: str(existing_secret_two["id"])},
     )
     blueprint_project_id = str(blueprint_project["id"])
     state.dashboards["project_workspace_blueprint_project"] = blueprint_project_id
     client.update_project_secret_bindings(
         blueprint_project_id,
-        {BOUND_SECRET_NAME: str(existing_secret["id"]), "SCREENSHOT_PROJECT_NPM_TOKEN": None},
+        {BOUND_SECRET_NAME: str(existing_secret["id"]), SECOND_BOUND_SECRET_NAME: str(existing_secret_two["id"])},
     )
+    setup = client.get_project_setup(blueprint_project_id)
+    if not setup.get("runs"):
+        client.run_project_setup(blueprint_project_id)
 
     channel = client.ensure_channel(
         client_id=PROJECT_CHANNEL_CLIENT_ID,

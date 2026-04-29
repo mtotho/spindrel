@@ -9,7 +9,12 @@ export function resolveComposerSubmitIntent({ rawMessage, pendingFiles, disabled
     if (!hasFiles) {
         const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
         if (slashCommand) {
-            return { kind: "slash", id: slashCommand.id, args: slashCommand.args };
+            return {
+                kind: "slash",
+                id: slashCommand.id,
+                args: slashCommand.args,
+                argsText: slashCommand.argsText,
+            };
         }
         const missing = detectMissingSlashArgs(message, slashSurface, slashCatalog, availableSlashCommands);
         if (missing) {

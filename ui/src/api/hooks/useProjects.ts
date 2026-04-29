@@ -6,6 +6,8 @@ import type {
   ProjectBlueprint,
   ProjectBlueprintWrite,
   ProjectFromBlueprintWrite,
+  ProjectSetup,
+  ProjectSetupRun,
   ProjectWrite,
 } from "../../types/api";
 
@@ -28,6 +30,14 @@ export function useProjectChannels(projectId: string | undefined) {
   return useQuery({
     queryKey: ["projects", projectId, "channels"],
     queryFn: () => apiFetch<Pick<Channel, "id" | "name" | "bot_id">[]>(`/api/v1/projects/${projectId}/channels`),
+    enabled: !!projectId,
+  });
+}
+
+export function useProjectSetup(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "setup"],
+    queryFn: () => apiFetch<ProjectSetup>(`/api/v1/projects/${projectId}/setup`),
     enabled: !!projectId,
   });
 }
@@ -124,6 +134,19 @@ export function useUpdateProjectSecretBindings(projectId: string | undefined) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "setup"] });
+    },
+  });
+}
+
+export function useRunProjectSetup(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<ProjectSetupRun>(`/api/v1/projects/${projectId}/setup/runs`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "setup"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId] });
     },
   });

@@ -100,6 +100,8 @@ project-workspace-detail.png
 project-workspace-blueprints.png
 project-workspace-blueprint-editor.png
 project-workspace-settings-blueprint.png
+project-workspace-setup-ready.png
+project-workspace-setup-run-history.png
 project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
@@ -108,9 +110,10 @@ project-workspace-memory-tool.png
 
 The staging step creates a reusable screenshot Project, attaches one channel to
 it, creates one attachable channel, writes a file through the channel workspace
-API, seeds a Blueprint-created Project with secret bindings, and seeds a
-memory-tool turn. Inspect all nine images before closing out: the bundle
-intentionally checks Project admin surfaces, Blueprint management, Project
+API, seeds a Blueprint-created Project with secret bindings, runs clone-only
+setup for `https://github.com/mtotho/spindrel.git`, and seeds a memory-tool
+turn. Inspect all eleven images before closing out: the bundle intentionally
+checks Project admin surfaces, Blueprint management, Project setup, Project
 settings, and the channel transcript.
 
 ## Channel Quick Automations Run

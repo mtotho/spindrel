@@ -21,7 +21,8 @@ _SCHEMA = {
         "name": "record_plan_progress",
         "description": (
             "Record the required end-of-turn plan outcome while executing an approved plan. "
-            "Use this before ending every execution turn with progress, verification, step_done, blocked, or no_progress."
+            "Use this before ending every execution turn with progress, verification, step_done, blocked, or no_progress. "
+            "Use step_done only after the step is actually complete and requested verification/readback has succeeded."
         ),
         "parameters": {
             "type": "object",

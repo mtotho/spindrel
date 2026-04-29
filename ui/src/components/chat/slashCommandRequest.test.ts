@@ -18,6 +18,7 @@ test("channel surface carries the current session id when present", () => {
       current_session_id: "session-1",
       surface: "web",
       args: [],
+      args_text: "",
     },
   );
 });
@@ -37,25 +38,28 @@ test("session surface prefers session scope even when a channel id is present", 
       current_session_id: null,
       surface: "web",
       args: [],
+      args_text: "",
     },
   );
 });
 
-test("args are forwarded when provided (e.g. /effort high)", () => {
+test("args and raw arg text are forwarded when provided (e.g. /plugins install)", () => {
   assert.deepEqual(
     buildSlashCommandExecuteBody({
-      commandId: "effort",
+      commandId: "plugins",
       surface: "channel",
       channelId: "channel-1",
-      args: ["high"],
+      args: ["install", "fixture plugin"],
+      argsText: 'install "fixture plugin"',
     }),
     {
-      command_id: "effort",
+      command_id: "plugins",
       channel_id: "channel-1",
       session_id: null,
       current_session_id: null,
       surface: "web",
-      args: ["high"],
+      args: ["install", "fixture plugin"],
+      args_text: 'install "fixture plugin"',
     },
   );
 });

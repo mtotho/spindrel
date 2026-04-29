@@ -42,6 +42,7 @@ export function resolveSlashCommand(raw, surface, catalog, availableIds) {
         return null;
     const query = tokens[0].toLowerCase();
     const args = tokens.slice(1);
+    const argsText = trimmed.slice(1).replace(/^\S+\s*/, "");
     const allow = availableIds ? new Set(availableIds) : null;
     const match = catalog.find((cmd) => cmdSurfaces(cmd).includes(surface) &&
         (!allow || allow.has(cmd.id)) &&
@@ -57,7 +58,7 @@ export function resolveSlashCommand(raw, surface, catalog, availableIds) {
         return null;
     if (args.length < requiredArgs)
         return null;
-    return { id: match.id, args };
+    return { id: match.id, args, argsText };
 }
 /** Detect a bare `/cmd` (known command, required args missing) so the caller
  *  can surface a "add a query" hint rather than silently sending as chat. */

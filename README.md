@@ -112,6 +112,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, f
 | [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, capabilities, workspaces, and how they compose |
 | [LLM Providers](docs/guides/providers.md) | Provider types, ChatGPT Subscription OAuth, Ollama, LiteLLM |
 | [Agent Harnesses](docs/guides/agent-harnesses.md) | External harness runtimes in the Spindrel UI; Claude Code + fresh Codex v1 |
+| [Native Planning](docs/guides/native-planning.md) | Native Spindrel plan mode, screenshots, progress tracking, and adherence review |
 | [Admin Terminal](docs/guides/admin-terminal.md) | Browser terminal used for harness login, workspace setup, and admin ops |
 | [Local Machine Control](docs/guides/local-machine-control.md) | Session-scoped leases for paired local-machine command execution |
 | [Programmatic Tool Calling](docs/guides/programmatic-tool-calling.md) | `run_script` for batching, filtering, and multi-tool orchestration inside one turn |

@@ -109,6 +109,88 @@ def test_bridge_inventory_exports_selected_local_tools():
     assert inventory.errors == ()
 
 
+def test_bridge_inventory_auto_exports_plan_draft_tools():
+    bot = BotConfig(
+        id="harness-bot",
+        name="Harness Bot",
+        model="claude-sonnet-4-6",
+        system_prompt="",
+        local_tools=[],
+    )
+
+    with (
+        patch("app.services.agent_harnesses.tools.get_bot", return_value=bot),
+        patch(
+            "app.services.agent_harnesses.tools.resolve_effective_tools",
+            return_value=EffectiveTools(local_tools=[]),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.apply_auto_injections",
+            side_effect=lambda eff, _bot: eff,
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.get_local_tool_schemas",
+            side_effect=lambda names: _schemas_for(list(names)),
+        ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
+    ):
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+                session_plan_mode="planning",
+            )
+        )
+
+    assert [spec.name for spec in inventory.specs] == ["ask_plan_questions", "publish_plan"]
+
+
+def test_bridge_inventory_auto_exports_plan_execution_tools():
+    bot = BotConfig(
+        id="harness-bot",
+        name="Harness Bot",
+        model="claude-sonnet-4-6",
+        system_prompt="",
+        local_tools=[],
+    )
+
+    with (
+        patch("app.services.agent_harnesses.tools.get_bot", return_value=bot),
+        patch(
+            "app.services.agent_harnesses.tools.resolve_effective_tools",
+            return_value=EffectiveTools(local_tools=[]),
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.apply_auto_injections",
+            side_effect=lambda eff, _bot: eff,
+        ),
+        patch(
+            "app.services.agent_harnesses.tools.get_local_tool_schemas",
+            side_effect=lambda names: _schemas_for(list(names)),
+        ),
+        patch(
+            "app.services.tool_enrollment.get_enrolled_tool_names",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch("app.services.agent_harnesses.tools.fetch_mcp_tools", new=AsyncMock(return_value=[])),
+    ):
+        inventory = asyncio.run(
+            resolve_harness_bridge_inventory(
+                _Db(),
+                bot_id="harness-bot",
+                channel_id=None,
+                session_plan_mode="executing",
+            )
+        )
+
+    assert [spec.name for spec in inventory.specs] == ["record_plan_progress", "request_plan_replan"]
+
+
 def test_bridge_inventory_reports_selected_local_tools_missing_from_registry():
     bot = BotConfig(
         id="harness-bot",

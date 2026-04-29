@@ -42,7 +42,7 @@ interface Props {
   /** Parent channel used to resolve contextual tools/skills in session views. */
   toolContextChannelId?: string;
   /** Handler for slash commands typed in the input */
-  onSlashCommand?: (id: string, args?: string[]) => void;
+  onSlashCommand?: (id: string, args?: string[], argsText?: string) => void;
   slashSurface?: SlashCommandSurface;
   availableSlashCommands?: SlashCommandId[];
   /** Whether a message is queued behind the current response */
@@ -174,7 +174,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
       return;
     }
     if (intent.kind === "slash") {
-      onSlashCommand?.(intent.id, intent.args);
+      onSlashCommand?.(intent.id, intent.args, intent.argsText);
       clearDraftState();
       editorRef.current?.clear();
       editorRef.current?.focus();

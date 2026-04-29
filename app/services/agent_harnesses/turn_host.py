@@ -216,6 +216,10 @@ async def run_harness_turn(
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
 
+    plan_hint = _build_harness_plan_tool_hint(session_plan_mode)
+    if plan_hint is not None:
+        context_hints.append(plan_hint)
+
     explicit_tool_names, tagged_skill_ids = merge_harness_turn_selections_fn(
         user_message,
         tool_names=harness_tool_names,
@@ -591,6 +595,33 @@ def tool_calls_include_exit_plan_mode(tool_calls: list[dict]) -> bool:
     return False
 
 
+def _build_harness_plan_tool_hint(session_plan_mode: str):
+    from app.services.agent_harnesses.base import HarnessContextHint
+
+    if session_plan_mode == "planning":
+        text = (
+            "Spindrel plan mode is active. Use bridged Spindrel plan tools for "
+            "canonical planning state: ask_plan_questions when more input is "
+            "needed, and publish_plan for the structured plan artifact. Do not "
+            "edit project files while drafting the plan."
+        )
+    elif session_plan_mode in {"executing", "blocked"}:
+        text = (
+            "Spindrel plan execution is active. Follow the accepted plan, use "
+            "record_plan_progress before ending an execution turn, and use "
+            "request_plan_replan if the accepted plan is stale."
+        )
+    else:
+        return None
+    return HarnessContextHint(
+        kind="session_plan_mode",
+        source="spindrel",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        consume_after_next_turn=False,
+        text=text,
+    )
+
+
 async def start_harness_turn_with_cancel(
     *,
     runtime,
@@ -707,4 +738,3 @@ async def persist_harness_failure(
         )
     logger.error("harness pre-flight failure for bot %s: %s", bot.id, error_text)
     return "", error_text
-

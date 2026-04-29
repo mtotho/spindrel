@@ -93,6 +93,12 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         description="List Codex experimental feature flags.",
         aliases=("feature",),
     ),
+    HarnessRuntimeCommandSpec(
+        id="marketplace",
+        label="marketplace",
+        description="Manage Codex plugin marketplaces visible to the app-server.",
+        aliases=("marketplaces",),
+    ),
 )
 
 
@@ -116,6 +122,16 @@ class CodexRuntime:
 
     def autoapprove_in_plan(self, tool_name: str) -> bool:
         return tool_name in self._PLAN_AUTOAPPROVE
+
+    def native_command_requires_approval(
+        self,
+        *,
+        command_id: str,
+        args: tuple[str, ...],
+        args_text: str | None = None,
+    ) -> bool:
+        del args_text
+        return _codex_native_command_is_mutating(command_id, args)
 
     def capabilities(self) -> RuntimeCapabilities:
         # The capabilities endpoint asks list_model_options() for live
@@ -381,33 +397,27 @@ class CodexRuntime:
     ) -> HarnessRuntimeCommandResult:
         del ctx
         args = tuple(arg for arg in args if arg)
-        if args and args != ("list",):
-            suggested_command = _codex_native_terminal_command(command_id, args)
-            return HarnessRuntimeCommandResult(
-                command_id=command_id,
-                title="Unsupported Codex command arguments",
-                detail=(
-                    f"Codex /{command_id} currently supports read-only listing from "
-                    "Spindrel. Use the in-app terminal for interactive or mutating subcommands."
-                ),
-                status="terminal_handoff",
-                payload={"args": list(args), "suggested_command": suggested_command},
-            )
-        methods = {
-            "config": (schema.METHOD_CONFIG_READ, {}),
-            "mcp-status": (schema.METHOD_MCP_SERVER_STATUS_LIST, {}),
-            "plugins": (schema.METHOD_PLUGIN_LIST, {}),
-            "skills": (schema.METHOD_SKILLS_LIST, {}),
-            "features": (schema.METHOD_EXPERIMENTAL_FEATURE_LIST, {}),
-        }
-        if command_id not in methods:
+        resolved = _resolve_codex_native_app_server_call(command_id, args)
+        if resolved is None:
             return HarnessRuntimeCommandResult(
                 command_id=command_id,
                 title="Unsupported Codex command",
                 detail=f"Codex native command {command_id!r} is not whitelisted.",
                 status="unsupported",
             )
-        method, params = methods[command_id]
+        method, params = resolved
+        if method is None:
+            suggested_command = _codex_native_terminal_command(command_id, args)
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Open terminal for Codex command",
+                detail=(
+                    f"Codex /{command_id} with these arguments requires an interactive "
+                    "or not-yet-bridged CLI flow. Use the in-app terminal to run it."
+                ),
+                status="terminal_handoff",
+                payload={"args": list(args), "suggested_command": suggested_command},
+            )
         try:
             async with CodexAppServer.spawn() as client:
                 await client.initialize()
@@ -458,8 +468,125 @@ def _codex_native_terminal_command(command_id: str, args: tuple[str, ...]) -> st
         "mcp-status": "mcp",
         "plugins": "plugin",
         "features": "features",
+        "marketplace": "marketplace",
     }.get(command_id, command_id)
     return " ".join(("codex", cli_command, *args))
+
+
+def _codex_native_command_is_mutating(command_id: str, args: tuple[str, ...]) -> bool:
+    cleaned = tuple(arg.strip() for arg in args if arg and arg.strip())
+    first = cleaned[0].lower() if cleaned else ""
+    if command_id == "plugins":
+        return first in {"install", "i", "uninstall", "remove", "rm"}
+    if command_id == "marketplace":
+        return first in {"add", "remove", "rm", "upgrade", "update"}
+    if command_id == "skills":
+        return first in {"enable", "disable", "on", "off"}
+    if command_id == "features":
+        return first in {"enable", "disable", "on", "off", "set"}
+    if command_id == "config":
+        return first in {"set", "write", "upsert", "replace"}
+    return False
+
+
+def _resolve_codex_native_app_server_call(
+    command_id: str,
+    args: tuple[str, ...],
+) -> tuple[str | None, dict[str, Any]] | None:
+    cleaned = tuple(arg.strip() for arg in args if arg and arg.strip())
+    lowered = tuple(arg.lower() for arg in cleaned)
+    first = lowered[0] if lowered else ""
+    if command_id == "config":
+        if not cleaned or first in {"read", "list", "show"}:
+            return schema.METHOD_CONFIG_READ, {}
+        if first in {"set", "write", "upsert", "replace"} and len(cleaned) >= 3:
+            key = cleaned[1]
+            value = _parse_codex_config_value(" ".join(cleaned[2:]))
+            strategy = "replace" if first == "replace" else "upsert"
+            return schema.METHOD_CONFIG_VALUE_WRITE, {
+                "keyPath": key,
+                "value": value,
+                "mergeStrategy": strategy,
+            }
+        return None, {}
+    if command_id == "mcp-status":
+        if not cleaned or first in {"list", "status"}:
+            return schema.METHOD_MCP_SERVER_STATUS_LIST, {}
+        if lowered[:2] == ("resource", "read") and len(cleaned) >= 4:
+            return schema.METHOD_MCP_SERVER_RESOURCE_READ, {
+                "server": cleaned[2],
+                "uri": cleaned[3],
+            }
+        # OAuth and arbitrary tool calls have interactive/thread-bound flows.
+        return None, {}
+    if command_id == "plugins":
+        if not cleaned or first == "list":
+            return schema.METHOD_PLUGIN_LIST, {}
+        if first == "read" and len(cleaned) >= 2:
+            return schema.METHOD_PLUGIN_READ, {"pluginName": cleaned[1]}
+        if first in {"install", "i"} and len(cleaned) >= 2:
+            return schema.METHOD_PLUGIN_INSTALL, {"pluginName": cleaned[1]}
+        if first in {"uninstall", "remove", "rm"} and len(cleaned) >= 2:
+            return schema.METHOD_PLUGIN_UNINSTALL, {"pluginId": cleaned[1]}
+        return None, {}
+    if command_id == "marketplace":
+        if first == "add" and len(cleaned) >= 2:
+            return schema.METHOD_MARKETPLACE_ADD, {"source": cleaned[1]}
+        if first in {"remove", "rm"} and len(cleaned) >= 2:
+            return schema.METHOD_MARKETPLACE_REMOVE, {"marketplaceName": cleaned[1]}
+        if first in {"upgrade", "update"}:
+            return schema.METHOD_MARKETPLACE_UPGRADE, {
+                "marketplaceName": cleaned[1] if len(cleaned) >= 2 else None
+            }
+        return None, {}
+    if command_id == "skills":
+        if not cleaned or first == "list":
+            return schema.METHOD_SKILLS_LIST, {}
+        if first in {"enable", "disable", "on", "off"} and len(cleaned) >= 2:
+            enabled = first in {"enable", "on"}
+            selector = cleaned[1]
+            return schema.METHOD_SKILLS_CONFIG_WRITE, {
+                "enabled": enabled,
+                "path": selector if selector.startswith("/") else None,
+                "name": None if selector.startswith("/") else selector,
+            }
+        return None, {}
+    if command_id == "features":
+        if not cleaned or first == "list":
+            return schema.METHOD_EXPERIMENTAL_FEATURE_LIST, {}
+        if first in {"enable", "disable", "on", "off"} and len(cleaned) >= 2:
+            return schema.METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET, {
+                "enablement": {cleaned[1]: first in {"enable", "on"}},
+            }
+        if first == "set" and len(cleaned) >= 3:
+            return schema.METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET, {
+                "enablement": {cleaned[1]: cleaned[2].lower() in {"1", "true", "yes", "on", "enable", "enabled"}},
+            }
+        return None, {}
+    return None
+
+
+def _parse_codex_config_value(raw: str) -> Any:
+    text = raw.strip()
+    if not text:
+        return ""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    lowered = text.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if lowered in {"null", "none"}:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except ValueError:
+        return text
 
 
 def _build_turn_input(prompt: str, ctx: TurnContext) -> list[dict[str, Any]]:

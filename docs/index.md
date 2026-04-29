@@ -139,6 +139,7 @@ The setup wizard configures `.env`, seeds your first provider, and offers to sta
 | [Discovery and Enrollment](guides/discovery-and-enrollment.md) | Canonical guide for tool/skill discovery, working-set enrollment, `get_skill` / `get_tool_info`, and runtime residency semantics. |
 | [Sub-Agents](guides/subagents.md) | Five presets, parallel execution, depth and rate limits. |
 | [Plan Mode](guides/plan-mode.md) | Session-level planning workflow and public UX contract. |
+| [Native Planning](guides/native-planning.md) | Native Spindrel planning UX, live screenshots, and adherence parity checks. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and pipeline triggers. |
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair them with skills and normal tool enrollment. |
 | [Tool Policies](guides/tool-policies.md) | Tool availability, approvals, and policy controls. |

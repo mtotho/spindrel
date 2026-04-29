@@ -16,7 +16,17 @@ Live native-plan E2E captures for the current transcript UI are stored as
 `../images/spindrel-plan-replan-pending-default-dark.png`,
 `../images/spindrel-plan-replan-pending-terminal-dark.png`,
 `../images/spindrel-plan-pending-outcome-default-dark.png`, and
-`../images/spindrel-plan-pending-outcome-terminal-dark.png`.
+`../images/spindrel-plan-pending-outcome-terminal-dark.png`,
+`../images/spindrel-plan-quality-contract-default-dark.png`,
+`../images/spindrel-plan-quality-contract-terminal-dark.png`,
+`../images/spindrel-plan-stress-readability-default-dark.png`,
+`../images/spindrel-plan-stress-readability-mobile-dark.png`,
+`../images/spindrel-plan-stress-readability-terminal-dark.png`,
+`../images/spindrel-plan-adherence-review-default-dark.png`, and
+`../images/spindrel-plan-adherence-review-terminal-dark.png`.
+
+The public screenshot gallery and live parity workflow are summarized in
+[Native Planning](../guides/native-planning.md).
 
 If plan-mode behavior, prompting, tools, UI, or execution semantics change, update this file first and then update any shorter guides that point at it.
 

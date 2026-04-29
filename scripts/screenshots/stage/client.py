@@ -330,6 +330,25 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def get_project_setup(self, project_id: str) -> dict:
+        r = self._http.get(f"/api/v1/projects/{project_id}/setup")
+        if r.status_code == 404:
+            raise RuntimeError(
+                "Project setup screenshot staging requires an e2e server with /api/v1/projects/{id}/setup."
+            )
+        r.raise_for_status()
+        return r.json()
+
+    def run_project_setup(self, project_id: str) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN POST /projects/%s/setup/runs", project_id)
+            return {"id": "dry-run", "status": "succeeded", "dry_run": True}
+        r = self._http.post(f"/api/v1/projects/{project_id}/setup/runs")
+        if r.status_code >= 400:
+            logger.error("POST /projects/%s/setup/runs -> %s body=%s", project_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     # --- skills ------------------------------------------------------------
 
     def list_skills(self, *, limit: int = 100) -> list[dict]:

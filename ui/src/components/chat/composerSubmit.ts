@@ -4,7 +4,7 @@ import { detectMissingSlashArgs, resolveSlashCommand } from "./slashCommands.js"
 export type ComposerSubmitIntent<TFile = unknown> =
   | { kind: "idle" }
   | { kind: "blocked"; reason: string }
-  | { kind: "slash"; id: SlashCommandId; args: string[] }
+  | { kind: "slash"; id: SlashCommandId; args: string[]; argsText: string }
   | { kind: "missing_slash_args"; id: SlashCommandId; missing: string[] }
   | { kind: "send"; message: string; files?: TFile[] };
 
@@ -38,7 +38,12 @@ export function resolveComposerSubmitIntent<TFile = unknown>({
       availableSlashCommands,
     );
     if (slashCommand) {
-      return { kind: "slash", id: slashCommand.id, args: slashCommand.args };
+      return {
+        kind: "slash",
+        id: slashCommand.id,
+        args: slashCommand.args,
+        argsText: slashCommand.argsText,
+      };
     }
 
     const missing = detectMissingSlashArgs(

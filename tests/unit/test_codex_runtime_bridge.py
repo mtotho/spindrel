@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from integrations.codex import schema
 from integrations.codex.harness import (
+    _codex_native_command_is_mutating,
     _dynamic_tool_entry,
     _dynamic_tools_changed,
     _dynamic_tools_signature,
     _extract_thread_id,
     _extract_turn_id,
     _prompt_with_bridge_guidance,
+    _resolve_codex_native_app_server_call,
     _server_supports_dynamic_tools,
     _summarize_native_command_result,
 )
@@ -168,13 +170,58 @@ def test_initialize_capabilities_carries_experimental_api():
 
 def test_codex_native_command_method_constants_are_current():
     assert schema.METHOD_CONFIG_READ == "config/read"
+    assert schema.METHOD_CONFIG_VALUE_WRITE == "config/value/write"
     assert schema.METHOD_MCP_SERVER_STATUS_LIST == "mcpServerStatus/list"
+    assert schema.METHOD_MCP_SERVER_RESOURCE_READ == "mcpServer/resource/read"
     assert schema.METHOD_PLUGIN_LIST == "plugin/list"
+    assert schema.METHOD_PLUGIN_READ == "plugin/read"
+    assert schema.METHOD_PLUGIN_INSTALL == "plugin/install"
+    assert schema.METHOD_PLUGIN_UNINSTALL == "plugin/uninstall"
+    assert schema.METHOD_MARKETPLACE_ADD == "marketplace/add"
+    assert schema.METHOD_MARKETPLACE_REMOVE == "marketplace/remove"
+    assert schema.METHOD_MARKETPLACE_UPGRADE == "marketplace/upgrade"
     assert schema.METHOD_SKILLS_LIST == "skills/list"
+    assert schema.METHOD_SKILLS_CONFIG_WRITE == "skills/config/write"
     assert schema.METHOD_EXPERIMENTAL_FEATURE_LIST == "experimentalFeature/list"
+    assert schema.METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET == "experimentalFeature/enablement/set"
 
 
 def test_summarize_native_command_result_counts_common_list_fields():
     assert _summarize_native_command_result("mcp-status", {"servers": [{}, {}]}) == "mcp-status: 2 item(s)."
     assert _summarize_native_command_result("config", {"cwd": "/tmp"}) == "config: returned 1 top-level field(s)."
     assert _summarize_native_command_result("features", ["a"]) == "Runtime command completed."
+
+
+def test_codex_native_command_maps_management_methods():
+    assert _resolve_codex_native_app_server_call("plugins", ("list",)) == (schema.METHOD_PLUGIN_LIST, {})
+    assert _resolve_codex_native_app_server_call("plugins", ("read", "fixture")) == (
+        schema.METHOD_PLUGIN_READ,
+        {"pluginName": "fixture"},
+    )
+    assert _resolve_codex_native_app_server_call("plugins", ("install", "fixture")) == (
+        schema.METHOD_PLUGIN_INSTALL,
+        {"pluginName": "fixture"},
+    )
+    assert _resolve_codex_native_app_server_call("plugins", ("uninstall", "fixture-id")) == (
+        schema.METHOD_PLUGIN_UNINSTALL,
+        {"pluginId": "fixture-id"},
+    )
+    assert _resolve_codex_native_app_server_call("skills", ("disable", "reviewer")) == (
+        schema.METHOD_SKILLS_CONFIG_WRITE,
+        {"enabled": False, "path": None, "name": "reviewer"},
+    )
+    assert _resolve_codex_native_app_server_call("features", ("enable", "dynamicTools")) == (
+        schema.METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET,
+        {"enablement": {"dynamicTools": True}},
+    )
+    assert _resolve_codex_native_app_server_call("config", ("set", "model", '"gpt-5.4"')) == (
+        schema.METHOD_CONFIG_VALUE_WRITE,
+        {"keyPath": "model", "value": "gpt-5.4", "mergeStrategy": "upsert"},
+    )
+
+
+def test_codex_native_command_classifies_mutating_args():
+    assert _codex_native_command_is_mutating("plugins", ("install", "fixture")) is True
+    assert _codex_native_command_is_mutating("plugins", ("read", "fixture")) is False
+    assert _codex_native_command_is_mutating("skills", ("disable", "reviewer")) is True
+    assert _codex_native_command_is_mutating("features", ("list",)) is False

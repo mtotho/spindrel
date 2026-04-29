@@ -116,15 +116,18 @@ docs/images/project-workspace-detail.png
 docs/images/project-workspace-blueprints.png
 docs/images/project-workspace-blueprint-editor.png
 docs/images/project-workspace-settings-blueprint.png
+docs/images/project-workspace-setup-ready.png
+docs/images/project-workspace-setup-run-history.png
 docs/images/project-workspace-terminal.png
 docs/images/project-workspace-channels.png
 docs/images/project-workspace-channel-settings.png
 docs/images/project-workspace-memory-tool.png
 ```
 
-Inspect all nine images before closing out. The bundle checks Project admin
-surfaces, Blueprint management, applied Blueprint settings, channel settings,
-Project-rooted file/terminal behavior, and the memory-tool transcript envelope.
+Inspect all eleven images before closing out. The bundle checks Project admin
+surfaces, Blueprint management, setup readiness/run history, applied Blueprint
+settings, channel settings, Project-rooted file/terminal behavior, and the
+memory-tool transcript envelope.
 
 ## Widget Authoring Runtime Loop
 

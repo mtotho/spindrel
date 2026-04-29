@@ -19,8 +19,9 @@ Open `/admin/projects` to create or inspect shared roots. A Project owns:
 - channel membership for every channel that should use that root.
 
 The Project detail page is the work surface: use **Files** for the rooted file
-browser, **Terminal** for a Project-root shell, **Settings** for instructions
-and Blueprint metadata, and **Channels** for membership.
+browser, **Terminal** for a Project-root shell, **Setup** for Blueprint runtime
+preparation, **Settings** for instructions and Blueprint metadata, and
+**Channels** for membership.
 
 ## Blueprints
 
@@ -32,9 +33,11 @@ files, repo declarations, env defaults, and required secret binding slots.
 
 ![Project Blueprint editor with starter files and declarations](../images/project-workspace-blueprint-editor.png)
 
-Blueprint v0 materializes files and records declarations. It does not clone
-repos, run setup commands, or inject secret values into runtimes. Secret values
-stay in the secret vault; Projects only store bindings to those vault entries.
+Blueprint v0 materializes files and records declarations. Project Setup turns
+the applied snapshot into a clone-only setup plan: it validates repo targets,
+checks Project-scoped secret slots, clones missing repos, skips existing paths,
+and records redacted run history. Secret values stay in the secret vault;
+Projects only store bindings to those vault entries.
 
 ## Applied Blueprints
 

@@ -2240,6 +2240,16 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
           headers: { "Content-Type": "application/json" }
         });
       }
+      if (/\\/api\\/v1\\/admin\\/channels\\/[^/]+\\/settings$/.test(url.pathname) && (!init || !init.method || init.method === "GET")) {
+        const response = await originalFetch(input, init);
+        const body = await response.json();
+        body.widget_agency_mode = "propose_and_fix";
+        return new Response(JSON.stringify(body), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
     }
     return originalFetch(input, init);
   };
@@ -2410,6 +2420,55 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& normalized.includes('repo declarations') "
             "&& normalized.includes('env defaults'), "
             "detail: 'Project settings did not expose applied Blueprint declarations and bindings' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-setup-ready",
+        route="/admin/projects/{project_workspace_blueprint_project}#Setup",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-setup-ready\"]') "
+            "&& document.body.innerText.includes('Ready to clone') "
+            "&& document.body.innerText.includes('https://github.com/mtotho/spindrel.git')"
+        ),
+        output="project-workspace-setup-ready.png",
+        color_scheme="dark",
+        full_page=True,
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Ready to clone') "
+            "&& text.includes('spindrel') "
+            "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
+            "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN'), "
+            "detail: 'Project Setup tab did not show ready clone plan and bound secret slots' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-setup-run-history",
+        route="/admin/projects/{project_workspace_blueprint_project}#Setup",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-setup-run-history\"]') "
+            "&& (document.body.innerText.includes('Latest run succeeded') "
+            "|| document.body.innerText.includes('already_present') "
+            "|| document.body.innerText.includes('cloned'))"
+        ),
+        output="project-workspace-setup-run-history.png",
+        color_scheme="dark",
+        full_page=True,
+        pre_capture_js=(
+            "const history = document.querySelector('[data-testid=\"project-workspace-setup-run-history\"]');"
+            "if (history) history.scrollIntoView({ block: 'center' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Run History') "
+            "&& (text.includes('cloned') || text.includes('already_present')) "
+            "&& !text.includes('screenshot-token'), "
+            "detail: 'Project setup run history did not show a redacted clone result' };"
         ),
     ),
     ScreenshotSpec(

@@ -10,6 +10,7 @@ import type {
 export interface ResolvedSlashCommand {
   id: SlashCommandId;
   args: string[];
+  argsText: string;
 }
 
 /** Filter slash commands by query string and return as CompletionItems.
@@ -67,6 +68,7 @@ export function resolveSlashCommand(
   if (tokens.length === 0) return null;
   const query = tokens[0].toLowerCase();
   const args = tokens.slice(1);
+  const argsText = trimmed.slice(1).replace(/^\S+\s*/, "");
   const allow = availableIds ? new Set<SlashCommandId>(availableIds) : null;
   const match = catalog.find(
     (cmd) =>
@@ -82,7 +84,7 @@ export function resolveSlashCommand(
   const acceptsArgs = schema.length > 0;
   if (args.length > 0 && !acceptsArgs) return null;
   if (args.length < requiredArgs) return null;
-  return { id: match.id, args };
+  return { id: match.id, args, argsText };
 }
 
 export interface MissingSlashArgs {

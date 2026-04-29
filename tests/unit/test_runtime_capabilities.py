@@ -94,10 +94,10 @@ def test_codex_capabilities_shape():
     assert "plan" in caps.slash_policy.allowed_command_ids
     assert "runtime" in caps.slash_policy.allowed_command_ids
     assert {cmd.id for cmd in caps.native_commands} >= {
-        "config", "mcp-status", "plugins", "skills", "features",
+        "config", "mcp-status", "plugins", "skills", "features", "marketplace",
     }
     aliases = {alias for cmd in caps.native_commands for alias in cmd.aliases}
-    assert {"mcp", "plugin", "feature"} <= aliases
+    assert {"mcp", "plugin", "feature", "marketplaces"} <= aliases
     assert caps.native_compaction is True
 
 
@@ -146,18 +146,23 @@ async def test_claude_native_mcp_login_returns_terminal_handoff():
 async def test_codex_native_mutating_args_return_canonical_terminal_command():
     from integrations.codex.harness import CodexRuntime
 
-    plugin = await CodexRuntime().execute_native_command(
-        command_id="plugins",
-        args=("install", "fixture-plugin"),
-        ctx=None,
-    )
     mcp = await CodexRuntime().execute_native_command(
         command_id="mcp-status",
         args=("add", "fixture-server"),
         ctx=None,
     )
 
-    assert plugin.status == "terminal_handoff"
-    assert plugin.payload["suggested_command"] == "codex plugin install fixture-plugin"
     assert mcp.status == "terminal_handoff"
     assert mcp.payload["suggested_command"] == "codex mcp add fixture-server"
+
+
+def test_codex_native_mutating_args_require_approval():
+    from integrations.codex.harness import CodexRuntime
+
+    runtime = CodexRuntime()
+    assert runtime.native_command_requires_approval(
+        command_id="plugins", args=("install", "fixture-plugin")
+    )
+    assert not runtime.native_command_requires_approval(
+        command_id="plugins", args=("read", "fixture-plugin")
+    )

@@ -38,7 +38,7 @@ test("composer submit resolves valid slash commands before normal sends", () => 
       slashSurface: "channel",
       slashCatalog: catalog,
     }),
-    { kind: "slash", id: "find", args: ["release", "notes"] },
+    { kind: "slash", id: "find", args: ["release", "notes"], argsText: "release notes" },
   );
 });
 
@@ -62,7 +62,24 @@ test("composer submit resolves native harness slash commands with optional args"
       slashSurface: "channel",
       slashCatalog: catalog,
     }),
-    { kind: "slash", id: "plugins", args: ["list"] },
+    { kind: "slash", id: "plugins", args: ["list"], argsText: "list" },
+  );
+});
+
+test("composer submit preserves raw slash arg text for native commands", () => {
+  assert.deepEqual(
+    resolveComposerSubmitIntent({
+      rawMessage: '/plugins install "acme pack" --from ./local',
+      pendingFiles: [],
+      slashSurface: "channel",
+      slashCatalog: catalog,
+    }),
+    {
+      kind: "slash",
+      id: "plugins",
+      args: ["install", "\"acme", "pack\"", "--from", "./local"],
+      argsText: 'install "acme pack" --from ./local',
+    },
   );
 });
 

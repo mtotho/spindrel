@@ -57,7 +57,7 @@ async def _widget_agency_mutation_error(dashboard_key: str) -> str | None:
         return None
     return (
         "Widget changes are proposal-only for this channel. "
-        "Set Channel Settings -> Presentation -> Bot widget agency to "
+        "Set Channel Settings -> Dashboard -> Bot widget agency to "
         "'Propose + fix' before bots can create, move, delete, or adjust "
         "channel dashboard widgets."
     )

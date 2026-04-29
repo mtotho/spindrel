@@ -6,6 +6,7 @@ interface BuildSlashCommandExecuteBodyOptions {
   channelId?: string;
   sessionId?: string;
   args?: string[];
+  argsText?: string;
 }
 
 export function buildSlashCommandExecuteBody({
@@ -14,7 +15,9 @@ export function buildSlashCommandExecuteBody({
   channelId,
   sessionId,
   args = [],
+  argsText,
 }: BuildSlashCommandExecuteBodyOptions) {
+  const rawArgs = argsText ?? args.join(" ");
   if (surface === "channel") {
     if (!channelId) return null;
     return {
@@ -24,6 +27,7 @@ export function buildSlashCommandExecuteBody({
       current_session_id: sessionId ?? null,
       surface: "web" as const,
       args,
+      args_text: rawArgs,
     };
   }
 
@@ -35,5 +39,6 @@ export function buildSlashCommandExecuteBody({
     current_session_id: null,
     surface: "web" as const,
     args,
+    args_text: rawArgs,
   };
 }

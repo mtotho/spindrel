@@ -1420,6 +1420,33 @@ export interface Project extends ProjectSummary {
   updated_at: string;
 }
 
+export interface ProjectSetupRun {
+  id: string;
+  project_id: string;
+  status: string;
+  source: string;
+  plan?: Record<string, any>;
+  result?: Record<string, any>;
+  logs?: string[];
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectSetup {
+  plan: {
+    source: string;
+    ready: boolean;
+    reasons?: string[];
+    repos?: Array<Record<string, any>>;
+    env?: Record<string, string>;
+    secret_slots?: Array<Record<string, any>>;
+    missing_secrets?: string[];
+  };
+  runs: ProjectSetupRun[];
+}
+
 export interface ProjectWrite {
   workspace_id?: string | null;
   name?: string | null;

@@ -622,6 +622,7 @@ def test_record_plan_progress_step_done_advances_plan(monkeypatch, tmp_path):
         outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
         summary="Audit completed.",
         step_id="audit",
+        evidence="Audit result captured in the transcript.",
         turn_id="turn-2",
         correlation_id="turn-2",
     )
@@ -630,6 +631,62 @@ def test_record_plan_progress_step_done_advances_plan(monkeypatch, tmp_path):
     assert plan.steps[0].status == spm.STEP_STATUS_DONE
     assert plan.steps[1].status == spm.STEP_STATUS_IN_PROGRESS
     assert session.metadata_["plan_adherence"]["latest_outcome"]["outcome"] == "step_done"
+
+
+def test_record_plan_progress_step_done_rejects_pending_verification_note(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Step Verification",
+        summary="Reject incomplete completion claims.",
+        scope="Plan progress validation.",
+        acceptance_criteria=["Pending verification cannot be marked done."],
+        **_professional_fields(),
+        steps=[{"id": "verify", "label": "Verify the planned marker file"}],
+    )
+    spm.approve_session_plan(session)
+
+    with pytest.raises(DomainError) as exc:
+        spm.record_plan_progress_outcome(
+            session,
+            outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
+            summary="Created the marker file.",
+            step_id="verify",
+            evidence=".spindrel-plan-parity/adherence.txt",
+            status_note="Awaiting verification read.",
+            turn_id="turn-2",
+            correlation_id="turn-2",
+        )
+
+    assert "step_done cannot describe pending" in str(exc.value)
+
+
+def test_record_plan_progress_step_done_requires_evidence(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Step Evidence",
+        summary="Require completion evidence.",
+        scope="Plan progress validation.",
+        acceptance_criteria=["Step completion needs evidence."],
+        **_professional_fields(),
+        steps=[{"id": "verify", "label": "Verify the planned marker file"}],
+    )
+    spm.approve_session_plan(session)
+
+    with pytest.raises(DomainError) as exc:
+        spm.record_plan_progress_outcome(
+            session,
+            outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
+            summary="Created the marker file.",
+            step_id="verify",
+            turn_id="turn-2",
+            correlation_id="turn-2",
+        )
+
+    assert "step_done requires concrete evidence" in str(exc.value)
 
 
 def test_executing_guard_blocks_mutating_tools_when_replan_pending(monkeypatch, tmp_path):

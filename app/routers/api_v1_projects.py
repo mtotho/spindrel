@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, ProjectBlueprint, ProjectSecretBinding, SecretValue, SharedWorkspace
+from app.db.models import Channel, Project, ProjectBlueprint, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
+from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.projects import (
     materialize_project_blueprint,
     normalize_project_path,
@@ -118,6 +119,27 @@ class ProjectSecretBindingsWrite(BaseModel):
     bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
 
 
+class ProjectSetupRunOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    status: str
+    source: str
+    plan: dict = Field(default_factory=dict)
+    result: dict = Field(default_factory=dict)
+    logs: list[str] = Field(default_factory=list)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectSetupOut(BaseModel):
+    plan: dict
+    runs: list[ProjectSetupRunOut] = Field(default_factory=list)
+
+
 class ProjectFromBlueprintWrite(BaseModel):
     blueprint_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
@@ -216,6 +238,10 @@ async def _ensure_secret_values_exist(db: AsyncSession, binding_ids: dict[str, u
 
 def _blueprint_out(blueprint: ProjectBlueprint) -> ProjectBlueprintOut:
     return ProjectBlueprintOut.model_validate(blueprint)
+
+
+def _setup_run_out(run: ProjectSetupRun) -> ProjectSetupRunOut:
+    return ProjectSetupRunOut.model_validate(run)
 
 
 def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWrite) -> None:
@@ -557,6 +583,49 @@ async def update_project_secret_bindings(
         raise HTTPException(status_code=409, detail=f"project secret binding update failed: {exc}") from exc
     await db.refresh(project)
     return await _project_out(db, project)
+
+
+@router.get("/{project_id}/setup", response_model=ProjectSetupOut)
+async def get_project_setup(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    plan = await load_project_setup_plan(db, project)
+    runs = await list_project_setup_runs(db, project_id)
+    return ProjectSetupOut(plan=plan, runs=[_setup_run_out(run) for run in runs])
+
+
+@router.post("/{project_id}/setup/runs", response_model=ProjectSetupRunOut, status_code=201)
+async def create_project_setup_run(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    plan = await load_project_setup_plan(db, project)
+    if not plan.get("ready"):
+        raise HTTPException(status_code=409, detail={"message": "project setup is not ready", "plan": plan})
+    run = await run_project_setup(db, project)
+    return _setup_run_out(run)
+
+
+@router.get("/{project_id}/setup/runs/{run_id}", response_model=ProjectSetupRunOut)
+async def get_project_setup_run(
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    run = await db.get(ProjectSetupRun, run_id)
+    if run is None or run.project_id != project_id:
+        raise HTTPException(status_code=404, detail="project setup run not found")
+    return _setup_run_out(run)
 
 
 @router.get("/{project_id}/channels", response_model=list[ProjectChannelOut])
