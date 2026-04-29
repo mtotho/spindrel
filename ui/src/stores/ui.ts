@@ -58,6 +58,7 @@ export interface ChannelPanelPrefs {
   sessionPanels: ChannelSessionPanel[];
   chatPaneLayout: ChannelChatPaneLayout;
   sessionTabLayouts: ChannelSessionSavedLayout[];
+  fileTabPaths: string[];
   hiddenSessionTabKeys: string[];
   sessionTabOrderKeys: string[];
   topChromeCollapsed: boolean;
@@ -83,6 +84,7 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     sessionPanels: [],
     chatPaneLayout: defaultChannelChatPaneLayout(),
     sessionTabLayouts: [],
+    fileTabPaths: [],
     hiddenSessionTabKeys: [],
     sessionTabOrderKeys: [],
     topChromeCollapsed: false,
@@ -115,6 +117,7 @@ function normalizeChannelPanelPrefs(
     sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
     chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
     sessionTabLayouts: normalizeChannelSessionTabLayouts(prefs?.sessionTabLayouts),
+    fileTabPaths: normalizeFileTabPaths(prefs?.fileTabPaths),
     hiddenSessionTabKeys: Array.isArray(prefs?.hiddenSessionTabKeys)
       ? prefs.hiddenSessionTabKeys.filter((key): key is string => typeof key === "string" && key.length > 0).slice(0, 40)
       : [],
@@ -124,6 +127,19 @@ function normalizeChannelPanelPrefs(
     topChromeCollapsed: prefs?.topChromeCollapsed ?? base.topChromeCollapsed,
     collapseHintDismissed: prefs?.collapseHintDismissed ?? base.collapseHintDismissed,
   };
+}
+
+function normalizeFileTabPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const paths: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const path = item.trim().replace(/^\/+/, "");
+    if (!path || paths.includes(path)) continue;
+    paths.push(path);
+    if (paths.length >= 20) break;
+  }
+  return paths;
 }
 
 export const SIDEBAR_MIN_WIDTH = 180;

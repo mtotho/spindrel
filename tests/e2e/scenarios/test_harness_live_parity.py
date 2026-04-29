@@ -9,7 +9,8 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 - ``bridge``: core plus Spindrel bridge discovery/invocation persistence.
 - ``plan``: bridge plus native plan-mode round-trip checks.
 - ``heartbeat``: plan plus channel prompt and manual heartbeat harness runs.
-- ``writes``: heartbeat plus safe temporary workspace write/read/delete.
+- ``automation``: heartbeat plus harness scheduled/manual task automation.
+- ``writes``: automation plus safe temporary workspace write/read/delete.
 - ``context``: writes plus context-pressure and native compaction checks.
 """
 
@@ -38,8 +39,9 @@ TIER_ORDER = {
     "bridge": 1,
     "plan": 2,
     "heartbeat": 3,
-    "writes": 4,
-    "context": 5,
+    "automation": 4,
+    "writes": 5,
+    "context": 6,
 }
 
 
@@ -742,6 +744,60 @@ async def test_live_harness_channel_prompt_and_manual_heartbeat(
         )
         if original_session_id:
             await client.switch_channel_session(channel_id, original_session_id)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_scheduled_task_selected_bridge_tool_existing_session(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("automation")
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    marker = uuid.uuid4().hex[:12]
+    task_id: str | None = None
+    concrete_id: str | None = None
+
+    try:
+        task = await client.create_task({
+            "bot_id": bot_id,
+            "channel_id": channel_id,
+            "task_type": "scheduled",
+            "title": f"Harness parity selected bridge tool {marker}",
+            "prompt": (
+                "Automation parity diagnostic. Call the selected host-provided "
+                "list_channels tool exactly once. Do not modify files. "
+                f"Finish with: automation ok {marker}"
+            ),
+            "session_target": {"mode": "existing", "session_id": session_id},
+            "tools": ["list_channels"],
+            "history_mode": "none",
+        })
+        task_id = str(task["id"])
+        assert task["execution_config"]["tools"] == ["list_channels"]
+        assert task["session_target"]["mode"] == "existing"
+
+        concrete = await client.run_task_now(task_id)
+        concrete_id = str(concrete["id"])
+        finished = await client.wait_task_terminal(concrete_id, timeout=_timeout())
+        assert finished["status"] == "complete", finished
+        assert marker in str(finished.get("result") or ""), finished
+
+        messages = await client.get_session_messages(session_id, limit=30)
+        assistants = _assistant_messages(messages)
+        assert any(
+            _message_mentions_any_tool(message, _bridge_visible_names("list_channels"))
+            for message in assistants
+        ), "harness automation task did not invoke the selected list_channels bridge tool"
+        assert any(_has_persisted_tool_result_envelope(message) for message in assistants), (
+            "harness automation task did not persist a renderable bridge tool result"
+        )
+    finally:
+        if concrete_id:
+            await client.delete_task(concrete_id)
+        if task_id:
+            await client.delete_task(task_id)
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

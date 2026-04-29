@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-28 (desktop channel session tabs)
+updated: 2026-04-28 (attachment receipts)
 ---
 # Track — UI Polish
 
@@ -528,6 +528,8 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Restored user scroll ownership during streaming: when a live turn grows at the visual bottom and the reader has scrolled up, `ChatMessageArea` now compensates the column-reverse scroll delta instead of pulling the viewport back toward the newest token. Bottom-pinned auto-follow remains unchanged, and local optimistic sends still jump to newest via `client_local_id` keyed detection.
 - [x] Fixed default approval-row regressions from grouped live tool rows: live transcript entries now use canonical tool-call ids for stable unique keys, approval cards state the requested action/target file without expansion, and successful decisions locally clear the pending row while the stream catches up.
 - [x] Added attachment screenshot checks as their own `scripts/screenshots --only attachment-checks` bundle, with staged drag/drop coverage for the overlay, pending routing tray, and post-send optimistic receipts.
+- [x] Polished attachment pending/sent receipts after visual review: default mode now uses a compact low-chrome shelf/receipt treatment, terminal mode keeps image thumbnails but drops boxed row chrome, and optimistic image thumbs persist through send/stream settle.
+- [x] Added the terminal attachment screenshot artifact `docs/images/chat-attachments-terminal-sent-receipts.png` and referenced it from the canonical "How Spindrel works" guide alongside the default attachment screenshots.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node --test .chat-test-dist/src/components/chat/orderedTranscriptGrouping.test.js .chat-test-dist/src/components/chat/chatKeyboard.test.js`

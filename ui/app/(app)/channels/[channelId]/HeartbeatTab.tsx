@@ -702,7 +702,7 @@ export function HeartbeatTab({
           <Section
             title="Runner"
             description={isHarnessRunner
-              ? "Heartbeat runs queue one-shot host hints for the channel's primary harness session."
+              ? "Heartbeat runs queue one-shot host hints for the configured harness session target."
               : "Heartbeat runs use the normal Spindrel agent loop for this harness channel."}
           >
             <SettingsSegmentedControl
@@ -744,26 +744,24 @@ export function HeartbeatTab({
           </Row>
         </Section>
 
-        {!isHarnessRunner && (
-          <Section title="Run Target">
-            <FormRow
-              label="Session"
-              description="Choose which channel session heartbeat runs use for chat context and output."
-            >
-              <SessionTargetPicker
-                channelId={channelId}
-                value={sessionTarget}
-                onChange={(target) => updateHbForm((f: any) => ({
-                  ...f,
-                  execution_config: {
-                    ...(f.execution_config ?? {}),
-                    session_target: target,
-                  },
-                }))}
-              />
-            </FormRow>
-          </Section>
-        )}
+        <Section title="Run Target">
+          <FormRow
+            label="Session"
+            description="Choose which channel session heartbeat runs use for chat context and output."
+          >
+            <SessionTargetPicker
+              channelId={channelId}
+              value={sessionTarget}
+              onChange={(target) => updateHbForm((f: any) => ({
+                ...f,
+                execution_config: {
+                  ...(f.execution_config ?? {}),
+                  session_target: target,
+                },
+              }))}
+            />
+          </FormRow>
+        </Section>
 
         {/* ---- Model Section ---- */}
         {isHarnessRunner ? (
@@ -1053,7 +1051,7 @@ export function HeartbeatTab({
                 description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
               />
             </Section>
-            {!isHarnessRunner && <Section title="Tool Policies">
+            <Section title="Tool Policies">
               <ToolMultiPicker
                 tools={allTools}
                 selected={hbForm.execution_config?.tools ?? []}
@@ -1081,7 +1079,7 @@ export function HeartbeatTab({
                 label="Auto-approve tool calls"
                 description="Skip tool approval policies for heartbeat runs. Tools execute without waiting for manual approval."
               />
-            </Section>}
+            </Section>
             <Section title="Limits">
               <div className="flex flex-col gap-3">
                 {!isHarnessRunner && <FormRow label="Max run time (seconds)">

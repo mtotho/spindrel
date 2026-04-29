@@ -108,6 +108,32 @@ def _parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str,
     )
 
 
+def _merge_harness_turn_selections(
+    user_message: str,
+    *,
+    tool_names: tuple[str, ...] | list[str] = (),
+    skill_ids: tuple[str, ...] | list[str] = (),
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Merge prompt @tags with host-selected harness bridge selections."""
+    prompt_tools, prompt_skills = _parse_harness_explicit_tags(user_message)
+
+    def _merge(*groups) -> tuple[str, ...]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for group in groups:
+            for raw in group or ():
+                value = str(raw).strip().rstrip(".,;:!?")
+                if value and value not in seen:
+                    seen.add(value)
+                    out.append(value)
+        return tuple(out)
+
+    return (
+        _merge(prompt_tools, tool_names),
+        _merge(prompt_skills, skill_ids),
+    )
+
+
 async def _load_harness_channel_prompt_hint(db, channel_id: uuid.UUID | None):
     """Return the channel prompt as a harness host instruction, if configured."""
     if channel_id is None:
@@ -155,6 +181,9 @@ async def _run_harness_turn(
     is_heartbeat: bool = False,
     harness_model_override: str | None = None,
     harness_effort_override: str | None = None,
+    harness_permission_mode_override: str | None = None,
+    harness_tool_names: tuple[str, ...] | list[str] = (),
+    harness_skill_ids: tuple[str, ...] | list[str] = (),
 ) -> tuple[str, str | None]:
     """Drive a turn against an external agent harness (Claude Code, Codex, ...).
 
@@ -219,7 +248,8 @@ async def _run_harness_turn(
         except Exception as exc:
             return "", f"could not resolve harness workspace for bot: {exc}"
         workdir = harness_paths.workdir
-        permission_mode = await load_session_mode(db, session_id)
+        session_permission_mode = await load_session_mode(db, session_id)
+        permission_mode = harness_permission_mode_override or session_permission_mode
         harness_settings = await load_session_settings(db, session_id)
         harness_model = harness_model_override if harness_model_override is not None else harness_settings.model
         harness_effort = harness_effort_override if harness_effort_override is not None else harness_settings.effort
@@ -230,7 +260,11 @@ async def _run_harness_turn(
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
 
-    explicit_tool_names, tagged_skill_ids = _parse_harness_explicit_tags(user_message)
+    explicit_tool_names, tagged_skill_ids = _merge_harness_turn_selections(
+        user_message,
+        tool_names=harness_tool_names,
+        skill_ids=harness_skill_ids,
+    )
     if tagged_skill_ids:
         from sqlalchemy import select
         from app.db.models import Skill
@@ -244,7 +278,7 @@ async def _run_harness_turn(
             )).all()
         by_id = {row.id: row for row in rows}
         lines = [
-            "The user explicitly tagged these Spindrel skills for this harness turn.",
+            "The user or host selected these Spindrel skills for this harness turn.",
             "Use the bridged get_skill(skill_id=\"...\") tool to fetch full skill bodies progressively; these lines are an index, not the full content.",
         ]
         for skill_id in tagged_skill_ids:

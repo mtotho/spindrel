@@ -9,6 +9,7 @@
 #   ./scripts/run_harness_parity_live.sh --tier bridge
 #   ./scripts/run_harness_parity_live.sh --tier plan
 #   ./scripts/run_harness_parity_live.sh --tier heartbeat
+#   ./scripts/run_harness_parity_live.sh --tier automation
 #   ./scripts/run_harness_parity_live.sh --tier writes
 #   ./scripts/run_harness_parity_live.sh --tier context
 #   ./scripts/run_harness_parity_live.sh -k core
@@ -24,7 +25,7 @@ PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tier)
-            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, writes, context}"
+            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, automation, writes, context}"
             shift 2
             ;;
         --tier=*)

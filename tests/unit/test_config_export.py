@@ -1,4 +1,5 @@
 """Unit tests for app.services.config_export."""
+import ast
 import json
 import os
 import time
@@ -9,6 +10,9 @@ import pytest
 
 from app.services.config_export import (
     _DEBOUNCE_SECONDS,
+    _provider_model_snapshot,
+    _provider_snapshot,
+    _bot_snapshot,
     is_config_mutation,
     mark_config_dirty,
     restore_from_file,
@@ -92,6 +96,144 @@ class TestIsConfigMutation:
 
     def test_excluded_log_level_suffix(self):
         assert is_config_mutation("PUT", "/api/v1/admin/log-level") is False
+
+
+class TestConfigSnapshotShape:
+    def test_provider_snapshot_preserves_billing_fields(self):
+        provider = MagicMock(
+            id="provider-1",
+            display_name="Provider",
+            provider_type="openai-compatible",
+            is_enabled=True,
+            base_url="https://example.test",
+            api_key="secret",
+            tpm_limit=100,
+            rpm_limit=10,
+            config={"extra_headers": {"X-Test": "1"}},
+            billing_type="plan",
+            plan_cost=20.0,
+            plan_period="monthly",
+            models=[],
+        )
+
+        snapshot = _provider_snapshot(provider)
+
+        assert snapshot["billing_type"] == "plan"
+        assert snapshot["plan_cost"] == 20.0
+        assert snapshot["plan_period"] == "monthly"
+
+    def test_provider_model_snapshot_preserves_runtime_capability_fields(self):
+        model = MagicMock(
+            id=7,
+            provider_id="provider-1",
+            model_id="gpt-test",
+            display_name="GPT Test",
+            max_tokens=128000,
+            context_window=128000,
+            max_output_tokens=8192,
+            input_cost_per_1m="1.00",
+            output_cost_per_1m="4.00",
+            cached_input_cost_per_1m="0.10",
+            no_system_messages=True,
+            supports_tools=False,
+            supports_vision=False,
+            supports_reasoning=True,
+            supports_prompt_caching=True,
+            supports_structured_output=True,
+            supports_image_generation=True,
+            prompt_style="xml",
+            extra_body={"reasoning": {"effort": "medium"}},
+        )
+
+        snapshot = _provider_model_snapshot(model)
+
+        assert snapshot == {
+            "id": 7,
+            "provider_id": "provider-1",
+            "model_id": "gpt-test",
+            "display_name": "GPT Test",
+            "max_tokens": 128000,
+            "context_window": 128000,
+            "max_output_tokens": 8192,
+            "input_cost_per_1m": "1.00",
+            "output_cost_per_1m": "4.00",
+            "cached_input_cost_per_1m": "0.10",
+            "no_system_messages": True,
+            "supports_tools": False,
+            "supports_vision": False,
+            "supports_reasoning": True,
+            "supports_prompt_caching": True,
+            "supports_structured_output": True,
+            "supports_image_generation": True,
+            "prompt_style": "xml",
+            "extra_body": {"reasoning": {"effort": "medium"}},
+        }
+
+    def test_bot_snapshot_preserves_provider_companion_fields(self):
+        bot = MagicMock(
+            id="bot-1",
+            name="Bot",
+            model="gpt-test",
+            model_provider_id="provider-1",
+            system_prompt="",
+            local_tools=[],
+            mcp_servers=[],
+            client_tools=[],
+            pinned_tools=[],
+            skills=[],
+            docker_sandbox_profiles=[],
+            tool_retrieval=True,
+            tool_similarity_threshold=None,
+            persona=False,
+            context_compaction=True,
+            compaction_interval=None,
+            compaction_keep_turns=None,
+            compaction_model="gpt-compact",
+            compaction_model_provider_id="provider-compact",
+            memory_knowledge_compaction_prompt=None,
+            compaction_prompt_template_id=None,
+            audio_input="transcribe",
+            memory_config={},
+            filesystem_indexes=[],
+            host_exec_config={"enabled": False},
+            filesystem_access=[],
+            display_name=None,
+            avatar_url=None,
+            avatar_emoji=None,
+            integration_config={},
+            tool_result_config={},
+            memory_max_inject_chars=None,
+            delegation_config={},
+            model_params={},
+            bot_sandbox={},
+            workspace={"enabled": False},
+            attachment_summarization_enabled=True,
+            attachment_summary_model="gpt-vision",
+            attachment_summary_model_provider_id="provider-vision",
+            attachment_text_max_chars=1000,
+            attachment_vision_concurrency=2,
+            fallback_models=[],
+            user_id=None,
+            api_key_id=None,
+            memory_scheme="workspace-files",
+            history_mode="file",
+            context_pruning=True,
+        )
+
+        snapshot = _bot_snapshot(bot)
+
+        assert snapshot["compaction_model_provider_id"] == "provider-compact"
+        assert snapshot["attachment_summary_model_provider_id"] == "provider-vision"
+
+    def test_assemble_config_state_remains_coordinator_sized(self):
+        source = Path(config_export_mod.__file__).read_text()
+        tree = ast.parse(source)
+        fn = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "assemble_config_state"
+        )
+
+        assert fn.end_lineno - fn.lineno + 1 <= 45
 
 
 class TestWriteConfigFile:

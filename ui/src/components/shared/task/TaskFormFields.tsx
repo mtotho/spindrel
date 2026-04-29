@@ -208,6 +208,7 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     selectedToolKeys, setSelectedToolKeys,
     modelOverride, setModelOverride,
     harnessEffort, setHarnessEffort,
+    skipToolApproval, setSkipToolApproval,
     fallbackModels, setFallbackModels,
     bots, channels, skillOptions, allTools,
     sessionTarget, setSessionTarget,
@@ -260,6 +261,12 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           selected={selectedToolKeys}
           onAdd={(key) => setSelectedToolKeys([...selectedToolKeys, key])}
           onRemove={(key) => setSelectedToolKeys(selectedToolKeys.filter((x) => x !== key))}
+        />
+        <Toggle
+          value={skipToolApproval}
+          onChange={setSkipToolApproval}
+          label="Auto-approve tool calls"
+          description="For automated runs only. Selected tools can run without waiting for manual approval."
         />
       </div>
 

@@ -12,6 +12,7 @@ from app.services.turn_worker import (
     _codex_plan_evidence,
     _mirror_harness_native_plan_state,
     _metadata_has_codex_plan_signal,
+    _merge_harness_turn_selections,
     _run_harness_turn,
     _tool_calls_include_exit_plan_mode,
 )
@@ -126,6 +127,17 @@ async def test_claude_exit_plan_mode_tool_detection():
     ]) is False
 
 
+async def test_harness_turn_selections_merge_prompt_tags_and_configured_run_scope():
+    tools, skills = _merge_harness_turn_selections(
+        "Use @tool:list_channels and @tool:file. Also @skill:triage.",
+        tool_names=("file", "read_conversation_history", "", "list_channels"),
+        skill_ids=("triage", "code-review"),
+    )
+
+    assert tools == ("list_channels", "file", "read_conversation_history")
+    assert skills == ("triage", "code-review")
+
+
 async def test_claude_exit_plan_mode_tool_does_not_leave_spindrel_plan_mode(monkeypatch):
     session = SimpleNamespace(metadata_={"plan_mode": "planning"})
     factory = _FakePlanSessionFactory(session)
@@ -234,6 +246,93 @@ async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch)
     assert text == "done"
     assert runtime.ctx is not None
     assert runtime.ctx.harness_metadata == latest_meta
+
+
+async def test_harness_turn_context_uses_run_scoped_tools_and_permission_override(monkeypatch):
+    runtime = _RuntimeCapturingContext()
+
+    async def _persist_turn(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.turn_worker.async_session",
+        _FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.get_runtime",
+        lambda runtime_name: runtime,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker._load_prior_harness_session_id",
+        lambda session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.persist_turn",
+        _persist_turn,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.load_session_mode",
+        lambda db, session_id: _async_value("default"),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.revoke_turn_bypass",
+        lambda turn_id: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.settings.load_session_settings",
+        lambda db, session_id: _async_value(
+            SimpleNamespace(model=None, effort=None, runtime_settings={})
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_context_hints",
+        lambda db, session_id: _async_value(()),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.clear_consumed_context_hints",
+        lambda db, session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
+        lambda db, session_id: _async_value(({}, None)),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
+
+    text, error = await _run_harness_turn(
+        channel_id=uuid.uuid4(),
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot=SimpleNamespace(
+            id="codex-bot",
+            harness_runtime="codex",
+            harness_workdir="/tmp",
+            memory_scheme=None,
+        ),
+        user_message="call @tool:file",
+        correlation_id=uuid.uuid4(),
+        msg_metadata=None,
+        pre_user_msg_id=None,
+        suppress_outbox=True,
+        harness_permission_mode_override="bypassPermissions",
+        harness_tool_names=("list_channels", "file"),
+    )
+
+    assert error is None
+    assert text == "done"
+    assert runtime.ctx is not None
+    assert runtime.ctx.permission_mode == "bypassPermissions"
+    assert runtime.ctx.ephemeral_tool_names == ("file", "list_channels")
 
 
 async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypatch):

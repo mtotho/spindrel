@@ -962,6 +962,28 @@ class _PreparedTaskRun:
     recurrence: str | None
 
 
+def _harness_task_turn_overrides(ecfg: dict) -> dict:
+    """Return run-scoped harness overrides derived from task execution_config."""
+    def _names(key: str) -> tuple[str, ...]:
+        values = ecfg.get(key) or ()
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            value = str(raw).strip()
+            if value and value not in seen:
+                seen.add(value)
+                out.append(value)
+        return tuple(out)
+
+    return {
+        "harness_tool_names": _names("tools"),
+        "harness_skill_ids": _names("skills"),
+        "harness_permission_mode_override": (
+            "bypassPermissions" if bool(ecfg.get("skip_tool_approval")) else None
+        ),
+    }
+
+
 async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _PreparedTaskRun:
     """Resolve the task's runtime state before the harness/agent invocation.
 
@@ -1200,6 +1222,7 @@ async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uu
             is_heartbeat=task.task_type == "heartbeat",
             harness_model_override=prepared.ecfg.get("model_override") or None,
             harness_effort_override=prepared.ecfg.get("harness_effort") or None,
+            **_harness_task_turn_overrides(prepared.ecfg),
         ),
         timeout=prepared.task_timeout,
     )

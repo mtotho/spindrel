@@ -70,6 +70,7 @@ class TaskDetailOut(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     harness_effort: Optional[str] = None
+    skip_tool_approval: Optional[bool] = None
     trigger_rag_loop: bool = False
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
@@ -98,6 +99,8 @@ class TaskDetailOut(BaseModel):
             self.fallback_models = ec.get("fallback_models") or cb.get("fallback_models") or None
         if self.harness_effort is None:
             self.harness_effort = ec.get("harness_effort") or None
+        if self.skip_tool_approval is None and "skip_tool_approval" in ec:
+            self.skip_tool_approval = bool(ec.get("skip_tool_approval"))
         if not self.trigger_rag_loop:
             self.trigger_rag_loop = cb.get("trigger_rag_loop", False)
         if self.session_target is None:
@@ -129,6 +132,7 @@ class TaskCreateIn(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     harness_effort: Optional[str] = None
+    skip_tool_approval: Optional[bool] = None
     max_run_seconds: Optional[int] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
@@ -186,6 +190,7 @@ class TaskUpdateIn(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     harness_effort: Optional[str] = None
+    skip_tool_approval: Optional[bool] = None
     max_run_seconds: Optional[int] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
@@ -620,6 +625,8 @@ async def admin_create_task(
         ec_extras["fallback_models"] = body.fallback_models
     if body.harness_effort:
         ec_extras["harness_effort"] = body.harness_effort
+    if body.skip_tool_approval is not None:
+        ec_extras["skip_tool_approval"] = bool(body.skip_tool_approval)
     if body.skills:
         ec_extras["skills"] = body.skills
     if body.tools:
@@ -789,6 +796,7 @@ async def admin_update_task(
 
     ec_fields = {
         "model_override", "model_provider_id_override", "fallback_models", "harness_effort",
+        "skip_tool_approval",
         "skills", "tools",
         "post_final_to_channel", "history_mode", "history_recent_count",
         "session_target",
@@ -803,6 +811,8 @@ async def admin_update_task(
             ec["fallback_models"] = updates["fallback_models"] or None
         if "harness_effort" in updates:
             ec["harness_effort"] = updates["harness_effort"] or None
+        if "skip_tool_approval" in updates:
+            ec["skip_tool_approval"] = bool(updates["skip_tool_approval"]) if updates["skip_tool_approval"] is not None else None
         if "skills" in updates:
             ec["skills"] = updates["skills"] or None
         if "tools" in updates:

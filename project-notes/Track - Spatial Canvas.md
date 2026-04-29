@@ -195,6 +195,14 @@ into the queue so the map, compass, and Map Brief agree on the active target.
 The screenshot scenario now asserts the compass exposes this queue language and
 marks the selected row.
 
+Same-day scheduled-work satellite check: channel-bound heartbeats and scheduled
+tasks now have local tethered satellites around their channel while remaining
+visible in the Now Well timeline. Heartbeat satellites target channel
+Automation settings; task satellites target the automation detail. The
+`spatial-checks` screenshot bundle now stages a channel-bound QA automation,
+jumps to the QA object before asserting satellites, and writes
+`spatial-check-channel-schedule-satellites.png` as the visual artifact.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

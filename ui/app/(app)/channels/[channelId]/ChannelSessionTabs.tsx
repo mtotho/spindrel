@@ -17,7 +17,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Loader2, Search, StickyNote, X } from "lucide-react";
+import { FileText, GripVertical, Loader2, Search, StickyNote, X } from "lucide-react";
 import {
   buildChannelSessionPickerEntries,
   buildChannelSessionPickerGroups,
@@ -31,16 +31,31 @@ import {
   useChannelSessionSearch,
 } from "@/src/api/hooks/useChannelSessions";
 
+export interface ChannelFileTabItem {
+  kind: "file";
+  key: string;
+  path: string;
+  label: string;
+  meta: string | null;
+  active: boolean;
+  primary: false;
+  closeable: true;
+  unreadCount: 0;
+  splitActive: boolean;
+}
+
+export type ChannelTopTabItem = ChannelSessionTabItem | ChannelFileTabItem;
+
 interface ChannelSessionTabStripProps {
-  tabs: ChannelSessionTabItem[];
-  onSelect: (tab: ChannelSessionTabItem) => void;
-  onFocusSplitPane: (tab: ChannelSessionTabItem, paneId: string) => void;
-  onClose: (tab: ChannelSessionTabItem) => void;
+  tabs: ChannelTopTabItem[];
+  onSelect: (tab: ChannelTopTabItem) => void;
+  onFocusSplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
+  onClose: (tab: ChannelTopTabItem) => void;
   onReorder: (dragKey: string, targetKey: string) => void;
-  onSplit: (tab: ChannelSessionTabItem) => void;
-  onFocusOpenSurface: (tab: ChannelSessionTabItem) => void;
-  onReplaceFocused: (tab: ChannelSessionTabItem) => void;
-  onMakePrimary: (tab: ChannelSessionTabItem) => void;
+  onSplit: (tab: ChannelTopTabItem) => void;
+  onFocusOpenSurface: (tab: ChannelTopTabItem) => void;
+  onReplaceFocused: (tab: ChannelTopTabItem) => void;
+  onMakePrimary: (tab: ChannelTopTabItem) => void;
   onOpenSessions?: () => void;
   openSurfaceKeys: string[];
   splitActive: boolean;
@@ -131,14 +146,14 @@ export function ChannelSessionTabStrip({
 }
 
 interface SortableSessionTabProps {
-  tab: ChannelSessionTabItem;
-  onSelect: (tab: ChannelSessionTabItem) => void;
-  onFocusSplitPane: (tab: ChannelSessionTabItem, paneId: string) => void;
-  onClose: (tab: ChannelSessionTabItem) => void;
-  onSplit: (tab: ChannelSessionTabItem) => void;
-  onFocusOpenSurface: (tab: ChannelSessionTabItem) => void;
-  onReplaceFocused: (tab: ChannelSessionTabItem) => void;
-  onMakePrimary: (tab: ChannelSessionTabItem) => void;
+  tab: ChannelTopTabItem;
+  onSelect: (tab: ChannelTopTabItem) => void;
+  onFocusSplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
+  onClose: (tab: ChannelTopTabItem) => void;
+  onSplit: (tab: ChannelTopTabItem) => void;
+  onFocusOpenSurface: (tab: ChannelTopTabItem) => void;
+  onReplaceFocused: (tab: ChannelTopTabItem) => void;
+  onMakePrimary: (tab: ChannelTopTabItem) => void;
   openSurfaceKeys: string[];
   splitActive: boolean;
   pending: boolean;
@@ -248,6 +263,14 @@ function SortableSessionTab({
             </button>
           ))}
         </div>
+      ) : tab.kind === "file" ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <FileText size={12} className="shrink-0 text-text-dim" aria-hidden="true" />
+          <span className="min-w-0 truncate">{tab.label}</span>
+          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
+            {tab.splitActive ? "Split" : "File"}
+          </span>
+        </div>
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {tab.primary && (
@@ -331,6 +354,20 @@ function SortableSessionTab({
                 </button>
               ))}
             </>
+          ) : tab.kind === "file" ? (
+            <>
+              <button
+                type="button"
+                disabled={tab.splitActive}
+                onClick={() => {
+                  setMenuPosition(null);
+                  onSplit(tab);
+                }}
+                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:text-text-dim disabled:opacity-50"
+              >
+                {tab.splitActive ? "Already split" : "Split right"}
+              </button>
+            </>
           ) : (
             <>
               {surfaceOpen ? (
@@ -404,7 +441,7 @@ function SessionTabDragGhost({
   tab,
   pending,
 }: {
-  tab: ChannelSessionTabItem;
+  tab: ChannelTopTabItem;
   pending: boolean;
 }) {
   return (
@@ -436,6 +473,11 @@ function SessionTabDragGhost({
               <span className="min-w-0 truncate">{pane.label}</span>
             </span>
           ))}
+        </div>
+      ) : tab.kind === "file" ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <FileText size={12} className="shrink-0 text-text-dim" aria-hidden="true" />
+          <span className="min-w-0 truncate">{tab.label}</span>
         </div>
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5">

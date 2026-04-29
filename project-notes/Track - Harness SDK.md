@@ -203,6 +203,13 @@ Approval mapping intent (final values from schema):
 - Confirm native compaction on a non-empty Codex thread.
 - Confirm whether `turn/diff/updated` should become a user-visible breadcrumb/state update.
 
+### Automation parity pass — 2026-04-29
+
+- Scheduled/manual task runs for harness bots now merge configured task `tools` / `skills` with prompt `@tool:` / `@skill:` tags before building `TurnContext`, so Codex and Claude Code automation sees the same selected Spindrel bridge affordances as live chat.
+- Task and heartbeat auto-approval maps to a run-scoped harness `bypassPermissions` override, enabling unattended automation without mutating the interactive session's stored approval mode.
+- Task create/update/detail APIs and shared task forms surface `skip_tool_approval`; heartbeat forms show run target and tool policies for harness runner mode instead of hiding them behind the normal-agent path.
+- Added live automation parity coverage: `HARNESS_PARITY_TIER=automation` creates a disposable scheduled task against a fresh existing session, selects `list_channels`, runs it manually, and verifies the bridge tool call plus renderable persisted tool-result envelope.
+
 ### Finish-line pass — 2026-04-27
 
 - Fixed Spindrel planning not reaching Codex: `TurnContext` now carries the Spindrel session plan mode, and Codex sends `turn/start.collaborationMode = plan` plus read-only `sandboxPolicy` while the Spindrel session is `planning`, including resumed native threads.

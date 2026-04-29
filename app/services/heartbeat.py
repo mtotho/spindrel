@@ -915,6 +915,18 @@ async def _run_harness_heartbeat_if_needed(
             if part and part.strip()
         )
         bot = get_bot(prepared.bot_id)
+        execution_config = dict(getattr(hb, "execution_config", None) or {})
+        selected_tools = tuple(
+            str(value).strip()
+            for value in execution_config.get("tools", ()) or ()
+            if str(value).strip()
+        )
+        selected_skills = tuple(
+            str(value).strip()
+            for value in execution_config.get("skills", ()) or ()
+            if str(value).strip()
+        )
+        skip_tool_approval = bool(execution_config.get("skip_tool_approval", hb.skip_tool_approval))
         publish_typed(
             prepared.channel_id,
             ChannelEvent(
@@ -947,6 +959,9 @@ async def _run_harness_heartbeat_if_needed(
             is_heartbeat=True,
             harness_model_override=(hb.model or None),
             harness_effort_override=(getattr(hb, "harness_effort", None) or None),
+            harness_permission_mode_override="bypassPermissions" if skip_tool_approval else None,
+            harness_tool_names=selected_tools,
+            harness_skill_ids=selected_skills,
         )
         publish_typed(
             prepared.channel_id,

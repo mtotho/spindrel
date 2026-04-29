@@ -92,7 +92,10 @@ class TestFireHeartbeatDelegatesToWorkflow:
         hb = _make_heartbeat(
             workflow_id=None,
             skip_tool_approval=True,
-            execution_config={"tools": ["sonarr_calendar", "qbit_torrents"]},
+            execution_config={
+                "tools": ["sonarr_calendar", "qbit_torrents"],
+                "session_target": {"mode": "existing", "session_id": str(uuid.uuid4())},
+            },
             model="gpt-test",
             model_provider_id="provider-test",
             fallback_models=[{"model": "fallback"}],
@@ -112,6 +115,7 @@ class TestFireHeartbeatDelegatesToWorkflow:
         cfg = _heartbeat_task_execution_config(hb, prepared)
 
         assert cfg["tools"] == ["sonarr_calendar", "qbit_torrents"]
+        assert cfg["session_target"]["mode"] == "existing"
         assert cfg["skip_tool_approval"] is True
         assert cfg["system_preamble"] == "heartbeat preamble"
         assert cfg["model_override"] == "gpt-test"

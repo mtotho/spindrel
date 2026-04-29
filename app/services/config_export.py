@@ -48,455 +48,549 @@ def _time_str(v: dt_time | None) -> str | None:
     return v.isoformat() if v is not None else None
 
 
+def _system_snapshot() -> dict:
+    return {
+        "paused": getattr(settings, "SYSTEM_PAUSED", False),
+        "pause_behavior": getattr(settings, "SYSTEM_PAUSE_BEHAVIOR", "queue"),
+    }
+
+
+def _provider_model_snapshot(model) -> dict:
+    return {
+        "id": model.id,
+        "provider_id": model.provider_id,
+        "model_id": model.model_id,
+        "display_name": model.display_name,
+        "max_tokens": model.max_tokens,
+        "context_window": model.context_window,
+        "max_output_tokens": model.max_output_tokens,
+        "input_cost_per_1m": model.input_cost_per_1m,
+        "output_cost_per_1m": model.output_cost_per_1m,
+        "cached_input_cost_per_1m": model.cached_input_cost_per_1m,
+        "no_system_messages": model.no_system_messages,
+        "supports_tools": model.supports_tools,
+        "supports_vision": model.supports_vision,
+        "supports_reasoning": model.supports_reasoning,
+        "supports_prompt_caching": model.supports_prompt_caching,
+        "supports_structured_output": model.supports_structured_output,
+        "supports_image_generation": model.supports_image_generation,
+        "prompt_style": model.prompt_style,
+        "extra_body": model.extra_body,
+    }
+
+
+def _provider_snapshot(provider) -> dict:
+    return {
+        "id": provider.id,
+        "display_name": provider.display_name,
+        "provider_type": provider.provider_type,
+        "is_enabled": provider.is_enabled,
+        "base_url": provider.base_url,
+        "api_key": provider.api_key,
+        "tpm_limit": provider.tpm_limit,
+        "rpm_limit": provider.rpm_limit,
+        "config": provider.config,
+        "billing_type": provider.billing_type,
+        "plan_cost": provider.plan_cost,
+        "plan_period": provider.plan_period,
+        "models": [_provider_model_snapshot(model) for model in provider.models],
+    }
+
+
+def _bot_snapshot(bot) -> dict:
+    return {
+        "id": bot.id,
+        "name": bot.name,
+        "model": bot.model,
+        "model_provider_id": bot.model_provider_id,
+        "system_prompt": bot.system_prompt,
+        "local_tools": bot.local_tools,
+        "mcp_servers": bot.mcp_servers,
+        "client_tools": bot.client_tools,
+        "pinned_tools": bot.pinned_tools,
+        "skills": bot.skills,
+        "docker_sandbox_profiles": bot.docker_sandbox_profiles,
+        "tool_retrieval": bot.tool_retrieval,
+        "tool_similarity_threshold": bot.tool_similarity_threshold,
+        "persona": bot.persona,
+        "context_compaction": bot.context_compaction,
+        "compaction_interval": bot.compaction_interval,
+        "compaction_keep_turns": bot.compaction_keep_turns,
+        "compaction_model": bot.compaction_model,
+        "compaction_model_provider_id": bot.compaction_model_provider_id,
+        "memory_knowledge_compaction_prompt": bot.memory_knowledge_compaction_prompt,
+        "compaction_prompt_template_id": _str(bot.compaction_prompt_template_id),
+        "audio_input": bot.audio_input,
+        "memory_config": bot.memory_config,
+        "filesystem_indexes": bot.filesystem_indexes,
+        "host_exec_config": bot.host_exec_config,
+        "filesystem_access": bot.filesystem_access,
+        "display_name": bot.display_name,
+        "avatar_url": bot.avatar_url,
+        "avatar_emoji": getattr(bot, "avatar_emoji", None),
+        "integration_config": bot.integration_config,
+        "tool_result_config": bot.tool_result_config,
+        "memory_max_inject_chars": bot.memory_max_inject_chars,
+        "delegation_config": bot.delegation_config,
+        "model_params": bot.model_params,
+        "bot_sandbox": bot.bot_sandbox,
+        "workspace": bot.workspace,
+        "attachment_summarization_enabled": bot.attachment_summarization_enabled,
+        "attachment_summary_model": bot.attachment_summary_model,
+        "attachment_summary_model_provider_id": bot.attachment_summary_model_provider_id,
+        "attachment_text_max_chars": bot.attachment_text_max_chars,
+        "attachment_vision_concurrency": bot.attachment_vision_concurrency,
+        "fallback_models": bot.fallback_models,
+        "user_id": _str(bot.user_id),
+        "api_key_id": _str(bot.api_key_id),
+        "memory_scheme": bot.memory_scheme,
+        "history_mode": bot.history_mode,
+        "context_pruning": bot.context_pruning,
+    }
+
+
+def _channel_snapshot(channel) -> dict:
+    return {
+        "id": str(channel.id),
+        "name": channel.name,
+        "bot_id": channel.bot_id,
+        "client_id": channel.client_id,
+        "integration": channel.integration,
+        "dispatch_config": channel.dispatch_config,
+        "require_mention": channel.require_mention,
+        "passive_memory": channel.passive_memory,
+        "context_compaction": channel.context_compaction,
+        "compaction_interval": channel.compaction_interval,
+        "compaction_keep_turns": channel.compaction_keep_turns,
+        "compaction_model": channel.compaction_model,
+        "compaction_model_provider_id": channel.compaction_model_provider_id,
+        "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
+        "compaction_prompt_template_id": _str(channel.compaction_prompt_template_id),
+        "compaction_workspace_file_path": channel.compaction_workspace_file_path,
+        "compaction_workspace_id": _str(channel.compaction_workspace_id),
+        "model_override": channel.model_override,
+        "model_provider_id_override": channel.model_provider_id_override,
+        "fallback_models": channel.fallback_models,
+        "allow_bot_messages": channel.allow_bot_messages,
+        "workspace_rag": channel.workspace_rag,
+        "thinking_display": channel.thinking_display,
+        "tool_output_display": channel.tool_output_display,
+        "max_iterations": channel.max_iterations,
+        "task_max_run_seconds": channel.task_max_run_seconds,
+        "attachment_retention_days": channel.attachment_retention_days,
+        "attachment_max_size_bytes": channel.attachment_max_size_bytes,
+        "attachment_types_allowed": channel.attachment_types_allowed,
+        "private": channel.private,
+        "user_id": _str(channel.user_id),
+        "local_tools_disabled": channel.local_tools_disabled,
+        "mcp_servers_disabled": channel.mcp_servers_disabled,
+        "client_tools_disabled": channel.client_tools_disabled,
+        "model_tier_overrides": channel.model_tier_overrides,
+        "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
+        "history_mode": channel.history_mode,
+        "trigger_heartbeat_before_compaction": channel.trigger_heartbeat_before_compaction,
+        "memory_flush_enabled": channel.memory_flush_enabled,
+        "memory_flush_model": channel.memory_flush_model,
+        "memory_flush_model_provider_id": channel.memory_flush_model_provider_id,
+        "memory_flush_prompt": channel.memory_flush_prompt,
+        "memory_flush_prompt_template_id": _str(channel.memory_flush_prompt_template_id),
+        "memory_flush_workspace_file_path": channel.memory_flush_workspace_file_path,
+        "memory_flush_workspace_id": _str(channel.memory_flush_workspace_id),
+        "channel_prompt": channel.channel_prompt,
+        "channel_prompt_workspace_file_path": channel.channel_prompt_workspace_file_path,
+        "channel_prompt_workspace_id": _str(channel.channel_prompt_workspace_id),
+        "section_index_count": channel.section_index_count,
+        "section_index_verbosity": channel.section_index_verbosity,
+        "context_pruning": channel.context_pruning,
+        "workspace_id": _str(channel.workspace_id),
+        "protected": channel.protected,
+        "config": channel.config,
+        "metadata": channel.metadata_,
+    }
+
+
+def _workspace_snapshot(workspace) -> dict:
+    return {
+        "id": str(workspace.id),
+        "name": workspace.name,
+        "description": workspace.description,
+        "env": workspace.env,
+        "workspace_base_prompt_enabled": workspace.workspace_base_prompt_enabled,
+        "indexing_config": workspace.indexing_config,
+        "write_protected_paths": workspace.write_protected_paths,
+        "bots": [
+            {"bot_id": wb.bot_id, "role": wb.role, "cwd_override": wb.cwd_override}
+            for wb in workspace.bots
+        ],
+    }
+
+
+def _channel_heartbeat_snapshot(heartbeat) -> dict:
+    return {
+        "id": str(heartbeat.id),
+        "channel_id": str(heartbeat.channel_id),
+        "enabled": heartbeat.enabled,
+        "interval_minutes": heartbeat.interval_minutes,
+        "model": heartbeat.model,
+        "model_provider_id": heartbeat.model_provider_id,
+        "fallback_models": heartbeat.fallback_models,
+        "prompt": heartbeat.prompt,
+        "dispatch_results": heartbeat.dispatch_results,
+        "trigger_response": heartbeat.trigger_response,
+        "quiet_start": _time_str(heartbeat.quiet_start),
+        "quiet_end": _time_str(heartbeat.quiet_end),
+        "timezone": heartbeat.timezone,
+        "prompt_template_id": _str(heartbeat.prompt_template_id),
+        "workspace_file_path": heartbeat.workspace_file_path,
+        "workspace_id": _str(heartbeat.workspace_id),
+        "max_run_seconds": heartbeat.max_run_seconds,
+        "append_spatial_prompt": heartbeat.append_spatial_prompt,
+        "append_spatial_map_overview": heartbeat.append_spatial_map_overview,
+        "execution_policy": heartbeat.execution_policy,
+    }
+
+
+async def _settings_snapshot() -> dict[str, dict]:
+    from app.services.server_settings import get_all_settings
+
+    settings_groups = await get_all_settings()
+    return {
+        group["group"]: {setting["key"]: setting["value"] for setting in group["settings"]}
+        for group in settings_groups
+    }
+
+
+async def _server_settings_snapshots(db) -> tuple[list[dict], dict]:
+    from sqlalchemy import select
+
+    from app.db.models import ServerSetting
+
+    rows = (await db.execute(select(ServerSetting))).scalars().all()
+    server_settings = [{"key": row.key, "value": row.value} for row in rows]
+    backup_config = {
+        row.key[len("backup."):]: row.value
+        for row in rows
+        if row.key.startswith("backup.")
+    }
+    return server_settings, backup_config
+
+
+async def _server_config_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import ServerConfig
+
+    rows = (await db.execute(select(ServerConfig))).scalars().all()
+    return [
+        {"id": row.id, "global_fallback_models": row.global_fallback_models}
+        for row in rows
+    ]
+
+
+async def _provider_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.db.models import ProviderConfig
+
+    rows = (
+        await db.execute(
+            select(ProviderConfig).options(selectinload(ProviderConfig.models))
+        )
+    ).scalars().all()
+    return [_provider_snapshot(row) for row in rows]
+
+
+async def _mcp_server_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import MCPServer
+
+    rows = (await db.execute(select(MCPServer))).scalars().all()
+    return [
+        {
+            "id": row.id,
+            "display_name": row.display_name,
+            "url": row.url,
+            "api_key": row.api_key,
+            "is_enabled": row.is_enabled,
+            "config": row.config,
+            "source": row.source,
+            "source_path": row.source_path,
+        }
+        for row in rows
+    ]
+
+
+async def _bot_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import Bot
+
+    rows = (await db.execute(select(Bot))).scalars().all()
+    return [_bot_snapshot(row) for row in rows]
+
+
+async def _channel_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import Channel
+
+    rows = (await db.execute(select(Channel))).scalars().all()
+    return [_channel_snapshot(row) for row in rows]
+
+
+async def _workspace_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.db.models import SharedWorkspace
+
+    rows = (
+        await db.execute(
+            select(SharedWorkspace).options(selectinload(SharedWorkspace.bots))
+        )
+    ).scalars().all()
+    return [_workspace_snapshot(row) for row in rows]
+
+
+async def _skill_snapshots(db) -> list[dict]:
+    from sqlalchemy import func, select
+
+    from app.db.models import Document, Skill
+
+    rows = (await db.execute(select(Skill))).scalars().all()
+    chunk_counts = (
+        await db.execute(
+            select(Document.source, func.count()).group_by(Document.source)
+        )
+    )
+    chunk_map = {row[0]: row[1] for row in chunk_counts.all()}
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "content": row.content,
+            "scripts": row.scripts,
+            "content_hash": row.content_hash,
+            "source_path": row.source_path,
+            "source_type": row.source_type,
+            "chunk_count": chunk_map.get(row.id, 0),
+        }
+        for row in rows
+    ]
+
+
+async def _task_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import Task
+
+    rows = (
+        await db.execute(
+            select(Task).where(Task.recurrence.isnot(None))
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": str(row.id),
+            "bot_id": row.bot_id,
+            "client_id": row.client_id,
+            "channel_id": _str(row.channel_id),
+            "status": row.status,
+            "task_type": row.task_type,
+            "recurrence": row.recurrence,
+            "title": row.title,
+            "prompt": row.prompt,
+            "dispatch_type": row.dispatch_type,
+            "dispatch_config": row.dispatch_config,
+            "callback_config": row.callback_config,
+            "execution_config": row.execution_config,
+            "prompt_template_id": _str(row.prompt_template_id),
+            "workspace_file_path": row.workspace_file_path,
+            "workspace_id": _str(row.workspace_id),
+            "max_run_seconds": row.max_run_seconds,
+        }
+        for row in rows
+    ]
+
+
+async def _user_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import User
+
+    rows = (await db.execute(select(User))).scalars().all()
+    return [
+        {
+            "id": str(row.id),
+            "email": row.email,
+            "display_name": row.display_name,
+            "avatar_url": row.avatar_url,
+            "auth_method": row.auth_method,
+            "is_admin": row.is_admin,
+            "is_active": row.is_active,
+        }
+        for row in rows
+    ]
+
+
+async def _sandbox_profile_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import SandboxProfile
+
+    rows = (await db.execute(select(SandboxProfile))).scalars().all()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "description": row.description,
+            "image": row.image,
+            "scope_mode": row.scope_mode,
+            "network_mode": row.network_mode,
+            "read_only_root": row.read_only_root,
+            "create_options": row.create_options,
+            "mount_specs": row.mount_specs,
+            "env": row.env,
+            "labels": row.labels,
+            "port_mappings": row.port_mappings,
+            "idle_ttl_seconds": row.idle_ttl_seconds,
+            "enabled": row.enabled,
+        }
+        for row in rows
+    ]
+
+
+async def _sandbox_bot_access_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import SandboxBotAccess
+
+    rows = (await db.execute(select(SandboxBotAccess))).scalars().all()
+    return [
+        {"bot_id": row.bot_id, "profile_id": str(row.profile_id)}
+        for row in rows
+    ]
+
+
+async def _tool_policy_rule_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import ToolPolicyRule
+
+    rows = (await db.execute(select(ToolPolicyRule))).scalars().all()
+    return [
+        {
+            "id": str(row.id),
+            "bot_id": row.bot_id,
+            "tool_name": row.tool_name,
+            "action": row.action,
+            "conditions": row.conditions,
+            "priority": row.priority,
+            "approval_timeout": row.approval_timeout,
+            "reason": row.reason,
+            "enabled": row.enabled,
+        }
+        for row in rows
+    ]
+
+
+async def _prompt_template_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import PromptTemplate
+
+    rows = (await db.execute(select(PromptTemplate))).scalars().all()
+    return [
+        {
+            "id": str(row.id),
+            "name": row.name,
+            "description": row.description,
+            "content": row.content,
+            "category": row.category,
+            "tags": row.tags,
+            "workspace_id": _str(row.workspace_id),
+            "source_type": row.source_type,
+            "source_path": row.source_path,
+            "content_hash": row.content_hash,
+        }
+        for row in rows
+    ]
+
+
+async def _bot_persona_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import BotPersona
+
+    rows = (await db.execute(select(BotPersona))).scalars().all()
+    return [
+        {"bot_id": row.bot_id, "persona_layer": row.persona_layer}
+        for row in rows
+    ]
+
+
+async def _channel_integration_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import ChannelIntegration
+
+    rows = (await db.execute(select(ChannelIntegration))).scalars().all()
+    return [
+        {
+            "id": str(row.id),
+            "channel_id": str(row.channel_id),
+            "integration_type": row.integration_type,
+            "client_id": row.client_id,
+            "dispatch_config": row.dispatch_config,
+            "display_name": row.display_name,
+            "metadata": row.metadata_,
+        }
+        for row in rows
+    ]
+
+
+async def _channel_heartbeat_snapshots(db) -> list[dict]:
+    from sqlalchemy import select
+
+    from app.db.models import ChannelHeartbeat
+
+    rows = (await db.execute(select(ChannelHeartbeat))).scalars().all()
+    return [_channel_heartbeat_snapshot(row) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Assemble full config state dict
 # ---------------------------------------------------------------------------
 
 async def assemble_config_state(db) -> dict:
     """Build the full config-state dict from DB. Shared by GET endpoint and file export."""
-    from sqlalchemy import func, select
-    from sqlalchemy.orm import selectinload
-
-    from app.db.models import (
-        Bot,
-        BotPersona,
-        Channel,
-        ChannelHeartbeat,
-        ChannelIntegration,
-        Document,
-        MCPServer,
-        PromptTemplate,
-        ProviderConfig,
-        ProviderModel,
-        SandboxBotAccess,
-        SandboxProfile,
-        ServerConfig,
-        ServerSetting,
-        SharedWorkspace,
-        SharedWorkspaceBot,
-        Skill,
-        Task,
-        ToolPolicyRule,
-        User,
-    )
     from app.services.server_config import get_global_fallback_models
-    from app.services.server_settings import get_all_settings
 
-    # --- System ---
-    system = {
-        "paused": getattr(settings, "SYSTEM_PAUSED", False),
-        "pause_behavior": getattr(settings, "SYSTEM_PAUSE_BEHAVIOR", "queue"),
-    }
-
-    # --- Global fallback models ---
-    global_fallback_models = get_global_fallback_models()
-
-    # --- Settings (grouped) ---
-    settings_groups = await get_all_settings()
-    settings_flat: dict[str, dict] = {}
-    for group in settings_groups:
-        settings_flat[group["group"]] = {
-            s["key"]: s["value"] for s in group["settings"]
-        }
-
-    # --- Server settings raw ---
-    ss_rows = (await db.execute(select(ServerSetting))).scalars().all()
-    server_settings = [{"key": s.key, "value": s.value} for s in ss_rows]
-
-    # --- Server config ---
-    sc_rows = (await db.execute(select(ServerConfig))).scalars().all()
-    server_config = [
-        {"id": s.id, "global_fallback_models": s.global_fallback_models}
-        for s in sc_rows
-    ]
-
-    # --- Providers with full model data ---
-    provider_rows = (
-        await db.execute(
-            select(ProviderConfig).options(selectinload(ProviderConfig.models))
-        )
-    ).scalars().all()
-    providers = [
-        {
-            "id": p.id,
-            "display_name": p.display_name,
-            "provider_type": p.provider_type,
-            "is_enabled": p.is_enabled,
-            "base_url": p.base_url,
-            "api_key": p.api_key,
-            "tpm_limit": p.tpm_limit,
-            "rpm_limit": p.rpm_limit,
-            "config": p.config,
-            "models": [
-                {
-                    "id": m.id,
-                    "provider_id": m.provider_id,
-                    "model_id": m.model_id,
-                    "display_name": m.display_name,
-                    "max_tokens": m.max_tokens,
-                    "input_cost_per_1m": m.input_cost_per_1m,
-                    "output_cost_per_1m": m.output_cost_per_1m,
-                    "no_system_messages": m.no_system_messages,
-                }
-                for m in p.models
-            ],
-        }
-        for p in provider_rows
-    ]
-
-    # --- MCP Servers ---
-    mcp_rows = (await db.execute(select(MCPServer))).scalars().all()
-    mcp_servers = [
-        {
-            "id": m.id,
-            "display_name": m.display_name,
-            "url": m.url,
-            "api_key": m.api_key,
-            "is_enabled": m.is_enabled,
-            "config": m.config,
-            "source": m.source,
-            "source_path": m.source_path,
-        }
-        for m in mcp_rows
-    ]
-
-    # --- Bots ---
-    bot_rows = (await db.execute(select(Bot))).scalars().all()
-    bots = [
-        {
-            "id": b.id,
-            "name": b.name,
-            "model": b.model,
-            "model_provider_id": b.model_provider_id,
-            "system_prompt": b.system_prompt,
-            "local_tools": b.local_tools,
-            "mcp_servers": b.mcp_servers,
-            "client_tools": b.client_tools,
-            "pinned_tools": b.pinned_tools,
-            "skills": b.skills,
-            "docker_sandbox_profiles": b.docker_sandbox_profiles,
-            "tool_retrieval": b.tool_retrieval,
-            "tool_similarity_threshold": b.tool_similarity_threshold,
-            "persona": b.persona,
-            "context_compaction": b.context_compaction,
-            "compaction_interval": b.compaction_interval,
-            "compaction_keep_turns": b.compaction_keep_turns,
-            "compaction_model": b.compaction_model,
-            "memory_knowledge_compaction_prompt": b.memory_knowledge_compaction_prompt,
-            "compaction_prompt_template_id": _str(b.compaction_prompt_template_id),
-            "audio_input": b.audio_input,
-            "memory_config": b.memory_config,
-            "filesystem_indexes": b.filesystem_indexes,
-            "host_exec_config": b.host_exec_config,
-            "filesystem_access": b.filesystem_access,
-            "display_name": b.display_name,
-            "avatar_url": b.avatar_url,
-            "avatar_emoji": getattr(b, "avatar_emoji", None),
-            "integration_config": b.integration_config,
-            "tool_result_config": b.tool_result_config,
-            "memory_max_inject_chars": b.memory_max_inject_chars,
-            "delegation_config": b.delegation_config,
-            "model_params": b.model_params,
-            "bot_sandbox": b.bot_sandbox,
-            "workspace": b.workspace,
-            "attachment_summarization_enabled": b.attachment_summarization_enabled,
-            "attachment_summary_model": b.attachment_summary_model,
-            "attachment_text_max_chars": b.attachment_text_max_chars,
-            "attachment_vision_concurrency": b.attachment_vision_concurrency,
-            "fallback_models": b.fallback_models,
-            "user_id": _str(b.user_id),
-            "api_key_id": _str(b.api_key_id),
-            "memory_scheme": b.memory_scheme,
-            "history_mode": b.history_mode,
-            "context_pruning": b.context_pruning,
-        }
-        for b in bot_rows
-    ]
-
-    # --- Channels ---
-    channel_rows = (await db.execute(select(Channel))).scalars().all()
-    channels = [
-        {
-            "id": str(ch.id),
-            "name": ch.name,
-            "bot_id": ch.bot_id,
-            "client_id": ch.client_id,
-            "integration": ch.integration,
-            "dispatch_config": ch.dispatch_config,
-            "require_mention": ch.require_mention,
-            "passive_memory": ch.passive_memory,
-            "context_compaction": ch.context_compaction,
-            "compaction_interval": ch.compaction_interval,
-            "compaction_keep_turns": ch.compaction_keep_turns,
-            "compaction_model": ch.compaction_model,
-            "memory_knowledge_compaction_prompt": ch.memory_knowledge_compaction_prompt,
-            "compaction_prompt_template_id": _str(ch.compaction_prompt_template_id),
-            "compaction_workspace_file_path": ch.compaction_workspace_file_path,
-            "compaction_workspace_id": _str(ch.compaction_workspace_id),
-            "model_override": ch.model_override,
-            "model_provider_id_override": ch.model_provider_id_override,
-            "fallback_models": ch.fallback_models,
-            "allow_bot_messages": ch.allow_bot_messages,
-            "workspace_rag": ch.workspace_rag,
-            "max_iterations": ch.max_iterations,
-            "task_max_run_seconds": ch.task_max_run_seconds,
-            "attachment_retention_days": ch.attachment_retention_days,
-            "attachment_max_size_bytes": ch.attachment_max_size_bytes,
-            "attachment_types_allowed": ch.attachment_types_allowed,
-            "private": ch.private,
-            "user_id": _str(ch.user_id),
-            "local_tools_disabled": ch.local_tools_disabled,
-            "mcp_servers_disabled": ch.mcp_servers_disabled,
-            "client_tools_disabled": ch.client_tools_disabled,
-            "workspace_base_prompt_enabled": ch.workspace_base_prompt_enabled,
-            "history_mode": ch.history_mode,
-            "trigger_heartbeat_before_compaction": ch.trigger_heartbeat_before_compaction,
-            "memory_flush_enabled": ch.memory_flush_enabled,
-            "memory_flush_model": ch.memory_flush_model,
-            "memory_flush_model_provider_id": ch.memory_flush_model_provider_id,
-            "memory_flush_prompt": ch.memory_flush_prompt,
-            "memory_flush_prompt_template_id": _str(ch.memory_flush_prompt_template_id),
-            "memory_flush_workspace_file_path": ch.memory_flush_workspace_file_path,
-            "memory_flush_workspace_id": _str(ch.memory_flush_workspace_id),
-            "channel_prompt": ch.channel_prompt,
-            "section_index_count": ch.section_index_count,
-            "section_index_verbosity": ch.section_index_verbosity,
-            "context_pruning": ch.context_pruning,
-        }
-        for ch in channel_rows
-    ]
-
-    # --- Workspaces ---
-    ws_rows = (
-        await db.execute(
-            select(SharedWorkspace).options(selectinload(SharedWorkspace.bots))
-        )
-    ).scalars().all()
-    workspaces = [
-        {
-            "id": str(ws.id),
-            "name": ws.name,
-            "description": ws.description,
-            "env": ws.env,
-            "workspace_base_prompt_enabled": ws.workspace_base_prompt_enabled,
-            "indexing_config": ws.indexing_config,
-            "write_protected_paths": ws.write_protected_paths,
-            "bots": [
-                {"bot_id": wb.bot_id, "role": wb.role, "cwd_override": wb.cwd_override}
-                for wb in ws.bots
-            ],
-        }
-        for ws in ws_rows
-    ]
-
-    # --- Skills ---
-    skill_rows = (await db.execute(select(Skill))).scalars().all()
-    chunk_counts_q = (
-        await db.execute(
-            select(Document.source, func.count()).group_by(Document.source)
-        )
-    )
-    chunk_map = {row[0]: row[1] for row in chunk_counts_q.all()}
-    skills = [
-        {
-            "id": s.id,
-            "name": s.name,
-            "content": s.content,
-            "scripts": s.scripts,
-            "content_hash": s.content_hash,
-            "source_path": s.source_path,
-            "source_type": s.source_type,
-            "chunk_count": chunk_map.get(s.id, 0),
-        }
-        for s in skill_rows
-    ]
-
-    # --- Tasks (recurring only) ---
-    task_rows = (
-        await db.execute(
-            select(Task).where(Task.recurrence.isnot(None))
-        )
-    ).scalars().all()
-    tasks = [
-        {
-            "id": str(t.id),
-            "bot_id": t.bot_id,
-            "client_id": t.client_id,
-            "channel_id": _str(t.channel_id),
-            "status": t.status,
-            "task_type": t.task_type,
-            "recurrence": t.recurrence,
-            "title": t.title,
-            "prompt": t.prompt,
-            "dispatch_type": t.dispatch_type,
-            "dispatch_config": t.dispatch_config,
-            "callback_config": t.callback_config,
-            "execution_config": t.execution_config,
-            "prompt_template_id": _str(t.prompt_template_id),
-            "workspace_file_path": t.workspace_file_path,
-            "workspace_id": _str(t.workspace_id),
-            "max_run_seconds": t.max_run_seconds,
-        }
-        for t in task_rows
-    ]
-
-    # --- Users (skip password_hash) ---
-    user_rows = (await db.execute(select(User))).scalars().all()
-    users = [
-        {
-            "id": str(u.id),
-            "email": u.email,
-            "display_name": u.display_name,
-            "avatar_url": u.avatar_url,
-            "auth_method": u.auth_method,
-            "is_admin": u.is_admin,
-            "is_active": u.is_active,
-        }
-        for u in user_rows
-    ]
-
-    # --- Sandbox profiles ---
-    sp_rows = (await db.execute(select(SandboxProfile))).scalars().all()
-    sandbox_profiles = [
-        {
-            "id": str(sp.id),
-            "name": sp.name,
-            "description": sp.description,
-            "image": sp.image,
-            "scope_mode": sp.scope_mode,
-            "network_mode": sp.network_mode,
-            "read_only_root": sp.read_only_root,
-            "create_options": sp.create_options,
-            "mount_specs": sp.mount_specs,
-            "env": sp.env,
-            "labels": sp.labels,
-            "port_mappings": sp.port_mappings,
-            "idle_ttl_seconds": sp.idle_ttl_seconds,
-            "enabled": sp.enabled,
-        }
-        for sp in sp_rows
-    ]
-
-    # --- Sandbox bot access ---
-    sba_rows = (await db.execute(select(SandboxBotAccess))).scalars().all()
-    sandbox_bot_access = [
-        {"bot_id": sba.bot_id, "profile_id": str(sba.profile_id)}
-        for sba in sba_rows
-    ]
-
-    # --- Tool policy rules ---
-    tpr_rows = (await db.execute(select(ToolPolicyRule))).scalars().all()
-    tool_policy_rules = [
-        {
-            "id": str(r.id),
-            "bot_id": r.bot_id,
-            "tool_name": r.tool_name,
-            "action": r.action,
-            "conditions": r.conditions,
-            "priority": r.priority,
-            "approval_timeout": r.approval_timeout,
-            "reason": r.reason,
-            "enabled": r.enabled,
-        }
-        for r in tpr_rows
-    ]
-
-    # --- Prompt templates ---
-    pt_rows = (await db.execute(select(PromptTemplate))).scalars().all()
-    prompt_templates = [
-        {
-            "id": str(pt.id),
-            "name": pt.name,
-            "description": pt.description,
-            "content": pt.content,
-            "category": pt.category,
-            "tags": pt.tags,
-            "workspace_id": _str(pt.workspace_id),
-            "source_type": pt.source_type,
-            "source_path": pt.source_path,
-            "content_hash": pt.content_hash,
-        }
-        for pt in pt_rows
-    ]
-
-    # --- Bot personas ---
-    bp_rows = (await db.execute(select(BotPersona))).scalars().all()
-    bot_personas = [
-        {"bot_id": bp.bot_id, "persona_layer": bp.persona_layer}
-        for bp in bp_rows
-    ]
-
-    # --- Channel integrations ---
-    ci_rows = (await db.execute(select(ChannelIntegration))).scalars().all()
-    channel_integrations = [
-        {
-            "id": str(ci.id),
-            "channel_id": str(ci.channel_id),
-            "integration_type": ci.integration_type,
-            "client_id": ci.client_id,
-            "dispatch_config": ci.dispatch_config,
-            "display_name": ci.display_name,
-            "metadata": ci.metadata_,
-        }
-        for ci in ci_rows
-    ]
-
-    # --- Channel heartbeats (skip runtime fields) ---
-    ch_rows = (await db.execute(select(ChannelHeartbeat))).scalars().all()
-    channel_heartbeats = [
-        {
-            "id": str(h.id),
-            "channel_id": str(h.channel_id),
-            "enabled": h.enabled,
-            "interval_minutes": h.interval_minutes,
-            "model": h.model,
-            "model_provider_id": h.model_provider_id,
-            "fallback_models": h.fallback_models,
-            "prompt": h.prompt,
-            "dispatch_results": h.dispatch_results,
-            "trigger_response": h.trigger_response,
-            "quiet_start": _time_str(h.quiet_start),
-            "quiet_end": _time_str(h.quiet_end),
-            "timezone": h.timezone,
-            "prompt_template_id": _str(h.prompt_template_id),
-            "workspace_file_path": h.workspace_file_path,
-            "workspace_id": _str(h.workspace_id),
-            "max_run_seconds": h.max_run_seconds,
-            "append_spatial_prompt": h.append_spatial_prompt,
-            "append_spatial_map_overview": h.append_spatial_map_overview,
-            "execution_policy": h.execution_policy,
-        }
-        for h in ch_rows
-    ]
-
-    # --- Backup config (backup.* keys from server_settings) ---
-    backup_config = {}
-    for ss in ss_rows:
-        if ss.key.startswith("backup."):
-            short = ss.key[len("backup."):]
-            backup_config[short] = ss.value
+    server_settings, backup_config = await _server_settings_snapshots(db)
 
     return {
-        "system": system,
-        "global_fallback_models": global_fallback_models,
-        "settings": settings_flat,
+        "system": _system_snapshot(),
+        "global_fallback_models": get_global_fallback_models(),
+        "settings": await _settings_snapshot(),
         "server_settings": server_settings,
-        "server_config": server_config,
-        "providers": providers,
-        "mcp_servers": mcp_servers,
-        "bots": bots,
-        "channels": channels,
-        "workspaces": workspaces,
-        "skills": skills,
-        "tasks": tasks,
-        "users": users,
-        "sandbox_profiles": sandbox_profiles,
-        "sandbox_bot_access": sandbox_bot_access,
-        "tool_policy_rules": tool_policy_rules,
-        "prompt_templates": prompt_templates,
-        "bot_personas": bot_personas,
-        "channel_integrations": channel_integrations,
-        "channel_heartbeats": channel_heartbeats,
+        "server_config": await _server_config_snapshots(db),
+        "providers": await _provider_snapshots(db),
+        "mcp_servers": await _mcp_server_snapshots(db),
+        "bots": await _bot_snapshots(db),
+        "channels": await _channel_snapshots(db),
+        "workspaces": await _workspace_snapshots(db),
+        "skills": await _skill_snapshots(db),
+        "tasks": await _task_snapshots(db),
+        "users": await _user_snapshots(db),
+        "sandbox_profiles": await _sandbox_profile_snapshots(db),
+        "sandbox_bot_access": await _sandbox_bot_access_snapshots(db),
+        "tool_policy_rules": await _tool_policy_rule_snapshots(db),
+        "prompt_templates": await _prompt_template_snapshots(db),
+        "bot_personas": await _bot_persona_snapshots(db),
+        "channel_integrations": await _channel_integration_snapshots(db),
+        "channel_heartbeats": await _channel_heartbeat_snapshots(db),
         "backup_config": backup_config,
     }
 

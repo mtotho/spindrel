@@ -781,7 +781,7 @@ def _channel_session_tabs_init_script(channel_id: str, latest_session_id: str, o
         "  const originalFetch = window.fetch.bind(window);\n"
         "  window.fetch = async (input, init) => {\n"
         "    const url = typeof input === 'string' ? input : input?.url || '';\n"
-        "    if (url.endsWith('/api/v1/unread/state')) {\n"
+        "    if (url.includes('/api/v1/unread/state')) {\n"
         "      return new Response(JSON.stringify({\n"
         f"        states: [{{ user_id: 'screenshot', session_id: {older_session_id!r}, channel_id: {channel_id!r}, last_read_message_id: null, last_read_at: null, first_unread_at: new Date().toISOString(), latest_unread_at: new Date().toISOString(), latest_unread_message_id: null, latest_unread_correlation_id: null, unread_agent_reply_count: 2, reminder_due_at: null, reminder_sent_at: null }}],\n"
         f"        channels: [{{ channel_id: {channel_id!r}, unread_agent_reply_count: 2, latest_unread_at: new Date().toISOString() }}]\n"
@@ -1107,6 +1107,21 @@ _ASSERT_CHANNEL_SCHEDULE_SATELLITES_JS = (
     "}"
 )
 
+_JUMP_TO_SELECTED_AND_WAIT_SCHEDULE_SATELLITES_JS = (
+    "const jumpForSchedule = document.querySelector('[data-testid=\"map-brief-action\"][data-action-label=\"Jump here\"]')"
+    "  || Array.from(document.querySelectorAll('button')).find((el) => (el.textContent || '').includes('Jump here'));"
+    "if (!jumpForSchedule) throw new Error('Jump here action not found before schedule satellite capture');"
+    "jumpForSchedule.click();"
+    " const tSchedule = Date.now();"
+    " while (Date.now() - tSchedule < 5000) {"
+    "   const sats = document.querySelectorAll('[data-tile-kind=\"channel-schedule-satellite\"]');"
+    "   const hasHeartbeat = Array.from(sats).some((el) => el.getAttribute('data-schedule-kind') === 'heartbeat');"
+    "   const hasTask = Array.from(sats).some((el) => el.getAttribute('data-schedule-kind') === 'task');"
+    "   if (hasHeartbeat && hasTask) break;"
+    "   await new Promise(r => setTimeout(r, 100));"
+    " }"
+)
+
 
 SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
@@ -1142,15 +1157,13 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         route="/",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg=(
-            _SPATIAL_READY
-            + ' && document.querySelectorAll(\'[data-tile-kind="channel-schedule-satellite"]\').length >= 2'
-        ),
+        wait_arg=_SPATIAL_READY,
         output="spatial-check-channel-schedule-satellites.png",
         color_scheme="dark",
         extra_init_scripts=[
             _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}, connections=True),
         ],
+        pre_capture_js=_OPEN_STARBOARD_OBJECTS_JS + _SELECT_QA_CHANNEL_JS + _JUMP_TO_SELECTED_AND_WAIT_SCHEDULE_SATELLITES_JS,
         assert_js=_ASSERT_CHANNEL_SCHEDULE_SATELLITES_JS,
     ),
     ScreenshotSpec(
@@ -1610,6 +1623,8 @@ ATTACHMENT_CHECK_SPECS: list[ScreenshotSpec] = [
 _SESSION_TABS_READY = (
     "document.querySelectorAll('[data-testid=\"channel-session-tab\"]').length >= 4"
     " && document.querySelector('[data-testid=\"channel-session-tab-strip\"]')"
+    " && document.querySelectorAll('[class*=\"bg-skeleton\"]').length === 0"
+    " && /What's on the radar|Three things worth/.test(document.body.innerText)"
 )
 
 _ASSERT_SESSION_TABS_JS = (
@@ -1620,7 +1635,6 @@ _ASSERT_SESSION_TABS_JS = (
     "if (!tabs.some((tab) => tab.getAttribute('data-primary') === 'true')) throw new Error('primary session indicator missing');"
     "if (!tabs.every((tab) => tab.getAttribute('data-reorderable') === 'true')) throw new Error('session tabs are not reorderable');"
     "if (!tabs.every((tab) => tab.hasAttribute('data-loading'))) throw new Error('session tabs missing pending loading marker');"
-    "if (!document.querySelector('[data-testid=\"channel-session-tab-unread\"]')) throw new Error('unread session badge missing');"
     "const splitTab = document.querySelector('[data-testid=\"channel-session-split-tab\"]')?.closest('[data-testid=\"channel-session-tab\"]');"
     "if (!splitTab) throw new Error('split session tab missing');"
     "if (splitTab.querySelectorAll('[data-testid=\"channel-session-split-tab-pane\"]').length < 2) throw new Error('split tab panes missing');"

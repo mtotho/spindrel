@@ -99,6 +99,9 @@ def _provider_values(row: dict[str, Any]) -> dict[str, Any]:
         "tpm_limit": row.get("tpm_limit"),
         "rpm_limit": row.get("rpm_limit"),
         "config": row.get("config", {}),
+        "billing_type": row.get("billing_type", "usage"),
+        "plan_cost": row.get("plan_cost"),
+        "plan_period": row.get("plan_period"),
     }
 
 
@@ -108,10 +111,20 @@ def _provider_model_values(provider_id: str, row: dict[str, Any]) -> dict[str, A
         "model_id": row["model_id"],
         "display_name": row.get("display_name"),
         "max_tokens": row.get("max_tokens"),
+        "context_window": row.get("context_window"),
+        "max_output_tokens": row.get("max_output_tokens"),
         "input_cost_per_1m": row.get("input_cost_per_1m"),
         "output_cost_per_1m": row.get("output_cost_per_1m"),
+        "cached_input_cost_per_1m": row.get("cached_input_cost_per_1m"),
         "no_system_messages": row.get("no_system_messages", False),
+        "supports_tools": row.get("supports_tools", True),
         "supports_vision": row.get("supports_vision", True),
+        "supports_reasoning": row.get("supports_reasoning", False),
+        "supports_prompt_caching": row.get("supports_prompt_caching", False),
+        "supports_structured_output": row.get("supports_structured_output", False),
+        "supports_image_generation": row.get("supports_image_generation", False),
+        "prompt_style": row.get("prompt_style", "markdown"),
+        "extra_body": row.get("extra_body", {}),
     }
 
 
@@ -156,6 +169,7 @@ def _bot_values(row: dict[str, Any]) -> dict[str, Any]:
         "compaction_interval": row.get("compaction_interval"),
         "compaction_keep_turns": row.get("compaction_keep_turns"),
         "compaction_model": row.get("compaction_model"),
+        "compaction_model_provider_id": row.get("compaction_model_provider_id"),
         "memory_knowledge_compaction_prompt": row.get("memory_knowledge_compaction_prompt"),
         "compaction_prompt_template_id": row.get("compaction_prompt_template_id"),
         "audio_input": row.get("audio_input", "transcribe"),
@@ -175,6 +189,7 @@ def _bot_values(row: dict[str, Any]) -> dict[str, Any]:
         "workspace": row.get("workspace", {"enabled": False}),
         "attachment_summarization_enabled": row.get("attachment_summarization_enabled"),
         "attachment_summary_model": row.get("attachment_summary_model"),
+        "attachment_summary_model_provider_id": row.get("attachment_summary_model_provider_id"),
         "attachment_text_max_chars": row.get("attachment_text_max_chars"),
         "attachment_vision_concurrency": row.get("attachment_vision_concurrency"),
         "fallback_models": row.get("fallback_models", []),
@@ -208,18 +223,10 @@ def _workspace_values(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": row["name"],
         "description": row.get("description"),
-        "image": row.get("image", "python:3.12-slim"),
-        "network": row.get("network", "none"),
         "env": row.get("env", {}),
-        "ports": row.get("ports", []),
-        "mounts": row.get("mounts", []),
-        "cpus": row.get("cpus"),
-        "memory_limit": row.get("memory_limit"),
-        "docker_user": row.get("docker_user"),
-        "read_only_root": row.get("read_only_root", False),
-        "startup_script": row.get("startup_script"),
         "workspace_base_prompt_enabled": row.get("workspace_base_prompt_enabled", True),
         "indexing_config": row.get("indexing_config"),
+        "write_protected_paths": row.get("write_protected_paths", []),
     }
 
 
@@ -268,6 +275,7 @@ def _channel_values(row: dict[str, Any]) -> dict[str, Any]:
         "compaction_interval": row.get("compaction_interval"),
         "compaction_keep_turns": row.get("compaction_keep_turns"),
         "compaction_model": row.get("compaction_model"),
+        "compaction_model_provider_id": row.get("compaction_model_provider_id"),
         "memory_knowledge_compaction_prompt": row.get("memory_knowledge_compaction_prompt"),
         "compaction_prompt_template_id": row.get("compaction_prompt_template_id"),
         "compaction_workspace_file_path": row.get("compaction_workspace_file_path"),
@@ -277,6 +285,8 @@ def _channel_values(row: dict[str, Any]) -> dict[str, Any]:
         "fallback_models": row.get("fallback_models", []),
         "allow_bot_messages": row.get("allow_bot_messages", False),
         "workspace_rag": row.get("workspace_rag", True),
+        "thinking_display": row.get("thinking_display", "append"),
+        "tool_output_display": row.get("tool_output_display", "compact"),
         "max_iterations": row.get("max_iterations"),
         "task_max_run_seconds": row.get("task_max_run_seconds"),
         "attachment_retention_days": row.get("attachment_retention_days"),
@@ -287,6 +297,7 @@ def _channel_values(row: dict[str, Any]) -> dict[str, Any]:
         "local_tools_disabled": row.get("local_tools_disabled"),
         "mcp_servers_disabled": row.get("mcp_servers_disabled"),
         "client_tools_disabled": row.get("client_tools_disabled"),
+        "model_tier_overrides": row.get("model_tier_overrides", {}),
         "workspace_base_prompt_enabled": row.get("workspace_base_prompt_enabled"),
         "history_mode": row.get("history_mode"),
         "trigger_heartbeat_before_compaction": row.get("trigger_heartbeat_before_compaction"),
@@ -298,9 +309,15 @@ def _channel_values(row: dict[str, Any]) -> dict[str, Any]:
         "memory_flush_workspace_file_path": row.get("memory_flush_workspace_file_path"),
         "memory_flush_workspace_id": row.get("memory_flush_workspace_id"),
         "channel_prompt": row.get("channel_prompt"),
+        "channel_prompt_workspace_file_path": row.get("channel_prompt_workspace_file_path"),
+        "channel_prompt_workspace_id": row.get("channel_prompt_workspace_id"),
         "section_index_count": row.get("section_index_count"),
         "section_index_verbosity": row.get("section_index_verbosity"),
         "context_pruning": row.get("context_pruning"),
+        "workspace_id": row.get("workspace_id"),
+        "protected": row.get("protected", False),
+        "config": row.get("config", {}),
+        "metadata": row.get("metadata", {}),
     }
 
 

@@ -639,6 +639,40 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def create_task(self, payload: dict[str, Any]) -> dict:
+        resp = await self._client.post("/api/v1/admin/tasks", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def run_task_now(self, task_id: str, payload: dict[str, Any] | None = None) -> dict:
+        resp = await self._client.post(f"/api/v1/admin/tasks/{task_id}/run", json=payload or {})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_task(self, task_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/admin/tasks/{task_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def wait_task_terminal(self, task_id: str, *, timeout: float) -> dict:
+        import asyncio
+        import time
+
+        deadline = time.monotonic() + timeout
+        terminal = {"complete", "failed", "cancelled"}
+        latest: dict | None = None
+        while time.monotonic() < deadline:
+            latest = await self.get_task(task_id)
+            if str(latest.get("status")) in terminal:
+                return latest
+            await asyncio.sleep(2)
+        raise AssertionError(f"task {task_id} did not finish within {timeout}s; latest={latest}")
+
+    async def delete_task(self, task_id: str) -> None:
+        resp = await self._client.delete(f"/api/v1/admin/tasks/{task_id}")
+        if resp.status_code not in (200, 204, 404):
+            resp.raise_for_status()
+
     async def get_session_harness_settings(self, session_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/sessions/{session_id}/harness-settings")
         resp.raise_for_status()
