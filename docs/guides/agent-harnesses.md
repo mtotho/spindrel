@@ -106,6 +106,10 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code bridge write/read/delete flow in terminal chat mode](../images/harness-claude-terminal-write.png)
 
+![Codex project-build native tool output in terminal chat mode](../images/harness-codex-project-terminal.png)
+
+![Claude Code project-build native Write/Edit output in terminal chat mode](../images/harness-claude-project-terminal.png)
+
 ![Claude Code native question card in default dark mode](../images/harness-question-default-dark.png)
 
 ![Claude Code native question card in default light mode](../images/harness-question-default-light.png)
@@ -119,6 +123,9 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 Regenerate the non-question fixtures with:
 
 ```bash
+HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
+  -k project_plan_build_and_screenshot
+
 SPINDREL_API_KEY=... \
 python -m scripts.screenshots.harness_live \
   --api-url http://10.10.30.208:8000 \

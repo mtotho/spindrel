@@ -346,6 +346,20 @@ test("chat sends thread a stable client-local id through optimistic rows and req
   assert.match(chatMessageArea, /meta\.client_local_id/);
 });
 
+test("mobile chat transcript uses full-width content instead of avatar gutter", () => {
+  const messageBubble = readChatFile("MessageBubble.tsx");
+  const streamingIndicator = readChatFile("StreamingIndicator.tsx");
+  const chatMessageArea = readChatFile("ChatMessageArea.tsx");
+
+  assert.match(messageBubble, /const detectedMobile = useIsMobile\(\);/);
+  assert.match(messageBubble, /const effectiveMobile = isMobile \|\| detectedMobile;/);
+  assert.match(messageBubble, /const narrow = effectiveMobile \|\| compactLayout;/);
+  assert.match(streamingIndicator, /const isMobile = useIsMobile\(\);/);
+  assert.match(streamingIndicator, /!\s*isTerminalMode && !isMobile/);
+  assert.match(chatMessageArea, /const contentHorizontalPadding = isMobile \? 4 : 16;/);
+  assert.doesNotMatch(chatMessageArea, /className="w-full mx-auto px-4"/);
+});
+
 test("channel route delegates session pane orchestration to its local controller", () => {
   const channelRoute = readFileSync(
     resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),

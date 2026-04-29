@@ -2,6 +2,7 @@ import { memo, useMemo, useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Brain, ChevronRight } from "lucide-react";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
@@ -161,7 +162,9 @@ function HistoricalThinking({ text, t, chatMode = "default" }: { text: string; t
 
 export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, fullTurnMessages, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false, chatMode = "default" }: Props) {
   const t = useThemeTokens();
-  const narrow = isMobile || compactLayout;
+  const detectedMobile = useIsMobile();
+  const effectiveMobile = isMobile || detectedMobile;
+  const narrow = effectiveMobile || compactLayout;
   const isTerminalMode = chatMode === "terminal";
   const queryClient = useQueryClient();
   const navigate = useNavigate();

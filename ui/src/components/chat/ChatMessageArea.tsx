@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { SpindrelLogo } from "@/src/components/layout/SpindrelLogo";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
 import type { TurnState } from "@/src/stores/chat";
@@ -164,6 +165,7 @@ export function ChatMessageArea({
   sessionId,
   onOpenMessageSession,
 }: ChatMessageAreaProps) {
+  const isMobile = useIsMobile();
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
@@ -363,6 +365,7 @@ export function ChatMessageArea({
   }, [chatState.turns]);
   const isTerminalMode = chatMode === "terminal";
   const contentMaxWidth = isTerminalMode ? TERMINAL_CHAT_CONTENT_MAX_WIDTH : DEFAULT_CHAT_CONTENT_MAX_WIDTH;
+  const contentHorizontalPadding = isMobile ? 4 : 16;
   const errorBanner = chatState.error ? (
     <div
       role="status"
@@ -426,8 +429,8 @@ export function ChatMessageArea({
           className="w-full mx-auto"
           style={{
             maxWidth: contentMaxWidth,
-            paddingLeft: 16,
-            paddingRight: 16,
+            paddingLeft: contentHorizontalPadding,
+            paddingRight: contentHorizontalPadding,
           }}
         >
           {isTerminalMode ? terminalFooterContent : defaultFooterContent}
@@ -441,9 +444,11 @@ export function ChatMessageArea({
         {/* Messages in chronological DOM order inside a normal-flow div. */}
         {invertedData.length === 0 ? (
           <div
-            className="w-full mx-auto px-4"
+            className="w-full mx-auto"
             style={{
               maxWidth: contentMaxWidth,
+              paddingLeft: contentHorizontalPadding,
+              paddingRight: contentHorizontalPadding,
               display: "flex",
               flexDirection: "column",
               justifyContent: isLoading ? "flex-end" : "center",
@@ -463,7 +468,14 @@ export function ChatMessageArea({
             )}
           </div>
         ) : (
-          <div className="w-full mx-auto px-4" style={{ maxWidth: contentMaxWidth }}>
+          <div
+            className="w-full mx-auto"
+            style={{
+              maxWidth: contentMaxWidth,
+              paddingLeft: contentHorizontalPadding,
+              paddingRight: contentHorizontalPadding,
+            }}
+          >
             {Array.from({ length: invertedData.length }, (_, i) => {
               const chronIdx = invertedData.length - 1 - i;
               const item = invertedData[chronIdx];
@@ -521,7 +533,7 @@ export function ChatMessageArea({
             style={{
               width: "100%",
               maxWidth: contentMaxWidth,
-              padding: "0 16px",
+              padding: `0 ${contentHorizontalPadding}px`,
               display: "flex",
               justifyContent: "flex-end",
             }}

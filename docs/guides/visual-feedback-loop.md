@@ -86,6 +86,9 @@ PYTHONPATH=. pytest scripts/screenshots/tests/test_pure_units.py -q
 External harness parity screenshots use real live harness sessions rather than
 synthetic screenshot staging. They are documented in
 `agent-harnesses.md` and written to `docs/images/harness-*.png`.
+Run the project-build tier first when refreshing terminal/native tool-output
+fixtures, because those screenshots are captured from the latest live Codex and
+Claude project-build sessions.
 
 ```bash
 SPINDREL_API_KEY=... \

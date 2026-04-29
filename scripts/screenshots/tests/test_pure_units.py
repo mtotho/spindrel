@@ -248,6 +248,24 @@ def test_harness_live_style_command_specs_type_slash_query():
     assert all("Switch chat style" in spec.contains for spec in specs)
 
 
+def test_harness_live_project_terminal_specs_are_docs_fixtures():
+    target = harness_live.RuntimeTarget(
+        name="claude",
+        channel_id="channel-1",
+        bridge_label_fragment="Bridge parity diagnostic",
+        write_label_fragment="Use the Spindrel host file bridge tool",
+        project_label_fragment="Harness Project Parity",
+    )
+
+    specs = harness_live._project_terminal_specs("http://ui", target, "session-1")
+
+    assert [spec.name for spec in specs] == ["harness-claude-project-terminal"]
+    assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
+    assert specs[0].chat_mode == "terminal"
+    assert "Harness Project Parity" in specs[0].contains
+    assert "tool calls" in specs[0].not_contains
+
+
 def test_harness_live_parse_allows_browser_visible_url():
     env = {
         "SPINDREL_API_KEY": "test-key",

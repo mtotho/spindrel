@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft, ImageOff } from "lucide-react";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { Avatar } from "./MessageActions";
@@ -150,11 +151,20 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
   const bg = avatarColor(name);
   const t = useThemeTokens();
   const isTerminalMode = chatMode === "terminal";
+  const isMobile = useIsMobile();
   const nameColor = isTerminalMode ? t.accent : bg;
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
-      {!isTerminalMode && (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        gap: isMobile ? 0 : 12,
+        padding: isTerminalMode ? "10px 12px 6px" : isMobile ? "10px 8px 4px" : "10px 20px 4px",
+        alignSelf: "stretch",
+      }}
+    >
+      {!isTerminalMode && !isMobile && (
         <div style={{ paddingTop: 2 }}>
           <Avatar name={name} isUser={false} />
         </div>

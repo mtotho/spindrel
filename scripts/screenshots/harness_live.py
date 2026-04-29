@@ -41,6 +41,7 @@ class RuntimeTarget:
     channel_id: str
     bridge_label_fragment: str
     write_label_fragment: str
+    project_label_fragment: str
 
 
 @dataclass(frozen=True)
@@ -106,10 +107,17 @@ async def _find_session(
 ) -> str:
     data = await _api(client, "GET", f"/api/v1/channels/{channel_id}/sessions", params={"limit": 100})
     fragment = label_fragment.lower()
-    for session in data.get("sessions", []):
+    sessions = list(data.get("sessions", []))
+    for session in sessions:
         haystack = f"{session.get('label') or ''} {session.get('preview') or ''}".lower()
         if fragment in haystack:
             return str(session["session_id"])
+    for session in sessions[:25]:
+        session_id = str(session["session_id"])
+        messages = await _api(client, "GET", f"/api/v1/sessions/{session_id}/messages", params={"limit": 30})
+        haystack = json.dumps(messages, default=str).lower()
+        if fragment in haystack:
+            return session_id
     raise SystemExit(f"No session in {channel_id} matched {label_fragment!r}")
 
 
@@ -221,6 +229,26 @@ def _style_command_specs(ui_url: str, channel_id: str, session_id: str) -> list[
     ]
 
 
+def _project_terminal_specs(ui_url: str, target: RuntimeTarget, session_id: str) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
+    wait = (
+        "document.body.innerText.includes('Harness Project Parity') "
+        "&& document.body.innerText.toLowerCase().includes('index.html')"
+    )
+    return [
+        CaptureSpec(
+            name=f"harness-{target.name}-project-terminal",
+            route=route,
+            wait_js=wait,
+            contains=("Harness Project Parity", "index.html"),
+            not_contains=TERMINAL_WRITE_NOT_CONTAINS,
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="terminal",
+        ),
+    ]
+
+
 async def capture(args: argparse.Namespace) -> list[Path]:
     api_url = args.api_url.rstrip("/")
     browser_url = args.browser_url.rstrip("/")
@@ -235,12 +263,14 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             channel_id=args.codex_channel_id,
             bridge_label_fragment="Bridge parity diagnostic",
             write_label_fragment="Use the Spindrel host file bridge tool",
+            project_label_fragment="Harness Project Parity",
         ),
         RuntimeTarget(
             name="claude",
             channel_id=args.claude_channel_id,
             bridge_label_fragment="Bridge parity diagnostic",
             write_label_fragment="Use the Spindrel host file bridge tool",
+            project_label_fragment="Harness Project Parity",
         ),
     )
 
@@ -262,6 +292,14 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 client,
                 channel_id=target.channel_id,
                 label_fragment=target.write_label_fragment,
+            )
+            for target in targets
+        })
+        sessions.update({
+            (target.name, "project"): await _find_session(
+                client,
+                channel_id=target.channel_id,
+                label_fragment=target.project_label_fragment,
             )
             for target in targets
         })
@@ -315,6 +353,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 channel_id=target.channel_id,
                 chat_mode="terminal",
             ))
+            specs.extend(_project_terminal_specs(browser_url, target, sessions[(target.name, "project")]))
 
         specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
         specs.extend(_question_specs(browser_url, args.claude_channel_id))
