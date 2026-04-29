@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spindrel Visual Feedback Loop"
+  short_description: "Run screenshots as UI feedback and docs artifacts"
+  default_prompt: "Use $spindrel-visual-feedback-loop to verify the spatial canvas with screenshot checks and record visible findings."

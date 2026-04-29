@@ -6,6 +6,14 @@ The spatial canvas is Spindrel's home surface on desktop: a workspace-scope **in
 
 Mobile keeps the existing channel list. The canvas is desktop-only today.
 
+## Visual verification
+
+Spatial Canvas changes need browser screenshots, not only typechecks. Use the
+project skill at `.agents/skills/spindrel-visual-feedback-loop` or follow
+[Visual Feedback Loop](visual-feedback-loop.md). The canonical screenshot bundle
+is `spatial-checks`; it stages e2e canvas state, captures `docs/images/spatial-check-*.png`,
+and requires visual inspection before calling a UI pass complete.
+
 ## Opening the canvas
 
 | Where | How |

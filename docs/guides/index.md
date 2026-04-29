@@ -66,6 +66,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [Templates and Activation](templates-and-activation.md) | Workspace templates + activation manifests |
 | [Tool Policies](tool-policies.md) | Per-tool policy enforcement |
 | [Usage and Billing](usage-and-billing.md) | Token / cost attribution |
+| [Visual Feedback Loop](visual-feedback-loop.md) | Browser screenshots as UI feedback and docs artifacts |
 | [Webhooks](webhooks.md) | Lifecycle webhook forwarding |
 | [Widget Dashboards](widget-dashboards.md) | Channel dashboards + OmniPanel |
 
