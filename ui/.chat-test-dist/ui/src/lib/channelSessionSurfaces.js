@@ -406,7 +406,7 @@ function buildSplitTabItem({ key, layout, activeLayoutKey, activeSessionId, cata
         return null;
     const panes = snapshot.layout.panes.map((pane) => {
         const row = catalogRowForSurface(pane.surface, catalog, activeSessionId);
-        const surfaceSessionId = pane.surface.kind === "primary" ? activeSessionId : pane.surface.sessionId;
+        const surfaceSessionId = pane.surface.kind === "primary" ? null : pane.surface.sessionId;
         const primary = pane.surface.kind === "primary"
             || row?.is_active === true
             || surfaceSessionId === activeSessionId;

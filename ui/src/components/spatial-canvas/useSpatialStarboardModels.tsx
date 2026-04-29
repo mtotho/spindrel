@@ -8,7 +8,7 @@ import type { UnreadStateResponse } from "../../api/hooks/useUnread";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import type { Camera } from "./spatialGeometry";
 import type { StarboardObjectAction, StarboardObjectItem } from "./UsageDensityChrome";
-import { mapStateMeta } from "./SpatialObjectStatus";
+import { mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 
 type UseSpatialStarboardModelsArgs = Record<string, any> & {
   camera: Camera;
@@ -58,6 +58,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
   }, [queryClient, recentPages]);
 
   const starboardObjects = useMemo<StarboardObjectItem[]>(() => {
+    const landmarkSize = { worldW: 180, worldH: 120 };
     const rect = viewportRectRef.current;
     const scale = Math.max(camera.scale, 0.05);
     const focusX = rect.width ? (rect.width / 2 - camera.x) / scale : 0;
@@ -79,6 +80,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         workState: landmarkState("memory_observatory"),
         worldX: memoryObsPos.x,
         worldY: memoryObsPos.y,
+        ...landmarkSize,
         distance: distanceFromFocus(memoryObsPos.x, memoryObsPos.y),
         onSelect: () => selectLandmark("memory_observatory", memoryObsPos.x, memoryObsPos.y, true),
         actions: [
@@ -94,6 +96,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         workState: landmarkState("now_well"),
         worldX: wellPos.x,
         worldY: wellPos.y,
+        ...landmarkSize,
         distance: distanceFromFocus(wellPos.x, wellPos.y),
         onSelect: () => selectLandmark("now_well", wellPos.x, wellPos.y, true),
         actions: [
@@ -109,6 +112,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         workState: landmarkState("attention_hub"),
         worldX: attentionHubPos.x,
         worldY: attentionHubPos.y,
+        ...landmarkSize,
         distance: distanceFromFocus(attentionHubPos.x, attentionHubPos.y),
         onSelect: () => {
           selectLandmark("attention_hub", attentionHubPos.x, attentionHubPos.y, true);
@@ -126,6 +130,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         workState: landmarkState("daily_health"),
         worldX: dailyHealthPos.x,
         worldY: dailyHealthPos.y,
+        ...landmarkSize,
         distance: distanceFromFocus(dailyHealthPos.x, dailyHealthPos.y),
         onSelect: () => selectLandmark("daily_health", dailyHealthPos.x, dailyHealthPos.y, true),
         actions: [
@@ -148,6 +153,8 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           workState,
           worldX,
           worldY,
+          worldW: node.world_w,
+          worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => selectNode("channel", node, true),
           onDoubleClick: () =>
@@ -186,6 +193,8 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           workState,
           worldX,
           worldY,
+          worldW: node.world_w,
+          worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => selectNode("widget", node, true),
           onDoubleClick: () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState }),
@@ -215,6 +224,8 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           workState,
           worldX,
           worldY,
+          worldW: node.world_w,
+          worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => selectNode("bot", node, true),
           actions: [
@@ -241,6 +252,8 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
       }
     }
     const rank = (item: StarboardObjectItem) => {
+      const cue = mapCueRank(item.workState);
+      if (cue > 0) return cue + 10;
       const status = item.workState?.status;
       if (status === "error") return 6;
       if (status === "warning") return 5;

@@ -419,8 +419,9 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         marker = uuid.uuid4().hex[:12]
         result = await client.chat_session_stream(
             (
-                f"Harness parity core check. Store this test marker for the next turn: {marker}. "
-                "For this turn only, reply exactly: parity core ready"
+                f"Harness parity core check. The marker is {marker}. "
+                "Do not call tools, write files, or persist it anywhere. "
+                f"For this turn only, reply exactly: parity core ready {marker}"
             ),
             session_id=session_id,
             channel_id=channel_id,
@@ -428,11 +429,11 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             timeout=_timeout(),
         )
         _assert_clean_turn(result)
-        assert "parity core ready" in result.response_text.lower()
+        assert f"parity core ready {marker}" in result.response_text.lower()
         await _assert_trace_has_turn_context(client, result)
 
         resumed = await client.chat_session_stream(
-            "Reply with only the stored test marker from the previous turn. Do not repeat any other prior phrase.",
+            "Reply with only the marker you acknowledged in your previous answer. Do not call tools or read files. Do not repeat any other prior phrase.",
             session_id=session_id,
             channel_id=channel_id,
             bot_id=bot_id,

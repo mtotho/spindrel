@@ -1036,6 +1036,8 @@ _ASSERT_MAP_BRIEF_SELECTION_JS = (
     "if (!/(Investigate|Next up|Review recent|Quiet)/.test(selected.textContent || '')) throw new Error('selected brief does not lead with an actionable cue');"
     "if (!/(Investigate|Next up|Recently changed|Quiet nearby|Nearby quiet)/.test(brief.textContent || '')) throw new Error('Map Brief object list is not grouped by actionable cue');"
     "if (!anchor) throw new Error('selected spatial anchor did not render');"
+    "if (!document.querySelector('[data-testid=\"spatial-action-cue-marker\"]')) throw new Error('spatial action cue marker did not render');"
+    "if (!document.querySelector('[data-testid=\"spatial-action-compass\"]')) throw new Error('spatial action compass did not render');"
     "if (document.querySelector('[data-spatial-selected-anchor-label=\"true\"]')) throw new Error('selected channel rendered duplicate anchor label');"
     "const selectedStyle = getComputedStyle(selected);"
     "const leftBorder = parseFloat(selectedStyle.borderLeftWidth || '0');"
@@ -1520,6 +1522,8 @@ _ASSERT_SESSION_TABS_JS = (
     "splitTab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 240, clientY: 120 }));"
     "await new Promise((resolve) => setTimeout(resolve, 50));"
     "if (!document.querySelector('[data-testid=\"channel-session-tab-menu\"]')) throw new Error('session tab context menu missing');"
+    "window.dispatchEvent(new Event('pointerdown'));"
+    "await new Promise((resolve) => setTimeout(resolve, 50));"
 )
 
 _CLOSE_ALL_SESSION_TABS_JS = (

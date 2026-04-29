@@ -20,6 +20,8 @@ export interface StarboardObjectItem {
   subtitle?: string;
   worldX: number;
   worldY: number;
+  worldW: number;
+  worldH: number;
   distance: number;
   onSelect: () => void;
   onDoubleClick?: () => void;

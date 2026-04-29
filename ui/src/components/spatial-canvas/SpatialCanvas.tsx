@@ -276,6 +276,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
   const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
   const [interactionMode, setInteractionMode] = useState<SpatialInteractionMode>("browse");
   const [selectedSpatialObject, setSelectedSpatialObject] = useState<SpatialSelection | null>(null);
+  const [highlightedActionCueId, setHighlightedActionCueId] = useState<string | null>(null);
   const dragEnabled = interactionMode === "arrange";
   const updateNode = useUpdateSpatialNode();
   const deleteNode = useDeleteSpatialNode();
@@ -863,6 +864,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         interactiveZoom={interactiveZoom}
         missions={missions}
         mapState={mapState}
+        starboardObjects={starboardObjects}
+        selectedStarboardObject={selectedStarboardObject}
+        highlightedActionCueId={highlightedActionCueId}
         camera={camera}
         openStarboardHub={openStarboardHub}
         ambientZoom={ambientZoom}
@@ -962,6 +966,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         attentionSignalsVisible={attentionSignalsVisible}
         setAttentionSignalsVisible={setAttentionSignalsVisible}
         starboardObjects={starboardObjects}
+        viewportBbox={viewportBbox}
+        highlightedActionCueId={highlightedActionCueId}
+        setHighlightedActionCueId={setHighlightedActionCueId}
         starboardOpen={starboardOpen}
         starboardStation={starboardStation}
         setStarboardOpen={setStarboardOpen}

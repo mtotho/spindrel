@@ -172,6 +172,14 @@ The same object reveal animation is used for minimap clicks and palette-driven
 channel/widget fly-to actions; Map Brief single-click selection no longer waits
 on a double-click timer.
 
+Same-day glanceability pass: existing map cues now have a shared canvas visual
+language. Non-quiet channel, bot, widget, and landmark objects render a subtle
+halo plus icon-only badge in world space; selected objects suppress duplicate
+halo chrome while keeping the cue available. A low-chrome Action Compass shows
+the top three actionable objects from the Starboard object model, ranked by cue
+priority with viewport bias, and row hover/focus highlights the matching map
+cue. The feature adds no new persisted state and no new toggle.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

@@ -119,3 +119,21 @@ test("clusters surface aggregate actionable cues without opening selection chrom
   assert.match(markerSource, /cueSummary/);
   assert.match(markerSource, /near \$\{channelName\(cluster\)\}/);
 });
+
+test("spatial glanceability uses shared cue markers and compass without side stripes", () => {
+  const cueSource = readFileSync(resolve(SPATIAL_DIR, "SpatialActionCues.tsx"), "utf8");
+  const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
+  const overlaySource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasOverlays.tsx"), "utf8");
+  const modelSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialStarboardModels.tsx"), "utf8");
+  assert.match(cueSource, /data-testid="spatial-action-cue-marker"/);
+  assert.match(cueSource, /data-spatial-action-cue-halo/);
+  assert.match(cueSource, /data-testid="spatial-action-compass"/);
+  assert.match(cueSource, /topActionCompassItems/);
+  assert.match(cueSource, /item\.id !== selectedObjectId/);
+  assert.match(worldSource, /<SpatialActionCueLayer/);
+  assert.match(overlaySource, /<ActionCompass/);
+  assert.match(modelSource, /worldW: node\.world_w/);
+  assert.match(modelSource, /worldH: node\.world_h/);
+  assert.doesNotMatch(cueSource, /border-l-/);
+  assert.doesNotMatch(cueSource, /animate-/);
+});

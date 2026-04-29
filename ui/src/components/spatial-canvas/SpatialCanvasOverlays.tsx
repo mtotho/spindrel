@@ -12,6 +12,7 @@ import { Minimap } from "./Minimap";
 import { SpatialContextMenu } from "./SpatialContextMenu";
 import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
 import { SpatialSelectionRail } from "./SpatialSelectionRail";
+import { ActionCompass } from "./SpatialActionCues";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 
 type SpatialCanvasOverlaysProps = Record<string, any> & {
@@ -68,6 +69,9 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     attentionSignalsVisible,
     setAttentionSignalsVisible,
     starboardObjects,
+    viewportBbox,
+    highlightedActionCueId,
+    setHighlightedActionCueId,
     starboardOpen,
     starboardStation,
     setStarboardOpen,
@@ -110,6 +114,13 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
       <MemoryObservationPanel
         selection={memorySelection}
         onClose={() => setMemorySelection(null)}
+      />
+      <ActionCompass
+        objects={starboardObjects ?? []}
+        viewport={viewportBbox}
+        selectedObjectId={selectedStarboardObject?.id ?? null}
+        highlightedObjectId={highlightedActionCueId ?? null}
+        onHighlight={setHighlightedActionCueId}
       />
       {landmarkBeaconsVisible && (
         <SpatialEdgeBeacons

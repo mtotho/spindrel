@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import { DndContext } from "@dnd-kit/core";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
@@ -41,6 +41,7 @@ import {
 } from "./spatialGeometry";
 import { upcomingOrbit, upcomingReactKey } from "./spatialActivity";
 import { AttentionHubLandmark, OriginMarker } from "./SpatialCanvasLandmarks";
+import { SpatialActionCueLayer } from "./SpatialActionCues";
 import { CHANNEL_CLUSTER_FOCUS_SCALE } from "./spatialClustering";
 
 const DIVE_MS = 300;
@@ -79,6 +80,9 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     interactiveZoom,
     missions,
     mapState,
+    starboardObjects,
+    selectedStarboardObject,
+    highlightedActionCueId,
     camera,
     openStarboardHub,
     ambientZoom,
@@ -182,6 +186,10 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     attentionHubPos,
     dailyHealthPos,
   });
+  const suppressedCueObjectIds = useMemo(() => {
+    if (!clusteredChannelNodeIds?.size) return undefined;
+    return new Set(Array.from(clusteredChannelNodeIds, (nodeId) => `node-${nodeId}`));
+  }, [clusteredChannelNodeIds]);
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -661,6 +669,13 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             </div>
           );
         })}
+        <SpatialActionCueLayer
+          objects={starboardObjects ?? []}
+          selectedObjectId={selectedStarboardObject?.id ?? null}
+          highlightedObjectId={highlightedActionCueId ?? null}
+          scale={camera.scale}
+          suppressedObjectIds={suppressedCueObjectIds}
+        />
         {selectedAnchor && (
           <SelectedObjectAnchor
             x={selectedAnchor.x}

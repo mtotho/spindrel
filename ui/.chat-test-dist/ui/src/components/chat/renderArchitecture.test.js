@@ -217,7 +217,13 @@ test("channel route renders desktop session tabs through dedicated components an
     assert.match(channelRoute, /<ChannelSessionTabStrip/);
     assert.match(channelRoute, /<ChannelSessionInlinePicker/);
     assert.match(channelRoute, /hiddenSessionTabKeys/);
+    assert.match(channelRoute, /sessionTabLayouts/);
+    assert.match(channelRoute, /pendingSessionTabKey/);
     assert.match(sessionTabs, /data-testid="channel-session-tab-strip"/);
+    assert.match(sessionTabs, /data-testid="channel-session-split-tab"/);
+    assert.match(sessionTabs, /data-testid="channel-session-tab-menu"/);
+    assert.match(sessionTabs, /activationConstraint: \{ delay: 140, tolerance: 6 \}/);
     assert.match(sessionTabs, /data-testid="channel-session-inline-picker"/);
     assert.match(sessionSurfaces, /export function buildChannelSessionTabItems/);
+    assert.match(sessionSurfaces, /export function snapshotChannelSessionTabLayout/);
 });
