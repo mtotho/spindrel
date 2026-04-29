@@ -99,6 +99,16 @@ test("Map Brief selected object uses quiet triage instead of side-stripe chrome"
     assert.doesNotMatch(source, /border-l-warning/);
     assert.doesNotMatch(source, /border-l-accent/);
 });
+test("Map Brief active attention is actionable without opening the Attention panel first", () => {
+    const source = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+    assert.match(source, /useBulkAcknowledgeAttentionItems/);
+    assert.match(source, /WORKSPACE_MAP_STATE_KEY/);
+    assert.match(source, /findActiveAttentionItemsForObject/);
+    assert.match(source, /data-testid="map-brief-attention-actions"/);
+    assert.match(source, /Acknowledge target/);
+    assert.match(source, /scope:\s*"target"/);
+    assert.match(source, /Open in Attention/);
+});
 test("clusters surface aggregate actionable cues without opening selection chrome", () => {
     const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
     const markerSource = readFileSync(resolve(SPATIAL_DIR, "ChannelClusterMarker.tsx"), "utf8");

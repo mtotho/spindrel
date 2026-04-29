@@ -75,8 +75,8 @@ These are deliberate v1 boundaries, not oversights:
 - **No full Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not fully bridged. Selected local/MCP Spindrel tools can be exposed through the bridge, and workspace-files memory can inject host hints, but normal context assembly is still bypassed.
 - **No arbitrary harness widgets / tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. The one exception is host-owned interaction cards such as `AskUserQuestion`, which Spindrel renders as durable native cards so the user can answer inside the current session.
 - **Native harness tools are not Spindrel tools.** Harness approval modes can route native SDK permission prompts into Spindrel approval cards, but approved native calls still execute in the harness, not through Spindrel's `ToolCall` dispatcher.
-- **No `/admin/usage` integration.** Cost and token usage are persisted on the assistant message under `metadata.harness.cost_usd`/`usage`, but not aggregated in the global cost dashboard yet.
-- **Limited tool-call rehydration.** Live harness tool breadcrumbs are persisted on the synthetic assistant `Message` row and rehydrate after refresh. Native harness tool bodies still do not become Spindrel `ToolCall` rows unless the call came through an explicit Spindrel bridge.
+- **Usage is non-billable host telemetry.** Harness turns write `/admin/usage` rows under synthetic providers (`harness:codex-sdk`, `harness:claude-code-sdk`). They show token/context movement and channel attribution, but cost is recorded as `$0.0000` because provider billing still happens inside the native CLI/SDK account.
+- **Limited native tool-call rehydration.** Live harness tool breadcrumbs are persisted on the synthetic assistant `Message` row and rehydrate after refresh. Native harness tool bodies still do not become Spindrel `ToolCall` rows unless the call came through an explicit Spindrel bridge.
 - **No @-mention fanout.** A harness session owns its turn end-to-end; it doesn't trigger member-bot replies, supervisors, or context compaction.
 
 If you need any of those, you want a normal Spindrel bot, not an external harness session.
@@ -88,6 +88,47 @@ Spindrel still applies its secret redactor at the harness host boundary, coverin
 ![A Claude Code turn rendered in a Spindrel channel — native thinking, native tool cards, final reply](../images/harness-chat-result.png)
 
 The chat surface is the same surface every other Spindrel bot uses. The harness header pill (`DEMO (REPLAY)` above; `CLAUDE-CODE` in production) tells you which runtime owns the loop. Tool-call breadcrumbs (Read, Grep, Bash, Edit, …) appear inline as the harness fires them — these are the harness's *own* tools, not Spindrel `ToolCall` rows. The final assistant text persists on a single `Message` row so the transcript rehydrates after a refresh.
+
+### Visual parity fixtures
+
+The checked-in harness screenshots below are regression fixtures for the web wrapper's CLI parity surface. They come from live Codex and Claude Code E2E channels and should be regenerated when tool-result rendering, terminal mode, question cards, or harness usage telemetry changes.
+
+![Harness `/style` command picker in default chat mode](../images/harness-style-command-default-dark.png)
+
+![Harness `/style` command picker in terminal chat mode](../images/harness-style-command-terminal-dark.png)
+
+![Codex bridge tool result in default chat mode](../images/harness-codex-bridge-default.png)
+
+![Claude Code bridge tool result in default chat mode](../images/harness-claude-bridge-default.png)
+
+![Codex bridge write/read/delete flow in terminal chat mode](../images/harness-codex-terminal-write.png)
+
+![Claude Code bridge write/read/delete flow in terminal chat mode](../images/harness-claude-terminal-write.png)
+
+![Claude Code native question card in default dark mode](../images/harness-question-default-dark.png)
+
+![Claude Code native question card in default light mode](../images/harness-question-default-light.png)
+
+![Claude Code native question card in terminal mode](../images/harness-question-terminal-dark.png)
+
+![Harness SDK usage rows in the admin usage log](../images/harness-usage-logs-dark.png)
+
+![Harness SDK usage rows in light mode](../images/harness-usage-logs-light.png)
+
+Regenerate the non-question fixtures with:
+
+```bash
+SPINDREL_API_KEY=... \
+python -m scripts.screenshots.harness_live \
+  --api-url http://10.10.30.208:8000 \
+  --ui-url http://10.10.30.208:8000 \
+  --output-dir docs/images
+```
+
+For question-card fixtures, first create or preserve a live pending
+`core/harness_question` session, set `HARNESS_VISUAL_QUESTION_SESSION_ID`, then
+run the same command. The script temporarily toggles channel chat mode for the
+capture and restores the prior channel config at the end.
 
 ## How session resume works
 
@@ -122,7 +163,7 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through runtime-native bridge hooks when available: Claude via the SDK MCP helper surface, Codex via `dynamicTools` when the installed binary advertises support. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed-runtime smoke testing. |
 | Spindrel skills | Partial | `@skill:<id>` adds a tagged skill index hint for the turn and relies on bridged `get_skill` / `get_skill_list` for progressive skill fetching. No native `.claude/skills` sync yet. |
 | Memory system | Partial | Workspace-files memory injects a host hint telling the harness where memory files live. Reads/writes still require explicit bridged tools/policies. |
-| Usage aggregation | Planned | Per-message cost/usage exists; `/admin/usage` aggregation is not wired yet. |
+| Usage aggregation | Supported | Harness turns emit synthetic non-billable `/admin/usage` rows with provider id, channel id, model, prompt/completion tokens, context fields, and `billing_source="harness_sdk"`. |
 
 ## Harness questions
 

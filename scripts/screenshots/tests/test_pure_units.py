@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from scripts.screenshots import config
+from scripts.screenshots import harness_live
 from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
     FLAGSHIP_SPECS,
@@ -181,3 +182,32 @@ def test_harness_stage_dry_run_stops_before_polling_channel_state():
 
     assert state.channels["harness_chat"] == "dry-run-channel"
     assert client.polled_channel is False
+
+
+def test_harness_live_question_specs_are_opt_in():
+    with patch.dict(os.environ, {}, clear=True):
+        assert harness_live._question_specs("http://ui", "channel-1") == []
+
+    with patch.dict(os.environ, {"HARNESS_VISUAL_QUESTION_SESSION_ID": "session-1"}, clear=True):
+        specs = harness_live._question_specs("http://ui", "channel-1")
+
+    assert [spec.name for spec in specs] == [
+        "harness-question-default-dark",
+        "harness-question-default-light",
+        "harness-question-terminal-dark",
+    ]
+    assert all(spec.route == "http://ui/channels/channel-1/session/session-1" for spec in specs)
+    assert [spec.chat_mode for spec in specs] == ["default", "default", "terminal"]
+
+
+def test_harness_live_style_command_specs_type_slash_query():
+    specs = harness_live._style_command_specs("http://ui", "channel-1", "session-1")
+
+    assert [spec.name for spec in specs] == [
+        "harness-style-command-default-dark",
+        "harness-style-command-terminal-dark",
+    ]
+    assert all(spec.route == "http://ui/channels/channel-1/session/session-1" for spec in specs)
+    assert [spec.chat_mode for spec in specs] == ["default", "terminal"]
+    assert all(spec.slash_query == "/style" for spec in specs)
+    assert all("Switch chat style" in spec.contains for spec in specs)

@@ -19,6 +19,24 @@ Starting fresh with `/clear` creates a new conversation, but the section index c
 ![History mode settings showing file, structured, and summary options with compaction configuration](../images/channel_history_mode.png)
 *Channel history settings — `file` is the active/default path; `structured` and `summary` remain supported as legacy options.*
 
+## Channel Session Tabs
+
+On desktop, recent channel sessions appear as low-chrome tabs under the channel
+header. Opening a session keeps the tab order stable; drag a tab to reorder it.
+Closing a tab only hides it from the recent-tab strip. It does not delete the
+session or remove it from history.
+
+![Channel session tabs with a saved split layout and unread marker](../images/channel-session-tabs.png)
+
+Split layouts are saved as conjoined tabs so a two-pane working set can be
+restored without using the full session picker. Right-clicking a tab exposes the
+same split actions used elsewhere in the channel UI.
+
+When every recent tab is closed, the channel shows the inline session chooser
+instead of an empty strip.
+
+![Inline chooser after closing all channel session tabs](../images/channel-session-tabs-inline-picker.png)
+
 ## History Modes
 
 Configure via `history_mode` in bot YAML or per-channel in settings.

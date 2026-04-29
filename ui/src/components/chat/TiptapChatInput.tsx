@@ -576,6 +576,12 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       },
     });
 
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return;
+      const markdown = (editor.storage as any)?.markdown?.getMarkdown?.() ?? "";
+      detectSlashCommand(markdown);
+    }, [editor, detectSlashCommand]);
+
     // Set initial content from markdown draft — useLayoutEffect to avoid flash
     useLayoutEffect(() => {
       if (editor && initialTextRef.current) {

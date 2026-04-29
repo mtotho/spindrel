@@ -1309,3 +1309,10 @@ Two new dataclasses (`WatermarkPlan`, `SectionPersistOutcome`) carry helper outp
 - No behavioral deltas: log message strings, log levels, error messages in `counts["errors"]`, source_path/source_type drift behavior, manual-workflow skip, watch-mode `session_mode` omission, watch-mode prompt-template field omission — all byte-equivalent.
 - No fix to the 8 pre-existing test fixture errors. Test Quality track follow-up.
 - No fix to the watch-mode `session_mode` drop or watch-mode prompt-template `source_path`/`source_type` drop. Loose Ends follow-ups.
+
+### Chat turn seam cleanup — shipped 2026-04-28
+
+- Canonicalized chat request schemas under `app.schemas.chat`, turn context preparation under `app.services.turn_context`, and member-bot routing/fanout under `app.services.channel_member_turns`; `app.routers.chat` keeps compatibility adapters for old imports.
+- Retargeted production callers so `app.services.turns` and `app.services.turn_worker` no longer import chat-router internals. Added the service/agent/tool AST guard for real `app.routers.*` imports alongside the existing FastAPI drift guard.
+- Closed the adjacent widget-context leak by calling `app.services.upcoming_activity.list_upcoming_activity` directly instead of the admin router endpoint.
+- Verification: `py_compile` for changed chat seam files passed; `test_fastapi_boundary_drift.py` passed; context/ingest/attribution/workspace-upload slice passed 63; multi-bot slice passed 39/39 skipped; turn-worker slice passed 12/11 skipped; sub-session slice passed 8/24 skipped. Local `test_attachments.py` still times out under this profile after partial progress, matching the route/attachment integration fragility rather than this seam change.

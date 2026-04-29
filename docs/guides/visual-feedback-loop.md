@@ -79,3 +79,23 @@ For screenshot spec changes, also run:
 PYTHONPYCACHEPREFIX=/tmp/codex-pycache python -m py_compile scripts/screenshots/capture/specs.py
 PYTHONPATH=. pytest scripts/screenshots/tests/test_pure_units.py -q
 ```
+
+## Harness Parity Run
+
+External harness parity screenshots use real live harness sessions rather than
+synthetic screenshot staging. They are documented in
+`agent-harnesses.md` and written to `docs/images/harness-*.png`.
+
+```bash
+SPINDREL_API_KEY=... \
+python -m scripts.screenshots.harness_live \
+  --api-url http://10.10.30.208:8000 \
+  --ui-url http://10.10.30.208:8000 \
+  --output-dir docs/images
+```
+
+Use a local dev UI in `--ui-url` when validating a UI patch before deploy, and
+use the deployed UI after deploy. Question-card captures require a pending
+harness question and `HARNESS_VISUAL_QUESTION_SESSION_ID`; the normal bridge,
+terminal write, `/style` command-picker, and usage-log captures rediscover the
+latest E2E sessions from the configured harness channels.

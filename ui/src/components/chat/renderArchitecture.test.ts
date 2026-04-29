@@ -226,6 +226,14 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(approvalModeControl, /getHarnessApprovalModeControlState/);
 });
 
+test("Tiptap slash picker re-runs when the server command catalog hydrates", () => {
+  const tiptapInput = readChatFile("TiptapChatInput.tsx");
+
+  assert.match(tiptapInput, /const slashCatalog = useSlashCommandList\(currentBotId\);/);
+  assert.match(tiptapInput, /detectSlashCommand\(markdown\);/);
+  assert.match(tiptapInput, /\}, \[editor, detectSlashCommand\]\);/);
+});
+
 test("session composers use the parent channel for tool discovery menus", () => {
   const messageInput = readChatFile("MessageInput.tsx");
   const fixedSession = readChatFile("ChatSessionFixed.tsx");
@@ -305,7 +313,8 @@ test("channel route renders desktop session tabs through dedicated components an
   assert.match(sessionTabs, /data-testid="channel-session-tab-strip"/);
   assert.match(sessionTabs, /data-testid="channel-session-split-tab"/);
   assert.match(sessionTabs, /data-testid="channel-session-tab-menu"/);
-  assert.match(sessionTabs, /activationConstraint: \{ delay: 140, tolerance: 6 \}/);
+  assert.match(sessionTabs, /<DragOverlay/);
+  assert.match(sessionTabs, /activationConstraint: \{ distance: 2 \}/);
   assert.match(sessionTabs, /data-testid="channel-session-inline-picker"/);
   assert.match(sessionSurfaces, /export function buildChannelSessionTabItems/);
   assert.match(sessionSurfaces, /export function snapshotChannelSessionTabLayout/);

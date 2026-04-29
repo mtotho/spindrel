@@ -1,13 +1,16 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Activity, AlertTriangle, Bot, Box, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Box, CheckCircle, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
 import { AttentionHubContent } from "./SpatialAttentionLayer";
 import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
-import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import { isActiveAttentionItem, useBulkAcknowledgeAttentionItems } from "../../api/hooks/useWorkspaceAttention";
+import type { AttentionTargetKind, WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import { WORKSPACE_MAP_STATE_KEY } from "../../api/hooks/useWorkspaceMapState";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
@@ -479,6 +482,7 @@ export function UsageDensityChrome({
                   {selectedObject && (
                     <SelectedObjectInspector
                       item={selectedObject}
+                      attentionItems={attentionItems ?? []}
                       selectedAttentionId={selectedAttentionId}
                       onOpenAttentionWarning={(id) => {
                         const item = (attentionItems ?? []).find((entry) => entry.id === id);
@@ -681,20 +685,39 @@ function ObjectListGroup({
 
 function SelectedObjectInspector({
   item,
+  attentionItems,
   selectedAttentionId,
   onOpenAttentionWarning,
 }: {
   item: StarboardObjectItem;
+  attentionItems: WorkspaceAttentionItem[];
   selectedAttentionId?: string | null;
   onOpenAttentionWarning: (id: string) => void;
 }) {
+  const queryClient = useQueryClient();
+  const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const primary = item.actions.find((action) => action.icon !== "jump") ?? item.actions[0];
   const state = item.workState;
   const brief = buildSpatialObjectBrief(state);
   const usefulActions = item.actions.filter((action) => action !== primary).slice(0, 4);
-  const attentionWarning = brief?.warnings.find((signal) => signal.kind === "attention" && signal.id) ?? null;
+  const target = attentionTargetForObject(item);
+  const targetAttentionItems = findActiveAttentionItemsForObject(item, attentionItems);
+  const firstTargetAttention = targetAttentionItems[0] ?? null;
   const tone = brief?.tone ?? "muted";
   const toneClass = selectedInspectorToneClass(tone);
+  const acknowledgeTarget = () => {
+    if (!target || bulkAcknowledge.isPending) return;
+    bulkAcknowledge.mutate({
+      scope: "target",
+      target_kind: target.kind,
+      target_id: target.targetId,
+      channel_id: target.channelId,
+    }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: WORKSPACE_MAP_STATE_KEY });
+      },
+    });
+  };
   return (
     <section
       data-testid="map-brief-selected-object"
@@ -734,6 +757,43 @@ function SelectedObjectInspector({
       <div className="mt-2.5 text-sm leading-relaxed text-text-muted">
         {brief?.summary ?? "No live map state is attached to this object yet."}
       </div>
+      {target && targetAttentionItems.length > 0 && (
+        <div
+          data-testid="map-brief-attention-actions"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-raised/45 px-2.5 py-2"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-text">
+              <AlertTriangle size={13} className="text-danger" />
+              <span>{targetAttentionItems.length} active attention item{targetAttentionItems.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="mt-0.5 truncate text-xs text-text-dim">
+              {firstTargetAttention?.title ?? "Attention is active on this target."}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {firstTargetAttention && (
+              <button
+                type="button"
+                className="inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text"
+                onClick={() => onOpenAttentionWarning(firstTargetAttention.id)}
+              >
+                <ExternalLink size={13} />
+                Open in Attention
+              </button>
+            )}
+            <button
+              type="button"
+              className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:cursor-not-allowed disabled:text-text-dim"
+              disabled={bulkAcknowledge.isPending}
+              onClick={acknowledgeTarget}
+            >
+              <CheckCircle size={13} />
+              Acknowledge target
+            </button>
+          </div>
+        </div>
+      )}
       {(brief || usefulActions.length > 0) && (
         <div className="mt-2.5 grid gap-1.5">
           {brief && (
@@ -760,16 +820,6 @@ function SelectedObjectInspector({
                       highlighted={Boolean(signal.id && signal.id === selectedAttentionId)}
                     />
                   ))}
-                  {attentionWarning?.id && (
-                    <button
-                      type="button"
-                      className="mt-1 inline-flex min-h-7 w-fit items-center gap-1.5 rounded-md bg-surface-overlay/55 px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text"
-                      onClick={() => onOpenAttentionWarning(attentionWarning.id!)}
-                    >
-                      <ExternalLink size={13} />
-                      Open in Attention
-                    </button>
-                  )}
                 </InspectorSection>
               )}
               {!!brief.recent.length && (
@@ -827,6 +877,56 @@ function SelectedObjectMetaChips({ brief }: { brief: ReturnType<typeof buildSpat
       ))}
     </>
   );
+}
+
+type AttentionObjectTarget = {
+  kind: Extract<AttentionTargetKind, "channel" | "bot" | "widget">;
+  targetId: string;
+  channelId?: string | null;
+};
+
+function sourceString(state: WorkspaceMapObjectState | null | undefined, key: string): string | null {
+  const value = state?.source?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function attentionTargetForObject(item: StarboardObjectItem): AttentionObjectTarget | null {
+  const state = item.workState;
+  if (!state) return null;
+  if (item.kind === "channel") {
+    const targetId = state.target_id || sourceString(state, "channel_id");
+    if (!targetId) return null;
+    return { kind: "channel", targetId, channelId: sourceString(state, "channel_id") ?? targetId };
+  }
+  if (item.kind === "bot") {
+    const targetId = state.target_id || sourceString(state, "bot_id");
+    if (!targetId) return null;
+    return { kind: "bot", targetId };
+  }
+  if (item.kind === "widget") {
+    const targetId = state.target_id || sourceString(state, "widget_pin_id");
+    if (!targetId) return null;
+    return { kind: "widget", targetId, channelId: sourceString(state, "source_channel_id") };
+  }
+  return null;
+}
+
+function findActiveAttentionItemsForObject(item: StarboardObjectItem, items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
+  const target = attentionTargetForObject(item);
+  const attentionWarningIds = new Set(
+    (item.workState?.warnings ?? [])
+      .filter((signal) => signal.kind === "attention" && signal.id)
+      .map((signal) => signal.id!),
+  );
+  const targetMatches = (entry: WorkspaceAttentionItem) => {
+    if (attentionWarningIds.has(entry.id)) return true;
+    if (!target) return false;
+    if (entry.target_kind === target.kind && entry.target_id === target.targetId) return true;
+    if (target.kind === "channel" && (entry.channel_id === target.targetId || entry.channel_id === target.channelId)) return true;
+    if (target.channelId && entry.channel_id === target.channelId && entry.target_id === target.targetId) return true;
+    return false;
+  };
+  return items.filter((entry) => isActiveAttentionItem(entry) && targetMatches(entry));
 }
 
 function InspectorSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {

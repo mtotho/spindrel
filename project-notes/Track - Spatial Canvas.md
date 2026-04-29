@@ -180,6 +180,14 @@ the top three actionable objects from the Starboard object model, ranked by cue
 priority with viewport bias, and row hover/focus highlights the matching map
 cue. The feature adds no new persisted state and no new toggle.
 
+Same-day Map Brief actionability pass: selected objects with active Attention
+items now expose inline target actions in Map Brief. The primary path is
+`Acknowledge target`, backed by the existing bulk target acknowledge endpoint;
+`Open in Attention` remains secondary for full triage. The selected inspector
+keeps severity as compact chips/action copy instead of forcing users through a
+red information wall. The spatial screenshot scenario now searches for offscreen
+objects before selecting them and asserts the inline attention action exists.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |
