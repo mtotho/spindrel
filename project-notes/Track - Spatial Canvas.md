@@ -188,6 +188,13 @@ keeps severity as compact chips/action copy instead of forcing users through a
 red information wall. The spatial screenshot scenario now searches for offscreen
 objects before selecting them and asserts the inline attention action exists.
 
+Same-day map-first triage pass: the Action Compass is now a clearer
+`Needs action` queue instead of a vague `Now` box. Rows show target, object
+type, cue, reason, and count; the currently selected actionable object is pinned
+into the queue so the map, compass, and Map Brief agree on the active target.
+The screenshot scenario now asserts the compass exposes this queue language and
+marks the selected row.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

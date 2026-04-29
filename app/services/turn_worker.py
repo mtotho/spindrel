@@ -108,6 +108,38 @@ def _parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str,
     )
 
 
+async def _load_harness_channel_prompt_hint(db, channel_id: uuid.UUID | None):
+    """Return the channel prompt as a harness host instruction, if configured."""
+    if channel_id is None:
+        return None
+    from app.db.models import Channel
+    from app.services.agent_harnesses.base import HarnessContextHint
+    from app.services.prompt_resolution import resolve_workspace_file_prompt
+
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        return None
+
+    workspace_path = getattr(channel, "channel_prompt_workspace_file_path", None)
+    workspace_id = getattr(channel, "channel_prompt_workspace_id", None)
+    inline_prompt = getattr(channel, "channel_prompt", None) or ""
+    if workspace_path and workspace_id:
+        prompt = resolve_workspace_file_prompt(str(workspace_id), workspace_path, inline_prompt)
+    else:
+        prompt = inline_prompt
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return None
+    return HarnessContextHint(
+        kind="channel_prompt",
+        source="channel",
+        created_at=datetime.now(timezone.utc).isoformat(),
+        consume_after_next_turn=False,
+        priority="instruction",
+        text=prompt,
+    )
+
+
 async def _run_harness_turn(
     *,
     channel_id: uuid.UUID | None,
@@ -120,6 +152,7 @@ async def _run_harness_turn(
     msg_metadata: dict | None,
     pre_user_msg_id: uuid.UUID | None,
     suppress_outbox: bool,
+    is_heartbeat: bool = False,
     harness_model_override: str | None = None,
     harness_effort_override: str | None = None,
 ) -> tuple[str, str | None]:
@@ -151,7 +184,7 @@ async def _run_harness_turn(
             channel_id=channel_id, session_id=session_id, turn_id=turn_id,
             bot=bot, user_message=user_message, correlation_id=correlation_id,
             msg_metadata=msg_metadata, pre_user_msg_id=pre_user_msg_id,
-            suppress_outbox=suppress_outbox, error_text=msg,
+            suppress_outbox=suppress_outbox, is_heartbeat=is_heartbeat, error_text=msg,
             prior_session_id=None,
         )
     prior_session_id = await _load_prior_harness_session_id(session_id)
@@ -191,6 +224,8 @@ async def _run_harness_turn(
         harness_model = harness_model_override if harness_model_override is not None else harness_settings.model
         harness_effort = harness_effort_override if harness_effort_override is not None else harness_settings.effort
         context_hints = list(await load_context_hints(db, session_id))
+        if channel_prompt_hint := await _load_harness_channel_prompt_hint(db, channel_id):
+            context_hints.insert(0, channel_prompt_hint)
         harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
@@ -314,6 +349,7 @@ async def _run_harness_turn(
                     correlation_id=correlation_id,
                     msg_metadata=msg_metadata,
                     channel_id=channel_id,
+                    is_heartbeat=is_heartbeat,
                     pre_user_msg_id=pre_user_msg_id,
                     suppress_outbox=suppress_outbox,
                 )
@@ -371,6 +407,7 @@ async def _run_harness_turn(
                     correlation_id=correlation_id,
                     msg_metadata=msg_metadata,
                     channel_id=channel_id,
+                    is_heartbeat=is_heartbeat,
                     pre_user_msg_id=pre_user_msg_id,
                     suppress_outbox=suppress_outbox,
                 )
@@ -440,6 +477,7 @@ async def _run_harness_turn(
                 correlation_id=correlation_id,
                 msg_metadata=msg_metadata,
                 channel_id=channel_id,
+                is_heartbeat=is_heartbeat,
                 pre_user_msg_id=pre_user_msg_id,
                 suppress_outbox=suppress_outbox,
             )
@@ -664,6 +702,7 @@ async def _persist_harness_failure(
     suppress_outbox: bool,
     error_text: str,
     prior_session_id: str | None,
+    is_heartbeat: bool = False,
 ) -> tuple[str, str]:
     """Persist a turn-error assistant row when the harness can't run at all.
 
@@ -692,6 +731,7 @@ async def _persist_harness_failure(
                 correlation_id=correlation_id,
                 msg_metadata=msg_metadata,
                 channel_id=channel_id,
+                is_heartbeat=is_heartbeat,
                 pre_user_msg_id=pre_user_msg_id,
                 suppress_outbox=suppress_outbox,
             )

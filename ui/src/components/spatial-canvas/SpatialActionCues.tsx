@@ -102,6 +102,20 @@ function cueTitle(item: SpatialActionCueObject): string {
   return meta ? `${label}: ${meta}` : label;
 }
 
+function cueReason(item: SpatialActionCueObject): string {
+  return mapStateMeta(item.workState) ?? item.workState?.cue?.reason ?? kindLabel(item.kind);
+}
+
+function cueCountLabel(item: SpatialActionCueObject): string | null {
+  const intent = mapCueIntent(item.workState);
+  const counts = item.workState?.counts;
+  if (!counts) return null;
+  if (intent === "investigate" && counts.warnings > 0) return `${counts.warnings}`;
+  if (intent === "next" && counts.upcoming > 0) return `${counts.upcoming}`;
+  if (intent === "recent" && counts.recent > 0) return `${counts.recent}`;
+  return null;
+}
+
 function kindLabel(kind: SpatialActionCueObject["kind"]): string {
   if (kind === "channel") return "Channel";
   if (kind === "widget") return "Widget";
@@ -183,22 +197,38 @@ export function ActionCompass({
   highlightedObjectId: string | null;
   onHighlight: (id: string | null) => void;
 }) {
-  const items = topActionCompassItems(objects, viewport, 3);
+  const selectedItem = selectedObjectId
+    ? objects.find((item) => item.id === selectedObjectId && shouldRenderCueMarker(item)) ?? null
+    : null;
+  const rankedItems = topActionCompassItems(objects, viewport, selectedItem ? 6 : 3);
+  const items = selectedItem
+    ? [selectedItem, ...rankedItems.filter((item) => item.id !== selectedItem.id)].slice(0, 3)
+    : rankedItems.slice(0, 3);
   if (!items.length) return null;
   return (
     <div
       data-testid="spatial-action-compass"
-      className="absolute left-4 top-4 z-[2] w-[280px] rounded-md bg-surface-raised/90 p-1.5 text-sm text-text ring-1 ring-surface-border/70"
+      className="absolute left-4 top-4 z-[2] w-[320px] rounded-md bg-surface-raised/90 p-2 text-sm text-text ring-1 ring-surface-border/70"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">
-        Now
+      <div className="flex items-end justify-between gap-3 px-1 pb-1.5">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">
+            Needs action
+          </div>
+          <div className="mt-0.5 text-xs text-text-muted">
+            Best next clicks from live map state.
+          </div>
+        </div>
+        <span className="rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim">{items.length}</span>
       </div>
       <div className="space-y-1">
         {items.map((item, index) => {
           const intent = mapCueIntent(item.workState);
           const Icon = cueIcon(intent);
           const highlighted = highlightedObjectId === item.id;
+          const selected = item.id === selectedObjectId;
+          const count = cueCountLabel(item);
           return (
             <button
               key={item.id}
@@ -206,9 +236,10 @@ export function ActionCompass({
               data-testid="spatial-action-compass-row"
               data-spatial-action-compass-id={item.id}
               data-spatial-action-compass-intent={intent}
+              data-spatial-action-compass-selected={selected ? "true" : "false"}
               className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 ${
-                item.id === selectedObjectId || highlighted
-                  ? "bg-accent/[0.08]"
+                selected || highlighted
+                  ? "bg-accent/[0.08] ring-1 ring-accent/15"
                   : "hover:bg-surface-overlay/60 focus-visible:bg-surface-overlay/60"
               }`}
               onPointerEnter={() => onHighlight(item.id)}
@@ -221,12 +252,25 @@ export function ActionCompass({
                 <Icon size={12} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium text-text">{item.label}</span>
-                <span className="block truncate text-[11px] text-text-dim">
-                  {cueLabel(item)} - {kindLabel(item.kind)}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-xs font-medium text-text">{item.label}</span>
+                  <span className="shrink-0 rounded-full bg-surface-overlay/50 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-text-dim">
+                    {kindLabel(item.kind)}
+                  </span>
+                </span>
+                <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-text-dim">
+                  <span className="shrink-0 font-medium text-text-muted">{cueLabel(item)}</span>
+                  <span className="min-w-0 truncate">{cueReason(item)}</span>
                 </span>
               </span>
-              <span className="text-[10px] font-medium text-text-dim">{index + 1}</span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {count && (
+                  <span className="rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+                    {count}
+                  </span>
+                )}
+                <span className="text-[10px] font-medium text-text-dim">{index + 1}</span>
+              </span>
             </button>
           );
         })}

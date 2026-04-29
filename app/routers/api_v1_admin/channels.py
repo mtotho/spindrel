@@ -491,6 +491,12 @@ def _normalize_heartbeat_execution_config(value: Any) -> dict | None:
             raise HTTPException(status_code=400, detail="execution_config.history_recent_count must be an integer")
     if "skip_tool_approval" in value:
         out["skip_tool_approval"] = bool(value["skip_tool_approval"])
+    if "session_target" in value:
+        from app.services.session_targets import normalize_session_target
+        try:
+            out["session_target"] = normalize_session_target(value.get("session_target"))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     return out
 
 
@@ -1543,7 +1549,18 @@ async def admin_channel_heartbeat_update(
         from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
         heartbeat.execution_policy = normalize_heartbeat_execution_policy(updates["execution_policy"])
     if "execution_config" in updates:
-        heartbeat.execution_config = _normalize_heartbeat_execution_config(updates["execution_config"])
+        normalized_execution_config = _normalize_heartbeat_execution_config(updates["execution_config"])
+        if normalized_execution_config and "session_target" in normalized_execution_config:
+            from app.services.session_targets import validate_session_target_for_channel
+            try:
+                normalized_execution_config["session_target"] = await validate_session_target_for_channel(
+                    db,
+                    channel_id,
+                    normalized_execution_config["session_target"],
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        heartbeat.execution_config = normalized_execution_config
     if "runner_mode" in updates:
         heartbeat.runner_mode = updates["runner_mode"]
     if "harness_effort" in updates:

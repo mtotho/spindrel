@@ -515,6 +515,15 @@ class E2EClient:
         resp.raise_for_status()
         return str(resp.json()["new_session_id"])
 
+    async def switch_channel_session(self, channel_id: str, session_id: str) -> dict:
+        """POST /api/v1/channels/{channel_id}/switch-session."""
+        resp = await self._client.post(
+            f"/api/v1/channels/{channel_id}/switch-session",
+            json={"session_id": session_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_session_messages(self, session_id: str, limit: int = 50) -> list[dict]:
         """GET /api/v1/sessions/{session_id}/messages, normalized to the messages list."""
         resp = await self._client.get(
@@ -609,6 +618,24 @@ class E2EClient:
 
     async def patch_channel_config(self, channel_id: str, patch: dict[str, Any]) -> dict:
         resp = await self._client.patch(f"/api/v1/channels/{channel_id}/config", json=patch)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_channel_heartbeat(self, channel_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/heartbeat")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def patch_channel_heartbeat(self, channel_id: str, patch: dict[str, Any]) -> dict:
+        resp = await self._client.patch(
+            f"/api/v1/admin/channels/{channel_id}/heartbeat",
+            json=patch,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def fire_channel_heartbeat(self, channel_id: str) -> dict:
+        resp = await self._client.post(f"/api/v1/admin/channels/{channel_id}/heartbeat/fire")
         resp.raise_for_status()
         return resp.json()
 

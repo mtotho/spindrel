@@ -64,6 +64,11 @@ export interface TaskLayout {
   [key: string]: any;
 }
 
+export type SessionTarget =
+  | { mode: "primary" }
+  | { mode: "existing"; session_id: string }
+  | { mode: "new_each_run" };
+
 export interface TaskDetail {
   id: string;
   status: string;
@@ -84,6 +89,7 @@ export interface TaskDetail {
   parent_task_id?: string | null;
   run_isolation?: "inline" | "sub_session";
   run_session_id?: string | null;
+  session_target?: SessionTarget | null;
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
   execution_config?: Record<string, any> | null;
@@ -119,6 +125,7 @@ export interface TaskCreatePayload {
   bot_id: string;
   title?: string | null;
   channel_id?: string | null;
+  session_target?: SessionTarget | null;
   prompt_template_id?: string | null;
   workspace_file_path?: string | null;
   workspace_id?: string | null;
@@ -147,6 +154,7 @@ export interface TaskUpdatePayload {
   prompt?: string;
   bot_id?: string;
   title?: string | null;
+  channel_id?: string | null;
   prompt_template_id?: string | null;
   workspace_file_path?: string | null;
   workspace_id?: string | null;
@@ -170,6 +178,7 @@ export interface TaskUpdatePayload {
   post_final_to_channel?: boolean | null;
   history_mode?: "none" | "recent" | "full" | null;
   history_recent_count?: number | null;
+  session_target?: SessionTarget | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +289,8 @@ export interface RunTaskArgs {
   /** Optional bot override for the child run. Required when the pipeline
       declares execution_config.requires_bot = true. */
   bot_id?: string;
+  /** Optional run target override for the selected channel session. */
+  session_target?: SessionTarget | null;
 }
 
 export function useRunTaskNow() {
@@ -292,6 +303,7 @@ export function useRunTaskNow() {
       if (norm.params && Object.keys(norm.params).length > 0) body.params = norm.params;
       if (norm.channel_id) body.channel_id = norm.channel_id;
       if (norm.bot_id) body.bot_id = norm.bot_id;
+      if (norm.session_target) body.session_target = norm.session_target;
       return apiFetch<TaskDetail>(`/api/v1/admin/tasks/${norm.taskId}/run`, {
         method: "POST",
         ...(Object.keys(body).length > 0

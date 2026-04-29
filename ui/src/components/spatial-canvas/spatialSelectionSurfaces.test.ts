@@ -140,6 +140,12 @@ test("spatial glanceability uses shared cue markers and compass without side str
   assert.match(cueSource, /data-spatial-action-cue-halo/);
   assert.match(cueSource, /data-testid="spatial-action-compass"/);
   assert.match(cueSource, /topActionCompassItems/);
+  assert.match(cueSource, /Needs action/);
+  assert.match(cueSource, /Best next clicks from live map state/);
+  assert.match(cueSource, /data-spatial-action-compass-selected/);
+  assert.match(cueSource, /cueCountLabel/);
+  assert.match(cueSource, /selectedItem/);
+  assert.match(cueSource, /rankedItems\.filter\(\(item\) => item\.id !== selectedItem\.id\)/);
   assert.match(cueSource, /item\.id !== selectedObjectId/);
   assert.match(worldSource, /<SpatialActionCueLayer/);
   assert.match(overlaySource, /<ActionCompass/);

@@ -19,6 +19,7 @@ import { StepsJsonEditor } from "./StepsJsonEditor";
 import { StepsSchemaModal } from "./StepsSchemaModal";
 import { BotPicker } from "../BotPicker";
 import { ChannelPicker } from "../ChannelPicker";
+import { SessionTargetPicker } from "../SessionTargetPicker";
 import { ChipPicker, ToolMultiPicker } from "./ChipPicker";
 import type { TaskFormState } from "./useTaskFormState";
 
@@ -209,7 +210,7 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     harnessEffort, setHarnessEffort,
     fallbackModels, setFallbackModels,
     bots, channels, skillOptions, allTools,
-    isCreate,
+    sessionTarget, setSessionTarget,
     postFinalToChannel, setPostFinalToChannel,
     historyMode, setHistoryMode,
     historyRecentCount, setHistoryRecentCount,
@@ -232,6 +233,15 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           channels={channels ?? []}
           bots={bots}
           allowNone
+          disabled={disableChannel}
+        />
+      </FormRow>
+
+      <FormRow label="Run target" description="Choose which channel session scheduled and manual runs use.">
+        <SessionTargetPicker
+          channelId={channelId || null}
+          value={sessionTarget}
+          onChange={setSessionTarget}
           disabled={disableChannel}
         />
       </FormRow>

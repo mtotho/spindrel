@@ -11,11 +11,12 @@ import uuid
 
 from integrations.codex import schema
 from integrations.codex.harness import (
+    _build_turn_input,
     _build_thread_start_params,
     _build_turn_start_params,
     _parse_model_options,
 )
-from integrations.sdk import HarnessModelOption, TurnContext
+from integrations.sdk import HarnessContextHint, HarnessModelOption, TurnContext
 
 
 def _ctx(
@@ -80,6 +81,38 @@ def test_thread_start_keeps_legacy_sandbox_and_dynamic_tools_slot_separate():
     assert params["approvalPolicy"] == schema.APPROVAL_POLICY_UNLESS_TRUSTED
     assert params["sandbox"] == schema.SANDBOX_WORKSPACE_WRITE
     assert "sandboxPolicy" not in params
+
+
+def test_turn_input_renders_host_instructions_before_context_hints():
+    ctx = _ctx()
+    ctx = TurnContext(
+        **{
+            **ctx.__dict__,
+            "context_hints": (
+                HarnessContextHint(
+                    kind="compact_summary",
+                    text="remember the prior deploy",
+                    created_at="2026-04-28T00:00:00+00:00",
+                    source="compact",
+                ),
+                HarnessContextHint(
+                    kind="channel_prompt",
+                    text="always mention channel prompt marker",
+                    created_at="2026-04-28T00:00:01+00:00",
+                    source="channel",
+                    priority="instruction",
+                    consume_after_next_turn=False,
+                ),
+            ),
+        }
+    )
+
+    [item] = _build_turn_input("current user request", ctx)
+    text = item["text"]
+
+    assert text.index("<spindrel_host_instructions>") < text.index("<spindrel_context_hints>")
+    assert text.index("always mention channel prompt marker") < text.index("remember the prior deploy")
+    assert text.endswith("current user request")
 
 
 def test_parse_model_options_preserves_per_model_efforts_and_defaults():

@@ -320,6 +320,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             browser = await pw.chromium.launch(headless=True)
             try:
                 for spec in specs:
+                    print(f"capturing {spec.name}", flush=True)
                     if spec.channel_id and spec.chat_mode:
                         await _api(
                             client,
@@ -334,7 +335,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                         api_key=api_key,
                         output_dir=output_dir,
                     )
-                    print(f"captured {spec.name}: {path}")
+                    print(f"captured {spec.name}: {path}", flush=True)
                     paths.append(path)
             finally:
                 await browser.close()

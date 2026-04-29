@@ -309,6 +309,9 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             max_run_seconds=schedule.max_run_seconds,
             workflow_id=schedule.workflow_id,
             workflow_session_mode=schedule.workflow_session_mode,
+            steps=list(schedule.steps) if schedule.steps else None,
+            layout=dict(schedule.layout) if schedule.layout else {},
+            run_isolation=schedule.run_isolation or "inline",
             created_at=datetime.now(timezone.utc),
         )
         db.add(concrete)
@@ -469,6 +472,9 @@ async def _spawn_from_event_trigger(template_id: uuid.UUID, event_data: dict) ->
             max_run_seconds=template.max_run_seconds,
             workflow_id=template.workflow_id,
             workflow_session_mode=template.workflow_session_mode,
+            steps=list(template.steps) if template.steps else None,
+            layout=dict(template.layout) if template.layout else {},
+            run_isolation=template.run_isolation or "inline",
             created_at=datetime.now(timezone.utc),
         )
         db.add(concrete)
@@ -1191,6 +1197,7 @@ async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uu
             },
             pre_user_msg_id=None,
             suppress_outbox=bool(prepared.ecfg.get("session_scoped")) or task.channel_id is None or task.task_type == "heartbeat",
+            is_heartbeat=task.task_type == "heartbeat",
             harness_model_override=prepared.ecfg.get("model_override") or None,
             harness_effort_override=prepared.ecfg.get("harness_effort") or None,
         ),
@@ -1541,31 +1548,29 @@ async def _run_normal_agent_task(
 
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
-    if await _dispatch_to_specialized_runner(task):
+    _task_channel: Channel | None = None
+    try:
+        from app.services.session_targets import resolve_task_session_target
+
+        async with async_session() as db:
+            _, _task_channel = await resolve_task_session_target(db, task)
+            await db.commit()
+    except ValueError as exc:
+        logger.warning("Task %s failed session-target resolution: %s", task.id, exc)
+        await _mark_task_failed_in_db(task.id, error=str(exc)[:4000])
+        await _fire_task_complete(task, "failed")
+        if task.task_type == "heartbeat":
+            await _finalize_heartbeat_task_run(
+                task,
+                status="failed",
+                result_text=None,
+                error_text=str(exc)[:4000],
+                correlation_id=None,
+            )
         return
 
-    # Resolve the channel's current active session so tasks always run in the
-    # live session, not a stale session_id captured at task-creation time.
-    # (Heartbeats already do this in fire_heartbeat; tasks created by bots via
-    # create_task or _schedule_next_occurrence can hold an outdated session_id
-    # after a channel session reset.)
-    # Skip for workflow tasks — they use dedicated per-step sessions to avoid
-    # polluting chat and to prevent session lock contention.
-    # Skip for delegation tasks — they preserve their original parent session_id
-    # so cross-bot detection can correctly identify the parent and create a
-    # proper child session with the right linkage.
-    _task_channel: Channel | None = None
-    if task.channel_id and task.task_type not in ("workflow", "delegation", "eval"):
-        async with async_session() as db:
-            channel = await db.get(Channel, task.channel_id)
-            if channel:
-                _task_channel = channel
-                if channel.active_session_id and task.session_id != channel.active_session_id:
-                    logger.info(
-                        "Task %s: resolving stale session %s → channel active session %s",
-                        task.id, task.session_id, channel.active_session_id,
-                    )
-                    task.session_id = channel.active_session_id
+    if await _dispatch_to_specialized_runner(task):
+        return
 
     # Respect the per-session active lock.  If a streaming HTTP request is still
     # running for this session, defer this task by 10 seconds rather than running

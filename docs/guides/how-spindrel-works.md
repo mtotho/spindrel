@@ -111,6 +111,28 @@ On every message, Spindrel's context assembly pipeline runs:
 
 The result: the bot has exactly the right tools, knowledge, and context for this channel's purpose — assembled fresh on every request.
 
+### Chat attachments
+
+The web composer accepts drag-and-drop files as part of the same channel turn.
+Small images stay inline so multimodal models can inspect them directly. Larger
+images and general files upload into the channel workspace under
+`data/uploads/YYYY-MM-DD/`, then the turn includes hidden model-facing context
+that points the bot at those uploaded files. The visible user message is not
+prefixed with file-system boilerplate.
+
+![Composer drop target for channel attachments](../images/chat-attachments-drop-overlay.png)
+
+While files are pending, the composer shows where each item will go: inline
+images are marked for agent context, and channel-data uploads show their target
+workspace path.
+
+![Attachment routing tray showing inline and data uploads](../images/chat-attachments-routing-tray.png)
+
+After send, the transcript keeps optimistic image previews and file receipts in
+view so the user can see what was attached and where data files landed.
+
+![Sent message with attachment previews and workspace file receipts](../images/chat-attachments-sent-receipts.png)
+
 ---
 
 ## Pipelines and Sub-Sessions

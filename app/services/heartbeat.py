@@ -944,6 +944,7 @@ async def _run_harness_heartbeat_if_needed(
             },
             pre_user_msg_id=None,
             suppress_outbox=not bool(hb.dispatch_results),
+            is_heartbeat=True,
             harness_model_override=(hb.model or None),
             harness_effort_override=(getattr(hb, "harness_effort", None) or None),
         )

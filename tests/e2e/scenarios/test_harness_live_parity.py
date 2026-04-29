@@ -8,15 +8,18 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 - ``core`` (default): runtime controls, trace, status, basic context telemetry.
 - ``bridge``: core plus Spindrel bridge discovery/invocation persistence.
 - ``plan``: bridge plus native plan-mode round-trip checks.
-- ``writes``: plan plus safe temporary workspace write/read/delete.
+- ``heartbeat``: plan plus channel prompt and manual heartbeat harness runs.
+- ``writes``: heartbeat plus safe temporary workspace write/read/delete.
 - ``context``: writes plus context-pressure and native compaction checks.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -34,8 +37,9 @@ TIER_ORDER = {
     "core": 0,
     "bridge": 1,
     "plan": 2,
-    "writes": 3,
-    "context": 4,
+    "heartbeat": 3,
+    "writes": 4,
+    "context": 5,
 }
 
 
@@ -191,6 +195,77 @@ def _message_mentions_any_tool(message: dict, names: tuple[str, ...]) -> bool:
 
 def _assistant_messages(messages: list[dict]) -> list[dict]:
     return [message for message in messages if message.get("role") == "assistant"]
+
+
+def _message_metadata(message: dict) -> dict:
+    meta = message.get("metadata")
+    return meta if isinstance(meta, dict) else {}
+
+
+def _heartbeat_restore_patch(config: dict | None) -> dict[str, Any]:
+    if not config:
+        return {
+            "enabled": False,
+            "prompt": "",
+            "dispatch_results": False,
+            "runner_mode": None,
+            "harness_effort": None,
+        }
+    keys = (
+        "enabled",
+        "interval_minutes",
+        "model",
+        "model_provider_id",
+        "fallback_models",
+        "prompt",
+        "prompt_template_id",
+        "workspace_file_path",
+        "workspace_id",
+        "dispatch_results",
+        "dispatch_mode",
+        "trigger_response",
+        "quiet_start",
+        "quiet_end",
+        "timezone",
+        "max_run_seconds",
+        "previous_result_max_chars",
+        "repetition_detection",
+        "workflow_id",
+        "workflow_session_mode",
+        "skip_tool_approval",
+        "append_spatial_prompt",
+        "append_spatial_map_overview",
+        "include_pinned_widgets",
+        "execution_policy",
+        "execution_config",
+        "runner_mode",
+        "harness_effort",
+    )
+    return {key: config.get(key) for key in keys if key in config}
+
+
+async def _wait_for_new_heartbeat_run(
+    client: E2EClient,
+    channel_id: str,
+    *,
+    previous_ids: set[str],
+    timeout: float,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    terminal = {"complete", "failed", "cancelled", "deferred"}
+    latest: dict | None = None
+    while time.monotonic() < deadline:
+        payload = await client.get_channel_heartbeat(channel_id)
+        history = payload.get("history") or []
+        for run in history:
+            if str(run.get("id")) in previous_ids:
+                continue
+            latest = run
+            if str(run.get("status")) in terminal:
+                return run
+            break
+        await asyncio.sleep(2)
+    raise AssertionError(f"heartbeat run did not finish within {timeout}s; latest={latest}")
 
 
 def _has_persisted_tool_transcript(message: dict) -> bool:
@@ -580,6 +655,93 @@ async def test_live_harness_plan_mode_round_trip(
     assert after_status["session_plan_mode"] == "planning"
     assert after_status["runtime"] == case.runtime
     _assert_bridge_baseline(after_status)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_channel_prompt_and_manual_heartbeat(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("heartbeat")
+    channel_id, bot_id = _configured_case(case)
+    original_config = await client.get_channel_config(channel_id)
+    original_session_id = str(original_config.get("active_session_id") or "")
+    heartbeat_before = await client.get_channel_heartbeat(channel_id)
+    original_heartbeat = heartbeat_before.get("config")
+    previous_run_ids = {str(run.get("id")) for run in (heartbeat_before.get("history") or [])}
+    session_id = await client.create_channel_session(channel_id)
+    marker = uuid.uuid4().hex[:12]
+
+    try:
+        await client.switch_channel_session(channel_id, session_id)
+        _model, effort, _caps = await _configure_low_cost_session(client, case, session_id)
+        await client.patch_channel_config(
+            channel_id,
+            {
+                "channel_prompt": (
+                    f"Harness channel prompt marker {marker}. "
+                    f"When asked for host prompt diagnostics, mention {marker}."
+                ),
+            },
+        )
+        await client.patch_channel_heartbeat(
+            channel_id,
+            {
+                "enabled": False,
+                "prompt": (
+                    f"Harness manual heartbeat marker {marker}. "
+                    f"Reply with exactly: heartbeat ok {marker}"
+                ),
+                "dispatch_results": False,
+                "runner_mode": "harness",
+                "harness_effort": effort,
+                "max_run_seconds": int(_timeout()),
+            },
+        )
+
+        await client.fire_channel_heartbeat(channel_id)
+        run = await _wait_for_new_heartbeat_run(
+            client,
+            channel_id,
+            previous_ids=previous_run_ids,
+            timeout=_timeout(),
+        )
+        assert run["status"] == "complete", run
+        assert run.get("correlation_id"), run
+        assert marker in str(run.get("result") or ""), run
+
+        messages = await client.get_session_messages(session_id, limit=20)
+        assistants = _assistant_messages(messages)
+        heartbeat_messages = [
+            message for message in assistants
+            if _message_metadata(message).get("is_heartbeat") is True
+        ]
+        assert heartbeat_messages, "manual harness heartbeat did not persist an assistant heartbeat row"
+        harness_meta = _message_metadata(heartbeat_messages[-1]).get("harness") or {}
+        hints = harness_meta.get("last_hints_sent") or []
+        assert any(
+            hint.get("kind") == "channel_prompt"
+            and hint.get("priority") == "instruction"
+            and marker in str(hint.get("text") or "")
+            for hint in hints
+            if isinstance(hint, dict)
+        ), f"channel prompt instruction was not present in heartbeat harness hints: {hints}"
+
+        status = await client.get_session_harness_status(session_id)
+        assert status["runtime"] == case.runtime
+        assert status["harness_session_id"], "heartbeat did not persist native harness session id"
+    finally:
+        await client.patch_channel_heartbeat(
+            channel_id,
+            _heartbeat_restore_patch(original_heartbeat),
+        )
+        await client.patch_channel_config(
+            channel_id,
+            {"channel_prompt": original_config.get("channel_prompt")},
+        )
+        if original_session_id:
+            await client.switch_channel_session(channel_id, original_session_id)
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

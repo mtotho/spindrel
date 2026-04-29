@@ -1,8 +1,11 @@
 """Unit tests for usage forecast logic — timezone handling, recurrence parsing,
 and model-based cost estimation."""
+import ast
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 
@@ -93,14 +96,32 @@ class TestForecastTimezone:
         assert today_start == datetime(2026, 3, 8, 5, 0, 0, tzinfo=timezone.utc)
 
 
+class TestForecastWindow:
+    """Test the forecast service's timezone window helper."""
+
+    def test_build_forecast_window_uses_local_boundaries(self, monkeypatch):
+        from app.services import usage_forecast
+
+        monkeypatch.setattr(usage_forecast.settings, "TIMEZONE", "America/New_York")
+        now_utc = datetime(2026, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
+
+        window = usage_forecast._build_forecast_window(now_utc)
+
+        assert window.today_start == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
+        assert window.month_start == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
+        assert window.seven_days_ago == datetime(2026, 3, 25, 16, 0, 0, tzinfo=timezone.utc)
+        assert window.hours_elapsed == 12.0
+        assert window.days_elapsed == 0.5
+
+
 class TestPeriodStartTimezone:
     """Test that _period_start in usage_limits respects configured timezone."""
 
-    @patch("app.config.settings")
-    def test_daily_uses_local_midnight(self, mock_settings):
-        mock_settings.TIMEZONE = "America/New_York"
+    def test_daily_uses_local_midnight(self, monkeypatch):
+        from app.config import settings
         from app.services.usage_limits import _period_start
 
+        monkeypatch.setattr(settings, "TIMEZONE", "America/New_York")
         now_utc = datetime(2026, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
         with patch("app.services.usage_limits.datetime") as mock_dt:
             mock_dt.now.return_value = now_utc
@@ -109,11 +130,11 @@ class TestPeriodStartTimezone:
             result = _period_start("daily")
             assert result == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
 
-    @patch("app.config.settings")
-    def test_monthly_uses_local_first_of_month(self, mock_settings):
-        mock_settings.TIMEZONE = "America/New_York"
+    def test_monthly_uses_local_first_of_month(self, monkeypatch):
+        from app.config import settings
         from app.services.usage_limits import _period_start
 
+        monkeypatch.setattr(settings, "TIMEZONE", "America/New_York")
         now_utc = datetime(2026, 4, 15, 16, 0, 0, tzinfo=timezone.utc)
         with patch("app.services.usage_limits.datetime") as mock_dt:
             mock_dt.now.return_value = now_utc
@@ -122,11 +143,11 @@ class TestPeriodStartTimezone:
             result = _period_start("monthly")
             assert result == datetime(2026, 4, 1, 4, 0, 0, tzinfo=timezone.utc)
 
-    @patch("app.config.settings")
-    def test_invalid_period_raises(self, mock_settings):
-        mock_settings.TIMEZONE = "America/New_York"
+    def test_invalid_period_raises(self, monkeypatch):
+        from app.config import settings
         from app.services.usage_limits import _period_start
 
+        monkeypatch.setattr(settings, "TIMEZONE", "America/New_York")
         with patch("app.services.usage_limits.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
             mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
@@ -179,26 +200,18 @@ class TestModelBasedTaskForecast:
 
     def test_model_avg_cost_computation(self):
         """Average cost per model is total_cost / call_count."""
-        from collections import defaultdict
+        from app.services.usage_forecast import _compute_model_average_costs
 
-        # Simulate the model avg cost computation from the forecast
-        model_cost_sum: dict[str, float] = defaultdict(float)
-        model_call_count: dict[str, int] = defaultdict(int)
+        events = [
+            SimpleNamespace(data={"model": "gemini/gemini-2.0-flash", "response_cost": cost})
+            for cost in [0.001, 0.002, 0.001]
+        ]
+        events.extend(
+            SimpleNamespace(data={"model": "gpt-4o", "response_cost": cost})
+            for cost in [0.05, 0.03]
+        )
 
-        # 3 calls to gemini-flash at different costs
-        for cost in [0.001, 0.002, 0.001]:
-            model_cost_sum["gemini/gemini-2.0-flash"] += cost
-            model_call_count["gemini/gemini-2.0-flash"] += 1
-
-        # 2 calls to gpt-4o
-        for cost in [0.05, 0.03]:
-            model_cost_sum["gpt-4o"] += cost
-            model_call_count["gpt-4o"] += 1
-
-        model_avg_cost = {
-            m: model_cost_sum[m] / model_call_count[m]
-            for m in model_cost_sum if model_call_count[m] > 0
-        }
+        model_avg_cost = _compute_model_average_costs(events, pricing={}, ptype_map={})
 
         assert abs(model_avg_cost["gemini/gemini-2.0-flash"] - 0.001333) < 0.001
         assert abs(model_avg_cost["gpt-4o"] - 0.04) < 0.001
@@ -222,3 +235,39 @@ class TestModelBasedTaskForecast:
         model_avg_cost = {"gpt-4o": 0.04}
         avg_cost = model_avg_cost.get("some-unknown-model", 0.0)
         assert avg_cost == 0.0
+
+
+class TestForecastProjectionHelpers:
+    """Test component projection helpers."""
+
+    def test_projected_totals_add_fixed_plans_after_max_variable_or_trajectory(self):
+        from app.schemas.usage import ForecastComponent
+        from app.services.usage_forecast import _compute_projected_totals
+
+        components = [
+            ForecastComponent(source="recurring_tasks", label="Recurring", daily_cost=2.0, monthly_cost=60.0),
+            ForecastComponent(source="trajectory", label="Current pace", daily_cost=10.0, monthly_cost=300.0),
+            ForecastComponent(source="fixed_plans", label="Fixed plans", daily_cost=1.33, monthly_cost=40.0),
+        ]
+
+        projected_daily, projected_monthly = _compute_projected_totals(components)
+
+        assert projected_daily == 11.33
+        assert projected_monthly == 340.0
+
+
+class TestUsageForecastArchitecture:
+    """Architecture guard for usage forecast read-model depth."""
+
+    def test_build_usage_forecast_remains_coordinator_sized(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        source = (repo_root / "app" / "services" / "usage_forecast.py").read_text()
+        tree = ast.parse(source)
+
+        node = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "build_usage_forecast"
+        )
+
+        assert node.end_lineno is not None
+        assert node.end_lineno - node.lineno + 1 <= 60

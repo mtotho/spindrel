@@ -50,6 +50,13 @@ steps:
 
 **Admin → Tasks → New Task → Steps tab.** Each step is an expandable card with type-specific fields and a condition editor.
 
+When a Pipeline is launched from a channel, the pre-run pane exposes the same
+run-target selector used by scheduled prompts and heartbeats: primary session,
+one existing channel session, or a fresh visible session for that run. This is
+stored as `execution_config.session_target` on the concrete run and is separate
+from `run_isolation` / `run_session_id`, which only control the pipeline
+transcript session.
+
 ---
 
 ## Step Types

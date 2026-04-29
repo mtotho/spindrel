@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type StepDef, type TaskLayout } from "@/src/api/hooks/useTasks";
+import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type SessionTarget, type StepDef, type TaskLayout } from "@/src/api/hooks/useTasks";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { localInputToISO, isoToLocalInput } from "@/src/utils/time";
@@ -47,7 +47,8 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [workspaceFilePath, setWorkspaceFilePath] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
-  const [channelId, setChannelId] = useState("");
+  const [channelId, setRawChannelId] = useState("");
+  const [sessionTarget, setSessionTarget] = useState<SessionTarget>({ mode: "primary" });
   const [status, setStatus] = useState("pending");
   const [taskType, setTaskType] = useState("scheduled");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -83,7 +84,8 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setWorkspaceFilePath(existingTask.workspace_file_path ?? null);
       setWorkspaceId(existingTask.workspace_id ?? null);
       setBotId(existingTask.bot_id || "");
-      setChannelId(existingTask.channel_id || "");
+      setRawChannelId(existingTask.channel_id || "");
+      setSessionTarget(existingTask.session_target ?? (existingTask.execution_config?.session_target as SessionTarget | undefined) ?? { mode: "primary" });
       setStatus(existingTask.status || "pending");
       setTaskType(existingTask.task_type || "scheduled");
       setScheduledAt(existingTask.scheduled_at ? isoToLocalInput(existingTask.scheduled_at) : "");
@@ -119,7 +121,8 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setWorkspaceFilePath(existingTask.workspace_file_path ?? null);
       setWorkspaceId(existingTask.workspace_id ?? null);
       setBotId(existingTask.bot_id || "");
-      setChannelId(existingTask.channel_id || "");
+      setRawChannelId(existingTask.channel_id || "");
+      setSessionTarget(existingTask.session_target ?? (existingTask.execution_config?.session_target as SessionTarget | undefined) ?? { mode: "primary" });
       setTaskType(existingTask.task_type || "scheduled");
       setScheduledAt("");
       setRecurrence(existingTask.recurrence || "");
@@ -149,9 +152,15 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     if (initialized || !isCreate || cloneFromId) return;
     if (!bots || bots.length === 0) return;
     setBotId(defaultBotId || bots[0].id);
-    setChannelId(defaultChannelId || "");
+    setRawChannelId(defaultChannelId || "");
+    setSessionTarget({ mode: "primary" });
     setInitialized(true);
   }, [initialized, isCreate, cloneFromId, bots, defaultBotId, defaultChannelId]);
+
+  const setChannelId = useCallback((nextChannelId: string) => {
+    setRawChannelId(nextChannelId);
+    setSessionTarget({ mode: "primary" });
+  }, []);
 
   // Derived
   const saving = createMut.isPending || updateMut.isPending;
@@ -192,6 +201,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           workspace_id: workspaceId,
           bot_id: botId,
           channel_id: channelId || null,
+          session_target: channelId ? sessionTarget : null,
           scheduled_at: scheduledAtISO,
           recurrence: effectiveRecurrence,
           task_type: effectiveTaskType,
@@ -220,6 +230,8 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           workspace_file_path: workspaceFilePath,
           workspace_id: workspaceId,
           bot_id: botId,
+          channel_id: channelId || null,
+          session_target: channelId ? sessionTarget : null,
           status,
           scheduled_at: scheduledAtISO,
           recurrence: effectiveRecurrence,
@@ -244,7 +256,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
+  }, [prompt, title, botId, channelId, sessionTarget, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -285,6 +297,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     workspaceId, setWorkspaceId,
     botId, setBotId,
     channelId, setChannelId,
+    sessionTarget, setSessionTarget,
     status, setStatus,
     taskType, setTaskType,
     scheduledAt, setScheduledAt,

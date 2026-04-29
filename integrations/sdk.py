@@ -309,6 +309,7 @@ from app.services.agent_harnesses.base import (  # noqa: E402, F401
     RuntimeCapabilities,
     TurnContext,
     TurnResult,
+    render_context_hints_for_prompt,
 )
 from app.services.agent_harnesses import register_runtime  # noqa: E402, F401
 from app.services.agent_harnesses.approvals import (  # noqa: E402, F401

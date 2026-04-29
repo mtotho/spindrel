@@ -24,11 +24,13 @@ The bot now runs that prompt every 60 minutes and posts the result to the channe
 
 The heartbeat worker polls every 30 seconds for due heartbeats. When one fires:
 
-1. The **prompt is resolved** (workspace file → template → inline → global fallback)
-2. **Metadata is injected** — current time, channel activity since last run, previous results
-3. The bot **runs the prompt** with all its normal tools, skills, and capabilities
-4. The result is **dispatched** based on dispatch mode (auto-post or LLM decides)
-5. The **next run is scheduled** using clock-aligned intervals
+1. A concrete run is queued through the same Task runner used by scheduled prompts and pipelines.
+2. The **run target** is resolved: primary channel session, one selected existing session, or a fresh visible session for that run.
+3. The **prompt is resolved** (workspace file → template → inline → global fallback).
+4. **Heartbeat metadata and surfaces are injected** — current time, channel activity since last run, previous results, spatial context, pinned widget context, and heartbeat-specific tool policy.
+5. The bot **runs the prompt** with the heartbeat context profile and the configured tool/skill selections.
+6. The result is **dispatched** based on dispatch mode (auto-post or LLM decides).
+7. The **next run is scheduled** using clock-aligned intervals.
 
 ### Clock-Aligned Scheduling
 
@@ -92,6 +94,22 @@ Set `dispatch_results: false` to save results to the database without posting an
 ### Trigger Response
 
 Set `trigger_response: true` to create a follow-up task after the heartbeat completes. The bot can then react asynchronously — useful for chained automations where the heartbeat detects something and a second agent action handles it.
+
+---
+
+## Run Target
+
+Heartbeats use the same session-target policy as scheduled prompts:
+
+| UI option | Stored policy | Behavior |
+|---|---|---|
+| **Primary session** | `{"mode": "primary"}` | Use the channel's current main session. This is the default. |
+| **Existing session** | `{"mode": "existing", "session_id": "..."}` | Run against one visible session from the channel's session list. |
+| **New session each run** | `{"mode": "new_each_run"}` | Create a fresh visible channel session for every heartbeat run. |
+
+The policy is stored in `execution_config.session_target`. It is separate from
+pipeline `run_isolation` / `run_session_id`, which only controls pipeline run
+transcripts and anchor cards.
 
 ---
 

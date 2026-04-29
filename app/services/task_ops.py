@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Task
+from app.db.models import Channel, Task
 
 
 async def spawn_child_run(
@@ -13,6 +13,7 @@ async def spawn_child_run(
     params: dict | None = None,
     channel_id: uuid.UUID | None = None,
     bot_id: str | None = None,
+    session_target: dict | None = None,
 ) -> Task:
     """Spawn a concrete child task from a task definition.
 
@@ -32,6 +33,9 @@ async def spawn_child_run(
         bot_id: Optional bot override. When provided, the child's agent
             steps (and any bot-scoped tool calls) run under this bot
             instead of inheriting from the parent.
+        session_target: Optional one-run override for the channel session
+            target. When omitted and ``channel_id`` is overridden, the child
+            defaults to the target channel's primary session.
 
     Raises:
         ValueError: If parent not found or not a valid definition.
@@ -78,6 +82,16 @@ async def spawn_child_run(
     requires_bot = bool((parent.execution_config or {}).get("requires_bot"))
     effective_channel_id = channel_id if channel_id is not None else parent.channel_id
     effective_bot_id = bot_id or parent.bot_id
+    effective_client_id = parent.client_id
+    effective_dispatch_type = parent.dispatch_type
+    effective_dispatch_config = dict(parent.dispatch_config) if parent.dispatch_config else None
+    if channel_id is not None:
+        channel = await db.get(Channel, channel_id)
+        if channel is None:
+            raise ValueError(f"Channel {channel_id} not found.")
+        effective_client_id = channel.client_id
+        effective_dispatch_type = channel.integration if channel.integration and channel.dispatch_config else "none"
+        effective_dispatch_config = dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None
     missing: list[str] = []
     if requires_channel and effective_channel_id is None:
         missing.append("channel_id")
@@ -89,10 +103,29 @@ async def spawn_child_run(
             f"(declared via execution_config.requires_* on the definition)."
         )
 
+    from app.services.session_targets import validate_session_target_for_channel
+
+    if session_target is not None:
+        resolved_session_target = await validate_session_target_for_channel(
+            db,
+            effective_channel_id,
+            session_target,
+        )
+    elif channel_id is not None:
+        resolved_session_target = {"mode": "primary"}
+    else:
+        resolved_session_target = await validate_session_target_for_channel(
+            db,
+            effective_channel_id,
+            (exec_cfg or {}).get("session_target"),
+        )
+    exec_cfg = exec_cfg or {}
+    exec_cfg["session_target"] = resolved_session_target
+
     concrete = Task(
         bot_id=effective_bot_id,
-        client_id=parent.client_id,
-        session_id=parent.session_id,
+        client_id=effective_client_id,
+        session_id=None if channel_id is not None else parent.session_id,
         channel_id=effective_channel_id,
         prompt=prompt,
         title=parent.title,
@@ -102,8 +135,8 @@ async def spawn_child_run(
         scheduled_at=datetime.now(timezone.utc),
         status="pending",
         task_type=parent.task_type,
-        dispatch_type=parent.dispatch_type,
-        dispatch_config=dict(parent.dispatch_config) if parent.dispatch_config else None,
+        dispatch_type=effective_dispatch_type,
+        dispatch_config=effective_dispatch_config,
         callback_config=dict(parent.callback_config) if parent.callback_config else None,
         execution_config=exec_cfg,
         recurrence=None,

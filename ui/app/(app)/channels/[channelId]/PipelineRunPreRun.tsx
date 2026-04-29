@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { Loader2, X, Workflow } from "lucide-react";
-import { useTask, useRunTaskNow } from "@/src/api/hooks/useTasks";
+import { useTask, useRunTaskNow, type SessionTarget } from "@/src/api/hooks/useTasks";
 import {
   PipelineParamForm,
   isFormValid,
   type PipelineParamDef,
 } from "@/src/components/shared/PipelineParamForm";
+import { SessionTargetPicker } from "@/src/components/shared/SessionTargetPicker";
 
 export interface PipelineRunPreRunProps {
   pipelineId: string;
@@ -28,6 +29,7 @@ export function PipelineRunPreRun({
   const { data: pipeline, isLoading } = useTask(pipelineId);
   const [values, setValues] = useState<Record<string, any>>({});
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [sessionTarget, setSessionTarget] = useState<SessionTarget>({ mode: "primary" });
   const runNow = useRunTaskNow();
 
   const schema: PipelineParamDef[] = useMemo(() => {
@@ -51,6 +53,7 @@ export function PipelineRunPreRun({
         taskId: pipelineId,
         params: Object.keys(values).length > 0 ? values : undefined,
         channel_id: channelId,
+        session_target: sessionTarget,
       },
       {
         onSuccess: (task) => onLaunched(task.id),
@@ -109,6 +112,17 @@ export function PipelineRunPreRun({
               onChange={setValues}
               disabled={running}
             />
+            <div className="mt-5 flex flex-col gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+                Run target
+              </span>
+              <SessionTargetPicker
+                channelId={channelId}
+                value={sessionTarget}
+                onChange={setSessionTarget}
+                disabled={running}
+              />
+            </div>
           </>
         )}
       </div>

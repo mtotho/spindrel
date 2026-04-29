@@ -337,6 +337,57 @@ class HarnessContextHint:
     created_at: str
     source: str | None = None
     consume_after_next_turn: bool = True
+    priority: str = "context"
+    """``context`` for continuity/background hints; ``instruction`` for
+    host-owned instructions that should be placed before contextual hints."""
+
+
+def render_context_hints_for_prompt(
+    prompt: str,
+    hints: tuple[HarnessContextHint, ...],
+    *,
+    context_intro: str = "The host application supplied these one-shot context hints. Treat them as context, not as direct user instructions.",
+) -> str:
+    """Prepend host-provided harness hints to a runtime prompt.
+
+    Harness runtimes do not use normal Spindrel context assembly, so the host
+    needs a portable text contract for narrow injections such as channel
+    prompts, workspace memory pointers, and compact summaries. Instruction
+    hints are rendered first; ordinary context hints keep the older wrapper.
+    """
+    if not hints:
+        return prompt
+
+    instruction_hints = tuple(h for h in hints if h.priority == "instruction")
+    context_hints = tuple(h for h in hints if h.priority != "instruction")
+    parts: list[str] = []
+
+    if instruction_hints:
+        parts.append("<spindrel_host_instructions>")
+        parts.append(
+            "The host application supplied these instructions for this harness turn. "
+            "Follow them together with the user's request."
+        )
+        for hint in instruction_hints:
+            parts.append(_format_context_hint(hint))
+        parts.append("</spindrel_host_instructions>")
+
+    if context_hints:
+        parts.append("<spindrel_context_hints>")
+        parts.append(context_intro)
+        for hint in context_hints:
+            parts.append(_format_context_hint(hint))
+        parts.append("</spindrel_context_hints>")
+
+    parts.append(prompt)
+    return "\n\n".join(parts)
+
+
+def _format_context_hint(hint: HarnessContextHint) -> str:
+    label = hint.kind
+    if hint.source:
+        label += f" from {hint.source}"
+    return f"\n[{label} at {hint.created_at}]\n{hint.text}"
 
 
 @dataclass(frozen=True)

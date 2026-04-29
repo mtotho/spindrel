@@ -11,6 +11,8 @@ import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
+import { SessionTargetPicker } from "@/src/components/shared/SessionTargetPicker";
+import type { SessionTarget } from "@/src/api/hooks/useTasks";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { apiFetch } from "@/src/api/client";
@@ -642,6 +644,7 @@ export function HeartbeatTab({
   const hasAction = isWorkflowMode
     ? !!hbForm.workflow_id
     : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt || hbForm.append_spatial_map_overview);
+  const sessionTarget = (hbForm.execution_config?.session_target as SessionTarget | undefined) ?? { mode: "primary" };
   const runNowLabel = hbFirePollStartedAt ? "Running..." : hbFired ? "Fired" : fireMutation.isPending ? "Firing..." : "Run Now";
   const runNowDisabled = hbDirty || !hasAction || fireMutation.isPending || !!hbFirePollStartedAt;
   const runNowTitle = hbDirty
@@ -740,6 +743,27 @@ export function HeartbeatTab({
             </Col>
           </Row>
         </Section>
+
+        {!isHarnessRunner && (
+          <Section title="Run Target">
+            <FormRow
+              label="Session"
+              description="Choose which channel session heartbeat runs use for chat context and output."
+            >
+              <SessionTargetPicker
+                channelId={channelId}
+                value={sessionTarget}
+                onChange={(target) => updateHbForm((f: any) => ({
+                  ...f,
+                  execution_config: {
+                    ...(f.execution_config ?? {}),
+                    session_target: target,
+                  },
+                }))}
+              />
+            </FormRow>
+          </Section>
+        )}
 
         {/* ---- Model Section ---- */}
         {isHarnessRunner ? (
@@ -888,19 +912,6 @@ export function HeartbeatTab({
                   </div>
                 );
               })()}
-              {hbForm.workflow_id && (
-                <FormRow label="Session Mode" description="Override the pipeline's session mode for heartbeat triggers.">
-                  <SelectInput
-                    value={hbForm.workflow_session_mode ?? ""}
-                    onChange={(v) => updateHbForm((f: any) => ({ ...f, workflow_session_mode: v || null }))}
-                    options={[
-                      { label: "Use pipeline default", value: "" },
-                      { label: "Isolated (no chat messages)", value: "isolated" },
-                      { label: "Shared (visible in chat)", value: "shared" },
-                    ]}
-                  />
-                </FormRow>
-              )}
             </div>
           ) : (
             /* ---- Prompt Editor ---- */

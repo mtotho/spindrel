@@ -58,6 +58,20 @@ class _FakePlanSessionFactory:
         return None
 
 
+class _FakeChannelPromptSessionFactory(_FakeSessionFactory):
+    def __init__(self, channel_prompt: str) -> None:
+        self.channel_prompt = channel_prompt
+
+    async def get(self, model, ident, *args, **kwargs):
+        if getattr(model, "__name__", "") == "Channel":
+            return SimpleNamespace(
+                channel_prompt=self.channel_prompt,
+                channel_prompt_workspace_file_path=None,
+                channel_prompt_workspace_id=None,
+            )
+        return None
+
+
 class _RuntimeCapturingContext:
     name = "codex"
 
@@ -220,6 +234,181 @@ async def test_harness_turn_context_carries_latest_harness_metadata(monkeypatch)
     assert text == "done"
     assert runtime.ctx is not None
     assert runtime.ctx.harness_metadata == latest_meta
+
+
+async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypatch):
+    runtime = _RuntimeCapturingContext()
+
+    async def _persist_turn(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.turn_worker.async_session",
+        _FakeChannelPromptSessionFactory("Channel prompt marker: PLAN-123"),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.get_runtime",
+        lambda runtime_name: runtime,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker._load_prior_harness_session_id",
+        lambda session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.persist_turn",
+        _persist_turn,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.load_session_mode",
+        lambda db, session_id: _async_value("default"),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.revoke_turn_bypass",
+        lambda turn_id: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.settings.load_session_settings",
+        lambda db, session_id: _async_value(
+            SimpleNamespace(model=None, effort=None, runtime_settings={})
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_context_hints",
+        lambda db, session_id: _async_value(()),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.clear_consumed_context_hints",
+        lambda db, session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
+        lambda db, session_id: _async_value(({}, None)),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
+
+    text, error = await _run_harness_turn(
+        channel_id=uuid.uuid4(),
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot=SimpleNamespace(
+            id="codex-bot",
+            harness_runtime="codex",
+            harness_workdir="/tmp",
+            memory_scheme=None,
+        ),
+        user_message="hello",
+        correlation_id=uuid.uuid4(),
+        msg_metadata=None,
+        pre_user_msg_id=None,
+        suppress_outbox=True,
+    )
+
+    assert error is None
+    assert text == "done"
+    assert runtime.ctx is not None
+    [hint] = runtime.ctx.context_hints
+    assert hint.kind == "channel_prompt"
+    assert hint.priority == "instruction"
+    assert hint.consume_after_next_turn is False
+    assert "PLAN-123" in hint.text
+
+
+async def test_harness_heartbeat_turn_marks_persisted_rows(monkeypatch):
+    runtime = _RuntimeCapturingContext()
+    persisted_kwargs: list[dict] = []
+
+    async def _persist_turn(*args, **kwargs):
+        persisted_kwargs.append(kwargs)
+        return None
+
+    monkeypatch.setattr(
+        "app.services.turn_worker.async_session",
+        _FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.get_runtime",
+        lambda runtime_name: runtime,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker._load_prior_harness_session_id",
+        lambda session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.persist_turn",
+        _persist_turn,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.load_session_mode",
+        lambda db, session_id: _async_value("default"),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.revoke_turn_bypass",
+        lambda turn_id: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.settings.load_session_settings",
+        lambda db, session_id: _async_value(
+            SimpleNamespace(model=None, effort=None, runtime_settings={})
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_context_hints",
+        lambda db, session_id: _async_value(()),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.clear_consumed_context_hints",
+        lambda db, session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
+        lambda db, session_id: _async_value(({}, None)),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
+
+    text, error = await _run_harness_turn(
+        channel_id=uuid.uuid4(),
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot=SimpleNamespace(
+            id="codex-bot",
+            harness_runtime="codex",
+            harness_workdir="/tmp",
+            memory_scheme=None,
+        ),
+        user_message="heartbeat",
+        correlation_id=uuid.uuid4(),
+        msg_metadata={"source": "heartbeat", "is_heartbeat": True},
+        pre_user_msg_id=None,
+        suppress_outbox=True,
+        is_heartbeat=True,
+    )
+
+    assert error is None
+    assert text == "done"
+    assert persisted_kwargs
+    assert persisted_kwargs[-1]["is_heartbeat"] is True
 
 
 async def test_harness_turn_cancel_persists_interrupted_tool_transcript(monkeypatch):

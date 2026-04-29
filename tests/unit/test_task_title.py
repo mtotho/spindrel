@@ -151,17 +151,26 @@ class TestListTasksTitle:
         task.id = uuid.uuid4()
         task.status = "complete"
         task.bot_id = "test-bot"
+        task.task_type = "scheduled"
         task.title = "My Title"
         task.prompt = "Do stuff"
         task.scheduled_at = datetime(2026, 3, 26, tzinfo=timezone.utc)
         task.run_at = None
         task.completed_at = None
+        task.created_at = datetime(2026, 3, 26, tzinfo=timezone.utc)
         task.dispatch_type = "none"
         task.recurrence = None
         task.run_count = 0
+        task.parent_task_id = None
         task.prompt_template_id = None
+        task.workspace_file_path = None
         task.result = None
         task.error = None
+        task.steps = None
+        task.step_states = None
+        task.execution_config = None
+        task.trigger_config = None
+        task.max_run_seconds = None
 
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=task)
@@ -188,6 +197,7 @@ class TestListTasksTitle:
         task.id = uuid.uuid4()
         task.status = "pending"
         task.bot_id = "test-bot"
+        task.task_type = "scheduled"
         task.title = "Short Title"
         task.prompt = "A very long prompt that should not appear in the list output because there is a title"
         task.scheduled_at = datetime(2026, 3, 26, tzinfo=timezone.utc)

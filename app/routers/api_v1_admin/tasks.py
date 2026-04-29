@@ -5,8 +5,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import and_, func, or_, select
@@ -57,6 +55,7 @@ class TaskDetailOut(BaseModel):
     parent_task_id: Optional[uuid.UUID] = None
     run_isolation: str = "inline"
     run_session_id: Optional[uuid.UUID] = None
+    session_target: Optional[dict] = None
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
     execution_config: Optional[dict] = None
@@ -101,6 +100,8 @@ class TaskDetailOut(BaseModel):
             self.harness_effort = ec.get("harness_effort") or None
         if not self.trigger_rag_loop:
             self.trigger_rag_loop = cb.get("trigger_rag_loop", False)
+        if self.session_target is None:
+            self.session_target = ec.get("session_target") or None
         return self
 
 
@@ -116,6 +117,7 @@ class TaskCreateIn(BaseModel):
     bot_id: str
     title: Optional[str] = None
     channel_id: Optional[uuid.UUID] = None
+    session_target: Optional[dict] = None
     prompt_template_id: Optional[uuid.UUID] = None
     workspace_file_path: Optional[str] = None
     workspace_id: Optional[uuid.UUID] = None
@@ -171,6 +173,7 @@ class TaskUpdateIn(BaseModel):
     prompt: Optional[str] = None
     bot_id: Optional[str] = None
     title: Optional[str] = None
+    channel_id: Optional[uuid.UUID] = None
     prompt_template_id: Optional[uuid.UUID] = None
     workspace_file_path: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -194,6 +197,7 @@ class TaskUpdateIn(BaseModel):
     post_final_to_channel: Optional[bool] = None
     history_mode: Optional[str] = None  # "none" | "recent" | "full"
     history_recent_count: Optional[int] = None
+    session_target: Optional[dict] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -626,6 +630,16 @@ async def admin_create_task(
         ec_extras["history_mode"] = body.history_mode
     if body.history_recent_count is not None:
         ec_extras["history_recent_count"] = int(body.history_recent_count)
+    if body.session_target is not None:
+        from app.services.session_targets import validate_session_target_for_channel
+        try:
+            ec_extras["session_target"] = await validate_session_target_for_channel(
+                db,
+                channel_id,
+                body.session_target,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     if cb_extras:
         callback_config = cb_extras
     if ec_extras:
@@ -715,6 +729,36 @@ async def admin_update_task(
         if field in updates:
             setattr(task, field, updates[field])
 
+    if "channel_id" in updates:
+        channel_id = updates["channel_id"]
+        if channel_id:
+            channel = await db.get(Channel, channel_id)
+            if not channel:
+                raise HTTPException(status_code=404, detail="Channel not found")
+            task.channel_id = channel.id
+            task.client_id = channel.client_id
+            task.session_id = channel.active_session_id
+            if channel.integration and channel.dispatch_config:
+                task.dispatch_type = channel.integration
+                task.dispatch_config = dict(channel.dispatch_config)
+            else:
+                task.dispatch_type = "none"
+                task.dispatch_config = None
+        else:
+            task.channel_id = None
+            task.client_id = None
+            task.session_id = None
+            task.dispatch_type = "none"
+            task.dispatch_config = None
+        if "session_target" not in updates:
+            ec = dict(task.execution_config or {})
+            if task.channel_id is None:
+                ec.pop("session_target", None)
+            else:
+                ec["session_target"] = {"mode": "primary"}
+            task.execution_config = ec
+            sa_attributes.flag_modified(task, "execution_config")
+
     if "steps" in updates:
         task.steps = updates["steps"]
         sa_attributes.flag_modified(task, "steps")
@@ -747,6 +791,7 @@ async def admin_update_task(
         "model_override", "model_provider_id_override", "fallback_models", "harness_effort",
         "skills", "tools",
         "post_final_to_channel", "history_mode", "history_recent_count",
+        "session_target",
     }
     if ec_fields & updates.keys():
         ec = dict(task.execution_config or {})
@@ -768,6 +813,16 @@ async def admin_update_task(
             ec["history_mode"] = updates["history_mode"] or None
         if "history_recent_count" in updates:
             ec["history_recent_count"] = int(updates["history_recent_count"]) if updates["history_recent_count"] is not None else None
+        if "session_target" in updates:
+            from app.services.session_targets import validate_session_target_for_channel
+            try:
+                ec["session_target"] = await validate_session_target_for_channel(
+                    db,
+                    task.channel_id,
+                    updates["session_target"],
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
         task.execution_config = ec
         sa_attributes.flag_modified(task, "execution_config")
 
@@ -808,6 +863,7 @@ class TaskRunIn(BaseModel):
     params: Optional[dict] = None
     channel_id: Optional[uuid.UUID] = None
     bot_id: Optional[str] = None
+    session_target: Optional[dict] = None
 
 
 @router.post("/tasks/{task_id}/run", response_model=TaskDetailOut, status_code=201)
@@ -823,6 +879,7 @@ async def admin_run_task_now(
     params = body.params if body else None
     override_channel = body.channel_id if body else None
     override_bot = body.bot_id if body else None
+    session_target = body.session_target if body else None
     try:
         concrete = await spawn_child_run(
             task_id,
@@ -830,6 +887,7 @@ async def admin_run_task_now(
             params=params,
             channel_id=override_channel,
             bot_id=override_bot,
+            session_target=session_target,
         )
     except ValueError as e:
         # Missing required launch context (requires_channel / requires_bot)

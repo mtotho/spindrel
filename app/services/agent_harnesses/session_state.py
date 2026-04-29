@@ -73,6 +73,7 @@ def _hint_from_dict(raw: dict[str, Any]) -> HarnessContextHint | None:
         created_at=created_at if isinstance(created_at, str) else _now_iso(),
         source=raw.get("source") if isinstance(raw.get("source"), str) else None,
         consume_after_next_turn=bool(raw.get("consume_after_next_turn", True)),
+        priority=raw.get("priority") if raw.get("priority") in {"context", "instruction"} else "context",
     )
 
 
@@ -83,6 +84,7 @@ def _hint_to_dict(hint: HarnessContextHint) -> dict[str, Any]:
         "created_at": hint.created_at,
         "source": hint.source,
         "consume_after_next_turn": hint.consume_after_next_turn,
+        "priority": hint.priority,
     }
 
 
@@ -95,6 +97,7 @@ def hint_preview(hint: HarnessContextHint, *, limit: int = 260) -> dict[str, Any
         "source": hint.source,
         "created_at": hint.created_at,
         "consume_after_next_turn": hint.consume_after_next_turn,
+        "priority": hint.priority,
         "preview": text,
     }
 
@@ -159,6 +162,7 @@ async def add_context_hint(
     text: str,
     source: str | None = None,
     consume_after_next_turn: bool = True,
+    priority: str = "context",
 ) -> HarnessContextHint:
     session = await db.get(Session, session_id)
     if session is None:
@@ -170,6 +174,7 @@ async def add_context_hint(
         created_at=_now_iso(),
         source=source,
         consume_after_next_turn=consume_after_next_turn,
+        priority=priority if priority in {"context", "instruction"} else "context",
     )
     meta = dict(session.metadata_ or {})
     raw_hints = list(meta.get(HARNESS_CONTEXT_HINTS_KEY) or [])
