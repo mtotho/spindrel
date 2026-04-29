@@ -267,6 +267,25 @@ export function AttentionHubContent({
     for (const lane of Object.values(lanes)) lane.sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
     return lanes;
   }, [items]);
+  const recoveredTriageRun = useMemo<AttentionTriageRunResponse | null>(() => {
+    for (const item of items) {
+      const triage = getOperatorTriage(item);
+      if (!triage?.session_id || !triage.parent_channel_id) continue;
+      const sessionItemCount = items.filter((candidate) => getOperatorTriage(candidate)?.session_id === triage.session_id).length;
+      return {
+        task_id: triage.task_id ?? "",
+        session_id: triage.session_id,
+        parent_channel_id: triage.parent_channel_id,
+        bot_id: triage.operator_bot_id || OPERATOR_BOT_ID,
+        item_count: sessionItemCount || 1,
+        model_override: null,
+        model_provider_id_override: null,
+        effective_model: null,
+      };
+    }
+    return null;
+  }, [items]);
+  const visibleTriageRun = triageRun ?? recoveredTriageRun;
   const acknowledgeAllActive = () => {
     if (!active.length) return;
     const ok = window.confirm(`Acknowledge all ${active.length} active Attention Items you can see?`);
@@ -315,12 +334,12 @@ export function AttentionHubContent({
           </button>
           <button
             type="button"
-            disabled={!active.length && !triageRun}
+            disabled={!active.length && !visibleTriageRun}
             className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:opacity-40 ${
               operatorRunOpen ? "bg-accent/[0.08]" : ""
             }`}
             onClick={() => {
-              if (triageRun || startTriage.isPending || operatorRunOpen) {
+              if (visibleTriageRun || startTriage.isPending || operatorRunOpen) {
                 setOperatorRunOpen(true);
                 setTriageOptionsOpen(false);
                 setCreating(false);
@@ -332,7 +351,7 @@ export function AttentionHubContent({
             title="Configure an operator triage run for all active Attention Items"
           >
             {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {triageRun || operatorRunOpen ? "Operator run" : "Operator sweep"}
+            {visibleTriageRun || operatorRunOpen ? "Operator run" : "Operator sweep"}
           </button>
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">
             <Plus size={16} />
@@ -364,7 +383,7 @@ export function AttentionHubContent({
       )}
       {operatorRunOpen ? (
         <OperatorRunWorkspace
-          run={triageRun}
+          run={visibleTriageRun}
           pending={startTriage.isPending}
           error={startTriage.error}
           grouped={grouped}
@@ -386,7 +405,7 @@ export function AttentionHubContent({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {triageRun && <OperatorTriageRunPanel run={triageRun} />}
+          {visibleTriageRun && <OperatorTriageRunPanel run={visibleTriageRun} />}
           <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
           <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
           <AttentionLane title="Unprocessed" items={grouped.needs} onSelect={onSelect} />
@@ -422,6 +441,25 @@ function OperatorRunWorkspace({
   onSelect: (item: WorkspaceAttentionItem) => void;
 }) {
   const message = error instanceof Error ? error.message : error ? String(error) : null;
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!pending || run) {
+      setElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedMs(Date.now() - startedAt);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [pending, run]);
+
+  const slowStart = pending && !run && elapsedMs >= 12_000;
+  const waitingCopy = slowStart
+    ? "The server has not returned the run yet. Existing triage cards remain visible below; this usually means the backend is busy or out of DB connections."
+    : "Creating the run and transcript. This panel will attach the live feed as soon as the server returns the session.";
+
   return (
     <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -444,11 +482,20 @@ function OperatorRunWorkspace({
             Operator run
           </div>
           <div className="text-sm text-text">
-            {message ? "Operator sweep could not start." : "Starting operator sweep..."}
+            {message ? "Operator sweep could not start." : slowStart ? "Still waiting for the server..." : "Starting operator sweep..."}
           </div>
           <div className="text-xs leading-5 text-text-muted">
-            {message ?? "Creating the run and transcript. This panel will attach the live feed as soon as the server returns the session."}
+            {message ?? waitingCopy}
           </div>
+          {message && (
+            <button
+              type="button"
+              className="rounded-md px-2 py-1.5 text-xs text-accent hover:bg-accent/[0.08]"
+              onClick={onBack}
+            >
+              Back to sweep setup
+            </button>
+          )}
         </section>
       )}
       <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
@@ -863,17 +910,17 @@ function OperatorTriageCard({
 }) {
   const triage = getOperatorTriage(item);
   if (!triage) return null;
-  const route = triage.route ? triage.route.replaceAll("_", " ") : null;
+  const route = triage.route ? operatorRouteLabel(triage.route) : null;
   const confirm = () => onFeedback("confirmed");
   const markWrong = () => {
     const note = window.prompt("What should the operator remember next time?", triage.summary ?? "");
     if (note === null) return;
     onFeedback("wrong", note);
   };
-  const reroute = () => {
-    const note = window.prompt("Route note for future triage", "Treat this as developer-channel work.");
+  const changeRoute = () => {
+    const note = window.prompt("Routing correction for future operator sweeps", triage.route ? `Suggested route should not be ${operatorRouteLabel(triage.route)}.` : "");
     if (note === null) return;
-    onFeedback("rerouted", note, "developer_channel");
+    onFeedback("rerouted", note, triage.route ?? null);
   };
   return (
     <div className="space-y-3 rounded-md bg-surface-overlay/35 p-3">
@@ -896,21 +943,31 @@ function OperatorTriageCard({
           {triage.suggested_action}
         </p>
       )}
+      <p className="text-xs leading-5 text-text-dim">
+        These buttons train the operator triage result. They do not assign the issue or move it to another channel.
+      </p>
       {triage.review?.verdict ? (
         <div className="text-xs text-text-dim">Review saved: {triage.review.verdict}</div>
       ) : (
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-accent hover:bg-accent/[0.08] disabled:opacity-50" onClick={confirm}>
-            Confirm
+            Accept triage
           </button>
           <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50" onClick={markWrong}>
-            Wrong
+            Mark wrong
           </button>
-          <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50" onClick={reroute}>
-            Route to dev
+          <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50" onClick={changeRoute}>
+            Change routing
           </button>
         </div>
       )}
     </div>
   );
+}
+
+function operatorRouteLabel(route: string): string {
+  if (route === "developer_channel") return "Development work";
+  if (route === "user_decision") return "User decision";
+  if (route === "benign") return "Benign/noise";
+  return route.replaceAll("_", " ");
 }

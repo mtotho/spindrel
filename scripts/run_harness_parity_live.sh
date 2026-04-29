@@ -7,6 +7,7 @@
 # Usage:
 #   ./scripts/run_harness_parity_live.sh
 #   ./scripts/run_harness_parity_live.sh --tier bridge
+#   ./scripts/run_harness_parity_live.sh --tier terminal
 #   ./scripts/run_harness_parity_live.sh --tier plan
 #   ./scripts/run_harness_parity_live.sh --tier heartbeat
 #   ./scripts/run_harness_parity_live.sh --tier automation
@@ -29,7 +30,7 @@ PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --tier)
-            TIER="${2:?--tier requires one of: core, bridge, plan, heartbeat, automation, writes, context, project, memory, skills, replay}"
+            TIER="${2:?--tier requires one of: core, bridge, terminal, plan, heartbeat, automation, writes, context, project, memory, skills, replay}"
             shift 2
             ;;
         --tier=*)
@@ -109,6 +110,15 @@ if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
     fi
 fi
 
+if [[ -z "${SPINDREL_BROWSER_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
+    app_ip="$(docker inspect "$HARNESS_PARITY_AGENT_CONTAINER" \
+        --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
+    if [[ -n "$app_ip" ]]; then
+        export SPINDREL_BROWSER_URL="http://$app_ip:${E2E_PORT}"
+        export SPINDREL_BROWSER_API_URL="${SPINDREL_BROWSER_API_URL:-$SPINDREL_BROWSER_URL}"
+    fi
+fi
+
 echo "=== Harness Live Parity ==="
 echo "  Server: ${E2E_HOST}:${E2E_PORT}"
 echo "  Tier:   ${HARNESS_PARITY_TIER}"
@@ -117,6 +127,7 @@ echo "  Claude: ${HARNESS_PARITY_CLAUDE_CHANNEL_ID}"
 echo "  Health bot: ${E2E_BOT_ID}"
 echo "  Browser host: ${HARNESS_PARITY_PLAYWRIGHT_HOST}"
 echo "  Browser ws: ${PLAYWRIGHT_WS_URL:-<auto/runtime-service/managed>}"
+echo "  Browser URL: ${SPINDREL_BROWSER_URL:-<pytest default>}"
 echo "  Project path: ${HARNESS_PARITY_PROJECT_PATH}"
 echo "  Project timeout: ${HARNESS_PARITY_PROJECT_TIMEOUT}"
 echo "  Health wait: ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}"

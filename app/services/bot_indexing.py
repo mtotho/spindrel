@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 Scope = Literal["workspace", "memory", "channel"]
 MEMORY_PATTERNS = ["memory/**/*.md"]
+_CHANNEL_INDEX_IN_FLIGHT: set[tuple[str, str]] = set()
 
 
 @dataclass(frozen=True)
@@ -351,7 +352,7 @@ async def reindex_channel(
     bot: "BotConfig",
     *,
     channel_segments: list[dict] | None = None,
-    force: bool = True,
+    force: bool = False,
 ) -> dict | None:
     """Index channel workspace files into filesystem_chunks.
 
@@ -362,7 +363,10 @@ async def reindex_channel(
 
     The channel flavor uses a sentinel bot id and channel-derived patterns,
     but still inherits embedding/search defaults from the bot workspace
-    cascade through ``resolve_for(scope="channel")``.
+    cascade through ``resolve_for(scope="channel")``. Context assembly calls
+    this opportunistically during agent turns, so the default must respect the
+    filesystem-index cooldown; explicit maintenance/admin callers may pass
+    ``force=True`` when they truly need a rebuild.
     """
     from app.agent.fs_indexer import index_directory
 
@@ -375,6 +379,22 @@ async def reindex_channel(
     if plan is None:
         return None
 
+    in_flight_key = (plan.roots[0], plan.bot_id)
+    if in_flight_key in _CHANNEL_INDEX_IN_FLIGHT:
+        logger.info(
+            "Skipping channel workspace index for channel %s (already in flight)",
+            channel_id,
+        )
+        return {
+            "indexed": 0,
+            "skipped": 0,
+            "removed": 0,
+            "errors": 0,
+            "cooldown": True,
+            "in_flight": True,
+        }
+
+    _CHANNEL_INDEX_IN_FLIGHT.add(in_flight_key)
     try:
         stats = await index_directory(
             plan.roots[0], plan.bot_id, plan.patterns, force=force,
@@ -390,6 +410,8 @@ async def reindex_channel(
     except Exception:
         logger.exception("Failed to index channel workspace for channel %s", channel_id)
         return None
+    finally:
+        _CHANNEL_INDEX_IN_FLIGHT.discard(in_flight_key)
 
 
 def iter_watch_targets(

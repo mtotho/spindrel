@@ -2,7 +2,7 @@
 tags: [agent-server, track, integrations, docs, contract]
 status: active
 created: 2026-04-23
-updated: 2026-04-28
+updated: 2026-04-29
 ---
 # Track — Integration Contract + Canonical Guide
 
@@ -60,6 +60,8 @@ Full detail lives in the plan file. One-line-per-phase summary:
 - **2026-04-28 — Shared browser runtime:** added the `runtime_services` manifest surface so integrations can provide/require shared sidecar capabilities without duplicating Docker services. `browser_automation` owns the shared headless Chromium runtime and headless browser tools; `web_search` now owns only SearXNG and resolves `browser.playwright` via explicit `PLAYWRIGHT_WS_URL` or the shared provider.
 - **2026-04-28 — Channel integration lifecycle surface:** moved channel binding/activation host policy behind `app/services/channel_integrations.py`. Routers now delegate binding CRUD, activation/deactivation, activation config merge, bindable/activatable projections, and activation client-id resolution to one service seam. Channel creation now uses the same activation include cascade as explicit activation, so parent activations no longer strand included integrations.
 - **2026-04-28 — Admin integration host surface:** moved admin-side integration lifecycle/config/process/dependency/API-key policy behind `app/services/integration_admin.py` and setup-status projection behind `app/services/integration_catalog.py`. `integrations.discover_setup_status()` remains the compatibility entrypoint, but the catalog projection is now side-effect-free: read/status calls must not self-load tools or schedule tool indexing. Explicit lifecycle/startup paths remain responsible for loading tools, indexing, MCP refresh, docker stack reconciliation, and harness discovery.
+- **2026-04-29 — Integration discovery/catalog boundary:** split the old `integrations/__init__.py` god module into `integrations.discovery` for source discovery and side-effectful target/renderer/hooks/router loading, `integrations.manifest_setup` for manifest-to-SETUP/process compatibility, and `app.services.integration_catalog` for side-effect-free setup/sidebar/dashboard/web-ui/process/docker/activation/binding/event projections. The package root remains a compatibility facade for existing public imports; app code now imports private mechanics from the owning modules. `list_bindable_integrations()` uses catalog metadata instead of loading routers just to enumerate types.
+- **2026-04-29 — External integration tool source-of-truth repair:** fixed a drift left outside the catalog split: `app.tools.loader.discover_and_load_tools()` still scanned only legacy `INTEGRATION_DIRS`, while catalog/router/manifest discovery used `effective_integration_dirs()` (`SPINDREL_HOME`, `HOME_LOCAL_DIR`, legacy dirs, runtime workspace dirs). Startup tool registration now shares the same external integration roots as the rest of the integration host. Regression coverage creates a `spindrel-home/bennieloggins/tools` fixture and asserts the tool registers under `source_integration=bennieloggins`.
 
 ## References
 

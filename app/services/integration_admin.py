@@ -21,12 +21,13 @@ class GatewayTimeoutError(DomainError):
 
 def get_setup_vars(integration_id: str) -> list[dict]:
     """Load the SETUP env_vars list for an integration."""
-    from integrations import _get_setup, _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
 
-    for candidate, iid, is_external, source in _iter_integration_candidates():
+    for candidate, iid, is_external, source in iter_integration_candidates():
         if iid != integration_id:
             continue
-        setup = _get_setup(candidate, iid, is_external, source)
+        setup = get_setup(candidate, iid, is_external, source)
         if not setup:
             return []
         env_vars = list(setup.get("env_vars", []))
@@ -49,12 +50,13 @@ def get_setup_vars(integration_id: str) -> list[dict]:
 
 def get_api_permissions(integration_id: str) -> str | list[str] | None:
     """Load api_permissions from an integration manifest or setup.py."""
-    from integrations import _get_setup, _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
 
-    for candidate, iid, is_external, source in _iter_integration_candidates():
+    for candidate, iid, is_external, source in iter_integration_candidates():
         if iid != integration_id:
             continue
-        setup = _get_setup(candidate, iid, is_external, source)
+        setup = get_setup(candidate, iid, is_external, source)
         if not setup:
             return None
         return setup.get("api_permissions")
@@ -65,7 +67,7 @@ async def sync_docker_compose_stack(integration_id: str) -> None:
     """Apply this integration's docker_compose stack intent, if declared."""
     from app.services.docker_stacks import stack_service
     from app.services.integration_settings import get_value, is_active
-    from integrations import discover_docker_compose_stacks
+    from app.services.integration_catalog import discover_docker_compose_stacks
 
     for dc_info in discover_docker_compose_stacks():
         if dc_info["integration_id"] != integration_id:
@@ -111,10 +113,10 @@ async def _load_enabled_integration(integration_id: str) -> int:
         )
 
     from app.tools.loader import load_integration_tools
-    from integrations import _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
 
     loaded: list[str] = []
-    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+    for candidate, iid, _is_external, _source in iter_integration_candidates():
         if iid == integration_id:
             loaded = load_integration_tools(candidate)
             break
@@ -207,10 +209,10 @@ def _unregister_integration_harness(integration_id: str) -> None:
         import inspect
 
         from app.services.agent_harnesses import HARNESS_REGISTRY, unregister_runtime
-        from integrations import _iter_integration_candidates
+        from integrations.discovery import iter_integration_candidates
 
         harness_path = None
-        for candidate, iid, _is_external, _source in _iter_integration_candidates():
+        for candidate, iid, _is_external, _source in iter_integration_candidates():
             if iid == integration_id:
                 harness_path = candidate / "harness.py"
                 break
@@ -362,15 +364,16 @@ def get_process_logs(integration_id: str, *, after: int = 0) -> dict:
 
 
 async def install_python_dependencies(integration_id: str) -> dict:
-    from integrations import _get_setup, _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
 
     packages: list[str] = []
     req_path: str | None = None
     integration_path = None
-    for candidate, iid, is_external, source in _iter_integration_candidates():
+    for candidate, iid, is_external, source in iter_integration_candidates():
         if iid == integration_id:
             integration_path = candidate
-            setup = _get_setup(candidate, iid, is_external, source)
+            setup = get_setup(candidate, iid, is_external, source)
             if setup:
                 for dep in setup.get("python_dependencies", []):
                     packages.append(dep["package"])
@@ -403,14 +406,15 @@ async def install_python_dependencies(integration_id: str) -> dict:
 
 
 async def install_npm_dependencies(integration_id: str) -> dict:
-    from integrations import _get_setup, _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
 
     npm_deps = None
     integration_path = None
-    for candidate, iid, is_external, source in _iter_integration_candidates():
+    for candidate, iid, is_external, source in iter_integration_candidates():
         if iid == integration_id:
             integration_path = candidate
-            setup = _get_setup(candidate, iid, is_external, source)
+            setup = get_setup(candidate, iid, is_external, source)
             if setup:
                 npm_deps = setup.get("npm_dependencies", [])
             break
@@ -544,4 +548,3 @@ async def revoke_integration_api_key(integration_id: str, db: AsyncSession) -> d
     if not revoked:
         raise NotFoundError("No API key found for this integration")
     return {"revoked": True}
-

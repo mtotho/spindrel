@@ -293,7 +293,7 @@ async def test_set_status_enabled_does_not_require_configured():
         patch("app.services.mcp_servers.load_mcp_servers", new=fake_load_mcp),
         patch("app.agent.tools.index_local_tools", new=fake_index),
         patch("app.services.file_sync.sync_all_files", new=fake_sync_all_files),
-        patch("integrations._iter_integration_candidates", return_value=iter([])),
+        patch("integrations.discovery.iter_integration_candidates", return_value=iter([])),
         patch("app.tools.loader.load_integration_tools", return_value=[]),
     ):
         result = await set_integration_status("x", StatusBody(status="enabled"))

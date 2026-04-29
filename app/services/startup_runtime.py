@@ -247,7 +247,7 @@ async def background_warmup() -> None:
         from app.services.docker_stacks import stack_service
         from app.services.integration_settings import get_value as get_int_setting
         from app.services.integration_settings import is_active as is_integration_active
-        from integrations import discover_docker_compose_stacks
+        from app.services.integration_catalog import discover_docker_compose_stacks
 
         for dc_info in discover_docker_compose_stacks():
             int_id = dc_info["integration_id"]

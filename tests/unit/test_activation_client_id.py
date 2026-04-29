@@ -19,7 +19,7 @@ def test_auto_client_id_from_settings():
         }
     }
     with (
-        patch("integrations.discover_binding_metadata", return_value=binding_meta),
+        patch("app.services.integration_catalog.discover_binding_metadata", return_value=binding_meta),
         patch("app.services.integration_settings.get_value", return_value="user@gmail.com"),
     ):
         result = resolve_activation_client_id("gmail", CHANNEL_ID)
@@ -36,7 +36,7 @@ def test_falls_back_when_setting_empty():
         }
     }
     with (
-        patch("integrations.discover_binding_metadata", return_value=binding_meta),
+        patch("app.services.integration_catalog.discover_binding_metadata", return_value=binding_meta),
         patch("app.services.integration_settings.get_value", return_value=""),
     ):
         result = resolve_activation_client_id("gmail", CHANNEL_ID)
@@ -46,7 +46,7 @@ def test_falls_back_when_setting_empty():
 
 def test_falls_back_when_no_binding():
     """Integration without binding config uses mc-activated."""
-    with patch("integrations.discover_binding_metadata", return_value={}):
+    with patch("app.services.integration_catalog.discover_binding_metadata", return_value={}):
         result = resolve_activation_client_id("excalidraw", CHANNEL_ID)
 
     assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
@@ -60,7 +60,7 @@ def test_falls_back_when_no_auto_client_id():
             # no auto_client_id — Slack needs user to specify the channel
         }
     }
-    with patch("integrations.discover_binding_metadata", return_value=binding_meta):
+    with patch("app.services.integration_catalog.discover_binding_metadata", return_value=binding_meta):
         result = resolve_activation_client_id("slack", CHANNEL_ID)
 
     assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
@@ -79,7 +79,7 @@ def test_multiple_placeholders():
         return {"HOST": "example.com", "PORT": "8080"}.get(key, "")
 
     with (
-        patch("integrations.discover_binding_metadata", return_value=binding_meta),
+        patch("app.services.integration_catalog.discover_binding_metadata", return_value=binding_meta),
         patch("app.services.integration_settings.get_value", side_effect=mock_get_value),
     ):
         result = resolve_activation_client_id("custom", CHANNEL_ID)

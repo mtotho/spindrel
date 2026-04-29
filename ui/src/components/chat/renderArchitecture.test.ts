@@ -85,12 +85,18 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
   assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
 });
 
-test("terminal tool transcript keeps sequential rows instead of compact tape", () => {
+test("terminal tool transcript uses CLI-style sequential rows instead of compact tape", () => {
   const toolBadges = readChatFile("ToolBadges.tsx");
+  const toolTraceStrip = readChatFile("ToolTraceStrip.tsx");
 
   assert.match(toolBadges, /const isTerminalMode = chatMode === "terminal"/);
+  assert.match(toolBadges, /<TerminalToolTranscript/);
+  assert.match(toolBadges, /data-testid="terminal-tool-transcript"/);
+  assert.match(toolBadges, /data-testid="tool-transcript-row"/);
+  assert.match(toolBadges, /data-testid="terminal-tool-output"/);
   assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
   assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
+  assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
 });
 
 test("ChatSession stays a source router over dedicated source-mode modules", () => {

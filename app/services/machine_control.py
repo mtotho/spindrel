@@ -19,7 +19,7 @@ from app.db.models import MachineTargetLease, Session, User
 from app.services import presence
 from app.services.integration_manifests import get_manifest
 from app.services.integration_settings import get_status, is_configured
-from integrations import _import_module, _iter_integration_candidates
+from integrations.discovery import import_integration_module, iter_integration_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +291,7 @@ def _normalize_target_status(
 
 def list_provider_ids() -> list[str]:
     provider_ids: list[str] = []
-    for candidate, integration_id, _is_external, _source in _iter_integration_candidates():
+    for candidate, integration_id, _is_external, _source in iter_integration_candidates():
         manifest = get_manifest(integration_id) or {}
         block = manifest.get("machine_control")
         declared = "machine_control" in set(manifest.get("provides", []))
@@ -301,7 +301,7 @@ def list_provider_ids() -> list[str]:
 
 
 def _find_provider_candidate(provider_id: str) -> tuple[Path, bool, str] | None:
-    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
         if integration_id == provider_id:
             return candidate, is_external, source
     return None
@@ -320,7 +320,7 @@ def get_provider(provider_id: str) -> MachineControlProvider:
     if not provider_file.exists():
         raise RuntimeError(f"Machine-control provider '{provider_id}' has no machine_control.py module.")
 
-    module = _import_module(provider_id, "machine_control", provider_file, is_external, source)
+    module = import_integration_module(provider_id, "machine_control", provider_file, is_external, source)
     provider = getattr(module, "provider", None)
     if provider is None and hasattr(module, "get_machine_control_provider"):
         provider = module.get_machine_control_provider()

@@ -610,6 +610,21 @@ class TestChannelWorkspaceMigration:
 # ---------------------------------------------------------------------------
 
 class TestChannelWorkspaceIndexing:
+    def test_router_file_mutations_force_reindex(self):
+        from app.routers.api_v1_channel_workspace import _schedule_reindex
+
+        bot = _make_bot()
+
+        def _capture_task(coro):
+            coro.close()
+            return object()
+
+        with patch("asyncio.create_task", side_effect=_capture_task), \
+             patch("app.services.bot_indexing.reindex_channel", new_callable=AsyncMock) as mock_reindex:
+            _schedule_reindex("ch-1", bot)
+
+        mock_reindex.assert_called_once_with("ch-1", bot, force=True)
+
     def test_sentinel_bot_id(self):
         from app.services.channel_workspace_indexing import _get_channel_index_bot_id
         assert _get_channel_index_bot_id("abc-123") == "channel:abc-123"

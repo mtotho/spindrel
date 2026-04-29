@@ -13,6 +13,8 @@ INTEGRATIONS_ROOT = REPO_ROOT / "integrations"
 
 _INFRASTRUCTURE_SHIMS = {
     "__init__.py",
+    "discovery.py",
+    "manifest_setup.py",
     "sdk.py",
     "utils.py",
 }
@@ -45,6 +47,7 @@ def test_no_new_direct_app_imports_under_integrations() -> None:
     assert not offenders, (
         "New direct app.* imports under integrations must go through "
         "integrations.sdk. Only integration infrastructure shims "
-        "(__init__.py, sdk.py, utils.py) may import app.* directly:\n"
+        "(__init__.py, discovery.py, manifest_setup.py, sdk.py, utils.py) "
+        "may import app.* directly:\n"
         + "\n".join(offenders)
     )

@@ -75,11 +75,12 @@ class IntegrationProcessManager:
 
     def _discover(self) -> dict[str, dict]:
         """Discover all integrations with a process (process.py or YAML process section)."""
-        from integrations import _iter_integration_candidates, _get_process_config
+        from integrations.discovery import iter_integration_candidates
+        from integrations.manifest_setup import get_process_config
 
         results: dict[str, dict] = {}
-        for candidate, integration_id, is_external, source in _iter_integration_candidates():
-            proc_cfg = _get_process_config(candidate, integration_id, is_external, source)
+        for candidate, integration_id, is_external, source in iter_integration_candidates():
+            proc_cfg = get_process_config(candidate, integration_id, is_external, source)
             if not proc_cfg:
                 continue
             results[integration_id] = {

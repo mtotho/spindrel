@@ -10,12 +10,13 @@ logger = logging.getLogger(__name__)
 
 def discover_setup_status(base_url: str = "") -> list[dict]:
     """Return side-effect-free setup status for all integrations."""
-    from integrations import _get_process_config, _get_setup, _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_process_config, get_setup
 
     results: list[dict] = []
 
-    for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        proc_cfg = _get_process_config(candidate, integration_id, is_external, source)
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        proc_cfg = get_process_config(candidate, integration_id, is_external, source)
         has_process = proc_cfg is not None
         entry: dict = {
             "id": integration_id,
@@ -46,7 +47,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         _apply_widget_inventory(entry, integration_id)
         _apply_lifecycle_and_process_status(entry, integration_id, has_process)
 
-        setup = _get_setup(candidate, integration_id, is_external, source)
+        setup = get_setup(candidate, integration_id, is_external, source)
         entry["has_yaml"] = (candidate / "integration.yaml").exists()
         if setup:
             _apply_setup_fields(entry, candidate, integration_id, setup, base_url)
@@ -301,3 +302,313 @@ def _apply_readiness_status(entry: dict) -> None:
         entry["status"] = "ready"
     elif set_count > 0 or not deps_ok:
         entry["status"] = "partial"
+
+
+def discover_dashboard_modules() -> list[dict]:
+    """Discover integration dashboard module declarations."""
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    results: list[dict] = []
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        for mod in setup.get("dashboard_modules", []):
+            results.append({
+                "integration_id": integration_id,
+                "module_id": mod["id"],
+                "label": mod.get("label", mod["id"]),
+                "icon": mod.get("icon", "Zap"),
+                "description": mod.get("description", ""),
+                "api_base": f"/integrations/{integration_id}/mc/{mod['id']}",
+            })
+    return results
+
+
+_sidebar_sections_cache: list[dict] | None = None
+
+
+def discover_sidebar_sections(*, refresh: bool = False) -> list[dict]:
+    """Discover sidebar sections declared by integration manifests."""
+    global _sidebar_sections_cache
+    if _sidebar_sections_cache is not None and not refresh:
+        return _sidebar_sections_cache
+
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    results: list[dict] = []
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        try:
+            section = setup.get("sidebar_section")
+            if section and isinstance(section, dict) and "id" in section and section.get("items"):
+                results.append({
+                    "integration_id": integration_id,
+                    "id": section["id"],
+                    "title": section.get("title", section["id"].upper()),
+                    "icon": section.get("icon", "Plug"),
+                    "items": [
+                        item
+                        for item in section["items"]
+                        if isinstance(item, dict) and "label" in item and "href" in item
+                    ],
+                    "readiness_endpoint": section.get("readiness_endpoint"),
+                    "readiness_field": section.get("readiness_field"),
+                })
+        except Exception:
+            logger.exception("Failed to load sidebar section for integration %r", integration_id)
+
+    _sidebar_sections_cache = results
+    return results
+
+
+_activation_manifests: dict[str, dict] | None = None
+
+
+def _discover_activation_tools(candidate, integration_id: str) -> list[str]:
+    """Best-effort tool list for activation manifests."""
+    try:
+        from app.tools.registry import _tools as registered_tools
+
+        names = sorted(
+            name
+            for name, meta in registered_tools.items()
+            if meta.get("source_integration") == integration_id
+        )
+        if names:
+            return names
+    except Exception:
+        logger.debug("Failed to inspect tool registry for %s", integration_id, exc_info=True)
+
+    tools_dir = candidate / "tools"
+    if not tools_dir.is_dir():
+        return []
+    return sorted(f.stem for f in tools_dir.glob("*.py") if not f.name.startswith("_"))
+
+
+def discover_activation_manifests() -> dict[str, dict]:
+    """Discover and merge integration activation manifests."""
+    global _activation_manifests
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    results: dict[str, dict] = {}
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        activation = setup.get("activation")
+        if activation and isinstance(activation, dict):
+            version = setup.get("version")
+            if version and "version" not in activation:
+                activation = {**activation, "version": version}
+            if not activation.get("tools"):
+                activation = {**activation, "tools": _discover_activation_tools(candidate, integration_id)}
+            results[integration_id] = activation
+
+    for _itype, manifest in results.items():
+        includes = manifest.get("includes")
+        if not includes or not isinstance(includes, list):
+            continue
+        merged_tools = list(manifest.get("tools", []))
+        merged_config_fields = list(manifest.get("config_fields", []))
+        existing_keys = {f["key"] for f in merged_config_fields}
+        for included_id in includes:
+            included = results.get(included_id)
+            if not included:
+                continue
+            for tool_name in included.get("tools", []):
+                if tool_name not in merged_tools:
+                    merged_tools.append(tool_name)
+            for field in included.get("config_fields", []):
+                if field["key"] not in existing_keys:
+                    merged_config_fields.append({**field, "source_integration": included_id})
+                    existing_keys.add(field["key"])
+        if merged_tools:
+            manifest["tools"] = merged_tools
+        if merged_config_fields:
+            manifest["config_fields"] = merged_config_fields
+
+    _activation_manifests = results
+    return results
+
+
+def get_activation_manifests() -> dict[str, dict]:
+    """Return cached activation manifests, discovering if needed."""
+    global _activation_manifests
+    if _activation_manifests is None:
+        return discover_activation_manifests()
+    return _activation_manifests
+
+
+def discover_web_uis() -> list[dict]:
+    """Discover integrations that ship static web UI bundles."""
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    results: list[dict] = []
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        web_ui = setup.get("web_ui")
+        if not web_ui or not isinstance(web_ui, dict):
+            continue
+        static_dir = web_ui.get("static_dir")
+        if not static_dir:
+            continue
+        static_path = (candidate / static_dir).resolve()
+        if not static_path.is_dir():
+            logger.warning(
+                "Integration %r declares web_ui but static dir does not exist: %s "
+                "(run 'npm run build' inside the dashboard directory)",
+                integration_id,
+                static_path,
+            )
+            continue
+        results.append({
+            "integration_id": integration_id,
+            "static_dir_path": static_path,
+            "dev_port": web_ui.get("dev_port"),
+        })
+        logger.info("Discovered web UI for integration %r: %s", integration_id, static_path)
+    return results
+
+
+def discover_binding_metadata() -> dict[str, dict]:
+    """Return binding metadata for all integrations that declare it."""
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    results: dict[str, dict] = {}
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        binding = setup.get("binding")
+        if binding:
+            results[integration_id] = binding
+    return results
+
+
+def discover_integration_events() -> dict[str, list[dict]]:
+    """Return declared events keyed by integration id."""
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    results: dict[str, list[dict]] = {}
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        events = setup.get("events")
+        if events and isinstance(events, list):
+            results[integration_id] = events
+    return results
+
+
+def discover_bindable_integration_types() -> set[str]:
+    """Return integration ids that can appear as channel binding types."""
+    from integrations.discovery import iter_integration_candidates
+
+    types: set[str] = set(discover_binding_metadata().keys())
+    for candidate, integration_id, _is_external, _source in iter_integration_candidates():
+        if (candidate / "router.py").exists():
+            types.add(integration_id)
+    return types
+
+
+def discover_docker_compose_stacks() -> list[dict]:
+    """Discover integration Docker Compose stack declarations."""
+    from app.config import settings as app_settings
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_setup
+
+    def _interp(value):
+        if not isinstance(value, str):
+            return value
+        return value.replace("${SPINDREL_INSTANCE_ID}", app_settings.SPINDREL_INSTANCE_ID or "default")
+
+    results: list[dict] = []
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        setup = get_setup(candidate, integration_id, is_external, source)
+        if not setup:
+            continue
+        compose_config = setup.get("docker_compose")
+        if not compose_config or not isinstance(compose_config, dict):
+            continue
+
+        compose_file = compose_config.get("file")
+        if not compose_file:
+            continue
+
+        compose_path = candidate / compose_file
+        if not compose_path.exists():
+            logger.warning(
+                "Integration %r declares docker_compose but file not found: %s",
+                integration_id,
+                compose_path,
+            )
+            continue
+
+        config_files: dict[str, str] = {}
+        for rel_path in compose_config.get("config_files", []):
+            cfg_path = candidate / rel_path
+            if cfg_path.exists():
+                config_files[rel_path] = cfg_path.read_text()
+            else:
+                logger.warning(
+                    "Integration %r docker_compose config_file not found: %s",
+                    integration_id,
+                    cfg_path,
+                )
+
+        enabled_setting = compose_config.get("enabled_setting")
+        enabled_default = "false"
+        if enabled_setting:
+            for var in setup.get("env_vars", []):
+                if var.get("key") == enabled_setting:
+                    enabled_default = var.get("default", "false")
+                    break
+
+        results.append({
+            "integration_id": integration_id,
+            "project_name": _interp(compose_config.get("project_name", f"spindrel-{integration_id}")),
+            "compose_definition": compose_path.read_text(),
+            "config_files": config_files,
+            "enabled_setting": enabled_setting,
+            "enabled_default": enabled_default,
+            "enabled_callable": None,
+            "description": compose_config.get("description", ""),
+        })
+    return results
+
+
+def discover_processes() -> list[dict]:
+    """Discover runnable integration background processes."""
+    from integrations.discovery import iter_integration_candidates
+    from integrations.manifest_setup import get_process_config, resolve_cmd
+
+    results: list[dict] = []
+    for candidate, integration_id, is_external, source in iter_integration_candidates():
+        proc_cfg = get_process_config(candidate, integration_id, is_external, source)
+        if not proc_cfg:
+            continue
+
+        required_env = proc_cfg["required_env"]
+        cmd = resolve_cmd(proc_cfg["cmd"], proc_cfg.get("watch_paths"))
+        if all(os.environ.get(v) for v in required_env):
+            results.append({
+                "id": integration_id,
+                "cmd": cmd,
+                "required_env": required_env,
+                "description": proc_cfg["description"],
+            })
+        else:
+            missing = [v for v in required_env if not os.environ.get(v)]
+            logger.debug("Skipping process for integration %r: missing env vars %s", integration_id, missing)
+    return results

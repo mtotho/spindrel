@@ -72,7 +72,7 @@ def _persist_installed_system_packages(packages: set[str]) -> None:
 async def ensure_integration_deps() -> None:
     """Install missing dependencies for all discovered integrations."""
     from app.services.integration_manifests import get_all_manifests
-    from integrations import _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
 
     manifests = get_all_manifests()
     if not manifests:
@@ -80,7 +80,7 @@ async def ensure_integration_deps() -> None:
 
     # Build a map of integration_id → directory path
     id_to_dir: dict[str, Path] = {}
-    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+    for candidate, iid, _is_external, _source in iter_integration_candidates():
         id_to_dir[iid] = candidate
 
     for integration_id, manifest in manifests.items():
@@ -105,7 +105,7 @@ async def ensure_one_integration_deps(integration_id: str) -> None:
     their npm / pip / apt deps installed.
     """
     from app.services.integration_manifests import get_manifest
-    from integrations import _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
 
     manifest = get_manifest(integration_id)
     if not manifest:
@@ -115,7 +115,7 @@ async def ensure_one_integration_deps(integration_id: str) -> None:
         return
 
     int_dir: Path | None = None
-    for candidate, iid, _is_external, _source in _iter_integration_candidates():
+    for candidate, iid, _is_external, _source in iter_integration_candidates():
         if iid == integration_id:
             int_dir = candidate
             break

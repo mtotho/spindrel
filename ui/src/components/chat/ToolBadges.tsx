@@ -25,6 +25,9 @@ import {
 const TRACE_STRIP_THRESHOLD = 4;
 const CODE_FONT_STACK = "'Menlo', 'Monaco', 'Consolas', monospace";
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+const TERMINAL_INLINE_OUTPUT_CHARS = 1800;
+const TERMINAL_INLINE_OUTPUT_LINES = 18;
+const TERMINAL_EXPANDED_OUTPUT_CHARS = 12000;
 
 function toneColor(isError: boolean, t: ThemeTokens): string {
   return isError ? t.dangerMuted : t.textMuted;
@@ -57,6 +60,55 @@ function EndTruncatedPath({
       {value}
     </span>
   );
+}
+
+function sanitizeTerminalLabel(value: string | null | undefined): string {
+  const clean = (value ?? "")
+    .replace(/^harness-spindrel:/i, "")
+    .replace(/^mcp__spindrel__/i, "")
+    .replace(/^mcp\s+spindrel\s+/i, "")
+    .replace(/\bharness-spindrel:/gi, "")
+    .replace(/\bmcp__spindrel__/gi, "")
+    .trim();
+  if (!clean) return "";
+  return clean.includes(" ") ? clean : clean.replace(/_/g, " ");
+}
+
+function normalizeTerminalOutput(env: ToolResultEnvelope | undefined): string {
+  if (!env) return "";
+  const body = envelopeBodyText(env).trim();
+  const plain = (env.plain_body ?? "").trim();
+  const raw = plain || body;
+  if (!raw) return "";
+  if (env.content_type.toLowerCase().includes("json")) {
+    try {
+      return JSON.stringify(JSON.parse(raw), null, 2);
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
+function terminalOutputPreview(env: ToolResultEnvelope | undefined): {
+  text: string;
+  isLarge: boolean;
+} | null {
+  const output = normalizeTerminalOutput(env);
+  if (!output) return null;
+  const lines = output.split(/\r?\n/);
+  const isLarge = output.length > TERMINAL_INLINE_OUTPUT_CHARS || lines.length > TERMINAL_INLINE_OUTPUT_LINES;
+  if (!isLarge) return { text: output, isLarge: false };
+  return {
+    text: lines.slice(0, TERMINAL_INLINE_OUTPUT_LINES).join("\n").slice(0, TERMINAL_INLINE_OUTPUT_CHARS),
+    isLarge: true,
+  };
+}
+
+function expandedTerminalOutput(env: ToolResultEnvelope | undefined): string {
+  const output = normalizeTerminalOutput(env);
+  if (output.length <= TERMINAL_EXPANDED_OUTPUT_CHARS) return output;
+  return `${output.slice(0, TERMINAL_EXPANDED_OUTPUT_CHARS)}\n... output truncated for display`;
 }
 
 function renderDiffTitle(label: string | null | undefined, metaLabel: string | null | undefined, t: ThemeTokens) {
@@ -259,6 +311,22 @@ export function DefaultToolRows({
     isError: entry.isError,
   }));
 
+  if (isTerminalMode) {
+    return (
+      <TerminalToolTranscript
+        entries={entries}
+        expandedIdx={expandedIdx}
+        setExpandedIdx={setExpandedIdx}
+        t={t}
+        sessionId={sessionId}
+        channelId={channelId}
+        botId={botId}
+        onApproval={onApproval}
+        decidingIds={decidingIds}
+      />
+    );
+  }
+
   if (!isTerminalMode && !hasApproval && !groupExpanded && entries.length >= TRACE_STRIP_THRESHOLD) {
     return (
       <ToolTraceStrip
@@ -460,6 +528,227 @@ export function DefaultToolRows({
                       />
                     )}
                   </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function TerminalToolTranscript({
+  entries,
+  expandedIdx,
+  setExpandedIdx,
+  t,
+  sessionId,
+  channelId,
+  botId,
+  onApproval,
+  decidingIds,
+}: {
+  entries: SharedToolTranscriptEntry[];
+  expandedIdx: number | null;
+  setExpandedIdx: (value: number | null) => void;
+  t: ThemeTokens;
+  sessionId?: string;
+  channelId?: string;
+  botId?: string;
+  onApproval?: (approvalId: string, approved: boolean, options?: { bypassRestOfTurn?: boolean }) => void;
+  decidingIds?: Set<string>;
+}) {
+  return (
+    <div
+      data-testid="terminal-tool-transcript"
+      className="flex flex-col"
+      style={{
+        gap: 7,
+        marginTop: 8,
+        fontFamily: TERMINAL_FONT_STACK,
+      }}
+    >
+      {entries.map((entry, idx) => {
+        const formattedArgs = entry.args ? formatToolArgs(entry.args) : null;
+        const isExpanded = expandedIdx === idx;
+        const output = terminalOutputPreview(entry.env);
+        const label = sanitizeTerminalLabel(entry.label) || "tool";
+        const metaLabel = sanitizeTerminalLabel(entry.metaLabel);
+        const target = sanitizeTerminalLabel(entry.target);
+        const hasLargeOutput = !!output?.isLarge;
+        const hasExpandableDetails = !!formattedArgs || hasLargeOutput || (!!entry.env && !output);
+        const canToggle = hasExpandableDetails && entry.detailKind !== "inline-diff";
+        const rowTone = entry.isError ? t.danger : entry.tone === "warning" ? t.warning : t.text;
+        const statusGlyph = entry.isError ? "x" : entry.approval ? "?" : ">";
+
+        return (
+          <div key={`${entry.id}:${idx}`} className="min-w-0 max-w-full" data-testid="tool-transcript-row">
+            <div
+              className="grid min-w-0 max-w-full items-baseline gap-x-2"
+              style={{
+                gridTemplateColumns: "14px minmax(0, max-content) minmax(0, 1fr)",
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  color: entry.isError ? t.danger : t.textDim,
+                  textAlign: "center",
+                  userSelect: "none",
+                }}
+              >
+                {statusGlyph}
+              </span>
+              <span
+                title={label}
+                style={{
+                  color: rowTone,
+                  fontWeight: 600,
+                  minWidth: 0,
+                  maxWidth: "42ch",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {label}
+              </span>
+              <span
+                className="min-w-0"
+                style={{
+                  color: t.textMuted,
+                  display: "inline-flex",
+                  flexWrap: "wrap",
+                  gap: "0 8px",
+                  alignItems: "baseline",
+                }}
+              >
+                {metaLabel && <span>{metaLabel}</span>}
+                {target && (
+                  <span
+                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+                    title={target}
+                    style={{ maxWidth: "min(58ch, 100%)" }}
+                  >
+                    {target}
+                  </span>
+                )}
+                {!output && entry.previewText && (
+                  <span
+                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+                    style={{ color: toneColor(entry.isError, t), maxWidth: "min(68ch, 100%)" }}
+                  >
+                    {entry.previewText}
+                  </span>
+                )}
+                {canToggle && (
+                  <button
+                    type="button"
+                    onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                    className="px-0 py-0 text-[11px] underline-offset-2 hover:underline"
+                    style={{
+                      color: t.accent,
+                      fontFamily: TERMINAL_FONT_STACK,
+                    }}
+                  >
+                    {isExpanded ? "hide details" : hasLargeOutput ? "show output" : "show details"}
+                  </button>
+                )}
+              </span>
+            </div>
+
+            {output && !output.isLarge && entry.detailKind !== "inline-diff" && (
+              <pre
+                data-testid="terminal-tool-output"
+                className="m-0 whitespace-pre-wrap break-words"
+                style={{
+                  color: entry.isError ? t.dangerMuted : t.textMuted,
+                  borderLeft: `1px solid ${entry.isError ? t.dangerBorder : t.surfaceBorder}`,
+                  marginLeft: 6,
+                  marginTop: 2,
+                  paddingLeft: 14,
+                  fontFamily: TERMINAL_FONT_STACK,
+                  fontSize: 11.5,
+                  lineHeight: 1.45,
+                }}
+              >
+                {output.text}
+              </pre>
+            )}
+
+            {entry.detailKind === "inline-diff" && entry.detail && (
+              <div data-testid="terminal-tool-output">
+                {renderDiffBlock(entry.detail, t, entry.id, true, label, metaLabel)}
+              </div>
+            )}
+
+            {entry.approval && onApproval && (
+              <div style={{ marginLeft: 22 }}>
+                <HarnessAwareApprovalRow
+                  approval={entry.approval}
+                  onApproval={onApproval}
+                  decidingIds={decidingIds}
+                  t={t}
+                  chatMode="terminal"
+                />
+              </div>
+            )}
+
+            {isExpanded && canToggle && (
+              <div
+                className="min-w-0"
+                style={{
+                  borderLeft: `1px solid ${t.surfaceBorder}`,
+                  marginLeft: 6,
+                  marginTop: 3,
+                  paddingLeft: 14,
+                }}
+              >
+                {formattedArgs && (
+                  <pre
+                    className="m-0 whitespace-pre-wrap break-words"
+                    style={{
+                      color: t.textDim,
+                      fontFamily: TERMINAL_FONT_STACK,
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                      marginBottom: entry.env ? 6 : 0,
+                    }}
+                  >
+                    {formattedArgs}
+                  </pre>
+                )}
+                {entry.env && output?.isLarge && (
+                  <pre
+                    data-testid="terminal-tool-output"
+                    className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap break-words"
+                    style={{
+                      color: entry.isError ? t.dangerMuted : t.textMuted,
+                      fontFamily: TERMINAL_FONT_STACK,
+                      fontSize: 11.5,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {expandedTerminalOutput(entry.env)}
+                  </pre>
+                )}
+                {entry.env && !output && (
+                  entry.isError ? (
+                    <ErrorResult env={entry.env} t={t} chatMode="terminal" sessionId={sessionId} channelId={channelId} botId={botId} />
+                  ) : (
+                    <RichToolResult
+                      envelope={entry.env}
+                      sessionId={sessionId}
+                      channelId={channelId}
+                      botId={botId}
+                      rendererVariant="terminal-chat"
+                      chromeMode="embedded"
+                      t={t}
+                    />
+                  )
                 )}
               </div>
             )}

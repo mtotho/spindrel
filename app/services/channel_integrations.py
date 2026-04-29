@@ -41,7 +41,7 @@ def _activation_stub_client_id(integration_type: str, channel_id: uuid.UUID) -> 
 
 def resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) -> str:
     """Resolve an activation client_id from binding metadata, with stub fallback."""
-    from integrations import discover_binding_metadata
+    from app.services.integration_catalog import discover_binding_metadata
     from app.services.integration_settings import get_value
 
     binding = discover_binding_metadata().get(integration_type)
@@ -493,13 +493,12 @@ def list_global_activation_options() -> list[dict[str, Any]]:
 def list_bindable_integrations() -> list[dict[str, Any]]:
     """List registered user-facing integration types with binding metadata."""
     from app.integrations import renderer_registry
-    from integrations import discover_binding_metadata, discover_integrations
+    from app.services.integration_catalog import discover_bindable_integration_types, discover_binding_metadata
 
     types = set(renderer_registry.all_renderers().keys()) - {
         "none", "web", "webhook", "internal",
     }
-    for integration_id, _router in discover_integrations():
-        types.add(integration_id)
+    types.update(discover_bindable_integration_types())
 
     binding_meta = discover_binding_metadata()
     return [

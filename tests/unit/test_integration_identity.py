@@ -19,7 +19,7 @@ class TestDiscoverIdentityFields:
     def test_returns_empty_when_no_config(self):
         """Discovery with no config.py files returns empty list."""
         from integrations import discover_identity_fields
-        with patch("integrations._INTEGRATIONS_DIR") as mock_dir:
+        with patch("integrations.discovery._INTEGRATIONS_DIR") as mock_dir:
             mock_dir.iterdir.return_value = []
             results = discover_identity_fields()
         assert results == []

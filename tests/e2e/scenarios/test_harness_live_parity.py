@@ -7,7 +7,8 @@ Tiers are controlled by ``HARNESS_PARITY_TIER``:
 
 - ``core`` (default): runtime controls, trace, status, basic context telemetry.
 - ``bridge``: core plus Spindrel bridge discovery/invocation persistence.
-- ``plan``: bridge plus native plan-mode round-trip checks.
+- ``terminal``: bridge plus terminal-mode UI transcript parity.
+- ``plan``: terminal plus native plan-mode round-trip checks.
 - ``heartbeat``: plan plus channel prompt and manual heartbeat harness runs.
 - ``automation``: heartbeat plus harness scheduled/manual task automation.
 - ``writes``: automation plus safe temporary workspace write/read/delete.
@@ -45,15 +46,16 @@ pytestmark = pytest.mark.e2e
 TIER_ORDER = {
     "core": 0,
     "bridge": 1,
-    "plan": 2,
-    "heartbeat": 3,
-    "automation": 4,
-    "writes": 5,
-    "context": 6,
-    "project": 7,
-    "memory": 8,
-    "skills": 9,
-    "replay": 10,
+    "terminal": 2,
+    "plan": 3,
+    "heartbeat": 4,
+    "automation": 5,
+    "writes": 6,
+    "context": 7,
+    "project": 8,
+    "memory": 9,
+    "skills": 10,
+    "replay": 11,
 }
 
 
@@ -667,6 +669,110 @@ async def _capture_project_screenshot(*, url: str, out_path: Path, marker: str) 
             await browser.close()
 
 
+def _browser_ui_url(client: E2EClient) -> str:
+    return (
+        os.environ.get("SPINDREL_BROWSER_URL")
+        or os.environ.get("SPINDREL_UI_URL")
+        or client.config.base_url
+    ).rstrip("/")
+
+
+def _browser_api_url(client: E2EClient) -> str:
+    return (
+        os.environ.get("SPINDREL_BROWSER_API_URL")
+        or os.environ.get("SPINDREL_BROWSER_URL")
+        or os.environ.get("SPINDREL_UI_URL")
+        or client.config.base_url
+    ).rstrip("/")
+
+
+def _browser_auth_init_script(*, api_url: str, api_key: str) -> str:
+    auth_state = {
+        "serverUrl": api_url,
+        "apiKey": api_key,
+        "accessToken": "",
+        "refreshToken": "",
+        "user": {
+            "id": "harness-terminal-parity",
+            "email": "harness-terminal-parity@spindrel.local",
+            "display_name": "Harness Terminal Parity",
+            "avatar_url": None,
+            "integration_config": {},
+            "is_admin": True,
+            "auth_method": "api_key",
+            "scopes": ["*"],
+        },
+        "isConfigured": True,
+    }
+    theme_state = {"mode": "dark"}
+    return "\n".join((
+        f"localStorage.setItem('agent-auth', {json.dumps(json.dumps({'state': auth_state, 'version': 0}))});",
+        f"localStorage.setItem('agent-theme', {json.dumps(json.dumps({'state': theme_state, 'version': 0}))});",
+    ))
+
+
+async def _assert_terminal_transcript_ui(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    marker: str,
+    min_rows: int,
+    screenshot_name: str,
+) -> Path:
+    pytest.importorskip("playwright.async_api")
+    from playwright.async_api import async_playwright
+    from scripts.screenshots.playwright_runtime import launch_async_browser
+
+    ui_url = _browser_ui_url(client)
+    api_url = _browser_api_url(client)
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+    screenshot_path = _artifact_root() / "terminal" / screenshot_name
+    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw)
+        try:
+            context = await browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                color_scheme="dark",
+            )
+            await context.add_init_script(
+                _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
+            )
+            page = await context.new_page()
+            await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_selector('[data-testid="terminal-tool-transcript"]', timeout=60_000)
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.includes(marker)",
+                arg=marker,
+                timeout=60_000,
+            )
+            await page.reload(wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_selector('[data-testid="terminal-tool-transcript"]', timeout=60_000)
+            await page.wait_for_function(
+                "(marker) => document.body.innerText.includes(marker)",
+                arg=marker,
+                timeout=60_000,
+            )
+
+            rows = page.locator('[data-testid="tool-transcript-row"]')
+            row_count = await rows.count()
+            assert row_count >= min_rows, f"expected at least {min_rows} terminal tool rows, saw {row_count}"
+            assert await page.locator('[data-testid="tool-trace-strip"]').count() == 0
+
+            body = await page.locator("body").inner_text(timeout=10_000)
+            lower = body.lower()
+            assert "harness-spindrel:" not in lower
+            assert "tool calls" not in lower
+
+            await page.screenshot(path=str(screenshot_path), full_page=False)
+            await context.close()
+        finally:
+            await browser.close()
+    return screenshot_path
+
+
 async def _read_workspace_file_with_retry(
     client: E2EClient,
     workspace_id: str,
@@ -905,6 +1011,80 @@ async def test_live_harness_browser_tool_call_uses_shared_runtime(
         timeout=_timeout(),
     )
     _assert_clean_turn(cleanup)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_terminal_tool_output_is_sequential(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("terminal")
+    await _assert_browser_runtime_live_diagnostics(client)
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    original_config = await client.get_channel_config(channel_id)
+    marker = uuid.uuid4().hex[:12]
+    expected_tools = (
+        "get_tool_info",
+        "list_channels",
+        "list_sub_sessions",
+        "read_conversation_history",
+    )
+
+    try:
+        await client.patch_channel_config(channel_id, {"chat_mode": "terminal"})
+        await _configure_low_cost_session(client, case, session_id)
+        await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+        result = await client.chat_session_stream(
+            (
+                "@tool:get_tool_info @tool:list_channels @tool:list_sub_sessions "
+                "@tool:read_conversation_history "
+                "Terminal transcript parity. Call exactly these host-provided tools in order, "
+                "with no shell commands and no file modifications: "
+                '1. get_tool_info with {"tool_name":"list_channels"}; '
+                "2. list_channels with {}; "
+                '3. list_sub_sessions with {"limit":3}; '
+                '4. read_conversation_history with {"section":"recent"}. '
+                f"After all four tool results, reply exactly: terminal transcript ok {marker}"
+            ),
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            timeout=_timeout(),
+        )
+        _assert_clean_turn(result)
+        assert f"terminal transcript ok {marker}" in result.response_text.lower()
+
+        started_tools = [
+            str(event.data.get("tool") or "")
+            for event in result.events
+            if event.type == "tool_start"
+        ]
+        for expected in expected_tools:
+            assert any(name in _bridge_visible_names(expected) for name in started_tools), (
+                f"{case.name} did not call expected tool {expected!r}; saw {started_tools}"
+            )
+
+        messages = await client.get_session_messages(session_id, limit=40)
+        assistants = _assistant_messages(messages)
+        assert any(_has_persisted_tool_transcript(message) for message in assistants), (
+            "terminal parity turn did not persist canonical tool transcript"
+        )
+        screenshot_path = await _assert_terminal_transcript_ui(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=marker,
+            min_rows=len(expected_tools),
+            screenshot_name=f"{case.name}-{marker}.png",
+        )
+        assert screenshot_path.is_file(), f"terminal parity screenshot was not written: {screenshot_path}"
+    finally:
+        await client.patch_channel_config(
+            channel_id,
+            {"chat_mode": original_config.get("chat_mode") or "default"},
+        )
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

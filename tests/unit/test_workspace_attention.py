@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -661,6 +662,64 @@ async def test_operator_triage_run_records_model_override(db_session, bot_regist
     assert task.execution_config["model_override"] == "gpt-5.4"
     assert task.execution_config["model_provider_id_override"] == "openai-main"
     assert run["effective_model"] == "gpt-5.4"
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_run_reuses_active_run_instead_of_spawning_duplicate(db_session, bot_registry, monkeypatch):
+    bot_registry.register("orchestrator", name="Operator", model="default/operator")
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    parent_channel_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    first = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Needs triage",
+    )
+    second = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Also needs triage",
+    )
+    for item in (first, second):
+        item.assigned_bot_id = "orchestrator"
+        item.assignment_status = "running"
+        item.assignment_task_id = task_id
+        item.evidence = {
+            "operator_triage": {
+                "state": "running",
+                "task_id": str(task_id),
+                "session_id": str(session_id),
+                "parent_channel_id": str(parent_channel_id),
+                "operator_bot_id": "orchestrator",
+                "started_at": "2026-04-29T12:00:00+00:00",
+            },
+        }
+    await db_session.commit()
+
+    spawn = AsyncMock()
+    monkeypatch.setattr("app.services.sub_sessions.spawn_ephemeral_session", spawn)
+
+    run = await create_attention_triage_run(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:write"], name="admin"),
+        actor="user:test",
+    )
+
+    spawn.assert_not_awaited()
+    assert run["task_id"] == str(task_id)
+    assert run["session_id"] == str(session_id)
+    assert run["parent_channel_id"] == str(parent_channel_id)
+    assert run["item_count"] == 2
+    assert run["effective_model"] == "default/operator"
 
 
 @pytest.mark.asyncio

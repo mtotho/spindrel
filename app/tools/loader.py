@@ -137,17 +137,16 @@ def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
     _scan_integration_tools(root / "integrations")
     _scan_integration_tools(root / "packages")
 
-    # Auto-discover INTEGRATION_DIRS/*/tools/*.py (external)
+    # Auto-discover external integrations from the same source of truth as the
+    # integration catalog/router scanners: SPINDREL_HOME, legacy
+    # INTEGRATION_DIRS, and runtime-added workspace integration dirs.
     try:
-        from app.config import settings
-        extra = settings.INTEGRATION_DIRS
+        from app.services.paths import effective_integration_dirs
+
+        for p in effective_integration_dirs():
+            _scan_integration_tools(Path(p), is_external=True)
     except Exception:
-        extra = ""
-    if extra:
-        for p in extra.split(":"):
-            p = p.strip()
-            if p:
-                _scan_integration_tools(Path(p).expanduser().resolve(), is_external=True)
+        logger.exception("Failed to discover external integration tool directories")
 
 
 def load_integration_tools(integration_dir: Path) -> list[str]:

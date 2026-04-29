@@ -188,9 +188,9 @@ class TestDiscoverSetupStatus:
         (tools_dir / "sample.py").write_text("# sample\n")
 
         with (
-            patch("integrations._iter_integration_candidates", return_value=iter([(int_dir, "demo", False, "test")])),
-            patch("integrations._get_process_config", return_value=None),
-            patch("integrations._get_setup", return_value=None),
+            patch("integrations.discovery.iter_integration_candidates", return_value=iter([(int_dir, "demo", False, "test")])),
+            patch("integrations.manifest_setup.get_process_config", return_value=None),
+            patch("integrations.manifest_setup.get_setup", return_value=None),
             patch("app.services.integration_settings.is_active", return_value=True),
             patch("app.tools.loader.load_integration_tools") as load_tools,
         ):

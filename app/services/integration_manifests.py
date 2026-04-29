@@ -95,11 +95,11 @@ async def seed_manifests() -> None:
     content_hash changes on disk.  Legacy setup.py rows are upgraded to
     YAML when an integration.yaml appears alongside them.
     """
-    from integrations import _iter_integration_candidates
+    from integrations.discovery import iter_integration_candidates
     from app.db.engine import async_session
     from app.db.models import IntegrationManifest
 
-    candidates = _iter_integration_candidates()
+    candidates = iter_integration_candidates()
     if not candidates:
         return
 

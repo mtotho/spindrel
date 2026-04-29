@@ -329,7 +329,7 @@ async def lifespan(application: FastAPI):
         logger.info("Registered workspace integrations directory: %s", _ws_int_path)
 
     # Discover and register integration routers
-    from integrations import discover_integrations as _discover_integrations
+    from integrations.discovery import discover_integrations as _discover_integrations
     for _integration_id, _integration_router in _discover_integrations():
         try:
             application.include_router(
@@ -361,7 +361,7 @@ async def lifespan(application: FastAPI):
     # Discover integration web UIs and populate the module-level registry.
     # The actual route handler is registered at module level (after app = FastAPI(...))
     # because the lifespan `app` parameter can collide with the `app` package name.
-    from integrations import discover_web_uis as _discover_web_uis
+    from app.services.integration_catalog import discover_web_uis as _discover_web_uis
     for _web_ui in _discover_web_uis():
         _iid = _web_ui["integration_id"]
         _INTEGRATION_WEB_UI_DIRS[_iid] = Path(_web_ui["static_dir_path"])

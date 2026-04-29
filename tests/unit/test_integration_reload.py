@@ -15,35 +15,35 @@ class TestLoadedIds:
 
     def test_loaded_ids_populated_by_discover(self):
         """discover_integrations() should populate _loaded_ids with all candidate IDs."""
-        import integrations
+        import integrations.discovery as integration_discovery
         # Save and reset
-        original = integrations._loaded_ids.copy()
-        integrations._loaded_ids.clear()
+        original = integration_discovery._loaded_ids.copy()
+        integration_discovery._loaded_ids.clear()
         try:
-            integrations.discover_integrations()
-            assert len(integrations._loaded_ids) > 0
+            integration_discovery.discover_integrations()
+            assert len(integration_discovery._loaded_ids) > 0
             # Should include known in-repo integrations
-            assert "discord" in integrations._loaded_ids
+            assert "discord" in integration_discovery._loaded_ids
         finally:
-            integrations._loaded_ids = original
+            integration_discovery._loaded_ids = original
 
     def test_no_new_integrations(self):
         """load_new_integrations returns empty when all are already loaded."""
-        import integrations
-        original = integrations._loaded_ids.copy()
+        import integrations.discovery as integration_discovery
+        original = integration_discovery._loaded_ids.copy()
         # Ensure all are loaded first
-        integrations.discover_integrations()
+        integration_discovery.discover_integrations()
         try:
             app = MagicMock()
-            result = integrations.load_new_integrations(app)
+            result = integration_discovery.load_new_integrations(app)
             assert result == []
             app.include_router.assert_not_called()
         finally:
-            integrations._loaded_ids = original
+            integration_discovery._loaded_ids = original
 
     def test_discovers_new_integration(self, tmp_path):
         """A new integration directory in INTEGRATION_DIRS gets discovered."""
-        import integrations
+        import integrations.discovery as integration_discovery
 
         # Create a minimal integration
         new_int = tmp_path / "test_hot_reload"
@@ -58,27 +58,27 @@ class TestLoadedIds:
                 return {"ok": True}
         """))
 
-        original_ids = integrations._loaded_ids.copy()
+        original_ids = integration_discovery._loaded_ids.copy()
         # Ensure all existing integrations are loaded
-        integrations.discover_integrations()
+        integration_discovery.discover_integrations()
 
         try:
             # Patch INTEGRATION_DIRS to include our tmp_path
-            with patch.object(integrations, "_all_integration_dirs", return_value=[
-                integrations._INTEGRATIONS_DIR,
-                integrations._PACKAGES_DIR,
+            with patch.object(integration_discovery, "all_integration_dirs", return_value=[
+                integration_discovery._INTEGRATIONS_DIR,
+                integration_discovery._PACKAGES_DIR,
                 tmp_path,
             ]):
                 app = MagicMock()
-                result = integrations.load_new_integrations(app)
+                result = integration_discovery.load_new_integrations(app)
 
                 assert len(result) == 1
                 assert result[0][0] == "test_hot_reload"
                 assert result[0][1] == new_int
                 app.include_router.assert_called_once()
-                assert "test_hot_reload" in integrations._loaded_ids
+                assert "test_hot_reload" in integration_discovery._loaded_ids
         finally:
-            integrations._loaded_ids = original_ids
+            integration_discovery._loaded_ids = original_ids
 
 
 class TestScaffold:
@@ -429,3 +429,38 @@ class TestLoadIntegrationTools:
         (tools_dir / "_private.py").write_text("x = 1")
         result = load_integration_tools(tmp_path)
         assert result == []
+
+    def test_discover_and_load_tools_scans_effective_external_integration_dirs(self, tmp_path):
+        """SPINDREL_HOME/HOME_LOCAL_DIR integrations must register tools at startup."""
+        from app.tools.loader import discover_and_load_tools
+        from app.tools.registry import _tools
+
+        integration_root = tmp_path / "spindrel-home"
+        tools_dir = integration_root / "bennieloggins" / "tools"
+        tools_dir.mkdir(parents=True)
+        (integration_root / "bennieloggins" / "__init__.py").write_text("")
+        (tools_dir / "bennie.py").write_text(textwrap.dedent("""\
+            from app.tools.registry import register
+
+            @register({
+                "type": "function",
+                "function": {
+                    "name": "bennie_health_check",
+                    "description": "Check Bennie health status.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            })
+            async def bennie_health_check():
+                return "ok"
+        """))
+
+        _tools.pop("bennie_health_check", None)
+        try:
+            with patch("app.services.paths.effective_integration_dirs", return_value=[str(integration_root)]), \
+                 patch("app.services.integration_settings.is_active", return_value=True):
+                discover_and_load_tools([])
+
+            assert _tools["bennie_health_check"]["source_integration"] == "bennieloggins"
+            assert _tools["bennie_health_check"]["source_file"] == "bennie.py"
+        finally:
+            _tools.pop("bennie_health_check", None)

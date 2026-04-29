@@ -563,6 +563,44 @@ def _operator_triage_prompt(items: list[WorkspaceAttentionItem], channel_names: 
     )
 
 
+def _reuse_active_operator_triage_run(
+    items: list[WorkspaceAttentionItem],
+    *,
+    operator_model: str | None,
+) -> dict[str, Any] | None:
+    runs: dict[str, dict[str, Any]] = {}
+    for item in items:
+        triage = (item.evidence or {}).get("operator_triage")
+        if not isinstance(triage, dict):
+            continue
+        if triage.get("state") not in {"queued", "running"}:
+            continue
+        session_id = str(triage.get("session_id") or "").strip()
+        parent_channel_id = str(triage.get("parent_channel_id") or "").strip()
+        if not session_id or not parent_channel_id:
+            continue
+        run = runs.setdefault(session_id, {
+            "task_id": str(triage.get("task_id") or ""),
+            "session_id": session_id,
+            "parent_channel_id": parent_channel_id,
+            "bot_id": str(triage.get("operator_bot_id") or OPERATOR_TRIAGE_BOT_ID),
+            "item_count": 0,
+            "model_override": None,
+            "model_provider_id_override": None,
+            "effective_model": operator_model,
+            "_started_at": str(triage.get("started_at") or ""),
+        })
+        run["item_count"] += 1
+        if str(triage.get("started_at") or "") > str(run.get("_started_at") or ""):
+            run["_started_at"] = str(triage.get("started_at") or "")
+
+    if not runs:
+        return None
+
+    selected = max(runs.values(), key=lambda run: (int(run.get("item_count") or 0), str(run.get("_started_at") or "")))
+    return {key: value for key, value in selected.items() if not key.startswith("_")}
+
+
 async def _operator_channel(db: AsyncSession) -> Channel:
     from app.services.channels import ensure_orchestrator_channel
 
@@ -593,6 +631,10 @@ async def create_attention_triage_run(
         operator_bot = get_bot(OPERATOR_TRIAGE_BOT_ID)
     except Exception as exc:  # noqa: BLE001
         raise ValidationError("Operator bot is unavailable.") from exc
+
+    existing_run = _reuse_active_operator_triage_run(active, operator_model=operator_bot.model)
+    if existing_run is not None:
+        return existing_run
 
     operator_channel = await _operator_channel(db)
     from app.services.sub_sessions import spawn_ephemeral_session

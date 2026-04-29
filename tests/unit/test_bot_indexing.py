@@ -1,4 +1,5 @@
 """Boundary tests for app.services.bot_indexing."""
+import asyncio
 import ast
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -401,6 +402,24 @@ class TestReindexBot:
 
 class TestReindexChannel:
     @pytest.mark.asyncio
+    async def test_context_path_respects_index_cooldown_by_default(self):
+        bot = _make_bot(enabled=True)
+        with patch(
+            "app.agent.fs_indexer.index_directory",
+            new=AsyncMock(return_value={"indexed": 0, "skipped": 0, "removed": 0, "errors": 0, "cooldown": True}),
+        ) as idx_mock, patch(
+            "app.services.workspace.workspace_service"
+        ) as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/tmp/ws/test-bot"
+            out = await reindex_channel("abc", bot)
+
+        idx_mock.assert_awaited_once()
+        _, kwargs = idx_mock.await_args
+        assert kwargs["force"] is False
+        assert out is not None
+        assert out["cooldown"] is True
+
+    @pytest.mark.asyncio
     async def test_indexes_using_channel_plan(self):
         bot = _make_bot(enabled=True)
         with patch(
@@ -419,6 +438,29 @@ class TestReindexChannel:
         assert kwargs["skip_stale_cleanup"] is True
         assert out is not None
         assert out["indexed"] == 4
+
+    @pytest.mark.asyncio
+    async def test_concurrent_context_indexes_coalesce_per_channel(self):
+        bot = _make_bot(enabled=True)
+
+        async def _slow_index(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return {"indexed": 1, "skipped": 0, "removed": 0, "errors": 0, "cooldown": False}
+
+        with patch(
+            "app.agent.fs_indexer.index_directory",
+            new=AsyncMock(side_effect=_slow_index),
+        ) as idx_mock, patch(
+            "app.services.workspace.workspace_service",
+        ) as mock_ws:
+            mock_ws.get_workspace_root.return_value = "/tmp/ws/test-bot"
+            first, second = await asyncio.gather(
+                reindex_channel("abc", bot),
+                reindex_channel("abc", bot),
+            )
+
+        idx_mock.assert_awaited_once()
+        assert {bool((first or {}).get("in_flight")), bool((second or {}).get("in_flight"))} == {False, True}
 
 
 class TestIterWatchTargets:

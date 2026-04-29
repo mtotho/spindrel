@@ -87,7 +87,7 @@ async def validate_activation(bot_id: str, integration_type: str) -> list[Featur
         except Exception:
             pass
 
-    from integrations import get_activation_manifests
+    from app.services.integration_catalog import get_activation_manifests
     manifests = get_activation_manifests()
     manifest = manifests.get(integration_type)
     if not manifest:

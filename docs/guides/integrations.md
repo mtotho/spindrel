@@ -116,26 +116,26 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `oauth` | OAuth device/code flow config. | `integrations/<id>/router.py` + OAuth utils | active |
 | `webhook` | Inbound webhook path + description. Displayed in admin UI so users configure the external service. | `router.py` owns the route | active |
 | `binding` | Per-channel channel/entity picker — `client_id_prefix`, `suggestions_endpoint`, `config_fields`. See [Channel binding model](#channel-binding-model). | `integrations/<id>/router.py` serves suggestions | active |
-| `target` | Typed dispatch target (auto-generates a frozen dataclass) or points to `target.py` for custom logic. | `integrations/__init__.py::discover_targets` | active |
+| `target` | Typed dispatch target (auto-generates a frozen dataclass) or points to `target.py` for custom logic. | `integrations.discovery` | active |
 | `capabilities` | Renderer capability flags (text, rich_text, rich_tool_results, threading, reactions, attachments, streaming_edit, approval_buttons, ephemeral, modals, …). Overrides renderer ClassVar. See [Integration Depth Playbook](#capability-model). | `app/services/capability_gate.py` | active |
 | `tool_result_rendering` | Detailed support matrix for read-only rich tool-result envelopes: supported display modes, content types, view keys, fallback behavior, placement, and platform limits. YAML wins over renderer ClassVar. | `integrations.tool_output` + renderer adapter | active |
 | `activation` | Per-channel tool/skill/MCP injection manifest. When a channel activates an integration, these surface. | `app/agent/channel_overrides.py` | active |
-| `events` | Event types the integration can emit (used by task-trigger UI). | `integrations/__init__.py::discover_events` | active |
+| `events` | Event types the integration can emit (used by task-trigger UI). | `app.services.integration_catalog` | active |
 | `mcp_servers` | MCP servers this integration contributes. URL or container image. | `app/services/mcp_servers.py::seed_from_integrations` | active |
 | `dependencies` | Python / npm / system dependencies. Admin UI surfaces install commands. | `app/routers/api_v1_admin/integrations.py` | active |
 | `docker_compose` | Sidecar stack file + project name template + allowed bind mounts. | `app/services/docker_stacks.py` | active |
 | `runtime_services` | Shared sidecar capability contract. Providers declare endpoints they own; consumers declare required capabilities and optional external override settings. | `app/services/runtime_services.py` | active |
-| `web_ui` | Static build directory + dev port for an integration-owned web UI. | `integrations/__init__.py::discover_web_uis` | active |
+| `web_ui` | Static build directory + dev port for an integration-owned web UI. | `app.services.integration_catalog` | active |
 | `sidebar_section` | Navigation section added to the main sidebar. | `/api/v1/admin/integrations/sidebar` | active |
-| `dashboard_modules` | Pluggable panels for integration dashboards. Legacy naming may still appear around older dashboard modules. | `integrations/__init__.py::discover_dashboard_modules` | active |
-| `debug_actions` | Admin-only debug/test actions. | `integrations/__init__.py::discover_debug_actions` | active |
+| `dashboard_modules` | Pluggable panels for integration dashboards. Legacy naming may still appear around older dashboard modules. | `app.services.integration_catalog` | active |
+| `debug_actions` | Admin-only debug/test actions. | `app.services.integration_catalog` | active |
 | `api_permissions` | API scopes required for the integration's router. | `app/services/api_keys.py` | active |
 | `tool_widgets` | Per-tool widget templates. **Owned by the widget system** — see [`widget-system.md`](widget-system.md). | `app/services/widget_templates.py` | active |
 | `widget_presets` | Reserved. Widget presets live inside `tool_widgets` now — see [`widget-system.md`](widget-system.md). | (reserved) | reserved |
 | `tool_families` | Reserved — tool grouping. | (reserved) | reserved |
 | `machine_control` | Machine-control provider declaration (HA-style device control). | `app/services/machine_control/*` | active |
-| `process` | Long-running subprocess (`cmd`, `required_env`, `watch_paths`). | `app/services/integration_processes.py` | active |
-| `provides` | Module inventory — `[tools, skills, renderer, target, router, hooks, …]`. Validation only; auto-detected. | `integrations/__init__.py` | active |
+| `process` | Long-running subprocess (`cmd`, `required_env`, `watch_paths`). | `app/services/integration_processes.py` + `integrations.manifest_setup` | active |
+| `provides` | Module inventory — `[tools, skills, renderer, target, router, hooks, …]`. Validation only; auto-detected. | `integrations.discovery` | active |
 
 ## Channel binding model
 

@@ -33,6 +33,7 @@ export function ToolTraceStrip({
 
   return (
     <div
+      data-testid="tool-trace-strip"
       role="button"
       tabIndex={0}
       aria-label={`${total} tool call${total === 1 ? "" : "s"}, click to expand`}

@@ -150,7 +150,7 @@ class TestSeedManifests:
     ):
         intg_dir = _write_integration_yaml(tmp_path, "fooarr")
         monkeypatch.setattr(
-            "integrations._iter_integration_candidates",
+            "integrations.discovery.iter_integration_candidates",
             lambda: [(intg_dir, "fooarr", False, "integration")],
         )
 
@@ -173,7 +173,7 @@ class TestSeedManifests:
         ))
         await db_session.commit()
         monkeypatch.setattr(
-            "integrations._iter_integration_candidates",
+            "integrations.discovery.iter_integration_candidates",
             lambda: [(intg_dir, "fooarr", False, "integration")],
         )
 
@@ -197,7 +197,7 @@ class TestSeedManifests:
         ))
         await db_session.commit()
         monkeypatch.setattr(
-            "integrations._iter_integration_candidates",
+            "integrations.discovery.iter_integration_candidates",
             lambda: [(intg_dir, "fooarr", False, "integration")],
         )
 
@@ -213,7 +213,7 @@ class TestSeedManifests:
         intg_dir = tmp_path / "barint"
         intg_dir.mkdir()
         monkeypatch.setattr(
-            "integrations._iter_integration_candidates",
+            "integrations.discovery.iter_integration_candidates",
             lambda: [(intg_dir, "barint", False, "integration")],
         )
 
@@ -230,7 +230,7 @@ class TestSeedManifests:
             tmp_path, "barint", extra="enabled: true\n",
         )
         monkeypatch.setattr(
-            "integrations._iter_integration_candidates",
+            "integrations.discovery.iter_integration_candidates",
             lambda: [
                 (foo_dir, "fooarr", False, "integration"),
                 (bar_dir, "barint", False, "integration"),
