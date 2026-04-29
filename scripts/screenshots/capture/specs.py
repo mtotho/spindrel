@@ -1997,6 +1997,67 @@ _ASSERT_QUICK_AUTOMATION_DRAWER_JS = (
     "if (!/Create & Customize/.test(text)) throw new Error('drawer customize action missing');"
 )
 
+_QUICK_AUTOMATION_PRESET_INIT = """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  const presetResponse = {
+    presets: [
+      {
+        id: "widget_improvement_healthcheck",
+        title: "Widget Improvement Healthcheck",
+        description: "Schedules a recurring review of this channel's dashboard widgets, including usefulness, health, stale widgets, and hidden layout issues.",
+        surface: "channel_task",
+        task_defaults: {
+          title: "Widget Improvement Healthcheck",
+          prompt: "Review this channel's dashboard widgets for usefulness, broken states, stale context, and practical improvements.",
+          scheduled_at: "+1h",
+          recurrence: "+1w",
+          task_type: "scheduled",
+          trigger_config: { type: "schedule" },
+          skills: ["widgets", "widgets/errors", "widgets/channel_dashboards"],
+          tools: ["describe_dashboard", "check_dashboard_widgets", "check_widget", "inspect_widget_pin"],
+          post_final_to_channel: false,
+          history_mode: "recent",
+          history_recent_count: 30,
+          skip_tool_approval: false
+        }
+      }
+    ]
+  };
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (url.pathname === "/api/v1/admin/run-presets") {
+        return new Response(JSON.stringify(presetResponse), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (/\\/api\\/v1\\/admin\\/channels\\/[^/]+\\/tasks$/.test(url.pathname)) {
+        return new Response(JSON.stringify({ tasks: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (/\\/api\\/v1\\/admin\\/channels\\/[^/]+\\/pipelines$/.test(url.pathname)) {
+        return new Response(JSON.stringify({ subscriptions: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.pathname === "/api/v1/admin/tasks" && url.searchParams.get("definitions_only") === "true") {
+        return new Response(JSON.stringify({ tasks: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+"""
+
 CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="channel-quick-automations",
@@ -2006,6 +2067,7 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
         wait_arg=_QUICK_AUTOMATIONS_READY,
         output="channel-quick-automations.png",
         color_scheme="dark",
+        extra_init_scripts=[_QUICK_AUTOMATION_PRESET_INIT],
         pre_capture_js=_SCROLL_TO_QUICK_AUTOMATIONS_JS,
         assert_js=_ASSERT_QUICK_AUTOMATIONS_JS,
     ),
@@ -2017,6 +2079,7 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
         wait_arg=_QUICK_AUTOMATIONS_READY,
         output="channel-quick-automation-drawer.png",
         color_scheme="dark",
+        extra_init_scripts=[_QUICK_AUTOMATION_PRESET_INIT],
         pre_capture_js=_OPEN_QUICK_AUTOMATION_DRAWER_JS,
         assert_js=_ASSERT_QUICK_AUTOMATION_DRAWER_JS,
     ),
@@ -2028,6 +2091,7 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
         wait_arg=_QUICK_AUTOMATIONS_READY,
         output="channel-quick-automation-drawer-mobile.png",
         color_scheme="dark",
+        extra_init_scripts=[_QUICK_AUTOMATION_PRESET_INIT],
         pre_capture_js=_OPEN_QUICK_AUTOMATION_DRAWER_JS,
         assert_js=_ASSERT_QUICK_AUTOMATION_DRAWER_JS,
     ),
