@@ -249,6 +249,47 @@ test("terminal mode keeps rich diff results in sequential transcript rows", () =
     assert.equal(items[0].entries[0]?.detailKind, "inline-diff");
     assert.equal(items[0].entries[0]?.env?.content_type, "application/vnd.spindrel.diff+text");
 });
+test("terminal mode lets diff envelopes override stale generic tool summaries", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "terminal",
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-1", kind: "tool_call", toolCallId: "call-edit" }],
+        },
+        toolCalls: [
+            {
+                id: "call-edit",
+                name: "Edit",
+                args: JSON.stringify({ file_path: "notes.md" }),
+                surface: "rich_result",
+                status: "done",
+                summary: {
+                    kind: "result",
+                    subject_type: "generic",
+                    label: "notes.md",
+                },
+                envelope: {
+                    content_type: "application/vnd.spindrel.diff+text",
+                    body: "--- a/notes.md\n+++ b/notes.md\n@@ -1 +1 @@\n-old\n+new",
+                    plain_body: "Changed notes.md: +1 -1 lines",
+                    display: "inline",
+                    display_label: "notes.md",
+                    truncated: false,
+                    record_id: "result-edit",
+                    byte_size: 58,
+                },
+            },
+        ],
+    });
+    assert.equal(items[0]?.kind, "transcript");
+    if (items[0]?.kind !== "transcript")
+        throw new Error("expected transcript item");
+    assert.equal(items[0].entries[0]?.label, "Changed notes.md: +1 -1 lines");
+    assert.equal(items[0].entries[0]?.detailKind, "inline-diff");
+    assert.equal(items[0].entries[0]?.summary?.kind, "diff");
+    assert.equal(items[0].entries[0]?.summary?.subject_type, "file");
+    assert.equal(items[0].entries[0]?.summary?.path, "notes.md");
+});
 test("terminal mode keeps native Write text envelopes in transcript rows for code preview", () => {
     const items = buildAssistantTurnBodyItems({
         renderMode: "terminal",

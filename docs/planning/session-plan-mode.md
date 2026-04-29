@@ -318,6 +318,7 @@ Expected use:
 - not as a placeholder
 - not as a substitute for clarifying questions
 - must include professional-plan fields: key changes, interface impact, assumptions/defaults, concrete steps, acceptance criteria, and test plan
+- the first draft must have either durable planning-state signals from the back-and-forth or explicit assumptions/defaults; unresolved questions block `publish_plan`
 
 This is the only correct way for the model to create the first visible plan.
 
@@ -564,6 +565,13 @@ Current blocking issues:
 - invalid step statuses
 - placeholder step labels
 - vague step labels such as generic “implement changes” / “test it” items
+
+`publish_plan` also has a pre-publish readiness gate for the first visible
+draft. It rejects first drafts when no planning-state decision/evidence exists
+and no explicit assumptions/defaults were provided, or when the model tries to
+publish while carrying unresolved open questions. This is separate from
+approval validation: readiness decides whether the draft should appear at all;
+approval validation decides whether a draft can execute.
 
 Current warnings:
 

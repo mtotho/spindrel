@@ -762,7 +762,10 @@ async def admin_channels_list(
 
     offset = (page - 1) * page_size
     channels = (await db.execute(
-        stmt.options(selectinload(Channel.integrations)).offset(offset).limit(page_size)
+        stmt.options(
+            selectinload(Channel.integrations),
+            selectinload(Channel.project),
+        ).offset(offset).limit(page_size)
     )).scalars().all()
 
     return ChannelListOut(
@@ -797,7 +800,11 @@ async def admin_channel_detail(
     """Channel detail with linked entity counts."""
     channel = (await db.execute(
         select(Channel)
-        .options(selectinload(Channel.integrations), selectinload(Channel.bot_members))
+        .options(
+            selectinload(Channel.integrations),
+            selectinload(Channel.bot_members),
+            selectinload(Channel.project),
+        )
         .where(Channel.id == channel_id)
     )).scalar_one_or_none()
     if not channel:
@@ -884,6 +891,8 @@ async def admin_channel_settings(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    if channel.project_id:
+        await db.refresh(channel, ["project"])
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
     ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
@@ -1126,6 +1135,8 @@ async def admin_channel_settings_update(
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(channel)
+    if channel.project_id:
+        await db.refresh(channel, ["project"])
     out = ChannelSettingsOut.model_validate(channel)
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
     ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
@@ -2616,7 +2627,10 @@ async def admin_channels_enriched(
         select(func.count()).select_from(stmt_base.subquery())
     )).scalar_one()
 
-    stmt = stmt_base.options(selectinload(Channel.integrations))
+    stmt = stmt_base.options(
+        selectinload(Channel.integrations),
+        selectinload(Channel.project),
+    )
 
     offset = (page - 1) * page_size
     channels = (await db.execute(

@@ -830,9 +830,21 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
     if not parts:
         return None
 
-    # skills/*.md
-    if len(parts) == 2 and parts[0] == "skills" and parts[1].endswith(".md"):
-        return ("skill", Path(parts[1]).stem, None, SOURCE_FILE)
+    # skills/*.md or folder-layout skills/<name>/**/*.md. Mirrors
+    # `_walk_skill_files` so watch-mode sync handles the same skill IDs as
+    # full sync.
+    if len(parts) >= 2 and parts[0] == "skills" and parts[-1].endswith(".md"):
+        if len(parts) == 2:
+            skill_id = Path(parts[1]).stem
+        else:
+            rel_parts = list(parts[1:])
+            rel_parts[-1] = rel_parts[-1][:-3]  # strip ".md"
+            if rel_parts[-1].lower() in ("index", "readme"):
+                rel_parts = rel_parts[:-1]
+            if not rel_parts:
+                return None
+            skill_id = "/".join(rel_parts)
+        return ("skill", skill_id, None, SOURCE_FILE)
 
     # bots/{id}/skills/*.md
     if len(parts) == 4 and parts[0] == "bots" and parts[2] == "skills" and parts[3].endswith(".md"):

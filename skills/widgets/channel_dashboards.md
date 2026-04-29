@@ -71,7 +71,7 @@ Most layout requests follow the same four-step dance:
 
 When the user says "put it where I'll see it", pick a chat-visible zone (rail / header / dock). When they say "keep it on the dashboard" or "put it on the big page", grid is fine.
 
-**`layout_mode` nuance.** A channel's `channel.config.layout_mode` may hide some chat-visible zones (e.g. `"rail-chat"` hides the header + dock; `"dashboard-only"` hides the whole chat surface). Don't pin to a zone the current layout mode hides without asking — the user won't see your widget until they switch modes. `describe_dashboard`'s raw response doesn't currently read `layout_mode`, so ask the user when in doubt.
+**`layout_mode` nuance.** A channel's `channel.config.layout_mode` may hide some chat-visible zones (e.g. `"rail-chat"` hides the header + dock; `"dashboard-only"` hides the whole chat surface). `describe_dashboard` reports this as `channel_layout_mode` for channel dashboards. Don't pin to a zone the current layout mode hides without asking — the user won't see your widget until they switch modes.
 
 ## `pin_widget` — library widgets
 

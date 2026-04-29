@@ -315,6 +315,30 @@ function summaryFileTarget(summary: ToolCallSummary | null | undefined): string 
   return summary.path || summary.target_label || null;
 }
 
+function isDiffEnvelope(env: ToolResultEnvelope | undefined): boolean {
+  return env?.content_type === "application/vnd.spindrel.diff+text";
+}
+
+function diffSummaryFromEnvelope(
+  toolSummary: ToolCallSummary | null | undefined,
+  result: ToolResultEnvelope | undefined,
+): ToolCallSummary | null {
+  if (!isDiffEnvelope(result)) return null;
+  const diff = extractDiffText(result);
+  const stats = summarizeDiffStats(diff);
+  const path = toolSummary?.path || toolSummary?.target_label || result?.display_label || null;
+  const label = result?.plain_body?.trim()
+    || toolSummary?.label
+    || (path ? `Changed ${path}` : "Changed file");
+  return {
+    kind: "diff",
+    subject_type: "file",
+    label,
+    ...(path ? { path } : {}),
+    ...(stats ? { diff_stats: { additions: stats.additions, deletions: stats.deletions } } : {}),
+  };
+}
+
 export function extractDiffText(env: ToolResultEnvelope | undefined): string | null {
   if (!env) return null;
   if (typeof env.body === "string" && env.body.trim()) return env.body;
@@ -600,6 +624,11 @@ function buildPersistedEntry(
   toolSummary: ToolCallSummary | null | undefined,
   rawCall?: ToolCall,
 ): SharedToolTranscriptEntry {
+  const diffSummary = diffSummaryFromEnvelope(toolSummary, result);
+  if (diffSummary) {
+    return buildEntryFromSummary(toolName, diffSummary, result, args, rawCall);
+  }
+
   if (toolSummary) {
     return buildEntryFromSummary(toolName, toolSummary, result, args, rawCall);
   }
@@ -984,7 +1013,10 @@ export function buildLiveToolEntries(toolCalls: {
 }[]): SharedToolTranscriptEntry[] {
   return toolCalls.map((tc, index) => {
     const toolName = tc.capability?.name || tc.name;
-    const base = tc.summary
+    const diffSummary = diffSummaryFromEnvelope(tc.summary, tc.envelope);
+    const base = diffSummary
+      ? buildEntryFromSummary(toolName, diffSummary, tc.envelope, tc.args)
+      : tc.summary
       ? buildEntryFromSummary(toolName, tc.summary, tc.envelope)
       : buildPersistedEntry(toolName, tc.args, tc.envelope, null);
 

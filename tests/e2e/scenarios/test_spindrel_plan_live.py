@@ -886,6 +886,36 @@ async def test_live_spindrel_quality_rejects_weak_professional_plan(client: E2EC
 
 
 @pytest.mark.asyncio
+async def test_live_spindrel_quality_premature_publish_asks_questions(client: E2EClient) -> None:
+    _requires_tier("quality")
+    channel_id, session_id, bot_id = await _fresh_session(client, "quality_readiness")
+    await client.start_session_plan_mode(session_id)
+
+    result = await client.chat_session_stream(
+        (
+            "Native quality diagnostic. The user asks for a plan but gives no target subsystem, "
+            "success signal, allowed mutation scope, or verification expectation. Follow the "
+            "native professional plan contract. Do not proceed with assumptions, do not publish "
+            "a draft, and use a structured question card titled 'Quality readiness questions'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "ask_plan_questions" in result.tools_used
+    assert "publish_plan" not in result.tools_used
+
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "planning"
+    assert state["has_plan"] is False
+    messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
+    assert _has_plan_questions_envelope(messages, title="Quality readiness questions")
+    _record_session("quality_readiness", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
 async def test_live_spindrel_quality_publishes_professional_plan_contract(client: E2EClient) -> None:
     _requires_tier("quality")
     channel_id, session_id, bot_id = await _fresh_session(client, "quality_publish")

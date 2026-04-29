@@ -167,15 +167,22 @@ export function SpatialActionCueLayer({
               className={`relative transition-transform duration-150 ${highlighted ? "scale-110" : "scale-100"}`}
               style={{ width: 0, height: 0 }}
             >
-              <div
-                className={`absolute flex h-5 w-5 items-center justify-center rounded-full ring-1 backdrop-blur-sm ${toneClass} ${
+              <button
+                type="button"
+                aria-label={`${cueLabel(item)}: ${item.label}`}
+                className={`pointer-events-auto absolute flex h-5 w-5 items-center justify-center rounded-full ring-1 backdrop-blur-sm transition-transform hover:scale-110 focus-visible:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${toneClass} ${
                   highlighted ? "ring-2 ring-accent/35" : ""
                 }`}
                 style={{ transform: `translate(${badgeX}px, ${badgeY}px)` }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  item.onSelect();
+                }}
               >
                 <Icon size={13} />
                 <span className="sr-only">{cueLabel(item)}</span>
-              </div>
+              </button>
             </div>
           </div>
         );

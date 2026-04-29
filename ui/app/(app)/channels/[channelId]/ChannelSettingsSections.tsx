@@ -699,6 +699,22 @@ function ProjectSection({
 }) {
   const { data: projects } = useProjects();
   const selectedProject = projects?.find((project) => project.id === form.project_id) ?? form.project ?? null;
+  const projectOptions = useMemo(() => {
+    const rows = (projects ?? []).map((project) => ({
+      label: `${project.name} · /${project.root_path}`,
+      value: project.id,
+    }));
+    if (selectedProject && !rows.some((project) => project.value === selectedProject.id)) {
+      rows.push({
+        label: `${selectedProject.name} · /${selectedProject.root_path}`,
+        value: selectedProject.id,
+      });
+    }
+    return [
+      { label: "No Project", value: "" },
+      ...rows,
+    ];
+  }, [projects, selectedProject]);
   const projectPath = (selectedProject?.root_path ?? form.project_path ?? "").replace(/^\/+/, "");
   const effectiveWorkspaceId = selectedProject?.workspace_id ?? form.project_workspace_id ?? workspaceId ?? null;
   const terminalHref = effectiveWorkspaceId && projectPath
@@ -717,13 +733,7 @@ function ProjectSection({
           <SelectInput
             value={form.project_id ?? ""}
             onChange={(value) => patch("project_id", (value || null) as ChannelSettings["project_id"])}
-            options={[
-              { label: "No Project", value: "" },
-              ...(projects ?? []).map((project) => ({
-                label: `${project.name} · /${project.root_path}`,
-                value: project.id,
-              })),
-            ]}
+            options={projectOptions}
           />
         </FormRow>
       </div>

@@ -480,7 +480,7 @@ async def create_channel(
             db.add(bm)
 
     await db.commit()
-    await db.refresh(channel, ["integrations", "bot_members"])
+    await db.refresh(channel, ["integrations", "bot_members", "project"])
     out = ChannelOut.model_validate(channel)
     if channel.project_id:
         project = await db.get(Project, channel.project_id)
@@ -500,7 +500,11 @@ async def list_channels(
     auth_result=Depends(require_scopes("channels:read")),
 ):
     """List channels with optional filters."""
-    stmt = select(Channel).options(selectinload(Channel.integrations), selectinload(Channel.bot_members)).order_by(Channel.created_at.desc())
+    stmt = select(Channel).options(
+        selectinload(Channel.integrations),
+        selectinload(Channel.bot_members),
+        selectinload(Channel.project),
+    ).order_by(Channel.created_at.desc())
     stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
@@ -571,7 +575,9 @@ async def get_channel(
 ):
     """Get channel info."""
     stmt = select(Channel).options(
-        selectinload(Channel.integrations), selectinload(Channel.bot_members),
+        selectinload(Channel.integrations),
+        selectinload(Channel.bot_members),
+        selectinload(Channel.project),
     ).where(Channel.id == channel_id)
     stmt = apply_channel_visibility(stmt, auth)
     channel = (await db.execute(stmt)).scalar_one_or_none()
@@ -1026,7 +1032,7 @@ async def update_channel(
 
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(channel, ["integrations"])
+    await db.refresh(channel, ["integrations", "project"])
     out = ChannelOut.model_validate(channel)
     if channel.project_id:
         project = await db.get(Project, channel.project_id)

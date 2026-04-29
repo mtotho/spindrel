@@ -43,6 +43,7 @@ const SetupPage = lazy(() => import("@/app/(auth)/setup"));
 const HomePage = lazy(() => import("@/app/(app)/index"));
 const CanvasPage = lazy(() => import("@/app/(app)/canvas"));
 const HubCommandCenterPage = lazy(() => import("@/app/(app)/hub/command-center"));
+const HubAttentionPage = lazy(() => import("@/app/(app)/hub/attention"));
 const HubDailyHealthPage = lazy(() => import("@/app/(app)/hub/daily-health"));
 const HubContextBloatPage = lazy(() => import("@/app/(app)/hub/context-bloat"));
 const SettingsShell = lazy(() =>
@@ -147,7 +148,7 @@ export const router = createBrowserRouter([
           { path: "canvas", element: <CanvasPage /> },
           { path: "hub/mission-control", element: <HubCommandCenterPage /> },
           { path: "hub/command-center", element: <HubCommandCenterPage /> },
-          { path: "hub/attention", element: <HubCommandCenterPage /> },
+          { path: "hub/attention", element: <HubAttentionPage /> },
           { path: "hub/daily-health", element: <HubDailyHealthPage /> },
           { path: "hub/context-bloat", element: <HubContextBloatPage /> },
           {

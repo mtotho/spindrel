@@ -11,6 +11,7 @@ from app.services.session_plan_mode import (
     get_session_plan_mode,
     publish_session_plan,
     publish_session_plan_event,
+    validate_plan_for_publish,
 )
 from app.tools.registry import register
 
@@ -86,9 +87,10 @@ _SCHEMA = {
             "_envelope": {"type": "object"},
             "llm": {"type": "string"},
             "plan": {"type": "object"},
+            "readiness": {"type": "object"},
             "validation": {"type": "object"},
         },
-        "required": ["_envelope", "llm", "plan", "validation"],
+        "required": ["_envelope", "llm", "plan", "readiness", "validation"],
     },
 )
 async def publish_plan(
@@ -116,6 +118,16 @@ async def publish_plan(
             raise RuntimeError("Session not found.")
         if get_session_plan_mode(session) != PLAN_MODE_PLANNING:
             raise RuntimeError("publish_plan can only be used while the session is in planning mode.")
+
+        readiness = validate_plan_for_publish(
+            session,
+            assumptions=assumptions,
+            assumptions_and_defaults=assumptions_and_defaults,
+            open_questions=open_questions,
+        )
+        if not readiness["ok"]:
+            messages = "; ".join(issue["message"] for issue in readiness["issues"])
+            raise RuntimeError(messages or "Plan is not ready to publish.")
 
         plan = publish_session_plan(
             session,
@@ -155,6 +167,7 @@ async def publish_plan(
                 "If validation has blocking issues, revise the plan before approval."
             ),
             "plan": payload,
+            "readiness": readiness,
             "validation": payload["validation"],
         }
     )

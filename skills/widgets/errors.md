@@ -67,7 +67,7 @@ Commonly-called tools and their confirmed envelope shapes. Code against these ex
 | `list_channels` | `env.channels[]` | `{channels, count}` |
 | `read_conversation_history` | `env.messages[]` | `{messages: [{role, content, ts, ...}], truncated}` |
 | `list_sub_sessions` | `env.sessions[]` | `{sessions, count}` |
-| `describe_dashboard` | `env.dashboard` + `env.pins[]` | `{dashboard, pins, layout_mode}` |
+| `describe_dashboard` | `env.dashboard` + `env.pins[]` | `{dashboard, pins, channel_layout_mode, widget_health}` |
 | Any `widget.<slug>.<handler>` (bot-callable handler) | As declared in `widget.yaml` `handlers.<name>.returns` | Call `spindrel.toolSchema(name)` for the exact JSON-Schema |
 
 **Rule of thumb** (never a substitute for `inspect_widget_pin`, just a default bias):

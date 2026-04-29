@@ -116,6 +116,45 @@ class TestCollectPromptTemplateFiles:
 class TestClassifyPath:
     """Tests for _classify_path() — mapping filesystem paths to sync types."""
 
+    def test_folder_layout_skill_index(self, tmp_path):
+        """skills/{name}/index.md → parent skill id, matching full sync."""
+        md = tmp_path / "skills" / "widgets" / "index.md"
+        md.parent.mkdir(parents=True)
+        md.write_text("# widgets")
+
+        old_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            result = _classify_path(md)
+        finally:
+            os.chdir(old_cwd)
+
+        assert result is not None
+        kind, skill_id, bot_id, source_type = result
+        assert kind == "skill"
+        assert skill_id == "widgets"
+        assert bot_id is None
+        assert source_type == SOURCE_FILE
+
+    def test_folder_layout_skill_child(self, tmp_path):
+        """skills/{name}/{child}.md → slash-delimited child skill id."""
+        md = tmp_path / "skills" / "widgets" / "errors.md"
+        md.parent.mkdir(parents=True)
+        md.write_text("# widget errors")
+
+        old_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            result = _classify_path(md)
+        finally:
+            os.chdir(old_cwd)
+
+        assert result is not None
+        kind, skill_id, _bot_id, source_type = result
+        assert kind == "skill"
+        assert skill_id == "widgets/errors"
+        assert source_type == SOURCE_FILE
+
     def test_integration_prompt(self, tmp_path):
         """integrations/{id}/prompts/*.md → prompt_template with SOURCE_INTEGRATION."""
         intg_prompts = tmp_path / "integrations" / "mission_control" / "prompts"

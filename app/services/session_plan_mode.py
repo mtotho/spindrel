@@ -1607,6 +1607,64 @@ def _has_substantive_list_item(items: list[str], placeholders: set[str] | None =
     return any(not _is_placeholder_text(item, placeholders) for item in items)
 
 
+def _planning_state_has_publish_signal(planning_state: dict[str, Any]) -> bool:
+    """Return whether durable planning notes show enough intent to draft."""
+    signal_fields = ("decisions", "assumptions", "constraints", "non_goals", "evidence", "preference_changes")
+    for field in signal_fields:
+        for item in planning_state.get(field) or []:
+            if isinstance(item, dict) and str(item.get("text") or item.get("label") or item).strip():
+                return True
+            if not isinstance(item, dict) and str(item).strip():
+                return True
+    return False
+
+
+def validate_plan_for_publish(
+    session: Session,
+    *,
+    assumptions: list[str] | None = None,
+    assumptions_and_defaults: list[str] | None = None,
+    open_questions: list[str] | None = None,
+) -> dict[str, Any]:
+    """Validate whether the native planning tool should publish a first draft.
+
+    Approval validation decides whether a draft may execute. This readiness
+    check is earlier: it prevents the model from using ``publish_plan`` as a
+    substitute for narrowing scope on the first visible plan.
+    """
+    issues: list[dict[str, str]] = []
+    existing = load_session_plan(session, required=False)
+    if existing is not None:
+        return {"ok": True, "blocking_count": 0, "issues": []}
+
+    carried_questions = [item.strip() for item in (open_questions or []) if item.strip()]
+    if carried_questions:
+        issues.append(_validation_issue(
+            "publish_has_open_questions",
+            "Ask or resolve key planning questions before publishing a first draft; proceed with explicit assumptions if the user requested that.",
+            field="open_questions",
+        ))
+
+    planning_state = get_planning_state(session)
+    has_durable_signal = _planning_state_has_publish_signal(planning_state)
+    has_explicit_assumptions = (
+        _has_substantive_list_item(assumptions_and_defaults or [])
+        or _has_substantive_list_item(assumptions or [])
+    )
+    if not has_durable_signal and not has_explicit_assumptions:
+        issues.append(_validation_issue(
+            "publish_missing_readiness",
+            "First drafts need answered planning context or explicit assumptions/defaults before publish_plan can create the plan.",
+            field="planning_state",
+        ))
+
+    return {
+        "ok": not issues,
+        "blocking_count": len(issues),
+        "issues": issues,
+    }
+
+
 def _is_vague_step_label(label: str) -> bool:
     text = " ".join(label.strip().lower().split())
     if not text:

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.db.models import Channel, Message, Session, Task
+from app.db.models import Channel, Message, Project, Session, SharedWorkspace, Task
 from tests.integration.conftest import AUTH_HEADERS
 
 
@@ -69,6 +69,31 @@ class TestCreateChannel:
         r1 = await _create_channel(client, client_id=cid)
         r2 = await _create_channel(client, client_id=cid)
         assert r1["id"] == r2["id"]
+
+    async def test_create_channel_idempotent_with_project_serializes_project(self, client, db_session):
+        """Returning an existing Project-bound channel must not lazy-load project in Pydantic."""
+        cid = f"project-idem-{uuid.uuid4().hex[:8]}"
+        created = await _create_channel(client, client_id=cid)
+
+        workspace = SharedWorkspace(name=f"Project Test Workspace {uuid.uuid4().hex[:8]}")
+        db_session.add(workspace)
+        await db_session.flush()
+        project = Project(
+            workspace_id=workspace.id,
+            name="Channel Project",
+            slug=f"channel-project-{uuid.uuid4().hex[:8]}",
+            root_path="common/projects/channel-project",
+            metadata_={},
+        )
+        db_session.add(project)
+        channel = await db_session.get(Channel, uuid.UUID(created["id"]))
+        channel.project_id = project.id
+        await db_session.commit()
+
+        returned = await _create_channel(client, client_id=cid)
+        assert returned["id"] == created["id"]
+        assert returned["project_id"] == str(project.id)
+        assert returned["project"]["root_path"] == "common/projects/channel-project"
 
 
 # ---------------------------------------------------------------------------

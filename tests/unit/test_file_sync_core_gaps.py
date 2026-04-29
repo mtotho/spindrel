@@ -130,6 +130,25 @@ class TestSyncChangedFileDeletion:
 
 class TestSyncChangedFileSkill:
     @pytest.mark.asyncio
+    async def test_when_folder_layout_skill_file_changes_then_child_row_updates(
+        self, db_session, patched_async_sessions, isolate_watch
+    ):
+        tmp = isolate_watch["tmp_path"]
+        embed = isolate_watch["embed"]
+        path = tmp / "skills" / "widgets" / "errors.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("---\nname: Widget Errors\n---\n\nbody\n")
+
+        from app.services.file_sync import sync_changed_file
+        await sync_changed_file(path)
+
+        row = await db_session.get(SkillRow, "widgets/errors")
+        assert row is not None
+        assert row.name == "Widget Errors"
+        assert row.source_path == str(path.resolve())
+        embed.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_when_new_skill_file_then_row_added_and_embedded(
         self, db_session, patched_async_sessions, isolate_watch
     ):

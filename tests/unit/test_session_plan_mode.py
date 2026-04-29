@@ -300,6 +300,54 @@ def test_professional_plan_markdown_round_trips_new_sections(monkeypatch, tmp_pa
     assert parsed.risks == plan.risks
 
 
+def test_first_publish_requires_readiness_signal(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    readiness = spm.validate_plan_for_publish(
+        session,
+        assumptions=[],
+        assumptions_and_defaults=[],
+        open_questions=[],
+    )
+
+    assert readiness["ok"] is False
+    assert any(issue["code"] == "publish_missing_readiness" for issue in readiness["issues"])
+
+
+def test_first_publish_allows_explicit_assumptions(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    readiness = spm.validate_plan_for_publish(
+        session,
+        assumptions=[],
+        assumptions_and_defaults=["Proceed with the user's requested defaults for the first draft."],
+        open_questions=[],
+    )
+
+    assert readiness["ok"] is True
+
+
+def test_first_publish_blocks_carried_open_questions(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+    spm.update_planning_state(session, decisions=["Use backend validation"], reason="test")
+
+    readiness = spm.validate_plan_for_publish(
+        session,
+        assumptions=[],
+        assumptions_and_defaults=["Proceed with backend validation."],
+        open_questions=["Which subsystem should own the validation?"],
+    )
+
+    assert readiness["ok"] is False
+    assert any(issue["code"] == "publish_has_open_questions" for issue in readiness["issues"])
+
+
 def test_legacy_plan_markdown_without_professional_sections_still_parses(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
