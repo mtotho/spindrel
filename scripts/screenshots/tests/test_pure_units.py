@@ -299,6 +299,43 @@ def test_harness_live_native_edit_terminal_spec_requires_diff_output():
     assert "After native diff" in specs[0].contains
 
 
+def test_harness_live_filter_specs_accepts_exact_names_and_globs():
+    specs = [
+        harness_live.CaptureSpec(
+            name="harness-codex-terminal-write",
+            route="http://ui",
+            wait_js="true",
+            contains=(),
+        ),
+        harness_live.CaptureSpec(
+            name="harness-claude-native-edit-terminal",
+            route="http://ui",
+            wait_js="true",
+            contains=(),
+        ),
+        harness_live.CaptureSpec(
+            name="harness-claude-mobile-context",
+            route="http://ui",
+            wait_js="true",
+            contains=(),
+        ),
+    ]
+
+    exact = harness_live._filter_specs(specs, "harness-claude-native-edit-terminal")
+    globbed = harness_live._filter_specs(specs, "harness-*-terminal*")
+    combined = harness_live._filter_specs(specs, "harness-codex-*,harness-claude-mobile-context")
+
+    assert [spec.name for spec in exact] == ["harness-claude-native-edit-terminal"]
+    assert [spec.name for spec in globbed] == [
+        "harness-codex-terminal-write",
+        "harness-claude-native-edit-terminal",
+    ]
+    assert [spec.name for spec in combined] == [
+        "harness-codex-terminal-write",
+        "harness-claude-mobile-context",
+    ]
+
+
 def test_harness_live_mobile_context_specs_are_docs_fixtures():
     target = harness_live.RuntimeTarget(
         name="codex",

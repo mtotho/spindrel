@@ -1407,7 +1407,25 @@ def create_session_plan(
     risks: list[str] | None = None,
     steps: list[dict[str, Any]] | None = None,
 ) -> SessionPlan:
-    task_slug = slugify_task(title)
+    plan = _build_new_session_plan(
+        session,
+        title=title,
+        summary=summary,
+        scope=scope,
+        key_changes=key_changes,
+        interfaces=interfaces,
+        assumptions=assumptions,
+        assumptions_and_defaults=assumptions_and_defaults,
+        open_questions=open_questions,
+        acceptance_criteria=acceptance_criteria,
+        test_plan=test_plan,
+        risks=risks,
+        steps=steps,
+    )
+    return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING, reason="create_plan")
+
+
+def _coerce_plan_steps(title: str, steps: list[dict[str, Any]] | None) -> list[PlanStep]:
     plan_steps = [
         PlanStep(
             id=str(item.get("id") or slugify_task(str(item.get("label") or f"step-{idx + 1}"))),
@@ -1417,8 +1435,26 @@ def create_session_plan(
         )
         for idx, item in enumerate(steps or [])
     ]
-    if not plan_steps:
-        plan_steps = _default_steps(title)
+    return plan_steps or _default_steps(title)
+
+
+def _build_new_session_plan(
+    session: Session,
+    *,
+    title: str,
+    summary: str | None = None,
+    scope: str | None = None,
+    key_changes: list[str] | None = None,
+    interfaces: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    assumptions_and_defaults: list[str] | None = None,
+    open_questions: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    test_plan: list[str] | None = None,
+    risks: list[str] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+) -> SessionPlan:
+    task_slug = slugify_task(title)
     plan = SessionPlan(
         title=title.strip(),
         status=PLAN_STATUS_DRAFT,
@@ -1432,14 +1468,81 @@ def create_session_plan(
         assumptions=[item.strip() for item in (assumptions or []) if item.strip()],
         assumptions_and_defaults=[item.strip() for item in (assumptions_and_defaults or []) if item.strip()],
         open_questions=[item.strip() for item in (open_questions or []) if item.strip()],
-        steps=plan_steps,
+        steps=_coerce_plan_steps(title, steps),
         test_plan=[item.strip() for item in (test_plan or []) if item.strip()],
         artifacts=[],
         acceptance_criteria=[item.strip() for item in (acceptance_criteria or []) if item.strip()],
         risks=[item.strip() for item in (risks or []) if item.strip()],
         outcome="Pending execution.",
     )
-    return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING, reason="create_plan")
+    return plan
+
+
+def preview_session_plan_publish(
+    session: Session,
+    *,
+    title: str,
+    summary: str | None = None,
+    scope: str | None = None,
+    key_changes: list[str] | None = None,
+    interfaces: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    assumptions_and_defaults: list[str] | None = None,
+    open_questions: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    test_plan: list[str] | None = None,
+    risks: list[str] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    outcome: str | None = None,
+) -> SessionPlan:
+    existing = load_session_plan(session, required=False)
+    if existing is None:
+        plan = _build_new_session_plan(
+            session,
+            title=title,
+            summary=summary,
+            scope=scope,
+            key_changes=key_changes,
+            interfaces=interfaces,
+            assumptions=assumptions,
+            assumptions_and_defaults=assumptions_and_defaults,
+            open_questions=open_questions,
+            acceptance_criteria=acceptance_criteria,
+            test_plan=test_plan,
+            risks=risks,
+            steps=steps,
+        )
+        if outcome is not None:
+            plan.outcome = outcome.strip() or plan.outcome
+        return plan
+
+    plan = copy.deepcopy(existing)
+    plan.title = title.strip() or plan.title
+    plan.summary = _normalize_free_text(summary, plan.summary)
+    plan.scope = _normalize_free_text(scope, plan.scope)
+    if key_changes is not None:
+        plan.key_changes = [item.strip() for item in key_changes if item.strip()]
+    if interfaces is not None:
+        plan.interfaces = [item.strip() for item in interfaces if item.strip()]
+    if assumptions is not None:
+        plan.assumptions = [item.strip() for item in assumptions if item.strip()]
+    if assumptions_and_defaults is not None:
+        plan.assumptions_and_defaults = [item.strip() for item in assumptions_and_defaults if item.strip()]
+    if open_questions is not None:
+        plan.open_questions = [item.strip() for item in open_questions if item.strip()]
+    if acceptance_criteria is not None:
+        plan.acceptance_criteria = [item.strip() for item in acceptance_criteria if item.strip()]
+    if test_plan is not None:
+        plan.test_plan = [item.strip() for item in test_plan if item.strip()]
+    if risks is not None:
+        plan.risks = [item.strip() for item in risks if item.strip()]
+    if outcome is not None:
+        plan.outcome = outcome.strip() or plan.outcome
+    if steps is not None:
+        plan.steps = _coerce_plan_steps(plan.title, steps)
+    plan.revision += 1
+    plan.status = PLAN_STATUS_DRAFT
+    return plan
 
 
 def publish_session_plan(
@@ -1459,60 +1562,25 @@ def publish_session_plan(
     steps: list[dict[str, Any]] | None = None,
     outcome: str | None = None,
 ) -> SessionPlan:
-    existing = load_session_plan(session, required=False)
-    if existing is None:
-        return create_session_plan(
-            session,
-            title=title,
-            summary=summary,
-            scope=scope,
-            key_changes=key_changes,
-            interfaces=interfaces,
-            assumptions=assumptions,
-            assumptions_and_defaults=assumptions_and_defaults,
-            open_questions=open_questions,
-            acceptance_criteria=acceptance_criteria,
-            test_plan=test_plan,
-            risks=risks,
-            steps=steps,
-        )
-
-    existing.title = title.strip() or existing.title
-    existing.summary = _normalize_free_text(summary, existing.summary)
-    existing.scope = _normalize_free_text(scope, existing.scope)
-    if key_changes is not None:
-        existing.key_changes = [item.strip() for item in key_changes if item.strip()]
-    if interfaces is not None:
-        existing.interfaces = [item.strip() for item in interfaces if item.strip()]
-    if assumptions is not None:
-        existing.assumptions = [item.strip() for item in assumptions if item.strip()]
-    if assumptions_and_defaults is not None:
-        existing.assumptions_and_defaults = [item.strip() for item in assumptions_and_defaults if item.strip()]
-    if open_questions is not None:
-        existing.open_questions = [item.strip() for item in open_questions if item.strip()]
-    if acceptance_criteria is not None:
-        existing.acceptance_criteria = [item.strip() for item in acceptance_criteria if item.strip()]
-    if test_plan is not None:
-        existing.test_plan = [item.strip() for item in test_plan if item.strip()]
-    if risks is not None:
-        existing.risks = [item.strip() for item in risks if item.strip()]
-    if outcome is not None:
-        existing.outcome = outcome.strip() or existing.outcome
-    if steps is not None:
-        existing.steps = [
-            PlanStep(
-                id=str(item.get("id") or slugify_task(str(item.get("label") or f"step-{idx + 1}"))),
-                label=str(item.get("label") or f"Step {idx + 1}"),
-                status=str(item.get("status") or STEP_STATUS_PENDING),
-                note=(str(item.get("note")).strip() if item.get("note") is not None else None),
-            )
-            for idx, item in enumerate(steps)
-        ]
-    existing.revision += 1
-    existing.status = PLAN_STATUS_DRAFT
+    plan = preview_session_plan_publish(
+        session,
+        title=title,
+        summary=summary,
+        scope=scope,
+        key_changes=key_changes,
+        interfaces=interfaces,
+        assumptions=assumptions,
+        assumptions_and_defaults=assumptions_and_defaults,
+        open_questions=open_questions,
+        acceptance_criteria=acceptance_criteria,
+        test_plan=test_plan,
+        risks=risks,
+        outcome=outcome,
+        steps=steps,
+    )
     return save_session_plan(
         session,
-        existing,
+        plan,
         mode=PLAN_MODE_PLANNING,
         accepted_revision=_accepted_plan_revision(session) or 0,
         reason="publish_plan",
@@ -2285,6 +2353,8 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             lines = [
                 "Plan mode is active. Stay in planning mode: do not execute implementation changes, do not edit non-plan files, and do not answer with long freeform proposals before the scope is clear.",
                 "Your first job in plan mode is to narrow scope. Explore/read available context first when possible, then ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
+                "If the user asks for a plan but the target subsystem, success signal, mutation scope, or verification expectation is missing, call ask_plan_questions instead of answering with prose or publishing a draft.",
+                "If the user explicitly asks for a structured question card, you must use ask_plan_questions.",
                 "A publishable plan must be decision-complete: goal and success criteria clear, scope and non-goals explicit, key implementation changes named, interface/API/type impact stated, assumptions/defaults recorded, concrete execution steps listed, and verification/test plan included.",
                 "Treat the visible planning-state capsule as durable notes for the back-and-forth: preserve confirmed decisions, open questions, constraints, assumptions, non-goals, evidence, and preference changes there instead of relying only on chat history.",
                 "Formatting contract: keep chat replies short, avoid giant markdown sections/lists unless the user explicitly asks for a prose writeup, and use tools for structured planning surfaces instead of hand-formatting them in chat.",

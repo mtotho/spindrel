@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fnmatch
 import json
 import os
 from dataclasses import dataclass
@@ -69,6 +70,28 @@ def _require_env(name: str) -> str:
     if not value:
         raise SystemExit(f"{name} is required")
     return value
+
+
+def _parse_only_patterns(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    patterns = tuple(part.strip() for part in raw.split(",") if part.strip())
+    return patterns
+
+
+def _filter_specs(specs: list[CaptureSpec], only: str | None) -> list[CaptureSpec]:
+    patterns = _parse_only_patterns(only)
+    if not patterns:
+        return specs
+    selected = [
+        spec
+        for spec in specs
+        if any(fnmatch.fnmatchcase(spec.name, pattern) for pattern in patterns)
+    ]
+    if not selected:
+        available = ", ".join(spec.name for spec in specs)
+        raise SystemExit(f"No harness screenshot specs matched --only={only!r}. Available specs: {available}")
+    return selected
 
 
 def _auth_init_script(*, api_url: str, api_key: str, theme: str) -> str:
@@ -433,6 +456,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
         specs.extend(_native_edit_terminal_specs(browser_url, args.claude_channel_id, sessions[("claude", "native_edit")]))
         specs.extend(_question_specs(browser_url, args.claude_channel_id))
+        specs = _filter_specs(specs, args.only)
 
         paths: list[Path] = []
         async with async_playwright() as pw:
@@ -482,6 +506,11 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", default=_env("DOCS_IMAGES_DIR", str(DEFAULT_DOCS_IMAGES)))
     parser.add_argument("--codex-channel-id", default=_env("HARNESS_PARITY_CODEX_CHANNEL_ID", DEFAULT_CODEX_CHANNEL_ID))
     parser.add_argument("--claude-channel-id", default=_env("HARNESS_PARITY_CLAUDE_CHANNEL_ID", DEFAULT_CLAUDE_CHANNEL_ID))
+    parser.add_argument(
+        "--only",
+        default=_env("HARNESS_VISUAL_ONLY") or _env("HARNESS_PARITY_SCREENSHOT_ONLY"),
+        help="Comma-separated exact names or shell globs of screenshot specs to capture.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:
         args.api_key = _require_env("SPINDREL_API_KEY")

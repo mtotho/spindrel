@@ -562,3 +562,18 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 
 - [x] Native session plan cards now follow the low-chrome chat surface rules: default mode uses token-only tonal surfaces and compact semantic controls, terminal mode uses a dedicated monospace/dense presentation, and terminal transcripts render plan envelopes inline through the shared rich-result path instead of compact fallback rows.
 - [x] The native plan screenshot harness now captures default/mobile plus terminal plan states for base, answered-question, execution-progress, replan-pending, and pending-outcome scenarios against the live Spindrel channel.
+
+## Project Workspace UI Repair (2026-04-29)
+
+- [x] `/admin/projects` now uses the dense admin catalog pattern instead of a bordered create card plus project card grid.
+- [x] `/admin/projects/:projectId` now uses spacing-led sections, `PromptEditor`, quiet header links, and shared settings rows for root URI, Project knowledge, and attached channels.
+- [x] Channel Agent settings replaced the blue Project summary banner with a compact `SettingsControlRow` that keeps Project, file, terminal, and memory-separation affordances visible.
+- [x] E2E Project workspace screenshots were recaptured through the patched local UI against the `10.10.30.208:18000` E2E API and visually inspected: list/detail/channel-settings no longer use the boxed card/panel treatment, and the memory tool envelope remains visible.
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` — clean.
+- [x] `PYTHONPYCACHEPREFIX=/tmp/codex-pycache python -m py_compile scripts/screenshots/capture/specs.py` — clean.
+- [x] `PYTHONPATH=. pytest scripts/screenshots/tests/test_pure_units.py -q` — 28 passed.
+- [x] `SPINDREL_UI_URL=http://127.0.0.1:5175 SPINDREL_BROWSER_URL=http://127.0.0.1:5175 python -m scripts.screenshots stage --only project-workspace` — passed.
+- [x] `SPINDREL_UI_URL=http://127.0.0.1:5175 SPINDREL_BROWSER_URL=http://127.0.0.1:5175 python -m scripts.screenshots capture --only project-workspace` — 4/4 passed.
+- [x] `python -m scripts.screenshots check` — 78/78 refs present.

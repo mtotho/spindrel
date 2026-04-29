@@ -8,9 +8,12 @@ from app.db.models import Session
 from app.services.session_plan_mode import (
     PLAN_MODE_PLANNING,
     build_session_plan_response,
+    get_planning_state,
     get_session_plan_mode,
+    preview_session_plan_publish,
     publish_session_plan,
     publish_session_plan_event,
+    validate_plan_for_approval,
     validate_plan_for_publish,
 )
 from app.tools.registry import register
@@ -33,17 +36,18 @@ _SCHEMA = {
                 "title": {"type": "string"},
                 "summary": {"type": "string"},
                 "scope": {"type": "string"},
-                "key_changes": {"type": "array", "items": {"type": "string"}},
-                "interfaces": {"type": "array", "items": {"type": "string"}},
+                "key_changes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "interfaces": {"type": "array", "minItems": 1, "items": {"type": "string"}},
                 "assumptions": {"type": "array", "items": {"type": "string"}},
-                "assumptions_and_defaults": {"type": "array", "items": {"type": "string"}},
+                "assumptions_and_defaults": {"type": "array", "minItems": 1, "items": {"type": "string"}},
                 "open_questions": {"type": "array", "items": {"type": "string"}},
-                "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
-                "test_plan": {"type": "array", "items": {"type": "string"}},
+                "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "test_plan": {"type": "array", "minItems": 1, "items": {"type": "string"}},
                 "risks": {"type": "array", "items": {"type": "string"}},
                 "outcome": {"type": "string"},
                 "steps": {
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                         "type": "object",
                         "additionalProperties": False,
@@ -68,6 +72,7 @@ _SCHEMA = {
                 "interfaces",
                 "assumptions_and_defaults",
                 "test_plan",
+                "acceptance_criteria",
                 "steps",
             ],
         },
@@ -128,6 +133,31 @@ async def publish_plan(
         if not readiness["ok"]:
             messages = "; ".join(issue["message"] for issue in readiness["issues"])
             raise RuntimeError(messages or "Plan is not ready to publish.")
+
+        candidate = preview_session_plan_publish(
+            session,
+            title=title,
+            summary=summary,
+            scope=scope,
+            key_changes=key_changes,
+            interfaces=interfaces,
+            assumptions=assumptions,
+            assumptions_and_defaults=assumptions_and_defaults,
+            open_questions=open_questions,
+            acceptance_criteria=acceptance_criteria,
+            test_plan=test_plan,
+            risks=risks,
+            outcome=outcome,
+            steps=steps,
+        )
+        validation = validate_plan_for_approval(candidate, planning_state=get_planning_state(session))
+        if not validation["ok"]:
+            messages = "; ".join(
+                issue["message"]
+                for issue in validation["issues"]
+                if issue.get("severity") == "error"
+            )
+            raise RuntimeError(messages or "Plan has blocking validation issues; revise before publishing.")
 
         plan = publish_session_plan(
             session,

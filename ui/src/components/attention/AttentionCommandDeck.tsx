@@ -108,11 +108,18 @@ function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentio
 export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode, channelId, onModeChange, onReply }: AttentionCommandDeckProps) {
   const [mode, setModeState] = useState<DeckMode>(() => initialMode ?? "review");
   const [notice, setNotice] = useState<string | null>(null);
+  const [runModePinned, setRunModePinned] = useState(false);
+  const [sweepStarting, setSweepStarting] = useState(false);
   const buckets = useMemo(() => bucketAttentionItems(items), [items]);
   const sweepable = useMemo(() => sweepCandidateItems(items), [items]);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const { data: runs = [] } = useAttentionTriageRuns({ limit: 16, refetchInterval: mode === "runs" ? 5_000 : 15_000 });
   const startTriage = useStartAttentionTriageRun();
+  const hasActiveRun = runs.some((run) => {
+    const status = runStatusLabel(run);
+    return status === "queued" || status === "running";
+  });
+  const sweepBusy = startTriage.isPending || sweepStarting || hasActiveRun;
   const counts = {
     review: buckets.review.length,
     inbox: buckets.untriaged.length + buckets.assigned.length,
@@ -124,6 +131,7 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
   const displayItem = selected ?? activeList[0] ?? null;
 
   const setDeckMode = (next: DeckMode) => {
+    setRunModePinned(next === "runs");
     setModeState(next);
     onModeChange?.(next);
   };
@@ -133,12 +141,16 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
   }, [initialMode]);
 
   useEffect(() => {
-    if (initialMode || selected) return;
+    if (initialMode || selected || runModePinned) return;
     if (counts.review > 0) setModeState("review");
     else if (counts.inbox > 0) setModeState("inbox");
     else if (runs.length > 0) setModeState("runs");
     else setModeState("cleared");
-  }, [initialMode, selected?.id, counts.review, counts.inbox, runs.length]);
+  }, [initialMode, selected?.id, counts.review, counts.inbox, runs.length, runModePinned]);
+
+  useEffect(() => {
+    if (hasActiveRun || runs.length > 0) setSweepStarting(false);
+  }, [hasActiveRun, runs.length]);
 
   useEffect(() => {
     if (!selected) return;
@@ -151,16 +163,26 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
 
   const startSweep = () => {
     setNotice(null);
+    if (sweepBusy) {
+      onSelect(null);
+      setDeckMode("runs");
+      setNotice("Operator sweep is already running. Stay here for the run log.");
+      return;
+    }
     if (!sweepable.length) {
       setDeckMode(buckets.review.length ? "review" : "inbox");
       setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No raw signals are ready for Operator.");
       return;
     }
-    setDeckMode("runs");
     onSelect(null);
+    setDeckMode("runs");
+    setSweepStarting(true);
     startTriage.mutate({}, {
       onSuccess: () => setNotice("Operator sweep started. Review will update when the run reports back."),
-      onError: (error) => setNotice(error instanceof Error ? error.message : "Operator sweep could not start."),
+      onError: (error) => {
+        setSweepStarting(false);
+        setNotice(error instanceof Error ? error.message : "Operator sweep could not start.");
+      },
     });
   };
 
@@ -188,12 +210,12 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
             </button>
             <button
               type="button"
-              disabled={startTriage.isPending}
+              disabled={sweepBusy || !sweepable.length}
               className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
               onClick={startSweep}
             >
-              {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              Run Operator sweep
+              {sweepBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {sweepBusy ? "Sweep running" : sweepable.length ? "Run Operator sweep" : "No raw signals"}
             </button>
           </div>
         </div>
@@ -206,8 +228,8 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Recommended</div>
           <div className="grid gap-2 sm:grid-cols-4">
             <WhatNowButton active={mode === "review"} label="Review first finding" count={counts.review} detail="Operator already classified these." onClick={() => setDeckMode("review")} />
-            <WhatNowButton active={mode === "inbox"} label="Run Operator sweep" count={counts.inbox} detail="Raw signals still need a pass." onClick={() => setDeckMode("inbox")} />
-            <WhatNowButton active={mode === "runs"} label="View sweep status" count={runs.length} detail={`${counts.running} item${counts.running === 1 ? "" : "s"} in flight.`} onClick={() => setDeckMode("runs")} />
+            <WhatNowButton active={mode === "inbox"} label="Sweep raw signals" count={counts.inbox} detail={counts.inbox ? "Starts Operator on the raw queue." : "No raw signals waiting."} onClick={counts.inbox ? startSweep : () => setDeckMode("inbox")} />
+            <WhatNowButton active={mode === "runs"} label="View sweep status" count={runs.length} detail={sweepBusy ? "Operator is running now." : `${counts.running} item${counts.running === 1 ? "" : "s"} in flight.`} onClick={() => setDeckMode("runs")} />
             <WhatNowButton active={mode === "cleared"} label="All clear" count={counts.cleared + counts.closed} detail="Receipts and resolved noise." onClick={() => setDeckMode("cleared")} />
           </div>
         </div>
@@ -227,7 +249,7 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
         />
         <main className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 lg:border-l lg:border-t-0">
           {mode === "runs" ? (
-            <RunLogWorkspace pending={startTriage.isPending} runs={runs} />
+            <RunLogWorkspace pending={sweepBusy} runs={runs} />
           ) : displayItem ? (
             <DeckItemDetail item={displayItem} onReply={onReply} />
           ) : (

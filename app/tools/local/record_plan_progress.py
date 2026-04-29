@@ -97,7 +97,7 @@ async def record_plan_progress(
     envelope = ToolResultEnvelope(
         content_type=PLAN_CONTENT_TYPE,
         body=json.dumps(payload),
-        plain_body=f"Plan outcome recorded: {outcome_record['outcome']}",
+        plain_body=f"Plan outcome recorded for {plan.title}: {outcome_record['outcome']}",
         display="inline",
         display_label="Plan",
     )

@@ -936,7 +936,7 @@ async def test_live_spindrel_quality_publishes_professional_plan_contract(client
             "Use risks ['Prompt-only improvements are insufficient without validation']. "
             "Use acceptance criteria 'Validation has no blocking professional-contract issues'. "
             "Use exactly three pending steps: 'Inspect current plan mechanics', "
-            "'Implement quality validation', and 'Run quality-tier diagnostics'."
+            "'Add deterministic quality validation gates', and 'Run quality-tier diagnostics'."
         ),
         session_id=session_id,
         channel_id=channel_id,

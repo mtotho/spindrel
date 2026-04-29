@@ -271,6 +271,10 @@ test("Starboard attention station is only a launcher for Mission Control Review"
   assert.match(deckSource, /Mission Control Review/);
   assert.match(deckSource, /Recommended/);
   assert.match(deckSource, /Run Operator sweep/);
+  assert.match(deckSource, /Sweep raw signals/);
+  assert.match(deckSource, /runModePinned/);
+  assert.match(deckSource, /sweepBusy/);
+  assert.match(deckSource, /onSelect\(null\);\n    setDeckMode\("runs"\)/);
   assert.match(deckSource, /Run log/);
   assert.match(deckSource, /RunReceipt/);
   assert.match(deckSource, /attention-run-receipt/);

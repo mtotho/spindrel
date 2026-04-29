@@ -71,6 +71,7 @@ def test_planning_context_exists_before_first_plan(monkeypatch, tmp_path):
     assert any("Plan mode is active" in line for line in lines)
     assert any("publish" in line.lower() for line in lines)
     assert any("ask_plan_questions" in line for line in lines)
+    assert any("target subsystem" in line and "ask_plan_questions" in line for line in lines)
     assert all("Canonical plan file:" not in line for line in lines)
     artifact_context = spm.build_plan_artifact_context(session)
     assert artifact_context is not None
@@ -276,6 +277,29 @@ def test_approval_rejects_plan_missing_professional_contract(monkeypatch, tmp_pa
     assert "missing_assumptions_and_defaults" in codes
     assert "missing_test_plan" in codes
     assert "vague_step_label" in codes
+
+
+def test_preview_publish_surfaces_blocking_validation_without_side_effects(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    candidate = spm.preview_session_plan_publish(
+        session,
+        title="Thin Tool Draft",
+        summary="Improve the plan mode mechanics.",
+        scope="Plan validation only; no UI changes.",
+        acceptance_criteria=["Weak tool-published drafts are rejected."],
+        steps=[{"id": "implement", "label": "Implement changes"}],
+    )
+    validation = spm.validate_plan_for_approval(candidate, planning_state=spm.get_planning_state(session))
+    codes = {issue["code"] for issue in validation["issues"]}
+
+    assert validation["ok"] is False
+    assert "vague_step_label" in codes
+    assert "missing_key_changes" in codes
+    assert session.metadata_.get("plan_active_path") is None
+    assert not tmp_path.joinpath(".sessions", str(session.id), "plans").exists()
 
 
 def test_professional_plan_markdown_round_trips_new_sections(monkeypatch, tmp_path):

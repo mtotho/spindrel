@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Trash2, AlertTriangle, X } from "lucide-react";
+import { ExternalLink, FolderKanban, Terminal, Trash2, AlertTriangle, X } from "lucide-react";
 
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
@@ -20,7 +20,7 @@ import {
   Row,
   Col,
 } from "@/src/components/shared/FormControls";
-import { ActionButton, InfoBanner } from "@/src/components/shared/SettingsControls";
+import { ActionButton, InfoBanner, QuietPill, SettingsControlRow } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -749,40 +749,56 @@ function ProjectSection({
           />
         </FormRow>
       )}
-      <div data-testid="project-workspace-channel-summary">
-        <InfoBanner>
+      <div data-testid="project-workspace-channel-summary" className="flex flex-col gap-2">
         {projectPath ? (
-          <>
-            File explorer, terminal, search, and run cwd use <span className="font-mono">/{projectPath}</span>. Bot memory uses the dedicated memory tool.{" "}
-            {selectedProject && (
-              <Link to={`/admin/projects/${selectedProject.id}`} className="font-semibold text-accent hover:underline">
-                Open Project
-              </Link>
-            )}
-            {selectedProject && effectiveWorkspaceId ? " · " : ""}
-            {effectiveWorkspaceId && (
-              <Link
-                to={`/admin/workspaces/${effectiveWorkspaceId}/files?path=${encodeURIComponent(`/${projectPath}`)}`}
-                className="font-semibold text-accent hover:underline"
-              >
-                Open location
-              </Link>
-            )}
-            {terminalHref && (
+          <SettingsControlRow
+            leading={<FolderKanban size={14} />}
+            title={selectedProject?.name ?? "Project root"}
+            description={
               <>
-                {" · "}
-                <Link to={terminalHref} className="font-semibold text-accent hover:underline">
-                  Open terminal
-                </Link>
+                File explorer, terminal, search, and run cwd use <span className="font-mono">/{projectPath}</span>. Bot memory uses the dedicated memory tool.
               </>
-            )}
-          </>
+            }
+            meta={
+              <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+                <QuietPill label="cwd" />
+                <QuietPill label="memory separate" maxWidthClass="max-w-none" />
+              </span>
+            }
+            action={
+              <div className="flex flex-wrap items-center justify-end gap-1">
+                {selectedProject && (
+                  <Link to={`/admin/projects/${selectedProject.id}`} className="inline-flex min-h-[30px] items-center gap-1.5 rounded-md px-2 text-[12px] font-semibold text-accent no-underline transition-colors hover:bg-accent/[0.08]">
+                    <FolderKanban size={12} />
+                    Open Project
+                  </Link>
+                )}
+                {effectiveWorkspaceId && (
+                  <Link
+                    to={`/admin/workspaces/${effectiveWorkspaceId}/files?path=${encodeURIComponent(`/${projectPath}`)}`}
+                    className="inline-flex min-h-[30px] items-center gap-1.5 rounded-md px-2 text-[12px] font-semibold text-text-muted no-underline transition-colors hover:bg-surface-overlay/50 hover:text-text"
+                  >
+                    <ExternalLink size={12} />
+                    Open location
+                  </Link>
+                )}
+                {terminalHref && (
+                  <Link to={terminalHref} className="inline-flex min-h-[30px] items-center gap-1.5 rounded-md px-2 text-[12px] font-semibold text-text-muted no-underline transition-colors hover:bg-surface-overlay/50 hover:text-text">
+                    <Terminal size={12} />
+                    Open terminal
+                  </Link>
+                )}
+              </div>
+            }
+          />
         ) : (
-          <>
-            No Project is set. This channel uses its normal channel workspace and bot workspace defaults.
-          </>
+          <SettingsControlRow
+            leading={<FolderKanban size={14} />}
+            title="No Project selected"
+            description="This channel uses its normal channel workspace and bot workspace defaults."
+            meta={<QuietPill label="channel workspace" maxWidthClass="max-w-none" />}
+          />
         )}
-        </InfoBanner>
       </div>
     </Section>
   );

@@ -83,6 +83,7 @@ export HARNESS_PARITY_PROJECT_PATH="${HARNESS_PARITY_PROJECT_PATH:-common/projec
 export HARNESS_PARITY_PROJECT_TIMEOUT="${HARNESS_PARITY_PROJECT_TIMEOUT:-600}"
 export HARNESS_PARITY_CAPTURE_SCREENSHOTS="${HARNESS_PARITY_CAPTURE_SCREENSHOTS:-auto}"
 export HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR="${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR:-$PROJECT_ROOT/docs/images}"
+export HARNESS_PARITY_SCREENSHOT_ONLY="${HARNESS_PARITY_SCREENSHOT_ONLY:-}"
 
 is_local_e2e_host() {
     case "$E2E_HOST" in
@@ -218,6 +219,7 @@ echo "  Browser URL: ${SPINDREL_BROWSER_URL:-<pytest default>}"
 echo "  Project path: ${HARNESS_PARITY_PROJECT_PATH}"
 echo "  Project timeout: ${HARNESS_PARITY_PROJECT_TIMEOUT}"
 echo "  Capture screenshots: ${HARNESS_PARITY_CAPTURE_SCREENSHOTS}"
+echo "  Screenshot only: ${HARNESS_PARITY_SCREENSHOT_ONLY:-<all>}"
 echo "  Screenshot output: ${HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR}"
 echo "  Health wait: ${HARNESS_PARITY_HEALTH_WAIT_TIMEOUT}"
 echo ""
@@ -284,11 +286,16 @@ fi
 if [[ "$capture_status" -eq 0 ]]; then
     echo ""
     echo "=== Harness Live Screenshots ==="
+    screenshot_args=()
+    if [[ -n "$HARNESS_PARITY_SCREENSHOT_ONLY" ]]; then
+        screenshot_args+=(--only "$HARNESS_PARITY_SCREENSHOT_ONLY")
+    fi
     "$PYTHON_BIN" -m scripts.screenshots.harness_live \
         --api-url "http://${E2E_HOST}:${E2E_PORT}" \
         --ui-url "${SPINDREL_UI_URL:-http://${E2E_HOST}:${E2E_PORT}}" \
         --browser-url "${SPINDREL_BROWSER_URL:-${SPINDREL_UI_URL:-http://${E2E_HOST}:${E2E_PORT}}}" \
         --browser-api-url "${SPINDREL_BROWSER_API_URL:-${SPINDREL_BROWSER_URL:-${SPINDREL_UI_URL:-http://${E2E_HOST}:${E2E_PORT}}}}" \
         --api-key "$E2E_API_KEY" \
-        --output-dir "$HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR"
+        --output-dir "$HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR" \
+        "${screenshot_args[@]}"
 fi
