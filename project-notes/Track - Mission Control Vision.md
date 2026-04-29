@@ -463,6 +463,12 @@ Acceptance:
 - The canvas should feel alive through useful state, actor movement, local
   context, and optional side objectives, not through XP, levels, or decorative
   mechanics.
+- Mission Control Review must funnel the eye into one current decision. The
+  Review CTA selects and focuses the first finding; run receipts use a separate
+  run-log layout instead of sharing the review/right-rail workspace.
+- Operator route labels are internal taxonomy. User-facing copy should say
+  "Code fix", "Owner follow-up", or another concrete next action rather than
+  "developer channel" or "route to development".
 
 ## References
 

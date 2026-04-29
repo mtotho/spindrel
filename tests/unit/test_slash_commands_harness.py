@@ -69,6 +69,7 @@ class _StubRuntime:
                     id="status",
                     label="status",
                     description="Show test harness status.",
+                    aliases=("health",),
                 ),
             ),
         )
@@ -425,8 +426,8 @@ async def test_harness_help_lists_only_allowed_commands(db_session):
         args=[],
     )
     labels = {c["label"] for c in result.payload["top_categories"]}
-    # Allowlist for stub: {help, stop, rename, model, runtime}
-    assert labels == {"/help", "/stop", "/rename", "/model", "/runtime"}
+    # Allowlist for stub plus runtime-native command aliases.
+    assert labels == {"/help", "/stop", "/rename", "/model", "/runtime", "/status", "/health"}
 
 
 async def test_normal_help_lists_full_surface(db_session):
@@ -456,7 +457,7 @@ async def test_catalog_with_bot_id_intersects(db_session):
 
     catalog = await list_supported_slash_commands(db=db_session, bot_id=bot.id)
     ids = {c["id"] for c in catalog}
-    assert ids == {"help", "stop", "rename", "model", "runtime"}
+    assert ids == {"help", "stop", "rename", "model", "runtime", "status", "health"}
 
 
 async def test_harness_runtime_command_dispatches_to_whitelisted_runtime(db_session):
@@ -475,6 +476,39 @@ async def test_harness_runtime_command_dispatches_to_whitelisted_runtime(db_sess
     assert result.payload["command"] == "status"
     assert result.payload["status"] == "ok"
     assert "args=extra" in result.payload["detail"]
+
+
+async def test_harness_native_command_dispatches_by_direct_slash_name(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="status",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=["extra"],
+    )
+
+    assert result.command_id == "status"
+    assert result.result_type == "harness_runtime_command"
+    assert result.payload["runtime"] == _RUNTIME_NAME
+    assert result.payload["command"] == "status"
+    assert "args=extra" in result.payload["detail"]
+
+
+async def test_harness_native_command_dispatches_by_alias(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="health",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=[],
+    )
+
+    assert result.command_id == "health"
+    assert result.payload["command"] == "status"
 
 
 async def test_harness_runtime_command_rejects_unlisted_runtime_command(db_session):

@@ -483,6 +483,9 @@ class HarnessRuntimeCommandSpec:
     label: str
     description: str
     readonly: bool = True
+    aliases: tuple[str, ...] = ()
+    interaction_kind: str = "structured"
+    fallback_behavior: str = "none"
 
 
 @dataclass(frozen=True)

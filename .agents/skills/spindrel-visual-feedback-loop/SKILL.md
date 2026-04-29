@@ -72,6 +72,16 @@ docs/images/channel-quick-automation-drawer-mobile.png
 Inspect the preset surface and both drawer captures. The scenario opens the
 drawer only; it must not create a scheduled task during capture.
 
+## Widget Authoring Runtime Loop
+
+Use this loop when changing the tool-widget package editor or validating draft
+YAML/Python widgets. Run the Templates tab **Full Check** action, or ask a bot
+to call `check_widget_authoring(..., include_runtime=true,
+include_screenshot=true)`. The check renders the draft envelope in the real
+widget host via Playwright and returns browser-smoke phases plus an optional PNG
+artifact for visual inspection. It is runtime feedback for drafts, not a
+checked-in docs image bundle.
+
 ## Adding A Scenario
 
 Add or adjust screenshot specs in `scripts/screenshots/capture/specs.py` when a

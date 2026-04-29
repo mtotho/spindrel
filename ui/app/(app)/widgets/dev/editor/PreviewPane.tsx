@@ -2,8 +2,10 @@ import { AlertTriangle, Check, ClipboardCopy, Loader2, Pin, RefreshCw, Sparkles 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  checkWidgetAuthoring,
   previewWidgetInline,
   previewWidgetPackage,
+  type AuthoringCheckResponse,
   type PreviewEnvelope,
   type ValidationIssue,
 } from "@/src/api/hooks/useWidgetPackages";
@@ -55,6 +57,10 @@ export function PreviewPane({
   const [copied, setCopied] = useState(false);
   const [pinState, setPinState] = useState<PinState>("idle");
   const [pinError, setPinError] = useState<string | null>(null);
+  const [checkRunning, setCheckRunning] = useState(false);
+  const [checkResult, setCheckResult] = useState<AuthoringCheckResponse | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [lastCheckSignature, setLastCheckSignature] = useState<string | null>(null);
   const pinRevertTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const debouncedYaml = useDebouncedValue(draft.yaml_template, 500);
@@ -65,6 +71,16 @@ export function PreviewPane({
   const isDraft = isNew || !packageId;
   const blocked = validationErrors.length > 0;
   const hasContent = debouncedYaml.trim().length > 0;
+  const currentCheckSignature = useMemo(
+    () => JSON.stringify({
+      yaml: draft.yaml_template,
+      python: draft.python_code,
+      sample: samplePayload,
+      tool: draft.tool_name ?? "",
+    }),
+    [draft.yaml_template, draft.python_code, draft.tool_name, samplePayload],
+  );
+  const checkStale = !!checkResult && lastCheckSignature !== currentCheckSignature;
 
   useEffect(() => {
     return () => {
@@ -159,6 +175,28 @@ export function PreviewPane({
     }
   };
 
+  const runFullCheck = async () => {
+    if (!hasContent || blocked || checkRunning) return;
+    setCheckRunning(true);
+    setCheckError(null);
+    try {
+      const result = await checkWidgetAuthoring({
+        yaml_template: draft.yaml_template,
+        python_code: draft.python_code || null,
+        sample_payload: samplePayload,
+        tool_name: draft.tool_name || null,
+        include_runtime: true,
+        include_screenshot: true,
+      });
+      setCheckResult(result);
+      setLastCheckSignature(currentCheckSignature);
+    } catch (err) {
+      setCheckError(err instanceof Error ? err.message : "Full check failed");
+    } finally {
+      setCheckRunning(false);
+    }
+  };
+
   const canPin = !!onPin && !!envelope && !pinDisabledReason && pinState !== "pinning";
 
   return (
@@ -226,6 +264,15 @@ export function PreviewPane({
               {pinState === "success" ? "Pinned" : "Pin as card"}
             </button>
           )}
+          <button
+            onClick={runFullCheck}
+            disabled={blocked || !hasContent || checkRunning}
+            title="Run validation, preview, static health, and browser runtime smoke"
+            className="inline-flex items-center gap-1.5 rounded-md border border-surface-border text-text-muted text-[12px] font-semibold px-2.5 py-1 hover:bg-surface-overlay disabled:opacity-50 transition-colors"
+          >
+            {checkRunning ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+            <span className="hidden sm:inline">Full Check</span>
+          </button>
         </div>
       </div>
 
@@ -275,6 +322,72 @@ export function PreviewPane({
         {pinError && pinState === "error" && (
           <div className="mb-3 rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-[12px] text-danger">
             {pinError}
+          </div>
+        )}
+
+        {(checkError || checkResult) && (
+          <div
+            data-testid="widget-authoring-full-check"
+            className={
+              "mb-3 rounded-lg border px-3 py-3 " +
+              (checkResult?.readiness === "ready" && !checkStale
+                ? "border-success/30 bg-success/5"
+                : checkResult?.readiness === "blocked"
+                  ? "border-danger/30 bg-danger/5"
+                  : "border-warning/30 bg-warning/5")
+            }
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[12px] font-semibold text-text">
+                  Full check {checkStale ? "stale" : checkResult ? checkResult.readiness.replace(/_/g, " ") : "failed"}
+                </div>
+                <div className="mt-0.5 text-[11px] text-text-muted">
+                  {checkError ?? checkResult?.summary}
+                </div>
+              </div>
+              {checkResult?.artifacts?.screenshot?.data_url && (
+                <img
+                  src={checkResult.artifacts.screenshot.data_url}
+                  alt="Runtime check screenshot"
+                  className="h-20 w-32 rounded border border-surface-border object-cover"
+                />
+              )}
+            </div>
+            {checkResult && (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <div className="space-y-1">
+                  {checkResult.phases.map((phase, idx) => (
+                    <div key={`${phase.name}-${idx}`} className="flex items-start gap-2 text-[11px]">
+                      <span className={
+                        "mt-1 size-1.5 rounded-full " +
+                        (phase.status === "healthy"
+                          ? "bg-success"
+                          : phase.status === "failing"
+                            ? "bg-danger"
+                            : phase.status === "warning"
+                              ? "bg-warning"
+                              : "bg-text-dim")
+                      } />
+                      <span className="min-w-0">
+                        <span className="font-mono text-text-muted">{phase.name}</span>
+                        <span className="text-text-dim"> - {phase.message}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {checkResult.issues.length > 0 && (
+                  <ul className="space-y-1 text-[11px] text-text-muted">
+                    {checkResult.issues.slice(0, 5).map((issue, idx) => (
+                      <li key={idx} className="font-mono">
+                        {issue.line ? `Line ${issue.line}: ` : ""}
+                        {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -165,8 +165,13 @@ Each runtime exposes a `RuntimeCapabilities` contract through `GET /api/v1/runti
 - `effort_values` is the compatibility projection of available effort levels. Claude Code exposes `low`, `medium`, `high`, `xhigh`, and `max`; the adapter maps those to the installed SDK's supported `effort`/`thinking` option shape.
 - `approval_modes` powers the per-session approval-mode pill.
 - `slash_policy.allowed_command_ids` filters `/api/v1/slash-commands?bot_id=...` and `/help`.
+- `native_commands[]` advertises runtime-owned command surfaces. The slash picker shows these as their real names, such as `/plugins`, `/plugin`, `/skills`, `/mcp`, `/features`, `/status`, and `/doctor`, instead of requiring `/runtime <command>`.
 
 Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harness-settings`. Missing patch keys mean no change; JSON `null` clears a value.
+
+`/runtime` remains available as a diagnostic escape hatch, but harness channels should normally type native commands directly. Spindrel resolves the current visible session, routes the native command to the runtime adapter, and renders the result as terminal-like command output with expandable JSON/stdout details. Runtime-native aliases are adapter-owned: for example Codex exposes `/mcp` as an alias for its `mcp-status` app-server method, and `/plugin` as an alias for `/plugins`.
+
+Unknown slash-looking text that is not in the Spindrel catalog is not rejected by the composer. In harness sessions it is sent as the user message so runtime-native slash loaders, including project-local Claude skills such as `/my-skill`, can handle it inside the native session.
 
 ## Support levels
 
@@ -178,6 +183,7 @@ Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harn
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
 | Plan mode | Supported | Spindrel plan mode remains the session source of truth. Codex sessions receive native `collaborationMode: plan` plus read-only sandbox policy while Spindrel is `planning`; Spindrel plan artifacts are not auto-created from Codex native plan items. |
 | `/compact`, `/new`, `/clear`, and `/context` | Supported | Harness `/compact` triggers native runtime compaction when supported. `/new` and `/clear` open a fresh Spindrel session without deleting the old one or changing the channel primary/default pointer. `/context` reports host-visible native state, hints, bridge health, and native compact status. |
+| Native slash commands | Supported | Type supported runtime-native management commands directly. Codex routes read-only `/config`, `/plugins`, `/plugin list`, `/skills`, `/mcp`, and `/features` through app-server JSON-RPC. Claude Code exposes `/skills`, `/plugin list`, `/mcp list`, `/agents`, `/hooks`, `/status`, and `/doctor` through the installed CLI when available, returning a terminal handoff state when the local CLI cannot run the command non-interactively. |
 | Host context hints | Supported | Channel prompts render as priority host instructions; heartbeats and workspace-files memory queue host hints for harness turns. Native compaction does not use Spindrel continuity hints. |
 | Spindrel tool bridge | Experimental | Normal bot/channel tool pickers are the source. Local/MCP Spindrel tools are exposed through runtime-native bridge hooks when available: Claude via the SDK MCP helper surface, Codex via `dynamicTools` when the installed binary advertises support. `@tool:<name>` can add a server tool for one turn. Calls route through Spindrel dispatch and are constrained to the exported set. Needs deployed-runtime smoke testing. |
 | Spindrel skills | Partial | `@skill:<id>` adds a tagged skill index hint for the turn and relies on bridged `get_skill` / `get_skill_list` for progressive skill fetching. No native `.claude/skills` sync yet. |

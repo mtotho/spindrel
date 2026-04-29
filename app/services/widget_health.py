@@ -7,6 +7,7 @@ without making Playwright infrastructure a hard dependency.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -163,6 +164,20 @@ def _debug_events_check(pin_id: uuid.UUID | None) -> tuple[dict[str, Any], list[
     return _phase("debug_events", "healthy", f"Debug ring has {len(events)} event(s) and no failures."), [], counts
 
 
+def _auth_state(base_url: str) -> dict[str, Any]:
+    return {
+        "state": {
+            "serverUrl": base_url,
+            "apiKey": settings.API_KEY,
+            "accessToken": "",
+            "refreshToken": "",
+            "user": None,
+            "isConfigured": True,
+        },
+        "version": 0,
+    }
+
+
 async def _browser_smoke_check(pin_id: uuid.UUID | None, *, include_browser: bool) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not include_browser:
         return _phase("browser_smoke", "unknown", "Browser smoke check was not requested."), []
@@ -189,19 +204,8 @@ async def _browser_smoke_check(pin_id: uuid.UUID | None, *, include_browser: boo
             browser = await launch_async_browser(pw, headless=True)
             try:
                 context = await browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
-                auth_state = {
-                    "state": {
-                        "serverUrl": base_url,
-                        "apiKey": settings.API_KEY,
-                        "accessToken": "",
-                        "refreshToken": "",
-                        "user": None,
-                        "isConfigured": True,
-                    },
-                    "version": 0,
-                }
                 await context.add_init_script(
-                    "localStorage.setItem('agent-auth', JSON.stringify(%s));" % json.dumps(auth_state)
+                    "localStorage.setItem('agent-auth', JSON.stringify(%s));" % json.dumps(_auth_state(base_url))
                 )
                 page = await context.new_page()
                 page.on("pageerror", lambda exc: page_errors.append(str(exc)))
@@ -237,6 +241,101 @@ async def _browser_smoke_check(pin_id: uuid.UUID | None, *, include_browser: boo
     return _phase("browser_smoke", status, msg, duration_ms=int((time.monotonic() - started) * 1000)), issues
 
 
+async def _browser_smoke_check_envelope(
+    envelope: dict[str, Any],
+    *,
+    include_browser: bool,
+    include_screenshot: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    if not include_browser:
+        return _phase("browser_smoke", "unknown", "Browser smoke check was not requested."), [], {}
+    if not settings.BASE_URL.strip():
+        return _phase("browser_smoke", "unknown", "BASE_URL is not configured, so the server cannot open the widget UI."), [], {}
+
+    started = time.monotonic()
+    try:
+        from playwright.async_api import async_playwright
+        from scripts.screenshots.playwright_runtime import launch_async_browser
+    except Exception as exc:  # pragma: no cover - depends on optional runtime import shape
+        return _phase("browser_smoke", "unknown", f"Playwright is unavailable: {exc}"), [], {}
+
+    base_url = settings.BASE_URL.rstrip("/")
+    route = f"{base_url}/widgets/dev/runtime-preview?widget_authoring_check=1"
+    page_errors: list[str] = []
+    console_errors: list[str] = []
+    request_failures: list[str] = []
+    artifacts: dict[str, Any] = {}
+    body_text = ""
+    bounds: dict[str, Any] | None = None
+    preview_error = False
+
+    try:
+        async with async_playwright() as pw:
+            browser = await launch_async_browser(pw, headless=True)
+            try:
+                context = await browser.new_context(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
+                payload = {"envelope": envelope}
+                await context.add_init_script(
+                    "localStorage.setItem('agent-auth', JSON.stringify(%s));"
+                    "localStorage.setItem('spindrel:widget-authoring-preview', JSON.stringify(%s));"
+                    % (json.dumps(_auth_state(base_url)), json.dumps(payload))
+                )
+                page = await context.new_page()
+                page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+                page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+                page.on("requestfailed", lambda req: request_failures.append(req.url))
+                await page.goto(route, wait_until="domcontentloaded", timeout=15000)
+                await page.wait_for_selector('[data-testid="widget-authoring-runtime-preview"]', timeout=8000)
+                await page.wait_for_timeout(1800)
+                body_text = (await page.locator("body").inner_text(timeout=3000)).strip()
+                preview_error = await page.locator('[data-testid="widget-authoring-runtime-preview-error"]').count() > 0
+                bounds = await page.evaluate(
+                    """
+                    () => {
+                      const el = document.querySelector('[data-testid="widget-authoring-runtime-preview"]');
+                      if (!el) return null;
+                      const rect = el.getBoundingClientRect();
+                      return { width: rect.width, height: rect.height, top: rect.top, left: rect.left };
+                    }
+                    """
+                )
+                if include_screenshot:
+                    png = await page.screenshot(full_page=False, type="png")
+                    artifacts["screenshot"] = {
+                        "mime_type": "image/png",
+                        "data_url": "data:image/png;base64," + base64.b64encode(png).decode("ascii"),
+                    }
+                await context.close()
+            finally:
+                await browser.close()
+    except Exception as exc:
+        phase = _phase(
+            "browser_smoke",
+            "unknown",
+            f"Browser smoke infrastructure failed before a reliable result: {exc}",
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
+        return phase, [], artifacts
+
+    issues: list[dict[str, Any]] = []
+    if preview_error or "Widget could not be loaded" in body_text:
+        issues.append(_issue("browser_smoke", "error", "Runtime preview reported that the widget could not be loaded.", kind="page_load_failure"))
+    for msg in page_errors[:3]:
+        issues.append(_issue("browser_smoke", "error", msg, kind="page_error"))
+    for msg in console_errors[:3]:
+        issues.append(_issue("browser_smoke", "error", msg, kind="console_error"))
+    if request_failures:
+        issues.append(_issue("browser_smoke", "warning", f"{len(request_failures)} browser request(s) failed during smoke check.", kind="request_failed"))
+    if not bounds or float(bounds.get("width") or 0) < 20 or float(bounds.get("height") or 0) < 20:
+        issues.append(_issue("browser_smoke", "error", "Runtime preview did not produce a visible widget area.", kind="not_visible", evidence={"bounds": bounds}))
+    if bounds:
+        artifacts["bounds"] = bounds
+
+    status = "failing" if any(i["severity"] == "error" for i in issues) else ("warning" if issues else "healthy")
+    msg = "Runtime preview loaded the widget host." if not issues else f"Runtime preview found {len(issues)} issue(s)."
+    return _phase("browser_smoke", status, msg, duration_ms=int((time.monotonic() - started) * 1000)), issues, artifacts
+
+
 def _result_dict(
     *,
     check_id: uuid.UUID,
@@ -249,8 +348,9 @@ def _result_dict(
     issues: list[dict[str, Any]],
     event_counts: dict[str, int],
     checked_at: datetime,
+    artifacts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    out = {
         "check_id": str(check_id),
         "pin_id": str(pin_id) if pin_id else None,
         "target_kind": target_kind,
@@ -262,6 +362,9 @@ def _result_dict(
         "event_counts": event_counts,
         "checked_at": checked_at.isoformat(),
     }
+    if artifacts:
+        out["artifacts"] = artifacts
+    return out
 
 
 def serialize_health_check(row: WidgetHealthCheck) -> dict[str, Any]:
@@ -369,6 +472,7 @@ async def check_envelope_health(
     *,
     target_ref: str = "draft",
     include_browser: bool = False,
+    include_screenshot: bool = False,
 ) -> dict[str, Any]:
     phases: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
@@ -378,7 +482,11 @@ async def check_envelope_health(
     debug_phase, debug_issues, event_counts = _debug_events_check(None)
     phases.append(debug_phase)
     issues.extend(debug_issues)
-    browser_phase, browser_issues = await _browser_smoke_check(None, include_browser=include_browser)
+    browser_phase, browser_issues, artifacts = await _browser_smoke_check_envelope(
+        envelope or {},
+        include_browser=include_browser,
+        include_screenshot=include_screenshot,
+    )
     phases.append(browser_phase)
     issues.extend(browser_issues)
     status = _overall_status(phases, issues)
@@ -394,6 +502,7 @@ async def check_envelope_health(
         issues=issues[:_MAX_ISSUES],
         event_counts=event_counts,
         checked_at=checked_at,
+        artifacts=artifacts,
     )
 
 

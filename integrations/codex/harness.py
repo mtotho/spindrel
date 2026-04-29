@@ -74,11 +74,13 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         id="mcp-status",
         label="mcp-status",
         description="List Codex-visible MCP server status.",
+        aliases=("mcp",),
     ),
     HarnessRuntimeCommandSpec(
         id="plugins",
         label="plugins",
         description="List Codex plugins visible to the app-server.",
+        aliases=("plugin",),
     ),
     HarnessRuntimeCommandSpec(
         id="skills",
@@ -89,6 +91,7 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         id="features",
         label="features",
         description="List Codex experimental feature flags.",
+        aliases=("feature",),
     ),
 )
 
@@ -376,7 +379,19 @@ class CodexRuntime:
         args: tuple[str, ...],
         ctx: TurnContext,
     ) -> HarnessRuntimeCommandResult:
-        del args, ctx
+        del ctx
+        args = tuple(arg for arg in args if arg)
+        if args and args != ("list",):
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Unsupported Codex command arguments",
+                detail=(
+                    f"Codex /{command_id} currently supports read-only listing from "
+                    "Spindrel. Use the in-app terminal for interactive or mutating subcommands."
+                ),
+                status="terminal_handoff",
+                payload={"args": list(args), "suggested_command": "codex " + " ".join((command_id, *args))},
+            )
         methods = {
             "config": (schema.METHOD_CONFIG_READ, {}),
             "mcp-status": (schema.METHOD_MCP_SERVER_STATUS_LIST, {}),

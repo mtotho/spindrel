@@ -56,12 +56,12 @@ async def _get_bot_and_roots(channel_id: str | None = None) -> tuple:
     bot_id = current_bot_id.get()
     ch_id = channel_id or (str(current_channel_id.get()) if current_channel_id.get() else None)
     if not bot_id or not ch_id:
-        return None, None, None, None
+        return None, None, None, None, None
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
     if not bot or not bot.workspace.enabled:
-        return None, None, None, None
+        return None, None, None, None, None
 
     # Determine the effective bot whose workspace root to use.
     effective_bot = bot
@@ -74,25 +74,22 @@ async def _get_bot_and_roots(channel_id: str | None = None) -> tuple:
     from app.services.channel_workspace import _get_ws_root
 
     ws_root = str(Path(_get_ws_root(effective_bot)).resolve())
-    plan = resolve_for(effective_bot, scope="workspace")
-    embedding_model = plan.embedding_model if plan is not None else None
-    return bot, ch_id, ws_root, embedding_model
-
-
-async def _get_channel_project_prefix(ch_id: str, bot) -> str | None:
+    surface = None
     try:
         from app.db.engine import async_session as _async_session
         from app.db.models import Channel
-        from app.services.projects import resolve_channel_project_directory
+        from app.services.projects import resolve_channel_work_surface
 
         import uuid
         async with _async_session() as db:
             channel = await db.get(Channel, uuid.UUID(str(ch_id)))
-            project_dir = await resolve_channel_project_directory(db, channel, bot)
-        return project_dir.path if project_dir is not None else None
+            if channel is not None:
+                surface = await resolve_channel_work_surface(db, channel, effective_bot)
     except Exception:
-        logger.debug("Could not resolve project search prefix for channel %s", ch_id, exc_info=True)
-        return None
+        logger.debug("Could not resolve work surface for channel %s", ch_id, exc_info=True)
+    plan = resolve_for(effective_bot, scope="workspace")
+    embedding_model = plan.embedding_model if plan is not None else None
+    return bot, ch_id, ws_root, embedding_model, surface
 
 
 async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
@@ -146,7 +143,7 @@ async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
 }, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_archive(query: str) -> str:
     """Search archived workspace files for the current channel."""
-    bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots()
+    bot, ch_id, ws_root, embedding_model, _surface = await _get_bot_and_roots()
     if not bot or not ch_id:
         return json.dumps({"count": 0, "results": [], "error": "Archive search is not available (no channel workspace context)."}, ensure_ascii=False)
 
@@ -210,7 +207,7 @@ async def search_channel_archive(query: str) -> str:
 }, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_workspace(query: str, channel_id: str | None = None) -> str:
     """Search channel workspace files (active + archive)."""
-    bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots(channel_id)
+    bot, ch_id, ws_root, embedding_model, surface = await _get_bot_and_roots(channel_id)
     if not bot or not ch_id:
         return json.dumps({"count": 0, "results": [], "error": "Channel workspace search is not available (no workspace context)."}, ensure_ascii=False)
 
@@ -218,18 +215,18 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
     if not query:
         return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
-    from app.services.channel_workspace import get_channel_workspace_index_prefix
     from app.services.bot_indexing import channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
     sentinel = channel_index_bot_id(ch_id)
-    prefix = await _get_channel_project_prefix(ch_id, bot) or get_channel_workspace_index_prefix(ch_id)
+    prefix = surface.index_prefix if surface is not None else f"channels/{ch_id}"
+    roots = [surface.index_root_host_path] if surface is not None else [ws_root]
 
     try:
         results = await hybrid_memory_search(
             query=query,
             bot_id=sentinel,
-            roots=[ws_root],
+            roots=roots,
             memory_prefix=prefix,
             embedding_model=embedding_model,
             top_k=10,
@@ -273,7 +270,7 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
 }, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_knowledge(query: str) -> str:
     """Search the current channel's knowledge-base/ folder."""
-    bot, ch_id, ws_root, embedding_model = await _get_bot_and_roots()
+    bot, ch_id, ws_root, embedding_model, surface = await _get_bot_and_roots()
     if not bot or not ch_id:
         return json.dumps({"count": 0, "results": [], "error": "Channel knowledge search is not available (no channel workspace context)."}, ensure_ascii=False)
 
@@ -281,19 +278,18 @@ async def search_channel_knowledge(query: str) -> str:
     if not query:
         return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
-    from app.services.channel_workspace import get_channel_knowledge_base_index_prefix
     from app.services.bot_indexing import channel_index_bot_id
     from app.services.memory_search import hybrid_memory_search
 
     sentinel = channel_index_bot_id(ch_id)
-    project_prefix = await _get_channel_project_prefix(ch_id, bot)
-    prefix = f"{project_prefix}/.spindrel/knowledge-base" if project_prefix else get_channel_knowledge_base_index_prefix(ch_id)
+    prefix = surface.knowledge_index_prefix if surface is not None else f"channels/{ch_id}/knowledge-base"
+    roots = [surface.index_root_host_path] if surface is not None else [ws_root]
 
     try:
         results = await hybrid_memory_search(
             query=query,
             bot_id=sentinel,
-            roots=[ws_root],
+            roots=roots,
             memory_prefix=prefix,
             embedding_model=embedding_model,
             top_k=10,

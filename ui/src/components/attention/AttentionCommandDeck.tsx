@@ -233,6 +233,7 @@ export function AttentionCommandDeck({
   };
 
   const whatNow = (() => {
+    const viewingFirstReview = Boolean(firstReview && mode === "review" && displayItem?.id === firstReview.id);
     if (sweepBusy) {
       return {
         eyebrow: "Operator running",
@@ -245,10 +246,12 @@ export function AttentionCommandDeck({
     }
     if (counts.review > 0) {
       return {
-        eyebrow: "Best next click",
-        title: "Review the first Operator finding",
-        detail: `${counts.review} finding${counts.review === 1 ? "" : "s"} already classified and waiting for a decision.`,
-        action: "Review first finding",
+        eyebrow: viewingFirstReview ? "Current review" : "Best next click",
+        title: viewingFirstReview ? "Review this Operator finding" : "Review the first Operator finding",
+        detail: viewingFirstReview
+          ? `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting. Decide on this one, then continue down the queue.`
+          : `${counts.review} finding${counts.review === 1 ? "" : "s"} already classified and waiting for a decision.`,
+        action: viewingFirstReview ? null : "Show first finding",
         icon: <Sparkles size={15} />,
         onClick: () => focusReviewFinding(),
       };
@@ -318,14 +321,21 @@ export function AttentionCommandDeck({
               <div className="mt-1 text-sm font-medium text-text">{whatNow.title}</div>
               <div className="mt-1 text-xs leading-5 text-text-muted">{whatNow.detail}</div>
             </div>
-            <button
-              type="button"
-              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12]"
-              onClick={whatNow.onClick}
-            >
-              {whatNow.icon}
-              {whatNow.action}
-            </button>
+            {whatNow.action ? (
+              <button
+                type="button"
+                className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12]"
+                onClick={whatNow.onClick}
+              >
+                {whatNow.icon}
+                {whatNow.action}
+              </button>
+            ) : (
+              <span className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-surface-raised/50 px-3 text-sm font-medium text-text-muted">
+                {whatNow.icon}
+                Reviewing now
+              </span>
+            )}
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
             <QueueChip active={mode === "review"} label="Findings" count={counts.review} onClick={() => setDeckMode("review")} />

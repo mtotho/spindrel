@@ -117,6 +117,7 @@ const AdminToolDetail = lazy(() => import("@/app/(app)/admin/tools/[toolId]/inde
 const WidgetsDashboard = lazy(() => import("@/app/(app)/widgets/index"));
 const WidgetPinPage = lazy(() => import("@/app/(app)/widgets/pins/[pinId]"));
 const WidgetsDevPanel = lazy(() => import("@/app/(app)/widgets/dev/index"));
+const WidgetAuthoringRuntimePreview = lazy(() => import("@/app/(app)/widgets/dev/runtime-preview"));
 const WidgetsRedirect = lazy(() => import("@/app/(app)/widgets/WidgetsRedirect"));
 const AdminUsage = lazy(() => import("@/app/(app)/admin/usage/index"));
 const AdminUsers = lazy(() => import("@/app/(app)/admin/users"));
@@ -206,6 +207,7 @@ export const router = createBrowserRouter([
           // readable while the underlying row is the same.
           { path: "widgets", element: <WidgetsRedirect /> },
           { path: "widgets/dev", element: <WidgetsDevPanel /> },
+          { path: "widgets/dev/runtime-preview", element: <WidgetAuthoringRuntimePreview /> },
           { path: "widgets/channel/:channelId/settings", element: <ChannelDashboardSettingsRedirect /> },
           { path: "widgets/channel/:channelId", element: <WidgetsDashboard /> },
           { path: "widgets/pins/:pinId", element: <WidgetPinPage /> },

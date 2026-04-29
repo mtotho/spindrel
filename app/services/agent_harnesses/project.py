@@ -19,11 +19,12 @@ from app.services.projects import (
     PROJECT_PATH_KEY,
     PROJECT_WORKSPACE_ID_KEY,
     ProjectDirectory,
+    WorkSurface,
     normalize_project_path,
     project_directory_payload,
     resolve_legacy_channel_project_directory,
     resolve_project_workspace_id,
-    resolve_channel_project_directory as resolve_channel_project_directory_async,
+    resolve_channel_work_surface,
 )
 from app.services.workspace import workspace_service
 
@@ -34,6 +35,7 @@ class HarnessPathResolution:
     source: str
     bot_workspace_dir: str
     project_dir: ProjectDirectory | None = None
+    work_surface: WorkSurface | None = None
 
 
 def resolve_channel_project_directory(channel: Channel | None, bot: BotConfig | None = None) -> ProjectDirectory | None:
@@ -49,13 +51,21 @@ async def resolve_harness_paths(
 ) -> HarnessPathResolution:
     bot_workspace_dir = workspace_service.ensure_host_dir(bot.id, bot)
     channel = await db.get(Channel, channel_id) if channel_id is not None else None
-    project_dir = await resolve_channel_project_directory_async(db, channel, bot)
-    if project_dir is not None:
+    surface = await resolve_channel_work_surface(db, channel, bot) if channel is not None else None
+    if surface is not None and surface.kind == "project":
+        project_dir = ProjectDirectory(
+            workspace_id=str(surface.workspace_id or ""),
+            path=surface.index_prefix,
+            host_path=surface.root_host_path,
+            project_id=surface.project_id,
+            name=surface.project_name,
+        )
         return HarnessPathResolution(
-            workdir=project_dir.host_path,
+            workdir=surface.root_host_path,
             source="channel_project_dir",
             bot_workspace_dir=bot_workspace_dir,
             project_dir=project_dir,
+            work_surface=surface,
         )
     if bot.harness_workdir:
         return HarnessPathResolution(
@@ -63,12 +73,14 @@ async def resolve_harness_paths(
             source="bot_harness_workdir",
             bot_workspace_dir=bot_workspace_dir,
             project_dir=None,
+            work_surface=surface,
         )
     return HarnessPathResolution(
         workdir=bot_workspace_dir,
         source="bot_workspace",
         bot_workspace_dir=bot_workspace_dir,
         project_dir=None,
+        work_surface=surface,
     )
 
 

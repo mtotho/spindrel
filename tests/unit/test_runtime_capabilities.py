@@ -67,6 +67,9 @@ def test_claude_capabilities_shape():
     ):
         assert cmd in allowed, f"{cmd} should be in Claude allowlist"
     assert {cmd.id for cmd in caps.native_commands} >= {"auth", "version"}
+    assert {cmd.id for cmd in caps.native_commands} >= {
+        "skills", "plugins", "mcp", "agents", "hooks", "status", "doctor",
+    }
     # Must NOT allow Spindrel-loop / runtime-conflicting commands:
     for cmd in ("find", "skills"):
         assert cmd not in allowed, f"{cmd} must NOT be in Claude allowlist"
@@ -93,6 +96,8 @@ def test_codex_capabilities_shape():
     assert {cmd.id for cmd in caps.native_commands} >= {
         "config", "mcp-status", "plugins", "skills", "features",
     }
+    aliases = {alias for cmd in caps.native_commands for alias in cmd.aliases}
+    assert {"mcp", "plugin", "feature"} <= aliases
     assert caps.native_compaction is True
 
 

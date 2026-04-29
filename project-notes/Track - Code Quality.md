@@ -2,19 +2,37 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-29 (stale planning state compressed; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-29 (architecture audit refreshed; harness turn host seam shipped)
 ---
 # Track — Code Quality & Refactoring
 
-Systematic audit of core agent-server files. 156 files, ~50K lines across `app/agent/`, `app/services/`, `app/tools/`. Findings organized by priority.
+Evergreen audit of agent-server architecture depth, Locality, and drift guards. Old cluster numbers are retained only as historical invariants; live work must come from a fresh verify-first scan of current source.
 
-## Current state (2026-04-29 vault cleanup)
+## Current state (2026-04-29 architecture audit)
 
-This track is evergreen. The old numbered close-out plan is no longer a live queue: indexing, dashboard/grid source-of-truth, FastAPI boundary repair, tool dispatch, context replay sizing, loop stages, context assembly stages, compaction, file sync, `run_task`, `persist_turn`, bot config shaping, startup/runtime, integrations, widgets, channel/chat UI, and context diagnostics all shipped in later waves. Do not restart from stale cluster numbers or old LOC estimates.
+Fresh scan used the `improve-codebase-architecture` deep Module lens: Interface, Implementation, Depth, Seam, Adapter, Leverage, and Locality. Architecture/drift slice passed before implementation (`45 passed`); focused harness/startup/slash slice passed after implementation (`37 passed, 21 skipped`).
 
-Next code-quality targets should come from a fresh verify-first scan of the current source tree: inspect current LOC/function shape, import graph, tests, and active product risk before writing a plan. Historical RFCs below remain useful for invariants and regression rationale, not as unexecuted work.
+**Shipped from this audit:**
+- **Harness turn host seam.** `app.services.agent_harnesses.turn_host` now owns host-side harness orchestration: runtime lookup/failure shaping, prior harness session id, settings/approval/project/context hints, `TurnContext` construction, cancel/error/success persistence, consumed hint cleanup, usage recording, native plan mirroring, and auto-compaction. `app.services.turn_worker._run_harness_turn` is now a compatibility wrapper that preserves existing monkeypatch surfaces. `tests/unit/test_harness_turn_host_architecture.py` keeps the wrapper small and pins the host ownership.
 
-Per `feedback_living_tracks_never_close`: never flip this track to complete when a wave ships. Compress stale prose in place, append the shipped invariant, and keep the track available for ambient architecture maintenance.
+**Live queue after the harness pass:**
+1. **Channel read-model Module** — public/admin channel routers still duplicate channel/project projection schemas and admin imports `_enrich_bot_members` from the public router. Extract a shared read-model/settings Module so routers are thin Adapters.
+2. **Channel route controller Locality** — `ui/app/(app)/channels/[channelId]/index.tsx` remains ~2.5k LOC after the top-tab/session-pane extractions. Continue moving route policy into focused hooks/controllers.
+3. **Startup bootstrap phases** — runtime/env seams shipped, but `app.main::lifespan` still owns blocking bootstrap ordering. Consider a startup bootstrap Module if future startup changes keep landing there.
+4. **Platform slash-command residue** — server-owned `/context`, `/compact`, and `/model` already use the shared slash command host. Remaining duplication is platform-local `/ask`, `/todos`, `/health`, `/audit`, and `/model list`; defer until those commands change.
+
+**Watched, not current queue:**
+- **Project Work Surface** — intentionally handed to the active Project workspace session; do not duplicate it here.
+- **Skill working-set/residency** — Cluster 7c already shipped as an in-file deepening. Reopen only if repeated skill-context changes show poor Locality.
+- **InteractiveHtmlRenderer** — still treated as an intentional deep Module until concrete change pressure proves otherwise.
+- **Integration source resolver** — existing resolver/loader guards are green; no current action.
+
+Per `feedback_living_tracks_never_close`: never flip this track to complete when a wave ships. Compress stale prose in place, append shipped invariants, and keep the track available for ambient architecture maintenance.
+
+## Maintenance pass (2026-04-29)
+
+- **Harness turn host deepening shipped.** `app/services/agent_harnesses/turn_host.py` is now the host Module for harness turns, while `app/services/turn_worker.py::_run_harness_turn` remains a wrapper that passes the existing `turn_worker` patchable dependencies into the host. The public turn behavior and private compatibility names used by tests are preserved. Added `tests/unit/test_harness_turn_host_architecture.py` so `turn_worker` cannot silently regain settings/path/context/persistence/usage/auto-compaction policy. Verification: `PYTHONPYCACHEPREFIX=/tmp/pycache-agent-server python -m py_compile app/services/turn_worker.py app/services/agent_harnesses/turn_host.py` passed; `pytest tests/unit/test_harness_turn_host_architecture.py tests/unit/test_turn_worker_harness_context.py -q` passed with 12 tests; broader harness/startup/slash slice passed with 37 tests / 21 skipped.
+- **Audit cleanup.** Removed stale live `knowledge.py` bug text because the legacy knowledge module is gone, and dropped the stale file-sync fixture follow-up after `pytest tests/unit/test_file_sync.py -q` passed with 12 tests / 8 skipped. Keep historical RFCs below only as regression rationale, not live work.
 
 ## Maintenance pass (2026-04-28)
 
@@ -64,11 +82,11 @@ Per `feedback_living_tracks_never_close`: never flip this track to complete when
 - **Heartbeat runtime lifecycle seam shipped.** `fire_heartbeat` is now a 44-line coordinator over `_prepare_heartbeat_run`, `_run_harness_heartbeat_if_needed`, `_run_spindrel_heartbeat`, and `_finalize_heartbeat_run`. The pass separated DB preparation/scheduling, harness busy-session deferral, standard agent execution/persistence/dispatch/follow-up, and final run accounting while preserving workflow mode and existing test patch surfaces.
 - **Fresh-scan policy.** Persona remains deferred as low-leverage/removable. Live loop, turn-worker, and heartbeat coordinators are now materially reduced and staged; next architecture review should use a fresh verify-first scan instead of continuing from stale god-function estimates.
 
-**Drift caught during planning** (track entries proved stale):
+**Historical drift caught during planning** (do not reopen without a fresh scan):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.
 - `persist_turn` claimed ~150 LOC, actually 333.
 - `tasks.py` "mark task failed" claimed 4× duplication, actually 8× (lines 656, 680, 767, 816, 1371, 1400, 1416, 1491).
-- `knowledge.py:240-370` dual-lookup — module not found at planning time; needs verify-first pass before scoping Cluster 11.
+- `knowledge.py:240-370` dual-lookup — resolved by legacy knowledge removal; no live action.
 
 **Cross-cluster discipline** (same as Clusters 5-8, 10):
 - One commit per cluster, behavior-preserving; baseline-FIRST exact-match.
@@ -144,9 +162,9 @@ Several have god functions inside (separate from depth — see existing table be
 - ❌ **`app/services/workflow_hooks.py` — deferred**. Looked like dead weight at first glance (24 LOC registering a no-op hook). But `tests/unit/test_workflow_advancement.py:127-136` treats the no-op as a **defensive regression test** — it verifies the hook system does *not* double-fire workflow step completion (since `_fire_task_complete` now advances workflow state directly). Deletion is only safe once it's confirmed that the hook-system's `after_task_complete` firing path is unused or that double-fire is otherwise impossible. Needs its own investigation session.
 - ~~`app/services/grid_presets.py`~~ — ✅ deleted as Cluster 2 Commit A1 (2026-04-23). Was an orphan (0 importers); real backend preset source of truth lives in `app/services/dashboards.py`.
 
-### Verify-first small files (Ousterhout uncertain)
+### Verify-first small files
 
-Claimed shallow by one explore agent but unverified. Future session: `wc -l`, `grep ^def`, grep importers for each.
+Verified 2026-04-29: these are all tiny Modules (`44-78` LOC each). No current action unless a fresh caller scan finds drift or dead code.
 - `app/agent/pending.py`, `app/agent/tracing.py`, `app/agent/hybrid_search.py`, `app/agent/persona.py`, `app/agent/vector_ops.py`, `app/agent/approval_pending.py`.
 
 ### Why this matters (architectural read)
@@ -241,27 +259,7 @@ The one `exc.status_code != 404` branch (`api_v1_channels.py::delete_channel`) n
 
 ## Actual Bugs
 
-### ~~knowledge.py:266 — `append_to_knowledge` doesn't re-embed~~ SKIPPED (knowledge system being removed)
-
-### knowledge.py:266 — `append_to_knowledge` doesn't re-embed
-After `row.content += content`, the embedding is NOT updated. Appended content is invisible to RAG. Compare `edit_knowledge` (line 323) which correctly re-embeds.
-- **Impact**: Silent data corruption — content exists but can't be found via search
-- **Fix**: Add `row.embedding = await _embed(row.content)` after append
-
-### ~~file_sync.py:828-829 — Watch handler drops skill metadata~~ FIXED April 9
-Extracted `_extract_skill_metadata()` helper used by both `sync_all_files` and `sync_changed_file`.
-
-### ~~tasks.py:375,915 — `UnboundLocalError` in except handlers~~ FIXED April 9
-`_task_timeout` initialized before try block. `_exec_timeout` was already safe (assigned before try).
-
-### ~~tasks.py:787 — Stale `task` object after DB updates~~ FIXED April 9
-`task.correlation_id = correlation_id` now reflects back to in-memory object.
-
-### ~~carapaces.py:268 — No type-check on YAML parse result~~ FIXED April 9
-Added `isinstance(data, dict)` check after `yaml.safe_load()`.
-
-### ~~rag.py:192-195 — BM25-only matches bypass similarity threshold~~ FIXED April 9
-BM25-only matches now capped at `RAG_TOP_K // 2` to prevent unbounded keyword injection.
+No live bug queue in this track after the 2026-04-29 cleanup. The old `knowledge.py` bug is obsolete because the legacy knowledge module is gone; historical fixed bugs remain in the fix log and older session notes.
 
 ## God Functions (structural, address incrementally)
 
@@ -1162,11 +1160,10 @@ Two new dataclasses (`WatermarkPlan`, `SectionPersistOutcome`) carry helper outp
 - Combined wrappers: 513 → 219 LOC (-294, **-57%**)
 - File: 851 → 908 LOC (+57 net; helpers add ~355 LOC, duplicated wrapper code -294 LOC)
 
-**Tests — exact baseline match**:
-- Focused 3-file suite (`test_file_sync.py`, `test_file_sync_core_gaps.py`, `test_file_sync_skills.py`): 34 passed, 8 errors (pre/post identical).
-- The 8 errors are a pre-existing fixture bug at `tests/unit/test_file_sync.py:249` — `yield {"tmp_path": tmp_path, "embed": embed}` references `embed` but the matching `with patch(...)` is missing the `as embed` clause. Test Quality follow-up; **fixing it would unblock 8 tests covering `sync_all_files`'s skill + prompt template paths** that are currently dark.
-- Neighbor sweep (`-k file_sync`): 35 passed, 8 errors (same pre-existing fixture bug).
-- Workflow + skill_enroll sweep (`-k "workflow or skill_enroll"`): 216 passed, 18 skipped — clean.
+**Tests — historical baseline plus current cleanup check**:
+- Original focused 3-file suite (`test_file_sync.py`, `test_file_sync_core_gaps.py`, `test_file_sync_skills.py`): 34 passed, 8 errors (pre/post identical at the time).
+- 2026-04-29 cleanup check: `pytest tests/unit/test_file_sync.py -q` now passes with 12 tests / 8 skipped, so the old fixture-error follow-up is no longer a live queue item.
+- Original workflow + skill_enroll sweep (`-k "workflow or skill_enroll"`): 216 passed, 18 skipped.
 
 **Design choices worth remembering**:
 - **`log_path: Path | None` is the watch-vs-sync_all switch**. Threading a single Path-or-None kwarg into each upsert helper does double duty: (a) chooses log-message format, (b) gates sync_all-only behavior (workflow `manual` skip, source-drift fix on unchanged). Two helpers per kind would have re-introduced ~70% of the duplication; one helper with an `is_watch = log_path is None` flag keeps the seam visible in a single line per call site.
@@ -1187,7 +1184,6 @@ Two new dataclasses (`WatermarkPlan`, `SectionPersistOutcome`) carry helper outp
 - Full RFC — Cluster 10 — appended after Cluster 8 RFC.
 
 **Follow-ups**:
-- **Test fixture fix** at `tests/unit/test_file_sync.py:249` — add `as embed` to the first `patch(...)` call. Single-line change, unblocks 8 tests covering sync_all's skill + prompt template paths.
 - **Watch-mode workflow `session_mode` drop** — preserved as-is for Cluster 10. Probable bug; should be a Loose Ends entry.
 - **Watch-mode prompt-template update doesn't update `source_path`/`source_type`** — same probable bug class.
 - **Cluster 9 — `tasks.run_task()` (656 LOC)** — last remaining structural cluster from the original audit. Largest absolute target.

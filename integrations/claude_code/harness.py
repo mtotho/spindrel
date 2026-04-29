@@ -130,6 +130,49 @@ _CLAUDE_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         label="auth",
         description="Show Spindrel's Claude Code auth probe result.",
     ),
+    HarnessRuntimeCommandSpec(
+        id="skills",
+        label="skills",
+        description="List Claude Code native skills when the installed CLI supports it.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="plugins",
+        label="plugins",
+        description="List Claude Code native plugins when the installed CLI supports it.",
+        aliases=("plugin",),
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="mcp",
+        label="mcp",
+        description="List Claude Code native MCP servers when the installed CLI supports it.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="agents",
+        label="agents",
+        description="List Claude Code native agents when the installed CLI supports it.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="hooks",
+        label="hooks",
+        description="List Claude Code native hooks when the installed CLI supports it.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="status",
+        label="status",
+        description="Show Claude Code native status when the installed CLI supports it.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="doctor",
+        label="doctor",
+        description="Run Claude Code native diagnostics when the installed CLI supports it.",
+        fallback_behavior="terminal",
+    ),
 )
 
 
@@ -401,7 +444,7 @@ class ClaudeCodeRuntime:
         args: tuple[str, ...],
         ctx: TurnContext,
     ) -> HarnessRuntimeCommandResult:
-        del args, ctx
+        del ctx
         if command_id == "auth":
             status = self.auth_status()
             return HarnessRuntimeCommandResult(
@@ -439,12 +482,56 @@ class ClaudeCodeRuntime:
                 status="ok" if proc.returncode == 0 else "error",
                 payload={"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr},
             )
+        cli_command = _claude_management_command(command_id, args)
+        if cli_command is not None:
+            try:
+                proc = subprocess.run(
+                    cli_command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+            except Exception as exc:
+                return HarnessRuntimeCommandResult(
+                    command_id=command_id,
+                    title="Claude Code command failed",
+                    detail=str(exc),
+                    status="error",
+                    payload={"suggested_command": " ".join(cli_command)},
+                )
+            detail = (proc.stdout or proc.stderr or "").strip()
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title=f"Claude Code {command_id}",
+                detail=detail or f"{' '.join(cli_command)} exited {proc.returncode}",
+                status="ok" if proc.returncode == 0 else "terminal_handoff",
+                payload={
+                    "returncode": proc.returncode,
+                    "stdout": proc.stdout,
+                    "stderr": proc.stderr,
+                    "suggested_command": " ".join(cli_command),
+                },
+            )
         return HarnessRuntimeCommandResult(
             command_id=command_id,
             title="Unsupported Claude Code command",
             detail=f"Claude Code native command {command_id!r} is not whitelisted.",
             status="unsupported",
         )
+
+
+def _claude_management_command(command_id: str, args: tuple[str, ...]) -> list[str] | None:
+    cleaned_args = [arg.strip() for arg in args if arg and arg.strip()]
+    if command_id in {"plugins", "plugin"}:
+        subcommand = cleaned_args or ["list"]
+        return ["claude", "plugin", *subcommand]
+    if command_id in {"skills", "mcp", "agents", "hooks"}:
+        subcommand = cleaned_args or ["list"]
+        return ["claude", command_id, *subcommand]
+    if command_id in {"status", "doctor"}:
+        return ["claude", command_id, *cleaned_args]
+    return None
 
 
 def _make_can_use_tool(ctx: TurnContext, *, runtime: ClaudeCodeRuntime) -> Any:

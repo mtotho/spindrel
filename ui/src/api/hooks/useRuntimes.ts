@@ -28,6 +28,9 @@ export interface RuntimeCapabilities {
     label: string;
     description: string;
     readonly: boolean;
+    aliases?: string[];
+    interaction_kind?: string;
+    fallback_behavior?: string;
   }>;
 }
 

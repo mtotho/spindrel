@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-29 (widget quick automation visual feedback)
+updated: 2026-04-29 (widget authoring runtime feedback)
 ---
 # Track — Widget System DX + Robustness
 
@@ -32,6 +32,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
 - **Widget health loop shipped** (2026-04-29) — pinned and draft widgets now have a first-class health read model through `widget_health_checks`, `check_widget`, `check_dashboard_widgets`, and `/api/v1/widgets/.../health` routes. Health combines static envelope/source lint, recent per-pin debug events, and opportunistic browser smoke when the local browser runtime is configured; dashboard pin reads, `describe_dashboard`, chat-side widgets, full-page pins, and the dashboard page now surface the latest health summary. New invariant: bots should preview/check widgets before or immediately after pinning, and use `inspect_widget_pin` only when health indicates raw trace evidence is needed.
+- **Widget authoring runtime feedback shipped** (2026-04-29) — draft tool-widget YAML now has one shared authoring check behind `/api/v1/admin/widget-packages/authoring-check`, the Templates tab **Full Check** button, and the bot-facing `check_widget_authoring` tool. The check validates YAML/Python/schema, renders the preview envelope, runs static health, and can open the draft envelope in the real widget host through Playwright with screenshot artifacts. New invariant: tool-widget authors should not treat live preview as enough; use the shared full check before saving or relying on a new renderer.
 - **Widget improvement preset shipped** (2026-04-29) — Channel Settings -> Tasks can create a weekly `Widget Improvement Healthcheck` scheduled task from the quick automations launcher. It preloads the widget skills and read-only inspection tools into a normal channel-scoped task, keeping heartbeat free for general channel work while still giving widget-heavy channels an easy recurring review path. The launcher and desktop/mobile review drawer are covered by the `channel-quick-automations` screenshot bundle.
 - **Widget refresh load-shedding shipped** (2026-04-28) — pinned and inline widgets now auto-refresh only when their contract/envelope is state-poll capable, visible, and expanded; background-tab and offscreen refreshes are paused; refresh timers use jitter; and frontend requests coalesce through `/widget-actions/refresh-batch`. The backend batch endpoint deduplicates identical state-poll work without crossing bot/channel identity boundaries, then applies each widget's own metadata and persists refreshed dashboard pin envelopes.
 - **Widget contract model is now explicit and canonical** (2026-04-22) — `app/services/widget_contracts.py` now normalizes the public widget model into `definition_kind`, `binding_kind`, `instantiation_kind`, `auth_model`, `state_model`, `refresh_model`, `theme_model`, `supported_scopes`, and `actions`, with optional `config_schema` alongside it. This contract now ships on tool previews, widget presets, library/catalog entries, native widgets, and persisted pins so the UI/docs no longer need to infer behavior from source paths or runtime heuristics.

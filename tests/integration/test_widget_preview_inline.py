@@ -90,6 +90,44 @@ class TestPreviewInline:
         assert r.status_code == 422  # Pydantic: yaml_template is required
 
 
+class TestAuthoringCheck:
+    @pytest.mark.asyncio
+    async def test_runs_shared_static_authoring_check(self, client):
+        r = await client.post(
+            "/api/v1/admin/widget-packages/authoring-check",
+            json={
+                "yaml_template": RICH_YAML,
+                "sample_payload": {"name": "World", "status": "running"},
+                "tool_name": "demo_tool",
+                "include_runtime": False,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["ok"] is True
+        assert data["readiness"] == "ready"
+        assert data["envelope"]["display_label"] == "Hello World"
+        assert [phase["name"] for phase in data["phases"]][-1] == "browser_smoke"
+
+    @pytest.mark.asyncio
+    async def test_reports_authoring_validation_errors(self, client):
+        r = await client.post(
+            "/api/v1/admin/widget-packages/authoring-check",
+            json={
+                "yaml_template": "template:\n  v: 1\n  components:\n    - : bad\n",
+                "include_runtime": False,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is False
+        assert data["readiness"] == "blocked"
+        assert data["envelope"] is None
+        assert data["issues"]
+
+
 class TestPreviewForTool:
     @pytest.mark.asyncio
     async def test_resolves_active_db_package(self, client, db_session):

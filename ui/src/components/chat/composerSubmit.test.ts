@@ -20,6 +20,14 @@ const catalog: SlashCommandSpec[] = [
     local_only: false,
     args: [],
   },
+  {
+    id: "plugins",
+    label: "plugins",
+    description: "List native plugins",
+    surfaces: ["channel", "session"],
+    local_only: false,
+    args: [{ name: "args", source: "free_text", required: false, enum: null }],
+  },
 ];
 
 test("composer submit resolves valid slash commands before normal sends", () => {
@@ -43,6 +51,18 @@ test("composer submit reports missing slash args instead of sending as chat", ()
       slashCatalog: catalog,
     }),
     { kind: "missing_slash_args", id: "find", missing: ["query"] },
+  );
+});
+
+test("composer submit resolves native harness slash commands with optional args", () => {
+  assert.deepEqual(
+    resolveComposerSubmitIntent({
+      rawMessage: "/plugins list",
+      pendingFiles: [],
+      slashSurface: "channel",
+      slashCatalog: catalog,
+    }),
+    { kind: "slash", id: "plugins", args: ["list"] },
   );
 });
 

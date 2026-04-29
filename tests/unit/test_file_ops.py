@@ -1263,16 +1263,16 @@ class TestFileTool:
             async def __aexit__(self, exc_type, exc, tb):
                 return False
 
-        async def _project_dir(_db, channel_id, _bot):
+        async def _surface(_db, channel_id, _bot):
             assert str(channel_id) == channel_id_str
-            return SimpleNamespace(host_path=str(project_root))
+            return SimpleNamespace(kind="project", root_host_path=str(project_root))
 
         channel_id_str = str(uuid.uuid4())
         token = current_channel_id.set(channel_id_str)
         try:
             with (
                 patch("app.db.engine.async_session", lambda: _SessionContext()),
-                patch("app.services.projects.resolve_project_directory_for_channel_id", _project_dir),
+                patch("app.services.projects.resolve_channel_work_surface_by_id", _surface),
             ):
                 result = await file_tool(operation="create", path="notes.md", content="project scoped")
         finally:

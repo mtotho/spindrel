@@ -38,6 +38,9 @@ class HarnessRuntimeCommandOut(BaseModel):
     label: str
     description: str
     readonly: bool = True
+    aliases: list[str] = Field(default_factory=list)
+    interaction_kind: str = "structured"
+    fallback_behavior: str = "none"
 
 
 class RuntimeCapabilitiesOut(BaseModel):
@@ -130,6 +133,9 @@ async def get_runtime_capabilities(
                 label=cmd.label,
                 description=cmd.description,
                 readonly=cmd.readonly,
+                aliases=list(getattr(cmd, "aliases", ()) or ()),
+                interaction_kind=getattr(cmd, "interaction_kind", "structured"),
+                fallback_behavior=getattr(cmd, "fallback_behavior", "none"),
             )
             for cmd in getattr(caps, "native_commands", ())
         ],

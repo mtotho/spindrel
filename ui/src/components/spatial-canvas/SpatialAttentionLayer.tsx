@@ -1129,6 +1129,7 @@ function OperatorTriageCard({
   const triage = getOperatorTriage(item);
   if (!triage) return null;
   const route = triage.route ? operatorRouteLabel(triage.route) : null;
+  const suggestedAction = humanizeOperatorAction(triage.suggested_action);
   const confirm = () => onFeedback("confirmed");
   const markWrong = () => {
     const note = window.prompt("What should the operator remember next time?", triage.summary ?? "");
@@ -1155,10 +1156,10 @@ function OperatorTriageCard({
         {route && <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-accent">{route}</span>}
       </div>
       {triage.summary && <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{triage.summary}</p>}
-      {humanizeOperatorAction(triage.suggested_action) && (
+      {suggestedAction && (
         <p className="text-sm leading-5 text-text">
           <span className="text-text-dim">Next: </span>
-          {humanizeOperatorAction(triage.suggested_action)}
+          {suggestedAction}
         </p>
       )}
       <p className="text-xs leading-5 text-text-dim">Accepting trains future sweeps. Acknowledge or resolve removes this review item.</p>

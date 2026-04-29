@@ -76,6 +76,40 @@ export interface PreviewResponse {
   errors: ValidationIssue[];
 }
 
+export interface AuthoringCheckPhase {
+  name: string;
+  status: "healthy" | "warning" | "failing" | "unknown" | string;
+  message: string;
+  duration_ms?: number | null;
+}
+
+export interface AuthoringCheckIssue extends Omit<ValidationIssue, "phase"> {
+  phase: string;
+  kind?: string;
+  evidence?: Record<string, unknown> | null;
+}
+
+export interface AuthoringCheckResponse {
+  ok: boolean;
+  readiness: "ready" | "blocked" | "needs_attention" | "needs_runtime" | string;
+  summary: string;
+  phases: AuthoringCheckPhase[];
+  issues: AuthoringCheckIssue[];
+  envelope: PreviewEnvelope | null;
+  artifacts?: {
+    screenshot?: {
+      mime_type: string;
+      data_url: string;
+    };
+    bounds?: {
+      width: number;
+      height: number;
+      top: number;
+      left: number;
+    };
+  };
+}
+
 interface ListFilter {
   tool_name?: string;
   source?: "seed" | "user";
@@ -203,6 +237,23 @@ export function previewWidgetInline(body: {
 }): Promise<PreviewResponse> {
   return apiFetch<PreviewResponse>(
     "/api/v1/admin/widget-packages/preview-inline",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function checkWidgetAuthoring(body: {
+  yaml_template: string;
+  python_code?: string | null;
+  sample_payload?: Record<string, unknown> | null;
+  widget_config?: Record<string, unknown> | null;
+  tool_name?: string | null;
+  source_bot_id?: string | null;
+  source_channel_id?: string | null;
+  include_runtime?: boolean;
+  include_screenshot?: boolean;
+}): Promise<AuthoringCheckResponse> {
+  return apiFetch<AuthoringCheckResponse>(
+    "/api/v1/admin/widget-packages/authoring-check",
     { method: "POST", body: JSON.stringify(body) },
   );
 }

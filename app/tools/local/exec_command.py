@@ -82,12 +82,12 @@ async def exec_command(command: str, working_dir: str = "") -> str:
             if ch_id is not None:
                 try:
                     from app.db.engine import async_session
-                    from app.services.projects import resolve_project_directory_for_channel_id
+                    from app.services.projects import resolve_channel_work_surface_by_id
 
                     async with async_session() as db:
-                        project_dir = await resolve_project_directory_for_channel_id(db, ch_id, bot)
-                    if project_dir is not None:
-                        working_dir = project_dir.host_path
+                        surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
+                    if surface is not None and surface.kind == "project":
+                        working_dir = surface.root_host_path
                         effective_working_dir = working_dir
                 except Exception:
                     logger.debug("Could not resolve project cwd for exec_command", exc_info=True)

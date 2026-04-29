@@ -73,6 +73,35 @@ def _stream_limit_bytes() -> int:
     return max(value, DEFAULT_STREAM_LIMIT_BYTES)
 
 
+async def _read_jsonrpc_line(reader: Any) -> bytes:
+    """Read one newline-delimited JSON-RPC message without crashing on long lines.
+
+    ``StreamReader.readline()`` raises ``ValueError`` when a single JSON line
+    exceeds the reader limit. Large Codex responses such as plugin inventory
+    can hit that path, so consume over-limit chunks and reassemble the line.
+    """
+    if not hasattr(reader, "readuntil") or not hasattr(reader, "read"):
+        return await reader.readline()
+    parts: list[bytes] = []
+    while True:
+        try:
+            chunk = await reader.readuntil(b"\n")
+        except asyncio.LimitOverrunError as exc:
+            if exc.consumed <= 0:
+                raise
+            chunk = await reader.read(exc.consumed)
+            if not chunk:
+                return b"".join(parts)
+            parts.append(chunk)
+            continue
+        except asyncio.IncompleteReadError as exc:
+            if exc.partial:
+                parts.append(exc.partial)
+            return b"".join(parts)
+        parts.append(chunk)
+        return b"".join(parts)
+
+
 @dataclass
 class Notification:
     method: str
@@ -237,7 +266,7 @@ class CodexAppServer:
         reader = self._proc.stdout
         try:
             while True:
-                line = await reader.readline()
+                line = await _read_jsonrpc_line(reader)
                 if not line:
                     return
                 try:

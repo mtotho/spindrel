@@ -87,3 +87,35 @@ async def test_draft_envelope_health_is_not_persisted() -> None:
     assert result["target_kind"] == "draft"
     assert result["target_ref"] == "draft-test"
     assert result["status"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_draft_envelope_health_uses_runtime_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_browser_smoke(envelope, *, include_browser: bool, include_screenshot: bool = False):
+        assert envelope["display_label"] == "Draft"
+        assert include_browser is True
+        assert include_screenshot is True
+        return (
+            {"name": "browser_smoke", "status": "healthy", "message": "Runtime loaded."},
+            [],
+            {"bounds": {"width": 240, "height": 120, "top": 1, "left": 2}},
+        )
+
+    monkeypatch.setattr(
+        "app.services.widget_health._browser_smoke_check_envelope",
+        fake_browser_smoke,
+    )
+
+    result = await check_envelope_health(
+        {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "display_label": "Draft",
+            "body": "<div>ok</div>",
+        },
+        target_ref="draft-test",
+        include_browser=True,
+        include_screenshot=True,
+    )
+
+    assert result["status"] == "unknown"
+    assert result["artifacts"]["bounds"]["height"] == 120

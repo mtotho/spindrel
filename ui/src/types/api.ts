@@ -887,24 +887,7 @@ export interface CompletionItem {
   description?: string;
 }
 
-export type SlashCommandId =
-  | "help"
-  | "context"
-  | "find"
-  | "rename"
-  | "model"
-  | "style"
-  | "theme"
-  | "stop"
-  | "compact"
-  | "plan"
-  | "effort"
-  | "clear"
-  | "new"
-  | "scratch"
-  | "sessions"
-  | "split"
-  | "focus";
+export type SlashCommandId = string;
 export type SlashCommandSurface = "channel" | "session";
 export type EffortLevel = "off" | "low" | "medium" | "high";
 export type ChatModeId = "default" | "terminal";

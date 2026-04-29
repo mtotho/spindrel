@@ -162,6 +162,18 @@ class PreviewForToolIn(BaseModel):
     source_channel_id: Optional[str] = None
 
 
+class AuthoringCheckIn(BaseModel):
+    yaml_template: str = Field(min_length=1)
+    python_code: Optional[str] = None
+    sample_payload: Optional[dict] = None
+    widget_config: Optional[dict] = None
+    tool_name: Optional[str] = None
+    source_bot_id: Optional[str] = None
+    source_channel_id: Optional[str] = None
+    include_runtime: bool = False
+    include_screenshot: bool = False
+
+
 class GenericRenderIn(BaseModel):
     """Auto-render an arbitrary tool result as a dashboard card.
 
@@ -592,6 +604,26 @@ async def preview_widget_inline(
     return PreviewOut(ok=True, envelope=envelope)
 
 
+@router.post("/widget-packages/authoring-check")
+async def widget_authoring_check(
+    body: AuthoringCheckIn,
+    _auth: str = Depends(require_scopes("admin")),
+):
+    from app.services.widget_authoring_check import run_widget_authoring_check
+
+    return await run_widget_authoring_check(
+        yaml_template=body.yaml_template,
+        python_code=body.python_code,
+        sample_payload=body.sample_payload,
+        widget_config=body.widget_config,
+        tool_name=body.tool_name,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=body.source_channel_id,
+        include_runtime=body.include_runtime,
+        include_screenshot=body.include_screenshot,
+    )
+
+
 @router.post("/widget-packages/generic-render", response_model=PreviewOut)
 async def generic_render(
     body: GenericRenderIn,
@@ -673,4 +705,3 @@ async def preview_widget_package(
         discard_preview_module(preview_mod_name)
 
     return PreviewOut(ok=True, envelope=envelope)
-

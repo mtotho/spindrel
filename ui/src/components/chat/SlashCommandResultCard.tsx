@@ -93,7 +93,7 @@ function HarnessRuntimeCommandCard({
   return (
     <SlashResultPanel
       chatMode={chatMode}
-      commandLabel="/runtime"
+      commandLabel={`/${String(payload.command || "runtime")}`}
       meta={String(payload.runtime || "harness")}
     >
       <div className="grid gap-2 p-3 text-[12px] text-text-muted">

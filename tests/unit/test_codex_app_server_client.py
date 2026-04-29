@@ -25,6 +25,7 @@ from integrations.codex.app_server import (
     CodexBinaryNotFound,
     Notification,
     ServerRequest,
+    _read_jsonrpc_line,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -130,6 +131,15 @@ async def test_spawn_uses_large_stream_limit(monkeypatch) -> None:
     finally:
         fake._wait_event.set()
         await client.close()
+
+
+async def test_read_jsonrpc_line_reassembles_over_limit_line() -> None:
+    reader = asyncio.StreamReader(limit=8)
+    line = (json.dumps({"payload": "x" * 128}) + "\n").encode("utf-8")
+    reader.feed_data(line)
+    reader.feed_eof()
+
+    assert await _read_jsonrpc_line(reader) == line
 
 
 async def test_request_error_raises_codex_error(monkeypatch) -> None:

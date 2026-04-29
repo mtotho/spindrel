@@ -39,11 +39,11 @@ from app.dependencies import get_db, require_scopes
 from app.services.channels import apply_channel_visibility
 from app.services.context_preview import build_context_preview_response
 from app.services.heartbeat_policy import DEFAULT_HEARTBEAT_EXECUTION_POLICY, HEARTBEAT_EXECUTION_PRESETS
-from app.services.agent_harnesses.project import (
+from app.services.projects import (
     PROJECT_PATH_KEY,
     PROJECT_WORKSPACE_ID_KEY,
     normalize_project_path,
-    resolve_channel_project_directory,
+    resolve_channel_work_surface,
     resolve_project_workspace_id,
 )
 from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
@@ -989,7 +989,7 @@ async def admin_channel_settings_update(
         if cfg.get(PROJECT_PATH_KEY):
             try:
                 bot = get_bot(updates.get("bot_id") or channel.bot_id)
-                resolve_channel_project_directory(channel, bot)
+                await resolve_channel_work_surface(db, channel, bot)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except Exception as exc:

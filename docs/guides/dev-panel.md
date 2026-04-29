@@ -87,6 +87,8 @@ A widget package has three pieces, edited side-by-side with live preview:
 
 Every keystroke (debounced) re-runs the pipeline and re-renders. YAML errors surface as inline validation issues; Python compile errors surface with line numbers; runtime errors in the transform fall back to the substituted components with a warning.
 
+The **Full Check** button runs the shared authoring diagnostic pipeline used by bots through `check_widget_authoring`: package validation, preview-envelope rendering, static widget health, and a Playwright smoke against the real widget host when the browser runtime is configured. When screenshot capture is requested, the result includes a runtime thumbnail so authoring failures are visible before the package is saved or pinned.
+
 ### Seed vs User packages
 
 Packages fall into two sources:

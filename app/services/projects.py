@@ -6,7 +6,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,35 @@ class ProjectDirectory:
     host_path: str
     project_id: str | None = None
     name: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkSurface:
+    kind: Literal["project", "channel"]
+    root_host_path: str
+    display_path: str
+    index_root_host_path: str
+    index_prefix: str
+    knowledge_index_prefix: str
+    workspace_id: str | None
+    channel_id: str | None = None
+    project_id: str | None = None
+    project_name: str | None = None
+    prompt: str | None = None
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "root_host_path": self.root_host_path,
+            "display_path": self.display_path,
+            "index_root_host_path": self.index_root_host_path,
+            "index_prefix": self.index_prefix,
+            "knowledge_index_prefix": self.knowledge_index_prefix,
+            "workspace_id": self.workspace_id,
+            "channel_id": self.channel_id,
+            "project_id": self.project_id,
+            "project_name": self.project_name,
+        }
 
 
 def normalize_project_path(raw: str | None) -> str | None:
@@ -165,12 +194,7 @@ def project_knowledge_base_index_prefix(project_dir: ProjectDirectory) -> str:
     return f"{project_dir.path.rstrip('/')}/{PROJECT_KB_PATH}".strip("/")
 
 
-async def resolve_project_prompt(db: AsyncSession, channel: Channel | None) -> str | None:
-    if channel is None or not getattr(channel, "project_id", None):
-        return None
-    project = await db.get(Project, channel.project_id)
-    if project is None:
-        return None
+def _project_prompt_from_project(project: Project) -> str | None:
     pieces: list[str] = []
     if project.prompt:
         pieces.append(project.prompt.strip())
@@ -189,6 +213,109 @@ async def resolve_project_prompt(db: AsyncSession, channel: Channel | None) -> s
             pass
     prompt = "\n\n".join(piece for piece in pieces if piece)
     return prompt or None
+
+
+def work_surface_from_project_directory(
+    project_dir: ProjectDirectory,
+    *,
+    prompt: str | None = None,
+    channel_id: str | None = None,
+) -> WorkSurface:
+    index_root = shared_workspace_service.get_host_root(project_dir.workspace_id)
+    return WorkSurface(
+        kind="project",
+        root_host_path=project_dir.host_path,
+        display_path=project_workspace_path(project_dir),
+        index_root_host_path=str(Path(index_root).resolve()),
+        index_prefix=project_dir.path,
+        knowledge_index_prefix=project_knowledge_base_index_prefix(project_dir),
+        workspace_id=project_dir.workspace_id,
+        channel_id=channel_id,
+        project_id=project_dir.project_id,
+        project_name=project_dir.name,
+        prompt=prompt,
+    )
+
+
+def channel_work_surface(
+    channel: Channel,
+    bot: BotConfig,
+) -> WorkSurface:
+    from app.services.channel_workspace import (
+        _get_ws_root,
+        ensure_channel_workspace,
+        get_channel_knowledge_base_index_prefix,
+        get_channel_workspace_index_prefix,
+    )
+
+    channel_id = str(channel.id)
+    root = ensure_channel_workspace(channel_id, bot, display_name=getattr(channel, "name", None))
+    index_root = Path(_get_ws_root(bot)).resolve()
+    return WorkSurface(
+        kind="channel",
+        root_host_path=root,
+        display_path=f"/workspace/channels/{channel_id}",
+        index_root_host_path=str(index_root),
+        index_prefix=get_channel_workspace_index_prefix(channel_id),
+        knowledge_index_prefix=get_channel_knowledge_base_index_prefix(channel_id),
+        workspace_id=resolve_project_workspace_id(channel, bot),
+        channel_id=channel_id,
+    )
+
+
+async def resolve_channel_work_surface(
+    db: AsyncSession,
+    channel: Channel | None,
+    bot: BotConfig,
+    *,
+    include_prompt: bool = False,
+) -> WorkSurface | None:
+    if channel is None:
+        return None
+    project_id = getattr(channel, "project_id", None)
+    if project_id:
+        project = await db.get(Project, project_id)
+        if project is not None:
+            project_dir = project_directory_from_project(project)
+            prompt = _project_prompt_from_project(project) if include_prompt else None
+            return work_surface_from_project_directory(
+                project_dir,
+                prompt=prompt,
+                channel_id=str(channel.id),
+            )
+    project_dir = resolve_legacy_channel_project_directory(channel, bot)
+    if project_dir is not None:
+        return work_surface_from_project_directory(
+            project_dir,
+            channel_id=str(channel.id),
+        )
+    return channel_work_surface(channel, bot)
+
+
+async def resolve_channel_work_surface_by_id(
+    db: AsyncSession,
+    channel_id: uuid.UUID | str | None,
+    bot: BotConfig,
+    *,
+    include_prompt: bool = False,
+) -> WorkSurface | None:
+    if channel_id is None:
+        return None
+    try:
+        ch_uuid = uuid.UUID(str(channel_id))
+    except ValueError:
+        return None
+    channel = await db.get(Channel, ch_uuid)
+    return await resolve_channel_work_surface(db, channel, bot, include_prompt=include_prompt)
+
+
+async def resolve_project_prompt(db: AsyncSession, channel: Channel | None) -> str | None:
+    if channel is None or not getattr(channel, "project_id", None):
+        return None
+    project = await db.get(Project, channel.project_id)
+    if project is None:
+        return None
+    return _project_prompt_from_project(project)
 
 
 async def find_project_by_root(

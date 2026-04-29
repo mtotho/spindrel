@@ -87,7 +87,7 @@ class TestSearchChannelArchive:
         ch_id = str(uuid.uuid4())
 
         async def _mock_get_bot_and_roots(*a, **kw):
-            return bot, ch_id, "/workspace", "text-embedding-3-small"
+            return bot, ch_id, "/workspace", "text-embedding-3-small", None
 
         with (
             patch("app.tools.local.channel_workspace._get_bot_and_roots", _mock_get_bot_and_roots),
@@ -109,7 +109,7 @@ class TestSearchChannelArchive:
         mock_results = [_make_memory_result("channels/ch-1/archive/doc.md", "chunk content", 0.91)]
 
         async def _mock_get_bot_and_roots(*a, **kw):
-            return bot, ch_id, "/workspace", "text-embedding-3-small"
+            return bot, ch_id, "/workspace", "text-embedding-3-small", None
 
         with (
             patch("app.tools.local.channel_workspace._get_bot_and_roots", _mock_get_bot_and_roots),
@@ -137,7 +137,7 @@ class TestSearchChannelWorkspace:
         mock_results = [_make_memory_result("channels/ch-1/notes.md", "# Notes\nsome content", 0.75)]
 
         async def _mock_get_bot_and_roots(channel_id=None):
-            return bot, str(ch_id), "/workspace", "text-embedding-3-small"
+            return bot, str(ch_id), "/workspace", "text-embedding-3-small", None
 
         with (
             patch("app.tools.local.channel_workspace._get_bot_and_roots", _mock_get_bot_and_roots),
@@ -163,7 +163,7 @@ class TestSearchChannelKnowledge:
         ch_id = str(uuid.uuid4())
 
         async def _mock_get_bot_and_roots(*a, **kw):
-            return bot, str(ch_id), "/workspace", "text-embedding-3-small"
+            return bot, str(ch_id), "/workspace", "text-embedding-3-small", None
 
         with (
             patch("app.tools.local.channel_workspace._get_bot_and_roots", _mock_get_bot_and_roots),

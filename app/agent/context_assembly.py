@@ -1981,14 +1981,14 @@ async def _append_prompt_and_user_message(
     if channel_id is not None and ch_row is not None and getattr(ch_row, "project_id", None):
         try:
             from app.db.engine import async_session
-            from app.services.projects import resolve_project_prompt
+            from app.services.projects import resolve_channel_work_surface
 
             async with async_session() as db:
-                _project_prompt = await resolve_project_prompt(db, ch_row)
-            if _project_prompt:
-                messages.append({"role": "system", "content": _project_prompt})
-                inject_chars["project_prompt"] = len(_project_prompt)
-                budget_consume("project_prompt", _project_prompt)
+                surface = await resolve_channel_work_surface(db, ch_row, bot, include_prompt=True)
+            if surface is not None and surface.kind == "project" and surface.prompt:
+                messages.append({"role": "system", "content": surface.prompt})
+                inject_chars["project_prompt"] = len(surface.prompt)
+                budget_consume("project_prompt", surface.prompt)
         except Exception:
             logger.warning("Failed to resolve project prompt for channel %s", channel_id, exc_info=True)
 
@@ -2517,19 +2517,18 @@ async def _inject_channel_workspace(
 
     try:
         from app.db.engine import async_session
-        from app.services.projects import project_workspace_path, resolve_channel_project_directory
-        from app.services.shared_workspace import shared_workspace_service
+        from app.services.projects import resolve_channel_work_surface
 
         async with async_session() as db:
-            project_dir = await resolve_channel_project_directory(db, ch_row, bot)
+            surface = await resolve_channel_work_surface(db, ch_row, bot)
 
-        if project_dir is not None:
-            cw_root = project_dir.host_path
-            cw_abs = project_workspace_path(project_dir)
-            index_root = shared_workspace_service.get_host_root(project_dir.workspace_id)
-            channel_index_prefix = project_dir.path
+        if surface is not None and surface.kind == "project":
+            cw_root = surface.root_host_path
+            cw_abs = surface.display_path
+            index_root = surface.index_root_host_path
+            channel_index_prefix = surface.index_prefix
             helper_prefix = (
-                f"Project workspace — {project_dir.name or project_dir.path}\n"
+                f"Project workspace — {surface.project_name or surface.index_prefix}\n"
                 "This channel is attached to the Project root below; treat it as the default working surface for code, files, search, and exec.\n"
             )
         else:
@@ -2643,7 +2642,7 @@ async def _inject_channel_workspace(
             if plan is None:
                 raise RuntimeError("channel RAG requires workspace-enabled bot")
 
-            implicit_kb_prefix = f"{channel_index_prefix}/.spindrel/knowledge-base" if project_dir is not None else f"channels/{ch_id}/knowledge-base"
+            implicit_kb_prefix = surface.knowledge_index_prefix if surface is not None else f"channels/{ch_id}/knowledge-base"
             seg_dicts: list[dict] = [{
                 "path_prefix": implicit_kb_prefix,
                 "embedding_model": plan.embedding_model,
@@ -3170,7 +3169,18 @@ async def assemble_context(
     _workspace_rag_excluded_prefixes: set[str] = set()
 
     if channel_id is not None:
-        _workspace_rag_excluded_prefixes.add(f"channels/{channel_id}/knowledge-base")
+        try:
+            from app.db.engine import async_session
+            from app.services.projects import resolve_channel_work_surface
+
+            async with async_session() as db:
+                surface = await resolve_channel_work_surface(db, _ch_row, bot) if _ch_row is not None else None
+            _workspace_rag_excluded_prefixes.add(
+                surface.knowledge_index_prefix if surface is not None else f"channels/{channel_id}/knowledge-base"
+            )
+        except Exception:
+            logger.debug("Could not resolve work surface KB prefix for workspace RAG exclusions", exc_info=True)
+            _workspace_rag_excluded_prefixes.add(f"channels/{channel_id}/knowledge-base")
 
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
         _workspace_rag_excluded_prefixes.add(

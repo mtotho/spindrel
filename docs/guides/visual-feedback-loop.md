@@ -133,6 +133,22 @@ capture opens the quick-automation preset drawer without creating a task, so it
 is safe to rerun. Inspect all three images before closing out: the bundle
 checks the in-settings preset surface plus desktop and mobile drawer framing.
 
+## Widget Authoring Runtime Check
+
+Use the Templates tab **Full Check** action, or the bot-facing
+`check_widget_authoring(..., include_runtime=true, include_screenshot=true)`
+tool, when changing tool-widget authoring UX or debugging draft YAML/Python
+widgets. This is a runtime smoke, not a docs screenshot bundle: the server
+renders the draft envelope, opens `/widgets/dev/runtime-preview` in Playwright,
+checks browser errors and visible bounds, and can return a PNG data URL artifact
+for inspection.
+
+Run the normal UI typecheck after related UI changes:
+
+```bash
+cd ui && npx tsc --noEmit --pretty false
+```
+
 ## Harness Parity Run
 
 External harness parity screenshots use real live harness sessions rather than

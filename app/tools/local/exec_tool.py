@@ -214,12 +214,12 @@ async def _exec_sync(
             ch_id = current_channel_id.get()
             if ch_id is not None:
                 from app.db.engine import async_session
-                from app.services.projects import resolve_project_directory_for_channel_id
+                from app.services.projects import resolve_channel_work_surface_by_id
 
                 async with async_session() as db:
-                    project_dir = await resolve_project_directory_for_channel_id(db, ch_id, bot)
-                if project_dir is not None:
-                    working_directory = project_dir.host_path
+                    surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
+                if surface is not None and surface.kind == "project":
+                    working_directory = surface.root_host_path
         except Exception:
             logger.debug("Could not resolve project cwd for delegate_to_exec", exc_info=True)
     script = build_exec_script(command, args, working_directory, stream_to)
@@ -322,15 +322,15 @@ async def _exec_deferred(
         try:
             from app.agent.bots import get_bot
             from app.db.engine import async_session
-            from app.services.projects import resolve_project_directory_for_channel_id
+            from app.services.projects import resolve_channel_work_surface_by_id
 
             bot = get_bot(bot_id)
             ch_id = current_channel_id.get()
             if ch_id is not None:
                 async with async_session() as db:
-                    project_dir = await resolve_project_directory_for_channel_id(db, ch_id, bot)
-                if project_dir is not None:
-                    exec_cfg["working_directory"] = project_dir.host_path
+                    surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
+                if surface is not None and surface.kind == "project":
+                    exec_cfg["working_directory"] = surface.root_host_path
         except Exception:
             logger.debug("Could not resolve project cwd for deferred delegate_to_exec", exc_info=True)
     if src_corr is not None:

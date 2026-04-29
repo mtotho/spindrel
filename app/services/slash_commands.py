@@ -262,6 +262,59 @@ def _filter_specs_for_runtime(specs, runtime) -> list:
     return [s for s in specs if s.id in allowed]
 
 
+def _runtime_native_command_lookup(runtime) -> dict[str, object]:
+    """Map direct slash names and aliases to runtime-owned command specs."""
+    if runtime is None or not hasattr(runtime, "capabilities"):
+        return {}
+    caps = runtime.capabilities()
+    lookup: dict[str, object] = {}
+    for command in getattr(caps, "native_commands", ()) or ():
+        names = [getattr(command, "id", ""), *(getattr(command, "aliases", ()) or ())]
+        for name in names:
+            normalized = str(name or "").strip().lower()
+            if normalized:
+                lookup[normalized] = command
+    return lookup
+
+
+def _native_command_catalog_entries(runtime) -> list[dict]:
+    """Build picker/help entries for runtime-native slash commands.
+
+    These entries are intentionally not registered in ``COMMANDS`` because the
+    runtime owns the set. ``execute_slash_command`` resolves them dynamically
+    for harness sessions.
+    """
+    entries: list[dict] = []
+    seen: set[str] = set()
+    for slash_name, command in _runtime_native_command_lookup(runtime).items():
+        if slash_name in seen or slash_name in COMMANDS:
+            continue
+        seen.add(slash_name)
+        entries.append(
+            {
+                "id": slash_name,
+                "label": f"/{slash_name}",
+                "description": getattr(command, "description", "") or f"Run native /{slash_name}",
+                "surfaces": ["channel", "session"],
+                "local_only": False,
+                "args": [
+                    {
+                        "name": "args",
+                        "source": "free_text",
+                        "required": False,
+                        "enum": None,
+                    }
+                ],
+                "runtime_native": True,
+                "runtime_command_id": getattr(command, "id", slash_name),
+                "runtime_command_readonly": bool(getattr(command, "readonly", True)),
+                "runtime_command_interaction_kind": getattr(command, "interaction_kind", "structured"),
+                "runtime_command_fallback_behavior": getattr(command, "fallback_behavior", "none"),
+            }
+        )
+    return entries
+
+
 # ============================================================================
 # Shared helpers (unchanged behavior from the pre-refactor code)
 # ============================================================================
@@ -739,7 +792,13 @@ async def _toggle_plan_mode(
     return _side_effect_result(payload, command_id="plan")
 
 
-async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+async def _execute_native_runtime_command(
+    ctx: SlashCommandContext,
+    *,
+    slash_command_id: str,
+    native_command_id: str,
+    command_args: tuple[str, ...],
+) -> SlashCommandResult:
     if ctx.surface == "channel":
         session = await _resolve_current_session(ctx)
         scope_kind: Literal["channel", "session"] = "channel"
@@ -750,13 +809,6 @@ async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         session = ctx.session
         scope_kind = "session"
         scope_id = ctx.session_id
-
-    if not ctx.args:
-        raise ValueError("/runtime requires a whitelisted runtime command id")
-    command_id = ctx.args[0].strip()
-    command_args = tuple(ctx.args[1:])
-    if not command_id:
-        raise ValueError("/runtime requires a whitelisted runtime command id")
 
     from app.agent.bots import get_bot
     from app.services.agent_harnesses import HARNESS_REGISTRY
@@ -773,13 +825,14 @@ async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     runtime = HARNESS_REGISTRY.get(runtime_name)
     if runtime is None:
         raise ValueError(f"Harness runtime {runtime_name!r} is not registered")
-    caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
-    allowed = {spec.id for spec in getattr(caps, "native_commands", ())} if caps else set()
-    if command_id not in allowed:
+    native_lookup = _runtime_native_command_lookup(runtime)
+    command_spec = native_lookup.get(native_command_id.strip().lower())
+    if command_spec is None:
         raise ValueError(
-            f"Runtime command {command_id!r} is not available for {runtime_name}. "
-            f"Available: {', '.join(sorted(allowed)) or 'none'}"
+            f"Runtime command {native_command_id!r} is not available for {runtime_name}. "
+            f"Available: {', '.join(sorted(native_lookup)) or 'none'}"
         )
+    command_id = str(getattr(command_spec, "id", native_command_id)).strip()
     if not hasattr(runtime, "execute_native_command"):
         raise ValueError(f"Harness runtime {runtime_name!r} does not support native commands")
 
@@ -805,6 +858,31 @@ async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         session_plan_mode=get_session_plan_mode(session),
         harness_metadata=harness_meta or {},
     )
+    if not bool(getattr(command_spec, "readonly", True)):
+        from app.services.agent_harnesses.approvals import request_harness_approval
+
+        decision = await request_harness_approval(
+            ctx=turn_ctx,
+            runtime=runtime,
+            tool_name=f"/{command_id}",
+            tool_input={"args": list(command_args), "runtime_command": command_id},
+        )
+        if not decision.allow:
+            return SlashCommandResult(
+                command_id=slash_command_id,
+                result_type="harness_runtime_command",
+                payload={
+                    "runtime": runtime_name,
+                    "command": command_id,
+                    "status": "denied",
+                    "title": "Native command denied",
+                    "detail": decision.reason or "User denied this native command.",
+                    "scope_kind": scope_kind,
+                    "scope_id": str(scope_id),
+                    "data": {},
+                },
+                fallback_text=decision.reason or "User denied this native command.",
+            )
     result = await runtime.execute_native_command(
         command_id=command_id,
         args=command_args,
@@ -821,7 +899,7 @@ async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         "data": dict(result.payload or {}),
     }
     return SlashCommandResult(
-        command_id="runtime",
+        command_id=slash_command_id,
         result_type="harness_runtime_command",
         payload=payload,
         fallback_text="\n".join(
@@ -831,6 +909,21 @@ async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             )
             if part
         ),
+    )
+
+
+async def _runtime_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if not ctx.args:
+        raise ValueError("/runtime requires a whitelisted runtime command id")
+    command_id = ctx.args[0].strip()
+    command_args = tuple(ctx.args[1:])
+    if not command_id:
+        raise ValueError("/runtime requires a whitelisted runtime command id")
+    return await _execute_native_runtime_command(
+        ctx,
+        slash_command_id="runtime",
+        native_command_id=command_id,
+        command_args=command_args,
     )
 
 
@@ -1341,6 +1434,7 @@ async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     # Phase 4: harness sessions only see commands the runtime allowlists.
     runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id or None)
     available = _filter_specs_for_runtime(available, runtime)
+    native_entries = _native_command_catalog_entries(runtime)
 
     categories = [
         ContextSummaryCategory(
@@ -1352,13 +1446,23 @@ async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         )
         for s in available
     ]
+    categories.extend(
+        ContextSummaryCategory(
+            key=str(entry["id"]),
+            label=str(entry["label"]),
+            tokens_approx=0,
+            percentage=0.0,
+            description=str(entry["description"]),
+        )
+        for entry in native_entries
+    )
     payload = ContextSummaryPayload(
         scope_kind=ctx.surface,
         scope_id=scope_id,
         session_id=str(ctx.session_id) if ctx.session_id else None,
         bot_id=bot_id,
         title="Available commands",
-        headline=f"{len(available)} slash commands available here",
+        headline=f"{len(categories)} slash commands available here",
         top_categories=categories,
         notes=[],
     )
@@ -1720,10 +1824,12 @@ async def list_supported_slash_commands(
     Non-harness bots / no ``bot_id`` / unknown runtime → full catalog.
     """
     specs = list(COMMANDS.values())
+    native_entries: list[dict] = []
     if bot_id is not None and db is not None:
         runtime = await _resolve_harness_runtime_for_bot(db, bot_id)
         specs = _filter_specs_for_runtime(specs, runtime)
-    return [
+        native_entries = _native_command_catalog_entries(runtime)
+    entries = [
         {
             "id": s.id,
             "label": s.label,
@@ -1742,6 +1848,7 @@ async def list_supported_slash_commands(
         }
         for s in specs
     ]
+    return entries + native_entries
 
 
 async def execute_slash_command(
@@ -1759,19 +1866,63 @@ async def execute_slash_command(
         raise ValueError("current_session_id is only valid with channel_id")
     args = list(args or [])
 
+    surface: Literal["channel", "session"] = (
+        "channel" if channel_id is not None else "session"
+    )
+
+    channel: Channel | None = None
+    session: Session | None = None
+    if channel_id is not None:
+        channel = await db.get(Channel, channel_id)
+        if channel is None:
+            raise LookupError("Channel not found")
+        if current_session_id is not None:
+            current_session = await db.get(Session, current_session_id)
+            if current_session is None:
+                raise LookupError("Current session not found")
+            if not _session_belongs_to_channel(current_session, channel_id):
+                raise ValueError("Current session does not belong to this channel")
+    else:
+        session = await db.get(Session, session_id)
+        if session is None:
+            raise LookupError("Session not found")
+
     spec = COMMANDS.get(command_id)
+    ctx = SlashCommandContext(
+        command_id=command_id,
+        surface=surface,
+        channel=channel,
+        session=session,
+        channel_id=channel_id,
+        session_id=session_id,
+        current_session_id=current_session_id,
+        args=args,
+        db=db,
+    )
     if spec is None:
-        raise ValueError(f"Unsupported slash command: {command_id}")
+        bot_id: str | None = None
+        if channel is not None and channel.bot_id:
+            bot_id = str(channel.bot_id)
+        elif session is not None:
+            bot_id = str(session.bot_id)
+        runtime = await _resolve_harness_runtime_for_bot(db, bot_id)
+        native_lookup = _runtime_native_command_lookup(runtime)
+        native_spec = native_lookup.get(command_id.strip().lower())
+        if native_spec is None:
+            raise ValueError(f"Unsupported slash command: {command_id}")
+        return await _execute_native_runtime_command(
+            ctx,
+            slash_command_id=command_id,
+            native_command_id=str(getattr(native_spec, "id", command_id)),
+            command_args=tuple(args),
+        )
+
     if spec.local_only:
         raise ValueError(
             f"Command {command_id!r} is client-only and should not be executed via the backend"
         )
     if spec.handler is None:
         raise ValueError(f"Command {command_id!r} has no backend handler")
-
-    surface: Literal["channel", "session"] = (
-        "channel" if channel_id is not None else "session"
-    )
     if surface not in spec.surfaces:
         raise ValueError(
             f"/{command_id} is not available in {surface} scope"
@@ -1796,32 +1947,4 @@ async def execute_slash_command(
     elif args:
         raise ValueError(f"/{command_id} takes no arguments")
 
-    channel: Channel | None = None
-    session: Session | None = None
-    if channel_id is not None:
-        channel = await db.get(Channel, channel_id)
-        if channel is None:
-            raise LookupError("Channel not found")
-        if current_session_id is not None:
-            current_session = await db.get(Session, current_session_id)
-            if current_session is None:
-                raise LookupError("Current session not found")
-            if not _session_belongs_to_channel(current_session, channel_id):
-                raise ValueError("Current session does not belong to this channel")
-    else:
-        session = await db.get(Session, session_id)
-        if session is None:
-            raise LookupError("Session not found")
-
-    ctx = SlashCommandContext(
-        command_id=command_id,
-        surface=surface,
-        channel=channel,
-        session=session,
-        channel_id=channel_id,
-        session_id=session_id,
-        current_session_id=current_session_id,
-        args=args,
-        db=db,
-    )
     return await spec.handler(ctx)
