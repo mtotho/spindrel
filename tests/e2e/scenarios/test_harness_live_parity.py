@@ -1321,6 +1321,9 @@ async def test_live_harness_project_plan_build_and_screenshot(
         project_dir = status.get("project_dir") or {}
         workspace_id = str(project_dir.get("workspace_id") or "")
         assert workspace_id, status
+        effective_cwd = str(status.get("effective_cwd") or "").rstrip("/")
+        bot_workspace_dir = str(status.get("bot_workspace_dir") or "").rstrip("/")
+        assert effective_cwd, status
 
         plan_command = await client.execute_slash_command("plan", session_id=session_id)
         assert plan_command["payload"]["effect"] == "plan"
@@ -1329,11 +1332,12 @@ async def test_live_harness_project_plan_build_and_screenshot(
 
         app_rel = f"e2e-testing/{case.name}-{marker}"
         app_workspace_rel = f"{expected_project_path}/{app_rel}"
+        app_abs = f"{effective_cwd}/{app_rel}"
         plan = await client.chat_session_stream(
             (
                 "Plan only. Do not create, edit, delete, run files, inspect files, or call tools. "
                 "Reply with exactly three short bullet points. "
-                f"The plan is for a static single-page app in ./{app_rel} using only "
+                f"The plan is for a static single-page app at absolute path {app_abs} using only "
                 f"index.html, styles.css, app.js, and README.md, visibly including marker {marker}."
             ),
             session_id=session_id,
@@ -1357,10 +1361,11 @@ async def test_live_harness_project_plan_build_and_screenshot(
 
         build = await client.chat_session_stream(
             (
-                f"Proceed with the approved plan. In the current working directory, create ./{app_rel} "
+                f"Proceed with the approved plan. Create the app at absolute path {app_abs} "
                 "and write exactly these files: index.html, styles.css, app.js, README.md. "
+                f"Do not write under the bot workspace {bot_workspace_dir}. "
                 "Do not install packages, do not use external network assets, and do not write outside "
-                f"./{app_rel}. The rendered page must show title \"Harness Project Parity\", "
+                f"{app_abs}. The rendered page must show title \"Harness Project Parity\", "
                 f"runtime \"{case.name}\", and marker \"{marker}\". "
                 "Before your final response, verify all four files exist and that index.html contains "
                 "the title and marker. If verification fails, fix it before replying. "
