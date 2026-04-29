@@ -2160,6 +2160,44 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-channels",
+        route="/admin/projects/{project_workspace_project}#Channels",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-attached-channels\"]') "
+            "&& !!document.querySelector('[data-testid=\"project-workspace-channel-create\"]') "
+            "&& !!document.querySelector('[data-testid=\"project-workspace-channel-attach\"]') "
+            "&& document.body.innerText.includes('Project workspace demo')"
+        ),
+        output="project-workspace-channels.png",
+        color_scheme="dark",
+        pre_capture_js=(
+            "const trigger = document.querySelector('[data-testid=\"project-workspace-channel-attach\"] button[aria-haspopup=\"listbox\"]');"
+            "if (!trigger) throw new Error('attach channel picker trigger missing');"
+            "trigger.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const search = document.querySelector('input[placeholder=\"Search channels...\"]');"
+            "if (!search) throw new Error('attach picker search missing');"
+            "const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;"
+            "setter.call(search, 'Project workspace attach');"
+            "search.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'Project workspace attach' }));"
+            "const started = Date.now();"
+            "while (!document.body.innerText.includes('Project workspace attach candidate')) {"
+            "  if (Date.now() - started > 5000) throw new Error('attach candidate did not appear');"
+            "  await new Promise((resolve) => setTimeout(resolve, 100));"
+            "}"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Create Channel') "
+            "&& text.includes('Attach Existing Channel') "
+            "&& text.includes('Project workspace attach candidate') "
+            "&& text.includes('Detach'), "
+            "detail: 'Project Channels tab did not expose membership controls' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-channel-settings",
         route="/channels/{project_workspace}/settings#agent",
         viewport={"width": 1440, "height": 900},

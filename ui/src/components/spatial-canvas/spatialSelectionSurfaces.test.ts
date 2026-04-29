@@ -228,7 +228,10 @@ test("Attention operator sweep is global and normal assignment hides the operato
   assert.match(source, /Mark wrong/);
   assert.match(source, /Change routing/);
   assert.match(source, /operatorRouteLabel/);
+  assert.match(source, /return "Code fix"/);
+  assert.match(source, /humanizeOperatorAction/);
   assert.doesNotMatch(source, /Route to dev/);
+  assert.doesNotMatch(source, /Development work/);
   assert.doesNotMatch(source, />Confirm</);
 });
 
@@ -283,6 +286,13 @@ test("Starboard attention station is only a launcher for Mission Control Review"
   assert.match(deckSource, /runModePinned/);
   assert.match(deckSource, /sweepBusy/);
   assert.match(deckSource, /onSelect\(null\);\n    setDeckMode\("runs"\)/);
+  assert.match(deckSource, /focusReviewFinding/);
+  assert.match(deckSource, /Pick a run in the center panel/);
+  assert.match(deckSource, /mode === "runs" \? "lg:grid-cols-\[280px_minmax\(0,1fr\)\]"/);
+  assert.match(deckSource, /mode !== "runs"/);
+  assert.match(deckSource, /You are reviewing this finding now/);
+  assert.match(deckSource, /return "Code fix"/);
+  assert.match(deckSource, /humanizeSuggestedAction/);
   assert.match(deckSource, /Run log/);
   assert.match(deckSource, /RunReceipt/);
   assert.match(deckSource, /attention-run-receipt/);

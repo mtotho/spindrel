@@ -10,6 +10,14 @@ from app.agent.llm import AccumulatedMessage
 from app.agent.loop_state import LoopRunContext, LoopRunState
 
 
+PLAN_MODE_CONTROL_TOOLS = frozenset({
+    "ask_plan_questions",
+    "publish_plan",
+    "record_plan_progress",
+    "request_plan_replan",
+})
+
+
 @dataclass(frozen=True)
 class LoopRecoveryDone:
     has_tool_calls: bool
@@ -41,10 +49,10 @@ async def stream_loop_recovery(
     if not accumulated_msg.tool_calls:
         synthetic_tool_call = _synthesize_publish_plan_retry_tool_call(
             messages=state.messages,
-            tools_param=tools_param,
             tools_used=state.tool_calls_made,
         )
         if synthetic_tool_call is not None:
+            _authorize_synthetic_plan_tool(effective_allowed, "publish_plan")
             _apply_synthetic_tool_calls(
                 accumulated_msg=accumulated_msg,
                 messages=state.messages,
@@ -55,10 +63,10 @@ async def stream_loop_recovery(
         synthetic_question_call = _synthesize_required_plan_question_tool_call(
             accumulated_msg=accumulated_msg,
             messages=state.messages,
-            tools_param=tools_param,
             tools_used=state.tool_calls_made,
         )
         if synthetic_question_call is not None:
+            _authorize_synthetic_plan_tool(effective_allowed, "ask_plan_questions")
             _apply_synthetic_tool_calls(
                 accumulated_msg=accumulated_msg,
                 messages=state.messages,
@@ -84,12 +92,9 @@ async def stream_loop_recovery(
     yield LoopRecoveryDone(has_tool_calls=False, return_loop=True)
 
 
-def _tool_available(tools_param: list[dict[str, Any]] | None, name: str) -> bool:
-    for tool in tools_param or []:
-        function = tool.get("function") if isinstance(tool, dict) else None
-        if isinstance(function, dict) and function.get("name") == name:
-            return True
-    return False
+def _authorize_synthetic_plan_tool(effective_allowed: set[str] | None, name: str) -> None:
+    if effective_allowed is not None and name in PLAN_MODE_CONTROL_TOOLS:
+        effective_allowed.add(name)
 
 
 def _has_tool_call(tool_calls: list[dict[str, Any]] | None, name: str) -> bool:
@@ -233,11 +238,8 @@ def _repair_publish_step_label(label: str, args: dict[str, Any]) -> str:
 def _synthesize_publish_plan_retry_tool_call(
     *,
     messages: list[dict[str, Any]],
-    tools_param: list[dict[str, Any]] | None,
     tools_used: list[str],
 ) -> dict[str, Any] | None:
-    if not _tool_available(tools_param, "publish_plan"):
-        return None
     if tools_used.count("publish_plan") >= 2:
         return None
     if not _plan_mode_context_active(messages):
@@ -291,11 +293,8 @@ def _synthesize_required_plan_question_tool_call(
     *,
     accumulated_msg: AccumulatedMessage,
     messages: list[dict[str, Any]],
-    tools_param: list[dict[str, Any]] | None,
     tools_used: list[str],
 ) -> dict[str, Any] | None:
-    if not _tool_available(tools_param, "ask_plan_questions"):
-        return None
     if "ask_plan_questions" in tools_used:
         return None
     if not _plan_mode_context_active(messages):

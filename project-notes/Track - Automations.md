@@ -2,7 +2,7 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-29 (channel quick automations V1)
+updated: 2026-04-29 (channel quick automations visual feedback)
 ---
 # Track — Automations (Task Pipelines)
 
@@ -14,6 +14,7 @@ Task pipelines are the automation primitive — multi-step sequences (shell → 
 - Channel Settings -> Tasks now shows a compact Quick automations launcher. The preset opens a review drawer with editable title, start, recurrence, prompt, and channel-posting behavior, then creates an ordinary scheduled task through the existing task API.
 - The preset defaults to a quiet weekly widget health/usefulness review with recent channel history, the `widgets` skill pack, and the read/inspection widget tools. It does not alter heartbeat behavior or grant global approval bypasses.
 - Advanced customization stays in `/admin/automations`: the drawer can create the task and jump to the full automation editor.
+- Visual feedback is now durable through `python -m scripts.screenshots capture --only channel-quick-automations`, producing the launcher plus desktop/mobile review drawer docs images.
 
 ## 2026-04-29 — Heartbeat and maintenance consolidation pass
 

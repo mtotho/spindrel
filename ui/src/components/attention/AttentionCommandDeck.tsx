@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -88,10 +88,25 @@ function formatItemTime(item: WorkspaceAttentionItem): string {
 
 function routeLabel(route?: string | null): string {
   if (!route) return "Needs review";
-  if (route === "developer_channel") return "Development work";
+  if (route === "developer_channel") return "Code fix";
+  if (route === "owner_channel") return "Owner follow-up";
+  if (route === "automation") return "Automation fix";
+  if (route === "acknowledge") return "Can acknowledge";
   if (route === "user_decision") return "User decision";
   if (route === "benign") return "Benign";
   return route.replaceAll("_", " ");
+}
+
+function humanizeSuggestedAction(action?: string | null): string {
+  const text = (action ?? "").trim();
+  if (!text) return "";
+  return text
+    .replace(/\b[Rr]oute to (the )?developer channel\b/g, "Open a code fix")
+    .replace(/\b[Rr]oute to development\b/g, "Open a code fix")
+    .replace(/\b[Rr]oute to dev\b/g, "Open a code fix")
+    .replace(/\bdeveloper channel\b/gi, "code fix")
+    .replace(/\bdevelopment\b/gi, "code")
+    .trim();
 }
 
 function severityClass(item: WorkspaceAttentionItem): string {
@@ -122,6 +137,7 @@ export function AttentionCommandDeck({
   const [notice, setNotice] = useState<string | null>(null);
   const [runModePinned, setRunModePinned] = useState(false);
   const [sweepStarting, setSweepStarting] = useState(false);
+  const detailRef = useRef<HTMLElement | null>(null);
   const buckets = useMemo(() => bucketAttentionItems(items), [items]);
   const sweepable = useMemo(() => sweepCandidateItems(items), [items]);
   const selected = items.find((item) => item.id === selectedId) ?? null;
@@ -140,6 +156,7 @@ export function AttentionCommandDeck({
     closed: buckets.closed.length,
   };
   const activeList = useMemo(() => sortAttention(modeItems(mode, buckets)), [buckets, mode]);
+  const firstReview = useMemo(() => sortAttention(buckets.review)[0] ?? null, [buckets.review]);
   const displayItem = selected ?? activeList[0] ?? null;
 
   const setDeckMode = (next: DeckMode) => {
@@ -204,6 +221,17 @@ export function AttentionCommandDeck({
     });
   };
 
+  const focusDetail = () => {
+    window.requestAnimationFrame(() => detailRef.current?.focus({ preventScroll: false }));
+  };
+
+  const focusReviewFinding = (item: WorkspaceAttentionItem | null = firstReview) => {
+    if (!item) return;
+    setDeckMode("review");
+    onSelect(item);
+    focusDetail();
+  };
+
   const whatNow = (() => {
     if (sweepBusy) {
       return {
@@ -222,7 +250,7 @@ export function AttentionCommandDeck({
         detail: `${counts.review} finding${counts.review === 1 ? "" : "s"} already classified and waiting for a decision.`,
         action: "Review first finding",
         icon: <Sparkles size={15} />,
-        onClick: () => setDeckMode("review"),
+        onClick: () => focusReviewFinding(),
       };
     }
     if (counts.inbox > 0) {
@@ -308,10 +336,11 @@ export function AttentionCommandDeck({
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+      <div className={`grid min-h-0 flex-1 grid-cols-1 ${mode === "runs" ? "lg:grid-cols-[280px_minmax(0,1fr)]" : "lg:grid-cols-[280px_minmax(0,1fr)_320px]"}`}>
         <DeckQueue
           mode={mode}
           counts={counts}
+          runCount={runs.length}
           items={activeList}
           selectedId={displayItem?.id ?? null}
           onModeChange={(next) => {
@@ -320,7 +349,7 @@ export function AttentionCommandDeck({
           }}
           onSelect={onSelect}
         />
-        <main className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 lg:border-l lg:border-t-0">
+        <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 outline-none lg:border-l lg:border-t-0">
           {mode === "runs" ? (
             <RunLogWorkspace pending={sweepBusy} runs={runs} selectedRunId={selectedRunId} onRunSelect={onRunSelect} />
           ) : displayItem ? (
@@ -329,7 +358,20 @@ export function AttentionCommandDeck({
             <EmptyDeckState mode={mode} />
           )}
         </main>
-        <DeckSideRail runs={runs} buckets={buckets} onModeChange={setDeckMode} onRunSelect={onRunSelect} onSelect={onSelect} />
+        {mode !== "runs" && (
+          <DeckSideRail
+            mode={mode}
+            selectedId={displayItem?.id ?? null}
+            runs={runs}
+            buckets={buckets}
+            onModeChange={setDeckMode}
+            onRunSelect={onRunSelect}
+            onSelect={(item) => {
+              onSelect(item);
+              focusDetail();
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -353,6 +395,7 @@ function QueueChip({ active, label, count, onClick }: { active: boolean; label: 
 function DeckQueue({
   mode,
   counts,
+  runCount,
   items,
   selectedId,
   onModeChange,
@@ -360,27 +403,33 @@ function DeckQueue({
 }: {
   mode: DeckMode;
   counts: { review: number; inbox: number; running: number; cleared: number; closed: number };
+  runCount: number;
   items: WorkspaceAttentionItem[];
   selectedId: string | null;
   onModeChange: (mode: DeckMode) => void;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
 }) {
+  const title = mode === "inbox" ? "Raw signals" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run log";
   return (
     <aside className="min-h-0 overflow-y-auto px-3 py-3">
       <div className="grid grid-cols-2 gap-1.5">
         <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Review" count={counts.review} onClick={() => onModeChange("review")} />
         <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Inbox" count={counts.inbox} onClick={() => onModeChange("inbox")} />
-        <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Runs" count={counts.running} onClick={() => onModeChange("runs")} />
+        <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Runs" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
         <ModeButton active={mode === "cleared"} icon={<Archive size={14} />} label="Cleared" count={counts.cleared + counts.closed} onClick={() => onModeChange("cleared")} />
       </div>
 
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-          <span>{mode === "inbox" ? "Raw signals" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run-linked items"}</span>
-          <span>{items.length}</span>
+          <span>{title}</span>
+          <span>{mode === "runs" ? runCount : items.length}</span>
         </div>
         <div className="space-y-1">
-          {items.length ? items.map((item) => (
+          {mode === "runs" ? (
+            <div className="rounded-md bg-surface-raised/35 px-3 py-3 text-xs leading-5 text-text-muted">
+              Pick a run in the center panel. Runs are receipts: they explain which signals became findings, which were cleared, and where the transcript evidence lives.
+            </div>
+          ) : items.length ? items.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -434,6 +483,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
   const workflowState = getAttentionWorkflowState(item);
   const reviewed = workflowState === "operator_review";
   const readonly = workflowState === "processed" || workflowState === "closed";
+  const suggestedAction = humanizeSuggestedAction(triage?.suggested_action);
 
   return (
     <article className="mx-auto max-w-3xl">
@@ -484,10 +534,10 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
             <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-accent">{routeLabel(triage.route)}</span>
           </div>
           {triage.summary && <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-text-muted">{triage.summary}</p>}
-          {triage.suggested_action && (
+          {suggestedAction && (
             <p className="mt-3 text-sm leading-6 text-text">
               <span className="text-text-dim">Next: </span>
-              {triage.suggested_action}
+              {suggestedAction}
             </p>
           )}
           {!readonly && (
@@ -761,12 +811,16 @@ function RunItemList({ title, items, empty }: { title: string; items: WorkspaceA
 }
 
 function DeckSideRail({
+  mode,
+  selectedId,
   runs,
   buckets,
   onModeChange,
   onRunSelect,
   onSelect,
 }: {
+  mode: DeckMode;
+  selectedId: string | null;
   runs: AttentionTriageRunResponse[];
   buckets: AttentionBuckets;
   onModeChange: (mode: DeckMode) => void;
@@ -775,6 +829,7 @@ function DeckSideRail({
 }) {
   const latest = runs[0] ?? null;
   const nextReview = buckets.review[0] ?? null;
+  const reviewingNext = Boolean(nextReview && mode === "review" && selectedId === nextReview.id);
   return (
     <aside className="hidden min-h-0 overflow-y-auto border-l border-surface-border/60 px-3 py-3 lg:block">
       <section className="mb-4 rounded-md bg-surface-overlay/35 px-3 py-3">
@@ -785,10 +840,19 @@ function DeckSideRail({
         {nextReview ? (
           <>
             <div className="mt-2 text-sm font-medium text-text">{nextReview.title}</div>
-            <div className="mt-1 text-xs text-text-muted">Operator has marked this for review.</div>
-            <button type="button" className="mt-3 rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12]" onClick={() => onSelect(nextReview)}>
-              Review first finding
-            </button>
+            <div className="mt-1 text-xs text-text-muted">{reviewingNext ? "You are reviewing this finding now." : "Operator has marked this for review."}</div>
+            {!reviewingNext && (
+              <button
+                type="button"
+                className="mt-3 rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12]"
+                onClick={() => {
+                  onModeChange("review");
+                  onSelect(nextReview);
+                }}
+              >
+                Review first finding
+              </button>
+            )}
           </>
         ) : (
           <div className="mt-2 text-sm text-text-muted">No reviewed findings are waiting.</div>

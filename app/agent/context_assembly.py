@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 # Enrollment sources eligible for auto-inject. Starter/migration skills are
 # generic utility docs that shouldn't compete for the injection slot.
 _INJECT_ELIGIBLE_SOURCES = frozenset({"authored", "fetched", "manual"})
+_PLAN_MODE_CONTROL_TOOLS = (
+    "ask_plan_questions",
+    "publish_plan",
+    "record_plan_progress",
+    "request_plan_replan",
+)
 
 
 def _safe_sim(value: float) -> float | None:
@@ -66,6 +72,27 @@ def _safe_sim(value: float) -> float | None:
     if math.isnan(value):
         return None
     return round(value, 4)
+
+
+def _plan_mode_active_from_messages(messages: list[dict[str, Any]]) -> bool:
+    return any(
+        message.get("role") == "system"
+        and "Plan mode is active" in str(message.get("content") or "")
+        for message in messages
+    )
+
+
+def _add_local_tool_schemas(
+    by_name: dict[str, dict[str, Any]],
+    names: tuple[str, ...],
+) -> None:
+    missing = [name for name in names if name not in by_name]
+    if not missing:
+        return
+    for schema in get_local_tool_schemas(missing):
+        tool_name = schema.get("function", {}).get("name")
+        if tool_name:
+            by_name[tool_name] = schema
 
 
 def _build_context_profile_note(
@@ -1441,6 +1468,9 @@ async def _run_tool_retrieval(
         if _sk_name not in by_name:
             for _sk_schema in get_local_tool_schemas([_sk_name]):
                 by_name[_sk_schema["function"]["name"]] = _sk_schema
+    _plan_mode_active = _plan_mode_active_from_messages(messages)
+    if _plan_mode_active:
+        _add_local_tool_schemas(by_name, _PLAN_MODE_CONTROL_TOOLS)
 
     _surface_policy = tool_surface_policy if tool_surface_policy in {"focused_escape", "strict", "full"} else "full"
     _authorized_names: set[str] = set(by_name.keys())
@@ -1496,6 +1526,7 @@ async def _run_tool_retrieval(
 
     pre_selected_tools: list[dict[str, Any]] | None = None
     if by_name:
+        _plan_mode_pins = list(_PLAN_MODE_CONTROL_TOOLS) if _plan_mode_active else []
         _broad_pinned = list(bot.pinned_tools or [])
         if _surface_policy == "full":
             _effective_pinned = _broad_pinned + tagged_tool_names + ["get_tool_info"]
@@ -1519,6 +1550,8 @@ async def _run_tool_retrieval(
             _effective_pinned = list(tagged_tool_names)
             if tagged_skill_names:
                 _effective_pinned += ["get_skill", "get_skill_list"]
+        if _plan_mode_pins:
+            _effective_pinned = list(dict.fromkeys([*_effective_pinned, *_plan_mode_pins]))
         pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
         _server_pins = {n for n in _effective_pinned if n not in by_name}
         if _server_pins:
@@ -3199,7 +3232,10 @@ async def assemble_context(
 
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
-    result.effective_local_tools = list(bot.local_tools)
+    effective_local_tools = list(bot.local_tools)
+    if _plan_mode_active_from_messages(messages):
+        effective_local_tools = list(dict.fromkeys([*effective_local_tools, *_PLAN_MODE_CONTROL_TOOLS]))
+    result.effective_local_tools = effective_local_tools
     result.tool_discovery_info = dict(stage_state.tool_discovery_info)
 
     # --- late cache-safe injections (temporal + pinned widgets + refusal guard + profile note) ---

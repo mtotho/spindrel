@@ -215,6 +215,13 @@ substrate exists. Starboard remains the contextual inspector/launcher, not the
 review workbench. The older Mission Control draft surface stays experimental
 and must not be treated as the canonical place for Attention triage.
 
+Same-day interaction-contract pass: the deck now has one explicit
+`What to do now` lane instead of four equal forks, Operator sweep success pins
+the user to the run log with `run=<task_id>` in the URL, and Starboard/Map Brief
+copy uses shallow review verbs (`Open Review`, `Review signal`, `Review
+finding`) instead of implying the drawer is the workbench. Screenshot specs now
+cover the review deck and run-log states so this split can be visually checked.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

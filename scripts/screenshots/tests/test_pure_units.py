@@ -182,6 +182,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-list.png",
         "project-workspace-detail.png",
         "project-workspace-terminal.png",
+        "project-workspace-channels.png",
         "project-workspace-channel-settings.png",
         "project-workspace-memory-tool.png",
     }
@@ -189,6 +190,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     routes = {spec.name: spec.route for spec in resolved}
     assert routes["project-workspace-detail"] == "/admin/projects/project-1"
     assert routes["project-workspace-terminal"] == "/admin/projects/project-1#Terminal"
+    assert routes["project-workspace-channels"] == "/admin/projects/project-1#Channels"
     assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"
     assert routes["project-workspace-memory-tool"] == "/channels/channel-1"
 
@@ -355,6 +357,7 @@ def test_harness_live_mobile_context_specs_are_docs_fixtures():
     assert specs[0].chat_mode == "terminal"
     assert specs[0].viewport == (390, 844)
     assert specs[0].click_selector == harness_live.HARNESS_CONTEXT_CHIP_SELECTOR
+    assert specs[0].after_click_selector == '[data-testid="harness-context-panel-mobile"], [data-testid="harness-context-panel"]'
     assert "harness-context-chip-mobile" in specs[0].wait_js
     assert "harness-context-panel-mobile" in specs[0].after_click_wait_js
     assert "getBoundingClientRect" in specs[0].after_click_wait_js
@@ -376,9 +379,10 @@ def test_harness_live_usage_log_specs_target_harness_channel():
 def test_harness_live_capture_sets_page_viewport_for_cdp_runtime():
     source = inspect.getsource(harness_live._capture_one)
 
-    assert "page.set_viewport_size" in source
+    assert source.count("page.set_viewport_size") >= 2
     assert '"width": spec.viewport[0]' in source
     assert '"height": spec.viewport[1]' in source
+    assert "viewport={" not in source
 
 
 def test_harness_live_plan_mode_switcher_specs_are_docs_fixtures():

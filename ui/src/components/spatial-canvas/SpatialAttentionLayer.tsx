@@ -1155,10 +1155,10 @@ function OperatorTriageCard({
         {route && <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-accent">{route}</span>}
       </div>
       {triage.summary && <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{triage.summary}</p>}
-      {triage.suggested_action && (
+      {humanizeOperatorAction(triage.suggested_action) && (
         <p className="text-sm leading-5 text-text">
           <span className="text-text-dim">Next: </span>
-          {triage.suggested_action}
+          {humanizeOperatorAction(triage.suggested_action)}
         </p>
       )}
       <p className="text-xs leading-5 text-text-dim">Accepting trains future sweeps. Acknowledge or resolve removes this review item.</p>
@@ -1188,8 +1188,23 @@ function OperatorTriageCard({
 }
 
 function operatorRouteLabel(route: string): string {
-  if (route === "developer_channel") return "Development work";
+  if (route === "developer_channel") return "Code fix";
+  if (route === "owner_channel") return "Owner follow-up";
+  if (route === "automation") return "Automation fix";
+  if (route === "acknowledge") return "Can acknowledge";
   if (route === "user_decision") return "User decision";
   if (route === "benign") return "Benign/noise";
   return route.replaceAll("_", " ");
+}
+
+function humanizeOperatorAction(action?: string | null): string {
+  const text = (action ?? "").trim();
+  if (!text) return "";
+  return text
+    .replace(/\b[Rr]oute to (the )?developer channel\b/g, "Open a code fix")
+    .replace(/\b[Rr]oute to development\b/g, "Open a code fix")
+    .replace(/\b[Rr]oute to dev\b/g, "Open a code fix")
+    .replace(/\bdeveloper channel\b/gi, "code fix")
+    .replace(/\bdevelopment\b/gi, "code")
+    .trim();
 }

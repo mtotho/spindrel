@@ -551,6 +551,8 @@ def _operator_triage_prompt(items: list[WorkspaceAttentionItem], channel_names: 
         "- Put benign, duplicate, expected, already_recovered, informational, or noise items in processed state.\n"
         "- Put true defects, unknown risks, user decisions, and likely Spindrel code issues in ready_for_review.\n"
         "- Include route recommendations when useful, for example developer_channel, owner_channel, automation, or acknowledge.\n"
+        "- Treat route as internal metadata. Do not write phrases like 'route to developer channel' or 'route to development' in summary or suggested_action.\n"
+        "- If route is developer_channel, suggested_action should name the concrete code path or behavior to fix and the regression coverage to add.\n"
         "- Before classifying, search your memory for prior Attention triage routing lessons.\n\n"
         "Output expectations for report_attention_triage_batch outcomes:\n"
         "- classification: benign | noise | duplicate | expected | already_recovered | informational | needs_review | needs_fix | likely_spindrel_code_issue | user_decision\n"
@@ -922,6 +924,17 @@ def _triage_review_required(outcome: dict[str, Any], classification: str) -> boo
     return classification not in OPERATOR_TRIAGE_PROCESSED_CLASSIFICATIONS
 
 
+def _normalize_triage_suggested_action(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\b[Rr]oute to (the )?developer channel\b", "Open a code fix", text)
+    text = re.sub(r"\b[Rr]oute to development\b", "Open a code fix", text)
+    text = re.sub(r"\b[Rr]oute to dev\b", "Open a code fix", text)
+    text = re.sub(r"\bdeveloper channel\b", "code fix", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
 async def report_attention_triage_batch(
     db: AsyncSession,
     *,
@@ -947,7 +960,7 @@ async def report_attention_triage_batch(
         if confidence not in {"low", "medium", "high"}:
             confidence = "medium"
         summary = str(outcome.get("summary") or outcome.get("findings") or "").strip()
-        suggested_action = str(outcome.get("suggested_action") or outcome.get("action") or "").strip()
+        suggested_action = _normalize_triage_suggested_action(outcome.get("suggested_action") or outcome.get("action"))
         route = str(outcome.get("route") or "").strip() or None
 
         evidence = dict(item.evidence or {})

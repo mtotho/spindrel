@@ -21,11 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import json
 import logging
-import re
 import uuid
-from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -37,7 +34,7 @@ from app.agent.context import (
 from app.agent.loop import run_stream
 from app.agent.recording import _record_trace_event
 from app.db.engine import async_session
-from app.db.models import Message as MessageModel, Session as SessionRow
+from app.db.models import Message as MessageModel
 from app.domain.actor import ActorRef
 from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.message import Message as DomainMessage
@@ -57,7 +54,22 @@ from app.services.channel_member_turns import (
 from app.services import session_locks
 from app.services import presence
 from app.services.turn_context import BotContext
-from app.services.agent_harnesses import ChannelEventEmitter, get_runtime
+from app.services.agent_harnesses import get_runtime
+from app.services.agent_harnesses.turn_host import (
+    HarnessTurnCancelled as _HarnessTurnCancelled,
+    build_turn_failure_message as _build_turn_failure_message,
+    codex_plan_evidence as _codex_plan_evidence,
+    format_turn_exception as _format_turn_exception,
+    load_harness_channel_prompt_hint as _load_harness_channel_prompt_hint,
+    load_prior_harness_session_id as _load_prior_harness_session_id,
+    merge_harness_turn_selections as _merge_harness_turn_selections,
+    metadata_has_codex_plan_signal as _metadata_has_codex_plan_signal,
+    mirror_harness_native_plan_state as _mirror_harness_native_plan_state_host,
+    persist_harness_failure as _persist_harness_failure,
+    run_harness_turn as _run_harness_turn_host,
+    start_harness_turn_with_cancel as _start_harness_turn_with_cancel,
+    tool_calls_include_exit_plan_mode as _tool_calls_include_exit_plan_mode,
+)
 from app.services.channel_events import publish_typed
 from app.services.compaction import maybe_compact
 from app.services.delegation import delegation_service as _ds
@@ -69,100 +81,22 @@ from app.utils import safe_create_task
 
 logger = logging.getLogger(__name__)
 
-_HARNESS_SKILL_TAG_RE = re.compile(r"(?<![<\w@])@skill:([A-Za-z_][\w\-\./]*)")
-_HARNESS_TOOL_TAG_RE = re.compile(r"(?<![<\w@])@tool:([A-Za-z_][\w\-\./]*)")
 
-
-def _format_turn_exception(exc: Exception) -> str:
-    message = str(exc).strip()
-    if not message:
-        return type(exc).__name__
-    return f"{type(exc).__name__}: {message[:500]}"
-
-
-def _build_turn_failure_message(error_text: str, partial_text: str = "") -> str:
-    marker = f"[Turn failed: {error_text}]"
-    if partial_text.strip():
-        return f"{partial_text.rstrip()}\n\n{marker}"
-    return f"The turn failed before producing a response.\n\n{marker}"
-
-
-class _HarnessTurnCancelled(Exception):
-    """Raised when a harness turn sees the session cancellation flag."""
-
-
-def _parse_harness_explicit_tags(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    def _unique(matches: list[str]) -> tuple[str, ...]:
-        out: list[str] = []
-        seen: set[str] = set()
-        for value in matches:
-            value = value.rstrip(".,;:!?")
-            if value and value not in seen:
-                seen.add(value)
-                out.append(value)
-        return tuple(out)
-
-    return (
-        _unique([m.group(1) for m in _HARNESS_TOOL_TAG_RE.finditer(text or "")]),
-        _unique([m.group(1) for m in _HARNESS_SKILL_TAG_RE.finditer(text or "")]),
-    )
-
-
-def _merge_harness_turn_selections(
-    user_message: str,
+async def _mirror_harness_native_plan_state(
     *,
-    tool_names: tuple[str, ...] | list[str] = (),
-    skill_ids: tuple[str, ...] | list[str] = (),
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Merge prompt @tags with host-selected harness bridge selections."""
-    prompt_tools, prompt_skills = _parse_harness_explicit_tags(user_message)
-
-    def _merge(*groups) -> tuple[str, ...]:
-        out: list[str] = []
-        seen: set[str] = set()
-        for group in groups:
-            for raw in group or ():
-                value = str(raw).strip().rstrip(".,;:!?")
-                if value and value not in seen:
-                    seen.add(value)
-                    out.append(value)
-        return tuple(out)
-
-    return (
-        _merge(prompt_tools, tool_names),
-        _merge(prompt_skills, skill_ids),
-    )
-
-
-async def _load_harness_channel_prompt_hint(db, channel_id: uuid.UUID | None):
-    """Return the channel prompt as a harness host instruction, if configured."""
-    if channel_id is None:
-        return None
-    from app.db.models import Channel
-    from app.services.agent_harnesses.base import HarnessContextHint
-    from app.services.prompt_resolution import resolve_workspace_file_prompt
-
-    channel = await db.get(Channel, channel_id)
-    if channel is None:
-        return None
-
-    workspace_path = getattr(channel, "channel_prompt_workspace_file_path", None)
-    workspace_id = getattr(channel, "channel_prompt_workspace_id", None)
-    inline_prompt = getattr(channel, "channel_prompt", None) or ""
-    if workspace_path and workspace_id:
-        prompt = resolve_workspace_file_prompt(str(workspace_id), workspace_path, inline_prompt)
-    else:
-        prompt = inline_prompt
-    prompt = (prompt or "").strip()
-    if not prompt:
-        return None
-    return HarnessContextHint(
-        kind="channel_prompt",
-        source="channel",
-        created_at=datetime.now(timezone.utc).isoformat(),
-        consume_after_next_turn=False,
-        priority="instruction",
-        text=prompt,
+    session_id: uuid.UUID,
+    runtime_name: str | None,
+    result_metadata: dict,
+    persisted_tool_calls: list[dict],
+    async_session_factory=None,
+) -> None:
+    """Compatibility wrapper preserving this module's async_session patch point."""
+    await _mirror_harness_native_plan_state_host(
+        session_id=session_id,
+        runtime_name=runtime_name,
+        result_metadata=result_metadata,
+        persisted_tool_calls=persisted_tool_calls,
+        async_session_factory=async_session_factory or async_session,
     )
 
 
@@ -185,597 +119,34 @@ async def _run_harness_turn(
     harness_tool_names: tuple[str, ...] | list[str] = (),
     harness_skill_ids: tuple[str, ...] | list[str] = (),
 ) -> tuple[str, str | None]:
-    """Drive a turn against an external agent harness (Claude Code, Codex, ...).
-
-    Bypasses run_stream entirely: the harness owns the agent loop, we own
-    the chat surface. SDK messages stream onto the existing channel-events
-    bus via ``ChannelEventEmitter`` so the UI renders them with no new code.
-
-    Persistence: builds a synthetic assistant message tagged with
-    ``_harness`` metadata, hands it to ``persist_turn`` (which strips the
-    underscore-prefixed key into ``Message.metadata.harness``). The next
-    turn reads the resume id from the most recent assistant message in
-    THIS Spindrel session — keying per-session, not per-bot, so two
-    channels using the same harness bot don't trample each other.
-
-    Returns ``(response_text, error_text)``. ``error_text`` is None on
-    success.
-    """
-    try:
-        runtime = get_runtime(bot.harness_runtime)  # type: ignore[arg-type]
-    except KeyError:
-        msg = (
-            f"Harness runtime '{bot.harness_runtime}' is not registered. "
-            f"The integration may be inactive or its Python deps may be missing — "
-            f"open /admin/integrations and click 'Reinstall (upgrade)'."
-        )
-        return await _persist_harness_failure(
-            channel_id=channel_id, session_id=session_id, turn_id=turn_id,
-            bot=bot, user_message=user_message, correlation_id=correlation_id,
-            msg_metadata=msg_metadata, pre_user_msg_id=pre_user_msg_id,
-            suppress_outbox=suppress_outbox, is_heartbeat=is_heartbeat, error_text=msg,
-            prior_session_id=None,
-        )
-    prior_session_id = await _load_prior_harness_session_id(session_id)
-
-    # Per-session approval mode (default ``bypassPermissions``) and per-session
-    # harness settings (model / effort / opaque runtime knobs). Captured at
-    # turn start and immutable for this turn — pill changes apply to the next
-    # turn. Phase 3 (mode) + Phase 4 (settings).
-    from app.services.agent_harnesses.approvals import (
-        load_session_mode,
-        revoke_turn_bypass,
-    )
-    from app.services.agent_harnesses.base import HarnessContextHint
-    from app.services.agent_harnesses.context import build_turn_context
-    from app.services.agent_harnesses.session_state import (
-        clear_consumed_context_hints,
-        hint_preview,
-        load_context_hints,
-        load_latest_harness_metadata,
-    )
-    from app.services.agent_harnesses.project import (
-        build_workspace_files_memory_hint,
-        project_directory_payload,
-        resolve_harness_paths,
-    )
-    from app.services.agent_harnesses.settings import load_session_settings
-    from app.services.session_plan_mode import get_session_plan_mode
-
-    async with async_session() as db:
-        try:
-            harness_paths = await resolve_harness_paths(db, channel_id=channel_id, bot=bot)
-        except Exception as exc:
-            return "", f"could not resolve harness workspace for bot: {exc}"
-        workdir = harness_paths.workdir
-        session_permission_mode = await load_session_mode(db, session_id)
-        permission_mode = harness_permission_mode_override or session_permission_mode
-        harness_settings = await load_session_settings(db, session_id)
-        harness_model = harness_model_override if harness_model_override is not None else harness_settings.model
-        harness_effort = harness_effort_override if harness_effort_override is not None else harness_settings.effort
-        context_hints = list(await load_context_hints(db, session_id))
-        if channel_prompt_hint := await _load_harness_channel_prompt_hint(db, channel_id):
-            context_hints.insert(0, channel_prompt_hint)
-        harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
-        session_row = await db.get(SessionRow, session_id)
-        session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
-
-    explicit_tool_names, tagged_skill_ids = _merge_harness_turn_selections(
-        user_message,
-        tool_names=harness_tool_names,
-        skill_ids=harness_skill_ids,
-    )
-    if tagged_skill_ids:
-        from sqlalchemy import select
-        from app.db.models import Skill
-
-        async with async_session() as db:
-            rows = (await db.execute(
-                select(Skill.id, Skill.name, Skill.description).where(
-                    Skill.id.in_(list(tagged_skill_ids)),
-                    Skill.archived_at.is_(None),
-                )
-            )).all()
-        by_id = {row.id: row for row in rows}
-        lines = [
-            "The user or host selected these Spindrel skills for this harness turn.",
-            "Use the bridged get_skill(skill_id=\"...\") tool to fetch full skill bodies progressively; these lines are an index, not the full content.",
-        ]
-        for skill_id in tagged_skill_ids:
-            row = by_id.get(skill_id)
-            if row is None:
-                lines.append(f"- {skill_id} — not found or archived")
-                continue
-            desc = f": {row.description}" if row.description else ""
-            lines.append(f"- {row.id} — {row.name}{desc}")
-        context_hints.append(
-            HarnessContextHint(
-                kind="tagged_skills",
-                source="composer",
-                created_at=datetime.now(timezone.utc).isoformat(),
-                consume_after_next_turn=True,
-                text="\n".join(lines),
-            )
-        )
-
-    memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)
-    if memory_hint is not None:
-        context_hints.append(memory_hint)
-
-    emitter = ChannelEventEmitter(
-        channel_id=bus_key,
-        turn_id=turn_id,
-        bot_id=bot.id,
-        session_id=session_id,
-    )
-
-    ctx = build_turn_context(
-        spindrel_session_id=session_id,
+    """Compatibility wrapper for the harness host Module."""
+    return await _run_harness_turn_host(
         channel_id=channel_id,
-        bot_id=bot.id,
-        turn_id=turn_id,
-        workdir=workdir,
-        harness_session_id=prior_session_id,
-        permission_mode=permission_mode,
-        db_session_factory=async_session,
-        model=harness_model,
-        effort=harness_effort,
-        runtime_settings=harness_settings.runtime_settings,
-        context_hints=tuple(context_hints),
-        ephemeral_tool_names=explicit_tool_names,
-        tagged_skill_ids=tagged_skill_ids,
-        session_plan_mode=session_plan_mode,
-        harness_metadata=harness_meta or {},
-    )
-
-    error_text: str | None = None
-    runtime_accepted_turn = False
-    try:
-        try:
-            result = await _start_harness_turn_with_cancel(
-                runtime=runtime,
-                ctx=ctx,
-                prompt=user_message,
-                emit=emitter,
-                session_id=session_id,
-            )
-            runtime_accepted_turn = True
-        finally:
-            # Per-turn bypass grants ("Approve all this turn") are scoped to
-            # this turn ONLY. Always revoke — covers success, error, cancel.
-            revoke_turn_bypass(turn_id)
-    except _HarnessTurnCancelled:
-        persisted_tool_calls = emitter.persisted_tool_calls()
-        tool_envelopes = emitter.tool_envelopes()
-        assistant_turn_body = emitter.assistant_turn_body(text="")
-        cancelled_assistant_msg: dict = {
-            "role": "assistant",
-            "content": "",
-            "_turn_cancelled": True,
-            "_harness": {
-                "runtime": bot.harness_runtime,
-                "session_id": prior_session_id,
-                "interrupted": True,
-                "effective_cwd": workdir,
-                "effective_cwd_source": harness_paths.source,
-                "bot_workspace_dir": harness_paths.bot_workspace_dir,
-                "project_dir": project_directory_payload(harness_paths.project_dir),
-                "last_hints_sent": [hint_preview(hint) for hint in context_hints],
-            },
-        }
-        if persisted_tool_calls:
-            cancelled_assistant_msg["tool_calls"] = persisted_tool_calls
-            if tool_envelopes:
-                cancelled_assistant_msg["_tool_envelopes"] = tool_envelopes
-            cancelled_assistant_msg["_tools_used"] = [
-                call["function"]["name"] for call in persisted_tool_calls
-            ]
-        if assistant_turn_body:
-            cancelled_assistant_msg["_assistant_turn_body"] = assistant_turn_body
-        synthetic_messages: list[dict] = [
-            {"role": "user", "content": user_message},
-            cancelled_assistant_msg,
-        ]
-        try:
-            async with async_session() as db:
-                await persist_turn(
-                    db, session_id, bot, synthetic_messages, from_index=0,
-                    correlation_id=correlation_id,
-                    msg_metadata=msg_metadata,
-                    channel_id=channel_id,
-                    is_heartbeat=is_heartbeat,
-                    pre_user_msg_id=pre_user_msg_id,
-                    suppress_outbox=suppress_outbox,
-                )
-        except Exception:
-            logger.exception(
-                "harness '%s': failed to persist cancelled row for session %s",
-                bot.harness_runtime, session_id,
-            )
-        return "", "cancelled"
-    except Exception as exc:
-        logger.exception(
-            "harness '%s' turn %s failed for bot %s",
-            bot.harness_runtime, turn_id, bot.id,
-        )
-        error_text = _format_turn_exception(exc)
-        persisted_tool_calls = emitter.persisted_tool_calls()
-        tool_envelopes = emitter.tool_envelopes()
-        assistant_turn_body = emitter.assistant_turn_body(text="")
-        # Persist the failure as the assistant message so the chat shows
-        # what went wrong instead of a silent empty turn.
-        assistant_msg: dict = {
-            "role": "user",
-            "content": user_message,
-        }
-        error_assistant_msg: dict = {
-            "role": "assistant",
-            "content": _build_turn_failure_message(error_text, ""),
-            "_turn_error": True,
-            "_turn_error_message": error_text,
-            "_harness": {
-                "runtime": bot.harness_runtime,
-                "session_id": prior_session_id,
-                "error": error_text,
-                "effective_cwd": workdir,
-                "effective_cwd_source": harness_paths.source,
-                "bot_workspace_dir": harness_paths.bot_workspace_dir,
-                "project_dir": project_directory_payload(harness_paths.project_dir),
-                "last_hints_sent": [hint_preview(hint) for hint in context_hints],
-            },
-        }
-        if persisted_tool_calls:
-            error_assistant_msg["tool_calls"] = persisted_tool_calls
-            if tool_envelopes:
-                error_assistant_msg["_tool_envelopes"] = tool_envelopes
-            error_assistant_msg["_tools_used"] = [
-                call["function"]["name"] for call in persisted_tool_calls
-            ]
-        if assistant_turn_body:
-            error_assistant_msg["_assistant_turn_body"] = assistant_turn_body
-        synthetic_messages: list[dict] = [assistant_msg, error_assistant_msg]
-        try:
-            async with async_session() as db:
-                await persist_turn(
-                    db, session_id, bot, synthetic_messages, from_index=0,
-                    correlation_id=correlation_id,
-                    msg_metadata=msg_metadata,
-                    channel_id=channel_id,
-                    is_heartbeat=is_heartbeat,
-                    pre_user_msg_id=pre_user_msg_id,
-                    suppress_outbox=suppress_outbox,
-                )
-        except Exception:
-            logger.exception(
-                "harness '%s': failed to persist error row for session %s",
-                bot.harness_runtime, session_id,
-            )
-        return "", error_text
-
-    # Success path: persist the assistant message + update session state.
-    from app.services.secret_registry import redact as _redact_secrets
-
-    final_text = _redact_secrets(result.final_text)
-    persisted_tool_calls = emitter.persisted_tool_calls()
-    tool_envelopes = emitter.tool_envelopes()
-    assistant_turn_body = emitter.assistant_turn_body(text=final_text)
-    await _mirror_harness_native_plan_state(
+        bus_key=bus_key,
         session_id=session_id,
-        runtime_name=bot.harness_runtime,
-        result_metadata=result.metadata or {},
-        persisted_tool_calls=persisted_tool_calls,
+        turn_id=turn_id,
+        bot=bot,
+        user_message=user_message,
+        correlation_id=correlation_id,
+        msg_metadata=msg_metadata,
+        pre_user_msg_id=pre_user_msg_id,
+        suppress_outbox=suppress_outbox,
+        is_heartbeat=is_heartbeat,
+        harness_model_override=harness_model_override,
+        harness_effort_override=harness_effort_override,
+        harness_permission_mode_override=harness_permission_mode_override,
+        harness_tool_names=harness_tool_names,
+        harness_skill_ids=harness_skill_ids,
+        async_session_factory=async_session,
+        get_runtime_fn=get_runtime,
+        persist_turn_fn=persist_turn,
+        load_prior_harness_session_id_fn=_load_prior_harness_session_id,
+        persist_harness_failure_fn=_persist_harness_failure,
+        start_harness_turn_with_cancel_fn=_start_harness_turn_with_cancel,
+        mirror_harness_native_plan_state_fn=_mirror_harness_native_plan_state,
+        merge_harness_turn_selections_fn=_merge_harness_turn_selections,
+        load_harness_channel_prompt_hint_fn=_load_harness_channel_prompt_hint,
     )
-    if runtime_accepted_turn and context_hints:
-        try:
-            async with async_session() as db:
-                await clear_consumed_context_hints(db, session_id)
-        except Exception:
-            logger.exception(
-                "harness '%s': failed to clear consumed context hints for session %s",
-                bot.harness_runtime,
-                session_id,
-            )
-    assistant_msg: dict = {
-        "role": "assistant",
-        "content": final_text,
-        "_harness": {
-            "runtime": bot.harness_runtime,
-            "session_id": result.session_id,
-            "cost_usd": result.cost_usd,
-            "usage": result.usage,
-            "effective_cwd": workdir,
-            "effective_cwd_source": harness_paths.source,
-            "bot_workspace_dir": harness_paths.bot_workspace_dir,
-            "project_dir": project_directory_payload(harness_paths.project_dir),
-            "last_hints_sent": [hint_preview(hint) for hint in context_hints],
-            **(result.metadata or {}),
-        },
-    }
-    if persisted_tool_calls:
-        assistant_msg["tool_calls"] = persisted_tool_calls
-        if tool_envelopes:
-            assistant_msg["_tool_envelopes"] = tool_envelopes
-        assistant_msg["_tools_used"] = [
-            call["function"]["name"] for call in persisted_tool_calls
-        ]
-    if assistant_turn_body:
-        assistant_msg["_assistant_turn_body"] = assistant_turn_body
-    synthetic_messages = [{
-        "role": "user",
-        "content": user_message,
-    }, assistant_msg]
-    try:
-        async with async_session() as db:
-            await persist_turn(
-                db, session_id, bot, synthetic_messages, from_index=0,
-                correlation_id=correlation_id,
-                msg_metadata=msg_metadata,
-                channel_id=channel_id,
-                is_heartbeat=is_heartbeat,
-                pre_user_msg_id=pre_user_msg_id,
-                suppress_outbox=suppress_outbox,
-            )
-            from app.services.agent_harnesses.usage import record_harness_token_usage
-
-            await record_harness_token_usage(
-                db,
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                runtime=bot.harness_runtime,
-                model=harness_model,
-                channel_id=channel_id,
-                usage=result.usage if isinstance(result.usage, dict) else None,
-                cost_usd=result.cost_usd,
-            )
-    except Exception:
-        logger.exception(
-            "harness '%s': persist_turn failed for session %s",
-            bot.harness_runtime, session_id,
-        )
-        return final_text, "persist_turn failed"
-
-    try:
-        async with async_session() as db:
-            from app.services.agent_harnesses.session_state import (
-                maybe_run_harness_auto_compaction,
-            )
-
-            await maybe_run_harness_auto_compaction(
-                db,
-                session_id,
-                runtime=bot.harness_runtime,
-                usage=result.usage if isinstance(result.usage, dict) else None,
-            )
-    except Exception:
-        logger.exception(
-            "harness '%s': auto-compaction check failed for session %s",
-            bot.harness_runtime,
-            session_id,
-        )
-
-    # No bookkeeping write-back: resume state lives ON the persisted assistant
-    # message (`metadata.harness.session_id`), and per-session cumulative cost
-    # is computed from the same metadata when the UI asks for it. The bot row's
-    # `harness_session_state` column is intentionally ignored — it was a single
-    # global pointer that broke the moment the same harness bot was used in two
-    # channels. See `_load_prior_harness_session_id`.
-
-    return final_text, None
-
-
-async def _mirror_harness_native_plan_state(
-    *,
-    session_id: uuid.UUID,
-    runtime_name: str | None,
-    result_metadata: dict,
-    persisted_tool_calls: list[dict],
-) -> None:
-    """Reflect runtime-native plan signals into Spindrel session plan state."""
-    if not result_metadata and not persisted_tool_calls:
-        return
-    try:
-        async with async_session() as db:
-            session = await db.get(SessionRow, session_id)
-            if session is None:
-                return
-            changed = False
-            if runtime_name == "codex" and _metadata_has_codex_plan_signal(result_metadata):
-                from app.services.session_plan_mode import (
-                    enter_session_plan_mode,
-                    get_session_plan_mode,
-                    publish_session_plan_event,
-                    update_planning_state,
-                )
-
-                if get_session_plan_mode(session) == "chat":
-                    enter_session_plan_mode(session)
-                    changed = True
-                evidence = _codex_plan_evidence(result_metadata)
-                if evidence:
-                    update_planning_state(
-                        session,
-                        evidence=evidence,
-                        reason="codex_native_plan",
-                    )
-                    changed = True
-                if changed:
-                    await db.commit()
-                    await db.refresh(session)
-                    publish_session_plan_event(session, "codex_native_plan")
-                return
-
-            # Claude's native ExitPlanMode is the CLI's plan-submission tool,
-            # not a durable Spindrel instruction to leave session plan mode.
-            # Keep Spindrel's workflow state under explicit /plan controls.
-    except Exception:
-        logger.exception("harness native plan mirroring failed for session %s", session_id)
-
-
-def _metadata_has_codex_plan_signal(metadata: dict) -> bool:
-    return any(
-        key in metadata
-        for key in ("codex_native_plan", "codex_native_plan_text", "codex_native_plan_delta")
-    )
-
-
-def _codex_plan_evidence(metadata: dict) -> list[str]:
-    text = metadata.get("codex_native_plan_text")
-    if isinstance(text, str) and text.strip():
-        return [f"Codex native plan: {text.strip()[:2000]}"]
-    delta = metadata.get("codex_native_plan_delta")
-    if isinstance(delta, str) and delta.strip():
-        return [f"Codex native plan draft: {delta.strip()[:2000]}"]
-    plan = metadata.get("codex_native_plan")
-    if isinstance(plan, list):
-        steps = []
-        for item in plan[:8]:
-            if isinstance(item, dict):
-                step = str(item.get("step") or item.get("text") or "").strip()
-                status = str(item.get("status") or "").strip()
-                if step:
-                    steps.append(f"{status}: {step}" if status else step)
-        if steps:
-            return ["Codex native plan steps: " + "; ".join(steps)]
-    if isinstance(plan, dict):
-        return [f"Codex native plan updated: {json.dumps(plan, sort_keys=True)[:2000]}"]
-    return []
-
-
-def _tool_calls_include_exit_plan_mode(tool_calls: list[dict]) -> bool:
-    for call in tool_calls:
-        fn = call.get("function") if isinstance(call, dict) else None
-        if isinstance(fn, dict) and fn.get("name") == "ExitPlanMode":
-            return True
-    return False
-
-
-async def _start_harness_turn_with_cancel(
-    *,
-    runtime,
-    ctx,
-    prompt: str,
-    emit: ChannelEventEmitter,
-    session_id: uuid.UUID,
-):
-    """Run a harness turn while honoring the shared session cancel flag."""
-    task = asyncio.create_task(
-        runtime.start_turn(ctx=ctx, prompt=prompt, emit=emit),
-        name=f"harness-turn:{session_id}",
-    )
-    try:
-        while True:
-            done, _pending = await asyncio.wait({task}, timeout=0.2)
-            if task in done:
-                return task.result()
-            if session_locks.is_cancel_requested(session_id):
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
-                raise _HarnessTurnCancelled()
-    finally:
-        if not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-
-
-async def _load_prior_harness_session_id(session_id: uuid.UUID) -> str | None:
-    """Most recent assistant message in this Spindrel session whose metadata
-    carries a harness session_id. Returns None on first-turn or sessions
-    that have no harness history.
-
-    The query is cheap (indexed by session_id, ordered by created_at desc,
-    limited). We scan up to 50 rows so a sequence of `_turn_error` messages
-    without `session_id` doesn't mask the real prior id.
-    """
-    from sqlalchemy import select
-    from app.db.models import Message as MessageRow
-    from app.services.agent_harnesses.session_state import load_resume_reset_at
-
-    async with async_session() as db:
-        reset_at = await load_resume_reset_at(db, session_id)
-        rows = (
-            await db.execute(
-                select(MessageRow.metadata_, MessageRow.created_at)
-                .where(MessageRow.session_id == session_id)
-                .where(MessageRow.role == "assistant")
-                .order_by(MessageRow.created_at.desc())
-                .limit(50)
-            )
-        ).all()
-    for meta, created_at in rows:
-        if reset_at is not None and created_at is not None:
-            try:
-                if created_at <= reset_at:
-                    continue
-            except TypeError:
-                if created_at.replace(tzinfo=timezone.utc) <= reset_at:
-                    continue
-        if not isinstance(meta, dict):
-            continue
-        harness = meta.get("harness")
-        if not isinstance(harness, dict):
-            continue
-        sid = harness.get("session_id")
-        if sid:
-            return str(sid)
-    return None
-
-
-async def _persist_harness_failure(
-    *,
-    channel_id: uuid.UUID | None,
-    session_id: uuid.UUID,
-    turn_id: uuid.UUID,
-    bot: BotConfig,
-    user_message: str,
-    correlation_id: uuid.UUID,
-    msg_metadata: dict | None,
-    pre_user_msg_id: uuid.UUID | None,
-    suppress_outbox: bool,
-    error_text: str,
-    prior_session_id: str | None,
-    is_heartbeat: bool = False,
-) -> tuple[str, str]:
-    """Persist a turn-error assistant row when the harness can't run at all.
-
-    Mirrors the in-flight error path used when ``runtime.start_turn`` raises;
-    factored out so the up-front ``get_runtime`` failure can use the same
-    persistence shape and the user actually SEES what went wrong in chat.
-    """
-    synthetic_messages: list[dict] = [
-        {"role": "user", "content": user_message},
-        {
-            "role": "assistant",
-            "content": _build_turn_failure_message(error_text, ""),
-            "_turn_error": True,
-            "_turn_error_message": error_text,
-            "_harness": {
-                "runtime": bot.harness_runtime,
-                "session_id": prior_session_id,
-                "error": error_text,
-            },
-        },
-    ]
-    try:
-        async with async_session() as db:
-            await persist_turn(
-                db, session_id, bot, synthetic_messages, from_index=0,
-                correlation_id=correlation_id,
-                msg_metadata=msg_metadata,
-                channel_id=channel_id,
-                is_heartbeat=is_heartbeat,
-                pre_user_msg_id=pre_user_msg_id,
-                suppress_outbox=suppress_outbox,
-            )
-    except Exception:
-        logger.exception(
-            "harness '%s': failed to persist pre-flight error row for session %s",
-            bot.harness_runtime, session_id,
-        )
-    logger.error("harness pre-flight failure for bot %s: %s", bot.id, error_text)
-    return "", error_text
 
 
 @dataclass(frozen=True)

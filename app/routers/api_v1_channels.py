@@ -74,6 +74,7 @@ class ChannelCreate(BaseModel):
     workspace_schema_template_id: Optional[str] = None  # UUID string
     category: Optional[str] = None
     model_override: Optional[str] = None
+    project_id: Optional[str] = None
     activate_integrations: Optional[list[str]] = None
     member_bot_ids: Optional[list[str]] = None
 
@@ -431,6 +432,15 @@ async def create_channel(
     # --- Wizard post-creation setup ---
     if body.model_override is not None:
         channel.model_override = body.model_override
+
+    if body.project_id is not None:
+        try:
+            project_uuid = uuid.UUID(body.project_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid project_id")
+        if await db.get(Project, project_uuid) is None:
+            raise HTTPException(status_code=400, detail="Project not found")
+        channel.project_id = project_uuid
 
     # Workspace is on by every channel — provision the dir up-front so
     # downstream features (file browser, MC, HTML widgets) just work.

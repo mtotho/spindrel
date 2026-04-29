@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_BOT_ID = "screenshot-projects"
 PROJECT_CHANNEL_CLIENT_ID = "screenshot:project-workspace"
+PROJECT_ATTACH_CLIENT_ID = "screenshot:project-workspace-attachable"
 PROJECT_SLUG = "screenshot-project-workspace"
 PROJECT_NAME = "Screenshot Project Workspace"
 PROJECT_ROOT = "common/projects/spindrel-screenshot"
@@ -70,6 +71,13 @@ def stage_project_workspace(
     channel_id = str(channel["id"])
     state.channels["project_workspace"] = channel_id
 
+    client.ensure_channel(
+        client_id=PROJECT_ATTACH_CLIENT_ID,
+        bot_id=PROJECT_BOT_ID,
+        name="Project workspace attach candidate",
+        category="Showcase",
+    )
+
     client.update_channel_settings(
         channel_id,
         project_id=project_id,
@@ -109,5 +117,5 @@ def stage_project_workspace(
 
 def teardown_project_workspace(client: SpindrelClient) -> None:
     for ch in client.list_channels():
-        if ch.get("client_id") == PROJECT_CHANNEL_CLIENT_ID:
+        if ch.get("client_id") in {PROJECT_CHANNEL_CLIENT_ID, PROJECT_ATTACH_CLIENT_ID}:
             client.delete_channel(ch["id"])

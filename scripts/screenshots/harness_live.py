@@ -73,6 +73,7 @@ class CaptureSpec:
     slash_query: str | None = None
     viewport: tuple[int, int] = (1440, 900)
     click_selector: str | None = None
+    after_click_selector: str | None = None
     after_click_wait_js: str | None = None
 
 
@@ -172,16 +173,17 @@ async def _capture_one(
 ) -> Path:
     context = await browser.new_context(
         base_url=spec.route,
-        viewport={"width": spec.viewport[0], "height": spec.viewport[1]},
         color_scheme=spec.theme,
     )
     try:
         await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
         page: Page = await context.new_page()
-        # CDP-backed remote Playwright can ignore the context-level viewport;
-        # set it on the page too so mobile docs captures really exercise mobile.
+        # CDP-backed remote Playwright can ignore the context-level viewport.
+        # Apply the viewport both before and after navigation so the SPA mounts
+        # and remains in the intended responsive layout.
         await page.set_viewport_size({"width": spec.viewport[0], "height": spec.viewport[1]})
         await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
+        await page.set_viewport_size({"width": spec.viewport[0], "height": spec.viewport[1]})
         if spec.slash_query:
             editor = page.locator(".tiptap-chat-input [contenteditable='true']").last
             await editor.wait_for(state="visible", timeout=60_000)
@@ -192,7 +194,9 @@ async def _capture_one(
             target = page.locator(spec.click_selector).first
             await target.wait_for(state="visible", timeout=60_000)
             await target.click()
-            if spec.after_click_wait_js:
+            if spec.after_click_selector:
+                await page.locator(spec.after_click_selector).first.wait_for(state="visible", timeout=60_000)
+            elif spec.after_click_wait_js:
                 await page.wait_for_function(spec.after_click_wait_js, timeout=60_000)
         await page.wait_for_timeout(750)
         text = await page.locator("body").inner_text(timeout=5_000)
@@ -290,6 +294,7 @@ def _mobile_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -
             route=route,
             wait_js=f"document.querySelector({json.dumps(HARNESS_CONTEXT_CHIP_SELECTOR)}) !== null",
             click_selector=HARNESS_CONTEXT_CHIP_SELECTOR,
+            after_click_selector='[data-testid="harness-context-panel-mobile"], [data-testid="harness-context-panel"]',
             after_click_wait_js=HARNESS_CONTEXT_PANEL_READY_JS,
             contains=("Harness context", "Context", "CWD"),
             theme="dark",

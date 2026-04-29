@@ -203,6 +203,13 @@ Automation settings; task satellites target the automation detail. The
 jumps to the QA object before asserting satellites, and writes
 `spatial-check-channel-schedule-satellites.png` as the visual artifact.
 
+Same-day Starboard contract cleanup: Map Brief remains the object-local
+inspector, and Attention work moves through the full Mission Control Review
+deck. Starboard actions were relabeled to `Open Review`, `Review signal`, and
+`Review finding`; the old target signal flow is documented as select target ->
+Map Brief -> full deck when needed. Cluster focus, selected anchors, and shallow
+Starboard copy are now pinned by the spatial surface tests.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

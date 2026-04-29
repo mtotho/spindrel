@@ -8,6 +8,7 @@ import pytest
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
 from app.services.workspace_attention import (
     _is_operator_triage_sweep_candidate,
+    _normalize_triage_suggested_action,
     _tool_attention_classification,
     acknowledge_attention_item,
     acknowledge_attention_items_bulk,
@@ -45,6 +46,11 @@ def test_operator_triage_sweep_candidate_only_includes_untriaged_or_failed_visib
     assert _is_operator_triage_sweep_candidate(item("acknowledged", "failed")) is False
     assert _is_operator_triage_sweep_candidate(item("responded", "processed")) is False
     assert _is_operator_triage_sweep_candidate(item("open", "running")) is False
+
+
+def test_operator_triage_suggested_action_hides_internal_route_terms():
+    assert _normalize_triage_suggested_action("Route to developer channel.") == "Open a code fix."
+    assert _normalize_triage_suggested_action("Route to development after review.") == "Open a code fix after review."
 
 
 @pytest.mark.asyncio
@@ -629,6 +635,7 @@ async def test_operator_triage_batch_marks_processed_and_ready_for_review(db_ses
     assert by_id[risky.id].status == "responded"
     assert by_id[risky.id].evidence["operator_triage"]["state"] == "ready_for_review"
     assert by_id[risky.id].evidence["operator_triage"]["route"] == "developer_channel"
+    assert by_id[risky.id].evidence["operator_triage"]["suggested_action"] == "Open a code fix."
 
 
 @pytest.mark.asyncio

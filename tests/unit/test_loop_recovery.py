@@ -218,6 +218,59 @@ async def test_plan_mode_structured_question_card_appends_to_existing_tool_call(
 
 
 @pytest.mark.asyncio
+async def test_plan_mode_structured_question_card_widens_pruned_tool_allowlist():
+    async def _fail_no_tool(**kwargs):
+        raise AssertionError("plan-mode question-card recovery should continue to tool iteration")
+        yield {}
+
+    existing_tool_call = {
+        "id": "tc_skill",
+        "type": "function",
+        "function": {"name": "get_skill", "arguments": "{\"skill_id\":\"grill_me\"}"},
+    }
+    state = LoopRunState(messages=[
+        {
+            "role": "system",
+            "content": "Plan mode is active. If the user explicitly asks for a structured question card, you must use ask_plan_questions.",
+        },
+        {
+            "role": "user",
+            "content": (
+                "The user asks for a plan but gives no target subsystem, success signal, "
+                "mutation scope, or verification expectation. Use a structured question "
+                "card titled 'Quality readiness questions'."
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "### Quality readiness questions\n\n1. What subsystem or surface is this plan for?",
+            "tool_calls": [existing_tool_call],
+        },
+    ])
+    msg = AccumulatedMessage(
+        content="### Quality readiness questions\n\n1. What subsystem or surface is this plan for?",
+        tool_calls=[existing_tool_call],
+    )
+    effective_allowed = {"get_skill"}
+
+    outputs, _ = await _collect(
+        accumulated_msg=msg,
+        state=state,
+        tools_param=[{"type": "function", "function": {"name": "get_skill"}}],
+        effective_allowed=effective_allowed,
+        handle_no_tool_calls_path_fn=_fail_no_tool,
+    )
+
+    assert outputs == [LoopRecoveryDone(has_tool_calls=True)]
+    assert [call["function"]["name"] for call in msg.tool_calls or []] == [
+        "get_skill",
+        "ask_plan_questions",
+    ]
+    assert "ask_plan_questions" in effective_allowed
+    assert state.messages[-1]["tool_calls"] == msg.tool_calls
+
+
+@pytest.mark.asyncio
 async def test_plan_mode_publish_validation_error_retries_repaired_tool_call():
     async def _fail_no_tool(**kwargs):
         raise AssertionError("publish_plan validation recovery should continue to tool iteration")

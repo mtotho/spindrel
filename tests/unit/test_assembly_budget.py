@@ -116,6 +116,34 @@ class TestAssemblyBudgetGenerous:
         assert "optional_static_injections" in result.context_policy
 
     @pytest.mark.asyncio
+    async def test_plan_mode_control_tools_extend_effective_local_tools_without_retrieval(self):
+        bot = _minimal_bot(local_tools=["web_search"], tool_retrieval=False)
+        messages = [
+            {"role": "system", "content": "System."},
+            {"role": "system", "content": "[PLAN MODE]\nPlan mode is active. Use publish_plan for plan revisions."},
+        ]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        patches = _assembly_patches()
+        for p in patches:
+            p.start()
+        try:
+            await _drain(_call_assembly(messages, bot, "plan the work", result, budget=budget))
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert result.pre_selected_tools is None
+        assert {
+            "web_search",
+            "ask_plan_questions",
+            "publish_plan",
+            "record_plan_progress",
+            "request_plan_replan",
+        } <= set(result.effective_local_tools or [])
+
+    @pytest.mark.asyncio
     async def test_budget_counts_tool_calls_after_pruning(self):
         """Large replayed tool-call args are compacted before live-history accounting."""
         bot = _minimal_bot(context_pruning=True)
@@ -511,6 +539,101 @@ class TestAssemblyBudgetTight:
         assert "web_search" in exposed
         assert "file" in exposed
         assert result.tool_discovery_info["tool_surface"] == "full"
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_control_tools_survive_focused_tool_surface(self):
+        bot = _minimal_bot(
+            local_tools=[
+                "web_search",
+                "file",
+                "exec_command",
+                "ask_plan_questions",
+                "publish_plan",
+                "record_plan_progress",
+                "request_plan_replan",
+            ],
+            pinned_tools=["file", "exec_command"],
+            tool_retrieval=True,
+        )
+        messages = [
+            {"role": "system", "content": "System."},
+            {
+                "role": "system",
+                "content": "[PLAN MODE]\nPlan mode is active. If more user input is needed, prefer ask_plan_questions.",
+            },
+        ]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        def _schema(name: str) -> dict:
+            return {"type": "function", "function": {"name": name, "description": name, "parameters": {}}}
+
+        mock_schemas = {
+            name: _schema(name)
+            for name in [
+                "web_search",
+                "file",
+                "exec_command",
+                "get_tool_info",
+                "get_skill",
+                "get_skill_list",
+                "ask_plan_questions",
+                "publish_plan",
+                "record_plan_progress",
+                "request_plan_replan",
+            ]
+        }
+
+        patches = _assembly_patches() + [
+            patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
+            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
+                [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
+            )),
+            patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
+            patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        ]
+
+        for p in patches:
+            p.start()
+        try:
+            await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="plan the work",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=budget,
+                context_profile_name="heartbeat",
+                tool_surface_policy="focused_escape",
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert "web_search" in exposed
+        assert "get_tool_info" in exposed
+        assert "file" not in exposed
+        assert "exec_command" not in exposed
+        assert {
+            "ask_plan_questions",
+            "publish_plan",
+            "record_plan_progress",
+            "request_plan_replan",
+        } <= exposed
+        assert {
+            "ask_plan_questions",
+            "publish_plan",
+            "record_plan_progress",
+            "request_plan_replan",
+        } <= (result.authorized_tool_names or set())
 
     @pytest.mark.asyncio
     async def test_multimodal_user_message_uses_detail_aware_token_estimate(self):

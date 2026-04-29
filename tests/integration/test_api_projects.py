@@ -83,3 +83,52 @@ class TestProjectsApi:
                 "bot_id": "test-bot",
             }
         ]
+
+    async def test_channel_settings_attach_and_detach_project_membership(self, client, db_session):
+        workspace = await _workspace(db_session)
+        created = await client.post(
+            "/api/v1/projects",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Membership Project",
+                "root_path": "common/projects/membership",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        channel_resp = await client.post(
+            "/api/v1/channels",
+            json={"bot_id": "test-bot", "client_id": f"project-member-{uuid.uuid4().hex[:8]}", "name": "Project Member"},
+            headers=AUTH_HEADERS,
+        )
+        assert channel_resp.status_code == 201
+        channel_id = channel_resp.json()["id"]
+
+        attached = await client.put(
+            f"/api/v1/admin/channels/{channel_id}/settings",
+            json={"project_id": project_id},
+            headers=AUTH_HEADERS,
+        )
+        assert attached.status_code == 200
+        attached_body = attached.json()
+        assert attached_body["project_id"] == project_id
+        assert attached_body["project"]["root_path"] == "common/projects/membership"
+        assert attached_body["project_path"] == "common/projects/membership"
+
+        channels = await client.get(f"/api/v1/projects/{project_id}/channels", headers=AUTH_HEADERS)
+        assert channels.status_code == 200
+        assert [row["id"] for row in channels.json()] == [channel_id]
+
+        detached = await client.put(
+            f"/api/v1/admin/channels/{channel_id}/settings",
+            json={"project_id": None},
+            headers=AUTH_HEADERS,
+        )
+        assert detached.status_code == 200
+        assert detached.json()["project_id"] is None
+
+        channels_after_detach = await client.get(f"/api/v1/projects/{project_id}/channels", headers=AUTH_HEADERS)
+        assert channels_after_detach.status_code == 200
+        assert channels_after_detach.json() == []

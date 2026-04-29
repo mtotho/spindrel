@@ -95,6 +95,45 @@ class TestCreateChannel:
         assert returned["project_id"] == str(project.id)
         assert returned["project"]["root_path"] == "common/projects/channel-project"
 
+    async def test_create_channel_with_project_id_binds_project(self, client, db_session):
+        workspace = SharedWorkspace(name=f"Project Create Workspace {uuid.uuid4().hex[:8]}")
+        db_session.add(workspace)
+        await db_session.flush()
+        project = Project(
+            workspace_id=workspace.id,
+            name="Create Bound Project",
+            slug=f"create-bound-project-{uuid.uuid4().hex[:8]}",
+            root_path="common/projects/create-bound",
+            metadata_={},
+        )
+        db_session.add(project)
+        await db_session.commit()
+
+        body = await _create_channel(
+            client,
+            name="Project-created channel",
+            project_id=str(project.id),
+        )
+
+        assert body["project_id"] == str(project.id)
+        assert body["project"]["root_path"] == "common/projects/create-bound"
+        channel = await db_session.get(Channel, uuid.UUID(body["id"]))
+        assert channel.project_id == project.id
+
+    async def test_create_channel_rejects_unknown_project_id(self, client):
+        resp = await client.post(
+            "/api/v1/channels",
+            json={
+                "bot_id": "test-bot",
+                "client_id": f"bad-project-{uuid.uuid4().hex[:8]}",
+                "project_id": str(uuid.uuid4()),
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Project not found"
+
 
 # ---------------------------------------------------------------------------
 # GET /api/v1/channels

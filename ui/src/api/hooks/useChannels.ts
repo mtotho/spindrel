@@ -45,6 +45,7 @@ export function useCreateChannel() {
       model_override?: string;
       workspace_schema_template_id?: string;
       category?: string;
+      project_id?: string;
       activate_integrations?: string[];
       member_bot_ids?: string[];
       user_id?: string;
@@ -56,6 +57,7 @@ export function useCreateChannel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channels"] });
       queryClient.invalidateQueries({ queryKey: ["channel-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
 }
@@ -108,10 +110,32 @@ export function useUpdateChannelSettings(channelId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-settings", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
       queryClient.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
       queryClient.invalidateQueries({ queryKey: ["resolved-widget-theme", channelId] });
+    },
+  });
+}
+
+export function usePatchChannelSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ channelId, settings }: { channelId: string; settings: Partial<ChannelSettings> }) =>
+      apiFetch<ChannelSettings>(`/api/v1/admin/channels/${channelId}/settings`, {
+        method: "PUT",
+        body: JSON.stringify(settings),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["channel-settings", variables.channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel", variables.channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels", variables.channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["channel-effective-tools", variables.channelId] });
+      queryClient.invalidateQueries({ queryKey: ["resolved-widget-theme", variables.channelId] });
     },
   });
 }
