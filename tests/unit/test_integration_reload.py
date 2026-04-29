@@ -275,6 +275,20 @@ class TestScaffold:
             if code.strip():
                 compile(code, str(py_file.relative_to(int_dir)), "exec")
 
+    def test_scaffold_integration_remains_coordinator_sized(self):
+        """The public scaffold seam should not absorb generated file templates."""
+        repo_root = Path(__file__).resolve().parents[2]
+        source = (repo_root / "app" / "tools" / "local" / "admin_integrations.py").read_text()
+        tree = ast.parse(source)
+        node = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_scaffold_integration"
+        )
+        assert node.end_lineno is not None
+        assert node.end_lineno - node.lineno + 1 <= 25
+        assert "write_text" not in ast.get_source_segment(source, node)
+
 
 class TestReloadAction:
     """Tests for the reload action via manage_integration tool."""

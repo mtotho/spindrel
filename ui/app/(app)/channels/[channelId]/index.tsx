@@ -849,6 +849,11 @@ export default function ChatScreen() {
     ?? (canvasActive && focusedChatPane ? focusedChatPane.surface : { kind: "primary" });
   const activeSplitTabKey = canvasActive ? sessionTabKeyForChatPaneLayout(panelPrefs.chatPaneLayout) : null;
   const activeSessionTabKey = activeSplitTabKey ?? surfaceKey(activeSessionTabSurface);
+  const openSessionTabSurfaceKeys = useMemo(() => {
+    if (routeSessionSurface) return [surfaceKey(routeSessionSurface)];
+    if (canvasActive) return panelPrefs.chatPaneLayout.panes.map((pane) => surfaceKey(pane.surface));
+    return ["primary"];
+  }, [canvasActive, panelPrefs.chatPaneLayout.panes, routeSessionSurface]);
   const sessionTabs = useMemo(
     () =>
       channelId
@@ -968,6 +973,14 @@ export default function ChatScreen() {
     unhideSessionTabSurface(tab.surface);
     activateChannelSessionSurface(tab.surface, "split");
   }, [activateChannelSessionSurface, predictedSplitTabKey, unhideSessionTabSurface]);
+  const handleFocusOpenSessionTabSurface = useCallback((tab: ChannelSessionTabItem) => {
+    if (!channelId || tab.kind !== "surface") return;
+    const paneId = paneIdForSurface(tab.surface);
+    if (canvasActive && panelPrefs.chatPaneLayout.panes.some((pane) => pane.id === paneId)) {
+      focusPane(paneId);
+      navigate(`/channels/${channelId}`);
+    }
+  }, [canvasActive, channelId, focusPane, navigate, panelPrefs.chatPaneLayout.panes]);
   const handleReplaceFocusedSessionTab = useCallback((tab: ChannelSessionTabItem) => {
     if (!channelId || tab.kind !== "surface") return;
     unhideSessionTabSurface(tab.surface);
@@ -1897,9 +1910,11 @@ export default function ChatScreen() {
             onClose={handleCloseSessionTab}
             onReorder={handleReorderSessionTabs}
             onSplit={handleSplitSessionTab}
+            onFocusOpenSurface={handleFocusOpenSessionTabSurface}
             onReplaceFocused={handleReplaceFocusedSessionTab}
             onMakePrimary={handleMakePrimarySessionTab}
             onOpenSessions={openSessionsOverlay}
+            openSurfaceKeys={openSessionTabSurfaceKeys}
             splitActive={canvasActive}
             pendingKey={pendingSessionTabKey}
           />

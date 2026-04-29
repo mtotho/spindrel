@@ -2,11 +2,18 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-26 (Canvas adopted xyflow; workspace spatial canvas now hosts the definitions orbit; sidebar retired)
+updated: 2026-04-29 (heartbeat/tool-selection and maintenance automation consolidation read-model pass)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
+
+## 2026-04-29 — Heartbeat and maintenance consolidation pass
+
+- Added a shared task-run policy module so heartbeat, scheduled prompt/pipeline, delegation, and maintenance runs resolve context profile, origin, and skill-injection behavior from one place instead of scattered `task_type` checks.
+- Added a maintenance automation read model for memory hygiene and skill review jobs. Existing "Dreaming" admin endpoints keep their response shape, but upcoming activity and usage forecasting now read maintenance jobs through the shared service instead of re-deriving bot config and latest task state.
+- Upcoming activity now has a generic `maintenance` shape while preserving legacy `memory_hygiene` and `skill_review` filters for existing UI/API callers.
+- This is intentionally a read-model/plumbing step, not a scheduler rewrite. The next UX pass should expose maintenance jobs through the same Automations surfaces only after the shared run/session-target semantics for heartbeats and scheduled automations are settled.
 
 ## 2026-04-26 — Canvas xyflow rebuild + workspace orbit
 

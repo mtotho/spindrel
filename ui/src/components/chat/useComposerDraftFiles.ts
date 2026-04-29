@@ -17,6 +17,9 @@ export interface PendingFile {
 }
 
 type PendingFilesUpdater = PendingFile[] | ((prev: PendingFile[]) => PendingFile[]);
+interface ClearDraftOptions {
+  preserveFilePreviews?: boolean;
+}
 
 function makeAttachmentId(): string {
   const cryptoObj = globalThis.crypto as Crypto | undefined;
@@ -74,12 +77,13 @@ export function useComposerDraftFiles(channelId: string | undefined) {
     });
   }, []);
 
-  const clear = useCallback(() => {
+  const clear = useCallback((options?: ClearDraftOptions) => {
     if (channelId) clearDraft(channelId);
     else {
       setLocalText("");
     }
-    setPendingFiles([]);
+    if (options?.preserveFilePreviews) setLocalFiles([]);
+    else setPendingFiles([]);
   }, [channelId, clearDraft]);
 
   const handleFileSelect = useCallback(async (files: FileList | null) => {

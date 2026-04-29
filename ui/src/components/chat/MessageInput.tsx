@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, type DragEvent } from "react";
-import { AlertCircle, Check, FileText, Loader2, Mic, Send, Square, UploadCloud, X } from "lucide-react";
+import { AlertCircle, Check, FileText, Image as ImageIcon, Loader2, Mic, Send, Square, UploadCloud, X } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
@@ -15,7 +15,7 @@ import { ComposerPlanControl } from "./ComposerPlanControl";
 import type { HarnessApprovalMode } from "./harnessApprovalModeControl";
 import { shouldShowComposerPlanControl, type PlanModeControlVisibility } from "./planControlVisibility";
 import { useComposerDraftFiles, type PendingFile } from "./useComposerDraftFiles";
-import { formatFileSize, routeLabel } from "./attachmentRouting";
+import { formatFileSize } from "./attachmentRouting";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -191,7 +191,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
 
     tapHaptic(hapticPattern);
     sendMessage(intent.message, intent.files);
-    clearDraftState();
+    clearDraftState({ preserveFilePreviews: true });
     editorRef.current?.clear();
     editorRef.current?.focus();
   }, [
@@ -387,6 +387,17 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
         ? t.accent
         : t.textDim;
     const sendBtnOpacity = canAttemptSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
+    const pendingAttachmentBorder = isTerminalMode ? terminalBorder : t.overlayBorder;
+    const pendingAttachmentShell = isTerminalMode
+      ? {
+          background: "transparent",
+          borderRadius: 3,
+          fontFamily: TERMINAL_FONT_STACK,
+        }
+      : {
+          background: `${t.surfaceRaised}d9`,
+          borderRadius: 8,
+        };
 
     return (
       <div style={{ flexShrink: 0, marginTop: isTerminalMode ? 10 : 0 }}>
@@ -401,18 +412,32 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
           <div
             style={{
               display: "flex", flexDirection: "row",
-              gap: 8,
-              padding: isTerminalMode ? "8px 12px 0" : "8px 20px 0",
+              gap: isTerminalMode ? 6 : 8,
+              padding: isTerminalMode ? "4px 0 8px" : "0 20px 8px",
               flexWrap: "wrap",
+              alignItems: "center",
             }}
           >
             {pendingFiles.map((pf, i) => {
               const blocked = pf.status === "error" || pf.status === "rejected";
+              const uploading = pf.status === "uploading";
+              const uploaded = pf.status === "uploaded";
+              const isImage = pf.file.type.startsWith("image/");
+              const routeText = pf.route === "inline_image" ? "agent image" : "channel data";
               const statusText = blocked
                 ? (pf.error || pf.reason || "Could not add file")
-                : pf.status === "uploading"
-                  ? "Uploading to channel data..."
-                  : pf.upload?.path || `${routeLabel(pf.route)} · ${formatFileSize(pf.file.size)}`;
+                : uploading
+                  ? "uploading"
+                  : uploaded && pf.upload?.path
+                    ? pf.upload.path
+                    : `${routeText} · ${formatFileSize(pf.file.size)}`;
+              const statusIcon = uploading
+                ? <Loader2 size={11} className="animate-spin" />
+                : uploaded
+                  ? <UploadCloud size={11} />
+                  : blocked
+                    ? <AlertCircle size={11} />
+                    : null;
               return (
                 <div
                   key={pf.id}
@@ -425,13 +450,16 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                     display: "flex",
                     flexDirection: "row",
                     alignItems: "center",
-                    gap: 8,
-                    maxWidth: 300,
-                    minHeight: 66,
-                    borderRadius: 8,
+                    gap: isTerminalMode ? 8 : 9,
+                    width: isTerminalMode ? 260 : 236,
+                    minWidth: 0,
+                    minHeight: isTerminalMode ? 44 : 52,
+                    padding: isTerminalMode ? "4px 26px 4px 4px" : "5px 28px 5px 5px",
                     overflow: "hidden",
-                    border: `1px solid ${blocked ? t.danger : t.overlayBorder}`,
-                    background: t.surfaceRaised,
+                    border: `1px solid ${blocked ? t.danger : pendingAttachmentBorder}`,
+                    background: pendingAttachmentShell.background,
+                    borderRadius: pendingAttachmentShell.borderRadius,
+                    fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
                   }}
                 >
                   {pf.preview ? (
@@ -439,39 +467,42 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                       src={pf.preview}
                       alt={pf.file.name}
                       style={{
-                        width: 64,
-                        height: 64,
+                        width: isTerminalMode ? 34 : 42,
+                        height: isTerminalMode ? 34 : 42,
                         objectFit: "cover",
                         display: "block",
+                        borderRadius: isTerminalMode ? 2 : 6,
                         flexShrink: 0,
                       }}
                     />
                   ) : (
                     <div
                       style={{
-                        width: 64,
-                        height: 64,
+                        width: isTerminalMode ? 34 : 42,
+                        height: isTerminalMode ? 34 : 42,
                         display: "flex", flexDirection: "row",
                         alignItems: "center",
                         justifyContent: "center",
-                        background: t.surfaceRaised,
+                        background: isTerminalMode ? "transparent" : `${t.overlayLight}55`,
                         color: t.textMuted,
+                        border: isTerminalMode ? `1px solid ${terminalBorder}` : `1px solid ${t.overlayBorder}`,
+                        borderRadius: isTerminalMode ? 2 : 6,
                         flexShrink: 0,
                       }}
                     >
-                      <FileText size={22} />
+                      {isImage ? <ImageIcon size={17} /> : <FileText size={17} />}
                     </div>
                   )}
-                  <div style={{ minWidth: 0, padding: "6px 28px 6px 0" }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div
                       title={pf.file.name}
                       style={{
-                        fontSize: 12,
+                        fontSize: isTerminalMode ? 11 : 12,
                         color: t.text,
+                        lineHeight: isTerminalMode ? "15px" : "16px",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
-                        maxWidth: 185,
                       }}
                     >
                       {pf.file.name}
@@ -483,18 +514,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                         flexDirection: "row",
                         alignItems: "center",
                         gap: 5,
-                        fontSize: 10,
-                        color: blocked ? t.danger : t.textDim,
+                        marginTop: 1,
+                        fontSize: isTerminalMode ? 10 : 10.5,
+                        color: blocked ? t.danger : uploaded ? t.textMuted : t.textDim,
+                        lineHeight: "14px",
                         minWidth: 0,
                       }}
                     >
-                      {pf.status === "uploading" ? (
-                        <Loader2 size={11} className="animate-spin" />
-                      ) : pf.status === "uploaded" ? (
-                        <UploadCloud size={11} />
-                      ) : blocked ? (
-                        <AlertCircle size={11} />
-                      ) : null}
+                      {statusIcon}
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {statusText}
                       </span>
@@ -504,13 +531,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                     onClick={() => removeFile(i)}
                     style={{
                       position: "absolute",
-                      top: 2,
-                      right: 2,
+                      top: isTerminalMode ? 5 : 4,
+                      right: isTerminalMode ? 5 : 4,
                       width: 18,
                       height: 18,
-                      borderRadius: 9,
-                      background: "rgba(0,0,0,0.7)",
-                      border: "none",
+                      borderRadius: isTerminalMode ? 3 : 9,
+                      background: isTerminalMode ? "transparent" : `${t.surface}cc`,
+                      border: isTerminalMode ? `1px solid ${terminalBorder}` : `1px solid ${t.overlayBorder}`,
                       display: "flex", flexDirection: "row",
                       alignItems: "center",
                       justifyContent: "center",
@@ -518,7 +545,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                       padding: 0,
                     }}
                   >
-                    <X size={10} color="#fff" />
+                    <X size={10} color={t.textMuted} />
                   </button>
                 </div>
               );

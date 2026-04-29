@@ -500,6 +500,7 @@ async def _memory_activity(
     limit: int = 100,
 ) -> list[MemoryFileActivity]:
     from app.agent.bots import list_bots
+    from app.services.maintenance_automations import MAINTENANCE_JOB_TYPES
 
     bot_rows = (await db.execute(select(BotRow.id, BotRow.name))).all()
     bot_name_map = {row.id: row.name for row in bot_rows}
@@ -509,7 +510,7 @@ async def _memory_activity(
 
     task_rows = (await db.execute(
         select(TaskRow.correlation_id, TaskRow.task_type)
-        .where(TaskRow.task_type.in_(("memory_hygiene", "skill_review")))
+        .where(TaskRow.task_type.in_(MAINTENANCE_JOB_TYPES))
     )).all()
     corr_to_job = {str(row.correlation_id): row.task_type for row in task_rows if row.correlation_id}
 
@@ -548,7 +549,7 @@ async def _memory_activity(
             file_path=short,
             operation=tc.arguments.get("operation", "write") if tc.arguments else "write",
             created_at=tc.created_at,
-            is_hygiene=job_type in {"memory_hygiene", "skill_review"},
+            is_hygiene=job_type in MAINTENANCE_JOB_TYPES,
             correlation_id=corr_str,
             job_type=job_type,
             source_file=_workspace_source_file(
@@ -984,7 +985,10 @@ async def learning_overview(
 ):
     """Aggregate learning/dreaming dashboard data across all bots."""
     from app.agent.bots import list_bots
-    from app.services.memory_hygiene import resolve_config
+    from app.services.maintenance_automations import (
+        MAINTENANCE_JOB_TYPES,
+        list_maintenance_jobs,
+    )
 
     # 1. All bots with workspace-files memory
     all_bots = (await db.execute(
@@ -1000,53 +1004,34 @@ async def learning_overview(
     for bot in all_bots:
         bot_name_map[bot.id] = bot.name
 
-    # Batch: get last task status per bot per job type in one query
-    _hygiene_types = ("memory_hygiene", "skill_review")
-    last_task_map: dict[str, dict[str, str]] = {}  # {bot_id: {job_type: status}}
-    if bot_ids:
-        latest_subq = (
-            select(
-                TaskRow.bot_id,
-                TaskRow.task_type,
-                TaskRow.status,
-                func.row_number().over(
-                    partition_by=[TaskRow.bot_id, TaskRow.task_type],
-                    order_by=TaskRow.created_at.desc(),
-                ).label("rn"),
-            )
-            .where(TaskRow.bot_id.in_(bot_ids), TaskRow.task_type.in_(_hygiene_types))
-            .subquery()
-        )
-        latest_rows = (await db.execute(
-            select(latest_subq.c.bot_id, latest_subq.c.task_type, latest_subq.c.status)
-            .where(latest_subq.c.rn == 1)
-        )).all()
-        for row in latest_rows:
-            last_task_map.setdefault(row.bot_id, {})[row.task_type] = row.status
+    jobs_by_bot: dict[str, dict[str, object]] = {}
+    for job in await list_maintenance_jobs(db, bot_ids=bot_ids):
+        jobs_by_bot.setdefault(job.bot_id, {})[job.job_type] = job
 
     for bot in all_bots:
-        mh_cfg = resolve_config(bot, "memory_hygiene")
-        sr_cfg = resolve_config(bot, "skill_review")
-        if mh_cfg.enabled:
+        bot_jobs = jobs_by_bot.get(bot.id, {})
+        mh_job = bot_jobs.get("memory_hygiene")
+        sr_job = bot_jobs.get("skill_review")
+        if not mh_job or not sr_job:
+            continue
+        if mh_job.enabled:
             enabled_count += 1
-
-        bot_tasks = last_task_map.get(bot.id, {})
 
         bot_statuses.append(BotDreamingStatus(
             bot_id=bot.id,
             bot_name=bot.name,
-            enabled=mh_cfg.enabled,
-            last_run_at=bot.last_hygiene_run_at.isoformat() if bot.last_hygiene_run_at else None,
-            last_task_status=bot_tasks.get("memory_hygiene"),
-            next_run_at=bot.next_hygiene_run_at.isoformat() if bot.next_hygiene_run_at else None,
-            interval_hours=mh_cfg.interval_hours,
-            model=mh_cfg.model,
-            skill_review_enabled=sr_cfg.enabled,
-            skill_review_last_run_at=bot.last_skill_review_run_at.isoformat() if bot.last_skill_review_run_at else None,
-            skill_review_last_task_status=bot_tasks.get("skill_review"),
-            skill_review_next_run_at=bot.next_skill_review_run_at.isoformat() if bot.next_skill_review_run_at else None,
-            skill_review_interval_hours=sr_cfg.interval_hours,
-            skill_review_model=sr_cfg.model,
+            enabled=mh_job.enabled,
+            last_run_at=mh_job.last_run_at.isoformat() if mh_job.last_run_at else None,
+            last_task_status=mh_job.last_task_status,
+            next_run_at=mh_job.next_run_at.isoformat() if mh_job.next_run_at else None,
+            interval_hours=mh_job.interval_hours,
+            model=mh_job.model,
+            skill_review_enabled=sr_job.enabled,
+            skill_review_last_run_at=sr_job.last_run_at.isoformat() if sr_job.last_run_at else None,
+            skill_review_last_task_status=sr_job.last_task_status,
+            skill_review_next_run_at=sr_job.next_run_at.isoformat() if sr_job.next_run_at else None,
+            skill_review_interval_hours=sr_job.interval_hours,
+            skill_review_model=sr_job.model,
         ))
 
     bot_statuses.sort(key=lambda b: b.bot_name.lower())
@@ -1054,7 +1039,7 @@ async def learning_overview(
     # 2. Recent hygiene/skill-review runs across all bots (last 20)
     recent_tasks = (await db.execute(
         select(TaskRow)
-        .where(TaskRow.task_type.in_(_hygiene_types))
+        .where(TaskRow.task_type.in_(MAINTENANCE_JOB_TYPES))
         .order_by(TaskRow.created_at.desc())
         .limit(20)
     )).scalars().all()
@@ -1165,7 +1150,7 @@ async def learning_overview(
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
 
     # 3a. Hygiene + skill review runs count
-    _runs_q = select(func.count()).select_from(TaskRow).where(TaskRow.task_type.in_(_hygiene_types))
+    _runs_q = select(func.count()).select_from(TaskRow).where(TaskRow.task_type.in_(MAINTENANCE_JOB_TYPES))
     if cutoff:
         _runs_q = _runs_q.where(TaskRow.created_at >= cutoff)
     hygiene_runs = (await db.execute(_runs_q)).scalar() or 0

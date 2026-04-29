@@ -118,6 +118,19 @@ Pinned widgets are drawn with a faint dashed curve back to their source channel 
 
 Toggle the layer from **Starboard → Controls → Connection lines**. The setting persists in `localStorage`.
 
+## Scheduled work satellites
+
+Enabled heartbeats and channel-bound scheduled tasks appear in two places:
+the Now Well keeps the global timeline, and the channel gets compact local
+satellites for the next few scheduled items. The local satellites use the same
+connection-line preference for their faint tethers, so turning off connection
+lines quiets both widget and schedule tethers without hiding the scheduled
+work itself.
+
+Click a heartbeat satellite to open that channel's Automation settings. Click
+a task satellite to open the automation detail page. Items due soon get a
+restrained semantic ring instead of a colored side stripe.
+
 ## Starboard
 
 The **Starboard** panel is the right-side canvas command surface. It is a

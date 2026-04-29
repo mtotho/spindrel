@@ -1089,6 +1089,24 @@ _ASSERT_JUMP_LEFT_OF_STARBOARD_JS = (
     "}"
 )
 
+_ASSERT_CHANNEL_SCHEDULE_SATELLITES_JS = (
+    "const satellites = Array.from(document.querySelectorAll('[data-tile-kind=\"channel-schedule-satellite\"]'));"
+    "const heartbeat = satellites.find((el) => el.getAttribute('data-schedule-kind') === 'heartbeat');"
+    "const task = satellites.find((el) => el.getAttribute('data-schedule-kind') === 'task');"
+    "if (!heartbeat) throw new Error('channel heartbeat satellite did not render');"
+    "if (!task) throw new Error('channel task satellite did not render');"
+    "const hbHref = heartbeat.getAttribute('data-schedule-href') || '';"
+    "const taskHref = task.getAttribute('data-schedule-href') || '';"
+    "if (!/\\/channels\\/[^/]+\\/settings#automation$/.test(hbHref)) throw new Error(`heartbeat satellite target is wrong: ${hbHref}`);"
+    "if (!/\\/admin\\/automations\\//.test(taskHref)) throw new Error(`task satellite target is wrong: ${taskHref}`);"
+    "if (!document.querySelector('[data-testid=\"channel-schedule-tether\"]')) throw new Error('schedule satellite tether did not render');"
+    "for (const el of satellites) {"
+    "  const style = getComputedStyle(el.querySelector('button') || el);"
+    "  const left = parseFloat(style.borderLeftWidth || '0');"
+    "  if (left > 1) throw new Error(`schedule satellite uses side-stripe chrome: ${left}px`);"
+    "}"
+)
+
 
 SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
@@ -1118,6 +1136,22 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ],
         pre_capture_js=_OPEN_STARBOARD_OBJECTS_JS + _SELECT_QA_CHANNEL_JS,
         assert_js=_ASSERT_JUMP_LEFT_OF_STARBOARD_JS,
+    ),
+    ScreenshotSpec(
+        name="spatial-check-channel-schedule-satellites",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            _SPATIAL_READY
+            + ' && document.querySelectorAll(\'[data-tile-kind="channel-schedule-satellite"]\').length >= 2'
+        ),
+        output="spatial-check-channel-schedule-satellites.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}, connections=True),
+        ],
+        assert_js=_ASSERT_CHANNEL_SCHEDULE_SATELLITES_JS,
     ),
     ScreenshotSpec(
         name="spatial-check-attention-badge",
@@ -1443,6 +1477,34 @@ window.__attachmentChecks = (() => {
 })();
 """
 
+_ATTACHMENT_TERMINAL_MODE_INIT = r"""
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const response = await originalFetch(input, init);
+    const url = typeof input === "string" ? input : input?.url || "";
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method !== "GET" || !/\/api\/v1\/channels\/[^/?]+$/.test(url)) return response;
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) return response;
+    const data = await response.clone().json();
+    const headers = new Headers(response.headers);
+    headers.set("content-type", "application/json");
+    return new Response(JSON.stringify({
+      ...data,
+      config: {
+        ...(data.config || {}),
+        chat_mode: "terminal"
+      }
+    }), {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  };
+})();
+"""
+
 
 _ASSERT_ATTACHMENT_ROUTING_JS = (
     "const rows = window.__attachmentChecks.rows();"
@@ -1516,6 +1578,27 @@ ATTACHMENT_CHECK_SPECS: list[ScreenshotSpec] = [
             + "await window.__attachmentChecks.send();"
         ),
         assert_js=_ASSERT_ATTACHMENT_SENT_RECEIPTS_JS,
+    ),
+    ScreenshotSpec(
+        name="chat-attachments-terminal-sent-receipts",
+        route="/channels/{attachments}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_ATTACHMENT_READY,
+        output="chat-attachments-terminal-sent-receipts.png",
+        color_scheme="dark",
+        extra_init_scripts=[_ATTACHMENT_TERMINAL_MODE_INIT],
+        pre_capture_js=(
+            _ATTACHMENT_HELPERS_JS
+            + "await window.__attachmentChecks.dropSet();"
+            + "window.__attachmentChecks.installFakeChatSubmit();"
+            + "window.__attachmentChecks.setComposerText('Please inspect the uploaded files.');"
+            + "await window.__attachmentChecks.send();"
+        ),
+        assert_js=(
+            _ASSERT_ATTACHMENT_SENT_RECEIPTS_JS
+            + "if (!/message/.test(document.body.innerText)) throw new Error('terminal composer status missing');"
+        ),
     ),
 ]
 

@@ -532,6 +532,47 @@ class SpindrelClient:
             body["channel_id"] = channel_id
         return self._post("/api/v1/admin/tasks", json=body).json()
 
+    def create_scheduled_task(
+        self,
+        *,
+        bot_id: str,
+        title: str,
+        prompt: str,
+        channel_id: str | None = None,
+        scheduled_at: str | None = None,
+        recurrence: str | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "bot_id": bot_id,
+            "title": title,
+            "prompt": prompt,
+            "task_type": "scheduled",
+        }
+        if channel_id:
+            body["channel_id"] = channel_id
+        if scheduled_at:
+            body["scheduled_at"] = scheduled_at
+        if recurrence:
+            body["recurrence"] = recurrence
+        return self._post("/api/v1/admin/tasks", json=body).json()
+
+    def list_admin_tasks(
+        self,
+        *,
+        bot_id: str | None = None,
+        channel_id: str | None = None,
+        task_type: str | None = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        params: dict[str, Any] = {"limit": limit}
+        if bot_id:
+            params["bot_id"] = bot_id
+        if channel_id:
+            params["channel_id"] = channel_id
+        if task_type:
+            params["task_type"] = task_type
+        return self._get("/api/v1/admin/tasks", params=params).json().get("tasks", [])
+
     def list_tasks(self, *, bot_id: str | None = None) -> list[dict]:
         params: dict[str, Any] = {"task_type": "pipeline"}
         if bot_id:

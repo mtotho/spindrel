@@ -1092,48 +1092,39 @@ async def admin_bot_memory_hygiene_status(
 ):
     """Get resolved config + last/next run times for both hygiene job types."""
     from app.db.models import Task as TaskRow
-    from app.services.memory_hygiene import resolve_config, _JOB_META
-    from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT, DEFAULT_SKILL_REVIEW_PROMPT
+    from app.services.maintenance_automations import (
+        MAINTENANCE_JOB_TYPES,
+        build_maintenance_job,
+    )
 
     row = await db.get(BotRow, bot_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
 
     result = {}
-    for job_type in ("memory_hygiene", "skill_review"):
-        meta = _JOB_META[job_type]
-        cfg = resolve_config(row, job_type)
-
-        default_prompt = DEFAULT_MEMORY_HYGIENE_PROMPT if job_type == "memory_hygiene" else DEFAULT_SKILL_REVIEW_PROMPT
-        has_custom = bool(cfg.prompt and cfg.prompt != default_prompt)
-
-        last_run_col = meta["col_last_run"]
-        next_run_col = meta["col_next_run"]
-        last_run_val = getattr(row, last_run_col, None)
-        next_run_val = getattr(row, next_run_col, None)
-
-        # Find last task of this type
+    for job_type in MAINTENANCE_JOB_TYPES:
         last_task = (await db.execute(
-            select(TaskRow.id, TaskRow.status, TaskRow.completed_at)
+            select(TaskRow)
             .where(TaskRow.bot_id == bot_id, TaskRow.task_type == job_type)
             .order_by(TaskRow.created_at.desc())
             .limit(1)
-        )).first()
+        )).scalar_one_or_none()
+        job = build_maintenance_job(row, job_type, last_task=last_task)
 
         result[job_type] = JobStatusOut(
-            enabled=cfg.enabled,
-            interval_hours=cfg.interval_hours,
-            only_if_active=cfg.only_if_active,
-            has_custom_prompt=has_custom,
-            resolved_prompt=cfg.prompt,
-            extra_instructions=cfg.extra_instructions,
-            last_run_at=last_run_val.isoformat() if last_run_val else None,
-            next_run_at=next_run_val.isoformat() if next_run_val else None,
-            last_task_status=last_task.status if last_task else None,
-            last_task_id=str(last_task.id) if last_task else None,
-            model=cfg.model,
-            model_provider_id=cfg.model_provider_id,
-            target_hour=cfg.target_hour,
+            enabled=job.enabled,
+            interval_hours=job.interval_hours,
+            only_if_active=job.only_if_active,
+            has_custom_prompt=job.has_custom_prompt,
+            resolved_prompt=job.resolved_prompt,
+            extra_instructions=job.extra_instructions,
+            last_run_at=job.last_run_at.isoformat() if job.last_run_at else None,
+            next_run_at=job.next_run_at.isoformat() if job.next_run_at else None,
+            last_task_status=job.last_task_status,
+            last_task_id=job.last_task_id,
+            model=job.model,
+            model_provider_id=job.model_provider_id,
+            target_hour=job.target_hour,
         )
 
     mh = result["memory_hygiene"]
@@ -1204,7 +1195,7 @@ class HygieneRunsResponse(BaseModel):
     total: int = 0
 
 
-_HYGIENE_JOB_TYPES = ("memory_hygiene", "skill_review")
+from app.services.maintenance_automations import MAINTENANCE_JOB_TYPES as _HYGIENE_JOB_TYPES
 
 
 @router.get("/bots/{bot_id}/memory-hygiene/runs", response_model=HygieneRunsResponse)

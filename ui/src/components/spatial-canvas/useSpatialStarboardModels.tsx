@@ -57,6 +57,32 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     });
   }, [queryClient, recentPages]);
 
+  const scheduleActionForSignal = useCallback((signal: any): StarboardObjectAction | null => {
+    if (!signal) return null;
+    if (signal.kind === "heartbeat" && signal.channel_id) {
+      return {
+        label: "Open heartbeat settings",
+        icon: "settings",
+        onSelect: () =>
+          navigate(`/channels/${signal.channel_id}/settings#automation`, {
+            state: canvasBackState,
+          }),
+      };
+    }
+    const taskId = signal.kind === "task" ? signal.task_id || signal.id : null;
+    if (taskId) {
+      return {
+        label: "Open automation",
+        icon: "open",
+        onSelect: () =>
+          navigate(`/admin/automations/${taskId}`, {
+            state: canvasBackState,
+          }),
+      };
+    }
+    return null;
+  }, [canvasBackState, navigate]);
+
   const starboardObjects = useMemo<StarboardObjectItem[]>(() => {
     const landmarkSize = { worldW: 180, worldH: 120 };
     const rect = viewportRectRef.current;
@@ -145,6 +171,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
       if (node.channel_id) {
         const channel = channelsById.get(node.channel_id);
         const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
+        const scheduleAction = scheduleActionForSignal(workState?.next);
         items.push({
           id: `node-${node.id}`,
           label: channel ? `#${channel.name}` : "Channel",
@@ -167,6 +194,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           actions: [
             jumpAction(worldX, worldY),
             { label: "Open channel", icon: "open", onSelect: () => navigate(channelHref(node.channel_id!), { state: canvasBackState }) },
+            ...(scheduleAction ? [scheduleAction] : []),
             {
               label: channel ? `Open mini chat - #${channel.name}` : "Open mini chat",
               icon: "chat",
@@ -292,6 +320,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     attentionHubPos.y,
     mapState,
     channelHref,
+    scheduleActionForSignal,
   ]);
 
   const edgeBeacons = useMemo(() => {

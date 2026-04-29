@@ -38,9 +38,11 @@ interface ChannelSessionTabStripProps {
   onClose: (tab: ChannelSessionTabItem) => void;
   onReorder: (dragKey: string, targetKey: string) => void;
   onSplit: (tab: ChannelSessionTabItem) => void;
+  onFocusOpenSurface: (tab: ChannelSessionTabItem) => void;
   onReplaceFocused: (tab: ChannelSessionTabItem) => void;
   onMakePrimary: (tab: ChannelSessionTabItem) => void;
   onOpenSessions?: () => void;
+  openSurfaceKeys: string[];
   splitActive: boolean;
   pendingKey?: string | null;
 }
@@ -52,9 +54,11 @@ export function ChannelSessionTabStrip({
   onClose,
   onReorder,
   onSplit,
+  onFocusOpenSurface,
   onReplaceFocused,
   onMakePrimary,
   onOpenSessions,
+  openSurfaceKeys,
   splitActive,
   pendingKey,
 }: ChannelSessionTabStripProps) {
@@ -100,8 +104,10 @@ export function ChannelSessionTabStrip({
               onFocusSplitPane={onFocusSplitPane}
               onClose={onClose}
               onSplit={onSplit}
+              onFocusOpenSurface={onFocusOpenSurface}
               onReplaceFocused={onReplaceFocused}
               onMakePrimary={onMakePrimary}
+              openSurfaceKeys={openSurfaceKeys}
               splitActive={splitActive}
               pending={pendingKey === tab.key}
             />
@@ -130,8 +136,10 @@ interface SortableSessionTabProps {
   onFocusSplitPane: (tab: ChannelSessionTabItem, paneId: string) => void;
   onClose: (tab: ChannelSessionTabItem) => void;
   onSplit: (tab: ChannelSessionTabItem) => void;
+  onFocusOpenSurface: (tab: ChannelSessionTabItem) => void;
   onReplaceFocused: (tab: ChannelSessionTabItem) => void;
   onMakePrimary: (tab: ChannelSessionTabItem) => void;
+  openSurfaceKeys: string[];
   splitActive: boolean;
   pending: boolean;
 }
@@ -142,12 +150,15 @@ function SortableSessionTab({
   onFocusSplitPane,
   onClose,
   onSplit,
+  onFocusOpenSurface,
   onReplaceFocused,
   onMakePrimary,
+  openSurfaceKeys,
   splitActive,
   pending,
 }: SortableSessionTabProps) {
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const surfaceOpen = tab.kind === "surface" && openSurfaceKeys.includes(surfaceKey(tab.surface));
   useEffect(() => {
     if (!menuPosition) return;
     const close = () => setMenuPosition(null);
@@ -322,17 +333,31 @@ function SortableSessionTab({
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuPosition(null);
-                  onSplit(tab);
-                }}
-                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
-              >
-                Split right
-              </button>
-              {splitActive && (
+              {surfaceOpen ? (
+                <button
+                  type="button"
+                  disabled={!splitActive}
+                  onClick={() => {
+                    setMenuPosition(null);
+                    onFocusOpenSurface(tab);
+                  }}
+                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:text-text-dim disabled:opacity-50"
+                >
+                  {splitActive ? "Focus open pane" : "Already open"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuPosition(null);
+                    onSplit(tab);
+                  }}
+                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                >
+                  Split right
+                </button>
+              )}
+              {splitActive && !surfaceOpen && (
                 <button
                   type="button"
                   onClick={() => {

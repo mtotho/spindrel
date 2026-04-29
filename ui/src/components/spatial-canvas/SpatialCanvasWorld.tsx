@@ -15,6 +15,7 @@ import { MemoryObservatory } from "./MemoryObservatory";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { MovementTraceLayer } from "./MovementTraceLayer";
 import { NowWell } from "./NowWell";
+import { ScheduleSatelliteLayer } from "./ScheduleSatelliteLayer";
 import { SpatialAttentionSignal } from "./SpatialAttentionLayer";
 import { SpatialMissionLayer } from "./SpatialMissionLayer";
 import { buildSpatialObjectBrief } from "./SpatialObjectBrief";
@@ -233,6 +234,23 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
           viewportBbox={viewportBbox}
           onOpenMissionControl={openStarboardHub}
         />
+        {!channelClusterMode && (
+          <ScheduleSatelliteLayer
+            items={upcomingItems ?? []}
+            nodes={nodes ?? []}
+            zoom={interactiveZoom}
+            tickedNow={tickedNow}
+            connectionsEnabled={connectionsEnabled}
+            suppressedChannelIds={clusteredChannelIds}
+            viewportBbox={viewportBbox}
+            navigate={navigate}
+            canvasBackState={canvasBackState}
+            lensEngaged={lensEngaged}
+            focalScreen={focalScreen}
+            lensRadius={lensRadius}
+            camera={camera}
+          />
+        )}
         <LandmarkWrapper
           kind="now_well"
           scale={ambientZoom}

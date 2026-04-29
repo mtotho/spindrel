@@ -4,9 +4,12 @@
  * Extracted from MessageBubble.tsx.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { FileText } from "lucide-react";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import type { AttachmentBrief } from "../../types/api";
+
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
 interface LocalAttachmentReceipt {
   id?: string;
@@ -55,29 +58,126 @@ function AttachmentImage({ src, alt, testId }: { src: string; alt: string; testI
   );
 }
 
+function formatAttachmentSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  return `${(sizeBytes / 1024).toFixed(1)} KB`;
+}
+
+function AttachmentThumbReceipt({
+  src,
+  filename,
+  sizeBytes,
+  href,
+  detail,
+  testId = "chat-attachment-image-local",
+  chatMode = "default",
+}: {
+  src: string;
+  filename: string;
+  sizeBytes: number;
+  href?: string;
+  detail?: string;
+  testId?: string;
+  chatMode?: "default" | "terminal";
+}) {
+  const isTerminal = chatMode === "terminal";
+  useEffect(() => () => {
+    if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+  }, [src]);
+  const body = (
+    <>
+      <span
+        className={[
+          "flex shrink-0 items-center justify-center overflow-hidden",
+          isTerminal ? "h-9 w-9 rounded-sm border border-border-subtle/30 bg-transparent" : "h-12 w-12 rounded-md bg-surface-overlay/25",
+        ].join(" ")}
+      >
+        <img
+          src={src}
+          alt={filename}
+          data-testid={testId}
+          data-attachment-name={filename}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+        />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] text-text">{filename}</span>
+        <span className="mt-0.5 flex min-w-0 flex-row items-center gap-1.5 text-[11px] text-text-dim">
+          <span className="shrink-0 uppercase tracking-[0.08em]">{detail ? "data" : "image"}</span>
+          <span className="shrink-0">{formatAttachmentSize(sizeBytes)}</span>
+          {detail && <span className="min-w-0 truncate">{detail}</span>}
+        </span>
+      </span>
+    </>
+  );
+  const className = [
+    "flex w-full max-w-[520px] flex-row items-center gap-2 no-underline",
+    isTerminal
+      ? "px-0 py-0.5 text-text-muted"
+      : "rounded-md bg-surface-overlay/15 p-1 text-text-muted",
+  ].join(" ");
+  const style = isTerminal ? { fontFamily: TERMINAL_FONT_STACK } : undefined;
+
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={className} style={style}>
+        {body}
+      </a>
+    );
+  }
+
+  return (
+    <div className={className} style={style}>
+      {body}
+    </div>
+  );
+}
+
 function FileReceiptRow({
   filename,
   sizeBytes,
   href,
   detail,
   testId = "chat-attachment-receipt",
+  chatMode = "default",
 }: {
   filename: string;
   sizeBytes: number;
   href?: string;
   detail?: string;
   testId?: string;
+  chatMode?: "default" | "terminal";
 }) {
+  const isTerminal = chatMode === "terminal";
   const body = (
     <>
-      <span className="rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim">file</span>
-      <span className="min-w-0 truncate underline">{filename}</span>
-      <span className="shrink-0 text-text-dim">
-        ({(sizeBytes / 1024).toFixed(1)} KB)
+      <span
+        className={[
+          "flex shrink-0 items-center justify-center text-text-muted",
+          isTerminal ? "h-9 w-9 rounded-sm border border-border-subtle/30" : "h-9 w-9 rounded-md bg-surface-overlay/25",
+        ].join(" ")}
+      >
+        <FileText size={16} />
       </span>
-      {detail && <span className="min-w-0 truncate text-text-dim">{detail}</span>}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] text-text">{filename}</span>
+        <span className="mt-0.5 flex min-w-0 flex-row items-center gap-1.5 text-[11px] text-text-dim">
+          <span className="shrink-0 uppercase tracking-[0.08em]">file</span>
+          <span className="shrink-0">{formatAttachmentSize(sizeBytes)}</span>
+          {detail && <span className="min-w-0 truncate">{detail}</span>}
+        </span>
+      </span>
     </>
   );
+  const className = [
+    "flex w-full max-w-[520px] flex-row items-center gap-2 no-underline",
+    isTerminal
+      ? "px-0 py-0.5 text-text-muted"
+      : "rounded-md bg-surface-overlay/15 px-1.5 py-1 text-text-muted",
+  ].join(" ");
+  const style = isTerminal ? { fontFamily: TERMINAL_FONT_STACK } : undefined;
 
   if (href) {
     return (
@@ -89,7 +189,8 @@ function FileReceiptRow({
         data-testid={testId}
         data-attachment-name={filename}
         data-attachment-detail={detail}
-        className="flex max-w-full flex-row items-center gap-2 text-[13px] text-accent no-underline cursor-pointer"
+        className={className}
+        style={style}
       >
         {body}
       </a>
@@ -101,7 +202,8 @@ function FileReceiptRow({
       data-testid={testId}
       data-attachment-name={filename}
       data-attachment-detail={detail}
-      className="flex max-w-full flex-row items-center gap-2 text-[13px] text-text-muted"
+      className={className}
+      style={style}
     >
       {body}
     </div>
@@ -113,11 +215,13 @@ export function AttachmentImages({
   localAttachments,
   workspaceUploads,
   channelId,
+  chatMode = "default",
 }: {
   attachments: AttachmentBrief[];
   localAttachments?: LocalAttachmentReceipt[];
   workspaceUploads?: WorkspaceUploadReceipt[];
   channelId?: string;
+  chatMode?: "default" | "terminal";
 }) {
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const token = getAuthToken();
@@ -136,15 +240,36 @@ export function AttachmentImages({
   if (images.length === 0 && files.length === 0 && optimistic.length === 0 && uploaded.length === 0) return null;
 
   return (
-    <div className="mt-2 flex flex-col gap-2">
+    <div className={chatMode === "terminal" ? "mt-2 flex max-w-full flex-col gap-1.5" : "mt-2 flex max-w-full flex-col gap-1.5"}>
       {optimistic.map((item) => {
-        if (item.preview_url && item.mime_type.startsWith("image/")) {
+        if (item.mime_type.startsWith("image/")) {
+          const fileHref = item.path && channelId
+            ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(item.path)}${token ? `&token=${token}` : ""}`
+            : undefined;
+          const previewSrc = item.preview_url ?? fileHref;
+          if (!previewSrc) {
+            return (
+              <FileReceiptRow
+                key={item.id || item.path || item.filename}
+                filename={item.filename}
+                sizeBytes={item.size_bytes}
+                href={fileHref}
+                detail={item.path ? item.path : undefined}
+                testId="chat-attachment-receipt-local"
+                chatMode={chatMode}
+              />
+            );
+          }
           return (
-            <AttachmentImage
-              key={item.id || item.preview_url}
-              src={item.preview_url}
-              alt={item.filename}
+            <AttachmentThumbReceipt
+              key={item.id || item.path || previewSrc}
+              src={previewSrc}
+              filename={item.filename}
+              sizeBytes={item.size_bytes}
+              href={fileHref ?? item.preview_url}
+              detail={item.path ? item.path : undefined}
               testId="chat-attachment-image-local"
+              chatMode={chatMode}
             />
           );
         }
@@ -159,11 +284,25 @@ export function AttachmentImages({
             href={href}
             detail={item.path ? item.path : undefined}
             testId="chat-attachment-receipt-local"
+            chatMode={chatMode}
           />
         );
       })}
       {images.map((img) => {
         const url = `${serverUrl}/api/v1/attachments/${img.id}/file${token ? `?token=${token}` : ""}`;
+        if (chatMode === "terminal") {
+          return (
+            <AttachmentThumbReceipt
+              key={img.id}
+              src={url}
+              filename={img.description || img.filename}
+              sizeBytes={img.size_bytes}
+              href={url}
+              testId="chat-attachment-image-file"
+              chatMode={chatMode}
+            />
+          );
+        }
         return (
           <AttachmentImage
             key={img.id}
@@ -183,6 +322,7 @@ export function AttachmentImages({
             sizeBytes={f.size_bytes}
             href={href}
             testId="chat-attachment-receipt-file"
+            chatMode={chatMode}
           />
         );
       })}
@@ -198,6 +338,7 @@ export function AttachmentImages({
             href={href}
             detail={item.path}
             testId="chat-attachment-receipt-workspace"
+            chatMode={chatMode}
           />
         );
       })}

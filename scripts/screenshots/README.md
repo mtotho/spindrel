@@ -83,6 +83,7 @@ channel and writes these documentation artifacts:
 | `chat-attachments-drop-overlay.png` | `/channels/:attachments` | 1440×900 | composer drop zone ready |
 | `chat-attachments-routing-tray.png` | `/channels/:attachments` | 1440×900 | pending rows routed/uploaded |
 | `chat-attachments-sent-receipts.png` | `/channels/:attachments` | 1440×900 | optimistic image + data receipts |
+| `chat-attachments-terminal-sent-receipts.png` | `/channels/:attachments` | 1440×900 | terminal-mode optimistic receipts |
 
 ## Key invariants
 

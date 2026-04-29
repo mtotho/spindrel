@@ -42,7 +42,7 @@ export function upcomingTypeLabel(item: UpcomingItem): string {
 
 export function upcomingHref(item: UpcomingItem): string | null {
   if (item.type === "task" && item.task_id) return `/admin/automations/${item.task_id}`;
-  if (item.type === "heartbeat" && item.channel_id) return `/channels/${item.channel_id}`;
+  if (item.type === "heartbeat" && item.channel_id) return `/channels/${item.channel_id}/settings#automation`;
   if (item.type === "memory_hygiene") return "/admin/learning";
   return item.channel_id ? `/channels/${item.channel_id}` : null;
 }
@@ -110,6 +110,132 @@ export function upcomingOrbitBucket(
   const radiusBucket = Math.round(orbit.radius / 56);
   const angleBucket = Math.round((orbit.theta * 180 / Math.PI) / 18);
   return `${radiusBucket}:${angleBucket}`;
+}
+
+export interface ChannelScheduleAnchor {
+  channelId: string;
+  nodeId?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type ChannelScheduleSatelliteState = "normal" | "soon" | "imminent" | "due";
+
+export interface ChannelScheduleSatellite {
+  key: string;
+  channelId: string;
+  nodeId?: string;
+  item: UpcomingItem;
+  x: number;
+  y: number;
+  anchorX: number;
+  anchorY: number;
+  minutesUntil: number;
+  state: ChannelScheduleSatelliteState;
+  index: number;
+  visibleCount: number;
+  totalCount: number;
+}
+
+export interface ChannelScheduleOverflow {
+  key: string;
+  channelId: string;
+  nodeId?: string;
+  x: number;
+  y: number;
+  anchorX: number;
+  anchorY: number;
+  count: number;
+}
+
+export interface ChannelScheduleSatelliteLayout {
+  satellites: ChannelScheduleSatellite[];
+  overflow: ChannelScheduleOverflow[];
+}
+
+const CHANNEL_SCHEDULE_SLOT_DEGREES = [-68, -24, 20];
+const CHANNEL_SCHEDULE_OVERFLOW_DEGREES = 56;
+
+export function isChannelScheduleItem(item: UpcomingItem): boolean {
+  return Boolean(item.channel_id && (item.type === "heartbeat" || (item.type === "task" && item.task_id)));
+}
+
+export function scheduleSatelliteState(
+  iso: string | null | undefined,
+  now: number = Date.now(),
+): { state: ChannelScheduleSatelliteState; minutesUntil: number } {
+  const t = iso ? Date.parse(iso) : NaN;
+  const minutesUntil = Number.isNaN(t) ? 0 : (t - now) / 60_000;
+  if (minutesUntil <= 0) return { state: "due", minutesUntil };
+  if (minutesUntil < 15) return { state: "imminent", minutesUntil };
+  if (minutesUntil < 60) return { state: "soon", minutesUntil };
+  return { state: "normal", minutesUntil };
+}
+
+export function channelScheduleSatellites(
+  items: UpcomingItem[],
+  anchors: ChannelScheduleAnchor[],
+  tickedNow: number,
+  limitPerChannel = 3,
+): ChannelScheduleSatelliteLayout {
+  const anchorByChannel = new Map(anchors.map((anchor) => [anchor.channelId, anchor]));
+  const grouped = new Map<string, UpcomingItem[]>();
+  for (const item of items) {
+    if (!isChannelScheduleItem(item) || !item.channel_id || !anchorByChannel.has(item.channel_id)) continue;
+    const bucket = grouped.get(item.channel_id) ?? [];
+    bucket.push(item);
+    grouped.set(item.channel_id, bucket);
+  }
+
+  const satellites: ChannelScheduleSatellite[] = [];
+  const overflow: ChannelScheduleOverflow[] = [];
+  for (const [channelId, bucket] of grouped) {
+    const anchor = anchorByChannel.get(channelId);
+    if (!anchor) continue;
+    bucket.sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+    const visible = bucket.slice(0, limitPerChannel);
+    const anchorX = anchor.x + anchor.w / 2;
+    const anchorY = anchor.y + anchor.h / 2;
+    const radius = Math.max(136, Math.min(190, Math.max(anchor.w, anchor.h) * 0.62));
+    const rotation = ((stableHue(channelId) % 9) - 4) * (Math.PI / 180) * 3;
+    visible.forEach((item, index) => {
+      const slotDeg = CHANNEL_SCHEDULE_SLOT_DEGREES[Math.min(index, CHANNEL_SCHEDULE_SLOT_DEGREES.length - 1)];
+      const theta = slotDeg * (Math.PI / 180) + rotation;
+      const { state, minutesUntil } = scheduleSatelliteState(item.scheduled_at, tickedNow);
+      satellites.push({
+        key: `schedule:${upcomingReactKey(item)}`,
+        channelId,
+        nodeId: anchor.nodeId,
+        item,
+        x: anchorX + Math.cos(theta) * radius,
+        y: anchorY + Math.sin(theta) * radius * 0.82,
+        anchorX,
+        anchorY,
+        minutesUntil,
+        state,
+        index,
+        visibleCount: visible.length,
+        totalCount: bucket.length,
+      });
+    });
+    const extra = bucket.length - visible.length;
+    if (extra > 0) {
+      const theta = CHANNEL_SCHEDULE_OVERFLOW_DEGREES * (Math.PI / 180) + rotation;
+      overflow.push({
+        key: `schedule-overflow:${channelId}`,
+        channelId,
+        nodeId: anchor.nodeId,
+        x: anchorX + Math.cos(theta) * radius,
+        y: anchorY + Math.sin(theta) * radius * 0.82,
+        anchorX,
+        anchorY,
+        count: extra,
+      });
+    }
+  }
+  return { satellites, overflow };
 }
 
 function angleFor(key: string): number {

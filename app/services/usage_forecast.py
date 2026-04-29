@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models import Bot, ChannelHeartbeat, HeartbeatRun, Task, TraceEvent
+from app.db.models import ChannelHeartbeat, HeartbeatRun, Task, TraceEvent
+from app.services.maintenance_automations import MAINTENANCE_JOB_TYPES
 from app.services.usage_costs import (
     _compute_cost_for_events,
     _fetch_token_usage_events,
@@ -24,7 +25,6 @@ from app.schemas.usage import ForecastComponent, LimitForecast, UsageForecastOut
 
 _RECURRENCE_RE = re.compile(r"^\+(\d+)([smhdw])$")
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
-_MAINTENANCE_TASK_TYPES = ("memory_hygiene", "skill_review")
 
 
 @dataclass(frozen=True)
@@ -302,17 +302,11 @@ async def _build_maintenance_component(
     window: _ForecastWindow,
     cost_ctx: _ForecastCostContext,
 ) -> ForecastComponent | None:
-    from app.services.memory_hygiene import resolve_config as resolve_hygiene_config
-
-    maint_bots = (await db.execute(
-        select(Bot).where(Bot.memory_scheme == "workspace-files")
-    )).scalars().all()
-    if not maint_bots:
-        return None
+    from app.services.maintenance_automations import list_maintenance_jobs
 
     recent_maint = (await db.execute(
         select(Task).where(
-            Task.task_type.in_(_MAINTENANCE_TASK_TYPES),
+            Task.task_type.in_(MAINTENANCE_JOB_TYPES),
             Task.status.in_(("completed", "skipped")),
             Task.completed_at >= window.seven_days_ago,
         )
@@ -324,30 +318,28 @@ async def _build_maintenance_component(
 
     daily_cost = 0.0
     maint_count = 0
-    for bot in maint_bots:
-        for job_type in _MAINTENANCE_TASK_TYPES:
-            cfg = resolve_hygiene_config(bot, job_type)
-            if not cfg.enabled or cfg.interval_hours <= 0:
+    for job in await list_maintenance_jobs(db, enabled_only=True):
+        if job.interval_hours <= 0:
+            continue
+
+        maint_count += 1
+        runs_per_day = 24.0 / job.interval_hours
+        runs_per_day *= type_skip_rate.get(job.job_type, 0.5)
+
+        costs = type_run_costs.get(job.job_type, [])
+        if costs:
+            avg_cost = sum(costs) / len(costs)
+        else:
+            model = job.model
+            if not model:
+                registry_bot = bot_registry.get(job.bot_id)
+                model = registry_bot.model if registry_bot else None
+            if model and _is_plan_billed(None, model):
                 continue
+            model_avg_cost = await cost_ctx.model_average_costs(db, after=window.seven_days_ago)
+            avg_cost = model_avg_cost.get(model, 0.0) if model else 0.0
 
-            maint_count += 1
-            runs_per_day = 24.0 / cfg.interval_hours
-            runs_per_day *= type_skip_rate.get(job_type, 0.5)
-
-            costs = type_run_costs.get(job_type, [])
-            if costs:
-                avg_cost = sum(costs) / len(costs)
-            else:
-                model = cfg.model
-                if not model:
-                    registry_bot = bot_registry.get(bot.id)
-                    model = registry_bot.model if registry_bot else None
-                if model and _is_plan_billed(None, model):
-                    continue
-                model_avg_cost = await cost_ctx.model_average_costs(db, after=window.seven_days_ago)
-                avg_cost = model_avg_cost.get(model, 0.0) if model else 0.0
-
-            daily_cost += runs_per_day * avg_cost
+        daily_cost += runs_per_day * avg_cost
 
     if maint_count <= 0:
         return None
@@ -370,7 +362,7 @@ async def _recent_maintenance_costs(
         for task in recent_maint
         if task.status == "completed" and task.correlation_id
     ]
-    type_run_costs: dict[str, list[float]] = {task_type: [] for task_type in _MAINTENANCE_TASK_TYPES}
+    type_run_costs: dict[str, list[float]] = {task_type: [] for task_type in MAINTENANCE_JOB_TYPES}
     if not completed_corr_ids:
         return type_run_costs
 
@@ -394,7 +386,7 @@ async def _recent_maintenance_costs(
 
 def _maintenance_execution_rates(recent_maint: list[Task]) -> dict[str, float]:
     type_skip_rate: dict[str, float] = {}
-    for task_type in _MAINTENANCE_TASK_TYPES:
+    for task_type in MAINTENANCE_JOB_TYPES:
         completed = sum(
             1
             for task in recent_maint

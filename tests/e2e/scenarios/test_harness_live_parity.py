@@ -723,7 +723,7 @@ async def test_live_harness_channel_prompt_and_manual_heartbeat(
         assert any(
             hint.get("kind") == "channel_prompt"
             and hint.get("priority") == "instruction"
-            and marker in str(hint.get("text") or "")
+            and marker in str(hint.get("preview") or hint.get("text") or "")
             for hint in hints
             if isinstance(hint, dict)
         ), f"channel prompt instruction was not present in heartbeat harness hints: {hints}"

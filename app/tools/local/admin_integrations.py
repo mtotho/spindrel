@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.tools.registry import register
@@ -40,19 +41,30 @@ def _get_scaffold_dir() -> Path | None:
     return None
 
 
-def _scaffold_integration(integration_id: str, features: list[str] | None) -> dict:
-    """Create a new integration directory with boilerplate files."""
-    # Validate name
+def _camel_name(integration_id: str, suffix: str) -> str:
+    return "".join(p.capitalize() for p in integration_id.split("_")) + suffix
+
+
+@dataclass(frozen=True)
+class _ScaffoldPlan:
+    integration_id: str
+    pretty_name: str
+    integration_dir: Path
+    features: list[str]
+    feature_set: frozenset[str]
+    target_class: str
+    renderer_class: str
+
+
+def _build_scaffold_plan(integration_id: str, features: list[str] | None) -> _ScaffoldPlan | dict:
     if not re.match(r"^[a-z][a-z0-9_]*$", integration_id):
         return {"error": f"Invalid integration ID '{integration_id}'. Must be lowercase alphanumeric + underscores, starting with a letter."}
 
-    # Validate features
     features = features or []
     invalid = set(features) - _VALID_FEATURES
     if invalid:
         return {"error": f"Unknown features: {sorted(invalid)}. Valid: {sorted(_VALID_FEATURES)}"}
 
-    # Find scaffold directory
     scaffold_dir = _get_scaffold_dir()
     if scaffold_dir is None:
         return {"error": "No writable integration directory found in INTEGRATION_DIRS. Is a shared workspace configured?"}
@@ -61,14 +73,25 @@ def _scaffold_integration(integration_id: str, features: list[str] | None) -> di
     if integration_dir.exists():
         return {"error": f"Integration directory already exists: {integration_dir}"}
 
-    # Create directory structure
-    integration_dir.mkdir(parents=True)
-
-    # Always create __init__.py
-    (integration_dir / "__init__.py").write_text("")
-
-    # Always create integration.yaml
     pretty_name = integration_id.replace("_", " ").title()
+    return _ScaffoldPlan(
+        integration_id=integration_id,
+        pretty_name=pretty_name,
+        integration_dir=integration_dir,
+        features=features,
+        feature_set=frozenset(features),
+        target_class=_camel_name(integration_id, "Target"),
+        renderer_class=_camel_name(integration_id, "Renderer"),
+    )
+
+
+def _write_base_scaffold_files(plan: _ScaffoldPlan) -> None:
+    integration_id = plan.integration_id
+    integration_dir = plan.integration_dir
+    pretty_name = plan.pretty_name
+
+    integration_dir.mkdir(parents=True)
+    (integration_dir / "__init__.py").write_text("")
     (integration_dir / "integration.yaml").write_text(f'''id: {integration_id}
 name: {pretty_name}
 icon: Plug
@@ -126,12 +149,14 @@ Custom integration scaffolded via `manage_integration(action="scaffold")`.
 - `__init__.py` — Package marker
 ''')
 
-    # Feature-based files
-    if "tools" in features:
-        tools_dir = integration_dir / "tools"
-        tools_dir.mkdir()
-        (tools_dir / "__init__.py").write_text("")
-        (tools_dir / f"{integration_id}_tools.py").write_text(f'''"""Tools for {pretty_name} integration."""
+
+def _write_tools_scaffold(plan: _ScaffoldPlan) -> None:
+    integration_id = plan.integration_id
+    pretty_name = plan.pretty_name
+    tools_dir = plan.integration_dir / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "__init__.py").write_text("")
+    (tools_dir / f"{integration_id}_tools.py").write_text(f'''"""Tools for {pretty_name} integration."""
 from app.tools.registry import register, get_settings
 
 setting = get_settings()
@@ -158,10 +183,13 @@ async def {integration_id}_example(query: str) -> str:
     return f"Hello from {pretty_name}! Query: {{query}}"
 ''')
 
-    if "skills" in features:
-        skills_dir = integration_dir / "skills"
-        skills_dir.mkdir()
-        (skills_dir / f"{integration_id}-guide.md").write_text(f'''---
+
+def _write_skills_scaffold(plan: _ScaffoldPlan) -> None:
+    integration_id = plan.integration_id
+    pretty_name = plan.pretty_name
+    skills_dir = plan.integration_dir / "skills"
+    skills_dir.mkdir()
+    (skills_dir / f"{integration_id}-guide.md").write_text(f'''---
 name: {integration_id}-guide
 description: "Guide for using the {pretty_name} integration"
 ---
@@ -171,13 +199,18 @@ description: "Guide for using the {pretty_name} integration"
 Describe when and how to use this integration here.
 ''')
 
-    if "renderer" in features:
-        # ``target.py`` — typed dispatch destination, self-registers with
-        # ``app.domain.target_registry`` at module import. The integration
-        # discovery loop auto-imports this before ``renderer.py``.
-        target_class = "".join(p.capitalize() for p in integration_id.split("_")) + "Target"
-        renderer_class = "".join(p.capitalize() for p in integration_id.split("_")) + "Renderer"
-        (integration_dir / "target.py").write_text(f'''"""{target_class} — typed dispatch destination for the {pretty_name} integration.
+
+def _write_renderer_scaffold(plan: _ScaffoldPlan) -> None:
+    integration_id = plan.integration_id
+    integration_dir = plan.integration_dir
+    pretty_name = plan.pretty_name
+    target_class = plan.target_class
+    renderer_class = plan.renderer_class
+
+    # ``target.py`` — typed dispatch destination, self-registers with
+    # ``app.domain.target_registry`` at module import. The integration
+    # discovery loop auto-imports this before ``renderer.py``.
+    (integration_dir / "target.py").write_text(f'''"""{target_class} — typed dispatch destination for the {pretty_name} integration.
 
 Self-registers with ``app.domain.target_registry`` at module import.
 The integration discovery loop auto-imports this module before
@@ -215,10 +248,10 @@ class {target_class}(BaseTarget):
 target_registry.register({target_class})
 ''')
 
-        # ``transport.py`` — receipt-shaped platform API calls for renderer
-        # delivery. Keep this separate from tools, which often want
-        # exception-shaped API helpers instead.
-        (integration_dir / "transport.py").write_text(f'''"""{pretty_name} renderer transport.
+    # ``transport.py`` — receipt-shaped platform API calls for renderer
+    # delivery. Keep this separate from tools, which often want
+    # exception-shaped API helpers instead.
+    (integration_dir / "transport.py").write_text(f'''"""{pretty_name} renderer transport.
 
 Renderer delivery wants receipt-shaped API results so the outbox drainer
 can decide whether to retry. Replace the placeholder URL/body mapping
@@ -321,9 +354,9 @@ async def call_platform(
 __all__ = ["{renderer_class}CallResult", "call_platform"]
 ''')
 
-        # ``message_delivery.py`` — owns durable NEW_MESSAGE delivery policy.
-        # The renderer delegates here rather than growing per-kind handlers.
-        (integration_dir / "message_delivery.py").write_text(f'''"""{pretty_name} durable NEW_MESSAGE delivery."""
+    # ``message_delivery.py`` — owns durable NEW_MESSAGE delivery policy.
+    # The renderer delegates here rather than growing per-kind handlers.
+    (integration_dir / "message_delivery.py").write_text(f'''"""{pretty_name} durable NEW_MESSAGE delivery."""
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -379,9 +412,9 @@ class {renderer_class}MessageDelivery:
 __all__ = ["{renderer_class}MessageDelivery"]
 ''')
 
-        # ``renderer.py`` — thin router over deep delivery modules. Slack's
-        # renderer is the canonical example for richer integrations.
-        (integration_dir / "renderer.py").write_text(f'''"""{renderer_class} — channel renderer for {pretty_name} delivery.
+    # ``renderer.py`` — thin router over deep delivery modules. Slack's
+    # renderer is the canonical example for richer integrations.
+    (integration_dir / "renderer.py").write_text(f'''"""{renderer_class} — channel renderer for {pretty_name} delivery.
 
 Subscribes to the channel-events bus via the renderer registry. The
 outbox drainer (``app/services/outbox_drainer.py``) calls
@@ -491,8 +524,9 @@ def _register() -> None:
 _register()
 ''')
 
-    if "hooks" in features:
-        (integration_dir / "hooks.py").write_text(f'''"""Hooks for {pretty_name} — lifecycle event handlers."""
+
+def _write_hooks_scaffold(plan: _ScaffoldPlan) -> None:
+    (plan.integration_dir / "hooks.py").write_text(f'''"""Hooks for {plan.pretty_name} — lifecycle event handlers."""
 from app.agent.hooks import register_hook
 
 
@@ -504,8 +538,11 @@ async def on_after_response(event):
 register_hook("after_response", on_after_response)
 ''')
 
-    if "process" in features:
-        (integration_dir / "process.py").write_text(f'''"""Background process for {pretty_name} integration."""
+
+def _write_process_scaffold(plan: _ScaffoldPlan) -> None:
+    integration_id = plan.integration_id
+    pretty_name = plan.pretty_name
+    (plan.integration_dir / "process.py").write_text(f'''"""Background process for {pretty_name} integration."""
 
 # Command to run (list of strings)
 # Uncomment and point to your worker module after creating it:
@@ -523,10 +560,13 @@ DESCRIPTION = "{pretty_name} background worker"
 # WATCH_PATHS = ["integrations/{integration_id}"]
 ''')
 
-    if "workflows" in features:
-        workflows_dir = integration_dir / "workflows"
-        workflows_dir.mkdir()
-        (workflows_dir / f"{integration_id}-example.yaml").write_text(f'''id: {integration_id}-example
+
+def _write_workflows_scaffold(plan: _ScaffoldPlan) -> None:
+    integration_id = plan.integration_id
+    pretty_name = plan.pretty_name
+    workflows_dir = plan.integration_dir / "workflows"
+    workflows_dir.mkdir()
+    (workflows_dir / f"{integration_id}-example.yaml").write_text(f'''id: {integration_id}-example
 name: "{pretty_name} Example Workflow"
 description: "Example workflow for {pretty_name}"
 
@@ -542,19 +582,46 @@ steps:
       Process this input: {{{{input}}}}
 ''')
 
+
+def _write_feature_scaffolds(plan: _ScaffoldPlan) -> None:
+    if "tools" in plan.feature_set:
+        _write_tools_scaffold(plan)
+    if "skills" in plan.feature_set:
+        _write_skills_scaffold(plan)
+    if "renderer" in plan.feature_set:
+        _write_renderer_scaffold(plan)
+    if "hooks" in plan.feature_set:
+        _write_hooks_scaffold(plan)
+    if "process" in plan.feature_set:
+        _write_process_scaffold(plan)
+    if "workflows" in plan.feature_set:
+        _write_workflows_scaffold(plan)
+
+
+def _scaffold_result(plan: _ScaffoldPlan) -> dict:
     capabilities = ["router", "setup"]
-    capabilities.extend(features)
+    capabilities.extend(plan.features)
 
     return {
         "ok": True,
-        "integration_id": integration_id,
-        "path": str(integration_dir),
+        "integration_id": plan.integration_id,
+        "path": str(plan.integration_dir),
         "capabilities": capabilities,
         "message": (
-            f"Scaffolded integration '{integration_id}' at {integration_dir}. "
+            f"Scaffolded integration '{plan.integration_id}' at {plan.integration_dir}. "
             f"Edit the files, then run manage_integration(action='reload') to hot-load it."
         ),
     }
+
+
+def _scaffold_integration(integration_id: str, features: list[str] | None) -> dict:
+    """Create a new integration directory with boilerplate files."""
+    plan = _build_scaffold_plan(integration_id, features)
+    if isinstance(plan, dict):
+        return plan
+    _write_base_scaffold_files(plan)
+    _write_feature_scaffolds(plan)
+    return _scaffold_result(plan)
 
 
 _reload_lock = asyncio.Lock()

@@ -133,6 +133,11 @@ view so the user can see what was attached and where data files landed.
 
 ![Sent message with attachment previews and workspace file receipts](../images/chat-attachments-sent-receipts.png)
 
+Terminal chat uses the same attachment evidence, but keeps the receipts flat
+and compact so previews do not interrupt the command transcript.
+
+![Terminal chat attachment receipts](../images/chat-attachments-terminal-sent-receipts.png)
+
 ---
 
 ## Pipelines and Sub-Sessions

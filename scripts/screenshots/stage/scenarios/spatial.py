@@ -181,6 +181,8 @@ SPATIAL_HEARTBEATS: list[tuple[str, int, str]] = [
     ("website",          7200,  "Skim spindrel.dev analytics for the week."),
 ]
 
+SPATIAL_SCHEDULED_TASK_TITLE = "Screenshot spatial QA sweep"
+
 
 # ---------------------------------------------------------------------------
 # Channels that should look "alive" with recent chat history so density
@@ -291,7 +293,27 @@ def stage_spatial(
             append_spatial_prompt=True,
         )
 
-    # 6. Recent chat history on a handful of channels so density halos render
+    # 6. Channel-bound scheduled task — exercises the local schedule satellite
+    # layer in spatial-check screenshots alongside heartbeats.
+    qa_channel_id = _ch_id("qa", channel_id_by_slug)
+    existing_tasks = [
+        task for task in client.list_admin_tasks(channel_id=qa_channel_id, task_type="scheduled")
+        if task.get("title") == SPATIAL_SCHEDULED_TASK_TITLE
+    ]
+    if existing_tasks:
+        state.tasks["spatial_qa_scheduled"] = str(existing_tasks[0]["id"])
+    else:
+        task = client.create_scheduled_task(
+            bot_id=_bot("dev"),
+            title=SPATIAL_SCHEDULED_TASK_TITLE,
+            prompt="Review the QA queue, summarize the first suspicious flake, and propose the next concrete verification step.",
+            channel_id=qa_channel_id,
+            scheduled_at="+2h",
+            recurrence="+6h",
+        )
+        state.tasks["spatial_qa_scheduled"] = str(task["id"])
+
+    # 7. Recent chat history on a handful of channels so density halos render
     # with visible variation. Same server helper flagship uses; idempotent
     # via the helper's ``>=4 messages → skip`` check.
     for slug in ACTIVE_CHANNEL_SLUGS:
@@ -303,7 +325,7 @@ def stage_spatial(
             dry_run=dry_run,
         )
 
-    # 7. Native widget state seeds — each spatial pin owns its own
+    # 8. Native widget state seeds — each spatial pin owns its own
     # ``WidgetInstance`` (synthetic per-pin scope_ref, see
     # ``create_unique_native_widget_instance``). We seed each instance
     # directly by its UUID so different pins of the same widget_ref can
@@ -333,7 +355,7 @@ def stage_spatial(
         except (RuntimeError, subprocess.CalledProcessError):
             continue
 
-    # 7. Surface a stable hero-channel UUID for capture specs to reference.
+    # 9. Surface a stable hero-channel UUID for capture specs to reference.
     # ``qa`` is the densest channel (canvas pins, heartbeat, recent activity)
     # so it's the natural target for the "zoom into a channel" spec.
     state.channels["spatial_hero"] = channel_id_by_slug["qa"]
@@ -355,6 +377,13 @@ def teardown_spatial(client: SpindrelClient) -> None:
         if pin.get("display_label") in spatial_labels:
             try:
                 client.delete_pin(str(pin["id"]))
+            except Exception:
+                pass
+
+    for task in client.list_admin_tasks(task_type="scheduled"):
+        if task.get("title") == SPATIAL_SCHEDULED_TASK_TITLE:
+            try:
+                client.delete_task(str(task["id"]))
             except Exception:
                 pass
 

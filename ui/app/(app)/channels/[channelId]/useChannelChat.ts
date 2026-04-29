@@ -428,13 +428,18 @@ export function useChannelChat({
             path: pf.upload.path,
           });
         }
+        const previewUrl = pf.route === "inline_image" && pf.file.type.startsWith("image/") && pf.base64
+          ? `data:${pf.file.type || "image/png"};base64,${pf.base64}`
+          : pf.route === "channel_data"
+            ? pf.preview
+            : pf.preview;
         return {
           id: pf.id,
           filename: pf.file.name,
           mime_type: pf.file.type || "application/octet-stream",
           size_bytes: pf.file.size,
           route: pf.route,
-          preview_url: pf.preview,
+          preview_url: previewUrl,
           path: pf.upload?.path,
         };
       });

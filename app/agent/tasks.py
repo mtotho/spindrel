@@ -1031,10 +1031,10 @@ async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _Prepar
             )
         else:
             initial_profile = "task_none" if (task.execution_config or {}).get("history_mode") == "none" else "task_recent"
-            if task.task_type == "heartbeat":
-                initial_profile = "heartbeat"
-            if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
-                initial_profile = "task_none"
+            from app.services.task_run_policy import resolve_task_run_policy
+            task_policy = resolve_task_run_policy(task.task_type)
+            if task_policy.context_profile:
+                initial_profile = task_policy.context_profile
             session_id, messages = await load_or_create(
                 db,
                 task.session_id,
@@ -1062,10 +1062,10 @@ async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _Prepar
         hist_turns = settings.HEARTBEAT_MAX_HISTORY_TURNS
     messages = _trim_history_for_task(messages, hist_turns)
     context_profile_name = "task_none" if hist_turns == 0 else "task_recent"
-    if task.task_type == "heartbeat":
-        context_profile_name = "heartbeat"
-    if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
-        context_profile_name = "task_none"
+    from app.services.task_run_policy import resolve_task_run_policy
+    task_policy = resolve_task_run_policy(task.task_type)
+    if task_policy.context_profile:
+        context_profile_name = task_policy.context_profile
 
     correlation_id = uuid.uuid4()
     task.correlation_id = correlation_id
@@ -1269,13 +1269,9 @@ async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uu
 
 
 def _task_run_origin(task: Task) -> str:
-    if task.task_type == "heartbeat":
-        return "heartbeat"
-    if task.task_type in ("memory_hygiene", "skill_review"):
-        return "hygiene"
-    if task.task_type == "delegation":
-        return "subagent"
-    return "task"
+    from app.services.task_run_policy import resolve_task_run_policy
+
+    return resolve_task_run_policy(task.task_type).origin
 
 
 async def _run_normal_agent_task(
@@ -1292,7 +1288,8 @@ async def _run_normal_agent_task(
 
     task = prepared.task
     bot = prepared.bot
-    skip_skill_inject = task.task_type in ("memory_hygiene", "skill_review")
+    from app.services.task_run_policy import resolve_task_run_policy
+    skip_skill_inject = resolve_task_run_policy(task.task_type).skip_skill_inject
     current_run_origin.set(_task_run_origin(task))
 
     run_result = await asyncio.wait_for(

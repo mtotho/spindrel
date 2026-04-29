@@ -22,6 +22,7 @@ The capture step writes documentation artifacts to `docs/images/`:
 ```text
 spatial-check-map-brief-selection.png
 spatial-check-jump-starboard-framing.png
+spatial-check-channel-schedule-satellites.png
 spatial-check-attention-badge.png
 spatial-check-hover-suppression.png
 spatial-check-overview-hover-calm.png

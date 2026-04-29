@@ -395,6 +395,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           localAttachments={Array.isArray(meta.local_attachments) ? meta.local_attachments : undefined}
           workspaceUploads={Array.isArray(meta.workspace_uploads) ? meta.workspace_uploads : undefined}
           channelId={channelId}
+          chatMode={chatMode}
         />
       )}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}

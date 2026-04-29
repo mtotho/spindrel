@@ -123,6 +123,7 @@ def test_attachment_checks_have_assertions_and_artifacts():
         "chat-attachments-drop-overlay",
         "chat-attachments-routing-tray",
         "chat-attachments-sent-receipts",
+        "chat-attachments-terminal-sent-receipts",
     }
     for spec in ATTACHMENT_CHECK_SPECS:
         assert spec.output.startswith("chat-attachments-")
@@ -130,6 +131,7 @@ def test_attachment_checks_have_assertions_and_artifacts():
         assert spec.assert_js
     assert any("dropSet" in str(spec.pre_capture_js) for spec in ATTACHMENT_CHECK_SPECS)
     assert any("installFakeChatSubmit" in str(spec.pre_capture_js) for spec in ATTACHMENT_CHECK_SPECS)
+    assert any("chat_mode" in "".join(spec.extra_init_scripts) for spec in ATTACHMENT_CHECK_SPECS)
 
 
 def test_resolve_specs_preserves_assertions():

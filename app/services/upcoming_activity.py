@@ -1,7 +1,7 @@
 """Upcoming activity aggregation.
 
-Owns the policy for merging scheduled heartbeats, tasks, and optional memory
-hygiene runs. Routers choose the visibility/auth shape; this service owns the
+Owns the policy for merging scheduled heartbeats, tasks, and optional maintenance
+runs. Routers choose the visibility/auth shape; this service owns the
 query mechanics and response item shape.
 """
 from __future__ import annotations
@@ -13,11 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Bot as BotRow, Channel, ChannelHeartbeat, Task
+from app.db.models import Channel, ChannelHeartbeat, Task
 from app.services.channels import apply_channel_visibility
 from app.services.heartbeat import _is_heartbeat_in_quiet_hours
 
-UpcomingType = Literal["heartbeat", "task", "memory_hygiene"]
+UpcomingType = Literal["heartbeat", "task", "memory_hygiene", "skill_review", "maintenance"]
 
 
 def _bot_name(bot_id: str) -> str:
@@ -48,7 +48,7 @@ async def list_upcoming_activity(
 
     ``auth`` is passed through the existing channel-visibility helper. API keys
     and admins see all channels; non-admin users see public plus owned private
-    channels. Memory hygiene is admin/system data, so callers must opt into it.
+    channels. Maintenance jobs are admin/system data, so callers must opt into it.
     """
     now = datetime.now(timezone.utc)
     items: list[dict] = []
@@ -125,33 +125,22 @@ async def list_upcoming_activity(
                 "recurrence": task.recurrence,
             })
 
-    if include_memory_hygiene and (type_filter is None or type_filter == "memory_hygiene"):
-        from app.services.memory_hygiene import resolve_enabled, resolve_interval
+    if include_memory_hygiene and (
+        type_filter is None
+        or type_filter in {"memory_hygiene", "skill_review", "maintenance"}
+    ):
+        from app.services.maintenance_automations import list_upcoming_maintenance_items
 
-        hygiene_bots = (
-            await db.execute(
-                select(BotRow).where(
-                    BotRow.memory_scheme == "workspace-files",
-                    BotRow.next_hygiene_run_at.isnot(None),
-                )
-            )
-        ).scalars().all()
-
-        for bot_row in hygiene_bots:
-            if not resolve_enabled(bot_row):
+        for maint_item in await list_upcoming_maintenance_items(db):
+            job_type = maint_item.get("job_type")
+            if type_filter in {"memory_hygiene", "skill_review"} and job_type != type_filter:
                 continue
-            items.append({
-                "type": "memory_hygiene",
-                "scheduled_at": bot_row.next_hygiene_run_at.isoformat()
-                if bot_row.next_hygiene_run_at
-                else None,
-                "bot_id": bot_row.id,
-                "bot_name": _bot_name(bot_row.id),
-                "channel_id": None,
-                "channel_name": None,
-                "title": "Dreaming",
-                "interval_hours": resolve_interval(bot_row),
-            })
+            item = dict(maint_item)
+            if type_filter != "maintenance":
+                item["type"] = item.pop("legacy_type", job_type)
+            if job_type == "memory_hygiene" and item["type"] == "memory_hygiene":
+                item["title"] = "Dreaming"
+            items.append(item)
 
     items.sort(key=lambda x: x.get("scheduled_at") or "9999")
     return items[:limit]
