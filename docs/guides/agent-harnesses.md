@@ -123,8 +123,13 @@ SPINDREL_API_KEY=... \
 python -m scripts.screenshots.harness_live \
   --api-url http://10.10.30.208:8000 \
   --ui-url http://10.10.30.208:8000 \
+  --browser-url http://10.10.30.208:8000 \
   --output-dir docs/images
 ```
+
+When using the shared Docker Playwright runtime, `--browser-url` must be
+reachable from inside the Playwright container. The exact main-host command
+with Docker container IP resolution lives in `scripts/screenshots/README.md`.
 
 For question-card fixtures, first create or preserve a live pending
 `core/harness_question` session, set `HARNESS_VISUAL_QUESTION_SESSION_ID`, then
