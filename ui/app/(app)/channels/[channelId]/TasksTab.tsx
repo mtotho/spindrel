@@ -136,7 +136,7 @@ function QuickAutomations({
   if (!isLoading && presets.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-testid="channel-quick-automations">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
@@ -154,6 +154,7 @@ function QuickAutomations({
             <button
               key={preset.id}
               type="button"
+              data-testid={`quick-automation-${preset.id}`}
               onClick={() => onSelect(preset)}
               className="group flex min-h-[92px] flex-col items-start gap-2 rounded-md bg-surface-raised/45 px-3 py-3 text-left transition-colors hover:bg-surface-overlay/55 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
@@ -205,7 +206,7 @@ function PresetReviewDrawer({
   const errorMessage = error instanceof Error ? error.message : error ? "Failed to create task." : null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex justify-end">
+    <div className="fixed inset-0 z-[10000] flex justify-end" data-testid="quick-automation-review-drawer">
       <button
         type="button"
         aria-label="Close quick automation"

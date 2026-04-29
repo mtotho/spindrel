@@ -104,9 +104,10 @@ test("Map Brief active attention is actionable without opening the Attention pan
     assert.match(source, /findActiveAttentionItemsForObject/);
     assert.match(source, /data-testid="map-brief-attention-actions"/);
     assert.match(source, /attentionDeckHref/);
-    assert.match(source, /Review in Mission Control/);
+    assert.match(source, /Review finding/);
+    assert.match(source, /Review raw signal/);
     assert.match(source, /operator-reviewed finding/);
-    assert.match(source, /label: "Review in Mission Control"/);
+    assert.match(source, /attentionPrimaryActionLabel/);
     assert.doesNotMatch(source, /Acknowledge target/);
     assert.doesNotMatch(source, /Open in Attention/);
 });
@@ -143,7 +144,7 @@ test("spatial glanceability uses shared cue markers and compass without side str
     assert.match(modelSource, /worldW: node\.world_w/);
     assert.match(modelSource, /worldH: node\.world_h/);
     assert.match(modelSource, /attentionReviewHref/);
-    assert.match(modelSource, /Review in Mission Control/);
+    assert.match(modelSource, /Review signal/);
     assert.match(modelSource, /attentionDeckHref\(\{ itemId: direct\.id \}\)/);
     assert.match(routerSource, /const HubAttentionPage = lazy/);
     assert.match(routerSource, /\{ path: "hub\/attention", element: <HubAttentionPage \/> \}/);
@@ -155,7 +156,8 @@ test("Map Brief warning lines expose concrete review targets", () => {
     const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
     const typeSource = readFileSync(resolve(process.cwd(), "src/api/types/workspaceMapState.ts"), "utf8");
     assert.match(chromeSource, /data-testid="map-brief-signal-action"/);
-    assert.match(chromeSource, /Review in Mission Control/);
+    assert.match(chromeSource, /Review signal/);
+    assert.match(chromeSource, /Review finding/);
     assert.match(chromeSource, /Open trace/);
     assert.match(chromeSource, /Open automation/);
     assert.match(chromeSource, /openTraceInspector/);
@@ -239,7 +241,7 @@ test("Starboard attention station is only a launcher for Mission Control Review"
     const channelHeaderSource = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
     assert.match(chromeSource, /AttentionStarboardSummary/);
     assert.match(chromeSource, /data-testid="starboard-attention-summary"/);
-    assert.match(chromeSource, /Review in Mission Control/);
+    assert.match(chromeSource, /Open Review/);
     assert.match(chromeSource, /attentionDeckHref/);
     assert.doesNotMatch(chromeSource, /Open deck/);
     assert.doesNotMatch(chromeSource, /Open Command Deck/);
@@ -247,6 +249,8 @@ test("Starboard attention station is only a launcher for Mission Control Review"
     assert.doesNotMatch(rootSource, /AttentionHubDrawerRoot/);
     assert.match(hubPageSource, /requestedChannelId/);
     assert.match(hubPageSource, /requestedMode/);
+    assert.match(hubPageSource, /requestedRunId/);
+    assert.match(hubPageSource, /onRunSelect/);
     assert.match(hubPageSource, /requestedTargetKind/);
     assert.match(commandCenterSource, /Navigate/);
     assert.match(commandCenterSource, /attentionDeckHref/);
@@ -254,7 +258,10 @@ test("Starboard attention station is only a launcher for Mission Control Review"
     assert.match(deckSource, /Mission Control Review/);
     assert.match(deckSource, /Recommended/);
     assert.match(deckSource, /Run Operator sweep/);
-    assert.match(deckSource, /Sweep raw signals/);
+    assert.match(deckSource, /Raw signals waiting/);
+    assert.match(deckSource, /selectedRunId/);
+    assert.match(deckSource, /onRunSelect/);
+    assert.match(deckSource, /Transcript evidence/);
     assert.match(deckSource, /runModePinned/);
     assert.match(deckSource, /sweepBusy/);
     assert.match(deckSource, /onSelect\(null\);\n    setDeckMode\("runs"\)/);

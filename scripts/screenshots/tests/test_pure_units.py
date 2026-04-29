@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import json
+import inspect
 from unittest.mock import patch
 
 import pytest
@@ -370,6 +371,14 @@ def test_harness_live_usage_log_specs_target_harness_channel():
     assert all(spec.route == "http://ui/admin/usage?channel_id=channel-1&after=30d#Logs" for spec in specs)
     assert all("harness sdk" in spec.wait_js for spec in specs)
     assert all("harness SDK" in spec.contains for spec in specs)
+
+
+def test_harness_live_capture_sets_page_viewport_for_cdp_runtime():
+    source = inspect.getsource(harness_live._capture_one)
+
+    assert "page.set_viewport_size" in source
+    assert '"width": spec.viewport[0]' in source
+    assert '"height": spec.viewport[1]' in source
 
 
 def test_harness_live_plan_mode_switcher_specs_are_docs_fixtures():

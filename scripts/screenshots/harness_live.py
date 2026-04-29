@@ -178,6 +178,9 @@ async def _capture_one(
     try:
         await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
         page: Page = await context.new_page()
+        # CDP-backed remote Playwright can ignore the context-level viewport;
+        # set it on the page too so mobile docs captures really exercise mobile.
+        await page.set_viewport_size({"width": spec.viewport[0], "height": spec.viewport[1]})
         await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
         if spec.slash_query:
             editor = page.locator(".tiptap-chat-input [contenteditable='true']").last

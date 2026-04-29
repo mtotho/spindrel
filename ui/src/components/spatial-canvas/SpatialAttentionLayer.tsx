@@ -703,7 +703,7 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
         </div>
       )}
       {run.error && <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{run.error}</div>}
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Transcript</div>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Transcript evidence</div>
       <div className="relative min-h-[min(76vh,760px)] overflow-hidden" style={{ contain: "paint" }}>
         <div className="absolute inset-0 overflow-hidden">
           {canShowTranscript ? (

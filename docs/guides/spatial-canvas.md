@@ -31,8 +31,10 @@ The route underneath the overlay **stays mounted**. SSE streams, in-flight bot r
 ![Mid-zoom view — channel cluster with density halos visible](../images/spatial-zoom-out-01.png)
 
 - **Pan** — click-and-drag on the background.
-- **Select items** — in Browse mode, clicking a channel, bot, widget, cluster,
-  or landmark selects it and shows a compact action rail near the target.
+- **Select items** — in Browse mode, clicking a channel, bot, widget, or
+  landmark selects it and opens Map Brief in Starboard. The canvas keeps a
+  small selected-object anchor in-world so the user can see what the panel is
+  describing without a competing floating rail.
 - **Move items** — turn on Arrange in the canvas chrome. Browse mode never
   moves objects, and `Shift` is not a movement override.
 - **Zoom** — wheel anywhere on the canvas. Holding the cursor over a widget tile zooms the canvas, not the widget (until the tile is "activated"; see [Widget tiles](#widget-tiles)).
@@ -57,11 +59,12 @@ Each channel renders at semantic-zoom levels. The authored bounding boxes stay t
 | `0.4 – 1.0` (**preview**) | Compact card: hash chip, colored bullet, name, last activity timestamp. |
 | `≥ 1.0` (**snapshot**) | Expanded card with member-bot chips, private flag, and a "double-click to dive" hint. |
 
-Clicking a cluster selects it and shows Focus/Dive actions; double-clicking
-dives into the cluster's winner channel. Cluster halos respect the **Activity**
-toggle. When Activity is enabled, member halos collapse into the cluster marker;
-when Activity is off, the winner is still selected from recent usage, but no
-glow is shown.
+Clicking or double-clicking a cluster focuses the camera toward that cluster
+only far enough to uncluster nearby channels. It does not select a hidden
+winner, open a popover, or navigate directly to a channel. Cluster halos respect
+the **Activity** toggle. When Activity is enabled, member halos collapse into
+the cluster marker; when Activity is off, the anchor still comes from recent
+usage, but no glow is shown.
 
 **Double-click a channel tile to dive in.** A ~300ms zoom-and-translate animation runs to completion, then the route changes to `/channels/:id`. The canvas never embeds the channel page — diving is always a route change.
 
@@ -102,9 +105,9 @@ Bots that participate in channels can appear as actor nodes on the canvas when a
 
 Bot nodes are seeded near their primary or member channel, but not inside the channel/widget cluster. The server tests candidate spawn positions against existing canvas rectangles and keeps at least the default edge-clearance gap, so a bot is not born already crowding another object. Older untouched bot rows that still match the former overlapping spawn distance are repaired the next time the bot node is ensured.
 
-Clicking a bot selects it. Chat and bot settings are explicit actions on the
-selected-object rail or context menus, so a normal canvas click never randomly
-opens chat while the user is trying to inspect or navigate.
+Clicking a bot selects it and opens Map Brief. Chat and bot settings are
+explicit actions in Map Brief or context menus, so a normal canvas click never
+randomly opens chat while the user is trying to inspect or navigate.
 
 `move_on_canvas` moves by bounded grid steps. If a move would worsen under-clearance crowding, the tool rejects it and names the blocking object plus the before/after edge gap in policy steps.
 
@@ -138,12 +141,12 @@ docked full-height surface with a header station switcher so future map
 workflows can live in one place instead of scattering small popovers across the
 viewport. The last station choice persists in `localStorage`.
 
-- **Mission Control** is the default Hub station. It embeds the operations board
-  for AI-assisted operator briefs, editable mission drafts, mission load, bot
-  lanes, spatial readiness, progress updates, and compact Attention signals.
-  Canvas Attention signals, the hub landmark, the hub edge beacon, and the
-  command palette route here when the canvas is mounted.
-- **Attention** remains a focused subsection for target review and legacy links.
+- **Map Brief** is the contextual inspector. Selecting a world object shows what
+  it is, what needs attention, what runs next, recent updates, and one primary
+  route into the full review surface when work is needed. It stays shallow by
+  design; it is not the place to run queue triage or read long transcripts.
+- **Attention** is a compact map summary station. It lists the next local
+  signals and launches the full review deck; it does not embed the workbench.
 - **Launch Bay** hosts the add-to-canvas flow, including the optional
   `core/command_center_native` widget for users who want a removable world tile.
   The top-right `+ Add` button and the background context menu both open this
@@ -230,18 +233,15 @@ pan, zoom, and semantic-zoom transitions. The local **Starboard → Controls →
 Attention signals** toggle hides these map signals without changing Attention
 Item state.
 
-Clicking a target signal opens target review in the Hub drawer, with the target
-label, `N of M` issue position, a compact issue list, and acknowledge/resolve
-advancing to the next active issue for that target. Target review can
-acknowledge all active items on that target; the global Hub header can
-acknowledge all active items visible to the current user after confirmation.
+Clicking a target signal selects the target and opens Map Brief. Map Brief can
+link directly to the raw signal or reviewed finding in `/hub/attention`; the
+full page owns queue triage, acknowledgements, Operator findings, run receipts,
+and transcript evidence. The global Attention entry point can still acknowledge
+all visible active items after confirmation.
 
-The canvas also has a fixed **Mission Control** landmark above the seed center.
-Opening it switches Starboard to the Mission Control station, showing mission
-load, AI-suggested mission drafts, assigned bot lanes, spatial readiness, recent
-progress, compact Attention signals, and bot findings without leaving the
-canvas. The same station can be opened from an edge beacon, the channel header
-count, or the command palette.
+The canvas also has a fixed **Attention Hub** landmark above the seed center.
+Opening it shows the compact Attention station in Starboard; the station's
+primary action opens the full Mission Control Review deck at `/hub/attention`.
 When mapped items exist and Attention signals are visible, the Hub's edge beacon
 remains available whenever the Hub is offscreen.
 

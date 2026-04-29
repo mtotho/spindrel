@@ -1335,6 +1335,41 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="spatial-check-attention-review-deck",
+        route="/hub/attention?mode=review",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')"
+            " && document.body.innerText.includes('Mission Control Review')"
+        ),
+        output="spatial-check-attention-review-deck.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "if (!text.includes('Findings') || !text.includes('Raw') || !text.includes('Runs') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
+            "if (!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('what-now lane missing');"
+            "if (text.includes('Open in Attention') || text.includes('Open deck')) throw new Error('legacy attention launcher copy is visible');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-attention-run-log",
+        route="/hub/attention?mode=runs",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')"
+            " && document.body.innerText.includes('Run log')"
+        ),
+        output="spatial-check-attention-run-log.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "if (!text.includes('Operator runs')) throw new Error('run log workspace missing');"
+            "if (text.includes('Transcript') && !text.includes('Transcript evidence')) throw new Error('transcript disclosure does not use evidence copy');"
+        ),
+    ),
+    ScreenshotSpec(
         name="spatial-check-density-smoke",
         route="/",
         viewport={"width": 1440, "height": 900},
@@ -1902,6 +1937,99 @@ CHANNEL_SESSION_TAB_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=["CHANNEL_SESSION_TABS_INIT"],
         pre_capture_js=_ASSERT_AND_SPLIT_FILE_TAB_JS,
         assert_js=_ASSERT_FILE_TABS_SETTLED_JS,
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Channel quick-automation checks — validates the lightweight presets surfaced
+# inside Channel Settings > Automation > Tasks.
+# ---------------------------------------------------------------------------
+
+_QUICK_AUTOMATIONS_READY = (
+    "!!document.querySelector('[data-testid=\"channel-quick-automations\"]')"
+    " && document.body.innerText.includes('Widget Improvement Healthcheck')"
+)
+
+_QUICK_AUTOMATION_WAIT_JS = (
+    "const waitFor = async (predicate, label, timeout = 10000) => {"
+    "  const started = Date.now();"
+    "  while (Date.now() - started < timeout) {"
+    "    if (predicate()) return;"
+    "    await new Promise((resolve) => setTimeout(resolve, 120));"
+    "  }"
+    "  throw new Error(`timed out waiting for ${label}`);"
+    "};"
+)
+
+_SCROLL_TO_QUICK_AUTOMATIONS_JS = (
+    _QUICK_AUTOMATION_WAIT_JS
+    + "await waitFor(() => document.querySelector('[data-testid=\"channel-quick-automations\"]'), 'quick automations');"
+    + "const section = document.querySelector('[data-testid=\"channel-quick-automations\"]');"
+    + "section.scrollIntoView({ block: 'center', inline: 'nearest' });"
+    + "await new Promise((resolve) => setTimeout(resolve, 180));"
+)
+
+_OPEN_QUICK_AUTOMATION_DRAWER_JS = (
+    _SCROLL_TO_QUICK_AUTOMATIONS_JS
+    + "const preset = document.querySelector('[data-testid=\"quick-automation-widget_improvement_healthcheck\"]');"
+    + "if (!preset) throw new Error('widget improvement preset missing');"
+    + "preset.click();"
+    + "await waitFor(() => document.querySelector('[data-testid=\"quick-automation-review-drawer\"]'), 'quick automation drawer');"
+)
+
+_ASSERT_QUICK_AUTOMATIONS_JS = (
+    "const section = document.querySelector('[data-testid=\"channel-quick-automations\"]');"
+    "if (!section) throw new Error('quick automations section missing');"
+    "const text = section.textContent || '';"
+    "if (!/Quick automations/.test(text)) throw new Error('quick automations heading missing');"
+    "if (!/Widget Improvement Healthcheck/.test(text)) throw new Error('widget improvement preset missing');"
+    "if (!/Full customization lives in Automations/.test(text)) throw new Error('full customization hint missing');"
+)
+
+_ASSERT_QUICK_AUTOMATION_DRAWER_JS = (
+    "const drawer = document.querySelector('[data-testid=\"quick-automation-review-drawer\"]');"
+    "if (!drawer) throw new Error('quick automation drawer missing');"
+    "const text = drawer.textContent || '';"
+    "if (!/Widget Improvement Healthcheck/.test(text)) throw new Error('drawer preset title missing');"
+    "if (!/Prompt/.test(text)) throw new Error('drawer prompt editor missing');"
+    "if (!/Prefilled context/.test(text)) throw new Error('drawer context summary missing');"
+    "if (!/Create & Customize/.test(text)) throw new Error('drawer customize action missing');"
+)
+
+CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="channel-quick-automations",
+        route="/channels/{channel_quick_automations}/settings#automation",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_QUICK_AUTOMATIONS_READY,
+        output="channel-quick-automations.png",
+        color_scheme="dark",
+        pre_capture_js=_SCROLL_TO_QUICK_AUTOMATIONS_JS,
+        assert_js=_ASSERT_QUICK_AUTOMATIONS_JS,
+    ),
+    ScreenshotSpec(
+        name="channel-quick-automation-drawer",
+        route="/channels/{channel_quick_automations}/settings#automation",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_QUICK_AUTOMATIONS_READY,
+        output="channel-quick-automation-drawer.png",
+        color_scheme="dark",
+        pre_capture_js=_OPEN_QUICK_AUTOMATION_DRAWER_JS,
+        assert_js=_ASSERT_QUICK_AUTOMATION_DRAWER_JS,
+    ),
+    ScreenshotSpec(
+        name="channel-quick-automation-drawer-mobile",
+        route="/channels/{channel_quick_automations}/settings#automation",
+        viewport={"width": 390, "height": 844},
+        wait_kind="function",
+        wait_arg=_QUICK_AUTOMATIONS_READY,
+        output="channel-quick-automation-drawer-mobile.png",
+        color_scheme="dark",
+        pre_capture_js=_OPEN_QUICK_AUTOMATION_DRAWER_JS,
+        assert_js=_ASSERT_QUICK_AUTOMATION_DRAWER_JS,
     ),
 ]
 

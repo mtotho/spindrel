@@ -43,18 +43,27 @@ async def stream_loop_recovery(
             messages=state.messages,
             tools_param=tools_param,
             tools_used=state.tool_calls_made,
-        ) or _synthesize_required_plan_question_tool_call(
+        )
+        if synthetic_tool_call is not None:
+            _apply_synthetic_tool_calls(
+                accumulated_msg=accumulated_msg,
+                messages=state.messages,
+                tool_calls=[synthetic_tool_call],
+            )
+
+    if not _has_tool_call(accumulated_msg.tool_calls, "ask_plan_questions"):
+        synthetic_question_call = _synthesize_required_plan_question_tool_call(
             accumulated_msg=accumulated_msg,
             messages=state.messages,
             tools_param=tools_param,
             tools_used=state.tool_calls_made,
         )
-        if synthetic_tool_call is not None:
-            accumulated_msg.content = ""
-            accumulated_msg.tool_calls = [synthetic_tool_call]
-            if state.messages and state.messages[-1].get("role") == "assistant":
-                state.messages[-1]["content"] = ""
-                state.messages[-1]["tool_calls"] = [synthetic_tool_call]
+        if synthetic_question_call is not None:
+            _apply_synthetic_tool_calls(
+                accumulated_msg=accumulated_msg,
+                messages=state.messages,
+                tool_calls=[*(accumulated_msg.tool_calls or []), synthetic_question_call],
+            )
 
     if accumulated_msg.tool_calls:
         yield LoopRecoveryDone(has_tool_calls=True)
@@ -81,6 +90,29 @@ def _tool_available(tools_param: list[dict[str, Any]] | None, name: str) -> bool
         if isinstance(function, dict) and function.get("name") == name:
             return True
     return False
+
+
+def _has_tool_call(tool_calls: list[dict[str, Any]] | None, name: str) -> bool:
+    for tool_call in tool_calls or []:
+        function = tool_call.get("function") if isinstance(tool_call, dict) else None
+        if isinstance(function, dict) and function.get("name") == name:
+            return True
+        if isinstance(tool_call, dict) and tool_call.get("name") == name:
+            return True
+    return False
+
+
+def _apply_synthetic_tool_calls(
+    *,
+    accumulated_msg: AccumulatedMessage,
+    messages: list[dict[str, Any]],
+    tool_calls: list[dict[str, Any]],
+) -> None:
+    accumulated_msg.content = ""
+    accumulated_msg.tool_calls = tool_calls
+    if messages and messages[-1].get("role") == "assistant":
+        messages[-1]["content"] = ""
+        messages[-1]["tool_calls"] = tool_calls
 
 
 def _latest_user_text(messages: list[dict[str, Any]]) -> str:

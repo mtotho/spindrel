@@ -107,6 +107,30 @@ it, writes a file through the channel workspace API, and seeds a memory-tool
 turn. Inspect all five images before closing out: the bundle intentionally
 checks both the Project admin surface and the channel transcript.
 
+## Channel Quick Automations Run
+
+Use this bundle when changing Channel Settings -> Automation -> Tasks quick
+automation presets, preset review drawers, or channel-scoped task shortcuts:
+
+```bash
+python -m scripts.screenshots stage --only channel-quick-automations
+python -m scripts.screenshots capture --only channel-quick-automations
+python -m scripts.screenshots check
+```
+
+Expected artifacts:
+
+```text
+channel-quick-automations.png
+channel-quick-automation-drawer.png
+channel-quick-automation-drawer-mobile.png
+```
+
+The staging step creates one reusable channel with a screenshot bot. The
+capture opens the quick-automation preset drawer without creating a task, so it
+is safe to rerun. Inspect all three images before closing out: the bundle
+checks the in-settings preset surface plus desktop and mobile drawer framing.
+
 ## Harness Parity Run
 
 External harness parity screenshots use real live harness sessions rather than

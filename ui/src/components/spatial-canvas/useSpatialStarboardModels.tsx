@@ -114,7 +114,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
     const openReviewAction = (href: string | null): StarboardObjectAction[] =>
       href
         ? [{
-            label: "Review in Mission Control",
+            label: "Review signal",
             icon: "open",
             onSelect: () => navigate(href, { state: canvasBackState }),
           }]
@@ -169,7 +169,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         },
         actions: [
           jumpAction(attentionHubPos.x, attentionHubPos.y),
-          { label: "Open Mission Control Review", icon: "open", onSelect: () => openStarboardAttention() },
+          { label: "Open Review", icon: "open", onSelect: () => openStarboardAttention() },
         ],
       },
       {

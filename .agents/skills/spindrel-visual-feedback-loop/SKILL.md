@@ -50,6 +50,28 @@ After capture, inspect the images. If visual inspection is not possible in the
 current environment, say that explicitly and do not imply the visual pass was
 completed.
 
+## Channel Quick Automations Loop
+
+Use this target when changing Channel Settings -> Automation -> Tasks quick
+automation presets or the preset review drawer.
+
+```bash
+python -m scripts.screenshots stage --only channel-quick-automations
+python -m scripts.screenshots capture --only channel-quick-automations
+python -m scripts.screenshots check
+```
+
+Expected documentation artifacts:
+
+```text
+docs/images/channel-quick-automations.png
+docs/images/channel-quick-automation-drawer.png
+docs/images/channel-quick-automation-drawer-mobile.png
+```
+
+Inspect the preset surface and both drawer captures. The scenario opens the
+drawer only; it must not create a scheduled task during capture.
+
 ## Adding A Scenario
 
 Add or adjust screenshot specs in `scripts/screenshots/capture/specs.py` when a

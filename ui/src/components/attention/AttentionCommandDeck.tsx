@@ -717,7 +717,7 @@ function RunReceipt({ run }: { run: AttentionTriageRunResponse }) {
       </div>
 
       <details className="rounded-md bg-surface-overlay/30 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium text-text-muted hover:text-text">Transcript</summary>
+        <summary className="cursor-pointer text-sm font-medium text-text-muted hover:text-text">Transcript evidence</summary>
         <div className="mt-3 min-h-[min(72vh,720px)] overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
           {hasTranscript ? (
             <div className="relative h-[min(72vh,720px)]">

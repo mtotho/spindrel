@@ -718,7 +718,7 @@ function AttentionStarboardSummary({
             onClick={openReview}
           >
             <ExternalLink size={13} />
-            Review in Mission Control
+            Open Review
           </button>
         </div>
       </section>
@@ -741,6 +741,11 @@ function AttentionStarboardSummary({
       </section>
     </div>
   );
+}
+
+function attentionPrimaryActionLabel(item: WorkspaceAttentionItem | null): string {
+  if (!item) return "Review signal";
+  return getAttentionWorkflowState(item) === "operator_review" ? "Review finding" : "Review raw signal";
 }
 
 function AttentionMetric({ label, value, tone }: { label: string; value: number; tone: "accent" | "danger" | "muted" }) {
@@ -775,7 +780,7 @@ function SelectedObjectInspector({
   const hasOperatorReview = targetAttentionItems.some((entry) => getAttentionWorkflowState(entry) === "operator_review");
   const primary: StarboardObjectAction | undefined = firstTargetAttention
     ? {
-        label: "Review in Mission Control",
+        label: attentionPrimaryActionLabel(firstTargetAttention),
         icon: "open",
         onSelect: () => onOpenAttentionWarning(firstTargetAttention.id),
       }
@@ -1063,7 +1068,7 @@ function signalAction(
 ): { label: string; icon: ReactNode; onSelect: () => void } | null {
   if (signal.kind === "attention" && signal.id && onOpenAttentionWarning) {
     return {
-      label: "Review in Mission Control",
+      label: "Review signal",
       icon: <ExternalLink size={11} />,
       onSelect: () => onOpenAttentionWarning(signal.id!),
     };
