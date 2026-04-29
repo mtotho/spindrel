@@ -71,6 +71,12 @@ class _StubRuntime:
                     description="Show test harness status.",
                     aliases=("health",),
                 ),
+                HarnessRuntimeCommandSpec(
+                    id="mutate",
+                    label="mutate",
+                    description="Mutating test command.",
+                    readonly=False,
+                ),
             ),
         )
 
@@ -427,7 +433,7 @@ async def test_harness_help_lists_only_allowed_commands(db_session):
     )
     labels = {c["label"] for c in result.payload["top_categories"]}
     # Allowlist for stub plus runtime-native command aliases.
-    assert labels == {"/help", "/stop", "/rename", "/model", "/runtime", "/status", "/health"}
+    assert labels == {"/help", "/stop", "/rename", "/model", "/runtime", "/status", "/health", "/mutate"}
 
 
 async def test_normal_help_lists_full_surface(db_session):
@@ -457,7 +463,7 @@ async def test_catalog_with_bot_id_intersects(db_session):
 
     catalog = await list_supported_slash_commands(db=db_session, bot_id=bot.id)
     ids = {c["id"] for c in catalog}
-    assert ids == {"help", "stop", "rename", "model", "runtime", "status", "health"}
+    assert ids == {"help", "stop", "rename", "model", "runtime", "status", "health", "mutate"}
 
 
 async def test_harness_runtime_command_dispatches_to_whitelisted_runtime(db_session):
@@ -509,6 +515,33 @@ async def test_harness_native_command_dispatches_by_alias(db_session):
 
     assert result.command_id == "health"
     assert result.payload["command"] == "status"
+
+
+async def test_mutating_harness_native_command_requires_approval(db_session, monkeypatch):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    async def _deny(**kwargs):
+        from app.services.agent_harnesses.approvals import AllowDeny
+
+        return AllowDeny.deny("blocked by test")
+
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.request_harness_approval",
+        _deny,
+    )
+
+    result = await execute_slash_command(
+        command_id="mutate",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=[],
+    )
+
+    assert result.command_id == "mutate"
+    assert result.payload["status"] == "denied"
+    assert result.payload["command"] == "mutate"
+    assert "blocked by test" in result.fallback_text
 
 
 async def test_harness_runtime_command_rejects_unlisted_runtime_command(db_session):
