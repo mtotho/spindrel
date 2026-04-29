@@ -58,6 +58,24 @@ class WorkSurface:
         }
 
 
+@dataclass(frozen=True)
+class ProjectBlueprintMaterialization:
+    folders_created: list[str]
+    files_written: list[str]
+    files_skipped: list[str]
+    knowledge_files_written: list[str]
+    knowledge_files_skipped: list[str]
+
+    def payload(self) -> dict[str, list[str]]:
+        return {
+            "folders_created": self.folders_created,
+            "files_written": self.files_written,
+            "files_skipped": self.files_skipped,
+            "knowledge_files_written": self.knowledge_files_written,
+            "knowledge_files_skipped": self.knowledge_files_skipped,
+        }
+
+
 def normalize_project_path(raw: str | None) -> str | None:
     """Normalize a workspace-relative project path."""
     if raw is None:
@@ -77,6 +95,110 @@ def normalize_project_slug(raw: str | None, *, fallback: str) -> str:
     value = (raw or fallback or "project").strip().lower()
     value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
     return value or "project"
+
+
+def render_project_blueprint_root_path(
+    pattern: str | None,
+    *,
+    project_name: str,
+    project_slug: str,
+) -> str:
+    """Render a blueprint root path pattern into a workspace-relative path."""
+    template = (pattern or "common/projects/{slug}").strip()
+    path_name = normalize_project_slug(None, fallback=project_name)
+    rendered = (
+        template
+        .replace("{project_slug}", project_slug)
+        .replace("{slug}", project_slug)
+        .replace("{project_name}", path_name)
+        .replace("{name}", path_name)
+    )
+    normalized = normalize_project_path(rendered)
+    if not normalized:
+        raise ValueError("blueprint root path pattern produced an empty path")
+    return normalized
+
+
+def project_blueprint_snapshot(blueprint: Any) -> dict[str, Any]:
+    return {
+        "id": str(blueprint.id),
+        "name": blueprint.name,
+        "slug": blueprint.slug,
+        "default_root_path_pattern": blueprint.default_root_path_pattern,
+        "prompt_file_path": blueprint.prompt_file_path,
+        "folders": list(blueprint.folders or []),
+        "files": dict(blueprint.files or {}),
+        "knowledge_files": dict(blueprint.knowledge_files or {}),
+        "repos": list(blueprint.repos or []),
+        "env": dict(blueprint.env or {}),
+        "required_secrets": list(blueprint.required_secrets or []),
+        "metadata": dict(getattr(blueprint, "metadata_", None) or {}),
+    }
+
+
+def _blueprint_relative_path(raw: Any, *, field: str) -> str:
+    if not isinstance(raw, str):
+        raise ValueError(f"{field} path must be a string")
+    normalized = normalize_project_path(raw)
+    if not normalized:
+        raise ValueError(f"{field} path is required")
+    return normalized
+
+
+def _safe_materialized_path(root: Path, relative_path: str) -> Path:
+    target = (root / relative_path).resolve()
+    resolved_root = root.resolve()
+    if target == resolved_root or resolved_root not in target.parents:
+        raise ValueError("blueprint path must stay inside the Project root")
+    return target
+
+
+def materialize_project_blueprint(
+    project_dir: ProjectDirectory,
+    blueprint: Any,
+) -> ProjectBlueprintMaterialization:
+    """Create v0 blueprint folders and starter files without overwriting files."""
+    root = Path(project_dir.host_path)
+    folders_created: list[str] = []
+    files_written: list[str] = []
+    files_skipped: list[str] = []
+    knowledge_files_written: list[str] = []
+    knowledge_files_skipped: list[str] = []
+
+    for folder in blueprint.folders or []:
+        rel = _blueprint_relative_path(folder, field="folder")
+        _safe_materialized_path(root, rel).mkdir(parents=True, exist_ok=True)
+        folders_created.append(rel)
+
+    for raw_path, raw_content in (blueprint.files or {}).items():
+        rel = _blueprint_relative_path(raw_path, field="file")
+        target = _safe_materialized_path(root, rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            files_skipped.append(rel)
+            continue
+        target.write_text(str(raw_content), encoding="utf-8")
+        files_written.append(rel)
+
+    kb_root = root / PROJECT_KB_PATH
+    kb_root.mkdir(parents=True, exist_ok=True)
+    for raw_path, raw_content in (blueprint.knowledge_files or {}).items():
+        rel = _blueprint_relative_path(raw_path, field="knowledge file")
+        target = _safe_materialized_path(kb_root, rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            knowledge_files_skipped.append(rel)
+            continue
+        target.write_text(str(raw_content), encoding="utf-8")
+        knowledge_files_written.append(rel)
+
+    return ProjectBlueprintMaterialization(
+        folders_created=folders_created,
+        files_written=files_written,
+        files_skipped=files_skipped,
+        knowledge_files_written=knowledge_files_written,
+        knowledge_files_skipped=knowledge_files_skipped,
+    )
 
 
 def _config_dict(channel: Channel | None) -> dict[str, Any]:

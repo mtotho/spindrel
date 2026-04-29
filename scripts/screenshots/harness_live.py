@@ -30,7 +30,7 @@ from scripts.screenshots.playwright_runtime import launch_async_browser
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DOCS_IMAGES = REPO_ROOT / "docs" / "images"
+DEFAULT_OUTPUT_DIR = Path("/tmp/spindrel-harness-live-screenshots")
 
 DEFAULT_CODEX_CHANNEL_ID = "41fc9132-0e6a-4f95-bcf3-8b1edaf2dabc"
 DEFAULT_CLAUDE_CHANNEL_ID = "71eb14fd-a482-5bdd-a9a2-e60d9e951169"
@@ -112,6 +112,13 @@ def _filter_specs(specs: list[CaptureSpec], only: str | None) -> list[CaptureSpe
     return selected
 
 
+def _should_include(only: str | None, *names: str) -> bool:
+    patterns = _parse_only_patterns(only)
+    if not patterns:
+        return True
+    return any(fnmatch.fnmatchcase(name, pattern) for name in names for pattern in patterns)
+
+
 def _auth_init_script(*, api_url: str, api_key: str, theme: str) -> str:
     auth_state = {
         "serverUrl": api_url,
@@ -163,6 +170,11 @@ async def _find_session(
         if fragment in haystack:
             return session_id
     raise SystemExit(f"No session in {channel_id} matched {label_fragment!r}")
+
+
+async def _create_channel_session(client: httpx.AsyncClient, *, channel_id: str) -> str:
+    data = await _api(client, "POST", f"/api/v1/channels/{channel_id}/sessions")
+    return str(data["new_session_id"])
 
 
 async def _capture_one(
@@ -292,38 +304,63 @@ def _style_command_specs(ui_url: str, channel_id: str, session_id: str) -> list[
     ]
 
 
-def _native_slash_specs(ui_url: str, channel_id: str, session_id: str) -> list[CaptureSpec]:
-    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+def _native_slash_specs(
+    ui_url: str,
+    *,
+    codex_channel_id: str,
+    codex_session_id: str,
+    claude_channel_id: str,
+    claude_session_id: str,
+) -> list[CaptureSpec]:
+    codex_route = f"{ui_url}/channels/{codex_channel_id}/session/{codex_session_id}"
+    claude_route = f"{ui_url}/channels/{claude_channel_id}/session/{claude_session_id}"
     picker_wait = (
         "document.body.innerText.toLowerCase().includes('list codex plugins') "
         "&& document.body.innerText.toLowerCase().includes('/plugins')"
     )
-    result_wait = (
+    claude_picker_wait = (
+        "document.body.innerText.toLowerCase().includes('list claude code native skills') "
+        "&& document.body.innerText.toLowerCase().includes('/skills')"
+    )
+    codex_result_wait = (
         "document.body.innerText.toLowerCase().includes('codex plugins') "
         "|| document.body.innerText.toLowerCase().includes('codex native command failed')"
     )
+    claude_result_wait = "document.body.innerText.toLowerCase().includes('claude code skills')"
     return [
         CaptureSpec(
             name="harness-native-slash-picker-dark",
-            route=route,
+            route=codex_route,
             wait_js=picker_wait,
             contains=("/plugins", "List Codex plugins"),
             theme="dark",
-            channel_id=channel_id,
+            channel_id=codex_channel_id,
             chat_mode="default",
             slash_query="/plugins",
         ),
         CaptureSpec(
             name="harness-codex-native-plugins-result-dark",
-            route=route,
-            wait_js=result_wait,
+            route=codex_route,
+            wait_js=codex_result_wait,
             contains=("Codex", "plugins"),
             theme="dark",
-            channel_id=channel_id,
+            channel_id=codex_channel_id,
             chat_mode="default",
             slash_query="/plugins",
             submit_slash=True,
             submit_ready_js=picker_wait,
+        ),
+        CaptureSpec(
+            name="harness-claude-native-skills-result-dark",
+            route=claude_route,
+            wait_js=claude_result_wait,
+            contains=("Claude Code", "skills"),
+            theme="dark",
+            channel_id=claude_channel_id,
+            chat_mode="default",
+            slash_query="/skills",
+            submit_slash=True,
+            submit_ready_js=claude_picker_wait,
         ),
     ]
 
@@ -462,71 +499,113 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             target.channel_id: await _api(client, "GET", f"/api/v1/channels/{target.channel_id}/config")
             for target in targets
         }
-        sessions = {
-            (target.name, "bridge"): await _find_session(
-                client,
-                channel_id=target.channel_id,
-                label_fragment=target.bridge_label_fragment,
-            )
-            for target in targets
-        }
-        sessions.update({
-            (target.name, "write"): await _find_session(
-                client,
-                channel_id=target.channel_id,
-                label_fragment=target.write_label_fragment,
-            )
-            for target in targets
-        })
-        sessions.update({
-            (target.name, "project"): await _find_session(
-                client,
-                channel_id=target.channel_id,
-                label_fragment=target.project_label_fragment,
-            )
-            for target in targets
-        })
-        sessions[("claude", "native_edit")] = await _find_session(
-            client,
-            channel_id=args.claude_channel_id,
-            label_fragment="Harness Native Diff Preview",
-        )
+        sessions: dict[tuple[str, str], str] = {}
 
         specs: list[CaptureSpec] = _usage_log_specs(browser_url, args.codex_channel_id)
 
         for target in targets:
-            bridge_session = sessions[(target.name, "bridge")]
-            write_session = sessions[(target.name, "write")]
-            specs.append(CaptureSpec(
-                name=f"harness-{target.name}-bridge-default",
-                route=f"{browser_url}/channels/{target.channel_id}/session/{bridge_session}",
-                wait_js="document.body.innerText.includes('get_tool_info') && document.body.innerText.includes('list_channels')",
-                contains=("get_tool_info", "list_channels"),
-                not_contains=("harness-spindrel:",),
-                theme="dark",
-                channel_id=target.channel_id,
-                chat_mode="default",
-            ))
-            specs.append(CaptureSpec(
-                name=f"harness-{target.name}-terminal-write",
-                route=f"{browser_url}/channels/{target.channel_id}/session/{write_session}",
-                wait_js=(
-                    "document.body.innerText.toLowerCase().includes('file') "
-                    "&& document.body.innerText.toLowerCase().includes('spindrel harness approval')"
-                ),
-                contains=("file", "spindrel harness approval"),
-                not_contains=TERMINAL_WRITE_NOT_CONTAINS,
-                theme="dark",
-                channel_id=target.channel_id,
-                chat_mode="terminal",
-            ))
-            specs.extend(_project_terminal_specs(browser_url, target, sessions[(target.name, "project")]))
-            specs.extend(_mobile_context_specs(browser_url, target, sessions[(target.name, "project")]))
-            specs.extend(_plan_mode_switcher_specs(browser_url, target, sessions[(target.name, "project")]))
+            bridge_name = f"harness-{target.name}-bridge-default"
+            if _should_include(args.only, bridge_name):
+                bridge_session = await _find_session(
+                    client,
+                    channel_id=target.channel_id,
+                    label_fragment=target.bridge_label_fragment,
+                )
+                sessions[(target.name, "bridge")] = bridge_session
+                specs.append(CaptureSpec(
+                    name=bridge_name,
+                    route=f"{browser_url}/channels/{target.channel_id}/session/{bridge_session}",
+                    wait_js="document.body.innerText.includes('get_tool_info') && document.body.innerText.includes('list_channels')",
+                    contains=("get_tool_info", "list_channels"),
+                    not_contains=("harness-spindrel:",),
+                    theme="dark",
+                    channel_id=target.channel_id,
+                    chat_mode="default",
+                ))
 
-        specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
-        specs.extend(_native_slash_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
-        specs.extend(_native_edit_terminal_specs(browser_url, args.claude_channel_id, sessions[("claude", "native_edit")]))
+            write_name = f"harness-{target.name}-terminal-write"
+            if _should_include(args.only, write_name):
+                write_session = await _find_session(
+                    client,
+                    channel_id=target.channel_id,
+                    label_fragment=target.write_label_fragment,
+                )
+                sessions[(target.name, "write")] = write_session
+                specs.append(CaptureSpec(
+                    name=write_name,
+                    route=f"{browser_url}/channels/{target.channel_id}/session/{write_session}",
+                    wait_js=(
+                        "document.body.innerText.toLowerCase().includes('file') "
+                        "&& document.body.innerText.toLowerCase().includes('spindrel harness approval')"
+                    ),
+                    contains=("file", "spindrel harness approval"),
+                    not_contains=TERMINAL_WRITE_NOT_CONTAINS,
+                    theme="dark",
+                    channel_id=target.channel_id,
+                    chat_mode="terminal",
+                ))
+
+            project_names = (
+                f"harness-{target.name}-project-terminal",
+                f"harness-{target.name}-mobile-context",
+                f"harness-{target.name}-plan-mode-switcher",
+            )
+            if _should_include(args.only, *project_names):
+                project_session = await _find_session(
+                    client,
+                    channel_id=target.channel_id,
+                    label_fragment=target.project_label_fragment,
+                )
+                sessions[(target.name, "project")] = project_session
+                specs.extend(_project_terminal_specs(browser_url, target, project_session))
+                specs.extend(_mobile_context_specs(browser_url, target, project_session))
+                specs.extend(_plan_mode_switcher_specs(browser_url, target, project_session))
+
+        style_names = (
+            "harness-style-command-default-dark",
+            "harness-style-command-terminal-dark",
+        )
+        if _should_include(args.only, *style_names):
+            codex_bridge_session = sessions.get(("codex", "bridge")) or await _find_session(
+                client,
+                channel_id=args.codex_channel_id,
+                label_fragment=targets[0].bridge_label_fragment,
+            )
+            sessions[("codex", "bridge")] = codex_bridge_session
+            specs.extend(_style_command_specs(browser_url, args.codex_channel_id, codex_bridge_session))
+
+        native_slash_names = (
+            "harness-native-slash-picker-dark",
+            "harness-codex-native-plugins-result-dark",
+            "harness-claude-native-skills-result-dark",
+        )
+        if _should_include(args.only, *native_slash_names):
+            codex_native_session = await _create_channel_session(
+                client,
+                channel_id=args.codex_channel_id,
+            )
+            claude_native_session = await _create_channel_session(
+                client,
+                channel_id=args.claude_channel_id,
+            )
+            sessions[("codex", "native_slash")] = codex_native_session
+            sessions[("claude", "native_slash")] = claude_native_session
+            specs.extend(_native_slash_specs(
+                browser_url,
+                codex_channel_id=args.codex_channel_id,
+                codex_session_id=codex_native_session,
+                claude_channel_id=args.claude_channel_id,
+                claude_session_id=claude_native_session,
+            ))
+
+        if _should_include(args.only, "harness-claude-native-edit-terminal"):
+            native_edit_session = await _find_session(
+                client,
+                channel_id=args.claude_channel_id,
+                label_fragment="Harness Native Diff Preview",
+            )
+            sessions[("claude", "native_edit")] = native_edit_session
+            specs.extend(_native_edit_terminal_specs(browser_url, args.claude_channel_id, native_edit_session))
         specs.extend(_question_specs(browser_url, args.claude_channel_id))
         specs = _filter_specs(specs, args.only)
 
@@ -588,7 +667,7 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--browser-url", default=default_browser_url)
     parser.add_argument("--browser-api-url", default=default_browser_api_url)
     parser.add_argument("--api-key", default=_env("SPINDREL_API_KEY") or _env("E2E_API_KEY"))
-    parser.add_argument("--output-dir", default=_env("DOCS_IMAGES_DIR", str(DEFAULT_DOCS_IMAGES)))
+    parser.add_argument("--output-dir", default=_env("HARNESS_VISUAL_OUTPUT_DIR", _env("DOCS_IMAGES_DIR", str(DEFAULT_OUTPUT_DIR))))
     parser.add_argument("--codex-channel-id", default=_env("HARNESS_PARITY_CODEX_CHANNEL_ID", DEFAULT_CODEX_CHANNEL_ID))
     parser.add_argument("--claude-channel-id", default=_env("HARNESS_PARITY_CLAUDE_CHANNEL_ID", DEFAULT_CLAUDE_CHANNEL_ID))
     parser.add_argument(

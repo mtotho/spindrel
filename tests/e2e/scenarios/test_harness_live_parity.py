@@ -1024,26 +1024,6 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             assert result["payload"]["status"] in {"ok", "error"}
             assert result["payload"].get("detail") or result.get("fallback_text")
 
-        catalog = await client.get_runtime_capabilities(case.runtime)
-        native_catalog = {command["id"] for command in catalog.get("native_commands", [])}
-        aliases = {
-            alias
-            for command in catalog.get("native_commands", [])
-            for alias in command.get("aliases", [])
-        }
-        for slash_name, runtime_command in case.direct_native_commands:
-            assert slash_name in native_catalog or slash_name in aliases
-            result = await client.execute_slash_command(
-                slash_name,
-                session_id=session_id,
-                args=[],
-            )
-            assert result["result_type"] == "harness_runtime_command"
-            assert result["command_id"] == slash_name
-            assert result["payload"]["command"] == runtime_command
-            assert result["payload"]["status"] in {"ok", "error", "terminal_handoff"}
-            assert result["payload"].get("detail") or result.get("fallback_text")
-
         context = await client.execute_slash_command("context", session_id=session_id)
         assert context["result_type"] == "harness_context_summary"
         assert context["payload"]["runtime"] == case.runtime
@@ -1099,6 +1079,36 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             channel_id,
             {"chat_mode": original_config.get("chat_mode") or "default"},
         )
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_core_native_slash_direct_commands(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    channel_id, session_id, _bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+
+    catalog = await client.get_runtime_capabilities(case.runtime)
+    native_catalog = {command["id"] for command in catalog.get("native_commands", [])}
+    aliases = {
+        alias
+        for command in catalog.get("native_commands", [])
+        for alias in command.get("aliases", [])
+    }
+    for slash_name, runtime_command in case.direct_native_commands:
+        assert slash_name in native_catalog or slash_name in aliases
+        result = await client.execute_slash_command(
+            slash_name,
+            session_id=session_id,
+            args=[],
+        )
+        assert result["result_type"] == "harness_runtime_command"
+        assert result["command_id"] == slash_name
+        assert result["payload"]["command"] == runtime_command
+        assert result["payload"]["status"] == "ok"
+        assert result["payload"].get("detail") or result.get("fallback_text")
 
 
 @pytest.mark.asyncio

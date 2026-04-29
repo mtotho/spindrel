@@ -1,0 +1,610 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode, type Dispatch, type SetStateAction } from "react";
+import type { NavigateFunction, SetURLSearchParams } from "react-router-dom";
+import {
+  Cog,
+  FolderOpen,
+  LayoutDashboard as LayoutDashboardIcon,
+  Layers,
+  Lock as LockIcon,
+  MessageCircle,
+  PanelLeft as PanelLeftIcon,
+  PanelRight as PanelRightIcon,
+  Search,
+  Settings as SettingsIcon,
+  StickyNote,
+  Terminal as TerminalIcon,
+} from "lucide-react";
+
+import { isEditableKeyboardTarget } from "@/src/components/chat/chatKeyboard";
+import { useFileBrowserStore } from "@/src/stores/fileBrowser";
+import { useChannelChatZones } from "@/src/stores/channelChatZones";
+import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
+import { defaultChannelPanelPrefs, useUIStore, type OmniPanelTab } from "@/src/stores/ui";
+import type { Channel } from "@/src/types/api";
+import {
+  CHANNEL_CHAT_MIN_WIDTH,
+  CHANNEL_PANEL_DEFAULT_WIDTH,
+  CHANNEL_PANEL_MAX_WIDTH,
+  CHANNEL_PANEL_MIN_WIDTH,
+  clampChannelPanelWidth,
+  resolveChannelPanelLayout,
+} from "@/src/lib/channelPanelLayout";
+
+export type PanelSpineAction = {
+  id: string;
+  label: string;
+  hint?: string;
+  icon: ReactNode;
+  onSelect: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+};
+
+function readLegacyRightDockWidth(): number {
+  if (typeof window === "undefined") return CHANNEL_PANEL_DEFAULT_WIDTH;
+  const raw = window.localStorage.getItem("chat-dock-right-width");
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return clampChannelPanelWidth(Number.isFinite(parsed) ? parsed : CHANNEL_PANEL_DEFAULT_WIDTH);
+}
+
+type UseChannelWorkbenchControllerArgs = {
+  channelId?: string;
+  channel?: Channel;
+  searchParams: URLSearchParams;
+  setSearchParams: SetURLSearchParams;
+  navigate: NavigateFunction;
+  isMobile: boolean;
+  isSystemChannel: boolean;
+  viewportWidth: number;
+  layoutMode: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
+  channelDashboardHref: string;
+  findingsCount: number;
+  openSessionsOverlay: () => void;
+  openSplitOverlay: () => void;
+  setBotInfoBotId: Dispatch<SetStateAction<string | null>>;
+  setFindingsPanelOpen: Dispatch<SetStateAction<boolean>>;
+};
+
+export function useChannelWorkbenchController({
+  channelId,
+  channel,
+  searchParams,
+  setSearchParams,
+  navigate,
+  isMobile,
+  isSystemChannel,
+  viewportWidth,
+  layoutMode,
+  channelDashboardHref,
+  findingsCount,
+  openSessionsOverlay,
+  openSplitOverlay,
+  setBotInfoBotId,
+  setFindingsPanelOpen,
+}: UseChannelWorkbenchControllerArgs) {
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const workspaceId = channel?.resolved_workspace_id;
+  const projectPath = typeof channel?.project?.root_path === "string"
+    ? channel.project.root_path.replace(/^\/+|\/+$/g, "")
+    : typeof channel?.config?.project_path === "string"
+      ? channel.config.project_path.replace(/^\/+|\/+$/g, "")
+      : "";
+  const projectWorkspaceId = typeof channel?.project?.workspace_id === "string"
+    ? channel.project.workspace_id
+    : typeof channel?.config?.project_workspace_id === "string"
+      ? channel.config.project_workspace_id
+      : undefined;
+  const fileWorkspaceId = projectWorkspaceId || workspaceId;
+  const fileRootPath = projectPath ? `/${projectPath}` : undefined;
+  const [terminalRequest, setTerminalRequest] = useState<{ cwd: string; label: string } | null>(null);
+
+  const buildWorkspaceTerminalCwd = useCallback((workspaceRelativePath?: string | null) => {
+    if (!fileWorkspaceId) return null;
+    const trimmed = (workspaceRelativePath || fileRootPath || `/channels/${channelId}`).replace(/^\/+|\/+$/g, "");
+    return `workspace://${fileWorkspaceId}${trimmed ? `/${trimmed}` : ""}`;
+  }, [channelId, fileRootPath, fileWorkspaceId]);
+
+  const openTerminalAtPath = useCallback((workspaceRelativePath?: string | null) => {
+    const cwd = buildWorkspaceTerminalCwd(workspaceRelativePath);
+    if (!cwd) return;
+    const labelRaw = workspaceRelativePath || fileRootPath || `/channels/${channelId}`;
+    const labelPath = labelRaw.startsWith("/") ? labelRaw : `/${labelRaw}`;
+    setTerminalRequest({
+      cwd,
+      label: labelPath || "/",
+    });
+  }, [buildWorkspaceTerminalCwd, channelId, fileRootPath]);
+
+  const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
+  const setRememberedChannelPath = useFileBrowserStore((s) => s.setChannelExplorerPath);
+  const legacyExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
+  const legacyOmniPanelTab = useUIStore((s) => s.omniPanelTab);
+  const ensureChannelPanelPrefs = useUIStore((s) => s.ensureChannelPanelPrefs);
+  const patchChannelPanelPrefs = useUIStore((s) => s.patchChannelPanelPrefs);
+  const setChannelPanelTab = useUIStore((s) => s.setChannelPanelTab);
+  const requestChannelFilesFocus = useUIStore((s) => s.requestChannelFilesFocus);
+  const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
+  const setMobileExpandedWidget = useUIStore((s) => s.setMobileExpandedWidget);
+  const channelPanelPrefs = useUIStore((s) =>
+    channelId ? s.channelPanelPrefs[channelId] : undefined,
+  );
+  const recentPages = useUIStore((s) => s.recentPages);
+  const splitMode = useUIStore((s) => s.fileExplorerSplit);
+  const setSplitMode = useUIStore((s) => s.setFileExplorerSplit);
+  const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
+  const legacyRightDockHidden = useUIStore((s) => s.rightDockHidden);
+
+  const channelPanelDefaults = useMemo(() => ({
+    ...defaultChannelPanelPrefs(),
+    leftOpen: legacyExplorerOpen,
+    rightOpen: !legacyRightDockHidden,
+    leftWidth: explorerWidth,
+    rightWidth: readLegacyRightDockWidth(),
+    leftTab: legacyOmniPanelTab,
+  }), [explorerWidth, legacyExplorerOpen, legacyOmniPanelTab, legacyRightDockHidden]);
+
+  useEffect(() => {
+    if (!channelId) return;
+    ensureChannelPanelPrefs(channelId, channelPanelDefaults);
+  }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
+
+  const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
+
+  const { rail: railPins, header: headerChipPins, dock: dockPins } = useChannelChatZones(channelId ?? "");
+  const hasHeaderChips = headerChipPins.length > 0;
+
+  const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
+    if (!channelId) return;
+    if (tab === "files") {
+      requestChannelFilesFocus(channelId);
+      return;
+    }
+    patchChannelPanelPrefs(channelId, {
+      leftOpen: true,
+      mobileDrawerOpen: isMobile,
+      leftTab: tab,
+      focusModePrior: null,
+    });
+  }, [channelId, isMobile, patchChannelPanelPrefs, requestChannelFilesFocus]);
+
+  const toggleExplorer = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => current.leftOpen
+      ? { leftOpen: false }
+      : { leftOpen: true, leftTab: current.leftTab, focusModePrior: null });
+  }, [channelId, patchChannelPanelPrefs]);
+
+  const openBrowseFiles = useCallback(() => {
+    if (!channelId) return;
+    requestChannelFilesFocus(channelId);
+  }, [channelId, requestChannelFilesFocus]);
+
+  const toggleRightDockPanel = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      rightOpen: !current.rightOpen,
+      focusModePrior: null,
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+
+  const focusOrRestorePanels = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => {
+      if (current.leftOpen || current.rightOpen || !current.topChromeCollapsed) {
+        return {
+          focusModePrior: {
+            leftOpen: current.leftOpen,
+            rightOpen: current.rightOpen,
+            topChromeCollapsed: current.topChromeCollapsed,
+          },
+          leftOpen: false,
+          rightOpen: false,
+          topChromeCollapsed: true,
+        };
+      }
+      return {
+        leftOpen: current.focusModePrior?.leftOpen ?? true,
+        rightOpen: current.focusModePrior?.rightOpen ?? (dockPins.length > 0),
+        topChromeCollapsed: current.focusModePrior?.topChromeCollapsed ?? false,
+        focusModePrior: null,
+      };
+    });
+  }, [channelId, dockPins.length, patchChannelPanelPrefs]);
+
+  useEffect(() => {
+    const handler = () => focusOrRestorePanels();
+    window.addEventListener("spindrel:channel-focus-layout", handler);
+    return () => window.removeEventListener("spindrel:channel-focus-layout", handler);
+  }, [focusOrRestorePanels]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isEditableKeyboardTarget(e.target)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.altKey && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        focusOrRestorePanels();
+        return;
+      }
+      if (mod && e.shiftKey && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        if (channelId) requestChannelFilesFocus(channelId);
+        return;
+      }
+      if (mod && !e.shiftKey && e.key === "b") {
+        e.preventDefault();
+        toggleExplorer();
+        return;
+      }
+      if (mod && e.key === "\\") {
+        e.preventDefault();
+        toggleSplit();
+        return;
+      }
+      if (e.key === "Escape" && activeFile) {
+        setActiveFile(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleExplorer, toggleSplit, activeFile, channelId, requestChannelFilesFocus, focusOrRestorePanels]);
+
+  const showFileViewer = activeFile !== null;
+  const showRailZone = layoutMode !== "dashboard-only";
+  const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
+  const showDockZone = layoutMode === "full";
+  const dashboardOnly = layoutMode === "dashboard-only";
+  const dockBlockedByFileViewer = showFileViewer && !splitMode;
+  const panelLayout = resolveChannelPanelLayout({
+    availableWidth: viewportWidth || 0,
+    isMobile,
+    layoutMode,
+    hasLeftPanel: !!channelId && !isSystemChannel && showRailZone,
+    hasRightPanel: !!channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && !dockBlockedByFileViewer,
+    leftOpen: panelPrefs.leftOpen,
+    rightOpen: panelPrefs.rightOpen,
+    leftPinned: panelPrefs.leftPinned,
+    rightPinned: panelPrefs.rightPinned,
+    leftWidth: panelPrefs.leftWidth,
+    rightWidth: panelPrefs.rightWidth,
+  });
+  const showExplorer = isMobile
+    ? panelPrefs.mobileDrawerOpen
+    : panelLayout.left.mode !== "closed";
+  const showRightDock = !isMobile && panelLayout.right.mode !== "closed";
+  const overlayPanelOpen = panelLayout.left.mode === "overlay" || panelLayout.right.mode === "overlay";
+
+  const panelResizeMax = useCallback((side: "left" | "right") => {
+    const panelMode = side === "left" ? panelLayout.left.mode : panelLayout.right.mode;
+    if (panelMode !== "push") return CHANNEL_PANEL_MAX_WIDTH;
+    const viewport = viewportWidth || CHANNEL_CHAT_MIN_WIDTH + CHANNEL_PANEL_MAX_WIDTH;
+    const otherPushedWidth =
+      side === "left"
+        ? (panelLayout.right.mode === "push" ? panelLayout.right.width : 0)
+        : (panelLayout.left.mode === "push" ? panelLayout.left.width : 0);
+    const safeWidth = viewport - CHANNEL_CHAT_MIN_WIDTH - otherPushedWidth - 40;
+    return Math.max(
+      CHANNEL_PANEL_MIN_WIDTH,
+      Math.min(CHANNEL_PANEL_MAX_WIDTH, safeWidth),
+    );
+  }, [panelLayout.left.mode, panelLayout.left.width, panelLayout.right.mode, panelLayout.right.width, viewportWidth]);
+  const leftPanelResizeMax = panelResizeMax("left");
+  const rightPanelResizeMax = panelResizeMax("right");
+
+  const closeOverlayPanels = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, {
+      ...(panelLayout.left.mode === "overlay" ? { leftOpen: false } : {}),
+      ...(panelLayout.right.mode === "overlay" ? { rightOpen: false } : {}),
+    });
+  }, [channelId, panelLayout.left.mode, panelLayout.right.mode, patchChannelPanelPrefs]);
+
+  useEffect(() => {
+    if (!overlayPanelOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (isEditableKeyboardTarget(e.target)) return;
+      closeOverlayPanels();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [closeOverlayPanels, overlayPanelOpen]);
+
+  const leftSpineActions = useMemo<PanelSpineAction[]>(() => {
+    const actions: PanelSpineAction[] = [
+      {
+        id: "widgets",
+        label: "Widgets",
+        hint: railPins.length > 0 ? String(railPins.length) : undefined,
+        icon: <Layers size={15} />,
+        onSelect: () => openLeftPanelTab("widgets"),
+      },
+    ];
+    if (fileWorkspaceId) {
+      actions.push({
+        id: "files",
+        label: "Files",
+        icon: <FolderOpen size={15} />,
+        onSelect: () => openLeftPanelTab("files"),
+      });
+    }
+    actions.push({
+      id: "jump",
+      label: "Jump",
+      icon: <Search size={15} />,
+      onSelect: () => openLeftPanelTab("jump"),
+    });
+    return actions;
+  }, [fileWorkspaceId, openLeftPanelTab, railPins.length]);
+
+  const rightSpineActions = useMemo<PanelSpineAction[]>(() => [
+    {
+      id: "dock",
+      label: "Dock",
+      hint: dockBlockedByFileViewer ? undefined : (dockPins.length > 0 ? String(dockPins.length) : undefined),
+      icon: dockBlockedByFileViewer ? <LockIcon size={14} /> : <PanelRightIcon size={15} />,
+      onSelect: () => channelId && patchChannelPanelPrefs(channelId, { rightOpen: true, focusModePrior: null }),
+      disabled: dockBlockedByFileViewer,
+      disabledReason: dockBlockedByFileViewer ? "Close file or enter split view to open dock." : undefined,
+    },
+  ], [channelId, dockBlockedByFileViewer, dockPins.length, patchChannelPanelPrefs]);
+
+  const displayName = channel?.display_name || channel?.name || channel?.client_id || "Chat";
+
+  const registerPaletteActions = usePaletteActions((s) => s.register);
+  useEffect(() => {
+    if (!channelId) return;
+    const channelLabel = displayName ? `#${displayName}` : undefined;
+    const actions: PaletteAction[] = [];
+
+    if (fileWorkspaceId && !isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:browse-files`,
+        label: "Browse files in this channel",
+        hint: channelLabel,
+        icon: FolderOpen,
+        category: "This Channel",
+        onSelect: () => openBrowseFiles(),
+      });
+      actions.push({
+        id: `channel:${channelId}:open-terminal`,
+        label: projectPath ? "Open terminal in project" : "Open terminal in channel workspace",
+        hint: projectPath ? `/${projectPath}` : channelLabel,
+        icon: TerminalIcon,
+        category: "This Channel",
+        onSelect: () => openTerminalAtPath(fileRootPath || `/channels/${channelId}`),
+      });
+    }
+
+    if (!isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:switch-sessions`,
+        label: "Switch sessions",
+        hint: channelLabel,
+        icon: MessageCircle,
+        category: "This Channel",
+        onSelect: () => openSessionsOverlay(),
+      });
+      actions.push({
+        id: `channel:${channelId}:new-session`,
+        label: "New session",
+        hint: channelLabel,
+        icon: StickyNote,
+        category: "This Channel",
+        onSelect: () => openSessionsOverlay(),
+      });
+      actions.push({
+        id: `channel:${channelId}:add-session-split`,
+        label: "Add session split",
+        hint: channelLabel,
+        icon: Layers,
+        category: "This Channel",
+        onSelect: () => openSplitOverlay(),
+      });
+      actions.push({
+        id: `channel:${channelId}:open-widgets`,
+        label: "Open panel: Widgets",
+        hint: railPins.length > 0 ? `${railPins.length} widget${railPins.length === 1 ? "" : "s"}` : channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => openLeftPanelTab("widgets"),
+      });
+      if (fileWorkspaceId) {
+        actions.push({
+          id: `channel:${channelId}:open-files`,
+          label: "Open panel: Files",
+          hint: channelLabel,
+          icon: FolderOpen,
+          category: "This Channel",
+          onSelect: () => openLeftPanelTab("files"),
+        });
+      }
+      actions.push({
+        id: `channel:${channelId}:open-jump`,
+        label: "Open panel: Jump",
+        hint: channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => openLeftPanelTab("jump"),
+      });
+      actions.push({
+        id: `channel:${channelId}:toggle-left-panel`,
+        label: panelPrefs.leftOpen ? "Hide left workbench" : "Show left workbench",
+        hint: channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => patchChannelPanelPrefs(channelId, { leftOpen: !panelPrefs.leftOpen }),
+      });
+      actions.push({
+        id: `channel:${channelId}:pin-left-panel`,
+        label: panelPrefs.leftPinned ? "Unpin left workbench" : "Pin left workbench open",
+        hint: channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => patchChannelPanelPrefs(channelId, { leftPinned: !panelPrefs.leftPinned, leftOpen: true }),
+      });
+      if (dockPins.length > 0 && layoutMode === "full") {
+        actions.push({
+          id: `channel:${channelId}:toggle-right-dock`,
+          label: panelPrefs.rightOpen ? "Hide right dock" : "Show right dock",
+          hint: `${dockPins.length} widget${dockPins.length === 1 ? "" : "s"}`,
+          icon: PanelRightIcon,
+          category: "This Channel",
+          onSelect: () => toggleRightDockPanel(),
+        });
+        actions.push({
+          id: `channel:${channelId}:pin-right-dock`,
+          label: panelPrefs.rightPinned ? "Unpin right dock" : "Pin right dock open",
+          hint: `${dockPins.length} widget${dockPins.length === 1 ? "" : "s"}`,
+          icon: PanelRightIcon,
+          category: "This Channel",
+          onSelect: () => patchChannelPanelPrefs(channelId, { rightPinned: !panelPrefs.rightPinned, rightOpen: true }),
+        });
+      }
+      actions.push({
+        id: `channel:${channelId}:focus-mode`,
+        label: panelPrefs.leftOpen || panelPrefs.rightOpen || !panelPrefs.topChromeCollapsed ? "Focus chat panes" : "Restore panels",
+        hint: channelLabel,
+        icon: LayoutDashboardIcon,
+        category: "This Channel",
+        onSelect: () => focusOrRestorePanels(),
+      });
+      actions.push({
+        id: `channel:${channelId}:bot-context`,
+        label: "View bot context",
+        hint: channelLabel,
+        icon: Cog,
+        category: "This Channel",
+        onSelect: () => setBotInfoBotId(channel?.bot_id || null),
+      });
+      actions.push({
+        id: `channel:${channelId}:dashboard`,
+        label: "Channel dashboard",
+        hint: channelLabel,
+        icon: LayoutDashboardIcon,
+        category: "This Channel",
+        onSelect: () => navigate(channelDashboardHref),
+      });
+    }
+
+    actions.push({
+      id: `channel:${channelId}:settings`,
+      label: "Channel settings",
+      hint: channelLabel,
+      icon: SettingsIcon,
+      category: "This Channel",
+      onSelect: () => navigate(`/channels/${channelId}/settings`),
+    });
+
+    if (isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:findings`,
+        label: "Findings",
+        hint: findingsCount > 0 ? `${findingsCount} pending` : channelLabel,
+        icon: PanelRightIcon,
+        category: "This Channel",
+        onSelect: () => setFindingsPanelOpen((p) => !p),
+      });
+    }
+
+    return registerPaletteActions(`channel:${channelId}`, actions);
+  }, [
+    channelId,
+    displayName,
+    fileWorkspaceId,
+    isSystemChannel,
+    findingsCount,
+    channel?.bot_id,
+    channelDashboardHref,
+    dockPins.length,
+    focusOrRestorePanels,
+    fileRootPath,
+    navigate,
+    openBrowseFiles,
+    openLeftPanelTab,
+    openSessionsOverlay,
+    openSplitOverlay,
+    openTerminalAtPath,
+    panelPrefs.leftOpen,
+    panelPrefs.rightOpen,
+    panelPrefs.topChromeCollapsed,
+    panelPrefs.leftPinned,
+    panelPrefs.rightPinned,
+    railPins.length,
+    layoutMode,
+    patchChannelPanelPrefs,
+    projectPath,
+    registerPaletteActions,
+    setBotInfoBotId,
+    setFindingsPanelOpen,
+    toggleRightDockPanel,
+  ]);
+
+  const [enteringFromDock] = useState(() => searchParams.get("from") === "dock");
+  useEffect(() => {
+    if (searchParams.get("from") === "dock") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("from");
+      setSearchParams(next, { replace: true });
+    }
+    // Mount-only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [entranceClassActive, setEntranceClassActive] = useState(enteringFromDock);
+  useEffect(() => {
+    if (!enteringFromDock) return;
+    const timer = window.setTimeout(() => setEntranceClassActive(false), 360);
+    return () => window.clearTimeout(timer);
+  }, [enteringFromDock]);
+
+  return {
+    activeFile,
+    setActiveFile,
+    workspaceId,
+    projectPath,
+    projectWorkspaceId,
+    fileWorkspaceId,
+    fileRootPath,
+    terminalRequest,
+    setTerminalRequest,
+    openTerminalAtPath,
+    setRememberedChannelPath,
+    patchChannelPanelPrefs,
+    setChannelPanelTab,
+    requestChannelFilesFocus,
+    setMobileDrawerOpen,
+    setMobileExpandedWidget,
+    recentPages,
+    splitMode,
+    setSplitMode,
+    toggleSplit,
+    panelPrefs,
+    railPins,
+    headerChipPins,
+    dockPins,
+    hasHeaderChips,
+    openLeftPanelTab,
+    toggleExplorer,
+    openBrowseFiles,
+    toggleRightDockPanel,
+    focusOrRestorePanels,
+    closeOverlayPanels,
+    showFileViewer,
+    showRailZone,
+    showHeaderChips,
+    showDockZone,
+    dashboardOnly,
+    dockBlockedByFileViewer,
+    panelLayout,
+    showExplorer,
+    showRightDock,
+    overlayPanelOpen,
+    leftPanelResizeMax,
+    rightPanelResizeMax,
+    leftSpineActions,
+    rightSpineActions,
+    displayName,
+    entranceClassActive,
+  };
+}

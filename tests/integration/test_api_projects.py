@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from app.db.models import Channel, SharedWorkspace
+from app.db.models import Channel, SecretValue, SharedWorkspace
 from tests.integration.conftest import AUTH_HEADERS
 
 pytestmark = pytest.mark.asyncio
@@ -48,6 +48,75 @@ class TestProjectsApi:
         listed = await client.get("/api/v1/projects", headers=AUTH_HEADERS)
         assert listed.status_code == 200
         assert any(project["id"] == body["id"] for project in listed.json())
+
+    async def test_create_project_from_blueprint_materializes_files_and_secret_slots(self, client, db_session, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "app.services.shared_workspace.local_workspace_base",
+            lambda: str(tmp_path),
+        )
+        workspace = await _workspace(db_session)
+        secret = SecretValue(name=f"GITHUB_TOKEN_{uuid.uuid4().hex[:8]}", value="secret")
+        db_session.add(secret)
+        await db_session.flush()
+
+        blueprint_resp = await client.post(
+            "/api/v1/projects/blueprints",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Blueprint API",
+                "default_root_path_pattern": "common/projects/{slug}",
+                "folders": ["docs"],
+                "files": {"README.md": "# Starter\n"},
+                "knowledge_files": {"overview.md": "Shared project knowledge.\n"},
+                "repos": [{"name": "app", "url": "https://example.invalid/app.git"}],
+                "env": {"NODE_ENV": "development"},
+                "required_secrets": [secret.name, "NPM_TOKEN"],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert blueprint_resp.status_code == 201
+        blueprint = blueprint_resp.json()
+
+        created = await client.post(
+            "/api/v1/projects/from-blueprint",
+            json={
+                "blueprint_id": blueprint["id"],
+                "workspace_id": str(workspace.id),
+                "name": "Blueprint Project",
+                "secret_bindings": {secret.name: str(secret.id)},
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert created.status_code == 201
+        body = created.json()
+        assert body["applied_blueprint_id"] == blueprint["id"]
+        assert body["root_path"] == "common/projects/blueprint-project"
+        assert body["blueprint"]["name"] == "Blueprint API"
+        bindings = {binding["logical_name"]: binding for binding in body["secret_bindings"]}
+        assert bindings[secret.name]["secret_value_id"] == str(secret.id)
+        assert bindings[secret.name]["bound"] is True
+        assert bindings["NPM_TOKEN"]["bound"] is False
+        assert body["metadata_"]["blueprint_snapshot"]["repos"][0]["name"] == "app"
+        assert body["metadata_"]["blueprint_materialization"]["files_written"] == ["README.md"]
+
+        project_root = tmp_path / "shared" / str(workspace.id) / "common" / "projects" / "blueprint-project"
+        assert (project_root / "docs").is_dir()
+        assert (project_root / "README.md").read_text() == "# Starter\n"
+        assert (project_root / ".spindrel" / "knowledge-base" / "overview.md").read_text() == "Shared project knowledge.\n"
+
+        secret_two = SecretValue(name=f"NPM_TOKEN_{uuid.uuid4().hex[:8]}", value="secret")
+        db_session.add(secret_two)
+        await db_session.flush()
+        patched = await client.patch(
+            f"/api/v1/projects/{body['id']}/secret-bindings",
+            json={"bindings": {"NPM_TOKEN": str(secret_two.id)}},
+            headers=AUTH_HEADERS,
+        )
+        assert patched.status_code == 200
+        patched_bindings = {binding["logical_name"]: binding for binding in patched.json()["secret_bindings"]}
+        assert patched_bindings["NPM_TOKEN"]["secret_value_id"] == str(secret_two.id)
+        assert patched_bindings["NPM_TOKEN"]["bound"] is True
 
     async def test_project_channels_lists_attached_channels(self, client, db_session):
         workspace = await _workspace(db_session)

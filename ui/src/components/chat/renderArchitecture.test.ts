@@ -499,6 +499,37 @@ test("channel route delegates session pane orchestration to its local controller
   assert.match(paneController, /usePromoteScratchSession/);
 });
 
+test("channel route delegates workbench chrome orchestration to its local controller", () => {
+  const channelRoute = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),
+    "utf8",
+  );
+  const workbenchController = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelWorkbenchController.tsx"),
+    "utf8",
+  );
+
+  assert.match(channelRoute, /useChannelWorkbenchController/);
+  assert.doesNotMatch(channelRoute, /useFileBrowserStore/);
+  assert.doesNotMatch(channelRoute, /usePaletteActions/);
+  assert.doesNotMatch(channelRoute, /resolveChannelPanelLayout/);
+  assert.doesNotMatch(channelRoute, /const buildWorkspaceTerminalCwd = useCallback/);
+  assert.doesNotMatch(channelRoute, /const openTerminalAtPath = useCallback/);
+  assert.doesNotMatch(channelRoute, /const openLeftPanelTab = useCallback/);
+  assert.doesNotMatch(channelRoute, /const toggleRightDockPanel = useCallback/);
+  assert.doesNotMatch(channelRoute, /const focusOrRestorePanels = useCallback/);
+  assert.doesNotMatch(channelRoute, /spindrel:channel-focus-layout/);
+  assert.match(workbenchController, /useFileBrowserStore/);
+  assert.match(workbenchController, /usePaletteActions/);
+  assert.match(workbenchController, /resolveChannelPanelLayout/);
+  assert.match(workbenchController, /const buildWorkspaceTerminalCwd = useCallback/);
+  assert.match(workbenchController, /const openTerminalAtPath = useCallback/);
+  assert.match(workbenchController, /const openLeftPanelTab = useCallback/);
+  assert.match(workbenchController, /const toggleRightDockPanel = useCallback/);
+  assert.match(workbenchController, /const focusOrRestorePanels = useCallback/);
+  assert.match(workbenchController, /spindrel:channel-focus-layout/);
+});
+
 test("channel route renders desktop session tabs through dedicated components and pure model", () => {
   const channelRoute = readFileSync(
     resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),

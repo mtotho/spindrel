@@ -6,17 +6,20 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, SharedWorkspace
+from app.db.models import Channel, Project, ProjectBlueprint, ProjectSecretBinding, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
 from app.services.projects import (
+    materialize_project_blueprint,
     normalize_project_path,
     normalize_project_slug,
+    project_blueprint_snapshot,
     project_directory_from_project,
     project_directory_payload,
+    render_project_blueprint_root_path,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -25,6 +28,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 class ProjectOut(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
+    applied_blueprint_id: uuid.UUID | None = None
     name: str
     slug: str
     description: Optional[str] = None
@@ -33,6 +37,8 @@ class ProjectOut(BaseModel):
     prompt_file_path: Optional[str] = None
     metadata_: dict = {}
     resolved: dict | None = None
+    blueprint: "ProjectBlueprintSummaryOut | None" = None
+    secret_bindings: list["ProjectSecretBindingOut"] = Field(default_factory=list)
     attached_channel_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -49,6 +55,80 @@ class ProjectWrite(BaseModel):
     prompt: str | None = None
     prompt_file_path: str | None = None
     metadata_: dict | None = None
+
+
+class ProjectBlueprintSummaryOut(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID | None = None
+    name: str
+    slug: str
+    description: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectBlueprintOut(ProjectBlueprintSummaryOut):
+    default_root_path_pattern: str | None = None
+    prompt: str | None = None
+    prompt_file_path: str | None = None
+    folders: list = Field(default_factory=list)
+    files: dict = Field(default_factory=dict)
+    knowledge_files: dict = Field(default_factory=dict)
+    repos: list = Field(default_factory=list)
+    env: dict = Field(default_factory=dict)
+    required_secrets: list[str] = Field(default_factory=list)
+    metadata_: dict = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectBlueprintWrite(BaseModel):
+    workspace_id: uuid.UUID | None = None
+    name: str | None = None
+    slug: str | None = None
+    description: str | None = None
+    default_root_path_pattern: str | None = None
+    prompt: str | None = None
+    prompt_file_path: str | None = None
+    folders: list[str] | None = None
+    files: dict[str, str] | None = None
+    knowledge_files: dict[str, str] | None = None
+    repos: list[dict] | None = None
+    env: dict[str, str] | None = None
+    required_secrets: list[str] | None = None
+    metadata_: dict | None = None
+
+    @field_validator("folders", "required_secrets")
+    @classmethod
+    def _strip_list_values(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return [item.strip() for item in value if item and item.strip()]
+
+
+class ProjectSecretBindingOut(BaseModel):
+    id: uuid.UUID
+    logical_name: str
+    secret_value_id: uuid.UUID | None = None
+    secret_value_name: str | None = None
+    bound: bool = False
+
+
+class ProjectSecretBindingsWrite(BaseModel):
+    bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
+
+
+class ProjectFromBlueprintWrite(BaseModel):
+    blueprint_id: uuid.UUID
+    workspace_id: uuid.UUID | None = None
+    name: str
+    slug: str | None = None
+    description: str | None = None
+    root_path: str | None = None
+    secret_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
+
+
+ProjectOut.model_rebuild()
 
 
 class ProjectChannelOut(BaseModel):
@@ -69,10 +149,250 @@ async def _default_workspace_id(db: AsyncSession) -> uuid.UUID:
 async def _project_out(db: AsyncSession, project: Project) -> ProjectOut:
     out = ProjectOut.model_validate(project)
     out.resolved = project_directory_payload(project_directory_from_project(project))
+    if project.applied_blueprint_id:
+        blueprint = await db.get(ProjectBlueprint, project.applied_blueprint_id)
+        if blueprint is not None:
+            out.blueprint = ProjectBlueprintSummaryOut.model_validate(blueprint)
+    out.secret_bindings = await _project_secret_bindings_out(db, project.id)
     out.attached_channel_count = int((await db.execute(
         select(func.count()).select_from(Channel).where(Channel.project_id == project.id)
     )).scalar_one() or 0)
     return out
+
+
+async def _project_secret_bindings_out(db: AsyncSession, project_id: uuid.UUID) -> list[ProjectSecretBindingOut]:
+    rows = (await db.execute(
+        select(ProjectSecretBinding, SecretValue.name)
+        .outerjoin(SecretValue, SecretValue.id == ProjectSecretBinding.secret_value_id)
+        .where(ProjectSecretBinding.project_id == project_id)
+        .order_by(ProjectSecretBinding.logical_name)
+    )).all()
+    return [
+        ProjectSecretBindingOut(
+            id=binding.id,
+            logical_name=binding.logical_name,
+            secret_value_id=binding.secret_value_id,
+            secret_value_name=secret_name,
+            bound=binding.secret_value_id is not None and bool(secret_name),
+        )
+        for binding, secret_name in rows
+    ]
+
+
+def _blueprint_required_secret_names(blueprint: ProjectBlueprint) -> list[str]:
+    names: list[str] = []
+    for item in blueprint.required_secrets or []:
+        if isinstance(item, str):
+            name = item.strip()
+        elif isinstance(item, dict):
+            name = str(item.get("name") or item.get("key") or "").strip()
+        else:
+            name = ""
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+async def _ensure_secret_values_exist(db: AsyncSession, binding_ids: dict[str, uuid.UUID | None]) -> None:
+    for logical_name, secret_id in binding_ids.items():
+        if secret_id is None:
+            continue
+        if await db.get(SecretValue, secret_id) is None:
+            raise HTTPException(status_code=422, detail=f"secret binding '{logical_name}' references an unknown secret")
+
+
+def _blueprint_out(blueprint: ProjectBlueprint) -> ProjectBlueprintOut:
+    return ProjectBlueprintOut.model_validate(blueprint)
+
+
+def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWrite) -> None:
+    fields = body.model_fields_set
+    if "workspace_id" in fields:
+        blueprint.workspace_id = body.workspace_id
+    if "name" in fields and body.name is not None:
+        blueprint.name = body.name.strip()
+    if "slug" in fields:
+        blueprint.slug = normalize_project_slug(body.slug, fallback=blueprint.name)
+    elif "name" in fields and not blueprint.slug:
+        blueprint.slug = normalize_project_slug(None, fallback=blueprint.name)
+    if "description" in fields:
+        blueprint.description = body.description
+    if "default_root_path_pattern" in fields:
+        blueprint.default_root_path_pattern = normalize_project_path(body.default_root_path_pattern) if body.default_root_path_pattern else None
+    if "prompt" in fields:
+        blueprint.prompt = body.prompt
+    if "prompt_file_path" in fields:
+        blueprint.prompt_file_path = normalize_project_path(body.prompt_file_path)
+    if "folders" in fields:
+        blueprint.folders = body.folders or []
+    if "files" in fields:
+        blueprint.files = body.files or {}
+    if "knowledge_files" in fields:
+        blueprint.knowledge_files = body.knowledge_files or {}
+    if "repos" in fields:
+        blueprint.repos = body.repos or []
+    if "env" in fields:
+        blueprint.env = body.env or {}
+    if "required_secrets" in fields:
+        blueprint.required_secrets = body.required_secrets or []
+    if "metadata_" in fields:
+        blueprint.metadata_ = body.metadata_ or {}
+
+
+@router.get("/blueprints", response_model=list[ProjectBlueprintOut])
+async def list_project_blueprints(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    blueprints = (await db.execute(select(ProjectBlueprint).order_by(ProjectBlueprint.name))).scalars().all()
+    return [_blueprint_out(blueprint) for blueprint in blueprints]
+
+
+@router.post("/blueprints", response_model=ProjectBlueprintOut, status_code=201)
+async def create_project_blueprint(
+    body: ProjectBlueprintWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    if not body.name:
+        raise HTTPException(status_code=422, detail="name is required")
+    if body.workspace_id and await db.get(SharedWorkspace, body.workspace_id) is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    blueprint = ProjectBlueprint(
+        workspace_id=body.workspace_id,
+        name=body.name.strip(),
+        slug=normalize_project_slug(body.slug, fallback=body.name),
+        description=body.description,
+        default_root_path_pattern=normalize_project_path(body.default_root_path_pattern) if body.default_root_path_pattern else None,
+        prompt=body.prompt,
+        prompt_file_path=normalize_project_path(body.prompt_file_path),
+        folders=body.folders or [],
+        files=body.files or {},
+        knowledge_files=body.knowledge_files or {},
+        repos=body.repos or [],
+        env=body.env or {},
+        required_secrets=body.required_secrets or [],
+        metadata_=body.metadata_ or {},
+    )
+    db.add(blueprint)
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=f"project blueprint already exists or is invalid: {exc}") from exc
+    await db.refresh(blueprint)
+    return _blueprint_out(blueprint)
+
+
+@router.get("/blueprints/{blueprint_id}", response_model=ProjectBlueprintOut)
+async def get_project_blueprint(
+    blueprint_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    blueprint = await db.get(ProjectBlueprint, blueprint_id)
+    if blueprint is None:
+        raise HTTPException(status_code=404, detail="project blueprint not found")
+    return _blueprint_out(blueprint)
+
+
+@router.patch("/blueprints/{blueprint_id}", response_model=ProjectBlueprintOut)
+async def update_project_blueprint(
+    blueprint_id: uuid.UUID,
+    body: ProjectBlueprintWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    blueprint = await db.get(ProjectBlueprint, blueprint_id)
+    if blueprint is None:
+        raise HTTPException(status_code=404, detail="project blueprint not found")
+    if body.workspace_id and await db.get(SharedWorkspace, body.workspace_id) is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    _apply_blueprint_write(blueprint, body)
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=f"project blueprint update failed: {exc}") from exc
+    await db.refresh(blueprint)
+    return _blueprint_out(blueprint)
+
+
+@router.post("/from-blueprint", response_model=ProjectOut, status_code=201)
+async def create_project_from_blueprint(
+    body: ProjectFromBlueprintWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    blueprint = await db.get(ProjectBlueprint, body.blueprint_id)
+    if blueprint is None:
+        raise HTTPException(status_code=404, detail="project blueprint not found")
+    workspace_id = body.workspace_id or blueprint.workspace_id or await _default_workspace_id(db)
+    if await db.get(SharedWorkspace, workspace_id) is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    project_name = body.name.strip()
+    if not project_name:
+        raise HTTPException(status_code=422, detail="name is required")
+    project_slug = normalize_project_slug(body.slug, fallback=project_name)
+    root_path = normalize_project_path(body.root_path)
+    if not root_path:
+        root_path = render_project_blueprint_root_path(
+            blueprint.default_root_path_pattern,
+            project_name=project_name,
+            project_slug=project_slug,
+        )
+    secret_bindings = {name.strip(): secret_id for name, secret_id in body.secret_bindings.items() if name.strip()}
+    await _ensure_secret_values_exist(db, secret_bindings)
+    metadata = {
+        "blueprint": {
+            "id": str(blueprint.id),
+            "name": blueprint.name,
+            "slug": blueprint.slug,
+        },
+        "blueprint_snapshot": project_blueprint_snapshot(blueprint),
+    }
+    project = Project(
+        workspace_id=workspace_id,
+        applied_blueprint_id=blueprint.id,
+        name=project_name,
+        slug=project_slug,
+        description=body.description if body.description is not None else blueprint.description,
+        root_path=root_path,
+        prompt=blueprint.prompt,
+        prompt_file_path=normalize_project_path(blueprint.prompt_file_path),
+        metadata_=metadata,
+    )
+    db.add(project)
+    try:
+        await db.flush()
+        materialization = materialize_project_blueprint(project_directory_from_project(project), blueprint)
+        project.metadata_ = {
+            **metadata,
+            "blueprint_materialization": materialization.payload(),
+        }
+        for logical_name in _blueprint_required_secret_names(blueprint):
+            db.add(ProjectSecretBinding(
+                project_id=project.id,
+                logical_name=logical_name,
+                secret_value_id=secret_bindings.get(logical_name),
+            ))
+        for logical_name, secret_id in secret_bindings.items():
+            if logical_name in _blueprint_required_secret_names(blueprint):
+                continue
+            db.add(ProjectSecretBinding(
+                project_id=project.id,
+                logical_name=logical_name,
+                secret_value_id=secret_id,
+            ))
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=f"project creation from blueprint failed: {exc}") from exc
+    await db.refresh(project)
+    return await _project_out(db, project)
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -163,6 +483,43 @@ async def update_project(
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=f"project update failed: {exc}") from exc
+    await db.refresh(project)
+    return await _project_out(db, project)
+
+
+@router.patch("/{project_id}/secret-bindings", response_model=ProjectOut)
+async def update_project_secret_bindings(
+    project_id: uuid.UUID,
+    body: ProjectSecretBindingsWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    binding_ids = {name.strip(): secret_id for name, secret_id in body.bindings.items() if name.strip()}
+    await _ensure_secret_values_exist(db, binding_ids)
+    existing = {
+        binding.logical_name: binding
+        for binding in (await db.execute(
+            select(ProjectSecretBinding).where(ProjectSecretBinding.project_id == project_id)
+        )).scalars().all()
+    }
+    for logical_name, secret_id in binding_ids.items():
+        binding = existing.get(logical_name)
+        if binding is None:
+            db.add(ProjectSecretBinding(
+                project_id=project_id,
+                logical_name=logical_name,
+                secret_value_id=secret_id,
+            ))
+        else:
+            binding.secret_value_id = secret_id
+    try:
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=f"project secret binding update failed: {exc}") from exc
     await db.refresh(project)
     return await _project_out(db, project)
 

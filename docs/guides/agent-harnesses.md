@@ -102,6 +102,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Codex native `/plugins` result rendered in chat](../images/harness-codex-native-plugins-result-dark.png)
 
+![Claude Code native `/skills` result rendered in chat](../images/harness-claude-native-skills-result-dark.png)
+
 ![Codex bridge tool result in default chat mode](../images/harness-codex-bridge-default.png)
 
 ![Claude Code bridge tool result in default chat mode](../images/harness-claude-bridge-default.png)
@@ -141,9 +143,11 @@ HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
   -k project_plan_build_and_screenshot
 ```
 
-Project-or-deeper live parity runs automatically capture the checked-in docs
-screenshots into `docs/images` after pytest passes. Set
-`HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip this, or
+Project-or-deeper live parity runs automatically capture screenshots after
+pytest passes. By default they are written under `/tmp`; set
+`HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR=docs/images` when intentionally
+refreshing the checked-in docs fixtures. Set
+`HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip capture, or
 `HARNESS_PARITY_CAPTURE_SCREENSHOTS=true` to force capture for a narrower tier.
 When using the shared Docker Playwright runtime, the runner resolves the
 container-reachable browser URL before capture.

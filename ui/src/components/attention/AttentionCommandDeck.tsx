@@ -203,7 +203,7 @@ export function AttentionCommandDeck({
     }
     if (!sweepable.length) {
       setDeckMode(buckets.review.length ? "review" : "inbox");
-      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No raw signals are ready for Operator.");
+      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No unreviewed items are ready for Operator.");
       return;
     }
     onSelect(null);
@@ -236,9 +236,9 @@ export function AttentionCommandDeck({
     const viewingFirstReview = Boolean(firstReview && mode === "review" && displayItem?.id === firstReview.id);
     if (sweepBusy) {
       return {
-        eyebrow: "Operator running",
+        eyebrow: "Operator sweep",
         title: "Watch the active sweep",
-        detail: "Raw signals are being classified into findings or cleared receipts.",
+        detail: "Unreviewed items are being classified into findings or cleared receipts.",
         action: "View run log",
         icon: <Loader2 size={15} className="animate-spin" />,
         onClick: () => setDeckMode("runs"),
@@ -246,21 +246,21 @@ export function AttentionCommandDeck({
     }
     if (counts.review > 0) {
       return {
-        eyebrow: viewingFirstReview ? "Current review" : "Best next click",
+        eyebrow: viewingFirstReview ? "Reviewing now" : "Next decision",
         title: viewingFirstReview ? "Review this Operator finding" : "Review the first Operator finding",
         detail: viewingFirstReview
           ? `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting. Decide on this one, then continue down the queue.`
           : `${counts.review} finding${counts.review === 1 ? "" : "s"} already classified and waiting for a decision.`,
-        action: viewingFirstReview ? null : "Show first finding",
+        action: viewingFirstReview ? null : "Open first finding",
         icon: <Sparkles size={15} />,
         onClick: () => focusReviewFinding(),
       };
     }
     if (counts.inbox > 0) {
       return {
-        eyebrow: "Raw signals waiting",
+        eyebrow: "Unreviewed items",
         title: "Run Operator sweep",
-        detail: `${counts.inbox} raw signal${counts.inbox === 1 ? "" : "s"} can be classified before you review them manually.`,
+        detail: `${counts.inbox} item${counts.inbox === 1 ? "" : "s"} can be classified before you review them manually.`,
         action: "Start sweep",
         icon: <Sparkles size={15} />,
         onClick: startSweep,
@@ -286,7 +286,7 @@ export function AttentionCommandDeck({
               Mission Control Review
             </div>
             <div className="mt-1 text-sm text-text-muted">
-              {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings · {counts.inbox} raw · {counts.cleared} cleared
+              {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings · {counts.inbox} unreviewed · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -305,7 +305,7 @@ export function AttentionCommandDeck({
               onClick={startSweep}
             >
               {sweepBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {sweepBusy ? "Sweep running" : sweepable.length ? "Run Operator sweep" : "No raw signals"}
+              {sweepBusy ? "Sweep running" : sweepable.length ? "Run Operator sweep" : "Nothing to sweep"}
             </button>
           </div>
         </div>
@@ -337,16 +337,10 @@ export function AttentionCommandDeck({
               </span>
             )}
           </div>
-          <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
-            <QueueChip active={mode === "review"} label="Findings" count={counts.review} onClick={() => setDeckMode("review")} />
-            <QueueChip active={mode === "inbox"} label="Raw" count={counts.inbox} onClick={() => setDeckMode("inbox")} />
-            <QueueChip active={mode === "runs"} label="Runs" count={runs.length || counts.running} onClick={() => setDeckMode("runs")} />
-            <QueueChip active={mode === "cleared"} label="Cleared" count={counts.cleared + counts.closed} onClick={() => setDeckMode("cleared")} />
-          </div>
         </div>
       </div>
 
-      <div className={`grid min-h-0 flex-1 grid-cols-1 ${mode === "runs" ? "lg:grid-cols-[280px_minmax(0,1fr)]" : "lg:grid-cols-[280px_minmax(0,1fr)_320px]"}`}>
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
         <DeckQueue
           mode={mode}
           counts={counts}
@@ -368,37 +362,8 @@ export function AttentionCommandDeck({
             <EmptyDeckState mode={mode} />
           )}
         </main>
-        {mode !== "runs" && (
-          <DeckSideRail
-            mode={mode}
-            selectedId={displayItem?.id ?? null}
-            runs={runs}
-            buckets={buckets}
-            onModeChange={setDeckMode}
-            onRunSelect={onRunSelect}
-            onSelect={(item) => {
-              onSelect(item);
-              focusDetail();
-            }}
-          />
-        )}
       </div>
     </div>
-  );
-}
-
-function QueueChip({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className={`inline-flex min-h-7 items-center gap-1.5 rounded-full px-2.5 transition-colors ${
-        active ? "bg-accent/[0.08] text-accent" : "bg-surface-raised/50 text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-      }`}
-      onClick={onClick}
-    >
-      <span>{label}</span>
-      <span className="text-[11px] text-text-dim">{count}</span>
-    </button>
   );
 }
 
@@ -419,12 +384,12 @@ function DeckQueue({
   onModeChange: (mode: DeckMode) => void;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
 }) {
-  const title = mode === "inbox" ? "Raw signals" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run log";
+  const title = mode === "inbox" ? "Unreviewed items" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run log";
   return (
     <aside className="min-h-0 overflow-y-auto px-3 py-3">
       <div className="grid grid-cols-2 gap-1.5">
         <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Review" count={counts.review} onClick={() => onModeChange("review")} />
-        <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Inbox" count={counts.inbox} onClick={() => onModeChange("inbox")} />
+        <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Unreviewed" count={counts.inbox} onClick={() => onModeChange("inbox")} />
         <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Runs" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
         <ModeButton active={mode === "cleared"} icon={<Archive size={14} />} label="Cleared" count={counts.cleared + counts.closed} onClick={() => onModeChange("cleared")} />
       </div>
@@ -437,7 +402,7 @@ function DeckQueue({
         <div className="space-y-1">
           {mode === "runs" ? (
             <div className="rounded-md bg-surface-raised/35 px-3 py-3 text-xs leading-5 text-text-muted">
-              Pick a run in the center panel. Runs are receipts: they explain which signals became findings, which were cleared, and where the transcript evidence lives.
+              Pick a run in the center panel. Run logs explain which items became findings, which were cleared, and where the transcript evidence lives.
             </div>
           ) : items.length ? items.map((item) => (
             <button
@@ -500,7 +465,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            {reviewed ? "Operator finding" : "Raw signal"}
+            {reviewed ? "Operator finding" : "Unreviewed item"}
           </div>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal text-text">{item.title}</h2>
           <div className="mt-1 text-sm text-text-muted">
@@ -675,7 +640,7 @@ function RunLogWorkspace({
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator runs</div>
         <h2 className="mt-1 text-2xl font-semibold text-text">Run log</h2>
         <p className="mt-1 text-sm text-text-muted">
-          Runs explain how raw signals became reviewed findings or cleared noise.
+          Run logs explain how unreviewed items became findings or cleared noise.
         </p>
       </div>
 

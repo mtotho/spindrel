@@ -1,11 +1,12 @@
 import type React from "react";
-import { Move } from "lucide-react";
+import { Activity, Bot, Command, Eye, MapPinned, Move, Navigation, PanelRightOpen, Route, Settings2 } from "lucide-react";
 import { buildChannelSessionRoute, type ChannelSessionSurface } from "../../lib/channelSessionSurfaces";
 import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import { useUIStore } from "../../stores/ui";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
 import { AddWidgetButton } from "./SpatialCanvasChrome";
+import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { MemoryObservationPanel } from "./MemoryObservatory";
 import { Minimap } from "./Minimap";
@@ -23,6 +24,7 @@ type SpatialCanvasOverlaysProps = Record<string, any> & {
   setDensityCompare: React.Dispatch<React.SetStateAction<any>>;
   setDensityAnimate: React.Dispatch<React.SetStateAction<any>>;
   setConnectionsEnabled: React.Dispatch<React.SetStateAction<any>>;
+  setCanvasLibraryOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setBotsVisible: React.Dispatch<React.SetStateAction<any>>;
   setBotsReduced: React.Dispatch<React.SetStateAction<any>>;
   setLandmarkBeaconsVisible: React.Dispatch<React.SetStateAction<any>>;
@@ -37,6 +39,18 @@ type SpatialCanvasOverlaysProps = Record<string, any> & {
   setSessionPickerOpen: React.Dispatch<React.SetStateAction<any>>;
 };
 
+const ACTIVITY_LABEL: Record<string, string> = {
+  off: "Off",
+  subtle: "Subtle",
+  bold: "Bright",
+};
+
+const TRAIL_LABEL: Record<string, string> = {
+  off: "Off",
+  hover: "Hover",
+  all: "All",
+};
+
 export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
   const {
     selectionRail,
@@ -48,6 +62,8 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     viewportSize,
     edgeBeacons,
     setPinPositionOverride,
+    canvasLibraryOpen,
+    setCanvasLibraryOpen,
     openStarboardLaunch,
     interactionMode,
     setInteractionMode,
@@ -61,6 +77,8 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     setDensityAnimate,
     connectionsEnabled,
     setConnectionsEnabled,
+    trailsMode,
+    cycleTrailsMode,
     botsVisible,
     setBotsVisible,
     botsReduced,
@@ -95,6 +113,14 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
     setSessionPickerOpen,
     navigate,
   } = props;
+  const launchWorldCenter = pinPositionOverride
+    ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
+    : viewportSize.w && viewportSize.h
+      ? {
+          x: (viewportSize.w / 2 - cameraRef.current.x) / cameraRef.current.scale,
+          y: (viewportSize.h / 2 - cameraRef.current.y) / cameraRef.current.scale,
+        }
+      : null;
 
   return (
     <>
@@ -138,7 +164,7 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
         <AddWidgetButton
           onClick={() => {
             setPinPositionOverride(null);
-            openStarboardLaunch();
+            setCanvasLibraryOpen(true);
           }}
         />
         <button
@@ -155,17 +181,19 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
           <Move size={16} />
           {interactionMode === "arrange" && <span className="hidden sm:inline">Arrange</span>}
         </button>
-        <UsageDensityChrome
-          intensity={densityIntensity}
-          onCycleIntensity={cycleDensityIntensity}
-          window={densityWindow}
-          onWindowChange={setDensityWindow}
-          compare={densityCompare}
-          onCompareChange={setDensityCompare}
-          animate={densityAnimate}
-          onAnimateChange={setDensityAnimate}
+        <CanvasViewControls
+          densityIntensity={densityIntensity}
+          onCycleDensityIntensity={cycleDensityIntensity}
+          densityWindow={densityWindow}
+          onDensityWindowChange={setDensityWindow}
+          densityCompare={densityCompare}
+          onDensityCompareChange={setDensityCompare}
+          densityAnimate={densityAnimate}
+          onDensityAnimateChange={setDensityAnimate}
           connectionsEnabled={connectionsEnabled}
-          onConnectionsToggle={() => setConnectionsEnabled((v: any) => !v)}
+          onConnectionsEnabledChange={setConnectionsEnabled}
+          trailsMode={trailsMode}
+          onCycleTrailsMode={cycleTrailsMode}
           botsVisible={botsVisible}
           onBotsVisibleChange={setBotsVisible}
           botsReduced={botsReduced}
@@ -174,7 +202,11 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
           onLandmarkBeaconsVisibleChange={setLandmarkBeaconsVisible}
           attentionSignalsVisible={attentionSignalsVisible}
           onAttentionSignalsVisibleChange={setAttentionSignalsVisible}
+          minimapVisible={minimapVisible}
+          onMinimapVisibleChange={setMinimapVisible}
           onOpenPalette={() => useUIStore.getState().openPalette()}
+        />
+        <UsageDensityChrome
           objects={starboardObjects}
           open={starboardOpen}
           station={starboardStation}
@@ -186,18 +218,13 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
           onReplyAttention={handleAttentionReply}
           selectedObject={selectedStarboardObject}
           navigate={navigate}
-          launchWorldCenter={
-            pinPositionOverride
-              ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
-              : viewportSize.w && viewportSize.h
-                ? {
-                    x: (viewportSize.w / 2 - cameraRef.current.x) / cameraRef.current.scale,
-                    y: (viewportSize.h / 2 - cameraRef.current.y) / cameraRef.current.scale,
-                  }
-                : null
-          }
         />
       </div>
+      <CanvasLibrarySheet
+        open={canvasLibraryOpen}
+        onClose={() => setCanvasLibraryOpen(false)}
+        worldCenter={launchWorldCenter}
+      />
       {minimapVisible && (
         <Minimap
           camera={camera}
@@ -247,5 +274,167 @@ export function SpatialCanvasOverlays(props: SpatialCanvasOverlaysProps) {
         />
       )}
     </>
+  );
+}
+
+function CanvasViewControls({
+  densityIntensity,
+  onCycleDensityIntensity,
+  densityWindow,
+  onDensityWindowChange,
+  densityCompare,
+  onDensityCompareChange,
+  densityAnimate,
+  onDensityAnimateChange,
+  connectionsEnabled,
+  onConnectionsEnabledChange,
+  trailsMode,
+  onCycleTrailsMode,
+  botsVisible,
+  onBotsVisibleChange,
+  botsReduced,
+  onBotsReducedChange,
+  landmarkBeaconsVisible,
+  onLandmarkBeaconsVisibleChange,
+  attentionSignalsVisible,
+  onAttentionSignalsVisibleChange,
+  minimapVisible,
+  onMinimapVisibleChange,
+  onOpenPalette,
+}: {
+  densityIntensity: string;
+  onCycleDensityIntensity: () => void;
+  densityWindow: string;
+  onDensityWindowChange: (value: any) => void;
+  densityCompare: boolean;
+  onDensityCompareChange: (value: boolean) => void;
+  densityAnimate: boolean;
+  onDensityAnimateChange: (value: boolean) => void;
+  connectionsEnabled: boolean;
+  onConnectionsEnabledChange: React.Dispatch<React.SetStateAction<any>>;
+  trailsMode: string;
+  onCycleTrailsMode: () => void;
+  botsVisible: boolean;
+  onBotsVisibleChange: (value: boolean) => void;
+  botsReduced: boolean;
+  onBotsReducedChange: (value: boolean) => void;
+  landmarkBeaconsVisible: boolean;
+  onLandmarkBeaconsVisibleChange: (value: boolean) => void;
+  attentionSignalsVisible: boolean;
+  onAttentionSignalsVisibleChange: (value: boolean) => void;
+  minimapVisible: boolean;
+  onMinimapVisibleChange: (value: boolean) => void;
+  onOpenPalette: () => void;
+}) {
+  return (
+    <details className="relative">
+      <summary
+        aria-label="Canvas view controls"
+        className="inline-flex h-10 cursor-pointer list-none items-center gap-1.5 rounded-md border border-surface-border/70 bg-surface-raised/80 px-3 text-sm font-medium text-text-muted shadow-sm transition-colors hover:bg-surface-overlay hover:text-text [&::-webkit-details-marker]:hidden"
+      >
+        <Settings2 size={16} />
+        <span className="hidden sm:inline">View</span>
+      </summary>
+      <div
+        data-testid="canvas-view-controls"
+        className="absolute right-0 top-full mt-2 w-72 rounded-md border border-surface-border bg-surface-raised/95 p-2 text-sm text-text shadow-2xl backdrop-blur"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onOpenPalette}
+          className="mb-2 flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+        >
+          <span className="inline-flex items-center gap-2"><Command size={15} /> Command palette</span>
+          <span className="font-mono text-[11px] text-text-dim">Ctrl K</span>
+        </button>
+        <ViewControlSection icon={<Eye size={15} />} title="Signals">
+          <ToggleRow label="Attention markers" checked={attentionSignalsVisible} onChange={onAttentionSignalsVisibleChange} />
+          <ToggleRow label="Connection lines" checked={connectionsEnabled} onChange={() => onConnectionsEnabledChange((value: boolean) => !value)} />
+          <ToggleRow label="Edge beacons" checked={landmarkBeaconsVisible} onChange={onLandmarkBeaconsVisibleChange} />
+          <ToggleRow label="Minimap" checked={minimapVisible} onChange={onMinimapVisibleChange} />
+        </ViewControlSection>
+        <ViewControlSection icon={<Activity size={15} />} title="Activity">
+          <button
+            type="button"
+            onClick={onCycleDensityIntensity}
+            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+          >
+            <span>Activity halos</span>
+            <span className="text-xs text-text-dim">{ACTIVITY_LABEL[densityIntensity] ?? densityIntensity}</span>
+          </button>
+          <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+            <span className="text-text-muted">Window</span>
+            <span className="inline-flex rounded-md bg-surface-overlay/50 p-0.5">
+              {["24h", "7d", "30d"].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onDensityWindowChange(value)}
+                  className={`rounded px-2 py-1 text-xs ${densityWindow === value ? "bg-accent/[0.08] text-accent" : "text-text-dim hover:text-text"}`}
+                >
+                  {value}
+                </button>
+              ))}
+            </span>
+          </div>
+          <ToggleRow label="Spike colors" checked={densityCompare} onChange={onDensityCompareChange} />
+          <ToggleRow label="Breathe" checked={densityAnimate} onChange={onDensityAnimateChange} />
+        </ViewControlSection>
+        <ViewControlSection icon={<Bot size={15} />} title="Objects">
+          <ToggleRow label="Show bots" checked={botsVisible} onChange={onBotsVisibleChange} />
+          <ToggleRow label="Reduce bots" checked={botsReduced} onChange={onBotsReducedChange} disabled={!botsVisible} />
+          <button
+            type="button"
+            onClick={onCycleTrailsMode}
+            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+          >
+            <span className="inline-flex items-center gap-2"><Route size={14} /> Trails</span>
+            <span className="text-xs text-text-dim">{TRAIL_LABEL[trailsMode] ?? trailsMode}</span>
+          </button>
+        </ViewControlSection>
+        <div className="mt-2 flex items-center gap-2 px-2 py-1 text-[11px] text-text-dim">
+          <MapPinned size={13} />
+          View settings stay on the canvas.
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function ViewControlSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <section className="border-t border-surface-border/60 py-2 first:border-t-0">
+      <div className="mb-1 flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+        {icon}
+        {title}
+      </div>
+      <div className="space-y-0.5">{children}</div>
+    </section>
+  );
+}
+
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className={`flex items-center justify-between rounded-md px-2 py-1.5 text-text-muted ${disabled ? "opacity-45" : "hover:bg-surface-overlay/60 hover:text-text"}`}>
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="accent-accent"
+      />
+    </label>
   );
 }

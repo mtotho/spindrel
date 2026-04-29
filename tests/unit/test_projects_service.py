@@ -8,10 +8,13 @@ import pytest
 from app.db.models import Project
 from app.services.projects import (
     PROJECT_KB_PATH,
+    materialize_project_blueprint,
     normalize_project_path,
+    project_blueprint_snapshot,
     project_directory_from_project,
     project_knowledge_base_index_prefix,
     project_workspace_path,
+    render_project_blueprint_root_path,
     resolve_channel_work_surface,
 )
 
@@ -24,6 +27,49 @@ def test_normalize_project_path_accepts_multi_repo_roots():
 def test_normalize_project_path_rejects_escape():
     with pytest.raises(ValueError):
         normalize_project_path("../outside")
+
+
+def test_render_project_blueprint_root_path_uses_slug_tokens():
+    assert render_project_blueprint_root_path(
+        "common/projects/{slug}",
+        project_name="My API",
+        project_slug="my-api",
+    ) == "common/projects/my-api"
+    assert render_project_blueprint_root_path(
+        "common/projects/{name}",
+        project_name="My API",
+        project_slug="custom",
+    ) == "common/projects/my-api"
+
+
+def test_materialize_project_blueprint_creates_starter_surface(tmp_path):
+    project_dir = SimpleNamespace(host_path=str(tmp_path / "project"))
+    blueprint = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Starter",
+        slug="starter",
+        default_root_path_pattern="common/projects/{slug}",
+        prompt_file_path=".spindrel/project-prompt.md",
+        folders=["docs"],
+        files={"README.md": "# Starter\n"},
+        knowledge_files={"overview.md": "Knowledge\n"},
+        repos=[{"name": "app"}],
+        env={"NODE_ENV": "development"},
+        required_secrets=["GITHUB_TOKEN"],
+        metadata_={"kind": "test"},
+    )
+    result = materialize_project_blueprint(project_dir, blueprint)
+
+    assert result.payload()["folders_created"] == ["docs"]
+    assert result.payload()["files_written"] == ["README.md"]
+    assert (tmp_path / "project" / "docs").is_dir()
+    assert (tmp_path / "project" / "README.md").read_text() == "# Starter\n"
+    assert (tmp_path / "project" / PROJECT_KB_PATH / "overview.md").read_text() == "Knowledge\n"
+    assert project_blueprint_snapshot(blueprint)["required_secrets"] == ["GITHUB_TOKEN"]
+
+    second = materialize_project_blueprint(project_dir, blueprint)
+    assert second.payload()["files_skipped"] == ["README.md"]
+    assert second.payload()["knowledge_files_skipped"] == ["overview.md"]
 
 
 def test_project_directory_stays_inside_shared_workspace(monkeypatch, tmp_path):

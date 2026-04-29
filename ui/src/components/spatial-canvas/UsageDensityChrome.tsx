@@ -45,32 +45,12 @@ interface UsageDensityChromeProps {
   station: StarboardStation;
   onOpenChange: (open: boolean) => void;
   onStationChange: (station: StarboardStation) => void;
-  intensity: DensityIntensity;
-  onCycleIntensity: () => void;
-  window: DensityWindow;
-  onWindowChange: (w: DensityWindow) => void;
-  compare: boolean;
-  onCompareChange: (c: boolean) => void;
-  animate: boolean;
-  onAnimateChange: (a: boolean) => void;
-  connectionsEnabled: boolean;
-  onConnectionsToggle: () => void;
-  botsVisible: boolean;
-  onBotsVisibleChange: (visible: boolean) => void;
-  botsReduced: boolean;
-  onBotsReducedChange: (reduced: boolean) => void;
-  landmarkBeaconsVisible: boolean;
-  onLandmarkBeaconsVisibleChange: (visible: boolean) => void;
-  attentionSignalsVisible: boolean;
-  onAttentionSignalsVisibleChange: (visible: boolean) => void;
-  onOpenPalette: () => void;
   objects: StarboardObjectItem[];
   attentionItems: WorkspaceAttentionItem[];
   selectedAttentionId: string | null;
   onSelectAttention: (item: WorkspaceAttentionItem | null) => void;
   onReplyAttention?: (item: WorkspaceAttentionItem) => void;
   navigate?: (to: string, options?: any) => void;
-  launchWorldCenter: { x: number; y: number } | null;
   selectedObject?: StarboardObjectItem | null;
 }
 
@@ -156,35 +136,12 @@ function IntensityPips({ intensity }: { intensity: DensityIntensity }) {
 
 export function UsageDensityChrome({
   open,
-  station,
   onOpenChange,
-  onStationChange,
-  intensity,
-  onCycleIntensity,
-  window: densityWindow,
-  onWindowChange,
-  compare,
-  onCompareChange,
-  animate,
-  onAnimateChange,
-  connectionsEnabled,
-  onConnectionsToggle,
-  botsVisible,
-  onBotsVisibleChange,
-  botsReduced,
-  onBotsReducedChange,
-  landmarkBeaconsVisible,
-  onLandmarkBeaconsVisibleChange,
-  attentionSignalsVisible,
-  onAttentionSignalsVisibleChange,
-  onOpenPalette,
   objects,
   attentionItems,
   selectedAttentionId,
   onSelectAttention,
-  onReplyAttention,
   navigate,
-  launchWorldCenter,
   selectedObject,
 }: UsageDensityChromeProps) {
   const [objectQuery, setObjectQuery] = useState("");
@@ -193,39 +150,13 @@ export function UsageDensityChrome({
     y: number;
     item: StarboardObjectItem;
   } | null>(null);
-  const [stationMenuOpen, setStationMenuOpen] = useState(false);
-  const stationMenuRef = useRef<HTMLDivElement | null>(null);
   const [panelWidth, setPanelWidth] = useState(() => loadStarboardWidth());
-  const activeStation = STATIONS.find((item) => item.id === station) ?? STATIONS[0];
-  const selectStation = (nextStation: StarboardStation) => {
-    onStationChange(nextStation);
-    persistStarboardTab(nextStation);
-    setStationMenuOpen(false);
-  };
   const normalizedQuery = objectQuery.trim().toLowerCase();
   const visibleObjects = objects.filter((item) => {
     if (!normalizedQuery) return true;
     return `${item.label} ${item.subtitle ?? ""} ${item.workState?.primary_signal ?? ""} ${KIND_LABEL[item.kind]}`.toLowerCase().includes(normalizedQuery);
   });
   const objectGroups = buildObjectGroups(visibleObjects, selectedObject);
-
-  useEffect(() => {
-    if (!stationMenuOpen) return;
-    function close(event: PointerEvent) {
-      const menu = stationMenuRef.current;
-      if (menu && menu.contains(event.target as Node)) return;
-      setStationMenuOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setStationMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", close, true);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("pointerdown", close, true);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [stationMenuOpen]);
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -296,58 +227,16 @@ export function UsageDensityChrome({
             title="Resize Starboard"
           />
           <div className="flex items-center justify-between px-2.5 py-2">
-            <div ref={stationMenuRef} className="relative min-w-0 flex-1">
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-surface-overlay/50"
-                onClick={() => setStationMenuOpen((open) => !open)}
-                aria-haspopup="menu"
-                aria-expanded={stationMenuOpen}
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/[0.08] text-accent">
-                  {activeStation.icon}
+            <div className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-2 py-1.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/[0.08] text-accent">
+                <LayoutList size={15} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Starboard</span>
+                <span className="block truncate text-base font-semibold text-text">
+                  {selectedObject ? `${KIND_LABEL[selectedObject.kind]} inspector` : "Object inspector"}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Starboard</span>
-                  <span className="block truncate text-base font-semibold text-text">{activeStation.label}</span>
-                </span>
-                <ChevronDown size={16} className="text-text-dim" />
-              </button>
-              {stationMenuOpen && (
-                <div
-                  role="menu"
-                  className="absolute left-0 top-full z-[50003] mt-2 w-72 rounded-md border border-surface-border bg-surface-raised/95 p-1 backdrop-blur"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                >
-                  {STATIONS.map((item, index) => (
-                    <Fragment key={item.id}>
-                      {index === 0 || STATIONS[index - 1].group !== item.group ? (
-                        <div className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
-                          {item.group}
-                        </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${
-                          station === item.id ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-                        }`}
-                        onClick={() => selectStation(item.id)}
-                      >
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-overlay/50">{item.icon}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium">{item.label}</span>
-                          <span className="block truncate text-xs text-text-dim">{item.eyebrow}</span>
-                        </span>
-                      </button>
-                    </Fragment>
-                  ))}
-                </div>
-              )}
+              </span>
             </div>
             <button
               type="button"
@@ -361,124 +250,6 @@ export function UsageDensityChrome({
           </div>
 
           <div data-testid="starboard-scroll-body" className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-2">
-              {station === "hub" ? (
-                <CommandCenter embedded />
-              ) : station === "controls" ? (
-                <>
-                  <div className="mb-4">
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">Controls</div>
-                    <div className="mt-1 text-sm text-text-muted">Map view and canvas behavior.</div>
-                  </div>
-
-                  <PanelSection icon={<Command size={15} />} title="Commands">
-                    <button
-                      type="button"
-                      onClick={onOpenPalette}
-                      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-                    >
-                      <span>Command palette</span>
-                      <span className="font-mono text-[11px] text-text-dim">Ctrl K</span>
-                    </button>
-                  </PanelSection>
-
-                  <PanelSection icon={<Eye size={15} />} title="View">
-                    <SettingRow label="Attention signals">
-                      <input
-                        type="checkbox"
-                        checked={attentionSignalsVisible}
-                        onChange={(e) => onAttentionSignalsVisibleChange(e.target.checked)}
-                        className="accent-accent"
-                      />
-                    </SettingRow>
-                    <SettingRow label="Connection lines">
-                      <input
-                        type="checkbox"
-                        checked={connectionsEnabled}
-                        onChange={() => onConnectionsToggle()}
-                        className="accent-accent"
-                      />
-                    </SettingRow>
-                  </PanelSection>
-
-                  <PanelSection icon={<Activity size={15} />} title="Activity">
-                    <button
-                      type="button"
-                      onClick={onCycleIntensity}
-                      title={INTENSITY_HINT[intensity]}
-                      className="mb-2 inline-flex items-center rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay/60 hover:text-text"
-                    >
-                      <IntensityPips intensity={intensity} />
-                      {INTENSITY_LABEL[intensity]}
-                    </button>
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-text-muted">Window</span>
-                      <div className="inline-flex overflow-hidden rounded-md bg-surface-overlay/60 p-0.5">
-                        {WINDOWS.map((w) => (
-                          <button
-                            key={w}
-                            type="button"
-                            onClick={() => onWindowChange(w)}
-                            className={`rounded px-2 py-1 text-xs ${
-                              densityWindow === w
-                                ? "bg-accent/[0.08] text-accent"
-                                : "text-text-dim hover:bg-surface-overlay/80 hover:text-text"
-                            }`}
-                          >
-                            {w}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <SettingRow label="Spike colors">
-                      <input
-                        type="checkbox"
-                        checked={compare}
-                        onChange={(e) => onCompareChange(e.target.checked)}
-                        className="accent-accent"
-                      />
-                    </SettingRow>
-                    <SettingRow label="Breathe">
-                      <input
-                        type="checkbox"
-                        checked={animate}
-                        onChange={(e) => onAnimateChange(e.target.checked)}
-                        className="accent-accent"
-                      />
-                    </SettingRow>
-                  </PanelSection>
-
-                  <PanelSection icon={<Bot size={15} />} title="Bots">
-                    <SettingRow label="Show bots">
-                      <input
-                        type="checkbox"
-                        checked={botsVisible}
-                        onChange={(e) => onBotsVisibleChange(e.target.checked)}
-                        className="accent-accent"
-                      />
-                    </SettingRow>
-                    <SettingRow label="Reduce bots">
-                      <input
-                        type="checkbox"
-                        checked={botsReduced}
-                        onChange={(e) => onBotsReducedChange(e.target.checked)}
-                        disabled={!botsVisible}
-                        className="accent-accent disabled:opacity-40"
-                      />
-                    </SettingRow>
-                  </PanelSection>
-
-                  <PanelSection icon={<MapPinned size={15} />} title="Wayfinding">
-                    <SettingRow label="Edge beacons">
-                      <input
-                        type="checkbox"
-                        checked={landmarkBeaconsVisible}
-                        onChange={(e) => onLandmarkBeaconsVisibleChange(e.target.checked)}
-                        className="accent-accent"
-                      />
-                    </SettingRow>
-                  </PanelSection>
-                </>
-              ) : station === "objects" ? (
                 <div data-testid="starboard-map-brief">
                   {selectedObject && (
                     <SelectedObjectInspector
@@ -533,22 +304,6 @@ export function UsageDensityChrome({
                     )}
                   </div>
                 </div>
-              ) : station === "attention" ? (
-                <AttentionStarboardSummary
-                  items={attentionItems}
-                  navigate={navigate}
-                />
-              ) : station === "health" ? (
-                <SummaryPanel embedded />
-              ) : station === "smell" ? (
-                <BloatStationContent />
-              ) : (
-                <CanvasLibraryContent
-                  embedded
-                  worldCenter={launchWorldCenter}
-                  onClose={() => onOpenChange(false)}
-                />
-              )}
           </div>
           {objectMenu && (
             <ObjectContextMenu

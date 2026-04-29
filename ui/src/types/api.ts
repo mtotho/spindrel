@@ -1328,9 +1328,41 @@ export interface SharedWorkspace {
 export interface ProjectSummary {
   id: string;
   workspace_id: string;
+  applied_blueprint_id?: string | null;
   name: string;
   slug: string;
   root_path: string;
+}
+
+export interface ProjectBlueprintSummary {
+  id: string;
+  workspace_id?: string | null;
+  name: string;
+  slug: string;
+  description?: string | null;
+}
+
+export interface ProjectBlueprint extends ProjectBlueprintSummary {
+  default_root_path_pattern?: string | null;
+  prompt?: string | null;
+  prompt_file_path?: string | null;
+  folders?: string[];
+  files?: Record<string, string>;
+  knowledge_files?: Record<string, string>;
+  repos?: Array<Record<string, any>>;
+  env?: Record<string, string>;
+  required_secrets?: string[];
+  metadata_?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectSecretBinding {
+  id: string;
+  logical_name: string;
+  secret_value_id?: string | null;
+  secret_value_name?: string | null;
+  bound: boolean;
 }
 
 export interface Project extends ProjectSummary {
@@ -1345,6 +1377,8 @@ export interface Project extends ProjectSummary {
     path: string;
     host_path: string;
   } | null;
+  blueprint?: ProjectBlueprintSummary | null;
+  secret_bindings?: ProjectSecretBinding[];
   attached_channel_count?: number;
   created_at: string;
   updated_at: string;
@@ -1359,6 +1393,33 @@ export interface ProjectWrite {
   prompt?: string | null;
   prompt_file_path?: string | null;
   metadata_?: Record<string, any> | null;
+}
+
+export interface ProjectBlueprintWrite {
+  workspace_id?: string | null;
+  name?: string | null;
+  slug?: string | null;
+  description?: string | null;
+  default_root_path_pattern?: string | null;
+  prompt?: string | null;
+  prompt_file_path?: string | null;
+  folders?: string[] | null;
+  files?: Record<string, string> | null;
+  knowledge_files?: Record<string, string> | null;
+  repos?: Array<Record<string, any>> | null;
+  env?: Record<string, string> | null;
+  required_secrets?: string[] | null;
+  metadata_?: Record<string, any> | null;
+}
+
+export interface ProjectFromBlueprintWrite {
+  blueprint_id: string;
+  workspace_id?: string | null;
+  name: string;
+  slug?: string | null;
+  description?: string | null;
+  root_path?: string | null;
+  secret_bindings?: Record<string, string | null>;
 }
 
 export interface WorkspaceCreate {

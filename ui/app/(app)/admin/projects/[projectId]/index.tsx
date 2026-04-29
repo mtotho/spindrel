@@ -1,13 +1,14 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, FileText, FolderOpen, Hash, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
+import { ExternalLink, FileText, FolderOpen, Hash, KeyRound, Layers, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useProject, useProjectChannels, useUpdateProject } from "@/src/api/hooks/useProjects";
+import { useProject, useProjectChannels, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
+import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { useWorkspace } from "@/src/api/hooks/useWorkspaces";
 import { PageHeader } from "@/src/components/layout/PageHeader";
-import { FormRow, Section, TabBar, TextInput } from "@/src/components/shared/FormControls";
+import { FormRow, Section, SelectInput, TabBar, TextInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ChannelPicker } from "@/src/components/shared/ChannelPicker";
@@ -46,6 +47,130 @@ function HeaderLink({ to, children, icon }: { to: string; children: React.ReactN
 
 function normalizePath(path: string): string {
   return path.replace(/^\/+|\/+$/g, "");
+}
+
+function ProjectBlueprintSection({ project }: { project: Project }) {
+  const { data: secrets = [] } = useSecretValues();
+  const updateBindings = useUpdateProjectSecretBindings(project.id);
+  const [bindingsDraft, setBindingsDraft] = useState<Record<string, string>>({});
+
+  const bindings = project.secret_bindings ?? [];
+  const snapshot = project.metadata_?.blueprint_snapshot ?? {};
+  const materialization = project.metadata_?.blueprint_materialization ?? {};
+  const envDefaults = snapshot && typeof snapshot.env === "object" && !Array.isArray(snapshot.env) ? snapshot.env : {};
+  const repos = Array.isArray(snapshot?.repos) ? snapshot.repos : [];
+  const requiredSecrets = Array.isArray(snapshot?.required_secrets)
+    ? snapshot.required_secrets.filter((name: unknown): name is string => typeof name === "string" && name.trim().length > 0)
+    : bindings.map((binding) => binding.logical_name);
+  const bindingNames = Array.from(new Set([...requiredSecrets, ...bindings.map((binding) => binding.logical_name)]));
+  const currentBindings = useMemo(
+    () => Object.fromEntries(bindings.map((binding) => [binding.logical_name, binding.secret_value_id ?? ""])),
+    [bindings],
+  );
+  const secretOptions = useMemo(
+    () => [
+      { label: "Unbound", value: "" },
+      ...secrets.map((secret) => ({
+        label: secret.name,
+        value: secret.id,
+      })),
+    ],
+    [secrets],
+  );
+
+  useEffect(() => {
+    setBindingsDraft(currentBindings);
+  }, [currentBindings]);
+
+  const dirty = JSON.stringify(bindingsDraft) !== JSON.stringify(currentBindings);
+  const saveBindings = () => {
+    const payload = Object.fromEntries(
+      Object.entries(bindingsDraft).map(([name, secretId]) => [name, secretId || null]),
+    );
+    updateBindings.mutate(payload);
+  };
+
+  return (
+    <Section
+      title="Blueprint"
+      description="The recipe used to create this Project and the declarations still attached to it."
+      action={
+        bindingNames.length > 0 ? (
+          <ActionButton
+            label="Save Bindings"
+            icon={<Save size={14} />}
+            disabled={!dirty || updateBindings.isPending}
+            onPress={saveBindings}
+          />
+        ) : undefined
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <SettingsControlRow
+          leading={<Layers size={14} />}
+          title={project.blueprint?.name ?? "No blueprint applied"}
+          description={project.blueprint ? project.blueprint.description || project.blueprint.slug : "This Project was created directly."}
+          meta={project.blueprint ? <QuietPill label={project.blueprint.slug} /> : <QuietPill label="direct" />}
+        />
+
+        {project.blueprint && (
+          <div className="grid gap-2 md:grid-cols-3">
+            <SettingsControlRow
+              leading={<FolderOpen size={14} />}
+              title="Materialized"
+              description={`${(materialization.files_written ?? []).length} files, ${(materialization.folders_created ?? []).length} folders`}
+              meta={<QuietPill label={`${(materialization.files_skipped ?? []).length} skipped`} />}
+            />
+            <SettingsControlRow
+              leading={<FileText size={14} />}
+              title="Repo declarations"
+              description={repos.length > 0 ? repos.map((repo: Record<string, unknown>) => String(repo.name || repo.url || "repo")).join(", ") : "No repos declared"}
+              meta={<QuietPill label={`${repos.length}`} />}
+            />
+            <SettingsControlRow
+              leading={<Hash size={14} />}
+              title="Env defaults"
+              description={Object.keys(envDefaults).length > 0 ? Object.keys(envDefaults).join(", ") : "No env defaults declared"}
+              meta={<QuietPill label={`${Object.keys(envDefaults).length}`} />}
+            />
+          </div>
+        )}
+
+        {bindingNames.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <SettingsGroupLabel
+              label="Secret bindings"
+              count={bindingNames.length}
+              icon={<KeyRound size={13} className="text-text-dim" />}
+            />
+            <div className="grid gap-2 md:grid-cols-2">
+              {bindingNames.map((name) => {
+                const binding = bindings.find((item) => item.logical_name === name);
+                return (
+                  <SettingsControlRow
+                    key={name}
+                    leading={<KeyRound size={14} />}
+                    title={name}
+                    description={binding?.secret_value_name ?? "No secret bound"}
+                    meta={<QuietPill label={binding?.bound ? "bound" : "missing"} tone={binding?.bound ? "success" : "warning"} />}
+                    action={
+                      <div className="w-[220px]">
+                        <SelectInput
+                          value={bindingsDraft[name] ?? ""}
+                          onChange={(value) => setBindingsDraft((current) => ({ ...current, [name]: value }))}
+                          options={secretOptions}
+                        />
+                      </div>
+                    }
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
 }
 
 function ProjectChannelsSection({
@@ -364,6 +489,8 @@ export default function ProjectDetail() {
                   />
                 </div>
               </Section>
+
+              <ProjectBlueprintSection project={project} />
             </div>
           </div>
         )}

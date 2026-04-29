@@ -81,9 +81,10 @@ Scratch app files are deleted through the workspace file API after the test.
 Per-test diagnostic screenshots land under `/tmp/spindrel-harness-parity/`
 unless `HARNESS_PARITY_ARTIFACT_DIR` is set. For `project` and deeper tiers,
 `run_harness_parity_live.sh` also runs the live harness screenshot capturer
-after pytest passes and writes the docs fixtures to `docs/images` by default.
-Use `HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR` to change that destination, or
-`HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip docs fixture capture. Use
+after pytest passes and writes verification captures under `/tmp` by default.
+Use `HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR=docs/images` when intentionally
+refreshing checked-in docs fixtures, or
+`HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip screenshot capture. Use
 `HARNESS_PARITY_SCREENSHOT_ONLY='harness-claude-native-edit-terminal'` for a
 targeted recapture; comma-separated exact names and shell globs are supported.
 

@@ -261,14 +261,16 @@ def _build_specs(
         route = f"{browser_url}/channels/{channel_id}/session/{pending_session_id}"
         wait = (
             "document.querySelector('[data-plan-card-mode]') !== null "
-            "&& document.body.innerText.toLowerCase().includes('pending outcome')"
+            "&& (document.body.innerText.toLowerCase().includes('pending outcome') "
+            "|| document.body.innerText.toLowerCase().includes('next required action') "
+            "|| document.body.innerText.toLowerCase().includes('missing turn outcome'))"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-pending-outcome-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Pending outcome",),
-            scroll_text="Pending outcome",
+            contains=("Next required action",),
+            scroll_text="Next required action",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -276,8 +278,8 @@ def _build_specs(
             name="spindrel-plan-pending-outcome-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Pending outcome",),
-            scroll_text="Pending outcome",
+            contains=("Next required action",),
+            scroll_text="Next required action",
             channel_id=channel_id,
             chat_mode="terminal",
         ))
@@ -312,15 +314,14 @@ def _build_specs(
         wait = (
             "document.querySelector('[data-plan-focus]') !== null "
             "&& document.body.innerText.toLowerCase().includes('native spindrel stress readability') "
-            "&& document.body.innerText.toLowerCase().includes('ready for approval') "
             "&& document.body.innerText.toLowerCase().includes('key changes')"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-stress-readability-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Stress Readability", "Ready for approval", "Key Changes"),
-            scroll_text="Native Spindrel Stress Readability",
+            contains=("Native Spindrel Stress Readability", "Key Changes"),
+            scroll_plan_text="Native Spindrel Stress Readability",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -328,9 +329,9 @@ def _build_specs(
             name="spindrel-plan-stress-readability-mobile-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Stress Readability", "Ready for approval", "Key Changes"),
+            contains=("Native Spindrel Stress Readability", "Key Changes"),
             viewport=(390, 844),
-            scroll_text="Native Spindrel Stress Readability",
+            scroll_plan_text="Native Spindrel Stress Readability",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -338,8 +339,8 @@ def _build_specs(
             name="spindrel-plan-stress-readability-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Stress Readability", "Ready for approval", "Key Changes"),
-            scroll_text="Native Spindrel Stress Readability",
+            contains=("Native Spindrel Stress Readability", "Key Changes"),
+            scroll_plan_text="Native Spindrel Stress Readability",
             channel_id=channel_id,
             chat_mode="terminal",
         ))

@@ -1135,68 +1135,43 @@ async def test_live_spindrel_stress_long_plan_readability_fixture(client: E2ECli
     _requires_tier("stress")
     channel_id, session_id, bot_id = await _fresh_session(client, "stress_readability")
     await client.start_session_plan_mode(session_id)
-    created = await client.create_session_plan(
-        session_id,
-        {
-            "title": "Native Spindrel Stress Readability",
-            "summary": "Verify long native plans render with a clear current focus instead of a wall of text.",
-            "scope": "Live visual diagnostics only; use this session as the screenshot fixture for plan hierarchy.",
-            "key_changes": [
-                "Prioritize the next decision or action at the top of the card.",
-                "Keep lower-priority implementation detail below the primary focus.",
-                "Cap long repeated sections so mobile screenshots remain scannable.",
-                "Preserve terminal mode readability with low chrome and monospace rhythm.",
-                "Keep validation state visible without turning warnings into the whole card.",
-                "Make revision history available after the user has seen the active plan.",
-            ],
-            "interfaces": [
-                "Session plan payload remains backward compatible.",
-                "Plan card derives display priority from existing runtime and validation fields.",
-                "Screenshot capture consumes the live detached session id.",
-                "Terminal chat mode uses the same plan payload with terminal-specific chrome.",
-                "Mobile chat uses full-width content rows rather than avatar-indented cards.",
-            ],
-            "assumptions_and_defaults": [
-                "The user needs the next action before the full contract.",
-                "A compact summary is more useful than repeating every section at equal weight.",
-                "Existing plan validation remains the source of approval truth.",
-                "Long lists should disclose counts when only the first items are visible.",
-                "Screenshots should be generated from real live sessions after deploy.",
-            ],
-            "test_plan": [
-                "Run stress-tier native plan diagnostics on the live server.",
-                "Capture default, mobile, and terminal screenshots for this session.",
-                "Inspect the mobile image for full-width incoming plan content.",
-                "Inspect terminal mode for low chrome and readable hierarchy.",
-                "Run TypeScript and screenshot drift checks before publishing docs artifacts.",
-            ],
-            "risks": [
-                "Hiding too much detail could obscure a required acceptance criterion.",
-                "Adding too much visual treatment could violate command-surface UI rules.",
-                "Live model variance could make stress tests noisy without deterministic fixtures.",
-                "Mobile composer overlap can hide the lower half of long cards.",
-                "Terminal mode can become visually noisy if default card chrome leaks through.",
-            ],
-            "acceptance_criteria": [
-                "Current focus appears above detailed sections.",
-                "Long sections show capped content with remaining counts.",
-                "Mobile screenshots show the plan card using the content width.",
-                "Terminal screenshots show the same hierarchy without heavy card chrome.",
-                "Stress-tier diagnostics produce sessions for visual feedback artifacts.",
-            ],
-            "steps": [
-                {"id": "stress-tier", "label": "Run native stress diagnostics"},
-                {"id": "readability", "label": "Capture readability screenshots"},
-                {"id": "mobile", "label": "Inspect mobile full-width rendering"},
-                {"id": "terminal", "label": "Inspect terminal plan rendering"},
-                {"id": "docs", "label": "Reference artifacts from the visual feedback guide"},
-                {"id": "verify", "label": "Run focused verification commands"},
-                {"id": "deploy", "label": "Verify artifacts after the next deployment"},
-            ],
-        },
+    result = await client.chat_session_stream(
+        (
+            "Native stress diagnostic. Use @tool:publish_plan now and do not ask follow-up questions. "
+            "Publish a long screenshot fixture titled 'Native Spindrel Stress Readability'. "
+            "Use summary 'Verify long native plans render with a clear current focus instead of a wall of text.' "
+            "Use scope 'Live visual diagnostics only; use this session as the screenshot fixture for plan hierarchy.' "
+            "Use key_changes ['Prioritize the next decision or action at the top of the card', "
+            "'Keep lower-priority implementation detail below the primary focus', "
+            "'Cap long repeated sections so mobile screenshots remain scannable', "
+            "'Preserve terminal mode readability with low chrome and monospace rhythm', "
+            "'Keep validation state visible without turning warnings into the whole card']. "
+            "Use interfaces ['Session plan payload remains backward compatible']. "
+            "Use assumptions_and_defaults ['The user needs the next action before the full contract']. "
+            "Use test_plan ['Capture default, mobile, and terminal screenshots for this session']. "
+            "Use risks ['Long cards can bury the next action if every section has equal weight']. "
+            "Use acceptance criteria 'Current focus appears above detailed sections', "
+            "and 'Long sections show capped content with remaining counts'. "
+            "Use exactly seven pending steps: 'Run native stress diagnostics', "
+            "'Capture readability screenshots', 'Inspect mobile full-width rendering', "
+            "'Inspect terminal plan rendering', 'Reference artifacts from the visual feedback guide', "
+            "'Run focused verification commands', and 'Verify artifacts after deployment'. "
+            "Do not include step notes or an outcome."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
     )
-    assert created["revision"] == 1
-    assert (created.get("validation") or {}).get("ok") is True, created.get("validation")
-    assert len(created.get("key_changes") or []) >= 6
-    assert len(created.get("steps") or []) >= 7
+    _assert_clean_turn(result)
+    assert "publish_plan" in result.tools_used
+
+    plan = await client.get_session_plan(session_id)
+    assert plan["revision"] == 1
+    assert plan["title"] == "Native Spindrel Stress Readability"
+    assert (plan.get("validation") or {}).get("ok") is True, plan.get("validation")
+    assert len(plan.get("key_changes") or []) >= 5
+    assert len(plan.get("steps") or []) >= 7
+    messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
+    assert _has_plan_envelope(messages, "Native Spindrel Stress Readability")
     _record_session("stress_readability", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

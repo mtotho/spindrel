@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Project, ProjectWrite, Channel } from "../../types/api";
+import type {
+  Channel,
+  Project,
+  ProjectBlueprint,
+  ProjectBlueprintWrite,
+  ProjectFromBlueprintWrite,
+  ProjectWrite,
+} from "../../types/api";
 
 export function useProjects() {
   return useQuery({
@@ -25,6 +32,13 @@ export function useProjectChannels(projectId: string | undefined) {
   });
 }
 
+export function useProjectBlueprints() {
+  return useQuery({
+    queryKey: ["project-blueprints"],
+    queryFn: () => apiFetch<ProjectBlueprint[]>("/api/v1/projects/blueprints"),
+  });
+}
+
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
@@ -34,11 +48,47 @@ export function useCreateProject() {
   });
 }
 
+export function useCreateProjectBlueprint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProjectBlueprintWrite) =>
+      apiFetch<ProjectBlueprint>("/api/v1/projects/blueprints", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project-blueprints"] }),
+  });
+}
+
+export function useCreateProjectFromBlueprint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ProjectFromBlueprintWrite) =>
+      apiFetch<Project>("/api/v1/projects/from-blueprint", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: (project) => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", project.id] });
+    },
+  });
+}
+
 export function useUpdateProject(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: ProjectWrite) =>
       apiFetch<Project>(`/api/v1/projects/${projectId}`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
+  });
+}
+
+export function useUpdateProjectSecretBindings(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (bindings: Record<string, string | null>) =>
+      apiFetch<Project>(`/api/v1/projects/${projectId}/secret-bindings`, {
+        method: "PATCH",
+        body: JSON.stringify({ bindings }),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId] });

@@ -293,10 +293,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     }
   }, [nodes, selectedSpatialObject]);
 
-  const openStarboard = useCallback((station: StarboardStation) => {
-    setStarboardStation(station);
+  const openStarboard = useCallback(() => {
+    setStarboardStation("objects");
     try {
-      localStorage.setItem("spatial.starboard.activeTab", station);
+      localStorage.setItem("spatial.starboard.activeTab", "objects");
     } catch {
       /* storage disabled */
     }
@@ -309,19 +309,19 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     closeAttentionHub();
   }, [canvasBackState, closeAttentionHub, navigate]);
   const openStarboardLaunch = useCallback(() => {
-    openStarboard("launch");
-  }, [openStarboard]);
+    setCanvasLibraryOpen(true);
+  }, []);
   const openStarboardHub = useCallback(() => {
-    openStarboard("hub");
-  }, [openStarboard]);
+    navigate(attentionDeckHref({ mode: "review" }), { state: canvasBackState });
+  }, [canvasBackState, navigate]);
   const openStarboardObjects = useCallback(() => {
-    openStarboard("objects");
+    openStarboard();
   }, [openStarboard]);
   const openStarboardHealth = useCallback(() => {
-    openStarboard("health");
+    openStarboard();
   }, [openStarboard]);
   const openStarboardSmell = useCallback(() => {
-    openStarboard("smell");
+    openStarboard();
   }, [openStarboard]);
 
   useEffect(() => {
@@ -390,6 +390,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
   const [selectedAttentionId, setSelectedAttentionId] = useState<string | null>(null);
   const [starboardOpen, setStarboardOpen] = useState(false);
   const [starboardStation, setStarboardStation] = useState<StarboardStation>(loadStarboardStation);
+  const [canvasLibraryOpen, setCanvasLibraryOpen] = useState(false);
   const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
 
@@ -945,6 +946,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         viewportSize={viewportSize}
         edgeBeacons={edgeBeacons}
         setPinPositionOverride={setPinPositionOverride}
+        canvasLibraryOpen={canvasLibraryOpen}
+        setCanvasLibraryOpen={setCanvasLibraryOpen}
         openStarboardLaunch={openStarboardLaunch}
         interactionMode={interactionMode}
         setInteractionMode={setInteractionMode}
@@ -958,6 +961,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
         setDensityAnimate={setDensityAnimate}
         connectionsEnabled={connectionsEnabled}
         setConnectionsEnabled={setConnectionsEnabled}
+        trailsMode={trailsMode}
+        cycleTrailsMode={cycleTrailsMode}
         botsVisible={botsVisible}
         setBotsVisible={setBotsVisible}
         botsReduced={botsReduced}

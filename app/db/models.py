@@ -1261,6 +1261,12 @@ class Project(Base):
         nullable=False,
         index=True,
     )
+    applied_blueprint_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_blueprints.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     slug: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1274,11 +1280,90 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     workspace: Mapped["SharedWorkspace"] = relationship("SharedWorkspace")
+    applied_blueprint: Mapped[Optional["ProjectBlueprint"]] = relationship("ProjectBlueprint")
+    secret_bindings: Mapped[list["ProjectSecretBinding"]] = relationship(
+        "ProjectSecretBinding",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     channels: Mapped[list["Channel"]] = relationship("Channel", back_populates="project")
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "root_path", name="uq_projects_workspace_root_path"),
         UniqueConstraint("workspace_id", "slug", name="uq_projects_workspace_slug"),
+    )
+
+
+class ProjectBlueprint(Base):
+    __tablename__ = "project_blueprints"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_root_path_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    folders: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    files: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    knowledge_files: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    repos: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    env: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    required_secrets: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    workspace: Mapped[Optional["SharedWorkspace"]] = relationship("SharedWorkspace")
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "slug", name="uq_project_blueprints_workspace_slug"),
+    )
+
+
+class ProjectSecretBinding(Base):
+    __tablename__ = "project_secret_bindings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    logical_name: Mapped[str] = mapped_column(Text, nullable=False)
+    secret_value_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("secret_values.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    project: Mapped["Project"] = relationship("Project", back_populates="secret_bindings")
+    secret_value: Mapped[Optional["SecretValue"]] = relationship("SecretValue")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "logical_name", name="uq_project_secret_bindings_project_name"),
     )
 
 

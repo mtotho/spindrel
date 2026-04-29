@@ -276,6 +276,32 @@ def test_harness_live_style_command_specs_type_slash_query():
     assert all("Switch chat style" in spec.contains for spec in specs)
 
 
+def test_harness_live_native_slash_specs_use_clean_runtime_sessions():
+    specs = harness_live._native_slash_specs(
+        "http://ui",
+        codex_channel_id="codex-channel",
+        codex_session_id="codex-session",
+        claude_channel_id="claude-channel",
+        claude_session_id="claude-session",
+    )
+
+    assert [spec.name for spec in specs] == [
+        "harness-native-slash-picker-dark",
+        "harness-codex-native-plugins-result-dark",
+        "harness-claude-native-skills-result-dark",
+    ]
+    assert specs[0].route == "http://ui/channels/codex-channel/session/codex-session"
+    assert specs[1].route == "http://ui/channels/codex-channel/session/codex-session"
+    assert specs[2].route == "http://ui/channels/claude-channel/session/claude-session"
+    assert specs[0].submit_slash is False
+    assert specs[1].slash_query == "/plugins"
+    assert specs[1].submit_slash is True
+    assert specs[2].slash_query == "/skills"
+    assert specs[2].submit_slash is True
+    assert specs[2].submit_ready_js
+    assert "Claude Code" in specs[2].contains
+
+
 def test_harness_live_project_terminal_specs_are_docs_fixtures():
     target = harness_live.RuntimeTarget(
         name="claude",
@@ -420,6 +446,7 @@ def test_harness_live_parse_allows_browser_visible_url():
     assert args.ui_url == "http://127.0.0.1:8000"
     assert args.browser_url == "http://172.18.0.1:8000"
     assert args.browser_api_url == "http://172.18.0.1:8000"
+    assert args.output_dir == "/tmp/spindrel-harness-live-screenshots"
 
 
 def test_harness_live_terminal_write_rejects_compact_tool_tape():
