@@ -34,7 +34,7 @@ test("assistant turn rows use one canonical renderer path across streaming and p
   assert.match(streamingIndicator, /<OrderedTranscript/);
   assert.match(streamingIndicator, /chatMode=\{chatMode\}/);
 
-  assert.equal(existsSync(resolve(CHAT_DIR, "TerminalToolTranscript.tsx")), false);
+  assert.equal(existsSync(resolve(CHAT_DIR, "TerminalToolTranscript.tsx")), true);
 });
 
 test("default-mode composer width is centralized through ChatComposerShell", () => {
@@ -66,6 +66,8 @@ test("chat modes centralize composer placement and rich result mode conventions"
 test("chat rich-result wrappers explicitly separate renderer variant from chrome ownership", () => {
   const orderedTranscript = readChatFile("OrderedTranscript.tsx");
   const toolBadges = readChatFile("ToolBadges.tsx");
+  const toolTranscriptRows = readChatFile("ToolTranscriptRows.tsx");
+  const terminalToolTranscript = readChatFile("TerminalToolTranscript.tsx");
   const richToolResult = readChatFile("RichToolResult.tsx");
   const widgetCard = readChatFile("WidgetCard.tsx");
 
@@ -77,8 +79,10 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
   assert.match(orderedTranscript, /chromeMode="embedded"/);
   assert.match(orderedTranscript, /rendererVariant="default-chat"/);
 
-  assert.match(toolBadges, /rendererVariant=\{isTerminalMode \? "terminal-chat" : "default-chat"\}/);
-  assert.match(toolBadges, /chromeMode="embedded"/);
+  assert.match(toolTranscriptRows, /rendererVariant="default-chat"/);
+  assert.match(terminalToolTranscript, /rendererVariant="terminal-chat"/);
+  assert.match(toolTranscriptRows, /chromeMode="embedded"/);
+  assert.match(terminalToolTranscript, /chromeMode="embedded"/);
 
   assert.match(orderedTranscript, /chatMode=\{chatMode\}/);
   assert.match(widgetCard, /chatMode\?:\s*"default"\s*\|\s*"terminal"/);
@@ -87,25 +91,32 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
 
 test("terminal tool transcript uses CLI-style sequential rows instead of compact tape", () => {
   const toolBadges = readChatFile("ToolBadges.tsx");
+  const toolTranscriptRows = readChatFile("ToolTranscriptRows.tsx");
+  const terminalToolTranscript = readChatFile("TerminalToolTranscript.tsx");
+  const harnessApprovalPreview = readChatFile("HarnessApprovalPreview.tsx");
+  const codePreviewRenderer = readChatFile("CodePreviewRenderer.tsx");
   const toolTraceStrip = readChatFile("ToolTraceStrip.tsx");
 
   assert.match(toolBadges, /const isTerminalMode = chatMode === "terminal"/);
-  assert.match(toolBadges, /<TerminalToolTranscript/);
-  assert.match(toolBadges, /data-testid="terminal-tool-transcript"/);
-  assert.match(toolBadges, /data-testid="tool-transcript-row"/);
-  assert.match(toolBadges, /data-testid="terminal-tool-label"/);
-  assert.match(toolBadges, /data-testid="terminal-tool-meta"/);
-  assert.match(toolBadges, /data-testid="terminal-tool-output"/);
-  assert.match(toolBadges, /data-testid="terminal-code-output"/);
-  assert.match(toolBadges, /data-testid="terminal-diff-output"/);
-  assert.match(toolBadges, /function TerminalDiffOutput/);
-  assert.match(toolBadges, /parseTerminalDiffRows/);
-  assert.match(toolBadges, /renderHtmlTag/);
-  assert.match(toolBadges, /looksLikeTerminalCodeOutput/);
-  assert.match(toolBadges, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
-  assert.match(toolBadges, /gridTemplateColumns:\s*"4ch 4ch 2ch minmax\(0, 1fr\)"/);
+  assert.match(toolTranscriptRows, /<TerminalToolTranscript/);
+  assert.match(terminalToolTranscript, /data-testid="terminal-tool-transcript"/);
+  assert.match(terminalToolTranscript, /data-testid="tool-transcript-row"/);
+  assert.match(terminalToolTranscript, /data-testid="terminal-tool-label"/);
+  assert.match(terminalToolTranscript, /data-testid="terminal-tool-meta"/);
+  assert.match(terminalToolTranscript, /data-testid="terminal-tool-output"/);
+  assert.match(codePreviewRenderer, /data-testid=\{testId\}/);
+  assert.match(terminalToolTranscript, /data-testid="terminal-diff-output"/);
+  assert.match(terminalToolTranscript, /DiffRenderer/);
+  assert.match(harnessApprovalPreview, /DiffRenderer/);
+  assert.match(harnessApprovalPreview, /CodePreviewRenderer/);
+  assert.doesNotMatch(toolBadges, /function TerminalToolTranscript/);
+  assert.doesNotMatch(toolBadges, /function HarnessToolPreview/);
+  assert.doesNotMatch(toolBadges, /parseTerminalDiffRows/);
+  assert.match(terminalToolTranscript, /looksLikeCodePreview/);
+  assert.match(terminalToolTranscript, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
+  assert.match(codePreviewRenderer, /gridTemplateColumns:\s*"4ch minmax\(0, 1fr\)"/);
   assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
-  assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
+  assert.match(toolTranscriptRows, /if \(!hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
   assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
 });
 

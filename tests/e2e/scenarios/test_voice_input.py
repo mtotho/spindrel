@@ -13,7 +13,7 @@ from tests.e2e.harness.client import E2EClient
 @pytest.mark.e2e
 class TestVoiceInput:
     async def test_chat_audio_transcribes_and_runs_turn(self, client: E2EClient) -> None:
-        """Synthetic browser audio is transcribed by the e2e STT provider, then handled as chat."""
+        """Synthetic browser audio is transcribed by the e2e hook, then handled as chat."""
 
         audio_data = base64.b64encode(b"synthetic webm audio").decode("ascii")
         channel_id = client.new_channel_id()

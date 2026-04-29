@@ -102,8 +102,8 @@ async def _fresh_session(client: E2EClient, kind: str) -> tuple[str, str, str]:
 
 
 def _assert_clean_turn(result: StreamResult) -> None:
-    assert result.response_text.strip(), "turn ended without assistant text"
     assert not result.error_events, [event.data for event in result.error_events]
+    assert result.response_text.strip() or result.tools_used, "turn ended without assistant text or tool use"
 
 
 def _assistant_messages(messages: list[dict]) -> list[dict]:
@@ -133,13 +133,17 @@ def _envelope_body(envelope: dict) -> dict:
     return {}
 
 
-def _has_plan_questions_envelope(messages: list[dict]) -> bool:
+def _has_plan_questions_envelope(messages: list[dict], *, title: str) -> bool:
     for envelope in _tool_result_envelopes(messages):
         if envelope.get("content_type") != NATIVE_APP_CONTENT_TYPE:
             continue
         body = _envelope_body(envelope)
         state = body.get("state") if isinstance(body.get("state"), dict) else {}
-        if body.get("widget_ref") == "core/plan_questions" and state.get("questions"):
+        if (
+            body.get("widget_ref") == "core/plan_questions"
+            and state.get("title") == title
+            and state.get("questions")
+        ):
             return True
     return False
 
@@ -169,7 +173,8 @@ async def test_live_spindrel_plan_mode_start_exit(client: E2EClient) -> None:
     assert started["mode"] == "planning"
     assert started["has_plan"] is False
 
-    exited = await client.exit_session_plan_mode(session_id)
+    await client.exit_session_plan_mode(session_id)
+    exited = await client.get_session_plan_state(session_id)
     assert exited["mode"] == "chat"
     assert exited["has_plan"] is False
     _record_session("core", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
@@ -185,7 +190,8 @@ async def test_live_spindrel_plan_questions_widget(client: E2EClient) -> None:
         (
             "Native plan-mode diagnostic. Use @tool:ask_plan_questions now. "
             "Ask exactly two focused questions in a structured card titled "
-            "'Native plan parity questions'. Do not publish a plan yet."
+            "'Native plan parity questions'. The two question labels must be exactly "
+            "'Plan behavior focus' and 'Success signal'. Do not publish a plan yet."
         ),
         session_id=session_id,
         channel_id=channel_id,
@@ -202,7 +208,10 @@ async def test_live_spindrel_plan_questions_widget(client: E2EClient) -> None:
     assert planning_state.get("open_questions"), planning_state
 
     messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
-    assert _has_plan_questions_envelope(messages), "ask_plan_questions did not persist the native question widget"
+    assert _has_plan_questions_envelope(
+        messages,
+        title="Native plan parity questions",
+    ), "ask_plan_questions did not persist the native question widget"
 
 
 @pytest.mark.asyncio

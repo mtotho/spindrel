@@ -36,6 +36,7 @@ class CaptureSpec:
     not_contains: tuple[str, ...] = FORBIDDEN_HARNESS_TEXT
     theme: str = "dark"
     viewport: tuple[int, int] = (1440, 900)
+    scroll_text: str | None = None
 
 
 def _env(name: str, default: str = "") -> str:
@@ -100,14 +101,15 @@ def _build_specs(browser_url: str, *, channel_id: str, question_session_id: str,
     if question_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{question_session_id}"
         wait = (
-            "document.body.innerText.toLowerCase().includes('native plan parity questions') "
-            "&& document.body.innerText.toLowerCase().includes('submit answers')"
+            "document.body.innerText.toLowerCase().includes('plan behavior focus') "
+            "&& document.body.innerText.toLowerCase().includes('success signal')"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-question-card-dark",
             route=route,
             wait_js=wait,
-            contains=("Native plan parity questions", "Submit Answers"),
+            contains=("Plan behavior focus", "Success signal"),
+            scroll_text="Plan behavior focus",
         ))
     if plan_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{plan_session_id}"
@@ -121,6 +123,7 @@ def _build_specs(browser_url: str, *, channel_id: str, question_session_id: str,
             route=route,
             wait_js=wait,
             contains=("Native Spindrel Plan Parity",),
+            scroll_text="Native Spindrel Plan Parity",
         ))
         specs.append(CaptureSpec(
             name="spindrel-plan-card-mobile-dark",
@@ -128,6 +131,7 @@ def _build_specs(browser_url: str, *, channel_id: str, question_session_id: str,
             wait_js=wait,
             contains=("Native Spindrel Plan Parity",),
             viewport=(390, 844),
+            scroll_text="Native Spindrel Plan Parity",
         ))
     return specs
 
@@ -167,6 +171,8 @@ async def _capture_one(
     page: Page = await context.new_page()
     await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
     await page.wait_for_function(spec.wait_js, timeout=60_000)
+    if spec.scroll_text:
+        await page.get_by_text(spec.scroll_text).first.scroll_into_view_if_needed(timeout=10_000)
     await page.wait_for_timeout(750)
     text = await page.locator("body").inner_text(timeout=5_000)
     lower = text.lower()

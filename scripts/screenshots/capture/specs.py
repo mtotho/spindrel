@@ -1616,6 +1616,139 @@ ATTACHMENT_CHECK_SPECS: list[ScreenshotSpec] = [
 ]
 
 
+_VOICE_READY = (
+    '!!document.querySelector(\'[data-testid="chat-composer-send"][aria-label="Record audio"]\')'
+)
+
+_VOICE_MEDIA_INIT = r"""
+(() => {
+  class FakeMediaRecorder {
+    static isTypeSupported(mime) {
+      return !mime || String(mime).startsWith("audio/webm");
+    }
+    constructor(stream, options = {}) {
+      this.stream = stream;
+      this.mimeType = options.mimeType || "audio/webm";
+      this.state = "inactive";
+      this.ondataavailable = null;
+      this.onstop = null;
+    }
+    start() {
+      this.state = "recording";
+    }
+    stop() {
+      this.state = "inactive";
+      const blob = new Blob(["synthetic webm audio"], { type: this.mimeType });
+      this.ondataavailable?.({ data: blob });
+      setTimeout(() => this.onstop?.(), 0);
+    }
+  }
+  Object.defineProperty(window, "MediaRecorder", {
+    configurable: true,
+    writable: true,
+    value: FakeMediaRecorder,
+  });
+  Object.defineProperty(window.navigator, "mediaDevices", {
+    configurable: true,
+    value: {
+      getUserMedia: async () => ({
+        getTracks: () => [{ stop() {} }]
+      })
+    },
+  });
+})();
+"""
+
+_VOICE_HELPERS_JS = r"""
+window.__voiceChecks = (() => {
+  const waitFor = async (predicate, label, timeout = 10000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      const result = await predicate();
+      if (result) return result;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`timed out waiting for ${label}`);
+  };
+  const installFakeChatSubmit = () => {
+    const originalFetch = window.fetch.bind(window);
+    window.__voiceChecksPayload = null;
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input?.url || "";
+      if (url.endsWith("/chat") && String(init?.method || "GET").toUpperCase() === "POST") {
+        window.__voiceChecksPayload = JSON.parse(String(init?.body || "{}"));
+        return new Response(JSON.stringify({
+          session_id: "00000000-0000-0000-0000-000000000002",
+          channel_id: location.pathname.split("/").filter(Boolean).pop() || "",
+          turn_id: "screenshot-voice-turn"
+        }), {
+          status: 202,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return originalFetch(input, init);
+    };
+  };
+  const button = () => document.querySelector('[data-testid="chat-composer-send"]');
+  const record = async () => {
+    const btn = button();
+    if (!btn) throw new Error("voice button not found");
+    btn.click();
+    await waitFor(() => document.querySelector('[data-testid="chat-composer-recording"]'), "recording overlay");
+  };
+  const send = async () => {
+    const btn = button();
+    if (!btn) throw new Error("send recording button not found");
+    btn.click();
+    await waitFor(() => window.__voiceChecksPayload, "voice payload");
+  };
+  return { waitFor, installFakeChatSubmit, record, send };
+})();
+"""
+
+
+VOICE_INPUT_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="chat-voice-recording",
+        route="/channels/{voice_input}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_VOICE_READY,
+        output="chat-voice-recording.png",
+        color_scheme="dark",
+        extra_init_scripts=[_VOICE_MEDIA_INIT],
+        pre_capture_js=_VOICE_HELPERS_JS + "await window.__voiceChecks.record();",
+        assert_js=(
+            "if (!document.querySelector('[data-testid=\"chat-composer-recording\"]')) throw new Error('recording overlay missing');"
+            "if (!document.querySelector('[data-testid=\"chat-composer-send\"][aria-label=\"Send recording\"]')) throw new Error('send recording button label missing');"
+            "if (!document.querySelector('[data-testid=\"chat-composer-recording-cancel\"][aria-label=\"Cancel recording\"]')) throw new Error('cancel recording label missing');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="chat-voice-payload",
+        route="/channels/{voice_input}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_VOICE_READY,
+        output="chat-voice-payload.png",
+        color_scheme="dark",
+        extra_init_scripts=[_VOICE_MEDIA_INIT],
+        pre_capture_js=(
+            _VOICE_HELPERS_JS
+            + "window.__voiceChecks.installFakeChatSubmit();"
+            + "await window.__voiceChecks.record();"
+            + "await window.__voiceChecks.send();"
+        ),
+        assert_js=(
+            "const payload = window.__voiceChecksPayload;"
+            "if (!payload) throw new Error('voice payload missing');"
+            "if (!payload.audio_data || payload.audio_data.length < 10) throw new Error('audio_data missing');"
+            "if (payload.audio_format !== 'webm') throw new Error(`audio_format mismatch: ${payload.audio_format}`);"
+        ),
+    ),
+]
+
+
 # ---------------------------------------------------------------------------
 # Channel session-tab checks — local browser recents + close-to-inline-picker.
 # ---------------------------------------------------------------------------

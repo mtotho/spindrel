@@ -3,6 +3,7 @@
  * Returns base64-encoded audio suitable for the ChatRequest audio_data field.
  */
 import { useState, useRef, useCallback, useEffect } from "react";
+import { MIME_CANDIDATES, mimeToFormat } from "./audioRecorderFormat";
 
 interface RecordingResult {
   base64: string;
@@ -19,26 +20,12 @@ interface UseAudioRecorderReturn {
   cancelRecording: () => void;
 }
 
-/** Preferred MIME types in order; first supported wins. */
-const MIME_CANDIDATES = [
-  "audio/webm;codecs=opus",
-  "audio/webm",
-  "audio/ogg;codecs=opus",
-  "audio/mp4",
-];
-
-function pickMimeType(): string {
+export function pickMimeType(): string {
   if (typeof MediaRecorder === "undefined") return "";
   for (const mime of MIME_CANDIDATES) {
     if (MediaRecorder.isTypeSupported(mime)) return mime;
   }
   return "";
-}
-
-/** Extract a simple format string from a MIME type (e.g. "audio/webm;codecs=opus" → "webm"). */
-function mimeToFormat(mime: string): string {
-  const base = mime.split(";")[0]; // "audio/webm"
-  return base.split("/")[1] || "webm";
 }
 
 export function useAudioRecorder(): UseAudioRecorderReturn {

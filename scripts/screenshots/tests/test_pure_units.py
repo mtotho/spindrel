@@ -302,6 +302,7 @@ def test_spindrel_plan_live_builds_expected_specs():
     assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
     assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
     assert specs[2].viewport == (390, 844)
+    assert specs[1].scroll_text == "Native Spindrel Plan Parity"
     assert all("harness sdk" in spec.not_contains for spec in specs)
 
 

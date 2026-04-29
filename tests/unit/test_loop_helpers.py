@@ -1,4 +1,9 @@
 """Unit tests for pure helpers in app.agent.loop."""
+import uuid
+
+import pytest
+
+from app.agent.bots import BotConfig, MemoryConfig
 from app.agent.context import task_creation_count
 from app.agent.loop import (
     _CLASSIFY_SYS_MSG,
@@ -7,9 +12,11 @@ from app.agent.loop import (
     _append_transcript_text_entry,
     _append_transcript_tool_entry,
     _collapse_final_assistant_tool_turn,
+    _finalize_response,
     _sanitize_messages,
     _synthesize_empty_response_fallback,
 )
+from app.agent.loop_state import LoopRunContext, LoopRunState
 
 
 class TestClassifySysMsg:
@@ -198,6 +205,87 @@ class TestTranscriptEntryHelpers:
             assert len(events) == 0
         finally:
             task_creation_count.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_finalize_attaches_tool_envelopes_to_tool_only_assistant_turn(self):
+        messages = [
+            {"role": "user", "content": "ask questions"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call-skill", "function": {"name": "get_skill", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-skill", "content": "Loaded skill."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "call-1", "function": {"name": "ask_plan_questions", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "Displayed questions."},
+        ]
+        skill_envelope = {
+            "tool_call_id": "call-skill",
+            "content_type": "application/json",
+            "body": '{"id":"grill_me"}',
+            "plain_body": "Loaded skill",
+            "display": "badge",
+        }
+        envelope = {
+            "tool_call_id": "call-1",
+            "content_type": "application/vnd.spindrel.native-app+json",
+            "body": '{"widget_ref":"core/plan_questions"}',
+            "plain_body": "Plan questions",
+            "display": "inline",
+        }
+        bot = BotConfig(
+            id="test-bot",
+            name="Test Bot",
+            model="test/model",
+            system_prompt="You are a test bot.",
+            memory=MemoryConfig(enabled=False),
+        )
+        ctx = LoopRunContext(
+            bot=bot,
+            session_id=uuid.uuid4(),
+            client_id="client-1",
+            correlation_id=None,
+            channel_id=uuid.uuid4(),
+            compaction=False,
+            native_audio=False,
+            user_msg_index=None,
+            turn_start=0,
+        )
+        state = LoopRunState(
+            messages=messages,
+            tool_calls_made=["get_skill", "ask_plan_questions"],
+            tool_envelopes_made=[skill_envelope, envelope],
+            transcript_entries=[
+                {"id": "tool:call-skill", "kind": "tool_call", "toolCallId": "call-skill"},
+                {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+            ],
+        )
+
+        _finalize_response("", ctx=ctx, state=state)
+
+        assert messages[1]["_hidden"] is True
+        assert messages[3]["_tools_used"] == ["get_skill", "ask_plan_questions"]
+        assert messages[3]["_tool_envelopes"] == [skill_envelope, envelope]
+        assert messages[3]["tool_calls"] == [
+            {"id": "call-skill", "function": {"name": "get_skill", "arguments": "{}"}},
+            {"id": "call-1", "function": {"name": "ask_plan_questions", "arguments": "{}"}},
+        ]
+        assert messages[3]["_assistant_turn_body"] == {
+            "version": 1,
+            "items": [
+                {"id": "tool:call-skill", "kind": "tool_call", "toolCallId": "call-skill"},
+                {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+            ],
+        }
+        assert "_tool_envelopes" not in messages[4]
 
 
 class TestSynthesizeEmptyResponseFallback:

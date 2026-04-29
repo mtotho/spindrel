@@ -247,6 +247,13 @@ def _collapse_final_assistant_tool_turn(messages: list[dict], *, turn_start: int
     final_msg["tool_calls"] = ordered_tool_calls
 
 
+def _latest_assistant_message_for_turn(messages: list[dict], *, turn_start: int = 0) -> dict | None:
+    for msg in reversed(messages[turn_start:]):
+        if msg.get("role") == "assistant":
+            return msg
+    return None
+
+
 def _finalize_response(
     text: str,
     *,
@@ -293,21 +300,23 @@ def _finalize_response(
         extra={"response_length": len(text), "tool_calls_made": list(state.tool_calls_made)},
     )))
 
-    if state.tool_calls_made and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_tools_used"] = list(state.tool_calls_made)
+    final_assistant_msg = _latest_assistant_message_for_turn(messages, turn_start=ctx.turn_start)
+
+    if state.tool_calls_made and final_assistant_msg is not None:
+        final_assistant_msg["_tools_used"] = list(state.tool_calls_made)
         if state.tool_envelopes_made:
-            messages[-1]["_tool_envelopes"] = list(state.tool_envelopes_made)
+            final_assistant_msg["_tool_envelopes"] = list(state.tool_envelopes_made)
 
-    if state.thinking_content and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_thinking_content"] = state.thinking_content
+    if state.thinking_content and final_assistant_msg is not None:
+        final_assistant_msg["_thinking_content"] = state.thinking_content
 
-    if state.transcript_entries and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_assistant_turn_body"] = {
+    if state.transcript_entries and final_assistant_msg is not None:
+        final_assistant_msg["_assistant_turn_body"] = {
             "version": 1,
             "items": list(state.transcript_entries),
         }
 
-    if messages and messages[-1].get("role") == "assistant":
+    if final_assistant_msg is not None:
         _collapse_final_assistant_tool_turn(messages, turn_start=ctx.turn_start)
 
     events.append(_event_with_compaction_tag({

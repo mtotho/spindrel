@@ -16,6 +16,7 @@ export type SharedToolTranscriptEntry = {
   target?: string | null;
   args?: string;
   env?: ToolResultEnvelope;
+  summary?: ToolCallSummary | null;
   isError: boolean;
   isRunning?: boolean;
   detailKind: "inline-diff" | "collapsed-read" | "expandable" | "none";
@@ -528,6 +529,7 @@ function buildEntryFromSummary(
       previewText: null,
       target: summary.target_label ? null : target,
       env: result,
+      summary,
       isError: false,
       isRunning: false,
       detailKind: "inline-diff",
@@ -544,6 +546,7 @@ function buildEntryFromSummary(
       previewText,
       target: summary.target_label ? null : target,
       env: result,
+      summary,
       isError: false,
       isRunning: false,
       detailKind: "collapsed-read",
@@ -559,6 +562,7 @@ function buildEntryFromSummary(
     previewText,
     target: summary.target_label ? null : target,
     env: result,
+    summary,
     isError: summary.kind === "error",
     isRunning: false,
     detailKind: result ? "expandable" : "none",
@@ -601,6 +605,13 @@ function buildPersistedEntry(
       previewText: isRead ? previewText : null,
       target: fileToolTarget,
       env: result,
+      summary: diff ? {
+        kind: "diff",
+        subject_type: "file",
+        label: summary,
+        ...(fileToolTarget ? { path: fileToolTarget } : {}),
+        ...(diffStats ? { diff_stats: { additions: diffStats.additions, deletions: diffStats.deletions } } : {}),
+      } : null,
       isError: false,
       isRunning: false,
       detailKind: isRead ? "collapsed-read" : diff ? "inline-diff" : "expandable",

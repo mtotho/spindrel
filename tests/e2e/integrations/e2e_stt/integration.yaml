@@ -1,0 +1,6 @@
+id: e2e_stt
+name: E2E STT Hook
+description: Deterministic transcription hook for the e2e stack only.
+version: "1.0"
+provides:
+  - hooks

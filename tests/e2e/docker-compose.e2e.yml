@@ -36,6 +36,7 @@ services:
       - ./bots/e2e-tools.yaml:/app/bots/e2e-tools.yaml:ro
       - ./bots/e2e-rag.yaml:/app/bots/e2e-rag.yaml:ro
       - ./bots/e2e-delegator.yaml:/app/bots/e2e-delegator.yaml:ro
+      - ./integrations:/app/tests/e2e/integrations:ro
     environment:
       # Auth
       API_KEY: ${E2E_API_KEY:-e2e-test-key-12345}
@@ -51,9 +52,9 @@ services:
       HOST_EXEC_ENABLED: "false"
       # Disable heartbeats (set to very high interval)
       HEARTBEAT_ACTIVE_INTERVAL_MINUTES: "9999"
-      # Deterministic local voice-input path for e2e; production default remains local Whisper.
-      STT_PROVIDER: test
-      STT_TEST_TRANSCRIPT: Reply with only VOICE_OK.
+      # Deterministic e2e transcription is supplied by a mounted integration hook.
+      STT_PROVIDER: ""
+      INTEGRATION_DIRS: /app/tests/e2e/integrations
       # Web search via SearXNG
       WEB_SEARCH_MODE: "searxng"
       SEARXNG_URL: http://searxng:8080

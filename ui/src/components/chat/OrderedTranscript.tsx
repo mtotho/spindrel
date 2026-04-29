@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { ThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
-import { DefaultToolRows } from "./ToolBadges";
+import { DefaultToolRows } from "./ToolTranscriptRows";
 import { WidgetCard } from "./WidgetCard";
 import { RichToolResult } from "./RichToolResult";
 import type { ToolResultEnvelope } from "../../types/api";
