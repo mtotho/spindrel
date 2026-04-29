@@ -2,35 +2,60 @@
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from agent_client import (
-    compact_session,
     ensure_channel,
     fetch_server_health,
-    fetch_session_context,
-    fetch_session_context_compressed,
     fetch_session_context_contents,
-    fetch_session_context_diagnostics,
     fetch_todos,
     get_channel_session_id,
-    get_channel_settings,
     list_bots,
     list_models,
     submit_chat,
-    update_channel_settings,
 )
 from formatting import format_last_active, split_for_slack
+from integrations.slash_command_client import SlashCommandClient, SlashCommandClientError
 from message_handlers import _resolve_slack_display_name
 from session_helpers import slack_client_id
-from slack_settings import BOT_TOKEN, get_bot_display_info
+from slack_settings import AGENT_BASE_URL, API_KEY, BOT_TOKEN, get_bot_display_info
 from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
 
 logger = logging.getLogger(__name__)
+_slash_client = SlashCommandClient(AGENT_BASE_URL, API_KEY)
 
 
 async def _resolve_session_id(channel: str, bot_id: str) -> str | None:
     """Look up the active session_id for a Slack channel from the server."""
     return await get_channel_session_id(channel, bot_id)
+
+
+async def _respond_backend_command(
+    *,
+    respond,
+    channel: str,
+    bot_id: str,
+    command_id: str,
+    args: list[str] | None = None,
+) -> None:
+    try:
+        result = await _slash_client.execute_for_client_channel(
+            client_id=slack_client_id(channel),
+            bot_id=bot_id,
+            command_id=command_id,
+            args=args or [],
+        )
+    except SlashCommandClientError as exc:
+        await respond(f"Error: {exc}")
+        return
+    text = result.fallback_text or "(no result)"
+    for chunk in split_for_slack(text, limit=3000):
+        await respond(chunk)
 
 
 def register_slash_commands(app):
@@ -209,138 +234,24 @@ def register_slash_commands(app):
                 await respond(chunk)
             return
 
-        # /context — show breakdown + compressed estimate
-        try:
-            data = await fetch_session_context(session_id)
-        except Exception as e:
-            await respond(f"Error fetching context: {e}")
-            return
-
-        breakdown = data.get("breakdown")
-        if not breakdown:
-            await respond("No context breakdown recorded yet for this session.")
-            return
-
-        total_chars = data.get("total_chars", 0)
-        total_messages = data.get("total_messages", 0)
-        iteration = data.get("iteration")
-
-        # Show compression info if available (from the same LLM call)
-        comp_info = data.get("compression")
-        if comp_info:
-            orig_msgs = comp_info.get("original_messages", "?")
-            orig_chars = comp_info.get("original_chars", 0)
-            comp_chars = comp_info.get("compressed_chars", 0)
-            saved_pct = round((1 - comp_chars / orig_chars) * 100, 1) if orig_chars else 0
-            header = (f"*Last LLM Call* — {orig_msgs} msgs → *{total_messages} msgs* "
-                      f"({orig_chars:,} → {total_chars:,} chars, {saved_pct}% compressed)")
-        else:
-            header = f"*Last LLM Call* — {total_messages} messages / {total_chars:,} chars"
-        if iteration:
-            header += f" — iter {iteration}"
-
-        rows = sorted(breakdown.items(), key=lambda kv: kv[1].get("chars", 0), reverse=True)
-        lines = [header, "```"]
-        for role, info in rows:
-            chars = info.get("chars", 0)
-            pct = (chars / total_chars * 100) if total_chars else 0
-            short = role.replace("sys:", "")
-            lines.append(f"{short:<22} {chars:>7,}  ({pct:.1f}%)")
-        lines.append(f"{'total':<22} {total_chars:>7,}")
-        lines.append("```")
-
-        # Fetch diagnostics (compaction + compression settings & status)
-        try:
-            diag = await fetch_session_context_diagnostics(session_id)
-            cpt = diag.get("compaction", {})
-            cmp = diag.get("compression", {})
-            lines.append("")
-            lines.append("*Diagnostics*")
-            lines.append(f"DB: {diag.get('total_messages', '?')} total messages, "
-                         f"{diag.get('total_user_turns', '?')} user turns")
-            # Compaction status
-            if cpt.get("enabled"):
-                status_parts = [f"interval={cpt['interval']}", f"keep_turns={cpt['keep_turns']}"]
-                if cpt.get("has_watermark"):
-                    status_parts.append(
-                        f"turns_since_watermark={cpt['user_turns_since_watermark']}"
-                    )
-                    remaining = cpt.get("turns_until_next")
-                    if remaining is not None and remaining > 0:
-                        status_parts.append(f"next_in={remaining} turns")
-                    elif remaining == 0:
-                        status_parts.append("*will fire on next message*")
-                else:
-                    status_parts.append("no watermark (never compacted)")
-                if cpt.get("last_compaction_at"):
-                    status_parts.append(f"last={cpt['last_compaction_at'][:16]}")
-                lines.append(f"Compaction: {' · '.join(status_parts)}")
-                # Show what _load_messages returns
-                ctx_msgs = cpt.get("msgs_since_watermark", diag.get("total_messages", "?"))
-                lines.append(f"Context window: {ctx_msgs} msgs (system + summary + msgs since watermark)")
-            else:
-                lines.append("Compaction: disabled")
-            # Compression status
-            if cmp.get("enabled"):
-                lines.append(f"Compression: keep_turns={cmp['keep_turns']}, "
-                             f"threshold={cmp['threshold_chars']:,} chars")
-            else:
-                lines.append("Compression: disabled")
-        except Exception as e:
-            lines.append(f"\n_Diagnostics failed: {e}_")
-
-        # Fetch compressed estimate (runs the cheap model)
-        try:
-            comp = await fetch_session_context_compressed(session_id)
-            comp_data = comp.get("compressed")
-            if comp_data:
-                orig_chars = comp.get("total_chars", 0)
-                orig_msgs = comp.get("total_messages", 0)
-                comp_total = comp_data.get("total_chars", 0)
-                comp_msgs = comp_data.get("total_messages", 0)
-                saved = comp.get("chars_saved", 0)
-                pct = comp.get("reduction_pct", 0)
-                lines.append("")
-                lines.append(f"*Compression Estimate* — {orig_msgs} msgs / {orig_chars:,} chars → "
-                             f"{comp_msgs} msgs / {comp_total:,} chars "
-                             f"(_saves {saved:,} chars · {pct}% reduction_)")
-                lines.append("_Note: breakdown above includes RAG-injected content; "
-                             "compression estimate operates on stored messages only._")
-                comp_breakdown = comp_data.get("breakdown", {})
-                comp_rows = sorted(comp_breakdown.items(), key=lambda kv: kv[1].get("chars", 0), reverse=True)
-                lines.append("```")
-                for role, info in comp_rows:
-                    chars = info.get("chars", 0)
-                    cpct = (chars / comp_total * 100) if comp_total else 0
-                    short = role.replace("sys:", "")
-                    lines.append(f"{short:<22} {chars:>7,}  ({cpct:.1f}%)")
-                lines.append(f"{'total':<22} {comp_total:>7,}")
-                lines.append("```")
-            else:
-                reason = comp.get("reason", "unknown")
-                if reason == "below_threshold_or_disabled":
-                    lines.append("\n_Compression: skipped (below threshold or disabled)_")
-        except Exception as e:
-            lines.append(f"\n_Compression estimate failed: {e}_")
-
-        await respond("\n".join(lines))
+        await _respond_backend_command(
+            respond=respond,
+            channel=channel,
+            bot_id=state["bot_id"],
+            command_id="context",
+        )
 
     @app.command("/compact")
     async def cmd_compact(ack, command, respond):
         await ack()
         channel = command.get("channel_id") or ""
         state = get_channel_state(channel)
-        session_id = await _resolve_session_id(channel, state["bot_id"])
-        if not session_id:
-            await respond("No active session for this channel yet. Send a message first.")
-            return
-        try:
-            result = await compact_session(session_id)
-        except Exception as e:
-            await respond(f"Error compacting: {e}")
-            return
-        title = result.get("title") or "(untitled)"
-        await respond(f"✓ Compacted. Title: *{title}*")
+        await _respond_backend_command(
+            respond=respond,
+            channel=channel,
+            bot_id=state["bot_id"],
+            command_id="compact",
+        )
 
     @app.command("/todos")
     async def cmd_todos(ack, command, respond):
@@ -492,40 +403,6 @@ def register_slash_commands(app):
         bot_id = state["bot_id"]
         arg = (command.get("text") or "").strip()
 
-        # Resolve the server-side channel
-        client_id = slack_client_id(channel)
-        ch_data = await ensure_channel(client_id, bot_id)
-        if not ch_data or not ch_data.get("id"):
-            await respond("No channel registered yet. Send a message first.")
-            return
-        channel_uuid = ch_data["id"]
-
-        # /model (no args) — show current
-        if not arg:
-            try:
-                settings = await get_channel_settings(channel_uuid)
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            override = settings.get("model_override")
-            if override:
-                await respond(f"*Model override:* `{override}`\n_Bot default: `{bot_id}`_\nUse `/model clear` to revert.")
-            else:
-                bots_list = await list_bots()
-                bot_model = next((b.get("model", "?") for b in bots_list if b["id"] == bot_id), "?")
-                await respond(f"*No model override set.*\nUsing bot default: `{bot_model}`\nUse `/model <model-name>` to override.")
-            return
-
-        # /model clear — remove override
-        if arg.lower() == "clear":
-            try:
-                await update_channel_settings(channel_uuid, {"model_override": None, "model_provider_id_override": None})
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            await respond("Model override cleared. Using bot default.")
-            return
-
         # /model list — show available models
         if arg.lower() == "list":
             try:
@@ -545,50 +422,13 @@ def register_slash_commands(app):
             await respond("\n".join(lines))
             return
 
-        # /model <name> — set override (fuzzy match)
-        target = arg.lower()
-        try:
-            groups = await list_models()
-        except Exception as e:
-            await respond(f"Error: {e}")
-            return
-
-        all_models = []
-        for g in groups:
-            for m in g.get("models", []):
-                all_models.append(m["id"])
-
-        # Exact match first
-        match = None
-        for mid in all_models:
-            if mid.lower() == target:
-                match = mid
-                break
-
-        # Partial match
-        if not match:
-            candidates = [mid for mid in all_models if target in mid.lower()]
-            if len(candidates) == 1:
-                match = candidates[0]
-            elif len(candidates) > 1:
-                top = candidates[:10]
-                await respond(
-                    f"Ambiguous — {len(candidates)} models match `{arg}`:\n"
-                    + "\n".join(f"  `{c}`" for c in top)
-                    + ("\n  ..." if len(candidates) > 10 else "")
-                )
-                return
-
-        if not match:
-            await respond(f"No model matching `{arg}`. Use `/model list` to see available models.")
-            return
-
-        try:
-            await update_channel_settings(channel_uuid, {"model_override": match})
-        except Exception as e:
-            await respond(f"Error: {e}")
-            return
-        await respond(f"Model override set to `{match}`.\nUse `/model clear` to revert to bot default.")
+        await _respond_backend_command(
+            respond=respond,
+            channel=channel,
+            bot_id=bot_id,
+            command_id="model",
+            args=[arg] if arg else [],
+        )
 
     @app.command("/audit")
     async def cmd_audit(ack, command, respond):

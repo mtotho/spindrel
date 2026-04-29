@@ -481,16 +481,23 @@ function OperatorRunWorkspace({
 
   return (
     <div className="min-h-0 flex-1 overflow-auto px-3 pb-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="sticky top-0 z-10 -mx-3 mb-3 flex items-center justify-between gap-2 bg-surface/95 px-3 pb-2 pt-1 backdrop-blur-sm">
         <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>
           Back to Attention
         </button>
-        {pending && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-accent">
-            <Loader2 size={11} className="animate-spin" />
-            starting
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {run && (
+            <a href="#operator-review-findings" className="rounded-md px-2 py-1 text-xs text-text-muted hover:bg-surface-overlay/60 hover:text-text">
+              Findings
+            </a>
+          )}
+          {pending && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-accent">
+              <Loader2 size={11} className="animate-spin" />
+              starting
+            </span>
+          )}
+        </div>
       </div>
       {run ? (
         <OperatorTriageRunPanel run={run} />
@@ -517,7 +524,9 @@ function OperatorRunWorkspace({
           )}
         </section>
       )}
-      <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
+      <div id="operator-review-findings" className="scroll-mt-14">
+        <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
+      </div>
       <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
       <AttentionLane title="Processed by operator" items={grouped.processed.slice(0, 16)} onSelect={onSelect} />
       <AttentionLane title="Still untriaged" items={[...grouped.untriaged, ...grouped.assigned].slice(0, 16)} onSelect={onSelect} />
@@ -667,7 +676,7 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
   const canShowTranscript = Boolean(run.session_id && run.parent_channel_id);
   const counts = run.counts;
   return (
-    <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/30 p-3">
+    <section className="mb-5 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
@@ -688,13 +697,14 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
       </div>
       {counts && (
         <div className="grid grid-cols-3 gap-2 text-xs">
-          <div className="rounded-md bg-surface-raised/55 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.ready_for_review}</span> review</div>
-          <div className="rounded-md bg-surface-raised/55 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.processed}</span> processed</div>
-          <div className="rounded-md bg-surface-raised/55 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.running}</span> running</div>
+          <div className="rounded-md bg-surface-overlay/45 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.ready_for_review}</span> review</div>
+          <div className="rounded-md bg-surface-overlay/45 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.processed}</span> processed</div>
+          <div className="rounded-md bg-surface-overlay/45 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.running}</span> running</div>
         </div>
       )}
       {run.error && <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{run.error}</div>}
-      <div className="relative h-[min(62vh,640px)] min-h-[420px] overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Transcript</div>
+      <div className="relative min-h-[min(76vh,760px)] overflow-hidden" style={{ contain: "paint" }}>
         <div className="absolute inset-0 overflow-hidden">
           {canShowTranscript ? (
             <SessionChatView
@@ -702,6 +712,7 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
               parentChannelId={run.parent_channel_id!}
               botId={run.bot_id}
               chatMode="default"
+              surface="operator-panel"
               emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
             />
           ) : (

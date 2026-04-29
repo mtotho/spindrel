@@ -110,6 +110,38 @@ class TestChatAudioInput:
         assert "Unsupported audio format" in resp.json()["detail"]
         self._mock_start_turn.assert_not_awaited()
 
+    async def test_chat_audio_native_uses_current_chat_model_selection(self, client, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "VOICE_INPUT_MODE", "native")
+        audio_b64 = base64.b64encode(b"fake webm bytes").decode("ascii")
+
+        with patch(
+            "app.routers.chat._routes._transcribe_audio_data",
+            new_callable=AsyncMock,
+        ) as transcribe:
+            resp = await client.post(
+                "/chat",
+                json={
+                    "message": "",
+                    "bot_id": "test-bot",
+                    "audio_data": audio_b64,
+                    "audio_format": "webm",
+                    "model_override": "gpt-audio-capable",
+                    "model_provider_id_override": "provider-audio",
+                },
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 202, resp.text
+        transcribe.assert_not_awaited()
+        kwargs = self._mock_start_turn.await_args.kwargs
+        assert kwargs["user_message"] == "[audio message]"
+        assert kwargs["audio_data"] == audio_b64
+        assert kwargs["audio_format"] == "webm"
+        assert kwargs["req"].model_override == "gpt-audio-capable"
+        assert kwargs["req"].model_provider_id_override == "provider-audio"
+
 
 class TestTranscribeAuth:
     async def test_transcribe_requires_chat_scope(self, transcribe_auth_client, db_session):

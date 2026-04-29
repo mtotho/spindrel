@@ -116,6 +116,10 @@ export interface ChatMessageAreaProps {
   bottomSlot?: React.ReactNode;
   sessionId?: string | null;
   onOpenMessageSession?: (detail: ScrollToMessageDetail) => void;
+  surface?: "default" | "operator-panel";
+  compactMessages?: boolean;
+  contentMaxWidthOverride?: number | "none";
+  contentHorizontalPaddingOverride?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +168,9 @@ export function ChatMessageArea({
   bottomSlot,
   sessionId,
   onOpenMessageSession,
+  surface = "default",
+  contentMaxWidthOverride,
+  contentHorizontalPaddingOverride,
 }: ChatMessageAreaProps) {
   const isMobile = useIsMobile();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -364,8 +371,11 @@ export function ChatMessageArea({
     return s;
   }, [chatState.turns]);
   const isTerminalMode = chatMode === "terminal";
-  const contentMaxWidth = isTerminalMode ? TERMINAL_CHAT_CONTENT_MAX_WIDTH : DEFAULT_CHAT_CONTENT_MAX_WIDTH;
-  const contentHorizontalPadding = isMobile ? 4 : 16;
+  const contentMaxWidth =
+    contentMaxWidthOverride === "none"
+      ? "none"
+      : contentMaxWidthOverride ?? (isTerminalMode ? TERMINAL_CHAT_CONTENT_MAX_WIDTH : DEFAULT_CHAT_CONTENT_MAX_WIDTH);
+  const contentHorizontalPadding = contentHorizontalPaddingOverride ?? (isMobile ? 4 : 16);
   const errorBanner = chatState.error ? (
     <div
       role="status"
@@ -403,7 +413,11 @@ export function ChatMessageArea({
   );
 
   return (
-    <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+    <div
+      className={surface === "operator-panel" ? "chat-message-area-operator-panel" : undefined}
+      data-chat-surface={surface}
+      style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+    >
       <div
         ref={scrollRef}
         className="chat-scroll-web"

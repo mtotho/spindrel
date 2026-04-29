@@ -194,7 +194,10 @@ test("Attention operator sweep is global and normal assignment hides the operato
   assert.match(source, /Open run/);
   assert.match(source, /attentionBucketSummary\(grouped\)/);
   assert.match(source, /<OperatorTriageRunPanel run=\{run\}/);
-  assert.match(source, /h-\[min\(62vh,640px\)\] min-h-\[420px\]/);
+  assert.match(source, /surface="operator-panel"/);
+  assert.match(source, /min-h-\[min\(76vh,760px\)\]/);
+  assert.match(source, /id="operator-review-findings"/);
+  assert.doesNotMatch(source, /h-\[min\(62vh,640px\)\] min-h-\[420px\]/);
   assert.match(source, /Operator Review/);
   assert.match(source, /Evidence/);
   assert.match(source, /Review these findings/);
@@ -218,4 +221,21 @@ test("Attention operator sweep is global and normal assignment hides the operato
   assert.match(source, /operatorRouteLabel/);
   assert.doesNotMatch(source, /Route to dev/);
   assert.doesNotMatch(source, />Confirm</);
+});
+
+test("Operator sweep transcript uses a full-width chat surface instead of a nested card", () => {
+  const attentionSource = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
+  const sessionSource = readFileSync(resolve(process.cwd(), "src/components/chat/SessionChatView.tsx"), "utf8");
+  const areaSource = readFileSync(resolve(process.cwd(), "src/components/chat/ChatMessageArea.tsx"), "utf8");
+  const cssSource = readFileSync(resolve(process.cwd(), "global.css"), "utf8");
+  assert.match(attentionSource, /surface="operator-panel"/);
+  assert.match(sessionSource, /surface\?: "default" \| "operator-panel"/);
+  assert.match(sessionSource, /compact=\{compactMessages\}/);
+  assert.match(sessionSource, /contentMaxWidthOverride=\{surface === "operator-panel" \? "none" : undefined\}/);
+  assert.match(areaSource, /data-chat-surface=\{surface\}/);
+  assert.match(areaSource, /chat-message-area-operator-panel/);
+  assert.match(cssSource, /\.chat-message-area-operator-panel pre/);
+  assert.match(cssSource, /overflow-wrap: anywhere/);
+  assert.match(cssSource, /overflow-x: hidden/);
+  assert.doesNotMatch(attentionSource, /rounded-md bg-surface-raised\/70/);
 });

@@ -18,6 +18,7 @@ from app.services.sessions import load_or_create
 from app.services.sub_session_bus import SubSessionEntry, resolve_sub_session_entry
 from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL, SESSION_TYPE_THREAD
 from app.stt import transcribe as stt_transcribe
+from app.config import settings
 
 from app.schemas.chat import ChatRequest, FileMetadata
 
@@ -290,12 +291,17 @@ async def _try_resolve_sub_session_chat(
     )
 
 
-def _resolve_audio_native(req: ChatRequest, bot) -> bool:
-    """Determine whether to use native audio mode for this request.
-    Per-request flag > bot YAML > default (False)."""
+def _resolve_audio_native(req: ChatRequest) -> bool:
+    """Determine whether this request should send audio to the active chat model."""
     if req.audio_native is not None:
         return req.audio_native
-    return bot.audio_input == "native"
+    mode = (settings.VOICE_INPUT_MODE or "transcribe").strip().lower()
+    if mode not in {"transcribe", "native"}:
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid VOICE_INPUT_MODE; expected 'transcribe' or 'native'",
+        )
+    return mode == "native"
 
 
 async def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> str:

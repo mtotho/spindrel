@@ -1,32 +1,34 @@
 """Discord application commands: /bot, /bots, /ask, /context, /compact, /model, /health, /audit."""
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import discord
 from discord import app_commands
 
 from agent_client import (
-    compact_session,
     ensure_channel,
     fetch_server_health,
-    fetch_session_context,
-    fetch_session_context_compressed,
     fetch_session_context_contents,
-    fetch_session_context_diagnostics,
     fetch_todos,
     get_channel_session_id,
-    get_channel_settings,
     list_bots,
     list_models,
     stream_chat,
-    update_channel_settings,
 )
 from formatting import format_last_active, format_response_for_discord, format_tool_status, split_for_discord
+from integrations.slash_command_client import SlashCommandClient, SlashCommandClientError
 from session_helpers import discord_client_id
-from discord_settings import DISCORD_TOKEN, get_bot_display_info
+from discord_settings import AGENT_BASE_URL, API_KEY, DISCORD_TOKEN, get_bot_display_info
 from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
 
 logger = logging.getLogger(__name__)
+_slash_client = SlashCommandClient(AGENT_BASE_URL, API_KEY)
 
 async def _resolve_session_id(channel_id: str, bot_id: str) -> str | None:
     """Look up the active session_id for a Discord channel from the server."""
@@ -41,6 +43,27 @@ async def _send_chunks(interaction: discord.Interaction, text: str) -> None:
     await interaction.followup.send(chunks[0])
     for chunk in chunks[1:]:
         await interaction.followup.send(chunk)
+
+
+async def _send_backend_command(
+    *,
+    interaction: discord.Interaction,
+    channel_id: str,
+    bot_id: str,
+    command_id: str,
+    args: list[str] | None = None,
+) -> None:
+    try:
+        result = await _slash_client.execute_for_client_channel(
+            client_id=discord_client_id(channel_id),
+            bot_id=bot_id,
+            command_id=command_id,
+            args=args or [],
+        )
+    except SlashCommandClientError as exc:
+        await interaction.followup.send(f"Error: {exc}")
+        return
+    await _send_chunks(interaction, result.fallback_text or "(no result)")
 
 
 def register_slash_commands(tree: app_commands.CommandTree) -> None:
@@ -195,63 +218,24 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             await _send_chunks(interaction, text)
             return
 
-        # Default: show breakdown
-        try:
-            data = await fetch_session_context(session_id)
-        except Exception as e:
-            await interaction.followup.send(f"Error fetching context: {e}")
-            return
-
-        breakdown = data.get("breakdown")
-        if not breakdown:
-            await interaction.followup.send("No context breakdown recorded yet for this session.")
-            return
-
-        total_chars = data.get("total_chars", 0)
-        total_messages = data.get("total_messages", 0)
-        iteration = data.get("iteration")
-
-        comp_info = data.get("compression")
-        if comp_info:
-            orig_msgs = comp_info.get("original_messages", "?")
-            orig_chars = comp_info.get("original_chars", 0)
-            comp_chars = comp_info.get("compressed_chars", 0)
-            saved_pct = round((1 - comp_chars / orig_chars) * 100, 1) if orig_chars else 0
-            header = (f"**Last LLM Call** \u2014 {orig_msgs} msgs \u2192 **{total_messages} msgs** "
-                      f"({orig_chars:,} \u2192 {total_chars:,} chars, {saved_pct}% compressed)")
-        else:
-            header = f"**Last LLM Call** \u2014 {total_messages} messages / {total_chars:,} chars"
-        if iteration:
-            header += f" \u2014 iter {iteration}"
-
-        rows = sorted(breakdown.items(), key=lambda kv: kv[1].get("chars", 0), reverse=True)
-        lines = [header, "```"]
-        for role, info in rows:
-            chars = info.get("chars", 0)
-            pct = (chars / total_chars * 100) if total_chars else 0
-            short = role.replace("sys:", "")
-            lines.append(f"{short:<22} {chars:>7,}  ({pct:.1f}%)")
-        lines.append(f"{'total':<22} {total_chars:>7,}")
-        lines.append("```")
-
-        await _send_chunks(interaction, "\n".join(lines))
+        await _send_backend_command(
+            interaction=interaction,
+            channel_id=channel_id,
+            bot_id=state["bot_id"],
+            command_id="context",
+        )
 
     @tree.command(name="compact", description="Compact the current session context")
     async def cmd_compact(interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         channel_id = str(interaction.channel_id)
         state = get_channel_state(channel_id)
-        session_id = await _resolve_session_id(channel_id, state["bot_id"])
-        if not session_id:
-            await interaction.followup.send("No active session for this channel yet. Send a message first.")
-            return
-        try:
-            result = await compact_session(session_id)
-        except Exception as e:
-            await interaction.followup.send(f"Error compacting: {e}")
-            return
-        title = result.get("title") or "(untitled)"
-        await interaction.followup.send(f"\u2713 Compacted. Title: **{title}**")
+        await _send_backend_command(
+            interaction=interaction,
+            channel_id=channel_id,
+            bot_id=state["bot_id"],
+            command_id="compact",
+        )
 
     @tree.command(name="todos", description="Show pending todos for the current channel/bot")
     @app_commands.describe(status="'done' to show completed, otherwise shows pending")
@@ -394,35 +378,13 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
         state = get_channel_state(channel_id)
         bot_id = state["bot_id"]
 
-        client_id = discord_client_id(channel_id)
-        ch_data = await ensure_channel(client_id, bot_id)
-        if not ch_data or not ch_data.get("id"):
-            await interaction.followup.send("No channel registered yet. Send a message first.")
-            return
-        channel_uuid = ch_data["id"]
-
         if not arg:
-            try:
-                settings = await get_channel_settings(channel_uuid)
-            except Exception as e:
-                await interaction.followup.send(f"Error: {e}")
-                return
-            override = settings.get("model_override")
-            if override:
-                await interaction.followup.send(f"**Model override:** `{override}`\n*Bot default: `{bot_id}`*\nUse `/model clear` to revert.")
-            else:
-                bots_list = await list_bots()
-                bot_model = next((b.get("model", "?") for b in bots_list if b["id"] == bot_id), "?")
-                await interaction.followup.send(f"**No model override set.**\nUsing bot default: `{bot_model}`\nUse `/model <model-name>` to override.")
-            return
-
-        if arg.lower() == "clear":
-            try:
-                await update_channel_settings(channel_uuid, {"model_override": None, "model_provider_id_override": None})
-            except Exception as e:
-                await interaction.followup.send(f"Error: {e}")
-                return
-            await interaction.followup.send("Model override cleared. Using bot default.")
+            await _send_backend_command(
+                interaction=interaction,
+                channel_id=channel_id,
+                bot_id=bot_id,
+                command_id="model",
+            )
             return
 
         if arg.lower() == "list":
@@ -443,48 +405,13 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             await _send_chunks(interaction, "\n".join(lines))
             return
 
-        # Set override (fuzzy match)
-        target = arg.lower()
-        try:
-            groups = await list_models()
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}")
-            return
-
-        all_models = []
-        for g in groups:
-            for m in g.get("models", []):
-                all_models.append(m["id"])
-
-        match = None
-        for mid in all_models:
-            if mid.lower() == target:
-                match = mid
-                break
-
-        if not match:
-            candidates = [mid for mid in all_models if target in mid.lower()]
-            if len(candidates) == 1:
-                match = candidates[0]
-            elif len(candidates) > 1:
-                top = candidates[:10]
-                await interaction.followup.send(
-                    f"Ambiguous \u2014 {len(candidates)} models match `{arg}`:\n"
-                    + "\n".join(f"  `{c}`" for c in top)
-                    + ("\n  ..." if len(candidates) > 10 else "")
-                )
-                return
-
-        if not match:
-            await interaction.followup.send(f"No model matching `{arg}`. Use `/model list` to see available models.")
-            return
-
-        try:
-            await update_channel_settings(channel_uuid, {"model_override": match})
-        except Exception as e:
-            await interaction.followup.send(f"Error: {e}")
-            return
-        await interaction.followup.send(f"Model override set to `{match}`.\nUse `/model clear` to revert to bot default.")
+        await _send_backend_command(
+            interaction=interaction,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            command_id="model",
+            args=[arg],
+        )
 
     @tree.command(name="audit", description="Set or clear the audit channel for tool call logging")
     @app_commands.describe(arg="Channel mention or ID to log to, or 'off' to disable")

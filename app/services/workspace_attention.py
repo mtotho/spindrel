@@ -605,6 +605,20 @@ def _reuse_active_operator_triage_run(
     return {key: value for key, value in selected.items() if not key.startswith("_")}
 
 
+def _operator_triage_state(item: WorkspaceAttentionItem) -> str:
+    triage = (item.evidence or {}).get("operator_triage")
+    if not isinstance(triage, dict):
+        return ""
+    return str(triage.get("state") or "").strip()
+
+
+def _is_operator_triage_sweep_candidate(item: WorkspaceAttentionItem) -> bool:
+    if item.status not in VISIBLE_STATUSES:
+        return False
+    state = _operator_triage_state(item)
+    return state in {"", "failed"}
+
+
 async def _operator_channel(db: AsyncSession) -> Channel:
     from app.services.channels import ensure_orchestrator_channel
 
@@ -626,8 +640,8 @@ async def create_attention_triage_run(
     model_provider_id_override: str | None = None,
 ) -> dict[str, Any]:
     items = await list_attention_items(db, auth=auth, include_resolved=False)
-    active = [item for item in items if item.status in VISIBLE_STATUSES]
-    if not active:
+    visible = [item for item in items if item.status in VISIBLE_STATUSES]
+    if not visible:
         raise ValidationError("No active Attention items to triage.")
 
     try:
@@ -636,9 +650,13 @@ async def create_attention_triage_run(
     except Exception as exc:  # noqa: BLE001
         raise ValidationError("Operator bot is unavailable.") from exc
 
-    existing_run = _reuse_active_operator_triage_run(active, operator_model=operator_bot.model)
+    existing_run = _reuse_active_operator_triage_run(visible, operator_model=operator_bot.model)
     if existing_run is not None:
         return existing_run
+
+    active = [item for item in visible if _is_operator_triage_sweep_candidate(item)]
+    if not active:
+        raise ValidationError("No untriaged Attention items to sweep.")
 
     operator_channel = await _operator_channel(db)
     from app.services.sub_sessions import spawn_ephemeral_session
@@ -714,6 +732,15 @@ async def create_attention_triage_run(
     )
     db.add(task)
     await db.flush()
+    session.source_task_id = task.id
+    session.title = task.title
+    if isinstance(getattr(session, "metadata_", None), dict):
+        session.metadata_ = {
+            **(session.metadata_ or {}),
+            "attention_triage_task_id": str(task.id),
+            "attention_triage_item_count": len(active),
+        }
+        flag_modified(session, "metadata_")
 
     now = _now()
     for item in active:

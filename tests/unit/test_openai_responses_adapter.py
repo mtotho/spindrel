@@ -171,6 +171,22 @@ class TestTranslateMessages:
             {"type": "input_image", "image_url": "data:image/png;base64,xxx", "detail": "high"},
         ]
 
+    def test_user_message_with_input_audio_raises_clear_error(self):
+        with pytest.raises(ValueError, match="Switch Voice Input Mode to transcribe"):
+            _translate_messages(
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_audio",
+                                "input_audio": {"data": "abc", "format": "wav"},
+                            }
+                        ],
+                    }
+                ]
+            )
+
 
 # ---------------------------------------------------------------------------
 # Tool / tool_choice translation

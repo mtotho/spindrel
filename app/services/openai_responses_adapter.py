@@ -270,6 +270,11 @@ def _translate_content(content: Any) -> list[dict]:
             url = (part.get("image_url") or {}).get("url", "")
             detail = (part.get("image_url") or {}).get("detail", "auto")
             blocks.append({"type": "input_image", "image_url": url, "detail": detail})
+        elif ptype == "input_audio":
+            raise ValueError(
+                "Native audio input is not supported by the OpenAI subscription provider path. "
+                "Switch Voice Input Mode to transcribe or choose an audio-capable chat model/provider."
+            )
         elif ptype in ("input_text", "input_image", "input_file"):
             # Already in Responses format — pass through.
             blocks.append(part)

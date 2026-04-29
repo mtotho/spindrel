@@ -110,7 +110,7 @@ class ChatRequest(BaseModel):
     bot_id: str = "default"
     audio_data: Optional[str] = None  # base64-encoded audio
     audio_format: Optional[str] = None  # e.g. "m4a", "wav", "webm"
-    audio_native: Optional[bool] = None  # True/False overrides bot default; None = use bot setting
+    audio_native: Optional[bool] = None  # True/False overrides VOICE_INPUT_MODE for this request
     attachments: list[Attachment] = Field(default_factory=list)
     file_metadata: list[FileMetadata] = Field(default_factory=list)  # server-side attachment tracking
     dispatch_type: Optional[str] = None  # "slack" | "webhook" | "internal" | "none"

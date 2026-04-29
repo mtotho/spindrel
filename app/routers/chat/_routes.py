@@ -209,7 +209,7 @@ async def _enqueue_chat_turn(
             _decoded_audio = decode_base64_audio(req.audio_data, req.audio_format)
         except AudioInputError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if _resolve_audio_native(req, bot):
+        if _resolve_audio_native(req):
             audio_data = req.audio_data
             audio_format = _decoded_audio.format
             if not message:

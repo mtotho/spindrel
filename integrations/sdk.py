@@ -15,6 +15,7 @@ tools, importable from one place::
         current_dispatch_type,
         current_bot_id, current_channel_id,
         get_setting,                           # settings
+        SlashCommandClient,                    # slash command host
         register_tool, get_settings,           # tool registration
         inject_message, get_or_create_session, # session/document helpers
         ingest_document, search_documents,
@@ -177,6 +178,16 @@ from app.services.integration_settings import (  # noqa: E402, F401
     get_value as get_setting,
     set_status,
     update_settings,
+)
+
+# ---------------------------------------------------------------------------
+# Slash command host client
+# ---------------------------------------------------------------------------
+
+from integrations.slash_command_client import (  # noqa: E402, F401
+    SlashCommandClient,
+    SlashCommandClientError,
+    SlashCommandExecution,
 )
 
 # ---------------------------------------------------------------------------

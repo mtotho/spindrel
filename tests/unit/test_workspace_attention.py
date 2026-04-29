@@ -7,6 +7,7 @@ import pytest
 
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
 from app.services.workspace_attention import (
+    _is_operator_triage_sweep_candidate,
     _tool_attention_classification,
     acknowledge_attention_item,
     acknowledge_attention_items_bulk,
@@ -28,6 +29,22 @@ from app.services.workspace_attention import (
 from app.services.workspace_command_center import build_command_center
 from app.dependencies import ApiKeyAuth
 from app.domain.errors import ValidationError
+
+
+def test_operator_triage_sweep_candidate_only_includes_untriaged_or_failed_visible_items():
+    def item(status: str, state: str | None = None):
+        evidence = {}
+        if state is not None:
+            evidence["operator_triage"] = {"state": state}
+        return SimpleNamespace(status=status, evidence=evidence)
+
+    assert _is_operator_triage_sweep_candidate(item("open")) is True
+    assert _is_operator_triage_sweep_candidate(item("responded")) is True
+    assert _is_operator_triage_sweep_candidate(item("responded", "failed")) is True
+    assert _is_operator_triage_sweep_candidate(item("responded", "ready_for_review")) is False
+    assert _is_operator_triage_sweep_candidate(item("acknowledged", "failed")) is False
+    assert _is_operator_triage_sweep_candidate(item("responded", "processed")) is False
+    assert _is_operator_triage_sweep_candidate(item("open", "running")) is False
 
 
 @pytest.mark.asyncio
@@ -723,6 +740,162 @@ async def test_operator_triage_run_reuses_active_run_instead_of_spawning_duplica
     assert run["parent_channel_id"] == str(parent_channel_id)
     assert run["item_count"] == 2
     assert run["effective_model"] == "default/operator"
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_run_excludes_reviewed_items_and_preserves_run_session(db_session, bot_registry, monkeypatch):
+    bot_registry.register("orchestrator", name="Operator", model="default/operator")
+    operator_channel_id = uuid.uuid4()
+    operator_channel = Channel(
+        id=operator_channel_id,
+        name="Operator",
+        bot_id="orchestrator",
+        client_id="orchestrator:home",
+        protected=True,
+        private=True,
+    )
+    channel_id = uuid.uuid4()
+    db_session.add_all([
+        operator_channel,
+        Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"),
+    ])
+    await db_session.commit()
+    reviewed_session_id = uuid.uuid4()
+    reviewed_task_id = uuid.uuid4()
+    reviewed = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Already reviewed",
+    )
+    fresh = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Fresh issue",
+    )
+    reviewed.status = "responded"
+    reviewed.assigned_bot_id = "orchestrator"
+    reviewed.assignment_status = "reported"
+    reviewed.assignment_task_id = reviewed_task_id
+    reviewed.evidence = {
+        "operator_triage": {
+            "state": "ready_for_review",
+            "task_id": str(reviewed_task_id),
+            "session_id": str(reviewed_session_id),
+            "parent_channel_id": str(operator_channel_id),
+            "classification": "needs_review",
+        },
+    }
+    await db_session.commit()
+
+    async def fake_operator_channel(_db):
+        return operator_channel
+
+    async def fake_spawn_ephemeral_session(_db, **_kwargs):
+        session = Session(
+            id=uuid.uuid4(),
+            client_id="orchestrator:home",
+            bot_id="orchestrator",
+            channel_id=operator_channel_id,
+            parent_channel_id=operator_channel_id,
+        )
+        db_session.add(session)
+        await db_session.flush()
+        return session
+
+    monkeypatch.setattr("app.services.workspace_attention._operator_channel", fake_operator_channel)
+    monkeypatch.setattr("app.services.sub_sessions.spawn_ephemeral_session", fake_spawn_ephemeral_session)
+
+    run = await create_attention_triage_run(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:write"], name="admin"),
+        actor="user:test",
+    )
+
+    assert run["item_count"] == 1
+    task = await db_session.get(Task, uuid.UUID(run["task_id"]))
+    assert task is not None
+    assert task.callback_config["attention_item_ids"] == [str(fresh.id)]
+    run_session = await db_session.get(Session, uuid.UUID(run["session_id"]))
+    assert run_session is not None
+    assert run_session.source_task_id == task.id
+
+    refreshed_reviewed = await db_session.get(type(reviewed), reviewed.id)
+    refreshed_fresh = await db_session.get(type(fresh), fresh.id)
+    assert refreshed_reviewed.evidence["operator_triage"]["session_id"] == str(reviewed_session_id)
+    assert refreshed_reviewed.evidence["operator_triage"]["task_id"] == str(reviewed_task_id)
+    assert refreshed_fresh.evidence["operator_triage"]["session_id"] == run["session_id"]
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_run_retries_failed_items_without_rewriting_reviewed_items(db_session, bot_registry, monkeypatch):
+    bot_registry.register("orchestrator", name="Operator", model="default/operator")
+    operator_channel_id = uuid.uuid4()
+    operator_session_id = uuid.uuid4()
+    operator_channel = Channel(
+        id=operator_channel_id,
+        name="Operator",
+        bot_id="orchestrator",
+        client_id="orchestrator:home",
+        protected=True,
+        private=True,
+    )
+    channel_id = uuid.uuid4()
+    db_session.add_all([
+        operator_channel,
+        Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"),
+    ])
+    await db_session.commit()
+    failed = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Retry me",
+    )
+    reviewed = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Do not retry",
+    )
+    failed.status = "responded"
+    failed.evidence = {"operator_triage": {"state": "failed", "session_id": str(uuid.uuid4())}}
+    reviewed.status = "responded"
+    reviewed.evidence = {"operator_triage": {"state": "ready_for_review", "session_id": str(uuid.uuid4())}}
+    await db_session.commit()
+
+    async def fake_operator_channel(_db):
+        return operator_channel
+
+    async def fake_spawn_ephemeral_session(_db, **_kwargs):
+        return SimpleNamespace(id=operator_session_id, source_task_id=None, title=None)
+
+    monkeypatch.setattr("app.services.workspace_attention._operator_channel", fake_operator_channel)
+    monkeypatch.setattr("app.services.sub_sessions.spawn_ephemeral_session", fake_spawn_ephemeral_session)
+
+    run = await create_attention_triage_run(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:write"], name="admin"),
+        actor="user:test",
+    )
+
+    task = await db_session.get(Task, uuid.UUID(run["task_id"]))
+    assert task.callback_config["attention_item_ids"] == [str(failed.id)]
+    refreshed_failed = await db_session.get(type(failed), failed.id)
+    refreshed_reviewed = await db_session.get(type(reviewed), reviewed.id)
+    assert refreshed_failed.evidence["operator_triage"]["state"] == "running"
+    assert refreshed_failed.evidence["operator_triage"]["session_id"] == str(operator_session_id)
+    assert refreshed_reviewed.evidence["operator_triage"]["state"] == "ready_for_review"
+    assert refreshed_reviewed.evidence["operator_triage"]["session_id"] != str(operator_session_id)
 
 
 @pytest.mark.asyncio

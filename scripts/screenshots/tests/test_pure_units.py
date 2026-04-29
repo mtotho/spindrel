@@ -272,7 +272,7 @@ def test_harness_live_native_edit_terminal_spec_requires_diff_output():
     assert [spec.name for spec in specs] == ["harness-claude-native-edit-terminal"]
     assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
     assert specs[0].chat_mode == "terminal"
-    assert "terminal-diff-output" in specs[0].wait_js
+    assert "Before native diff" in specs[0].wait_js
     assert "After native diff" in specs[0].contains
 
 

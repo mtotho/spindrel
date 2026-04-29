@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, mission-control, spatial-canvas, product-vision]
 status: active
-updated: 2026-04-28
+updated: 2026-04-29
 ---
 
 # Track - Mission Control Vision
@@ -160,6 +160,14 @@ already in Operator Review, review details put the Operator finding before raw
 evidence, and Map Brief distinguishes operator-reviewed findings from raw red
 alerts. This keeps the current Attention primitives while making the sweep feel
 like it transformed the queue.
+
+Same-day run isolation follow-up: Operator sweeps now only claim untriaged or
+failed Attention items. Existing `ready_for_review` and processed findings keep
+their original task/session evidence, so a new sweep cannot overwrite the
+transcript that produced an older review card. The Starboard run workspace now
+treats the transcript as its own full panel surface with a compact chat variant,
+then lists review/processed buckets below it instead of embedding a cramped
+chat card inside the overview.
 
 ### Spatial Canvas Work Map
 

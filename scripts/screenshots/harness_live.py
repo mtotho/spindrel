@@ -253,7 +253,8 @@ def _native_edit_terminal_specs(ui_url: str, channel_id: str, session_id: str) -
     route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
     wait = (
         "document.body.innerText.includes('Harness Native Diff Preview') "
-        "&& document.querySelector('[data-testid=\"terminal-diff-output\"]')"
+        "&& document.body.innerText.includes('Before native diff') "
+        "&& document.body.innerText.includes('After native diff')"
     )
     return [
         CaptureSpec(

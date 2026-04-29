@@ -48,6 +48,7 @@ export interface SessionChatViewProps {
   showSessionResumeCard?: boolean;
   sessionResumeSeed?: Partial<SessionResumeMetadata>;
   onOpenSessions?: () => void;
+  surface?: "default" | "operator-panel";
 }
 
 /**
@@ -74,6 +75,7 @@ export function SessionChatView({
   showSessionResumeCard = false,
   sessionResumeSeed,
   onOpenSessions,
+  surface = "default",
 }: SessionChatViewProps) {
   const t = useThemeTokens();
   const chatState = useChatStore((s) => s.getChannel(sessionId));
@@ -210,6 +212,7 @@ export function SessionChatView({
       );
     }
     const isGrouped = showDateSep ? false : grouped;
+    const compactMessages = surface === "operator-panel";
     let headerIdx = index;
     while (
       headerIdx < renderedData.length - 1 &&
@@ -231,6 +234,7 @@ export function SessionChatView({
           channelId={parentChannelId}
           isLatestBotMessage={isLatest}
           chatMode={chatMode}
+          compact={compactMessages}
         />
       </>
     );
@@ -271,6 +275,9 @@ export function SessionChatView({
       sessionResumeSlot={sessionResumeSlot}
       bottomSlot={bottomSlot}
       sessionId={sessionId}
+      surface={surface}
+      contentMaxWidthOverride={surface === "operator-panel" ? "none" : undefined}
+      contentHorizontalPaddingOverride={surface === "operator-panel" ? 0 : undefined}
     />
   );
 }

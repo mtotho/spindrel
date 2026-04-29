@@ -139,7 +139,7 @@ When the session is busy (another request in progress), the client automatically
 
 **Text-to-Speech** — Uses [Piper](https://github.com/rhasspy/piper), a fully local neural TTS engine. Enable with `--tts` flag or `/tts` command.
 
-**Speech-to-Text** — Server-side transcription via [faster-whisper](https://github.com/SYSTRAN/faster-whisper). The CLI client sends audio to `POST /transcribe`; the web composer microphone sends browser-recorded audio on `POST /chat` as `audio_data` + `audio_format`, where the server transcribes it before starting the turn.
+**Speech-to-Text** — Server-side transcription via local [faster-whisper](https://github.com/SYSTRAN/faster-whisper) or an OpenAI API transcription provider. The CLI client sends audio to `POST /transcribe`; the web composer microphone sends browser-recorded audio on `POST /chat` as `audio_data` + `audio_format`. In the default `VOICE_INPUT_MODE=transcribe`, the server transcribes the audio before starting the normal chat turn.
 
 **Wake Word** — Uses [openwakeword](https://github.com/dscripka/openWakeWord). Type `/listen` or start with `--listen`. Configure wake words:
 
@@ -159,6 +159,7 @@ TTS_ENABLED=true
 PIPER_MODEL=en_US-lessac-medium
 TTS_SPEED=1.0
 LISTEN_SOUND=chime                # chime | beep | ping
+VOICE_INPUT_MODE=transcribe
 WHISPER_MODEL=base.en
 WAKE_WORDS=hey_jarvis,hey_computer
 ```
@@ -166,7 +167,10 @@ WAKE_WORDS=hey_jarvis,hey_computer
 ### Server STT Config
 
 ```
-STT_PROVIDER=local                  # "local" (faster-whisper); blank disables built-in STT
+VOICE_INPUT_MODE=transcribe          # transcribe | native
+STT_PROVIDER=local                   # local | openai; blank disables built-in STT
+STT_MODEL=                           # hosted transcription model; OpenAI default is gpt-4o-mini-transcribe
+STT_MODEL_PROVIDER_ID=               # provider/API key for hosted transcription
 WHISPER_MODEL=base.en
 WHISPER_DEVICE=auto                 # auto | cpu | cuda
 WHISPER_COMPUTE_TYPE=auto
@@ -176,9 +180,9 @@ WHISPER_LANGUAGE=en
 
 ### Web Composer Voice
 
-The web microphone path defaults to `audio_input=transcribe`: record in the browser, upload the encoded audio with the chat request, transcribe locally on the server, then send the transcript through the normal chat turn. This local path does not send audio to OpenAI or another hosted STT service.
+The web microphone path defaults to `VOICE_INPUT_MODE=transcribe`: record in the browser, upload the encoded audio with the chat request, transcribe on the server, then send the transcript through the normal chat turn. With `STT_PROVIDER=local`, audio stays local. With `STT_PROVIDER=openai`, audio is sent to the configured OpenAI API or OpenAI-compatible provider for transcription only; the resulting text still goes through the normal chat model.
 
-`audio_input=native` is the opt-in mode for sending audio through to an audio-capable LLM provider/model instead of transcribing first. Keep the default `transcribe` mode unless the configured provider path explicitly supports native audio.
+`VOICE_INPUT_MODE=native` is the opt-in mode for sending the audio through to the currently selected chat model/provider instead of transcribing first. If that provider/model does not support native audio, the turn surfaces the provider/backend error; switch back to `transcribe` or choose an audio-capable chat model.
 
 ### Settings Priority
 

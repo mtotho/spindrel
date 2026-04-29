@@ -113,8 +113,11 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "TOOL_RESULT_HARD_CAP": {"group": "Tool Summarization", "label": "Hard Cap (chars)", "description": "Maximum chars per tool result in current turn (0 = no cap)", "type": "int", "min": 0, "max": 200000},
     "TOOL_TURN_AGGREGATE_CAP_CHARS": {"group": "Tool Summarization", "label": "Turn Aggregate Cap (chars)", "description": "Maximum total chars across ALL tool results in one turn — proportional trim kicks in on the biggest results when exceeded (0 = no cap)", "type": "int", "min": 0, "max": 1000000},
     # --- Speech-to-Text ---
-    "STT_PROVIDER": {"group": "Speech-to-Text", "label": "STT Provider", "description": "Transcription provider", "type": "string", "options": ["local"]},
-    "WHISPER_MODEL": {"group": "Speech-to-Text", "label": "Whisper Model", "description": "faster-whisper model name", "type": "string"},
+    "VOICE_INPUT_MODE": {"group": "Speech-to-Text", "label": "Voice Input Mode", "description": "transcribe converts microphone audio to text before the normal chat turn; native sends audio to the currently selected chat model/provider", "type": "string", "options": ["transcribe", "native"]},
+    "STT_PROVIDER": {"group": "Speech-to-Text", "label": "STT Provider", "description": "Transcription provider used in transcribe mode", "type": "string", "options": ["local", "openai"]},
+    "STT_MODEL": {"group": "Speech-to-Text", "label": "Transcription Model", "description": "Hosted transcription model for STT_PROVIDER=openai. Empty uses gpt-4o-mini-transcribe. Local STT uses Whisper Model below.", "type": "string", "widget": "model"},
+    "STT_MODEL_PROVIDER_ID": {"group": "Speech-to-Text", "label": "Transcription Model Provider", "description": "Provider/API key for hosted transcription", "type": "string", "ui_hidden": True},
+    "WHISPER_MODEL": {"group": "Speech-to-Text", "label": "Local Whisper Model", "description": "faster-whisper model name used by STT_PROVIDER=local", "type": "string"},
     "WHISPER_DEVICE": {"group": "Speech-to-Text", "label": "Device", "description": "Compute device", "type": "string", "options": ["auto", "cpu", "cuda"]},
     "WHISPER_COMPUTE_TYPE": {"group": "Speech-to-Text", "label": "Compute Type", "description": "Compute precision", "type": "string", "options": ["auto", "int8", "float16", "float32"]},
     "WHISPER_BEAM_SIZE": {"group": "Speech-to-Text", "label": "Beam Size", "description": "Beam search width", "type": "int", "min": 1, "max": 10},

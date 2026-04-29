@@ -596,8 +596,11 @@ class Settings(BaseSettings):
     COMPACTION_LIVE_HISTORY_MAX_RATIO: float = 0.20    # Early trigger when replayable live history alone consumes this fraction of usable context.
     COMPACTION_LIVE_HISTORY_MAX_TOKENS: int = 60_000   # Absolute cap for replayable live history before early compaction fires.
 
-    # STT / Transcription
-    STT_PROVIDER: str = "local"  # "local" (faster-whisper); blank disables built-in STT
+    # Voice input / transcription
+    VOICE_INPUT_MODE: str = "transcribe"  # "transcribe" or "native"; native sends audio to the active chat model
+    STT_PROVIDER: str = "local"  # "local", "openai"; blank disables built-in STT
+    STT_MODEL: str = ""  # Hosted transcription model; OpenAI default is gpt-4o-mini-transcribe
+    STT_MODEL_PROVIDER_ID: str = ""  # Provider row/API key used by hosted transcription models
     WHISPER_MODEL: str = "base.en"
     WHISPER_DEVICE: str = "auto"  # "auto", "cpu", "cuda"
     WHISPER_COMPUTE_TYPE: str = "auto"  # "auto", "int8", "float16", "float32"

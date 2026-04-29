@@ -1248,6 +1248,18 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 selected_effort=settings.effort,
             )
         raw = (ctx.args[0] or "").strip()
+        if raw.lower() == "clear":
+            await patch_session_settings(ctx.db, session.id, patch={"model": None})
+            caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
+            display = caps.display_name if caps else "harness"
+            payload = SideEffectPayload(
+                effect="model",
+                scope_kind="session",
+                scope_id=str(session.id),
+                title="Model cleared",
+                detail=f"{display} model override cleared for this session.",
+            )
+            return _side_effect_result(payload, command_id="model")
         try:
             await patch_session_settings(ctx.db, session.id, patch={"model": raw})
         except ValueError as exc:
@@ -1264,11 +1276,35 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         return _side_effect_result(payload, command_id="model")
 
     # Non-harness path: channel override.
-    if not ctx.args or not (ctx.args[0] or "").strip():
-        raise ValueError("/model requires one argument: <model_id>")
-    raw = (ctx.args[0] or "").strip()
     if ctx.channel is None or ctx.channel_id is None:
         raise ValueError("/model requires a channel context for non-harness bots")
+    if not ctx.args or not (ctx.args[0] or "").strip():
+        detail = (
+            f"Channel model override: {ctx.channel.model_override}"
+            if ctx.channel.model_override
+            else "No channel model override set. Using the bot default model."
+        )
+        payload = SideEffectPayload(
+            effect="model",
+            scope_kind="channel",
+            scope_id=str(ctx.channel_id),
+            title="Model override",
+            detail=detail,
+        )
+        return _side_effect_result(payload, command_id="model")
+    raw = (ctx.args[0] or "").strip()
+    if raw.lower() == "clear":
+        ctx.channel.model_override = None
+        ctx.channel.model_provider_id_override = None
+        await ctx.db.commit()
+        payload = SideEffectPayload(
+            effect="model",
+            scope_kind="channel",
+            scope_id=str(ctx.channel_id),
+            title="Model cleared",
+            detail="Channel model override cleared. Using the bot default model.",
+        )
+        return _side_effect_result(payload, command_id="model")
     if len(raw) > 256:
         raise ValueError("/model: model id exceeds 256-character limit")
     ctx.channel.model_override = raw

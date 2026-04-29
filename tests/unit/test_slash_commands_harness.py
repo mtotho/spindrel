@@ -255,6 +255,49 @@ async def test_harness_model_from_channel_surface_uses_current_session_id(db_ses
     assert primary_settings.model is None
 
 
+async def test_harness_model_without_arg_returns_picker_status(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=[],
+    )
+
+    assert result.result_type == "harness_model_effort_picker"
+    assert result.payload["session_id"] == str(session.id)
+    assert result.payload["runtime"] == _RUNTIME_NAME
+    assert "runtime default" in result.fallback_text
+
+
+async def test_harness_model_clear_removes_session_model_setting(db_session):
+    bot, channel, session = await _make_harness_setup(db_session)
+    await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=["claude-opus-4-7"],
+    )
+
+    result = await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=["clear"],
+    )
+
+    assert result.payload["scope_kind"] == "session"
+    assert "cleared" in result.payload["detail"].lower()
+    settings = await load_session_settings(db_session, session.id)
+    assert settings.model is None
+    await db_session.refresh(channel)
+    assert channel.model_override is None
+
+
 async def test_channel_surface_rejects_current_session_from_other_channel(db_session):
     bot, channel, primary = await _make_harness_setup(db_session)
     other_channel = build_channel(bot_id=bot.id)
@@ -298,6 +341,42 @@ async def test_normal_model_writes_channel_override(db_session):
     # Harness settings must NOT be touched for non-harness bots.
     fresh = await load_session_settings(db_session, session.id)
     assert fresh.model is None
+
+
+async def test_normal_model_without_arg_returns_channel_status(db_session):
+    bot, channel, session = await _make_normal_setup(db_session)
+
+    result = await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=[],
+    )
+
+    assert result.payload["scope_kind"] == "channel"
+    assert "bot default" in result.payload["detail"].lower()
+
+
+async def test_normal_model_clear_removes_channel_override(db_session):
+    bot, channel, session = await _make_normal_setup(db_session)
+    channel.model_override = "gpt-4o"
+    channel.model_provider_id_override = "provider-a"
+    await db_session.commit()
+
+    result = await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,
+        session_id=None,
+        db=db_session,
+        args=["clear"],
+    )
+
+    assert result.payload["scope_kind"] == "channel"
+    assert "cleared" in result.payload["detail"].lower()
+    await db_session.refresh(channel)
+    assert channel.model_override is None
+    assert channel.model_provider_id_override is None
 
 
 async def test_harness_plan_sets_session_plan_mode_not_approval_mode(db_session):

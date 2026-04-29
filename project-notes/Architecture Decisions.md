@@ -10,6 +10,20 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Voice input mode is global; native audio uses the active chat model
+**Decided 2026-04-29.** The web microphone path is controlled by global `VOICE_INPUT_MODE`, with per-request `audio_native` as an API override. Bot editor fields do not own microphone routing.
+
+**What this means.**
+- `VOICE_INPUT_MODE=transcribe` validates uploaded audio, transcribes it through the configured STT provider/model, then starts the normal chat turn with text.
+- `VOICE_INPUT_MODE=native` passes the validated audio into the ordinary chat-model path, using the same request/channel/bot model and provider resolution as any other chat turn.
+- Transcription model/provider settings (`STT_MODEL`, `STT_MODEL_PROVIDER_ID`) are for hosted STT only. They are not a separate native-audio chat-model picker.
+- Dynamic provider catalogs are not filtered by a manually-maintained `supports_audio_input` flag. Unsupported native-audio choices should surface clear provider/backend errors.
+
+**Why.**
+- Native audio is a capability of the selected chat model/provider, not a second hidden model selection.
+- Transcription is a pre-chat preprocessing step; mixing it with native chat model selection makes settings ambiguous.
+- Provider capability metadata is too incomplete for reliable filtering across dynamic model lists.
+
 ### Integration filesystem sources resolve through `integrations.discovery`
 **Decided 2026-04-29.** Integration filesystem roots are resolved by `integrations.discovery` as `IntegrationSource` objects. App services that need integration-owned files must call the resolver seam instead of reconstructing `integrations/<id>` paths or reading only legacy `INTEGRATION_DIRS`.
 

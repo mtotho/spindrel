@@ -659,6 +659,25 @@ textarea::placeholder {
   transform-origin: bottom right;
 }
 
+.chat-message-area-operator-panel,
+.chat-message-area-operator-panel * {
+  max-width: 100%;
+}
+
+.chat-message-area-operator-panel pre,
+.chat-message-area-operator-panel code,
+.chat-message-area-operator-panel [data-tool-output],
+.chat-message-area-operator-panel .tool-output,
+.chat-message-area-operator-panel .markdown-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-message-area-operator-panel pre {
+  overflow-x: hidden;
+}
+
 @keyframes attention-signal-pulse {
   0%, 100% {
     opacity: 0.70;
