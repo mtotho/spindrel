@@ -98,6 +98,7 @@ async def run_exec_task(task: Task, *, deps: TaskExecHostDeps) -> None:
         await db.commit()
 
     config = _resolve_exec_config(task)
+    exec_timeout: int | None = None
 
     try:
         bot = deps.get_bot(task.bot_id)
@@ -129,7 +130,7 @@ async def run_exec_task(task: Task, *, deps: TaskExecHostDeps) -> None:
         await _create_parent_callback_if_requested(task, result_text, config, deps=deps)
 
     except asyncio.TimeoutError:
-        timeout = deps.resolve_task_timeout(task)
+        timeout = exec_timeout if exec_timeout is not None else deps.resolve_task_timeout(task)
         logger.error("Exec task %s timed out after %ds", task.id, timeout)
         timeout_msg = f"Timed out after {timeout}s"
         await deps.mark_task_failed_in_db(task.id, error=timeout_msg)
