@@ -15,7 +15,9 @@ from app.services.workspace_attention import (
     list_attention_items,
     mark_attention_responded,
     place_attention_item,
+    record_attention_triage_feedback,
     report_attention_assignment,
+    report_attention_triage_batch,
     resolve_attention_item,
 )
 from app.services.workspace_command_center import build_command_center
@@ -540,6 +542,111 @@ async def test_run_now_assignment_creates_attention_task(db_session, bot_registr
     assert task.task_type == "attention_assignment"
     assert task.callback_config["attention_item_id"] == str(item.id)
     assert task.execution_config["tools"] == ["report_attention_assignment"]
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_batch_marks_processed_and_ready_for_review(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    benign = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Recovered blip",
+    )
+    risky = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Possible defect",
+    )
+
+    for item in (benign, risky):
+        item.assigned_bot_id = "orchestrator"
+        item.assignment_status = "running"
+        item.evidence = {
+            "operator_triage": {
+                "state": "running",
+                "task_id": str(uuid.uuid4()),
+            },
+        }
+    await db_session.commit()
+
+    updated = await report_attention_triage_batch(
+        db_session,
+        bot_id="orchestrator",
+        outcomes=[
+            {
+                "item_id": str(benign.id),
+                "classification": "already_recovered",
+                "review_required": False,
+                "confidence": "high",
+                "summary": "The latest run recovered.",
+                "suggested_action": "No action.",
+            },
+            {
+                "item_id": str(risky.id),
+                "classification": "likely_spindrel_code_issue",
+                "review_required": True,
+                "confidence": "medium",
+                "summary": "Repeated file failures need code review.",
+                "suggested_action": "Route to developer channel.",
+                "route": "developer_channel",
+            },
+        ],
+    )
+
+    by_id = {item.id: item for item in updated}
+    assert by_id[benign.id].status == "acknowledged"
+    assert by_id[benign.id].evidence["operator_triage"]["state"] == "processed"
+    assert by_id[risky.id].status == "responded"
+    assert by_id[risky.id].evidence["operator_triage"]["state"] == "ready_for_review"
+    assert by_id[risky.id].evidence["operator_triage"]["route"] == "developer_channel"
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_feedback_wrong_reopens_processed_item_for_review(db_session, monkeypatch):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    item = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Badly classified",
+    )
+    item.status = "acknowledged"
+    item.evidence = {
+        "operator_triage": {
+            "state": "processed",
+            "classification": "benign",
+            "summary": "Marked benign.",
+        },
+    }
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.workspace_attention._append_operator_triage_memory",
+        lambda *_args, **_kwargs: None,
+    )
+
+    reviewed = await record_attention_triage_feedback(
+        db_session,
+        item.id,
+        verdict="wrong",
+        actor="user:test",
+        note="This should have stayed visible.",
+    )
+
+    assert reviewed.status == "responded"
+    assert reviewed.evidence["operator_triage"]["review"]["verdict"] == "wrong"
+    assert reviewed.evidence["operator_triage"]["review"]["note"] == "This should have stayed visible."
 
 
 @pytest.mark.asyncio

@@ -722,6 +722,8 @@ async def report_attention_triage_batch(
         except (TypeError, ValueError) as exc:
             raise ValidationError(f"Invalid Attention item id: {raw_id!r}") from exc
         item = await get_attention_item(db, item_id)
+        if item.assigned_bot_id != bot_id:
+            raise ValidationError("Only the assigned operator can report triage outcomes.")
         classification = _normalize_triage_classification(outcome.get("classification"))
         review_required = _triage_review_required(outcome, classification)
         confidence = str(outcome.get("confidence") or "medium").lower()
@@ -824,6 +826,9 @@ async def record_attention_triage_feedback(
     triage["review"] = review
     if verdict == "rerouted" and route:
         triage["route"] = route.strip()[:200]
+    if verdict in {"wrong", "rerouted"}:
+        triage["state"] = "ready_for_review"
+        triage["review_required"] = True
     evidence["operator_triage"] = triage
     item.evidence = evidence
     if verdict in {"wrong", "rerouted"} and item.status == "acknowledged":

@@ -4,6 +4,12 @@ import pytest
 def _manifests():
     return {
         "web_search": {
+            "settings": [
+                {
+                    "key": "WEB_SEARCH_MODE",
+                    "default": "searxng",
+                },
+            ],
             "runtime_services": {
                 "requires": [
                     {
@@ -65,6 +71,20 @@ class TestRuntimeServices:
         assert resolved.provider_integration_id == "browser_automation"
         assert resolved.endpoint == "ws://playwright-local:3000"
         assert resolved.protocol == "cdp"
+
+    def test_requirement_uses_manifest_default_setting(self, monkeypatch):
+        import app.services.runtime_services as rs
+
+        manifests = _manifests()
+        monkeypatch.setattr(rs.settings, "SPINDREL_INSTANCE_ID", "local")
+        monkeypatch.setattr(rs, "get_all_manifests", lambda: manifests)
+        monkeypatch.setattr(rs, "get_manifest", lambda iid: manifests.get(iid))
+        monkeypatch.setattr(rs, "get_value", lambda _iid, _key, default="": default)
+
+        assert rs.required_provider_ids("web_search") == ["browser_automation"]
+        resolved = rs.resolve_runtime_requirement("web_search", "browser.playwright")
+        assert resolved.provider_integration_id == "browser_automation"
+        assert resolved.endpoint == "ws://playwright-local:3000"
 
     def test_inactive_requirement_does_not_enable_provider(self, monkeypatch):
         import app.services.runtime_services as rs

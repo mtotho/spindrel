@@ -67,6 +67,21 @@ def requirements_for(integration_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _setting_default(integration_id: str, key: str, fallback: str = "") -> str:
+    manifest = get_manifest(integration_id) or {}
+    settings_spec = manifest.get("settings")
+    if not isinstance(settings_spec, list):
+        return fallback
+    for setting in settings_spec:
+        if not isinstance(setting, dict):
+            continue
+        if str(setting.get("key") or "") != key:
+            continue
+        default = setting.get("default")
+        return fallback if default is None else str(default)
+    return fallback
+
+
 def requirement_applies(integration_id: str, requirement: dict[str, Any]) -> bool:
     when = requirement.get("when")
     if not isinstance(when, dict):
@@ -74,8 +89,13 @@ def requirement_applies(integration_id: str, requirement: dict[str, Any]) -> boo
     setting = when.get("setting")
     if not setting:
         return True
+    setting_key = str(setting)
     values = when.get("values")
-    value = get_value(integration_id, str(setting), "")
+    value = get_value(
+        integration_id,
+        setting_key,
+        _setting_default(integration_id, setting_key),
+    )
     if isinstance(values, list):
         return value in {str(v) for v in values}
     equals = when.get("equals")

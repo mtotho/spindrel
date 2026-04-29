@@ -39,7 +39,7 @@ export function useSpatialCanvasData() {
   const memoryObsPos = landmarkPositionFromNodes(nodes, "memory_observatory", MEMORY_OBSERVATORY_X, MEMORY_OBSERVATORY_Y);
   const attentionHubPos = landmarkPositionFromNodes(nodes, "attention_hub", ATTENTION_HUB_X, ATTENTION_HUB_Y);
   const dailyHealthPos = landmarkPositionFromNodes(nodes, "daily_health", HEALTH_SUMMARY_X, HEALTH_SUMMARY_Y);
-  const { data: attentionItems } = useWorkspaceAttention();
+  const { data: attentionItems } = useWorkspaceAttention(null, { includeResolved: true });
   const { data: missions } = useWorkspaceMissions();
   const { data: mapState } = useWorkspaceMapState();
   const markAttentionResponded = useMarkAttentionResponded();
