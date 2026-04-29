@@ -315,9 +315,17 @@ async def _capture_one(
             editor = page.locator(".tiptap-chat-input [contenteditable='true']").last
             await editor.wait_for(state="visible", timeout=60_000)
             await editor.click()
-            await page.keyboard.type(spec.slash_query)
+            waited_for_submit_ready = False
+            if spec.submit_slash and spec.submit_ready_js and " " in spec.slash_query:
+                command, args = spec.slash_query.split(" ", 1)
+                await page.keyboard.type(command)
+                await page.wait_for_function(spec.submit_ready_js, timeout=60_000)
+                waited_for_submit_ready = True
+                await page.keyboard.type(f" {args}")
+            else:
+                await page.keyboard.type(spec.slash_query)
             if spec.submit_slash:
-                if spec.submit_ready_js:
+                if spec.submit_ready_js and not waited_for_submit_ready:
                     await page.wait_for_function(spec.submit_ready_js, timeout=60_000)
                 if spec.submit_selector:
                     await page.locator(spec.submit_selector).first.click()
@@ -442,6 +450,10 @@ def _native_slash_specs(
         "document.body.innerText.toLowerCase().includes('codex plugins') "
         "|| document.body.innerText.toLowerCase().includes('codex native command failed')"
     )
+    codex_handoff_wait = (
+        "document.body.innerText.includes('codex plugin install spindrel-fixture-nonexistent') "
+        "&& document.body.innerText.toLowerCase().includes('terminal command')"
+    )
     claude_result_wait = "document.body.innerText.toLowerCase().includes('claude code skills')"
     return [
         CaptureSpec(
@@ -465,6 +477,19 @@ def _native_slash_specs(
             slash_query="/plugins",
             submit_slash=True,
             submit_ready_js=picker_wait,
+        ),
+        CaptureSpec(
+            name="harness-codex-native-plugin-install-handoff-dark",
+            route=codex_route,
+            wait_js=codex_handoff_wait,
+            contains=("Unsupported Codex command arguments", "Terminal command", "codex plugin install spindrel-fixture-nonexistent"),
+            theme="dark",
+            channel_id=codex_channel_id,
+            chat_mode="default",
+            slash_query="/plugins install spindrel-fixture-nonexistent",
+            submit_slash=True,
+            submit_ready_js=picker_wait,
+            submit_selector='[data-testid="chat-composer-send"]',
         ),
         CaptureSpec(
             name="harness-claude-native-skills-result-dark",
@@ -716,6 +741,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         native_slash_names = (
             "harness-native-slash-picker-dark",
             "harness-codex-native-plugins-result-dark",
+            "harness-codex-native-plugin-install-handoff-dark",
             "harness-claude-native-skills-result-dark",
         )
         if _should_include(args.only, *native_slash_names):

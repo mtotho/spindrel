@@ -32,7 +32,7 @@ import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
 import { EditModeGridGuides } from "./EditModeGridGuides";
 import { ChannelDashboardMultiCanvas } from "./ChannelDashboardMultiCanvas";
 import { KioskExitChip } from "./KioskExitChip";
-import { WidgetUsefulnessStrip } from "./WidgetUsefulnessReview";
+import { WidgetUsefulnessToolbarButton } from "./WidgetUsefulnessReview";
 import {
   channelIdFromSlug,
   channelSlug,
@@ -509,6 +509,22 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
+      {pins.length > 0 && isChannelScoped && channelScopedId && !isMobile && (
+        <WidgetUsefulnessToolbarButton
+          channelId={channelScopedId}
+          checkingHealth={checkDashboardHealth.isPending}
+          onCheckHealth={() => {
+            checkDashboardHealth.mutate(
+              { dashboardKey: slug, limit: Math.min(pins.length, 50), includeBrowser: true },
+              { onSuccess: () => { void refetchPins(); } },
+            );
+          }}
+          onFocusPin={focusPin}
+          onEditPin={(id) => setEditingPinId(id)}
+          onEditLayout={() => setEditMode(true)}
+          onOpenSettings={() => navigate(`/channels/${channelScopedId}/settings#dashboard`)}
+        />
+      )}
       {/* Kiosk button intentionally removed from the top bar. Kiosk mode is
           auto-entered via `?kiosk=true` in the URL — see the mount-time
           handler that consumes the flag. Removed because the button clutters
@@ -632,24 +648,6 @@ export default function WidgetsDashboardPage() {
           + (layoutEditable && !inPanelMode ? "pb-[40vh]" : "")
         }
       >
-        {!isLoading && !error && pins.length > 0 && !kiosk && isChannelScoped && channelScopedId && (
-          <WidgetUsefulnessStrip
-            channelId={channelScopedId}
-            healthLabel={dashboardHealthLabel}
-            healthCounts={healthCounts}
-            checkingHealth={checkDashboardHealth.isPending}
-            onCheckHealth={() => {
-              checkDashboardHealth.mutate(
-                { dashboardKey: slug, limit: Math.min(pins.length, 50), includeBrowser: true },
-                { onSuccess: () => { void refetchPins(); } },
-              );
-            }}
-            onFocusPin={focusPin}
-            onEditPin={(id) => setEditingPinId(id)}
-            onEditLayout={() => setEditMode(true)}
-            onOpenSettings={() => navigate(`/channels/${channelScopedId}/settings#dashboard`)}
-          />
-        )}
         {layoutError && (
           <div
             className="mx-auto mb-3 flex max-w-2xl items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger"

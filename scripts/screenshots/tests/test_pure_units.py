@@ -28,6 +28,7 @@ from scripts.screenshots.capture.specs import (
     FLAGSHIP_SPECS,
     PROJECT_WORKSPACE_SPECS,
     SPATIAL_CHECK_SPECS,
+    STARBOARD_SPECS,
     resolve_specs,
 )
 from scripts.screenshots.stage import envelopes
@@ -152,6 +153,16 @@ def test_spatial_checks_have_assertions_and_artifacts():
         assert spec.output.startswith("spatial-check-")
         assert spec.assert_js or spec.name == "spatial-check-density-smoke"
     assert any("data-starboard-panel" in str(spec.assert_js) for spec in SPATIAL_CHECK_SPECS)
+    assert any("canvas-view-controls" in str(spec.assert_js) for spec in SPATIAL_CHECK_SPECS)
+
+
+def test_starboard_capture_is_object_inspector_only():
+    assert {spec.name for spec in STARBOARD_SPECS} == {"starboard-object-inspector"}
+    spec = STARBOARD_SPECS[0]
+    assert spec.output == "starboard-object-inspector.png"
+    assert "starboard-map-brief" in str(spec.assert_js)
+    assert "Object inspector" in str(spec.assert_js)
+    assert "Mission Control" in str(spec.assert_js)
 
 
 def test_attachment_checks_have_assertions_and_artifacts():
@@ -314,18 +325,23 @@ def test_harness_live_native_slash_specs_use_clean_runtime_sessions():
     assert [spec.name for spec in specs] == [
         "harness-native-slash-picker-dark",
         "harness-codex-native-plugins-result-dark",
+        "harness-codex-native-plugin-install-handoff-dark",
         "harness-claude-native-skills-result-dark",
     ]
     assert specs[0].route == "http://ui/channels/codex-channel/session/codex-session"
     assert specs[1].route == "http://ui/channels/codex-channel/session/codex-session"
-    assert specs[2].route == "http://ui/channels/claude-channel/session/claude-session"
+    assert specs[2].route == "http://ui/channels/codex-channel/session/codex-session"
+    assert specs[3].route == "http://ui/channels/claude-channel/session/claude-session"
     assert specs[0].submit_slash is False
     assert specs[1].slash_query == "/plugins"
     assert specs[1].submit_slash is True
-    assert specs[2].slash_query == "/skills"
+    assert specs[2].slash_query == "/plugins install spindrel-fixture-nonexistent"
     assert specs[2].submit_slash is True
-    assert specs[2].submit_ready_js
-    assert "Claude Code" in specs[2].contains
+    assert "codex plugin install spindrel-fixture-nonexistent" in specs[2].contains
+    assert specs[3].slash_query == "/skills"
+    assert specs[3].submit_slash is True
+    assert specs[3].submit_ready_js
+    assert "Claude Code" in specs[3].contains
 
 
 def test_harness_live_claude_custom_skill_spec_targets_preseeded_session():

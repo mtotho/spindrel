@@ -128,7 +128,7 @@ function KeyValueEditor({
         <EmptyState message="No entries declared." />
       ) : (
         rows.map((row) => (
-          <div key={row.id} className="grid gap-2 rounded-md bg-surface-raised/40 px-3 py-2.5 md:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)_auto]">
+          <div key={row.id} className="grid gap-2 rounded-md bg-surface-raised/40 px-3 py-2.5 md:grid-cols-[minmax(160px,0.4fr)_minmax(0,1fr)_auto]">
             <TextInput
               value={row.key}
               onChangeText={(value) => updateRow(row.id, { key: value })}
@@ -324,7 +324,7 @@ export default function ProjectBlueprintDetail() {
                 <TextArea
                   value={foldersText}
                   onChangeText={setFoldersText}
-                  placeholder=".spindrel&#10;.spindrel/knowledge-base&#10;docs"
+                  placeholder={".spindrel\n.spindrel/knowledge-base\ndocs"}
                   rows={9}
                 />
               </FormRow>
@@ -389,7 +389,7 @@ export default function ProjectBlueprintDetail() {
             title="Env And Secrets"
             description="Env defaults are copied as declarations. Required secrets create binding slots on new Projects."
           >
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,0.45fr)]">
+            <div className="grid gap-4 md:grid-cols-2">
               <KeyValueEditor
                 label="Env defaults"
                 rows={envRows}
@@ -401,7 +401,7 @@ export default function ProjectBlueprintDetail() {
                 <TextArea
                   value={requiredSecretsText}
                   onChangeText={setRequiredSecretsText}
-                  placeholder="GITHUB_TOKEN&#10;NPM_TOKEN"
+                  placeholder={"GITHUB_TOKEN\nNPM_TOKEN"}
                   rows={9}
                 />
               </FormRow>

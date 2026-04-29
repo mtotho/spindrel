@@ -222,6 +222,15 @@ copy uses shallow review verbs (`Open Review`, `Review signal`, `Review
 finding`) instead of implying the drawer is the workbench. Screenshot specs now
 cover the review deck and run-log states so this split can be visually checked.
 
+Eye-flow/progressive-discovery pass: the product split is now **Canvas points,
+Starboard inspects, Mission Control Review decides**. Starboard no longer owns a
+station switcher or command-center navigation; it is the selected-object
+inspector only. Canvas owns Add and View controls, with attention markers as
+visual state unless an obvious badge/button target exists. `/hub/attention`
+remains the durable review workbench, with unreviewed/finding/cleared/run-log
+language and the old "raw signal" framing treated as legacy. Screenshot specs
+now cover object-inspector Starboard and the canvas View popover.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

@@ -90,6 +90,8 @@ function HarnessRuntimeCommandCard({
   chatMode: "default" | "terminal";
 }) {
   const status = String(payload.status || "ok");
+  const data = payload.data && typeof payload.data === "object" ? payload.data as Record<string, any> : null;
+  const suggestedCommand = data?.suggested_command ? String(data.suggested_command) : "";
   return (
     <SlashResultPanel
       chatMode={chatMode}
@@ -104,6 +106,14 @@ function HarnessRuntimeCommandCard({
           </div>
         </div>
         {payload.detail && <div className="whitespace-pre-wrap">{String(payload.detail)}</div>}
+        {status === "terminal_handoff" && suggestedCommand && (
+          <div className="grid gap-1 rounded bg-surface-overlay/70 px-2 py-1.5">
+            <div className="text-[10px] uppercase text-text-dim">Terminal command</div>
+            <div className="overflow-x-auto font-mono text-[11px] leading-5 text-text">
+              {suggestedCommand}
+            </div>
+          </div>
+        )}
         {payload.data && typeof payload.data === "object" && Object.keys(payload.data).length > 0 && (
           <details className="rounded bg-surface-overlay/50 px-2 py-1">
             <summary className="cursor-pointer text-[11px] text-text-dim">Runtime payload</summary>

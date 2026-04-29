@@ -85,10 +85,8 @@ function topFinding(assessment?: WidgetUsefulnessAssessment | null) {
   return assessment?.recommendations?.[0] ?? null;
 }
 
-export function WidgetUsefulnessStrip({
+export function WidgetUsefulnessToolbarButton({
   channelId,
-  healthLabel,
-  healthCounts,
   checkingHealth,
   onCheckHealth,
   onFocusPin,
@@ -97,8 +95,6 @@ export function WidgetUsefulnessStrip({
   onOpenSettings,
 }: {
   channelId: string;
-  healthLabel: string;
-  healthCounts: { failing: number; warning: number; unknown: number; unchecked: number };
   checkingHealth?: boolean;
   onCheckHealth?: () => void;
   onFocusPin?: (pinId: string) => void;
@@ -109,65 +105,34 @@ export function WidgetUsefulnessStrip({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const query = useChannelWidgetUsefulness(channelId);
   const assessment = query.data;
-  const finding = topFinding(assessment);
   const tone = statusTone(assessment?.status);
-  const loading = query.isLoading;
+  const findingCount = assessment?.recommendations.length ?? 0;
+  const label = findingCount > 0 ? `${findingCount} findings` : "Review widgets";
 
   return (
     <>
-      <div className="mx-auto mb-3 flex max-w-4xl flex-col gap-3 rounded-md bg-surface-raised px-3 py-3 text-[12px] text-text-muted sm:flex-row sm:items-center sm:justify-between" data-testid="widget-usefulness-review-strip">
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone.className}`}>
-              {loading ? <Spinner /> : tone.icon}
-              {loading ? "Reviewing" : tone.label}
-            </span>
-            <span className="font-medium text-text">Widget review</span>
-            <span className="truncate">
-              {assessment
-                ? `${assessment.pin_count} pins, ${assessment.chat_visible_pin_count} chat-visible`
-                : "Usefulness assessment"}
-            </span>
-          </div>
-          <div className="line-clamp-2 text-[12px] leading-relaxed text-text-dim">
-            {finding ? finding.reason : assessment?.summary ?? "Checks usefulness across dashboard, chat-side surfaces, context export, and widget health."}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Pill><ShieldCheck size={11} /> Health: {healthLabel}</Pill>
-            {healthCounts.failing > 0 && <Pill className="bg-danger/10 text-danger-muted">{healthCounts.failing} failing</Pill>}
-            {healthCounts.warning > 0 && <Pill className="bg-warning/10 text-warning-muted">{healthCounts.warning} warning</Pill>}
-            {healthCounts.unchecked > 0 && <Pill>{healthCounts.unchecked} unchecked</Pill>}
-            {assessment?.project_scope_available && <Pill><Sparkles size={11} /> Project-bound</Pill>}
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          {onCheckHealth && (
-            <button
-              type="button"
-              onClick={onCheckHealth}
-              disabled={checkingHealth}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text disabled:opacity-50"
-            >
-              <RefreshCw size={13} className={checkingHealth ? "animate-spin" : ""} />
-              Check health
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
-          >
-            <Search size={13} />
-            Review
-          </button>
-        </div>
-      </div>
+      <button
+        type="button"
+        onClick={() => setDrawerOpen(true)}
+        className={
+          "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors hover:bg-surface-overlay " +
+          (findingCount > 0 ? "text-warning-muted hover:text-warning-muted" : "text-text-muted hover:text-text")
+        }
+        data-testid="widget-usefulness-review-trigger"
+        aria-label="Review dashboard widgets"
+        title={assessment?.summary ?? "Review dashboard widgets"}
+      >
+        {query.isLoading ? <Spinner /> : tone.icon}
+        <span className="hidden lg:inline">{label}</span>
+      </button>
       {drawerOpen && (
         <WidgetUsefulnessDrawer
           assessment={assessment ?? null}
           isLoading={query.isLoading}
           error={query.error}
           onRefresh={() => void query.refetch()}
+          onCheckHealth={onCheckHealth}
+          checkingHealth={checkingHealth}
           onClose={() => setDrawerOpen(false)}
           onFocusPin={onFocusPin}
           onEditPin={onEditPin}
@@ -229,6 +194,8 @@ function WidgetUsefulnessDrawer({
   isLoading,
   error,
   onRefresh,
+  onCheckHealth,
+  checkingHealth,
   onClose,
   onFocusPin,
   onEditPin,
@@ -239,6 +206,8 @@ function WidgetUsefulnessDrawer({
   isLoading: boolean;
   error: unknown;
   onRefresh: () => void;
+  onCheckHealth?: () => void;
+  checkingHealth?: boolean;
   onClose: () => void;
   onFocusPin?: (pinId: string) => void;
   onEditPin?: (pinId: string) => void;
@@ -359,6 +328,12 @@ function WidgetUsefulnessDrawer({
             This review does not apply changes. Findings that require policy decisions stay human-owned.
           </p>
           <div className="flex items-center gap-1.5">
+            {onCheckHealth && (
+              <button type="button" onClick={onCheckHealth} disabled={checkingHealth} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text disabled:opacity-50">
+                <ShieldCheck size={13} className={checkingHealth ? "animate-pulse" : ""} />
+                Check health
+              </button>
+            )}
             <button type="button" onClick={onRefresh} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text">
               <RefreshCw size={13} />
               Refresh

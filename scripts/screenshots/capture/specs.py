@@ -2141,9 +2141,8 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
 # ---------------------------------------------------------------------------
 
 _WIDGET_USEFULNESS_READY = (
-    "!!document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]') "
-    "&& /Widget review/.test(document.body.innerText) "
-    "&& /overlap|hidden|context|finding/i.test(document.body.innerText)"
+    "!!document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]') "
+    "&& /finding/i.test(document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]')?.textContent || '')"
 )
 
 _OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
@@ -2155,21 +2154,19 @@ _OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
     "  }"
     "  throw new Error(`timed out waiting for ${label}`);"
     "};"
-    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]'), 'review strip');"
-    "const strip = document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]');"
-    "const button = [...strip.querySelectorAll('button')].find((el) => /Review/.test(el.textContent || ''));"
+    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]'), 'review trigger');"
+    "const button = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
     "if (!button) throw new Error('review button missing');"
     "button.click();"
     "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]'), 'review drawer');"
 )
 
 _ASSERT_WIDGET_USEFULNESS_STRIP_JS = (
-    "const strip = document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]');"
-    "if (!strip) throw new Error('review strip missing');"
-    "const text = document.body.innerText || strip.textContent || '';"
-    "if (!/Widget review/.test(text)) throw new Error('review label missing');"
-    "if (!/chat-visible|Health/.test(text)) throw new Error('review metrics missing');"
-    "if (!/Review/.test(text)) throw new Error('review action missing');"
+    "const trigger = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
+    "if (!trigger) throw new Error('review trigger missing');"
+    "const text = document.body.innerText || trigger.textContent || '';"
+    "if (!/3 findings|findings/.test(text)) throw new Error('review trigger finding count missing');"
+    "if (document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]')) throw new Error('persistent review strip should not render');"
 )
 
 _ASSERT_WIDGET_USEFULNESS_DRAWER_JS = (
@@ -2374,12 +2371,20 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
         output="project-workspace-blueprint-editor.png",
         color_scheme="dark",
+        pre_capture_js=(
+            "const editor = document.querySelector('[data-testid=\"project-blueprint-editor\"]');"
+            "const scroller = editor && editor.parentElement;"
+            "if (scroller) scroller.scrollTop = Math.floor(scroller.scrollHeight * 0.42);"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('README.md') "
-            "&& text.includes('overview.md') "
-            "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
-            "&& text.includes('agent-server'), "
+            "const fieldValues = [...document.querySelectorAll('input, textarea')].map((el) => el.value || '').join('\\n');"
+            "const combined = `${text}\\n${fieldValues}`;"
+            "return { ok: combined.includes('README.md') "
+            "&& combined.includes('overview.md') "
+            "&& combined.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
+            "&& combined.includes('agent-server'), "
             "detail: 'Project Blueprint editor did not expose files, knowledge, repos, and secrets' };"
         ),
     ),
@@ -2394,13 +2399,15 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
         output="project-workspace-settings-blueprint.png",
         color_scheme="dark",
+        full_page=True,
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('Secret bindings') "
+            "const normalized = text.toLowerCase();"
+            "return { ok: normalized.includes('secret bindings') "
             "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
             "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN') "
-            "&& text.includes('Repo declarations') "
-            "&& text.includes('Env defaults'), "
+            "&& normalized.includes('repo declarations') "
+            "&& normalized.includes('env defaults'), "
             "detail: 'Project settings did not expose applied Blueprint declarations and bindings' };"
         ),
     ),
@@ -2485,8 +2492,9 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"terminal-tool-transcript\"]') "
-            "&& document.body.innerText.toLowerCase().includes('memory')"
+            "document.body.innerText.includes('Replace Section memory/MEMORY.md') "
+            "|| document.body.innerText.includes('Project workspace screenshot memory fact') "
+            "|| document.body.innerText.toLowerCase().includes('memory was updated')"
         ),
         output="project-workspace-memory-tool.png",
         color_scheme="dark",
@@ -2730,15 +2738,13 @@ MOBILE_HOME_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
-# Starboard panel — the slide-in right rail on the spatial canvas. Shows the
-# Hub station by default (Attention summary, Daily Health, Upcoming, Channels).
-# Seeds `spatial.starboard.activeTab=hub` and clicks the "Open Starboard"
-# button; the panel itself is local component state so we can't pre-open via
-# storage alone.
+# Starboard panel — the slide-in right rail on the spatial canvas. Starboard is
+# the object inspector; decisions and run logs live in Mission Control Review.
+# The panel is local component state, so the capture opens it with the toolbar.
 # ---------------------------------------------------------------------------
 STARBOARD_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
-        name="starboard-hub",
+        name="starboard-object-inspector",
         route="/",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
@@ -2749,22 +2755,26 @@ STARBOARD_SPECS: list[ScreenshotSpec] = [
         pre_capture_js=(
             "const btn = document.querySelector('button[title=\"Open Starboard\"]');"
             " if (btn) btn.click();"
-            # Panel slide-in + station content render — wait for the panel's
-            # data attribute and one of the Hub station's stable sections.
+            # Panel slide-in + object-inspector render.
             " const t0 = Date.now();"
             " while (Date.now() - t0 < 4000) {"
             "   if (document.querySelector('[data-starboard-panel=\"true\"]')"
-            "       && /Attention|Daily Health|Upcoming|Channels/.test(document.body.innerText)) break;"
+            "       && document.querySelector('[data-testid=\"starboard-map-brief\"]')) break;"
             "   await new Promise(r => setTimeout(r, 100));"
             " }"
             " await new Promise(r => setTimeout(r, 600));"
         ),
-        output="starboard-hub.png",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "if (!document.querySelector('[data-starboard-panel=\"true\"]')) throw new Error('Starboard panel did not open');"
+            "if (!document.querySelector('[data-testid=\"starboard-map-brief\"]')) throw new Error('Starboard object inspector missing');"
+            "if (!text.includes('Object inspector')) throw new Error('Starboard did not identify itself as an object inspector');"
+            "if (text.includes('Mission Control') || text.includes('Daily Health') || text.includes('Context Bloat')) throw new Error('legacy Starboard station content is visible');"
+        ),
+        output="starboard-object-inspector.png",
         color_scheme="dark",
         extra_init_scripts=[
-            # Seed the active station so the panel opens on Hub even if a
-            # prior session persisted a different tab.
-            "(() => { localStorage.setItem('spatial.starboard.activeTab', 'hub'); })();",
+            "(() => { localStorage.setItem('spatial.starboard.width', '600'); })();",
             # Frame the camera the same as spatial-overview-1 so the
             # constellation reads in the background behind the panel.
             _spatial_camera_init({"x": 720, "y": 450, "scale": 0.7}),

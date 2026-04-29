@@ -102,6 +102,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Codex native `/plugins` result rendered in chat](../images/harness-codex-native-plugins-result-dark.png)
 
+![Codex native plugin install terminal handoff rendered in chat](../images/harness-codex-native-plugin-install-handoff-dark.png)
+
 ![Claude Code native `/skills` result rendered in chat](../images/harness-claude-native-skills-result-dark.png)
 
 ![Claude Code project-local native skill invocation rendered in chat](../images/harness-claude-native-custom-skill-result-dark.png)
