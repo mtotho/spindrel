@@ -266,6 +266,16 @@ def test_harness_live_project_terminal_specs_are_docs_fixtures():
     assert "tool calls" in specs[0].not_contains
 
 
+def test_harness_live_native_edit_terminal_spec_requires_diff_output():
+    specs = harness_live._native_edit_terminal_specs("http://ui", "channel-1", "session-1")
+
+    assert [spec.name for spec in specs] == ["harness-claude-native-edit-terminal"]
+    assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
+    assert specs[0].chat_mode == "terminal"
+    assert "terminal-diff-output" in specs[0].wait_js
+    assert "After native diff" in specs[0].contains
+
+
 def test_harness_live_parse_allows_browser_visible_url():
     env = {
         "SPINDREL_API_KEY": "test-key",

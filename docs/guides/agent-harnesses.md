@@ -110,6 +110,8 @@ The checked-in harness screenshots below are regression fixtures for the web wra
 
 ![Claude Code project-build native Write/Edit output in terminal chat mode](../images/harness-claude-project-terminal.png)
 
+![Claude Code native Edit diff output in terminal chat mode](../images/harness-claude-native-edit-terminal.png)
+
 ![Claude Code native question card in default dark mode](../images/harness-question-default-dark.png)
 
 ![Claude Code native question card in default light mode](../images/harness-question-default-light.png)
@@ -125,6 +127,9 @@ Regenerate the non-question fixtures with:
 ```bash
 HARNESS_PARITY_TIER=project ./scripts/run_harness_parity_live.sh \
   -k project_plan_build_and_screenshot
+
+# Also preserve a recent Claude session containing "Harness Native Diff Preview"
+# when regenerating the native Edit diff fixture.
 
 SPINDREL_API_KEY=... \
 python -m scripts.screenshots.harness_live \

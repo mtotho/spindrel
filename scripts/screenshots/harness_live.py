@@ -249,6 +249,26 @@ def _project_terminal_specs(ui_url: str, target: RuntimeTarget, session_id: str)
     ]
 
 
+def _native_edit_terminal_specs(ui_url: str, channel_id: str, session_id: str) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
+    wait = (
+        "document.body.innerText.includes('Harness Native Diff Preview') "
+        "&& document.querySelector('[data-testid=\"terminal-diff-output\"]')"
+    )
+    return [
+        CaptureSpec(
+            name="harness-claude-native-edit-terminal",
+            route=route,
+            wait_js=wait,
+            contains=("Harness Native Diff Preview", "Before native diff", "After native diff"),
+            not_contains=TERMINAL_WRITE_NOT_CONTAINS,
+            theme="dark",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ),
+    ]
+
+
 async def capture(args: argparse.Namespace) -> list[Path]:
     api_url = args.api_url.rstrip("/")
     browser_url = args.browser_url.rstrip("/")
@@ -303,6 +323,11 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             )
             for target in targets
         })
+        sessions[("claude", "native_edit")] = await _find_session(
+            client,
+            channel_id=args.claude_channel_id,
+            label_fragment="Harness Native Diff Preview",
+        )
 
         specs: list[CaptureSpec] = [
             CaptureSpec(
@@ -356,6 +381,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             specs.extend(_project_terminal_specs(browser_url, target, sessions[(target.name, "project")]))
 
         specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
+        specs.extend(_native_edit_terminal_specs(browser_url, args.claude_channel_id, sessions[("claude", "native_edit")]))
         specs.extend(_question_specs(browser_url, args.claude_channel_id))
 
         paths: list[Path] = []
