@@ -153,7 +153,7 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
     setNotice(null);
     if (!sweepable.length) {
       setDeckMode(buckets.review.length ? "review" : "inbox");
-      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No untriaged Attention items are ready for Operator.");
+      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No raw signals are ready for Operator.");
       return;
     }
     setDeckMode("runs");
@@ -171,10 +171,10 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
               <Radar size={13} />
-              Attention Command Deck
+              Mission Control Review
             </div>
             <div className="mt-1 text-sm text-text-muted">
-              {channelId ? "Channel-filtered" : "Workspace"} queue · {counts.review} review · {counts.inbox} inbox · {counts.cleared} cleared
+              {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings · {counts.inbox} raw · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -193,7 +193,7 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
               onClick={startSweep}
             >
               {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              Sweep inbox
+              Run Operator sweep
             </button>
           </div>
         </div>
@@ -203,12 +203,12 @@ export function AttentionCommandDeck({ items, selectedId, onSelect, initialMode,
           </div>
         )}
         <div className="mt-3" data-testid="attention-command-deck-what-now">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">What to do now</div>
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Recommended</div>
           <div className="grid gap-2 sm:grid-cols-4">
-            <WhatNowButton active={mode === "review"} label="Review findings" count={counts.review} detail="Operator already classified these." onClick={() => setDeckMode("review")} />
-            <WhatNowButton active={mode === "inbox"} label="Sweep raw signals" count={counts.inbox} detail="Untriaged items still need a pass." onClick={() => setDeckMode("inbox")} />
-            <WhatNowButton active={mode === "runs"} label="Check runs" count={runs.length} detail={`${counts.running} item${counts.running === 1 ? "" : "s"} in flight.`} onClick={() => setDeckMode("runs")} />
-            <WhatNowButton active={mode === "cleared"} label="Cleared" count={counts.cleared + counts.closed} detail="Receipts and resolved noise." onClick={() => setDeckMode("cleared")} />
+            <WhatNowButton active={mode === "review"} label="Review first finding" count={counts.review} detail="Operator already classified these." onClick={() => setDeckMode("review")} />
+            <WhatNowButton active={mode === "inbox"} label="Run Operator sweep" count={counts.inbox} detail="Raw signals still need a pass." onClick={() => setDeckMode("inbox")} />
+            <WhatNowButton active={mode === "runs"} label="View sweep status" count={runs.length} detail={`${counts.running} item${counts.running === 1 ? "" : "s"} in flight.`} onClick={() => setDeckMode("runs")} />
+            <WhatNowButton active={mode === "cleared"} label="All clear" count={counts.cleared + counts.closed} detail="Receipts and resolved noise." onClick={() => setDeckMode("cleared")} />
           </div>
         </div>
       </div>
@@ -284,7 +284,7 @@ function DeckQueue({
 
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-          <span>{mode === "inbox" ? "Raw attention" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run-linked items"}</span>
+          <span>{mode === "inbox" ? "Raw signals" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run-linked items"}</span>
           <span>{items.length}</span>
         </div>
         <div className="space-y-1">
@@ -348,7 +348,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            {reviewed ? "Operator finding" : "Attention item"}
+            {reviewed ? "Operator finding" : "Raw signal"}
           </div>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal text-text">{item.title}</h2>
           <div className="mt-1 text-sm text-text-muted">
@@ -508,7 +508,7 @@ function RunLogWorkspace({ pending, runs }: { pending: boolean; runs: AttentionT
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator runs</div>
         <h2 className="mt-1 text-2xl font-semibold text-text">Run log</h2>
         <p className="mt-1 text-sm text-text-muted">
-          Runs explain how raw Attention became reviewed findings or cleared noise.
+          Runs explain how raw signals became reviewed findings or cleared noise.
         </p>
       </div>
 

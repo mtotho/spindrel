@@ -133,8 +133,8 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", summary, 
           fontSize: isTerminal ? 11 : 12,
           lineHeight: isTerminal ? 1.42 : 1.5,
           overflow: "hidden",
-          maxHeight: 400,
-          overflowY: isTerminal ? "hidden" : "auto",
+          maxHeight: isTerminal ? "none" : 400,
+          overflowY: isTerminal ? "visible" : "auto",
           fontVariantNumeric: "tabular-nums",
         }}
       >
@@ -251,17 +251,17 @@ function lineStyles(line: DiffLine, t: ThemeTokens, isTerminal: boolean) {
   switch (line.kind) {
     case "add":
       return {
-        row: { background: t.successSubtle },
+        row: { background: isTerminal ? "rgba(34, 197, 94, 0.18)" : t.successSubtle },
         gutter: "+",
         gutterColor: t.success,
-        textColor: t.contentText,
+        textColor: isTerminal ? t.text : t.contentText,
       };
     case "remove":
       return {
-        row: { background: t.dangerSubtle },
+        row: { background: isTerminal ? "rgba(239, 68, 68, 0.18)" : t.dangerSubtle },
         gutter: "−",
         gutterColor: t.danger,
-        textColor: t.contentText,
+        textColor: isTerminal ? t.text : t.contentText,
       };
     case "hunk":
       return {

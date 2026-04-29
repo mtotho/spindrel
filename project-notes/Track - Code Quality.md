@@ -2,28 +2,19 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-29 (context diagnostics read-model deepening shipped; track stays ambient per `feedback_living_tracks_never_close`)
+updated: 2026-04-29 (stale planning state compressed; track stays ambient per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
 Systematic audit of core agent-server files. 156 files, ~50K lines across `app/agent/`, `app/services/`, `app/tools/`. Findings organized by priority.
 
-## Audit close-out roadmap (planned 2026-04-24)
+## Current state (2026-04-29 vault cleanup)
 
-After Cluster 10 shipped, planned the remaining slate as one sequenced close-out: Cluster 9 (`run_task` 657 LOC) + 3 secondary duplications (llm closures, sandbox exec, knowledge dual-lookup) + 2 god-functions (`_bot_row_to_config` 283 LOC, `persist_turn` 333 LOC) + 1 test fixture single-liner. Order: easy wins first → hardest last. Per `feedback_opus_plans_sonnet_executes`, each cluster is a separate Sonnet execution session; do not batch in the same session as planning.
+This track is evergreen. The old numbered close-out plan is no longer a live queue: indexing, dashboard/grid source-of-truth, FastAPI boundary repair, tool dispatch, context replay sizing, loop stages, context assembly stages, compaction, file sync, `run_task`, `persist_turn`, bot config shaping, startup/runtime, integrations, widgets, channel/chat UI, and context diagnostics all shipped in later waves. Do not restart from stale cluster numbers or old LOC estimates.
 
-Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `status: complete`. Compress prose in place; Track stays evergreen for ambient maintenance.
+Next code-quality targets should come from a fresh verify-first scan of the current source tree: inspect current LOC/function shape, import graph, tests, and active product risk before writing a plan. Historical RFCs below remain useful for invariants and regression rationale, not as unexecuted work.
 
-| # | Name | Target | Result | Status |
-|---|---|---|---|---|
-| **Pre-11** | Test fixture fix | `tests/unit/test_file_sync.py:240-249` | +1 line `as embed`; 8 sync_all tests unblocked (10/18 → 18/18) | ✅ SHIPPED |
-| **11** | knowledge dedup (verify-first) | track claim stale | `knowledge.py` deleted in commit `e0b448c7` (2026-04-16); duplication moot | ✅ MOOT |
-| **12** | `llm.py` factory closure unify | `app/agent/llm.py:1391-1565` | 6 closures → 1 builder `_build_attempt_factories(stream: bool)`; file 1781 → 1768 LOC; 326/7 baseline match | ✅ SHIPPED |
-| **13** | `sandbox.py` exec / exec_bot_local | `app/services/sandbox.py:319, 754` | 3 helpers (`_build_docker_exec_args`, `_run_docker_exec`, `_touch_instance_last_used`); exec 95 → ~20 LOC, exec_bot_local 90 → ~20 LOC; file 907 → 898 LOC; 25/25 baseline match | ✅ SHIPPED |
-| **14** | `_bot_row_to_config` decomposition | `app/agent/bots.py:295` | 5 nested-config builders + 2 repetitive-field mappers; function 189 → 64 LOC (-66%); file 821 → 841 LOC; 103/1 baseline match | ✅ SHIPPED |
-| **15** | `persist_turn` decomposition | `app/services/sessions.py:562` | 6 stage helpers (filter/metadata/insert/outbox-channel/outbox-thread/attachment-link/bus-publish); function 331 → 82 LOC (-75%); file 1341 → 1398 LOC; 16+442/5/2 baseline match | ✅ SHIPPED |
-| **15.1** | `persist_turn` typed seam follow-up (Ousterhout deepening audit candidate #5) | `app/services/sessions.py` + new `app/services/session_writes.py` | `_build_message_metadata` + `_insert_message_records` collapsed into one public function `stage_turn_messages(db, ctx, messages) -> TurnWriteResult` (frozen `TurnContext` collapses 9 kwargs → 1; `TurnWriteResult` replaces 3-tuple). Silent `JSONDecodeError`/`TypeError` swallow at delegation parse → logged WARNING with session/correlation/tool_call_id/preview, malformed entry skipped, well-formed siblings preserved. Non-object JSON also handled. sessions.py 1398 → 1278 LOC; new module 268 LOC. 91/22 baseline match + 3 new regression tests in `tests/unit/test_sessions_core_gaps.py::TestStageTurnMessagesMalformedDelegations` (94/22 final). Bug class shipped to [[Fix Log]] 2026-04-25. | ✅ SHIPPED |
-| **9** | `run_task` Wave A-C | `app/agent/tasks.py:774` | Wave A+B kept the specialized-runner/error helpers. Wave C added a typed task-run seam: `_PreparedTaskRun`, `_prepare_task_run`, `_run_harness_task_if_needed`, and `_run_normal_agent_task`. `run_task` now owns dispatch/lock/start-event/error orchestration while preparation, harness invocation, and normal agent persistence/dispatch/follow-up policy are local to the helper modules. Function 657 → 178 LOC overall after Wave C; local verification: task unit slice 23/18, integration task file skipped under local profile. | ✅ SHIPPED |
+Per `feedback_living_tracks_never_close`: never flip this track to complete when a wave ships. Compress stale prose in place, append the shipped invariant, and keep the track available for ambient architecture maintenance.
 
 ## Maintenance pass (2026-04-28)
 
@@ -67,7 +58,7 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - **Loop recovery/no-tool seam shipped.** Text-encoded tool-call recovery and the terminal no-tool branch now live behind `stream_loop_recovery` / `LoopRecoveryDone` in `app.agent.loop_recovery`. The coordinator now treats the LLM result as either recovered tool calls for the tool-iteration stage or a terminal no-tool response path.
 - **Turn worker lifecycle seam shipped.** `run_turn` is now a staged coordinator over `_TurnScope` / `_TurnRunState`: context setup, user-message lifecycle start, harness branch, member-bot pre-fanout, normal stream consumption, assistant metadata tagging, persistence/supervisors/compaction, assistant fanout, error persistence, final `TURN_ENDED`, and lock release now have local helpers. Public entrypoint and existing monkeypatch surfaces remain intact; `run_turn` dropped to 83 LOC. Added regression coverage for delegation-post failure surfacing and assistant metadata tags before `persist_turn`.
 - **Heartbeat runtime lifecycle seam shipped.** `fire_heartbeat` is now a 44-line coordinator over `_prepare_heartbeat_run`, `_run_harness_heartbeat_if_needed`, `_run_spindrel_heartbeat`, and `_finalize_heartbeat_run`. The pass separated DB preparation/scheduling, harness busy-session deferral, standard agent execution/persistence/dispatch/follow-up, and final run accounting while preserving workflow mode and existing test patch surfaces.
-- **Next section candidate.** Persona remains deferred as low-leverage/removable. Live loop, turn-worker, and heartbeat coordinators are now materially reduced and staged; next architecture review should use a fresh verify-first scan instead of continuing from stale god-function estimates.
+- **Fresh-scan policy.** Persona remains deferred as low-leverage/removable. Live loop, turn-worker, and heartbeat coordinators are now materially reduced and staged; next architecture review should use a fresh verify-first scan instead of continuing from stale god-function estimates.
 
 **Drift caught during planning** (track entries proved stale):
 - `_bot_row_to_config` claimed ~180 LOC, actually 283.
@@ -84,7 +75,7 @@ Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `st
 - Per `feedback_targeted_test_runs`: scoped pytest, never `pytest tests/ integrations/` in Docker.
 - Per `feedback_git_workflow`: agent-server uses manual commit; commit only when user directs.
 
-**Detail per cluster** lives at `~/.claude/plans/woolly-tumbling-robin.md` (ephemeral scaffolding — refer to it when starting an execution session, but the durable status table is here).
+Historical cluster details may exist in ephemeral plan files, but the durable state is this track plus current source. Treat old plan files as stale unless current code verification confirms them.
 
 ## Ousterhout depth audit (2026-04-23)
 
@@ -92,9 +83,9 @@ Audit lens: Ousterhout's "deep module" heuristic (lots of functionality behind a
 
 ### Depth clusters (ranked)
 
-1. **Indexing abstraction leak at callers** — `workspace_indexing.resolve_indexing()` / `get_all_roots()` are called directly from `app/main.py`, `app/agent/fs_watcher.py`, `app/agent/context_assembly.py:791`, `app/tools/local/channel_workspace.py`, and 4 routers. The flavored wrappers (`memory_indexing`, `channel_workspace_indexing`) encode real policy differences (memory patterns, sentinel bot ids, segment handling, stale-cleanup, bypass semantics) — the problem is caller sites reaching past them. Deepening direction: audit which callers actually need indexing vs. just workspace-root resolution; pull indexing-relevant callers behind the flavor boundary.
+1. **Indexing abstraction leak at callers — shipped/stale as a target** — `app/services/bot_indexing.py` is now the owner for workspace, memory, and channel indexing plans. Legacy flavor modules are compatibility adapters; direct production use of lower-level `workspace_indexing` helpers should stay limited to the owner and intentional admin visibility projections. See the historical RFC below for invariants.
 
-2. **Dashboard surface + source-of-truth drift** — `app/routers/api_v1_dashboard.py` (~1,742 LOC, 40+ endpoints on `/widgets` prefix) is fake-deep: 40+ endpoints whose concerns don't share hidden state. Coupled services: `dashboard_pins`, `widget_themes`, `widget_contracts`, `widget_context`, `widget_manifest`, `widget_templates`, `native_app_widgets`, `html_widget_scanner`, `grid_presets`. **Deeper issue**: source-of-truth drift — `GRID_PRESETS` logic appears in more than one place. Router split without unifying preset/theme truth would miss the Ousterhout point. Deepening direction, two-part sequenced: (a) unify preset source of truth across backend + frontend, then (b) split into four-to-five thematic sub-routers paired with their service modules (pattern: `app/routers/api_v1_admin/`).
+2. **Dashboard surface + source-of-truth drift — shipped/stale as a target** — the old monolithic `app/routers/api_v1_dashboard.py` was deleted and replaced with focused `api_v1_widgets/*` sub-routers. Grid preset drift is guarded through the shared dashboard-grid manifest / drift tests. Remaining dashboard work should be selected from current source shape, not the old 40-endpoint router diagnosis.
 
 3. **Boundary-bypass smell — ✅ shipped 2026-04-23 (Cluster 3)** — 118 `raise HTTPException` sites across 10 non-router modules migrated to a `DomainError` hierarchy in `app/domain/errors.py`. Plus `app/services/machine_control.py`'s `request: Request` parameter — the one non-raise HTTP leak — converted to a `server_base_url: str` primitive extracted at the router. `from fastapi` removed from all of `app/services/`, `app/agent/`, `app/tools/` (sole allowlist: `endpoint_catalog.py`, which introspects FastAPI routes). A drift test (`tests/unit/test_fastapi_boundary_drift.py`) AST-parses the three directories and fails any reintroduction. The router-boundary adapter is a single exception handler registered via `install_domain_error_handler(app)` — reused by `app/main.py` and the integration test app fixture so both environments produce the same `{"detail": ...}` wire shape. See RFC below.
 
@@ -158,132 +149,20 @@ Claimed shallow by one explore agent but unverified. Future session: `wc -l`, `g
 
 The three promoted clusters share a theme: **caller-side knowledge that should live in one module**. Indexing callers duplicate resolution logic. Dashboard callers and services duplicate preset truth. Service callers duplicate HTTP error handling that the service shouldn't own. Each cluster, when deepened, reduces the number of places that need to understand a given policy.
 
-### RFC — Cluster 1 — Indexing caller-boundary leak (2026-04-23)
+### Historical RFC — Cluster 1 — Indexing caller-boundary leak (shipped/stale)
 
-Chosen design: **A+ — minimal surface with caller-optimized verbs + constructor-injected primitive**. This RFC is the output of the Matt-Pocock skill Step 7 (3 parallel designs evaluated, user picked A+). Not yet executed.
+This RFC is retained only for invariants. It was executed on 2026-04-23 and should not be read as fresh work.
 
-#### Scope
+Current ownership: `app/services/bot_indexing.py` owns workspace, memory, and channel indexing plans through `resolve_for(scope=...)`, `reindex_bot`, `iter_watch_targets`, and `reindex_channel`. `memory_indexing.py` and `channel_workspace_indexing.py` remain compatibility adapters. `workspace_indexing.resolve_indexing()` and `get_all_roots()` remain lower-level helpers for the owner and the few admin visibility responses that intentionally return raw cascade fields.
 
-Consolidate three existing modules into one:
-- `app/services/workspace_indexing.py` → becomes internal helpers
-- `app/services/memory_indexing.py` → absorbed
-- `app/services/channel_workspace_indexing.py` → absorbed
-- **New:** `app/services/bot_indexing.py` (public module)
+Preserved invariants:
+- Three-tier config cascade stays bot -> workspace -> global env.
+- Memory indexing is gated by `memory_scheme == "workspace-files"` and workspace indexing being enabled.
+- Channel indexing uses sentinel `bot_id == "channel:{id}"`, channel-specific patterns, optional segment extensions, and the channel stale-cleanup policy.
+- RAG retrieval remains separate: callers pass a `BotIndexPlan` into `retrieve_filesystem_context`; `bot_indexing` does not own prompt retrieval.
+- Opportunistic context/runtime callers should let `reindex_channel(force=False)` respect the filesystem-index cooldown. Admin, startup, and maintenance flows may pass `force=True` when they need an explicit rebuild.
 
-Remove all ~17 direct call sites of `resolve_indexing()` / `get_all_roots()` outside the new owning module. Caller reach surface: `app/main.py` (5), `app/agent/fs_watcher.py` (3 stanzas, ~9 refs), `app/agent/context_assembly.py` (4), `app/tools/local/workspace.py` (4), `app/tools/local/channel_workspace.py` (1).
-
-#### Public interface (final)
-
-```python
-# app/services/bot_indexing.py
-from typing import Literal, Iterator
-
-Scope = Literal["workspace", "memory", "channel"]
-
-@dataclass(frozen=True)
-class BotIndexPlan:
-    bot_id: str                   # sentinel "channel:{id}" for channel scope
-    roots: tuple[str, ...]
-    patterns: list[str]
-    embedding_model: str
-    similarity_threshold: float
-    top_k: int
-    watch: bool
-    cooldown_seconds: int
-    segments: list[dict] | None
-    scope: Scope
-    shared_workspace: bool
-    skip_stale_cleanup: bool
-
-# Reader — pure, no I/O. Returns None if scope doesn't apply to this bot.
-def resolve_for(
-    bot: BotConfig,
-    *,
-    scope: Scope = "workspace",
-    channel_id: str | None = None,
-    channel_segments: list[dict] | None = None,
-) -> BotIndexPlan | None: ...
-
-# Writer — resolves + runs index_directory per root. Returns merged stats or None.
-async def reindex_bot(
-    bot: BotConfig,
-    *,
-    include_workspace: bool = True,
-    include_memory: bool = True,
-    force: bool = True,
-) -> dict | None: ...
-
-# Watcher helper — one call, handles workspace-enabled + memory-only branches.
-def iter_watch_targets(bots: list[BotConfig]) -> Iterator[tuple[BotIndexPlan, str]]: ...
-
-# Channel flavor — narrower call for channel re-index (tools + admin routers)
-async def reindex_channel(
-    channel_id: str,
-    bot: BotConfig,
-    *,
-    channel_segments: list[dict] | None = None,
-    force: bool = True,
-) -> dict | None: ...
-```
-
-Module init does one-time import of `index_directory` (injected primitive) to break the lazy-import cycle; `workspace_service` / `shared_workspace_service` remain lazy-imported inside private helpers (circular-import constraint).
-
-#### Readers keep `retrieve_filesystem_context` separate
-
-Call sites in `context_assembly.py` become:
-
-```python
-plan = bot_indexing.resolve_for(bot, scope="workspace")
-fs_chunks, fs_sim = await retrieve_filesystem_context(
-    user_message, plan.bot_id,
-    roots=list(plan.roots),
-    threshold=plan.similarity_threshold, top_k=plan.top_k,
-    embedding_model=plan.embedding_model,
-    segments=plan.segments, channel_id=..., exclude_paths=...,
-)
-```
-
-We intentionally do **not** subsume `retrieve_filesystem_context` into `bot_indexing` — RAG retrieval and indexing are distinct concerns.
-
-#### Invariants preserved
-
-1. Three-tier config cascade (bot → workspace → global env).
-2. Memory flavor gate: `memory_scheme == "workspace-files" AND workspace.enabled`.
-3. Memory pattern source: `memory_scheme.get_memory_index_patterns(bot)`.
-4. Channel sentinel bot_id: `"channel:{id}"` stored on `FilesystemChunk.bot_id`.
-5. Channel patterns: `channels/{id}/**/*.md` + optional per-segment extensions.
-6. Shared-workspace root: `shared_workspace_service.get_host_root(id)`; standalone: `workspace_service.get_workspace_root(bot.id, bot=bot)`.
-7. `skip_stale_cleanup=True` for memory + channel-without-explicit-segments; `False` when `channel_segments` provided.
-8. Shared-workspace-no-segments skip + stale non-memory chunk deletion (currently `main.py:204-222` inline branch).
-9. Per-root stats merging (currently memory_indexing's inline merge).
-
-#### Commit plan (6 commits, behavior-preserving)
-
-Behavior-preserving = `pytest tests/unit/test_workspace_indexing.py tests/unit/test_memory_indexing.py tests/unit/test_channel_workspace_indexing.py tests/unit/test_fs_watcher_channel_workspace_e2e.py tests/integration/test_workspace_indexing_e2e.py` green at every commit.
-
-1. ~~**Add `bot_indexing.py` skeleton + tests**~~ ✅ shipped 2026-04-23 — `app/services/bot_indexing.py` with `BotIndexPlan` + `resolve_for(scope="workspace")` delegating to `resolve_indexing` + `get_all_roots`. 10 new boundary tests (`tests/unit/test_bot_indexing.py`); 82 legacy indexing tests unchanged. Zero caller changes.
-2. ~~**Port `main.py` startup block (5 sites)**~~ ✅ shipped 2026-04-23 — `_index_filesystems_and_start_watchers` collapsed from 104 → 22 lines. Single loop over `list_bots()` calling `bot_indexing.reindex_bot(bot, force=True, cleanup_orphans=True)` + the legacy `filesystem_indexes` loop. Shared-workspace-no-segments stale-chunk cleanup, two-pass stale-root cleanup, Phase-1 memory indexing, and Phase-2 segment indexing now all live inside `reindex_bot`. New writer tests (6) cover memory-only, segments-indexes-each-root, cleanup-orphans gating, and memory-failure isolation.
-3. ~~**Port `fs_watcher.py` (3 stanzas)**~~ ✅ shipped 2026-04-23 — `start_watchers` now mounts watcher tasks from `iter_watch_targets(bots)` (63 → 33 lines); `_watch_shared_workspace` inner loop collapsed to `reindex_bot(bot, force=True)` per matching bot (36 → 10 lines); periodic reindex worker collapsed to `reindex_bot(bot, force=False)` per bot (30 → 7 lines). 4 new boundary tests on `iter_watch_targets` (memory-scope synthesis, watch=False gate, shared-workspace skip). Minor behavior change noted: periodic memory reindex was implicit force=True → now force=False (matches workspace periodic; skips redundant re-embedding of unchanged memory files).
-4. ~~**Port `context_assembly.py` readers (3 sites)**~~ ✅ shipped 2026-04-23 — channel-segments RAG (line 800), workspace RAG (line 990), bot-knowledge-base RAG (line 1085) all use `bot_indexing.resolve_for(bot, scope="workspace")` and pass plan fields into `retrieve_filesystem_context` unchanged. Implicit-KB-prefix dedupe at line 800 kept at call site per RFC Risk note. (RFC said "4 sites"; actual = 3.)
-5. ~~**Port tool sites (5 files)**~~ ✅ shipped 2026-04-23 — `tools/local/workspace.py` (2 sites), `tools/local/channel_workspace.py` (1 site), `tools/local/memory_files.py` (2 sites). Extended: RFC under-counted callers; also ported `routers/api_v1_workspaces.py` (2 reindex endpoints — phase 0/1/2 cleanup+memory+segments collapsed to single `reindex_bot` loop), `routers/api_v1_admin/diagnostics.py` (3 sites — force-reindex admin endpoint, memory-search diagnostics endpoint, filesystem-per-bot stats endpoint), `routers/api_v1_admin/channels.py` (1 site), `routers/api_v1_search.py` (1 site). Two admin visibility endpoints (`get_workspace_indexing`, `update_bot_indexing`) intentionally retained `resolve_indexing` — they return the raw cascade dict (incl. `segments_source`) for UI display.
-6. ~~**Delete legacy wrappers**~~ ✅ shipped 2026-04-23 — `memory_indexing.index_memory_for_bot` now delegates to `bot_indexing.reindex_bot(include_memory=True, include_workspace=False)`; `channel_workspace_indexing.index_channel_workspace` delegates to `bot_indexing.reindex_channel`. Memory indexing body absorbed into `_reindex_memory` inside `bot_indexing.py`; channel indexing body absorbed into `reindex_channel`. `workspace_indexing.resolve_indexing` + `get_all_roots` remain as internal helpers (used by `bot_indexing._resolve_workspace` + the two admin visibility endpoints) — no deletion. Legacy module file shrink: `memory_indexing.py` 67 → 29 LOC; `channel_workspace_indexing.py` 95 → 32 LOC.
-
-#### Critical regression tests
-
-- `tests/unit/test_workspace_indexing.py` — cascade math.
-- `tests/unit/test_memory_indexing.py` — memory gate + pattern resolution.
-- `tests/unit/test_channel_workspace_indexing.py` — sentinel bot_id + segment composition.
-- `tests/unit/test_fs_watcher_channel_workspace_e2e.py` — watcher + indexing integration.
-- `tests/integration/test_workspace_indexing_e2e.py` — end-to-end.
-- Any `tests/unit/test_main_startup*.py` (if exists) — startup reindex flow.
-
-#### Risks
-
-- **Shared-workspace "no segments" stale-chunk DB cleanup** (`main.py:204-222`) is ~20 lines of SQL that only runs at startup. Moving it inside `reindex_bot` means it runs more often in principle — mitigate by keying the cleanup on a `segments_source` change flag or by keeping it startup-only via an explicit `cleanup_orphans=True` kwarg.
-- **`context_assembly.py:800-826` implicit-KB-prefix dedupe** is channel-retrieval logic, not indexing. Commit 4 should keep that dedupe at the call site — do NOT pull it into `bot_indexing`.
-- **Periodic re-index in `fs_watcher.py:321`** uses `force=False` — commit 3 must preserve that explicit flag.
-
-**All 6 commits shipped 2026-04-23.** Indexing abstraction-leak closed: 18 caller sites across 10 files now route through `bot_indexing.resolve_for` / `reindex_bot` / `iter_watch_targets` / `reindex_channel`. Net LOC delta: ~200 lines removed from caller sites; new `bot_indexing.py` is ~300 LOC carrying all prior semantics behind a 4-function public surface. Legacy flavor modules retained as one-liner delegators for external-caller / test-patch stability.
+Regression coverage lives in `tests/unit/test_bot_indexing.py` plus the legacy workspace, memory, channel-workspace, watcher, and workspace-indexing e2e slices. Production code should not import the old shallow flavor modules except through compatibility adapters or tests.
 
 ### RFC — Cluster 2 — `/widgets` router split + preset source-of-truth drift (2026-04-23)
 

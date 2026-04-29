@@ -328,6 +328,8 @@ class E2EClient:
                             legacy_events.append(("context_budget", dict(epayload)))
                         elif kind == "memory_scheme_bootstrap":
                             legacy_events.append(("memory_scheme_bootstrap", dict(epayload)))
+                        elif kind == "session_plan_updated":
+                            legacy_events.append(("session_plan_updated", dict(epayload)))
                         elif kind == "delivery_failed":
                             legacy_events.append(("error", dict(epayload)))
                         elif kind == "new_message":
@@ -749,9 +751,35 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def update_session_plan(self, session_id: str, payload: dict[str, Any]) -> dict:
+        resp = await self._client.patch(f"/sessions/{session_id}/plan", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
     async def approve_session_plan(self, session_id: str, revision: int | None = None) -> dict:
         payload = {"revision": revision} if revision is not None else {}
         resp = await self._client.post(f"/sessions/{session_id}/plan/approve", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def request_session_replan(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        affected_step_ids: list[str] | None = None,
+        evidence: str | None = None,
+        revision: int | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "reason": reason,
+            "affected_step_ids": affected_step_ids or [],
+        }
+        if evidence is not None:
+            payload["evidence"] = evidence
+        if revision is not None:
+            payload["revision"] = revision
+        resp = await self._client.post(f"/sessions/{session_id}/plan/replan", json=payload)
         resp.raise_for_status()
         return resp.json()
 

@@ -11,8 +11,12 @@ Live native-plan E2E captures for the current transcript UI are stored as
 `../images/spindrel-plan-card-terminal-dark.png`,
 `../images/spindrel-plan-answered-questions-dark.png`,
 `../images/spindrel-plan-answered-questions-terminal-dark.png`,
-`../images/spindrel-plan-progress-executing-mobile-dark.png`, and
-`../images/spindrel-plan-progress-executing-terminal-dark.png`.
+`../images/spindrel-plan-progress-executing-mobile-dark.png`,
+`../images/spindrel-plan-progress-executing-terminal-dark.png`,
+`../images/spindrel-plan-replan-pending-default-dark.png`,
+`../images/spindrel-plan-replan-pending-terminal-dark.png`,
+`../images/spindrel-plan-pending-outcome-default-dark.png`, and
+`../images/spindrel-plan-pending-outcome-terminal-dark.png`.
 
 If plan-mode behavior, prompting, tools, UI, or execution semantics change, update this file first and then update any shorter guides that point at it.
 
@@ -793,7 +797,8 @@ What v1 does not yet do:
 
 - background detached executor loop
 - Slack/Discord parity for this exact workflow
-- behavioral evaluation of whether the model is planning well beyond static validation
+- mature behavioral evaluation of whether the model is planning well beyond static validation
+  - Current live coverage includes a behavior tier for ambiguous-scope questions, answer handoff, planning write refusal, missing execution outcomes, stale-plan replan requests, and stale revision rejection.
 
 ## Gaps
 
@@ -808,7 +813,7 @@ These are known gaps between the current v1 and the fuller planning system we li
 - no explicit “agent may propose entering plan mode” tool yet
   entry is still user/control-driven in practice
 - no mature behavioral eval suite for the whole planning loop
-  the deterministic protocol is covered, but we still need model-behavior evals for question quality, stale-plan handling, and turn-outcome adherence under realistic transcripts
+  the deterministic protocol is covered and the live behavior tier now catches the highest-risk regressions; we still need broader model-behavior evals for question quality and semantic step satisfaction under realistic transcripts
 
 ## Future Ideas
 

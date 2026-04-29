@@ -396,8 +396,13 @@ def test_write_tool_result_emits_runtime_supplied_code_envelope():
     assert result["surface"] == "rich_result"
     assert result["envelope"]["content_type"] == "text/plain"
     assert result["envelope"]["plain_body"] == "Wrote index.html"
+    assert result["envelope"]["display_label"] == "index.html"
     assert result["envelope"]["body"].startswith("<!DOCTYPE html>")
+    assert result["summary"]["kind"] == "write"
+    assert result["summary"]["subject_type"] == "file"
     assert result["summary"]["label"] == "Wrote index.html"
+    assert result["summary"]["path"] == "index.html"
+    assert "preview_text" not in result["summary"]
 
 
 def test_spindrel_mcp_tool_result_reuses_dispatcher_envelope():

@@ -49,7 +49,7 @@ export default function ProjectDetail() {
       />
       <div className="grid min-h-0 flex-1 gap-5 overflow-auto p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <section className="flex min-h-0 flex-col gap-3">
-          <div className="rounded-md border border-surface-border bg-surface-raised p-4">
+          <div data-testid="project-workspace-instructions" className="rounded-md border border-surface-border bg-surface-raised p-4">
             <div className="mb-3 text-sm font-semibold text-text">Project Instructions</div>
             <textarea
               className="min-h-[220px] w-full resize-y rounded-md border border-surface-border bg-surface p-3 text-sm text-text outline-none"
@@ -73,14 +73,14 @@ export default function ProjectDetail() {
             </button>
           </div>
 
-          <div className="rounded-md border border-surface-border bg-surface-raised p-4">
+          <div data-testid="project-workspace-file-scope" className="rounded-md border border-surface-border bg-surface-raised p-4">
             <div className="mb-2 text-sm font-semibold text-text">File Scope</div>
             <div className="font-mono text-sm text-text-muted">workspace://{project.workspace_id}/{root}</div>
             <div className="mt-2 text-xs text-text-dim">Project knowledge lives under .spindrel/knowledge-base. Existing channel knowledge is preserved but not migrated automatically.</div>
           </div>
         </section>
 
-        <aside className="rounded-md border border-surface-border bg-surface-raised p-4">
+        <aside data-testid="project-workspace-attached-channels" className="rounded-md border border-surface-border bg-surface-raised p-4">
           <div className="mb-3 text-sm font-semibold text-text">Attached Channels</div>
           <div className="flex flex-col gap-2">
             {(channels ?? []).map((channel) => (

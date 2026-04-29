@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -269,6 +270,33 @@ def _memory_error(message: str) -> str:
     return json.dumps({"error": message}, ensure_ascii=False)
 
 
+def _mimetype_for_memory_path(path: str | None) -> str:
+    if path and path.lower().endswith(".md"):
+        return "text/markdown"
+    if path and path.lower().endswith(".json"):
+        return "application/json"
+    return "text/plain"
+
+
+def _memory_result(
+    payload: dict[str, Any],
+    *,
+    plain_body: str,
+    body: str | dict[str, Any] | None = None,
+    content_type: str = "application/json",
+) -> str:
+    rendered_body = body if body is not None else payload
+    result = dict(payload)
+    result["llm"] = json.dumps(payload, ensure_ascii=False, default=_json_default)
+    result["_envelope"] = {
+        "content_type": content_type,
+        "body": rendered_body,
+        "plain_body": plain_body,
+        "display": "badge",
+    }
+    return json.dumps(result, ensure_ascii=False, default=_json_default)
+
+
 @register({
     "type": "function",
     "function": {
@@ -301,9 +329,15 @@ def _memory_error(message: str) -> str:
     "type": "object",
     "properties": {
         "path": {"type": "string"},
+        "destination": {"type": "string"},
         "files": {"type": "array", "items": {"type": "string"}},
+        "moved": {"type": "array", "items": {"type": "string"}},
+        "skipped_fresh": {"type": "array", "items": {"type": "string"}},
+        "skipped_existing": {"type": "array", "items": {"type": "string"}},
         "content": {"type": "string"},
         "message": {"type": "string"},
+        "llm": {"type": "string"},
+        "_envelope": {"type": "object"},
         "error": {"type": "string"},
     },
 })
@@ -336,7 +370,10 @@ async def memory(
                 for filename in sorted(filenames):
                     if filename.endswith(".md"):
                         files.append(os.path.relpath(os.path.join(dirpath, filename), memory_root))
-            return json.dumps({"files": files}, ensure_ascii=False)
+            return _memory_result(
+                {"files": files},
+                plain_body=f"Listed {len(files)} memory file(s)",
+            )
 
         if operation == "archive_older_than":
             if not path or not destination:
@@ -360,13 +397,15 @@ async def memory(
                     continue
                 entry.rename(target)
                 moved.append(entry.name)
-            return json.dumps({
+            source_rel = os.path.relpath(source_dir, memory_root)
+            dest_rel = os.path.relpath(dest_dir, memory_root)
+            return _memory_result({
                 "path": f"memory/{os.path.relpath(source_dir, memory_root)}",
                 "destination": f"memory/{os.path.relpath(dest_dir, memory_root)}",
                 "moved": moved,
                 "skipped_fresh": skipped_fresh,
                 "skipped_existing": skipped_existing,
-            }, ensure_ascii=False)
+            }, plain_body=f"Archived {len(moved)} file(s) from memory/{source_rel} to memory/{dest_rel}")
 
         if not path:
             return _memory_error("path is required for this operation.")
@@ -376,7 +415,13 @@ async def memory(
         if operation == "read":
             if not os.path.isfile(resolved):
                 return _memory_error(f"File not found: {rel}")
-            return json.dumps({"path": f"memory/{rel}", "content": Path(resolved).read_text()}, ensure_ascii=False)
+            content_text = Path(resolved).read_text()
+            return _memory_result(
+                {"path": f"memory/{rel}", "content": content_text},
+                plain_body=f"Read memory/{rel}",
+                body=content_text,
+                content_type=_mimetype_for_memory_path(rel),
+            )
         if operation == "create":
             if os.path.exists(resolved):
                 return _memory_error(f"File already exists: {rel}")
@@ -436,7 +481,10 @@ async def memory(
 
         from app.services.bot_hooks import schedule_after_write
         schedule_after_write(bot_id, f"memory/{rel}")
-        return json.dumps({"path": f"memory/{rel}", "message": f"{operation} complete"}, ensure_ascii=False)
+        return _memory_result(
+            {"path": f"memory/{rel}", "message": f"{operation} complete"},
+            plain_body=f"{operation.replace('_', ' ').title()} memory/{rel}",
+        )
     except Exception as exc:
         logger.exception("memory tool %s failed: %s", operation, path)
         return _memory_error(str(exc))

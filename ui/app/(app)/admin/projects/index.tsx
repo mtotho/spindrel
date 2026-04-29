@@ -35,7 +35,7 @@ export default function ProjectsIndex() {
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
       <PageHeader variant="list" title="Projects" subtitle="Shared working roots for channels, bots, files, and terminals" />
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-auto p-5">
-        <div className="grid gap-3 rounded-md border border-surface-border bg-surface-raised p-4 md:grid-cols-[1fr_1fr_auto]">
+        <div data-testid="project-workspace-create-form" className="grid gap-3 rounded-md border border-surface-border bg-surface-raised p-4 md:grid-cols-[1fr_1fr_auto]">
           <input
             className="h-10 rounded-md border border-surface-border bg-surface px-3 text-sm text-text outline-none"
             value={name}
@@ -62,10 +62,11 @@ export default function ProjectsIndex() {
         {isLoading ? (
           <div className="flex flex-1 items-center justify-center"><Spinner /></div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div data-testid="project-workspace-list" className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {(projects ?? []).map((project) => (
               <Link
                 key={project.id}
+                data-testid="project-workspace-row"
                 to={`/admin/projects/${project.id}`}
                 className="rounded-md border border-surface-border bg-surface-raised p-4 text-text no-underline transition-colors hover:border-accent/50 hover:bg-surface-overlay/50"
               >

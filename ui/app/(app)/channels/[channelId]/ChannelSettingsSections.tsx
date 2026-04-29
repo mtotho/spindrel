@@ -709,22 +709,24 @@ function ProjectSection({
       title="Project"
       description="Optional shared Project root used by this channel's file browser, bot working surface, terminal, and harness CWD."
     >
-      <FormRow
-        label="Primary Project"
-        description="Choose a Project to share the same working root across channels."
-      >
-        <SelectInput
-          value={form.project_id ?? ""}
-          onChange={(value) => patch("project_id", (value || null) as ChannelSettings["project_id"])}
-          options={[
-            { label: "No Project", value: "" },
-            ...(projects ?? []).map((project) => ({
-              label: `${project.name} · /${project.root_path}`,
-              value: project.id,
-            })),
-          ]}
-        />
-      </FormRow>
+      <div data-testid="project-workspace-channel-picker">
+        <FormRow
+          label="Primary Project"
+          description="Choose a Project to share the same working root across channels."
+        >
+          <SelectInput
+            value={form.project_id ?? ""}
+            onChange={(value) => patch("project_id", (value || null) as ChannelSettings["project_id"])}
+            options={[
+              { label: "No Project", value: "" },
+              ...(projects ?? []).map((project) => ({
+                label: `${project.name} · /${project.root_path}`,
+                value: project.id,
+              })),
+            ]}
+          />
+        </FormRow>
+      </div>
       {!selectedProject && (
         <FormRow
           label="Legacy path"
@@ -737,7 +739,8 @@ function ProjectSection({
           />
         </FormRow>
       )}
-      <InfoBanner>
+      <div data-testid="project-workspace-channel-summary">
+        <InfoBanner>
         {projectPath ? (
           <>
             File explorer, terminal, search, and run cwd use <span className="font-mono">/{projectPath}</span>. Bot memory uses the dedicated memory tool.{" "}
@@ -769,7 +772,8 @@ function ProjectSection({
             No Project is set. This channel uses its normal channel workspace and bot workspace defaults.
           </>
         )}
-      </InfoBanner>
+        </InfoBanner>
+      </div>
     </Section>
   );
 }

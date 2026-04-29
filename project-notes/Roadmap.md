@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-28
+updated: 2026-04-29
 ---
 # Agent Server — Roadmap
 
@@ -65,7 +65,7 @@ Full detail in [[Completed Tracks]].
 | Experiments / Autoresearch | 2026-04-18 | Knob → apply → evaluate → score → record → propose → loop. Phase 1a/1b shipped; Phase 2 (`experiment.iterate.yaml`) next | [[Track - Experiments]] |
 | Integration Delivery | shipped + remaining | Phases A–G + UI + bus restructure shipped. H acceptance gaps + manual smoke + ~10 polish remain | [[Track - Integration Delivery]] |
 | Streaming Architecture | Phase 1 shipped | Bus carries data + seq + replay. Phases 3–5 (split UI cache, transport split, backpressure) planned | [[Track - Streaming Architecture]] |
-| Code Quality | Clusters 1–5 shipped 2026-04-24 | Ousterhout depth audit; 6 bugs from 156-file audit landed; `assemble_context` extracted (~1400→~990); 686→310 LOC `tool_dispatch`. Cluster 6+ (`assemble_context`/`run_agent_tool_loop`) + widget envelope reconciliation queued | [[Track - Code Quality]] |
+| Code Quality | ambient track refreshed 2026-04-29 | Ousterhout/deep-module cleanup continues by fresh verify-first scan, not stale cluster numbers. Major shipped waves include indexing, tool dispatch, loop/context/task/turn/heartbeat, startup/runtime, usage, integrations, widgets, chat UI, and context diagnostics. | [[Track - Code Quality]] |
 | Memory & Knowledge admin | 2026-04-24 | `/admin/learning` reframed; read-first unified search across bot memory + KBs + history + dreaming | (in admin UI) |
 | Wyoming Voice | Phase 1 + 3 + 4 shipped | Scaffold + ESPHome + satellite. Wake-word routing / streaming TTS / ESPHome wake remain |  |
 | Widget SDK | A + B.0–B.6 shipped | iframe SDK + handler bridge (Todo widget); `@on_event` channel subs + `widget_suite.py` shared-DB suites | [[Track - Widget SDK]] |

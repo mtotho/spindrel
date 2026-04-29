@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Brain, LayoutDashboard, MessageCircle, Radar, Target, Users as UsersIcon } from "lucide-react";
-import { widgetPinHref } from "../../lib/hubRoutes";
+import { attentionDeckHref, widgetPinHref } from "../../lib/hubRoutes";
 import { resolveChannelEntryHref } from "../../lib/channelNavigation";
 import { useUIStore } from "../../stores/ui";
 import type { UnreadStateResponse } from "../../api/hooks/useUnread";
@@ -9,6 +9,7 @@ import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import type { Camera } from "./spatialGeometry";
 import type { StarboardObjectAction, StarboardObjectItem } from "./UsageDensityChrome";
 import { mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
+import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 
 type UseSpatialStarboardModelsArgs = Record<string, any> & {
   camera: Camera;
@@ -95,6 +96,29 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
       icon: "jump",
       onSelect: () => flyToStarboardObject(worldX, worldY),
     });
+    const attentionReviewHref = (
+      state: WorkspaceMapObjectState | null | undefined,
+      fallback: { targetKind?: "channel" | "bot" | "widget"; targetId?: string | null; channelId?: string | null } = {},
+    ): string | null => {
+      const direct = state?.warnings?.find((signal) => signal.kind === "attention" && signal.id);
+      if (direct?.id) return attentionDeckHref({ itemId: direct.id });
+      const hasAttentionCue = state?.cue?.signal_kind === "attention" || state?.warnings?.some((signal) => signal.kind === "attention");
+      if (!hasAttentionCue || !fallback.targetKind || !fallback.targetId) return null;
+      return attentionDeckHref({
+        targetKind: fallback.targetKind,
+        targetId: fallback.targetId,
+        channelId: fallback.channelId,
+        mode: "inbox",
+      });
+    };
+    const openReviewAction = (href: string | null): StarboardObjectAction[] =>
+      href
+        ? [{
+            label: "Review in Mission Control",
+            icon: "open",
+            onSelect: () => navigate(href, { state: canvasBackState }),
+          }]
+        : [];
     const landmarkState = (kind: string) =>
       mapState?.objects?.find((item: any) => item.kind === "landmark" && item.target_id === kind) ?? null;
     const items: StarboardObjectItem[] = [
@@ -145,7 +169,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         },
         actions: [
           jumpAction(attentionHubPos.x, attentionHubPos.y),
-          { label: "Open Attention", icon: "open", onSelect: () => openStarboardAttention() },
+          { label: "Open Mission Control Review", icon: "open", onSelect: () => openStarboardAttention() },
         ],
       },
       {
@@ -172,6 +196,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         const channel = channelsById.get(node.channel_id);
         const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
         const scheduleAction = scheduleActionForSignal(workState?.next);
+        const reviewHref = attentionReviewHref(workState, { targetKind: "channel", targetId: node.channel_id, channelId: node.channel_id });
         items.push({
           id: `node-${node.id}`,
           label: channel ? `#${channel.name}` : "Channel",
@@ -183,7 +208,10 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           worldW: node.world_w,
           worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => selectNode("channel", node, true),
+          onSelect: () => {
+            if (reviewHref) navigate(reviewHref, { state: canvasBackState });
+            else selectNode("channel", node, true);
+          },
           onDoubleClick: () =>
             diveToChannel(node.channel_id!, {
               x: node.world_x,
@@ -193,6 +221,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
             }),
           actions: [
             jumpAction(worldX, worldY),
+            ...openReviewAction(reviewHref),
             { label: "Open channel", icon: "open", onSelect: () => navigate(channelHref(node.channel_id!), { state: canvasBackState }) },
             ...(scheduleAction ? [scheduleAction] : []),
             {
@@ -213,6 +242,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         });
       } else if (node.pin) {
         const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
+        const reviewHref = attentionReviewHref(workState, { targetKind: "widget", targetId: node.pin.id, channelId: node.pin.source_channel_id });
         items.push({
           id: `node-${node.id}`,
           label: node.pin.panel_title || node.pin.display_label || node.pin.tool_name || "Widget",
@@ -224,10 +254,14 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           worldW: node.world_w,
           worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => selectNode("widget", node, true),
+          onSelect: () => {
+            if (reviewHref) navigate(reviewHref, { state: canvasBackState });
+            else selectNode("widget", node, true);
+          },
           onDoubleClick: () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState }),
           actions: [
             jumpAction(worldX, worldY),
+            ...openReviewAction(reviewHref),
             { label: "Open full widget", icon: "open", onSelect: () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState }) },
             {
               label: "Open source channel",
@@ -244,6 +278,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         const botName = node.bot?.display_name || node.bot?.name || botId;
         const channel = channelForBot(botId);
         const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
+        const reviewHref = attentionReviewHref(workState, { targetKind: "bot", targetId: botId, channelId: channel?.id });
         items.push({
           id: `node-${node.id}`,
           label: botName,
@@ -255,9 +290,13 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           worldW: node.world_w,
           worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
-          onSelect: () => selectNode("bot", node, true),
+          onSelect: () => {
+            if (reviewHref) navigate(reviewHref, { state: canvasBackState });
+            else selectNode("bot", node, true);
+          },
           actions: [
             jumpAction(worldX, worldY),
+            ...openReviewAction(reviewHref),
             {
               label: channel ? `Open bot chat - ${botName}` : "Open bot chat",
               icon: "chat",

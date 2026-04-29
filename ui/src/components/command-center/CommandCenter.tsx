@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Activity, AlertTriangle, Bot, CheckCircle2, ClipboardCheck, Clock, ExternalLink, ListChecks, Loader2, MessageSquare, Pause, Pencil, Play, Plus, Radar, Route, Send, Settings2, ShieldCheck, Sparkles, X, Zap } from "lucide-react";
 
 import { useBots } from "../../api/hooks/useBots";
@@ -33,6 +33,7 @@ import { LlmModelDropdown } from "../shared/LlmModelDropdown";
 import { StatusBadge } from "../shared/SettingsControls";
 import { openTraceInspector } from "../../stores/traceInspector";
 import { useRuntimeCapabilities } from "../../api/hooks/useRuntimes";
+import { attentionDeckHref } from "../../lib/hubRoutes";
 
 function formatRelative(value?: string | null): string {
   if (!value) return "unscheduled";
@@ -320,6 +321,7 @@ function OperatorOpportunityStack({
   data: MissionControlResponse;
   onManualMission: () => void;
 }) {
+  const navigate = useNavigate();
   const ask = useAskMissionControlAi();
   const refresh = useRefreshMissionControlAi();
   const refreshError = mutationErrorMessage(refresh.error);
@@ -352,14 +354,13 @@ function OperatorOpportunityStack({
   if (data.unassigned_attention.length > 0) {
     cards.push({
       id: "triage-attention",
-      title: "Triage unassigned attention",
-      detected: `${data.unassigned_attention.length} active attention item${data.unassigned_attention.length === 1 ? "" : "s"} without an operator lane.`,
-      missing: "Owner, target channel, and the first bounded investigation step.",
-      staged: "One mission draft per useful lane, with noisy or duplicate signals left unstaged.",
-      action: "Stage triage",
+      title: "Review attention signals",
+      detected: `${data.unassigned_attention.length} raw signal${data.unassigned_attention.length === 1 ? "" : "s"} ready for Operator sweep.`,
+      missing: "Operator classification and review status.",
+      staged: "Mission Control Review shows raw signals, Operator findings, and run receipts.",
+      action: "Open review queue",
       icon: AlertTriangle,
-      onSelect: () => ask.mutate("Inspect unassigned attention items. Stage concrete triage missions only when there is enough evidence, and explain anything you decline to stage."),
-      busy: ask.isPending,
+      onSelect: () => navigate(attentionDeckHref({ mode: "inbox" })),
     });
   }
 

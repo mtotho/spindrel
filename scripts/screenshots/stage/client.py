@@ -146,6 +146,21 @@ class SpindrelClient:
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
 
+    def update_channel_settings(self, channel_id: str, **fields: Any) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /admin/channels/%s/settings fields=%s", channel_id, sorted(fields))
+            return {"id": channel_id, "dry_run": True, **fields}
+        r = self._http.patch(f"/api/v1/admin/channels/{channel_id}/settings", json=fields)
+        if r.status_code >= 400:
+            logger.error(
+                "PATCH /admin/channels/%s/settings -> %s body=%s",
+                channel_id,
+                r.status_code,
+                r.text[:300],
+            )
+        r.raise_for_status()
+        return r.json()
+
     def purge_test_channels(self) -> list[str]:
         """Delete every channel whose ``client_id`` is not in the allow-list.
 
@@ -184,6 +199,50 @@ class SpindrelClient:
         """List workspaces. The API path is `/api/v1/workspaces` (no admin
         prefix — the admin variant returns 404)."""
         return self._get("/api/v1/workspaces").json()
+
+    # --- projects ---------------------------------------------------------
+
+    def list_projects(self) -> list[dict]:
+        r = self._http.get("/api/v1/projects")
+        if r.status_code == 404:
+            raise RuntimeError(
+                "Project screenshot staging requires an e2e server with /api/v1/projects. "
+                "Deploy the Project workspace API/UI before running `stage --only project-workspace`."
+            )
+        r.raise_for_status()
+        return r.json()
+
+    def ensure_project(
+        self,
+        *,
+        workspace_id: str,
+        name: str,
+        slug: str,
+        root_path: str,
+        description: str | None = None,
+        prompt: str | None = None,
+        prompt_file_path: str | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "name": name,
+            "slug": slug,
+            "root_path": root_path,
+            "description": description,
+            "prompt": prompt,
+            "prompt_file_path": prompt_file_path,
+        }
+        existing = next((p for p in self.list_projects() if p.get("slug") == slug), None)
+        if existing:
+            if self._dry_run:
+                logger.info("DRY-RUN PATCH /projects/%s body=%s", existing.get("id"), body)
+                return {**existing, **body}
+            r = self._http.patch(f"/api/v1/projects/{existing['id']}", json=body)
+            if r.status_code >= 400:
+                logger.error("PATCH /projects/%s -> %s body=%s", existing["id"], r.status_code, r.text[:300])
+            r.raise_for_status()
+            return r.json()
+        return self._post("/api/v1/projects", json=body).json()
 
     # --- skills ------------------------------------------------------------
 

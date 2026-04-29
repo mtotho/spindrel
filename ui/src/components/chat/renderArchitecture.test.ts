@@ -139,6 +139,8 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
   assert.match(codePreviewRenderer, /data-testid=\{testId\}/);
   assert.match(terminalToolTranscript, /data-testid="terminal-diff-output"/);
   assert.match(terminalToolTranscript, /DiffRenderer/);
+  assert.match(terminalToolTranscript, /hasUsefulArgs/);
+  assert.doesNotMatch(terminalToolTranscript, /entry\.approval \? "\?" : ">"/);
   assert.match(harnessApprovalPreview, /DiffRenderer/);
   assert.match(harnessApprovalPreview, /CodePreviewRenderer/);
   assert.doesNotMatch(toolBadges, /function TerminalToolTranscript/);
@@ -147,6 +149,7 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
   assert.match(terminalToolTranscript, /looksLikeCodePreview/);
   assert.match(terminalToolTranscript, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
   assert.match(codePreviewRenderer, /gridTemplateColumns:\s*"4ch minmax\(0, 1fr\)"/);
+  assert.match(readChatFile("renderers/DiffRenderer.tsx"), /rgba\(34, 197, 94, 0\.18\)/);
   assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
   assert.match(toolTranscriptRows, /if \(!hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
   assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);

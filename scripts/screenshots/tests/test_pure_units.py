@@ -24,6 +24,7 @@ from scripts.screenshots import spindrel_plan_live
 from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
     FLAGSHIP_SPECS,
+    PROJECT_WORKSPACE_SPECS,
     SPATIAL_CHECK_SPECS,
     resolve_specs,
 )
@@ -165,6 +166,28 @@ def test_attachment_checks_have_assertions_and_artifacts():
     assert any("dropSet" in str(spec.pre_capture_js) for spec in ATTACHMENT_CHECK_SPECS)
     assert any("installFakeChatSubmit" in str(spec.pre_capture_js) for spec in ATTACHMENT_CHECK_SPECS)
     assert any("chat_mode" in "".join(spec.extra_init_scripts) for spec in ATTACHMENT_CHECK_SPECS)
+
+
+def test_project_workspace_specs_have_assertions_and_artifacts():
+    resolved = resolve_specs(
+        PROJECT_WORKSPACE_SPECS,
+        {
+            "project_workspace": "channel-1",
+            "project_workspace_project": "project-1",
+        },
+    )
+
+    assert {spec.output for spec in resolved} == {
+        "project-workspace-list.png",
+        "project-workspace-detail.png",
+        "project-workspace-channel-settings.png",
+        "project-workspace-memory-tool.png",
+    }
+    assert all(spec.assert_js for spec in resolved)
+    routes = {spec.name: spec.route for spec in resolved}
+    assert routes["project-workspace-detail"] == "/admin/projects/project-1"
+    assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"
+    assert routes["project-workspace-memory-tool"] == "/channels/channel-1"
 
 
 def test_resolve_specs_preserves_assertions():
@@ -342,6 +365,8 @@ def test_spindrel_plan_live_loads_session_artifact(tmp_path):
         "plan_session_id": "plan-1",
         "answered_session_id": "answered-1",
         "progress_session_id": "progress-1",
+        "replan_session_id": "replan-1",
+        "pending_session_id": "pending-1",
         "updated_at": 123,
     }))
 
@@ -352,6 +377,8 @@ def test_spindrel_plan_live_loads_session_artifact(tmp_path):
     assert data["plan_session_id"] == "plan-1"
     assert data["answered_session_id"] == "answered-1"
     assert data["progress_session_id"] == "progress-1"
+    assert data["replan_session_id"] == "replan-1"
+    assert data["pending_session_id"] == "pending-1"
     assert data["updated_at"] == "123"
 
 
@@ -363,6 +390,8 @@ def test_spindrel_plan_live_builds_expected_specs():
         plan_session_id="plan-1",
         answered_session_id="answered-1",
         progress_session_id="progress-1",
+        replan_session_id="replan-1",
+        pending_session_id="pending-1",
     )
 
     assert [spec.name for spec in specs] == [
@@ -374,6 +403,10 @@ def test_spindrel_plan_live_builds_expected_specs():
         "spindrel-plan-answered-questions-terminal-dark",
         "spindrel-plan-progress-executing-mobile-dark",
         "spindrel-plan-progress-executing-terminal-dark",
+        "spindrel-plan-replan-pending-default-dark",
+        "spindrel-plan-replan-pending-terminal-dark",
+        "spindrel-plan-pending-outcome-default-dark",
+        "spindrel-plan-pending-outcome-terminal-dark",
     ]
     assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
     assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
@@ -384,11 +417,19 @@ def test_spindrel_plan_live_builds_expected_specs():
     assert specs[6].route == "http://ui/channels/channel-1/session/progress-1"
     assert specs[6].viewport == (390, 844)
     assert specs[7].chat_mode == "terminal"
+    assert specs[8].route == "http://ui/channels/channel-1/session/replan-1"
+    assert specs[9].chat_mode == "terminal"
+    assert specs[10].route == "http://ui/channels/channel-1/session/pending-1"
+    assert specs[11].chat_mode == "terminal"
     assert specs[1].scroll_text == "Native Spindrel Plan Parity"
     assert all("harness sdk" in spec.not_contains for spec in specs)
     assert [spec.chat_mode for spec in specs] == [
         "default",
         "default",
+        "default",
+        "terminal",
+        "default",
+        "terminal",
         "default",
         "terminal",
         "default",

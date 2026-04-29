@@ -98,6 +98,12 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
         "plan_session_id": args.plan_session_id or artifact.get("plan_session_id", ""),
         "answered_session_id": args.answered_session_id or artifact.get("answered_session_id", ""),
         "progress_session_id": args.progress_session_id or artifact.get("progress_session_id", ""),
+        "replan_session_id": (
+            args.replan_session_id
+            or artifact.get("behavior_replan_session_id", "")
+            or artifact.get("replan_session_id", "")
+        ),
+        "pending_session_id": args.pending_session_id or artifact.get("pending_session_id", ""),
     }
 
 
@@ -109,6 +115,8 @@ def _build_specs(
     plan_session_id: str,
     answered_session_id: str = "",
     progress_session_id: str = "",
+    replan_session_id: str = "",
+    pending_session_id: str = "",
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
     if question_session_id:
@@ -217,6 +225,55 @@ def _build_specs(
             channel_id=channel_id,
             chat_mode="terminal",
         ))
+    if replan_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{replan_session_id}"
+        wait = (
+            "document.querySelector('[data-plan-card-mode]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('replan') "
+            "&& document.body.innerText.toLowerCase().includes('accepted rev')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-replan-pending-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("replan", "accepted rev"),
+            scroll_text="replan",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-replan-pending-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("replan", "accepted rev"),
+            scroll_text="replan",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ))
+    if pending_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{pending_session_id}"
+        wait = (
+            "document.querySelector('[data-plan-card-mode]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('pending outcome')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-pending-outcome-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Pending outcome",),
+            scroll_text="Pending outcome",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-pending-outcome-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Pending outcome",),
+            scroll_text="Pending outcome",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ))
     return specs
 
 
@@ -233,8 +290,17 @@ async def _assert_sessions_exist(
     plan_session_id: str,
     answered_session_id: str,
     progress_session_id: str,
+    replan_session_id: str,
+    pending_session_id: str,
 ) -> None:
-    for session_id in (question_session_id, plan_session_id, answered_session_id, progress_session_id):
+    for session_id in (
+        question_session_id,
+        plan_session_id,
+        answered_session_id,
+        progress_session_id,
+        replan_session_id,
+        pending_session_id,
+    ):
         if session_id:
             await _api(client, "GET", f"/sessions/{session_id}/plan-state")
 
@@ -291,6 +357,8 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         plan_session_id=resolved["plan_session_id"],
         answered_session_id=resolved["answered_session_id"],
         progress_session_id=resolved["progress_session_id"],
+        replan_session_id=resolved["replan_session_id"],
+        pending_session_id=resolved["pending_session_id"],
     )
     if not specs:
         raise SystemExit(
@@ -312,6 +380,8 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             plan_session_id=resolved["plan_session_id"],
             answered_session_id=resolved["answered_session_id"],
             progress_session_id=resolved["progress_session_id"],
+            replan_session_id=resolved["replan_session_id"],
+            pending_session_id=resolved["pending_session_id"],
         )
 
         paths: list[Path] = []
@@ -366,6 +436,8 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--plan-session-id", default=_env("SPINDREL_PLAN_CARD_SESSION_ID"))
     parser.add_argument("--answered-session-id", default=_env("SPINDREL_PLAN_ANSWERED_SESSION_ID"))
     parser.add_argument("--progress-session-id", default=_env("SPINDREL_PLAN_PROGRESS_SESSION_ID"))
+    parser.add_argument("--replan-session-id", default=_env("SPINDREL_PLAN_REPLAN_SESSION_ID"))
+    parser.add_argument("--pending-session-id", default=_env("SPINDREL_PLAN_PENDING_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:
         args.api_key = _require_env("SPINDREL_API_KEY")

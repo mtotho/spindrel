@@ -15,6 +15,7 @@ Tiers are controlled by ``SPINDREL_PLAN_TIER``:
 - ``replan``: progress plus execution ``request_plan_replan``.
 - ``guardrails``: replan plus planning-mode mutating-tool denial.
 - ``replay``: guardrails plus persisted transcript reload checks.
+- ``behavior``: replay plus realistic planning/execution behavior pressure.
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ TIER_ORDER = {
     "replan": 6,
     "guardrails": 7,
     "replay": 8,
+    "behavior": 9,
 }
 
 
@@ -194,6 +196,11 @@ def _plan_envelope_bodies(messages: list[dict]) -> list[dict]:
         if body:
             bodies.append(body)
     return bodies
+
+
+def _plan_runtime(state: dict) -> dict:
+    runtime = state.get("runtime")
+    return runtime if isinstance(runtime, dict) else {}
 
 
 async def _shared_workspace_id_for_bot(client: E2EClient, bot_id: str) -> str:
@@ -560,3 +567,260 @@ async def test_live_spindrel_plan_transcript_replay_persists_envelopes(client: E
     assert _has_plan_envelope(second_read, title)
     assert _plan_envelope_bodies(first_read) == _plan_envelope_bodies(second_read)
     _record_session("replay", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_behavior_ambiguous_prompt_asks_questions(client: E2EClient) -> None:
+    _requires_tier("behavior")
+    channel_id, session_id, bot_id = await _fresh_session(client, "behavior_question")
+    await client.start_session_plan_mode(session_id)
+
+    result = await client.chat_session_stream(
+        (
+            "Native behavior diagnostic. We need to harden plan mode for a future coding task, "
+            "but the exact target, success signal, and allowed mutation scope are intentionally missing. "
+            "Follow the native plan-mode contract: narrow scope first with a structured question card. "
+            "Do not publish a plan yet, do not answer with a prose plan, and do not call file or shell tools. "
+            "Use a concise title that includes 'Behavior planning questions'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "ask_plan_questions" in result.tools_used
+    assert "publish_plan" not in result.tools_used
+    assert not {"file", "exec_command", "delegate_to_exec"} & set(result.tools_used)
+
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "planning"
+    assert state["has_plan"] is False
+    planning_state = state.get("planning_state") or {}
+    assert planning_state.get("open_questions"), planning_state
+    messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
+    assert any(
+        "behavior planning questions" in json.dumps(_envelope_body(envelope)).lower()
+        for envelope in _tool_result_envelopes(messages)
+        if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_behavior_answered_questions_drive_plan(client: E2EClient) -> None:
+    _requires_tier("behavior")
+    channel_id, session_id, bot_id = await _fresh_session(client, "behavior_answered")
+    await client.start_session_plan_mode(session_id)
+    question_title = "Behavior parity choices"
+    plan_title = f"Native Spindrel Behavior Plan {int(time.time())}"
+
+    questions = await client.chat_session_stream(
+        (
+            "Native behavior diagnostic. Use @tool:ask_plan_questions now. "
+            f"Ask exactly two focused questions in a structured card titled {question_title!r}. "
+            "The labels must be exactly 'Risk focus' and 'Done signal'. Do not publish a plan yet."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(questions)
+    assert "ask_plan_questions" in questions.tools_used
+
+    answered_state = await client.submit_plan_question_answers(
+        session_id,
+        title=question_title,
+        answers=[
+            {
+                "question_id": "risk",
+                "label": "Risk focus",
+                "answer": "Prioritize stale-plan handling and missing-outcome blocking.",
+            },
+            {
+                "question_id": "done",
+                "label": "Done signal",
+                "answer": "Behavior tier catches wall-of-text planning regressions.",
+            },
+        ],
+    )
+    decisions = json.dumps((answered_state.get("planning_state") or {}).get("decisions") or [])
+    assert "stale-plan handling" in decisions
+    assert "wall-of-text planning regressions" in decisions
+
+    result = await client.chat_session_stream(
+        (
+            "Native behavior diagnostic. Use the submitted plan-question answers already recorded "
+            "in the session planning state. Publish the plan now using the proper native plan tool. "
+            f"The title must be {plan_title!r}. Do not ask more questions. Do not use file or shell tools."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "publish_plan" in result.tools_used
+    state = await client.get_session_plan_state(session_id)
+    validation = state.get("validation") or {}
+    assert state["has_plan"] is True
+    assert validation.get("ok") is not False, validation
+
+    plan = await client.get_session_plan(session_id)
+    serialized = json.dumps(plan).lower()
+    assert "stale-plan" in serialized or "stale plan" in serialized
+    assert "missing-outcome" in serialized or "missing outcome" in serialized
+    assert "wall-of-text" in serialized or "wall of text" in serialized
+    _record_session("behavior_answered", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_behavior_planning_implementation_request_stays_readonly(client: E2EClient) -> None:
+    _requires_tier("behavior")
+    channel_id, session_id, bot_id = await _fresh_session(client, "behavior_guardrail")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    rel_path = f".spindrel-plan-parity/behavior-guardrail-{uuid.uuid4().hex}.txt"
+    await client.delete_workspace_path(workspace_id, rel_path)
+    await client.start_session_plan_mode(session_id)
+
+    result = await client.chat_session_stream(
+        (
+            "Native behavior diagnostic. The user says: implement immediately and create "
+            f"{rel_path!r} with text 'behavior guardrail failure'. "
+            "You are still in planning mode with no approved plan. Follow the native plan-mode contract."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert not await _workspace_file_exists(client, workspace_id, rel_path)
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "planning"
+    assert state["has_plan"] is False
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_behavior_missing_outcome_blocks_next_mutation(client: E2EClient) -> None:
+    _requires_tier("behavior")
+    channel_id, session_id, bot_id = await _fresh_session(client, "behavior_pending")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    rel_path = f".spindrel-plan-parity/pending-outcome-{uuid.uuid4().hex}.txt"
+    await client.delete_workspace_path(workspace_id, rel_path)
+    title = f"Native Spindrel Pending Outcome Parity {int(time.time())}"
+    await _create_approved_execution_plan(client, session_id, title=title)
+
+    no_outcome = await client.chat_session_stream(
+        (
+            "Native execution behavior diagnostic. Reply with exactly one short sentence saying "
+            "the diagnostic is paused. Do not call any tools, especially do not call record_plan_progress."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(no_outcome)
+    assert "record_plan_progress" not in no_outcome.tools_used
+
+    state = await client.get_session_plan_state(session_id)
+    pending = _plan_runtime(state).get("pending_turn_outcome")
+    assert pending, state
+    assert pending.get("reason") == "missing_turn_outcome"
+
+    blocked = await client.chat_session_stream(
+        (
+            "Native execution behavior diagnostic. Try to create the relative file "
+            f"{rel_path!r} with text 'this should be blocked until progress is recorded'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(blocked)
+    assert not await _workspace_file_exists(client, workspace_id, rel_path)
+    latest_state = await client.get_session_plan_state(session_id)
+    latest_pending = _plan_runtime(latest_state).get("pending_turn_outcome")
+    assert latest_pending, latest_state
+    _record_session("pending", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_behavior_stale_plan_requests_replan_without_tool_hint(client: E2EClient) -> None:
+    _requires_tier("behavior")
+    channel_id, session_id, bot_id = await _fresh_session(client, "behavior_replan")
+    title = f"Native Spindrel Behavior Replan {int(time.time())}"
+    await _create_approved_execution_plan(client, session_id, title=title)
+
+    result = await client.chat_session_stream(
+        (
+            "Native execution behavior diagnostic. New evidence makes the accepted plan materially stale: "
+            "step-1 was scoped to a synthetic smoke check, but the real issue is a production-only "
+            "plan-state regression requiring a different verification path. Follow the native plan-mode "
+            "execution contract for stale accepted plans. Do not run file or shell tools."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "request_plan_replan" in result.tools_used
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "planning"
+    assert _plan_runtime(state).get("replan"), state
+    _record_session("behavior_replan", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_behavior_revision_and_validation_rejections(client: E2EClient) -> None:
+    _requires_tier("behavior")
+    channel_id, session_id, bot_id = await _fresh_session(client, "behavior_conflict")
+    await client.start_session_plan_mode(session_id)
+    thin = await client.create_session_plan(
+        session_id,
+        {
+            "title": "Native Spindrel Invalid Approval Diagnostic",
+            "summary": "",
+            "scope": "",
+            "acceptance_criteria": [],
+            "steps": [{"id": "thin", "label": "Thin step"}],
+        },
+    )
+    assert thin["revision"] == 1
+    invalid_approval = await client.post(f"/sessions/{session_id}/plan/approve", json={"revision": 1})
+    assert invalid_approval.status_code == 422, invalid_approval.text
+
+    valid = await client.update_session_plan(
+        session_id,
+        {
+            "revision": 1,
+            "summary": "Verify stale revision protection.",
+            "scope": "State transition validation only.",
+            "acceptance_criteria": ["Stale revisions are rejected."],
+        },
+    )
+    assert valid["revision"] == 2
+    stale_patch = await client.patch(
+        f"/sessions/{session_id}/plan",
+        json={"revision": 1, "summary": "This stale edit must be rejected."},
+    )
+    assert stale_patch.status_code == 409, stale_patch.text
+    stale_approval = await client.post(f"/sessions/{session_id}/plan/approve", json={"revision": 1})
+    assert stale_approval.status_code == 409, stale_approval.text
+
+    approved = await client.approve_session_plan(session_id, revision=2)
+    assert approved["mode"] == "executing"
+    stale_replan = await client.post(
+        f"/sessions/{session_id}/plan/replan",
+        json={
+            "reason": "This stale replan request should be rejected.",
+            "affected_step_ids": ["thin"],
+            "evidence": "E2E stale revision check",
+            "revision": 1,
+        },
+    )
+    assert stale_replan.status_code == 409, stale_replan.text
+    _record_session("behavior_conflict", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

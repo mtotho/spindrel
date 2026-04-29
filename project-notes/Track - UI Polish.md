@@ -561,4 +561,4 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 ## Native Plan Card Polish (2026-04-29)
 
 - [x] Native session plan cards now follow the low-chrome chat surface rules: default mode uses token-only tonal surfaces and compact semantic controls, terminal mode uses a dedicated monospace/dense presentation, and terminal transcripts render plan envelopes inline through the shared rich-result path instead of compact fallback rows.
-- [x] The native plan screenshot harness now captures default/mobile plus terminal plan states for base, answered-question, and execution-progress scenarios against the live Spindrel channel.
+- [x] The native plan screenshot harness now captures default/mobile plus terminal plan states for base, answered-question, execution-progress, replan-pending, and pending-outcome scenarios against the live Spindrel channel.

@@ -165,7 +165,8 @@ export function TerminalToolTranscript({
         const metaLabel = sanitizeTerminalLabel(entry.metaLabel);
         const target = sanitizeTerminalLabel(entry.target);
         const hasLargeOutput = !!output?.isLarge;
-        const hasExpandableDetails = !inlineRichResult && (!!formattedArgs || hasLargeOutput || (!!entry.env && !output));
+        const hasUsefulArgs = !!formattedArgs && !output && !/^auto-approved$/i.test(label);
+        const hasExpandableDetails = !inlineRichResult && (hasUsefulArgs || hasLargeOutput || (!!entry.env && !output));
         const canToggle = hasExpandableDetails && entry.detailKind !== "inline-diff";
         const rowTone = entry.isError
           ? t.danger
@@ -178,7 +179,7 @@ export function TerminalToolTranscript({
                 : entry.isRunning
                   ? t.text
                   : t.textMuted;
-        const statusGlyph = entry.isError ? "x" : entry.approval ? "?" : ">";
+        const statusGlyph = entry.isError ? "x" : entry.approval ? "?" : entry.isRunning ? "•" : "•";
         const renderCodeOutput = output && !output.isLarge && entry.detailKind !== "inline-diff"
           && looksLikeCodePreview(output.text, target || entry.target);
 
@@ -313,7 +314,7 @@ export function TerminalToolTranscript({
                   overflowX: "hidden",
                 }}
               >
-                {formattedArgs && (
+                {hasUsefulArgs && formattedArgs && (
                   <pre
                     className="m-0 whitespace-pre-wrap break-words"
                     style={{

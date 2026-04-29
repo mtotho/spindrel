@@ -1,21 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Activity, AlertTriangle, Bot, Box, CheckCircle, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Sparkles, Wind, X } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Activity, AlertTriangle, Bot, Box, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Sparkles, Wind, X } from "lucide-react";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
 import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
-import { useBulkAcknowledgeAttentionItems } from "../../api/hooks/useWorkspaceAttention";
 import type { AttentionTargetKind, WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
-import { activeAttentionItems, attentionItemTriageLabel, bucketAttentionItems, getAttentionWorkflowState, sweepCandidateItems } from "./SpatialAttentionModel";
-import { WORKSPACE_MAP_STATE_KEY } from "../../api/hooks/useWorkspaceMapState";
+import { bucketAttentionItems, getAttentionWorkflowState, sweepCandidateItems } from "./SpatialAttentionModel";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
 import { buildSpatialObjectBrief, formatSignalTime } from "./SpatialObjectBrief";
 import { openTraceInspector } from "../../stores/traceInspector";
-import { attentionHubHref } from "../../lib/hubRoutes";
+import { attentionDeckHref } from "../../lib/hubRoutes";
 import SummaryPanel from "../system-health/SummaryPanel";
 
 export interface StarboardObjectItem {
@@ -491,7 +488,7 @@ export function UsageDensityChrome({
                       onOpenAttentionWarning={(id) => {
                         const item = (attentionItems ?? []).find((entry) => entry.id === id);
                         if (item) onSelectAttention(item);
-                        selectStation("attention");
+                        navigate?.(attentionDeckHref({ itemId: id }));
                       }}
                       navigate={navigate}
                     />
@@ -539,8 +536,6 @@ export function UsageDensityChrome({
               ) : station === "attention" ? (
                 <AttentionStarboardSummary
                   items={attentionItems}
-                  selectedId={selectedAttentionId}
-                  onSelect={onSelectAttention}
                   navigate={navigate}
                 />
               ) : station === "health" ? (
@@ -690,48 +685,40 @@ function ObjectListGroup({
 
 function AttentionStarboardSummary({
   items,
-  selectedId,
-  onSelect,
   navigate,
 }: {
   items: WorkspaceAttentionItem[];
-  selectedId?: string | null;
-  onSelect: (item: WorkspaceAttentionItem | null) => void;
   navigate?: (to: string, options?: any) => void;
 }) {
-  const active = activeAttentionItems(items);
   const buckets = bucketAttentionItems(items);
   const inbox = [...buckets.untriaged, ...buckets.assigned];
   const sweepable = sweepCandidateItems(items);
   const nextItem = buckets.review[0] ?? inbox[0] ?? buckets.triage[0] ?? null;
-  const openDeck = (item?: WorkspaceAttentionItem | null) => {
-    navigate?.(attentionHubHref(item?.id ?? null));
+  const openReview = () => {
+    navigate?.(attentionDeckHref({ itemId: nextItem?.id ?? null, mode: nextItem ? null : inbox.length ? "inbox" : "review" }));
   };
-  const previewItems = [nextItem, ...buckets.review.filter((item) => item.id !== nextItem?.id), ...inbox.filter((item) => item.id !== nextItem?.id)]
-    .filter(Boolean)
-    .slice(0, 5) as WorkspaceAttentionItem[];
 
   return (
     <div data-testid="starboard-attention-summary" className="space-y-4">
       <section className="rounded-md bg-surface-overlay/35 px-3 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim/80">
-              <Radar size={13} />
-              Attention
-            </div>
-            <div className="mt-1 text-sm font-medium text-text">Map summary</div>
-            <div className="mt-1 text-xs leading-5 text-text-muted">
-              Starboard shows the local signal. Use the Command Deck for triage, findings, and run logs.
-            </div>
-          </div>
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim/80">
+          <Radar size={13} />
+          Mission Control Review
+        </div>
+        <div className="mt-2 text-sm font-medium text-text">
+          {nextItem ? nextItem.title : "No active findings"}
+        </div>
+        <div className="mt-1 text-xs leading-5 text-text-muted">
+          Starboard only summarizes the local signal. Review and sweep work happens in the full review surface.
+        </div>
+        <div className="mt-3">
           <button
             type="button"
-            className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12]"
-            onClick={() => openDeck(nextItem)}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12]"
+            onClick={openReview}
           >
             <ExternalLink size={13} />
-            Open deck
+            Review in Mission Control
           </button>
         </div>
       </section>
@@ -743,59 +730,6 @@ function AttentionStarboardSummary({
         <AttentionMetric label="Cleared" value={buckets.processed.length} tone="muted" />
       </section>
 
-      {nextItem ? (
-        <section>
-          <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            <span>Next from map</span>
-            <span>{active.length}</span>
-          </div>
-          <button
-            type="button"
-            className="block w-full rounded-md bg-accent/[0.08] px-3 py-2 text-left hover:bg-accent/[0.12]"
-            onClick={() => openDeck(nextItem)}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <span className="min-w-0 truncate text-sm font-medium text-text">{nextItem.title}</span>
-              <span className="shrink-0 text-[10px] text-accent">{attentionItemTriageLabel(nextItem)}</span>
-            </div>
-            <div className="mt-1 truncate text-xs text-text-muted">
-              {nextItem.channel_name ?? nextItem.target_kind}
-            </div>
-          </button>
-        </section>
-      ) : (
-        <section className="rounded-md border border-dashed border-surface-border bg-surface-raised/35 px-3 py-6 text-center text-sm text-text-dim">
-          No active Attention items.
-        </section>
-      )}
-
-      {previewItems.length > 1 && (
-        <section>
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Nearby queue</div>
-          <div className="space-y-1">
-            {previewItems.slice(1).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-surface-overlay/55 ${
-                  selectedId === item.id ? "bg-accent/[0.08] text-text" : "text-text-muted"
-                }`}
-                onClick={() => {
-                  onSelect(item);
-                  openDeck(item);
-                }}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="min-w-0 truncate">{item.title}</span>
-                  <span className="shrink-0 text-[10px] text-text-dim">{item.severity}</span>
-                </div>
-                <div className="mt-1 truncate text-xs text-text-dim">{attentionItemTriageLabel(item)} · {item.channel_name ?? item.target_kind}</div>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
       <section className="rounded-md bg-surface-raised/35 px-3 py-3">
         <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
           <Sparkles size={13} />
@@ -804,14 +738,6 @@ function AttentionStarboardSummary({
         <div className="mt-2 text-sm text-text-muted">
           {sweepable.length ? `${sweepable.length} raw item${sweepable.length === 1 ? "" : "s"} ready for sweep.` : "No raw items are ready for a new sweep."}
         </div>
-        <button
-          type="button"
-          className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.08]"
-          onClick={() => openDeck()}
-        >
-          <ExternalLink size={13} />
-          Open Command Deck
-        </button>
       </section>
     </div>
   );
@@ -840,8 +766,6 @@ function SelectedObjectInspector({
   onOpenAttentionWarning: (id: string) => void;
   navigate?: (to: string, options?: any) => void;
 }) {
-  const queryClient = useQueryClient();
-  const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const defaultPrimary = item.actions.find((action) => action.icon !== "jump") ?? item.actions[0];
   const state = item.workState;
   const brief = buildSpatialObjectBrief(state);
@@ -851,7 +775,7 @@ function SelectedObjectInspector({
   const hasOperatorReview = targetAttentionItems.some((entry) => getAttentionWorkflowState(entry) === "operator_review");
   const primary: StarboardObjectAction | undefined = firstTargetAttention
     ? {
-        label: hasOperatorReview ? "Review finding" : "Review issue",
+        label: "Review in Mission Control",
         icon: "open",
         onSelect: () => onOpenAttentionWarning(firstTargetAttention.id),
       }
@@ -859,19 +783,6 @@ function SelectedObjectInspector({
   const usefulActions = item.actions.filter((action) => action !== defaultPrimary).slice(0, 4);
   const tone = brief?.tone ?? "muted";
   const toneClass = selectedInspectorToneClass(tone);
-  const acknowledgeTarget = () => {
-    if (!target || bulkAcknowledge.isPending) return;
-    bulkAcknowledge.mutate({
-      scope: "target",
-      target_kind: target.kind,
-      target_id: target.targetId,
-      channel_id: target.channelId,
-    }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: WORKSPACE_MAP_STATE_KEY });
-      },
-    });
-  };
   return (
     <section
       data-testid="map-brief-selected-object"
@@ -928,27 +839,6 @@ function SelectedObjectInspector({
             <div className="mt-0.5 truncate text-xs text-text-dim">
               {firstTargetAttention?.title ?? "Attention is active on this target."}
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {firstTargetAttention && (
-              <button
-                type="button"
-                className="inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-text-muted hover:bg-surface-overlay hover:text-text"
-                onClick={() => onOpenAttentionWarning(firstTargetAttention.id)}
-              >
-                <ExternalLink size={13} />
-                {hasOperatorReview ? "Open review" : "Open in Attention"}
-              </button>
-            )}
-            <button
-              type="button"
-              className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:cursor-not-allowed disabled:text-text-dim"
-              disabled={bulkAcknowledge.isPending}
-              onClick={acknowledgeTarget}
-            >
-              <CheckCircle size={13} />
-              Acknowledge target
-            </button>
           </div>
         </div>
       )}
@@ -1173,7 +1063,7 @@ function signalAction(
 ): { label: string; icon: ReactNode; onSelect: () => void } | null {
   if (signal.kind === "attention" && signal.id && onOpenAttentionWarning) {
     return {
-      label: "Review finding",
+      label: "Review in Mission Control",
       icon: <ExternalLink size={11} />,
       onSelect: () => onOpenAttentionWarning(signal.id!),
     };

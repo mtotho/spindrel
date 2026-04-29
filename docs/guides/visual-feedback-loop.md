@@ -81,6 +81,31 @@ PYTHONPYCACHEPREFIX=/tmp/codex-pycache python -m py_compile scripts/screenshots/
 PYTHONPATH=. pytest scripts/screenshots/tests/test_pure_units.py -q
 ```
 
+## Project Workspace Run
+
+Use this bundle when changing Project workspace pages, channel Project
+bindings, or Project-rooted file/terminal behavior:
+
+```bash
+python -m scripts.screenshots stage --only project-workspace
+python -m scripts.screenshots capture --only project-workspace
+python -m scripts.screenshots check
+```
+
+Expected artifacts:
+
+```text
+project-workspace-list.png
+project-workspace-detail.png
+project-workspace-channel-settings.png
+project-workspace-memory-tool.png
+```
+
+The staging step creates a reusable screenshot Project, attaches one channel to
+it, writes a file through the channel workspace API, and seeds a memory-tool
+turn. Inspect all four images before closing out: the bundle intentionally
+checks both the Project admin surface and the channel transcript.
+
 ## Harness Parity Run
 
 External harness parity screenshots use real live harness sessions rather than
@@ -115,7 +140,7 @@ synthetic screenshot staging. First run the live diagnostics to create fresh
 detached sessions on the dedicated native-plan E2E channel:
 
 ```bash
-./scripts/run_spindrel_plan_live.sh --tier replay
+./scripts/run_spindrel_plan_live.sh --tier behavior
 ```
 
 The runner writes the latest session ids to
@@ -142,6 +167,10 @@ spindrel-plan-answered-questions-dark.png
 spindrel-plan-answered-questions-terminal-dark.png
 spindrel-plan-progress-executing-mobile-dark.png
 spindrel-plan-progress-executing-terminal-dark.png
+spindrel-plan-replan-pending-default-dark.png
+spindrel-plan-replan-pending-terminal-dark.png
+spindrel-plan-pending-outcome-default-dark.png
+spindrel-plan-pending-outcome-terminal-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same

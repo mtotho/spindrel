@@ -310,6 +310,11 @@ function summarizeDiffMeta(summary: ToolCallSummary | null | undefined): string 
   return null;
 }
 
+function summaryFileTarget(summary: ToolCallSummary | null | undefined): string | null {
+  if (!summary) return null;
+  return summary.path || summary.target_label || null;
+}
+
 export function extractDiffText(env: ToolResultEnvelope | undefined): string | null {
   if (!env) return null;
   if (typeof env.body === "string" && env.body.trim()) return env.body;
@@ -554,6 +559,23 @@ function buildEntryFromSummary(
       tone: "muted",
     };
   }
+  if (summary.kind === "write" && summary.subject_type === "file") {
+    return {
+      id: `${toolName}:${summary.label}`,
+      kind: "file",
+      label: summary.label,
+      metaLabel: null,
+      previewText,
+      target: summaryFileTarget(summary),
+      env: result,
+      summary,
+      isError: false,
+      isRunning: false,
+      detailKind: result ? "expandable" : "none",
+      detail: extractNonJsonOutput(result),
+      tone: "muted",
+    };
+  }
   return {
     id: `${toolName}:${summary.label}`,
     kind: "activity",
@@ -695,6 +717,15 @@ function resolveOrderedTool(
       };
     }
 
+    if (renderMode === "terminal" && surface === "widget" && richSurface === "rich_result" && result) {
+      return {
+        kind: "rich_result",
+        key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
+        envelope: result,
+        summary: toolCall.summary ?? null,
+      };
+    }
+
     if (renderMode === "terminal" && richSurface === "rich_result" && result) {
       return {
         key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
@@ -729,6 +760,15 @@ function resolveOrderedTool(
         toolName: toolCall.name,
         recordId: envelope.record_id ?? undefined,
       },
+    };
+  }
+
+  if (renderMode === "terminal" && surface === "widget" && richSurface === "rich_result" && envelope) {
+    return {
+      kind: "rich_result",
+      key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
+      envelope,
+      summary: toolCall.summary ?? null,
     };
   }
 

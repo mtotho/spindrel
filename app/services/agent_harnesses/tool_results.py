@@ -21,6 +21,10 @@ def build_text_tool_result(
     body: str,
     label: str | None = None,
     tool_call_id: str | None = None,
+    summary_kind: str = "result",
+    subject_type: str = "generic",
+    path: str | None = None,
+    preview_text: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(envelope, summary)`` for runtime-supplied plain output."""
     text = body.strip("\n")
@@ -35,14 +39,21 @@ def build_text_tool_result(
         "byte_size": len(text.encode("utf-8")),
         "tool_name": tool_name,
     }
+    if path:
+        envelope["display_label"] = path
     if tool_call_id:
         envelope["tool_call_id"] = tool_call_id
     summary: dict[str, Any] = {
-        "kind": "result",
-        "subject_type": "generic",
+        "kind": summary_kind,
+        "subject_type": subject_type,
         "label": plain,
-        "preview_text": plain,
     }
+    if preview_text is not None:
+        summary["preview_text"] = preview_text
+    elif summary_kind == "result" and subject_type == "generic":
+        summary["preview_text"] = plain
+    if path:
+        summary["path"] = path
     return envelope, summary
 
 

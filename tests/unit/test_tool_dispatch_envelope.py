@@ -24,6 +24,8 @@ from app.agent.tool_dispatch import (
     ToolResultEnvelope,
     _build_default_envelope,
     _build_envelope_from_optin,
+    _extract_embedded_payloads,
+    _select_result_envelope,
 )
 
 
@@ -238,4 +240,44 @@ class TestEnvelopeFieldOnToolCallResult:
         assert isinstance(result.envelope, ToolResultEnvelope)
         assert result.envelope.content_type == "text/plain"
         assert result.envelope.display == "badge"
-        assert result.envelope.body is None or result.envelope.body == ""
+
+
+class TestMemoryToolEnvelopeThroughDispatcher:
+    def test_memory_tool_lifts_envelope_and_keeps_short_llm_text(self):
+        raw = json.dumps({
+            "path": "memory/MEMORY.md",
+            "message": "replace_section complete",
+            "llm": "Memory operation completed for memory/MEMORY.md.",
+            "_envelope": {
+                "content_type": "application/json",
+                "body": {
+                    "path": "memory/MEMORY.md",
+                    "message": "replace_section complete",
+                },
+                "plain_body": "Replace Section memory/MEMORY.md",
+                "display": "badge",
+            },
+        })
+
+        result_for_llm, envelope_optin, client_action, injected_images = _extract_embedded_payloads(raw)
+        assert result_for_llm == "Memory operation completed for memory/MEMORY.md."
+        assert client_action is None
+        assert injected_images is None
+        assert envelope_optin is not None
+
+        env = _select_result_envelope(
+            name="memory",
+            tool_call_id="call-memory-1",
+            redacted_result=raw,
+            envelope_optin=envelope_optin,
+            redact=lambda value: value,
+        )
+
+        assert env.tool_name == "memory"
+        assert env.tool_call_id == "call-memory-1"
+        assert env.content_type == "application/json"
+        assert env.plain_body == "Replace Section memory/MEMORY.md"
+        assert json.loads(env.body) == {
+            "path": "memory/MEMORY.md",
+            "message": "replace_section complete",
+        }

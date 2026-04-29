@@ -375,6 +375,90 @@ def _derive_manage_bot_skill_presentation(
     return "transcript", summary
 
 
+def _derive_memory_presentation(
+    *,
+    args: dict[str, Any],
+    result_json: dict[str, Any] | None,
+    envelope: Mapping[str, Any] | None,
+) -> tuple[ToolSurface, ToolSummary]:
+    operation = (_first_nonempty(args.get("operation")) or "action").lower()
+    path = _first_nonempty(
+        result_json.get("path") if isinstance(result_json, dict) else None,
+        args.get("path"),
+    )
+    destination = _first_nonempty(
+        result_json.get("destination") if isinstance(result_json, dict) else None,
+        args.get("destination"),
+    )
+    plain_body = _normalize_label(cast(str | None, envelope.get("plain_body")) if envelope else None)
+
+    if operation == "list":
+        total = 0
+        if isinstance(result_json, dict):
+            files = result_json.get("files")
+            if isinstance(files, list):
+                total = len(files)
+        noun = "file" if total == 1 else "files"
+        return "transcript", {
+            "kind": "lookup",
+            "subject_type": "file",
+            "label": plain_body or "Listed memory files",
+            "preview_text": f"{total} memory {noun}",
+        }
+
+    if operation == "read":
+        summary: ToolSummary = {
+            "kind": "read",
+            "subject_type": "file",
+            "label": plain_body or (f"Read {path}" if path else "Read memory file"),
+        }
+        if path:
+            summary["path"] = path
+        return "transcript", summary
+
+    if operation == "archive_older_than":
+        moved = 0
+        if isinstance(result_json, dict):
+            moved_files = result_json.get("moved")
+            if isinstance(moved_files, list):
+                moved = len(moved_files)
+        summary = {
+            "kind": "write",
+            "subject_type": "file",
+            "label": plain_body or (f"Archived {path}" if path else "Archived memory files"),
+            "preview_text": f"{moved} moved",
+        }
+        if path:
+            summary["path"] = path
+        if destination:
+            summary["target_label"] = destination
+        return "transcript", summary
+
+    write_ops = {
+        "create": "Created",
+        "overwrite": "Overwrote",
+        "append": "Appended",
+        "edit": "Edited",
+        "replace_section": "Updated",
+        "rename": "Renamed",
+        "delete": "Deleted",
+    }
+    if operation in write_ops:
+        label = plain_body or (f"{write_ops[operation]} {path}" if path else f"{write_ops[operation]} memory file")
+        summary = {"kind": "write", "subject_type": "file", "label": label}
+        if path:
+            summary["path"] = path
+        if destination:
+            summary["target_label"] = destination
+        return "transcript", summary
+
+    label = plain_body or (f"{operation.replace('_', ' ').title()} {path}" if path else "Memory operation")
+    summary = {"kind": "action", "subject_type": "file", "label": label}
+    if path:
+        summary["path"] = path
+    return "transcript", summary
+
+
 def derive_tool_presentation(
     *,
     tool_name: str,
@@ -549,6 +633,9 @@ def derive_tool_presentation(
 
     if short_name == "file":
         return _derive_file_presentation(arguments=args, envelope=envelope, result=result)
+
+    if short_name == "memory":
+        return _derive_memory_presentation(args=args, result_json=result_json, envelope=envelope)
 
     if short_name == "get_memory_file":
         path = _first_nonempty(

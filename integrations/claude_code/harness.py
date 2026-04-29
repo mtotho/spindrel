@@ -971,6 +971,10 @@ def _build_claude_file_change_result(
             tool_call_id=tool_call_id,
             body=content,
             label=f"Wrote {path}",
+            summary_kind="write",
+            subject_type="file",
+            path=path,
+            preview_text=None,
         )
 
     if tool_name != "Edit":

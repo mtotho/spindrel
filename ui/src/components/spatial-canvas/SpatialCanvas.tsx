@@ -112,7 +112,7 @@ import {
   buildChannelSurfaceRoute,
   getChannelLastSurface,
 } from "../../stores/channelLastSurface";
-import { widgetPinHref } from "../../lib/hubRoutes";
+import { attentionDeckHref, widgetPinHref } from "../../lib/hubRoutes";
 import { contextualNavigationState } from "../../lib/contextualNavigation";
 import { SPATIAL_HANDOFF_KEY } from "../../lib/spatialHandoff";
 import {
@@ -305,9 +305,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
 
   const openStarboardAttention = useCallback((item?: WorkspaceAttentionItem | null) => {
     if (item) setSelectedAttentionId(item.id);
-    openStarboard("attention");
+    navigate(attentionDeckHref({ itemId: item?.id ?? null }), { state: canvasBackState });
     closeAttentionHub();
-  }, [closeAttentionHub, openStarboard]);
+  }, [canvasBackState, closeAttentionHub, navigate]);
   const openStarboardLaunch = useCallback(() => {
     openStarboard("launch");
   }, [openStarboard]);

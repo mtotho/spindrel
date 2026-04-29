@@ -435,6 +435,62 @@ def test_persisted_mcp_file_envelope_attaches_by_native_tool_call_id():
     assert calls[0]["summary"]["label"] == "Read .spindrel-harness-parity/result.txt"
 
 
+def test_memory_replace_section_presentation_is_memory_file_write():
+    surface, summary = derive_tool_presentation(
+        tool_name="memory",
+        arguments={"operation": "replace_section", "path": "MEMORY.md", "heading": "Project"},
+        result=json.dumps(
+            {
+                "path": "memory/MEMORY.md",
+                "message": "replace_section complete",
+                "_envelope": {
+                    "content_type": "application/json",
+                    "body": {"path": "memory/MEMORY.md", "message": "replace_section complete"},
+                    "plain_body": "Replace Section memory/MEMORY.md",
+                    "display": "badge",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        envelope={
+            "content_type": "application/json",
+            "body": json.dumps({"path": "memory/MEMORY.md", "message": "replace_section complete"}),
+            "plain_body": "Replace Section memory/MEMORY.md",
+            "display": "badge",
+        },
+    )
+
+    assert surface == "transcript"
+    assert summary == {
+        "kind": "write",
+        "subject_type": "file",
+        "label": "Replace Section memory/MEMORY.md",
+        "path": "memory/MEMORY.md",
+    }
+
+
+def test_memory_list_presentation_shows_memory_file_count():
+    surface, summary = derive_tool_presentation(
+        tool_name="memory",
+        arguments={"operation": "list"},
+        result=json.dumps({"files": ["MEMORY.md", "reference/project.md"]}, ensure_ascii=False),
+        envelope={
+            "content_type": "application/json",
+            "body": json.dumps({"files": ["MEMORY.md", "reference/project.md"]}),
+            "plain_body": "Listed 2 memory file(s)",
+            "display": "badge",
+        },
+    )
+
+    assert surface == "transcript"
+    assert summary == {
+        "kind": "lookup",
+        "subject_type": "file",
+        "label": "Listed 2 memory file(s)",
+        "preview_text": "2 memory files",
+    }
+
+
 def test_widget_envelope_presentation_prefers_widget_surface():
     surface, summary = derive_tool_presentation(
         tool_name="emit_html_widget",

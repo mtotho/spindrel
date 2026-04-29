@@ -1907,6 +1907,87 @@ CHANNEL_SESSION_TAB_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
+# Project workspace captures — validates the shared Project primitive across
+# admin Projects, channel settings, Project-rooted files, and memory-tool
+# transcript presentation. Staging creates one reusable Project and attaches a
+# screenshot channel to it.
+# ---------------------------------------------------------------------------
+PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="project-workspace-list",
+        route="/admin/projects",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-list\"]') "
+            "&& document.body.innerText.includes('Screenshot Project Workspace')"
+        ),
+        output="project-workspace-list.png",
+        color_scheme="dark",
+        assert_js=(
+            "const rows = [...document.querySelectorAll('[data-testid=\"project-workspace-row\"]')];"
+            "return { ok: rows.some((row) => row.textContent.includes('common/projects/spindrel-screenshot')), "
+            "detail: 'Project row did not show the staged root path' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-detail",
+        route="/admin/projects/{project_workspace_project}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-file-scope\"]') "
+            "&& document.body.innerText.includes('Project workspace demo')"
+        ),
+        output="project-workspace-detail.png",
+        color_scheme="dark",
+        assert_js=(
+            "return { ok: document.body.innerText.includes('workspace://') "
+            "&& document.body.innerText.includes('Project workspace demo'), "
+            "detail: 'Project detail did not show file scope and attached channel' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-channel-settings",
+        route="/channels/{project_workspace}/settings#agent",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-channel-summary\"]') "
+            "&& document.body.innerText.includes('/common/projects/spindrel-screenshot')"
+        ),
+        output="project-workspace-channel-settings.png",
+        color_scheme="dark",
+        assert_js=(
+            "return { ok: document.body.innerText.includes('Bot memory uses the dedicated memory tool') "
+            "&& document.body.innerText.includes('Open Project') "
+            "&& document.body.innerText.includes('Open terminal'), "
+            "detail: 'Channel settings did not expose Project binding actions' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-memory-tool",
+        route="/channels/{project_workspace}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"terminal-tool-transcript\"]') "
+            "&& document.body.innerText.toLowerCase().includes('memory')"
+        ),
+        output="project-workspace-memory-tool.png",
+        color_scheme="dark",
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Replace Section memory/MEMORY.md') "
+            "|| text.includes('memory was updated') "
+            "|| text.includes('Project workspace screenshot memory fact'), "
+            "detail: 'Memory tool transcript was not visible' };"
+        ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Integration-chat captures — heroes that show the integration *delivering*,
 # not the admin page. Each spec routes to a channel where the agent loop
 # already ran (see ``stage_integration_chat``) and the persisted assistant

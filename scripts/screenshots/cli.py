@@ -32,6 +32,7 @@ from scripts.screenshots.capture.specs import (
     INTEGRATIONS_SPECS,
     MOBILE_HOME_SPECS,
     NOTIFICATIONS_SPECS,
+    PROJECT_WORKSPACE_SPECS,
     SPATIAL_CHECK_SPECS,
     SPATIAL_SPECS,
     STARBOARD_SPECS,
@@ -63,6 +64,12 @@ from scripts.screenshots.stage.scenarios.integrations import (
 from scripts.screenshots.stage.scenarios.integration_chat import (
     stage_integration_chat,
     teardown_integration_chat,
+)
+from scripts.screenshots.stage.scenarios.projects import (
+    PROJECT_CHANNEL_CLIENT_ID,
+    PROJECT_SLUG,
+    stage_project_workspace,
+    teardown_project_workspace,
 )
 from scripts.screenshots.stage.scenarios.spatial import stage_spatial, teardown_spatial
 from scripts.screenshots.stage.scenarios.attention import (
@@ -98,7 +105,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "voice-input", "channel-session-tabs", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "voice-input", "channel-session-tabs", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard", "project-workspace"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -175,6 +182,13 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
                 dry_run=dry_run,
             )
         print(f"staged (harness):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "project-workspace":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_project_workspace(client, dry_run=dry_run)
+        print("staged (project-workspace):")
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
@@ -389,6 +403,24 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             placeholders["session_tabs_latest"] = str(sessions[0]["session_id"])
             placeholders["session_tabs_older"] = str(sessions[1]["session_id"])
             spec_list = CHANNEL_SESSION_TAB_SPECS
+        elif only == "project-workspace":
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            ch = all_channels.get(PROJECT_CHANNEL_CLIENT_ID)
+            if not ch:
+                raise SystemExit(
+                    "screenshot:project-workspace channel not found. Run `stage --only project-workspace` first."
+                )
+            project = next(
+                (p for p in client.list_projects() if p.get("slug") == PROJECT_SLUG),
+                None,
+            )
+            if not project:
+                raise SystemExit(
+                    "screenshot-project-workspace Project not found. Run `stage --only project-workspace` first."
+                )
+            placeholders["project_workspace"] = str(ch["id"])
+            placeholders["project_workspace_project"] = str(project["id"])
+            spec_list = PROJECT_WORKSPACE_SPECS
         elif only == "mobile-home":
             spec_list = MOBILE_HOME_SPECS
         elif only == "starboard":
@@ -580,6 +612,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_harness(client)
         print("teardown (harness): removed harness scenario bot")
+        return
+    if only == "project-workspace":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_project_workspace(client)
+        print("teardown (project-workspace): removed project workspace screenshot channel")
         return
     if only == "spatial":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
