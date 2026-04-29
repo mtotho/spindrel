@@ -1419,6 +1419,7 @@ class ChannelHeartbeat(Base):
     append_spatial_map_overview: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     include_pinned_widgets: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     execution_policy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    execution_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     runner_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     harness_effort: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -1439,6 +1440,11 @@ class HeartbeatRun(Base):
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'running'"))
     repetition_detected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 

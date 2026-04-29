@@ -53,7 +53,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Fixed terminal-mode mobile tool rows: result previews no longer force horizontal page scroll, and the primary tool label stays intact while secondary path/preview text truncates within the row.
 - [x] Fixed mobile file-tool path overflow: generic file-tool rows now keep operation labels separate from long workspace paths, target paths left-truncate to show the end-most segment, and the row wraps within chat width instead of forcing horizontal page scroll.
 - [x] Fixed `/find` chat jumps: default search now matches the active visible session, `--all` makes broader channel-session search explicit, and result clicks load older pages until the target message is mounted before scrolling/highlighting.
-- [x] Added desktop channel session tabs sourced from local browser recents, with stable user-reorderable ordering, quiet primary/unread indication, close-to-hide behavior, and an inline session chooser when every recent tab is hidden.
+- [x] Added desktop channel session tabs sourced from local browser recents, with stable user-reorderable ordering, delayed whole-tab drag, quiet primary/unread indication, immediate pending feedback, saved conjoined split-layout tabs, a right-click split action menu, close-to-hide behavior, and an inline session chooser when every recent tab is hidden.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 

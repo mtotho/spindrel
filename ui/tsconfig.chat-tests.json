@@ -69,6 +69,8 @@
     "src/components/chat/harnessQuestionMessages.test.ts",
     "src/components/chat/messageJsonCopy.ts",
     "src/components/chat/messageJsonCopy.test.ts",
+    "src/components/chat/messageUtils.ts",
+    "src/components/chat/messageUtils.test.ts",
     "src/components/chat/chatModes.ts",
     "src/components/chat/resultViewRegistry.tsx",
     "src/components/chat/resultViewRegistry.test.ts",

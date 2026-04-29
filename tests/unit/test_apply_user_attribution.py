@@ -8,7 +8,7 @@ from app.agent.message_formatting import (
     compose_attribution_prefix,
     compose_thread_context_block,
 )
-from app.routers.chat._context import (
+from app.services.turn_context import (
     _apply_user_attribution,
     _inject_thread_context_blocks,
 )

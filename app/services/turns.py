@@ -26,8 +26,8 @@ from app.utils import safe_create_task
 
 if TYPE_CHECKING:
     from app.agent.bots import BotConfig
-    from app.routers.chat._context import BotContext
-    from app.routers.chat._schemas import ChatRequest
+    from app.schemas.chat import ChatRequest
+    from app.services.turn_context import BotContext
 
 logger = logging.getLogger(__name__)
 

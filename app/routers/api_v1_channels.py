@@ -269,6 +269,7 @@ class ChannelConfigOut(BaseModel):
     heartbeat_max_run_seconds: Optional[int] = None
     heartbeat_skip_tool_approval: bool = False
     heartbeat_execution_policy: Optional[dict] = None
+    heartbeat_execution_config: Optional[dict] = None
     heartbeat_last_run_at: Optional[datetime] = None
     heartbeat_next_run_at: Optional[datetime] = None
     # Timestamps
@@ -343,6 +344,7 @@ class ChannelConfigUpdate(BaseModel):
     heartbeat_max_run_seconds: Optional[int] = None
     heartbeat_skip_tool_approval: Optional[bool] = None
     heartbeat_execution_policy: Optional[dict] = None
+    heartbeat_execution_config: Optional[dict] = None
 
 
 def _enrich_bot_members(channel: Channel) -> list[ChannelBotMemberOut]:
@@ -829,6 +831,12 @@ async def update_channel_config(
                 value = dt_time.fromisoformat(value) if value else None
             elif field == "execution_policy":
                 value = normalize_heartbeat_execution_policy(value)
+            elif field == "execution_config" and value is not None:
+                if not isinstance(value, dict):
+                    raise HTTPException(status_code=400, detail="heartbeat_execution_config must be an object")
+                tools = value.get("tools")
+                if tools is not None and not isinstance(tools, list):
+                    raise HTTPException(status_code=400, detail="heartbeat_execution_config.tools must be a list")
             setattr(heartbeat, field, value)
 
         heartbeat.updated_at = now
@@ -918,6 +926,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
             "heartbeat_max_run_seconds": heartbeat.max_run_seconds,
             "heartbeat_skip_tool_approval": heartbeat.skip_tool_approval,
             "heartbeat_execution_policy": heartbeat.execution_policy,
+            "heartbeat_execution_config": heartbeat.execution_config,
             "heartbeat_last_run_at": heartbeat.last_run_at,
             "heartbeat_next_run_at": heartbeat.next_run_at,
         })

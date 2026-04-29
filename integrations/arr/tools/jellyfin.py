@@ -322,7 +322,7 @@ async def jellyfin_library(
             },
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "count": {

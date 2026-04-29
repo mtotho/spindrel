@@ -108,6 +108,13 @@ export function resolveDisplay(message, botName) {
     }
     return { ...base, name: "You", isCurrentUser: true, sourceLabel: null };
 }
+export function terminalTranscriptRole(message) {
+    if (message.role === "assistant")
+        return "assistant";
+    if (message.role === "user")
+        return "user";
+    return message.role || "message";
+}
 // Deterministic color from string hash
 export function avatarColor(name) {
     let hash = 0;

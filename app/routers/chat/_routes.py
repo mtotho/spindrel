@@ -35,9 +35,10 @@ from app.services.channel_throttle import is_throttled as _channel_throttled, re
 from app.services.sessions import (
     store_passive_message,
 )
+from app.services.channel_member_turns import maybe_route_to_member_bot
+from app.services.turn_context import prepare_bot_context
 from app.services.turns import SessionBusyError, TurnHandle, start_turn
 
-from ._context import prepare_bot_context
 from ._helpers import (
     _create_attachments_from_metadata,
     _extract_user,
@@ -46,8 +47,7 @@ from ._helpers import (
     _transcribe_audio_data,
     _try_resolve_sub_session_chat,
 )
-from ._multibot import _maybe_route_to_member_bot
-from ._schemas import (
+from app.schemas.chat import (
     CancelRequest,
     CancelResponse,
     ChatRequest,
@@ -289,7 +289,7 @@ async def _enqueue_chat_turn(
 
     # Multi-bot channel: if user @-tagged a member bot, route to that bot.
     _primary_bot_id = bot.id
-    bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
+    bot, _member_config = await maybe_route_to_member_bot(db, channel, bot, message)
 
     ctx = await prepare_bot_context(
         messages=messages,

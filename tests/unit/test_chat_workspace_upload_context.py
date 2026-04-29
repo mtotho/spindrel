@@ -1,5 +1,5 @@
 def test_workspace_upload_context_lists_paths_without_user_prefix():
-    from app.routers.chat._context import _compose_workspace_upload_context
+    from app.services.turn_context import _compose_workspace_upload_context
 
     block = _compose_workspace_upload_context({
         "workspace_uploads": [{
@@ -17,7 +17,7 @@ def test_workspace_upload_context_lists_paths_without_user_prefix():
 
 
 def test_workspace_upload_context_ignores_empty_or_malformed_metadata():
-    from app.routers.chat._context import _compose_workspace_upload_context
+    from app.services.turn_context import _compose_workspace_upload_context
 
     assert _compose_workspace_upload_context({}) is None
     assert _compose_workspace_upload_context({"workspace_uploads": "nope"}) is None

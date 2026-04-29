@@ -295,12 +295,15 @@ async def _summarize_usage_forecast(db: "AsyncSession") -> str | None:
 
 
 async def _summarize_upcoming_activity(db: "AsyncSession") -> str | None:
-    from app.routers.api_v1_admin.upcoming import upcoming_activity
+    from app.services.upcoming_activity import list_upcoming_activity
 
-    payload = await upcoming_activity(limit=3, db=db)
-    if not isinstance(payload, dict):
-        return None
-    items = payload.get("items")
+    items = await list_upcoming_activity(
+        db,
+        limit=3,
+        auth=None,
+        include_memory_hygiene=True,
+        include_channelless_tasks=True,
+    )
     if not isinstance(items, list):
         return None
     count = len(items)

@@ -19,7 +19,7 @@ from app.services.sub_session_bus import SubSessionEntry, resolve_sub_session_en
 from app.services.sub_sessions import SESSION_TYPE_EPHEMERAL, SESSION_TYPE_THREAD
 from app.stt import transcribe as stt_transcribe
 
-from ._schemas import ChatRequest, FileMetadata
+from app.schemas.chat import ChatRequest, FileMetadata
 
 logger = logging.getLogger(__name__)
 

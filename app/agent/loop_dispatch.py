@@ -19,9 +19,21 @@ from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call, enforce_
 from app.config import settings
 from app.services import session_locks
 from app.tools.client_tools import is_client_tool
+from app.tools.registry import get_tool_safety_tier
 from app.utils import safe_create_task
 
 logger = logging.getLogger(__name__)
+
+
+_PARALLEL_UNSAFE_TIERS = {"mutating", "exec_capable", "control_plane"}
+
+
+def _tool_calls_are_parallel_safe(tool_calls: list[dict[str, Any]]) -> bool:
+    for tc in tool_calls:
+        name = tc["function"]["name"]
+        if get_tool_safety_tier(name) in _PARALLEL_UNSAFE_TIERS:
+            return False
+    return True
 
 
 def _parse_tool_args(args: Any) -> Any:
@@ -331,6 +343,7 @@ async def dispatch_iteration_tool_calls(
         settings_obj.PARALLEL_TOOL_EXECUTION
         and len(accumulated_tool_calls) >= 2
         and not has_client_tool
+        and _tool_calls_are_parallel_safe(accumulated_tool_calls)
     )
 
     if use_parallel:

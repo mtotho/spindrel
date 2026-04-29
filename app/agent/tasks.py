@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.agent.bots import BotConfig, get_bot
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Channel, Session, Task, TraceEvent
+from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, TraceEvent
 from app.services import session_locks
 
 logger = logging.getLogger(__name__)
@@ -807,9 +807,81 @@ async def _publish_turn_ended_safe(
     flows into the warning so log lines stay distinguishable.
     """
     try:
-        await _publish_turn_ended(target_task, turn_id=turn_id, result=result, error=error)
+        await _publish_turn_ended(
+            target_task,
+            turn_id=turn_id,
+            result=result,
+            error=error,
+            kind_hint="heartbeat" if target_task.task_type == "heartbeat" else None,
+        )
     except Exception:
         logger.warning("Failed to publish %s for task %s", log_label, target_task.id)
+
+
+def _heartbeat_execution_meta(task: Task) -> dict:
+    return dict((getattr(task, "execution_config", None) or {}).get("heartbeat") or {})
+
+
+def _heartbeat_run_uuid(task: Task) -> uuid.UUID | None:
+    run_id = _heartbeat_execution_meta(task).get("heartbeat_run_id")
+    if not run_id:
+        return None
+    try:
+        return uuid.UUID(str(run_id))
+    except (TypeError, ValueError):
+        return None
+
+
+async def _mark_heartbeat_task_started(task: Task, correlation_id: uuid.UUID | None) -> None:
+    run_id = _heartbeat_run_uuid(task)
+    if run_id is None:
+        return
+    async with async_session() as db:
+        run_rec = await db.get(HeartbeatRun, run_id)
+        if run_rec:
+            run_rec.status = "running"
+            run_rec.task_id = task.id
+            run_rec.correlation_id = correlation_id
+            await db.commit()
+
+
+async def _finalize_heartbeat_task_run(
+    task: Task,
+    *,
+    status: str,
+    result_text: str | None,
+    error_text: str | None,
+    correlation_id: uuid.UUID | None,
+) -> None:
+    meta = _heartbeat_execution_meta(task)
+    run_id = _heartbeat_run_uuid(task)
+    heartbeat_id = meta.get("heartbeat_id")
+    try:
+        hb_uuid = uuid.UUID(str(heartbeat_id)) if heartbeat_id else None
+    except (TypeError, ValueError):
+        hb_uuid = None
+    if run_id is None and hb_uuid is None:
+        return
+    async with async_session() as db:
+        if run_id is not None:
+            run_rec = await db.get(HeartbeatRun, run_id)
+            if run_rec:
+                run_rec.completed_at = datetime.now(timezone.utc)
+                run_rec.result = result_text
+                run_rec.error = error_text
+                run_rec.correlation_id = correlation_id
+                run_rec.task_id = task.id
+                run_rec.status = status
+                run_rec.repetition_detected = bool(meta.get("repetition_detected", False))
+        if hb_uuid is not None:
+            heartbeat = await db.get(ChannelHeartbeat, hb_uuid)
+            if heartbeat:
+                heartbeat.last_result = result_text
+                heartbeat.last_error = error_text
+                if status in ("complete", "failed"):
+                    heartbeat.run_count = (heartbeat.run_count or 0) + 1
+                heartbeat.updated_at = datetime.now(timezone.utc)
+        await db.commit()
 
 
 async def _dispatch_to_specialized_runner(task: Task) -> bool:
@@ -953,6 +1025,8 @@ async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _Prepar
             )
         else:
             initial_profile = "task_none" if (task.execution_config or {}).get("history_mode") == "none" else "task_recent"
+            if task.task_type == "heartbeat":
+                initial_profile = "heartbeat"
             if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
                 initial_profile = "task_none"
             session_id, messages = await load_or_create(
@@ -982,6 +1056,8 @@ async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _Prepar
         hist_turns = settings.HEARTBEAT_MAX_HISTORY_TURNS
     messages = _trim_history_for_task(messages, hist_turns)
     context_profile_name = "task_none" if hist_turns == 0 else "task_recent"
+    if task.task_type == "heartbeat":
+        context_profile_name = "heartbeat"
     if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
         context_profile_name = "task_none"
 
@@ -1043,6 +1119,23 @@ async def _prepare_task_run(task: Task, task_channel: Channel | None) -> _Prepar
     if ecfg_tool_names:
         from app.tools.registry import get_local_tool_schemas
         injected_tools = get_local_tool_schemas(ecfg_tool_names) or None
+    additional_tool_schemas = ecfg.get("additional_tool_schemas") or None
+    if additional_tool_schemas:
+        injected_tools = list(injected_tools or [])
+        existing_names = {
+            (schema.get("function") or {}).get("name")
+            for schema in injected_tools
+            if isinstance(schema, dict)
+        }
+        for schema in additional_tool_schemas:
+            if not isinstance(schema, dict):
+                continue
+            name = (schema.get("function") or {}).get("name")
+            if name and name in existing_names:
+                continue
+            injected_tools.append(schema)
+            if name:
+                existing_names.add(name)
 
     exclude_tools = ecfg.get("exclude_tools") or None
     if exclude_tools:
@@ -1091,12 +1184,13 @@ async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uu
             user_message=prepared.task_prompt,
             correlation_id=prepared.correlation_id,
             msg_metadata={
-                "source": "task",
+                "source": "heartbeat" if task.task_type == "heartbeat" else "task",
                 "task_id": str(task.id),
                 "task_type": task.task_type,
+                "is_heartbeat": task.task_type == "heartbeat",
             },
             pre_user_msg_id=None,
-            suppress_outbox=bool(prepared.ecfg.get("session_scoped")) or task.channel_id is None,
+            suppress_outbox=bool(prepared.ecfg.get("session_scoped")) or task.channel_id is None or task.task_type == "heartbeat",
             harness_model_override=prepared.ecfg.get("model_override") or None,
             harness_effort_override=prepared.ecfg.get("harness_effort") or None,
         ),
@@ -1112,14 +1206,35 @@ async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uu
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
         await _fire_task_complete(task, "failed")
+        if task.task_type == "heartbeat":
+            await _finalize_heartbeat_task_run(
+                task,
+                status="failed",
+                result_text=result_text,
+                error_text=harness_error,
+                correlation_id=prepared.correlation_id,
+            )
         await _publish_turn_ended(
             task,
             turn_id=turn_id,
             result=result_text,
             error=harness_error,
-            kind_hint="task",
+            kind_hint="heartbeat" if task.task_type == "heartbeat" else "task",
         )
         return True
+
+    if task.task_type == "heartbeat":
+        hb_meta = _heartbeat_execution_meta(task)
+        if bool(hb_meta.get("dispatch_results")) and hb_meta.get("dispatch_mode") != "optional" and task.channel_id:
+            try:
+                from app.services.heartbeat import _enqueue_persisted_heartbeat_result
+                await _enqueue_persisted_heartbeat_result(
+                    channel_id=task.channel_id,
+                    session_id=prepared.session_id,
+                    correlation_id=prepared.correlation_id,
+                )
+            except Exception:
+                logger.warning("Heartbeat harness task %s outbox enqueue failed", task.id, exc_info=True)
 
     async with async_session() as db:
         t = await db.get(Task, task.id)
@@ -1129,16 +1244,26 @@ async def _run_harness_task_if_needed(prepared: _PreparedTaskRun, *, turn_id: uu
             t.completed_at = datetime.now(timezone.utc)
             await db.commit()
     await _fire_task_complete(task, "complete")
+    if task.task_type == "heartbeat":
+        await _finalize_heartbeat_task_run(
+            task,
+            status="complete",
+            result_text=result_text,
+            error_text=None,
+            correlation_id=prepared.correlation_id,
+        )
     await _publish_turn_ended(
         task,
         turn_id=turn_id,
         result=result_text,
-        kind_hint="task",
+        kind_hint="heartbeat" if task.task_type == "heartbeat" else "task",
     )
     return True
 
 
 def _task_run_origin(task: Task) -> str:
+    if task.task_type == "heartbeat":
+        return "heartbeat"
     if task.task_type in ("memory_hygiene", "skill_review"):
         return "hygiene"
     if task.task_type == "delegation":
@@ -1181,13 +1306,25 @@ async def _run_normal_agent_task(
             task_mode=True,
             skip_skill_inject=skip_skill_inject,
             context_profile_name=prepared.context_profile_name,
+            run_control_policy=prepared.ecfg.get("run_control_policy"),
         ),
         timeout=prepared.task_timeout,
     )
     result_text = run_result.response
 
     task_meta: dict | None = None
-    if prepared.is_scheduled:
+    if task.task_type == "heartbeat":
+        hb_meta = _heartbeat_execution_meta(task)
+        dispatched = bool(hb_meta.get("dispatch_results")) and hb_meta.get("dispatch_mode") != "optional"
+        task_meta = {
+            "trigger": "heartbeat",
+            "task_id": str(task.id),
+            "heartbeat_id": hb_meta.get("heartbeat_id"),
+            "heartbeat_run_id": hb_meta.get("heartbeat_run_id"),
+            "is_heartbeat": True,
+            "dispatched": dispatched,
+        }
+    elif prepared.is_scheduled:
         task_meta = {"trigger": "scheduled_task", "task_id": str(task.id)}
         if task.title:
             task_meta["task_title"] = task.title
@@ -1249,9 +1386,10 @@ async def _run_normal_agent_task(
             correlation_id=prepared.correlation_id,
             channel_id=persist_channel_id,
             msg_metadata=task_meta,
+            is_heartbeat=task.task_type == "heartbeat",
             pre_user_msg_id=pre_user_msg_id,
             hide_messages=suppress_channel,
-            suppress_outbox=session_scoped_task,
+            suppress_outbox=session_scoped_task or task.task_type == "heartbeat",
         )
 
     dispatch_text = result_text
@@ -1276,17 +1414,46 @@ async def _run_normal_agent_task(
         }
 
     dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
+    if task.task_type == "heartbeat":
+        hb_meta = _heartbeat_execution_meta(task)
+        if bool(hb_meta.get("dispatch_results")) and hb_meta.get("dispatch_mode") != "optional" and task.channel_id:
+            try:
+                from app.services.heartbeat import _enqueue_persisted_heartbeat_result
+                await _enqueue_persisted_heartbeat_result(
+                    channel_id=task.channel_id,
+                    session_id=prepared.session_id,
+                    correlation_id=prepared.correlation_id,
+                )
+            except Exception:
+                logger.warning("Heartbeat task %s outbox enqueue failed", task.id, exc_info=True)
+
     await _publish_turn_ended(
         task,
         turn_id=turn_id,
         result=dispatch_text,
         client_actions=dispatch_actions,
         extra_metadata=delegation_meta,
+        kind_hint="heartbeat" if task.task_type == "heartbeat" else None,
     )
 
     cb = task.callback_config or {}
     followup_tasks: list[Task] = []
-    if cb.get("trigger_rag_loop") and result_text:
+    if task.task_type == "heartbeat" and _heartbeat_execution_meta(task).get("trigger_rag_loop") and result_text:
+        followup_tasks.append(Task(
+            bot_id=task.bot_id,
+            client_id=task.client_id,
+            session_id=prepared.session_id,
+            channel_id=task.channel_id,
+            prompt=f"[Your scheduled heartbeat just ran. The output was:]\n\n{result_text}",
+            status="pending",
+            task_type="callback",
+            dispatch_type=task.dispatch_type,
+            dispatch_config=dict(task.dispatch_config or {}),
+            callback_config={"trigger_rag_loop": False},
+            parent_task_id=task.id,
+            created_at=datetime.now(timezone.utc),
+        ))
+    elif cb.get("trigger_rag_loop") and result_text:
         followup_tasks.append(Task(
             bot_id=task.bot_id,
             client_id=task.client_id,
@@ -1356,6 +1523,14 @@ async def _run_normal_agent_task(
             await db.refresh(followup_task)
 
     await _fire_task_complete(task, "complete")
+    if task.task_type == "heartbeat":
+        await _finalize_heartbeat_task_run(
+            task,
+            status="complete",
+            result_text=result_text,
+            error_text=None,
+            correlation_id=prepared.correlation_id,
+        )
 
     for followup_task in followup_tasks:
         logger.info(
@@ -1482,6 +1657,8 @@ async def run_task(task: Task) -> None:
         prepared = await _prepare_task_run(task, _task_channel)
         _task_timeout = prepared.task_timeout
         correlation_id = prepared.correlation_id
+        if task.task_type == "heartbeat":
+            await _mark_heartbeat_task_started(task, correlation_id)
         if await _run_harness_task_if_needed(prepared, turn_id=_turn_id):
             return
         await _run_normal_agent_task(
@@ -1495,6 +1672,14 @@ async def run_task(task: Task) -> None:
         logger.error("Task %s timed out after %ds", task.id, _task_timeout)
         _timeout_err = f"Timed out after {_task_timeout}s"
         await _mark_task_failed_in_db(task.id, error=_timeout_err)
+        if task.task_type == "heartbeat":
+            await _finalize_heartbeat_task_run(
+                task,
+                status="failed",
+                result_text=None,
+                error_text=_timeout_err,
+                correlation_id=correlation_id,
+            )
         await _record_timeout_event(task, correlation_id, _timeout_err)
         await _fire_task_complete(task, "failed")
         await _publish_turn_ended_safe(
@@ -1524,6 +1709,14 @@ async def run_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
                 logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
+                if task.task_type == "heartbeat":
+                    await _finalize_heartbeat_task_run(
+                        task,
+                        status="failed",
+                        result_text=None,
+                        error_text="rate_limited",
+                        correlation_id=correlation_id,
+                    )
                 await _fire_task_complete(task, "failed")
                 await _publish_turn_ended_safe(
                     task, turn_id=_turn_id, error="rate_limited",
@@ -1533,6 +1726,14 @@ async def run_task(task: Task) -> None:
     except Exception as exc:
         logger.exception("Task %s failed", task.id)
         await _mark_task_failed_in_db(task.id, error=str(exc)[:4000])
+        if task.task_type == "heartbeat":
+            await _finalize_heartbeat_task_run(
+                task,
+                status="failed",
+                result_text=None,
+                error_text=str(exc)[:4000],
+                correlation_id=correlation_id,
+            )
         await _fire_task_complete(task, "failed")
         await _publish_turn_ended_safe(
             task, turn_id=_turn_id, error=str(exc)[:500], log_label="error",

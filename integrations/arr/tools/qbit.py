@@ -158,7 +158,7 @@ async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
             "required": ["hashes", "action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {

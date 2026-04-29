@@ -671,7 +671,7 @@ class TestResolveSubSessionEntry:
 class TestSubSessionChatResolver:
     async def test_resolves_and_normalizes_bot_id(self, db_session):
         from app.routers.chat._helpers import _try_resolve_sub_session_chat
-        from app.routers.chat._schemas import ChatRequest
+        from app.schemas.chat import ChatRequest
 
         channel, parent, sub, task = await _build_chain(
             db_session, task_status="complete", bot_id="orchestrator",
@@ -707,7 +707,7 @@ class TestSubSessionChatResolver:
         from fastapi import HTTPException
 
         from app.routers.chat._helpers import _try_resolve_sub_session_chat
-        from app.routers.chat._schemas import ChatRequest
+        from app.schemas.chat import ChatRequest
 
         _, _, sub, _ = await _build_chain(db_session, task_status="running")
         req = ChatRequest(
@@ -721,7 +721,7 @@ class TestSubSessionChatResolver:
         """A channel session_id → the resolver short-circuits so the regular
         chat path runs."""
         from app.routers.chat._helpers import _try_resolve_sub_session_chat
-        from app.routers.chat._schemas import ChatRequest
+        from app.schemas.chat import ChatRequest
 
         channel_id = uuid.uuid4()
         channel = Channel(id=channel_id, client_id="web", bot_id="b", name="t")
@@ -744,7 +744,7 @@ class TestSubSessionChatResolver:
         from fastapi import HTTPException
 
         from app.routers.chat._helpers import _try_resolve_sub_session_chat
-        from app.routers.chat._schemas import ChatRequest
+        from app.schemas.chat import ChatRequest
 
         channel, _, sub, _ = await _build_chain(db_session)
         # Make parent channel private to user_id=42

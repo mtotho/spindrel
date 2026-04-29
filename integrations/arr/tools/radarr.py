@@ -255,7 +255,7 @@ async def radarr_movies(search: str | None = None, name: str | None = None, filt
             "required": ["movie_id"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {
@@ -345,7 +345,7 @@ async def radarr_movie_update(
             "required": ["action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {
@@ -503,7 +503,7 @@ async def radarr_queue() -> str:
             "required": ["action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "count": {
@@ -687,7 +687,7 @@ async def radarr_history(movie_id: int, limit: int = 30) -> str:
             "required": ["queue_ids"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "removed": {
@@ -884,7 +884,7 @@ async def radarr_quality_profiles(profile_id: int | None = None) -> str:
             "required": ["profile_id"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "id": {

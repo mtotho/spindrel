@@ -341,7 +341,7 @@ async def sonarr_series(search: str | None = None, filter: str | None = None, li
             "required": ["series_id"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {
@@ -592,7 +592,7 @@ async def sonarr_queue() -> str:
             "required": ["action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {
@@ -681,7 +681,7 @@ async def sonarr_command(
             "required": ["action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "count": {
@@ -960,7 +960,7 @@ async def sonarr_history(
             "required": ["queue_ids"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "removed": {
@@ -1160,7 +1160,7 @@ async def sonarr_quality_profiles(profile_id: int | None = None) -> str:
             "required": ["profile_id"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "id": {

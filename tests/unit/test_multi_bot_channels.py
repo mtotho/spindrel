@@ -346,7 +346,7 @@ class TestContextInjection:
              patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
-             patch("app.routers.chat._multibot._record_channel_run"), \
+             patch("app.services.channel_member_turns._record_channel_run"), \
              patch(
                  "app.services.sessions._resolve_workspace_base_prompt_enabled",
                  new_callable=AsyncMock, return_value=False,
@@ -391,7 +391,7 @@ class TestContextInjection:
              patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
-             patch("app.routers.chat._multibot._record_channel_run"), \
+             patch("app.services.channel_member_turns._record_channel_run"), \
              patch(
                  "app.services.sessions._resolve_workspace_base_prompt_enabled",
                  new_callable=AsyncMock, return_value=False,
@@ -684,7 +684,7 @@ class TestBotToBotMention:
         channel = await db_session.merge(build_channel(bot_id="primary-bot"))
         await db_session.commit()
 
-        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+        with patch("app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock):
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
                 "Hey @unknown_bot, what do you think?"
@@ -704,7 +704,7 @@ class TestBotToBotMention:
         ))
         await db_session.commit()
 
-        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+        with patch("app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock):
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
                 "Hey @helper-bot, can you help with this?"
@@ -724,7 +724,7 @@ class TestBotToBotMention:
         ))
         await db_session.commit()
 
-        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+        with patch("app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock):
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "helper-bot",
                 "I am @helper-bot and I'm here."
@@ -762,7 +762,7 @@ class TestBotToBotMention:
         ))
         await db_session.commit()
 
-        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+        with patch("app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock):
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
                 "@helper-bot what do you think? Also @helper-bot please check this."
@@ -784,7 +784,7 @@ class TestBotToBotMention:
         ))
         await db_session.commit()
 
-        with patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock):
+        with patch("app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock):
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
                 "Let me check @skill:myskill for help."
@@ -796,7 +796,7 @@ class TestBotToBotMention:
     async def test_when_channel_throttled_then_run_member_bot_reply_returns_early(self):
         from app.routers.chat import _run_member_bot_reply
 
-        with patch("app.routers.chat._multibot._channel_throttled", return_value=True), \
+        with patch("app.services.channel_member_turns._channel_throttled", return_value=True), \
              patch("app.db.engine.async_session") as session_spy:
             await _run_member_bot_reply(
                 uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
@@ -810,8 +810,8 @@ class TestBotToBotMention:
         """Lock contention → 30 retries at ~100ms each, then abort."""
         from app.routers.chat import _run_member_bot_reply
 
-        with patch("app.routers.chat._multibot._channel_throttled", return_value=False), \
-             patch("app.routers.chat._multibot.session_locks") as mock_locks, \
+        with patch("app.services.channel_member_turns._channel_throttled", return_value=False), \
+             patch("app.services.channel_member_turns.session_locks") as mock_locks, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             mock_locks.acquire.return_value = False
 
@@ -1486,7 +1486,7 @@ class TestParallelInvocation:
         snapshot = [{"role": "user", "content": "hi"}]
 
         with patch(
-            "app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock
+            "app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock
         ) as run_spy:
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
@@ -1512,7 +1512,7 @@ class TestParallelInvocation:
         await db_session.commit()
 
         with patch(
-            "app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock
+            "app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock
         ) as run_spy:
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
@@ -1539,7 +1539,7 @@ class TestParallelInvocation:
         await db_session.commit()
 
         with patch(
-            "app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock
+            "app.services.channel_member_turns._run_member_bot_reply", new_callable=AsyncMock
         ):
             result = await _trigger_member_bot_replies(
                 channel.id, uuid.uuid4(), "primary-bot",
@@ -1564,9 +1564,9 @@ class TestParallelInvocation:
             {"role": "user", "content": "hello"},
         ]
 
-        with patch("app.routers.chat._multibot._channel_throttled", return_value=False), \
-             patch("app.routers.chat._multibot.session_locks") as mock_locks, \
-             patch("app.routers.chat._multibot._record_channel_run"), \
+        with patch("app.services.channel_member_turns._channel_throttled", return_value=False), \
+             patch("app.services.channel_member_turns.session_locks") as mock_locks, \
+             patch("app.services.channel_member_turns._record_channel_run"), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.agent.loop.run_stream", side_effect=_fake_stream), \
              patch("app.services.channel_events.publish_typed"), \
@@ -1601,7 +1601,7 @@ class TestParallelInvocation:
              patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
              patch(
-                 "app.routers.chat._multibot._trigger_member_bot_replies",
+                 "app.services.channel_member_turns._trigger_member_bot_replies",
                  new_callable=AsyncMock,
              ) as mock_trigger, \
              patch(

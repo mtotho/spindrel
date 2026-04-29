@@ -34,11 +34,11 @@ from app.agent.message_formatting import (
     compose_attribution_prefix,
     compose_thread_context_block,
 )
-from app.routers.chat._context import (
+from app.services.turn_context import (
     _apply_user_attribution,
     _inject_thread_context_blocks,
 )
-from app.routers.chat._schemas import IngestMessageMetadata
+from app.schemas.chat import IngestMessageMetadata
 
 
 # ===========================================================================
@@ -57,7 +57,7 @@ class TestMetadataLeakPastStrip:
         """Primary bot path: _apply_user_attribution + _inject_thread_context_blocks
         run on messages that carry _metadata; strip_metadata_keys must remove them.
         """
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         bot = SimpleNamespace(
             id="primary-bot",
@@ -100,7 +100,7 @@ class TestMetadataLeakPastStrip:
 
     async def test_mixed_messages_all_stripped(self):
         """Multiple user/assistant messages all lose _metadata."""
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         bot = SimpleNamespace(
             id="primary-bot",
@@ -129,7 +129,7 @@ class TestMetadataLeakPastStrip:
 
     async def test_messages_without_metadata_survive_strip(self):
         """Messages that never had _metadata are returned intact."""
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         bot = SimpleNamespace(
             id="primary-bot",
@@ -178,7 +178,7 @@ class TestPipelineStepOrdering:
 
     async def test_attribution_before_thread_context_before_strip(self):
         """Steps 5/5b/6 execute in the documented order."""
-        from app.routers.chat import _context as ctx_mod
+        from app.services import turn_context as ctx_mod
         from app.services import sessions as sessions_mod
 
         call_order: list[str] = []
@@ -226,7 +226,7 @@ class TestPipelineStepOrdering:
             # so patching the source module attribute intercepts it at call time.
             patch.object(sessions_mod, "strip_metadata_keys", _track_strip),
         ):
-            from app.routers.chat._context import prepare_bot_context
+            from app.services.turn_context import prepare_bot_context
             await prepare_bot_context(
                 messages=messages,
                 bot=bot,

@@ -1,5 +1,4 @@
-"""Cluster 3 guardrail — services, agent, and tool layers must not import
-``fastapi``.
+"""Cluster 3 guardrails for service/agent/tool layer drift.
 
 The refactor moved router-layer concerns (HTTPException, Request) out of
 the business layers behind ``app/domain/errors.py`` + a router-boundary
@@ -83,5 +82,48 @@ def test_no_fastapi_imports_in_services_agent_or_tools():
             "Services/agent/tool layer must not import fastapi.\n"
             "Raise ``DomainError`` from ``app.domain.errors`` instead; the "
             "router boundary converts to ``HTTPException``.\n\n"
+            "Offending files:\n" + rendered
+        )
+
+
+def _imports_router(py_file: Path) -> tuple[int, str] | None:
+    """Return ``(lineno, text)`` for the first real app.routers import."""
+    tree = ast.parse(py_file.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("app.routers"):
+            return node.lineno, f"from {node.module} import ..."
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("app.routers"):
+                    return node.lineno, f"import {alias.name}"
+    return None
+
+
+def _router_importing_files() -> list[tuple[Path, int, str]]:
+    hits: list[tuple[Path, int, str]] = []
+    for root in SCOPED_DIRS:
+        for py_file in root.rglob("*.py"):
+            if "__pycache__" in py_file.parts:
+                continue
+            hit = _imports_router(py_file)
+            if hit is not None:
+                lineno, text = hit
+                hits.append((py_file, lineno, text))
+    return hits
+
+
+def test_no_router_imports_in_services_agent_or_tools():
+    """Business-layer modules must not import router internals."""
+    offenders = _router_importing_files()
+    if offenders:
+        rendered = "\n".join(
+            f"  {p.relative_to(REPO_ROOT)}:{line}: {text}"
+            for p, line, text in offenders
+        )
+        raise AssertionError(
+            "Services/agent/tool layer must not import app.routers.*.\n"
+            "Move shared request schemas, context preparation, and runtime "
+            "logic behind app.schemas or app.services seams; routers should "
+            "adapt HTTP to those modules.\n\n"
             "Offending files:\n" + rendered
         )

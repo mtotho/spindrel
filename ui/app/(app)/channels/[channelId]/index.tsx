@@ -896,13 +896,15 @@ export default function ChatScreen() {
   }, [activeSessionTabKey, channelId, panelPrefs.sessionTabOrderKeys, patchChannelPanelPrefs]);
   useEffect(() => {
     if (!channelId || !activeSessionTabLayoutSnapshot) return;
+    const nextLayouts = addChannelSessionTabLayout(panelPrefs.sessionTabLayouts, activeSessionTabLayoutSnapshot.layout);
+    const currentSerialized = JSON.stringify(panelPrefs.sessionTabLayouts);
+    const nextSerialized = JSON.stringify(nextLayouts);
+    if (currentSerialized === nextSerialized) return;
     patchChannelPanelPrefs(channelId, (current) => {
-      const nextLayouts = addChannelSessionTabLayout(current.sessionTabLayouts, activeSessionTabLayoutSnapshot.layout);
-      const currentSerialized = JSON.stringify(current.sessionTabLayouts);
-      const nextSerialized = JSON.stringify(nextLayouts);
-      return currentSerialized === nextSerialized ? {} : { sessionTabLayouts: nextLayouts };
+      const latestLayouts = addChannelSessionTabLayout(current.sessionTabLayouts, activeSessionTabLayoutSnapshot.layout);
+      return { sessionTabLayouts: latestLayouts };
     });
-  }, [activeSessionTabLayoutSnapshot, channelId, patchChannelPanelPrefs]);
+  }, [activeSessionTabLayoutSnapshot, channelId, panelPrefs.sessionTabLayouts, patchChannelPanelPrefs]);
   const unhideSessionTabSurface = useCallback((surface: ChannelSessionSurface) => {
     if (!channelId) return;
     const key = surfaceKey(surface);
@@ -1003,12 +1005,19 @@ export default function ChatScreen() {
       const base = current.sessionTabOrderKeys.length > 0
         ? current.sessionTabOrderKeys
         : visibleKeys;
-      const withoutDrag = base.filter((key) => key !== dragKey);
-      const targetIndex = Math.max(0, withoutDrag.indexOf(targetKey));
+      const ordered = [
+        ...base.filter((key) => visibleKeys.includes(key)),
+        ...visibleKeys.filter((key) => !base.includes(key)),
+      ];
+      const fromIndex = ordered.indexOf(dragKey);
+      const toIndex = ordered.indexOf(targetKey);
+      if (fromIndex < 0 || toIndex < 0) return {};
+      const nextVisible = [...ordered];
+      const [dragged] = nextVisible.splice(fromIndex, 1);
+      nextVisible.splice(toIndex, 0, dragged!);
       const next = [
-        ...withoutDrag.slice(0, targetIndex),
-        dragKey,
-        ...withoutDrag.slice(targetIndex),
+        ...base.filter((key) => !visibleKeys.includes(key)),
+        ...nextVisible,
       ];
       for (const key of visibleKeys) {
         if (!next.includes(key)) next.push(key);

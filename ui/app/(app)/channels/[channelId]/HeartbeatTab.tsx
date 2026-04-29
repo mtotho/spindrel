@@ -17,6 +17,8 @@ import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { WorkflowSelector } from "@/src/components/shared/WorkflowSelector";
 import { useWorkflows } from "@/src/api/hooks/useWorkflows";
+import { useTools } from "@/src/api/hooks/useTools";
+import { ToolMultiPicker } from "@/src/components/shared/task/ChipPicker";
 
 import { QuietHoursPicker } from "./QuietHoursPicker";
 import { HeartbeatHistoryList } from "./HeartbeatHistoryList";
@@ -300,6 +302,7 @@ export function HeartbeatTab({
 
   // Fetch workflows for the workflow selector
   const { data: workflows } = useWorkflows();
+  const { data: allTools = [] } = useTools();
 
   useEffect(() => {
     setHbForm(null);
@@ -350,6 +353,7 @@ export function HeartbeatTab({
           data.default_execution_policy,
           data.execution_policy_presets,
         ),
+        execution_config: data.config.execution_config ?? {},
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
@@ -390,6 +394,7 @@ export function HeartbeatTab({
           data.default_execution_policy,
           data.execution_policy_presets,
         ),
+        execution_config: {},
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
@@ -480,6 +485,7 @@ export function HeartbeatTab({
         data.default_execution_policy,
         data.execution_policy_presets,
       ),
+      execution_config: source.execution_config ?? {},
     } : {
       enabled: false,
       interval_minutes: 60,
@@ -513,6 +519,7 @@ export function HeartbeatTab({
         data.default_execution_policy,
         data.execution_policy_presets,
       ),
+      execution_config: {},
     };
     setHbForm(nextForm);
     hbFormRef.current = nextForm;
@@ -640,7 +647,7 @@ export function HeartbeatTab({
   const runNowTitle = hbDirty
     ? "Save heartbeat changes before running manually."
     : !hasAction
-      ? "Add a prompt or workflow before running heartbeat manually."
+      ? "Add a prompt or pipeline before running heartbeat manually."
       : undefined;
 
   return (
@@ -681,7 +688,7 @@ export function HeartbeatTab({
           )}
           {!hbDirty && !hasAction && (
             <span className="text-[11px] text-text-dim">
-              Add a prompt or workflow before running heartbeat manually.
+              Add a prompt or pipeline before running heartbeat manually.
             </span>
           )}
         </div>
@@ -835,9 +842,9 @@ export function HeartbeatTab({
           </Section>
         )}
 
-        {/* ---- Action: Workflow or Prompt ---- */}
+        {/* ---- Action: Pipeline or Prompt ---- */}
         <Section title="Action">
-          {/* Mode toggle: Prompt (default) vs Workflow */}
+          {/* Mode toggle: Prompt (default) vs Pipeline */}
           {!isHarnessRunner && <div className="mb-3">
             <SettingsSegmentedControl
               value={isWorkflowMode ? "workflow" : "prompt"}
@@ -851,15 +858,15 @@ export function HeartbeatTab({
               }}
               options={[
                 { value: "prompt", label: "Prompt", icon: <FileText size={12} /> },
-                { value: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
+                { value: "workflow", label: "Pipeline", icon: <WorkflowIcon size={12} /> },
               ]}
             />
           </div>}
 
           {isWorkflowMode ? (
-            /* ---- Workflow Selector ---- */
+            /* ---- Pipeline Selector ---- */
             <div className="flex flex-col gap-2">
-              <FormRow label="Workflow" description="This workflow will be triggered on each heartbeat interval.">
+              <FormRow label="Pipeline" description="This pipeline will be triggered on each heartbeat interval.">
                 <WorkflowSelector
                   value={hbForm.workflow_id}
                   onChange={(id) => updateHbForm((f: any) => ({ ...f, workflow_id: id }))}
@@ -882,12 +889,12 @@ export function HeartbeatTab({
                 );
               })()}
               {hbForm.workflow_id && (
-                <FormRow label="Session Mode" description="Override the workflow's session mode for heartbeat triggers.">
+                <FormRow label="Session Mode" description="Override the pipeline's session mode for heartbeat triggers.">
                   <SelectInput
                     value={hbForm.workflow_session_mode ?? ""}
                     onChange={(v) => updateHbForm((f: any) => ({ ...f, workflow_session_mode: v || null }))}
                     options={[
-                      { label: "Use workflow default", value: "" },
+                      { label: "Use pipeline default", value: "" },
                       { label: "Isolated (no chat messages)", value: "isolated" },
                       { label: "Shared (visible in chat)", value: "shared" },
                     ]}
@@ -1036,6 +1043,27 @@ export function HeartbeatTab({
               />
             </Section>
             {!isHarnessRunner && <Section title="Tool Policies">
+              <ToolMultiPicker
+                tools={allTools}
+                selected={hbForm.execution_config?.tools ?? []}
+                onAdd={(key) => updateHbForm((f: any) => {
+                  const current = f.execution_config?.tools ?? [];
+                  return {
+                    ...f,
+                    execution_config: {
+                      ...(f.execution_config ?? {}),
+                      tools: current.includes(key) ? current : [...current, key],
+                    },
+                  };
+                })}
+                onRemove={(key) => updateHbForm((f: any) => ({
+                  ...f,
+                  execution_config: {
+                    ...(f.execution_config ?? {}),
+                    tools: (f.execution_config?.tools ?? []).filter((x: string) => x !== key),
+                  },
+                }))}
+              />
               <Toggle
                 value={hbForm.skip_tool_approval ?? false}
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, skip_tool_approval: v }))}

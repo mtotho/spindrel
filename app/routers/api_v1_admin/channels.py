@@ -359,6 +359,7 @@ class HeartbeatConfigOut(BaseModel):
     append_spatial_map_overview: bool = False
     include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
+    execution_config: Optional[dict] = None
     runner_mode: Optional[str] = None
     harness_effort: Optional[str] = None
     effective_runner_mode: str = "spindrel"
@@ -388,7 +389,7 @@ class HeartbeatConfigOut(BaseModel):
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
             "append_spatial_prompt", "append_spatial_map_overview",
-            "include_pinned_widgets", "execution_policy",
+            "include_pinned_widgets", "execution_policy", "execution_config",
             "runner_mode", "harness_effort",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
@@ -456,8 +457,41 @@ class HeartbeatUpdate(BaseModel):
     append_spatial_map_overview: bool = False
     include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
+    execution_config: Optional[dict] = None
     runner_mode: Optional[Literal["harness", "spindrel"]] = None
     harness_effort: Optional[str] = None
+
+
+def _normalize_heartbeat_execution_config(value: Any) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="execution_config must be an object")
+    out: dict[str, Any] = {}
+    tools = value.get("tools")
+    if tools is not None:
+        if not isinstance(tools, list):
+            raise HTTPException(status_code=400, detail="execution_config.tools must be a list")
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in tools:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            key = item.strip()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(key)
+        out["tools"] = deduped[:64]
+    if value.get("history_mode") in ("none", "recent", "full"):
+        out["history_mode"] = value["history_mode"]
+    if "history_recent_count" in value:
+        try:
+            out["history_recent_count"] = max(1, min(50, int(value["history_recent_count"])))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="execution_config.history_recent_count must be an integer")
+    if "skip_tool_approval" in value:
+        out["skip_tool_approval"] = bool(value["skip_tool_approval"])
+    return out
 
 
 class TaskOut(BaseModel):
@@ -1508,6 +1542,8 @@ async def admin_channel_heartbeat_update(
     if "execution_policy" in updates:
         from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
         heartbeat.execution_policy = normalize_heartbeat_execution_policy(updates["execution_policy"])
+    if "execution_config" in updates:
+        heartbeat.execution_config = _normalize_heartbeat_execution_config(updates["execution_config"])
     if "runner_mode" in updates:
         heartbeat.runner_mode = updates["runner_mode"]
     if "harness_effort" in updates:

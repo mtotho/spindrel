@@ -47,16 +47,16 @@ from app.domain.payloads import (
     TurnStartedPayload,
     TurnStreamToolResultPayload,
 )
-from app.routers.chat._context import BotContext
-from app.routers.chat._multibot import (
-    _background_tasks,
-    _detect_member_mentions,
-    _run_member_bot_reply,
-    _trigger_member_bot_replies,
+from app.schemas.chat import ChatRequest
+from app.services.channel_member_turns import (
+    background_tasks as _background_tasks,
+    detect_member_mentions as _detect_member_mentions,
+    run_member_bot_reply as _run_member_bot_reply,
+    trigger_member_bot_replies as _trigger_member_bot_replies,
 )
-from app.routers.chat._schemas import ChatRequest
 from app.services import session_locks
 from app.services import presence
+from app.services.turn_context import BotContext
 from app.services.agent_harnesses import ChannelEventEmitter, get_runtime
 from app.services.channel_events import publish_typed
 from app.services.compaction import maybe_compact

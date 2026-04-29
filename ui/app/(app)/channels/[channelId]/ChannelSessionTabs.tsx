@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   closestCenter,
+  DragOverlay,
   DndContext,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
-  type Modifier,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   horizontalListSortingStrategy,
@@ -44,11 +45,6 @@ interface ChannelSessionTabStripProps {
   pendingKey?: string | null;
 }
 
-const restrictTabDragToRow: Modifier = ({ transform }) => ({
-  ...transform,
-  y: 0,
-});
-
 export function ChannelSessionTabStrip({
   tabs,
   onSelect,
@@ -63,13 +59,22 @@ export function ChannelSessionTabStrip({
   pendingKey,
 }: ChannelSessionTabStripProps) {
   const tabKeys = useMemo(() => tabs.map((tab) => tab.key), [tabs]);
+  const [activeDragKey, setActiveDragKey] = useState<string | null>(null);
+  const activeDragTab = useMemo(
+    () => tabs.find((tab) => tab.key === activeDragKey) ?? null,
+    [activeDragKey, tabs],
+  );
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 140, tolerance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragKey(String(event.active.id));
+  };
   const handleDragEnd = (event: DragEndEvent) => {
     const activeKey = String(event.active.id);
     const overKey = event.over ? String(event.over.id) : null;
+    setActiveDragKey(null);
     if (!overKey || activeKey === overKey) return;
     onReorder(activeKey, overKey);
   };
@@ -78,8 +83,9 @@ export function ChannelSessionTabStrip({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
-      modifiers={[restrictTabDragToRow]}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveDragKey(null)}
     >
       <div
         data-testid="channel-session-tab-strip"
@@ -111,6 +117,9 @@ export function ChannelSessionTabStrip({
           </button>
         )}
       </div>
+      <DragOverlay dropAnimation={null}>
+        {activeDragTab ? <SessionTabDragGhost tab={activeDragTab} pending={pendingKey === activeDragTab.key} /> : null}
+      </DragOverlay>
     </DndContext>
   );
 }
@@ -178,7 +187,7 @@ function SortableSessionTab({
         tab.active
           ? "bg-accent/[0.08] text-text"
           : "text-text-muted hover:bg-surface-overlay/60 hover:text-text",
-        isDragging ? "z-10 shadow-sm opacity-95" : "",
+        isDragging ? "z-10 opacity-30" : "",
         pending ? "bg-accent/[0.06]" : "",
       ].join(" ")}
       onClick={() => onSelect(tab)}
@@ -361,6 +370,59 @@ function SortableSessionTab({
             Close tab
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function SessionTabDragGhost({
+  tab,
+  pending,
+}: {
+  tab: ChannelSessionTabItem;
+  pending: boolean;
+}) {
+  return (
+    <div
+      className={[
+        "flex h-8 max-w-[360px] items-center gap-1 rounded-md border border-surface-border/70 bg-surface-raised px-1.5 text-left text-[12px] text-text shadow-xl",
+        tab.kind === "split" ? "min-w-[220px]" : "min-w-[160px]",
+      ].join(" ")}
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-6 w-4 shrink-0 items-center justify-center rounded text-text-dim/70"
+      >
+        <GripVertical size={12} aria-hidden="true" />
+      </span>
+      {tab.kind === "split" ? (
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          {tab.panes.map((pane, index) => (
+            <span
+              key={pane.id}
+              className={[
+                "flex h-6 min-w-0 items-center gap-1 border border-surface-border/70 px-2 text-[11px]",
+                index === 0 ? "rounded-l-md" : "",
+                index === tab.panes.length - 1 ? "rounded-r-md" : "",
+                pane.focused ? "bg-accent/[0.10] text-text" : "bg-surface/60 text-text-muted",
+              ].join(" ")}
+            >
+              {pane.primary && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />}
+              <span className="min-w-0 truncate">{pane.label}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {tab.primary && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />}
+          <span className="min-w-0 truncate">{tab.label}</span>
+        </div>
+      )}
+      {pending && <Loader2 size={11} className="shrink-0 animate-spin text-accent" aria-hidden="true" />}
+      {tab.unreadCount > 0 && (
+        <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 px-1 text-[9px] font-semibold text-accent">
+          {tab.unreadCount > 9 ? "9+" : tab.unreadCount}
+        </span>
       )}
     </div>
   );

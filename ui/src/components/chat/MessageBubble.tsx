@@ -10,7 +10,7 @@ import { AttachmentImages } from "./AttachmentDisplay";
 import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { ThreadAnchor } from "./ThreadAnchor";
-import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColor } from "./messageUtils";
+import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, terminalTranscriptRole, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 import type { AssistantTurnBody, Message, ToolCall, ToolResultEnvelope } from "../../types/api";
@@ -418,7 +418,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       onOpen={() => onReplyInThread(message.id)}
     />
   ) : null;
-  const terminalUserBlock = isTerminalMode && isUser;
+  const terminalUserBlock = isTerminalMode && message.role === "user";
   const isHarnessQuestion = isHarnessQuestionMessage(message);
 
   if (isHarnessQuestion) {
@@ -536,7 +536,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onMouseEnter={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = isTerminalMode ? t.textMuted : avatarColor(displayName); } : undefined}
             onMouseLeave={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
           >
-            {isTerminalMode ? `${isUser ? "user" : "assistant"}:${displayName}` : displayName}
+            {isTerminalMode ? `${terminalTranscriptRole(message)}:${displayName}` : displayName}
           </span>
           <TimestampActions
             timestamp={timestamp}

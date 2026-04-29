@@ -219,6 +219,7 @@ test("channel route renders desktop session tabs through dedicated components an
     assert.match(channelRoute, /hiddenSessionTabKeys/);
     assert.match(channelRoute, /sessionTabLayouts/);
     assert.match(channelRoute, /pendingSessionTabKey/);
+    assert.match(channelRoute, /if \(currentSerialized === nextSerialized\) return;/);
     assert.match(sessionTabs, /data-testid="channel-session-tab-strip"/);
     assert.match(sessionTabs, /data-testid="channel-session-split-tab"/);
     assert.match(sessionTabs, /data-testid="channel-session-tab-menu"/);

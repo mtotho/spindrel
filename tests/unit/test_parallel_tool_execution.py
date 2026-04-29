@@ -185,6 +185,22 @@ class TestParallelToolExecution:
         assert tool_results[1]["tool"] == "tool_b"
 
     @pytest.mark.asyncio
+    async def test_mutating_tool_batch_is_not_parallel_safe(self):
+        """Mutating tools should force sequential dispatch."""
+        from app.agent.loop_dispatch import _tool_calls_are_parallel_safe
+
+        calls = [
+            {"id": "tc_1", "type": "function", "function": {"name": "readonly_tool", "arguments": "{}"}},
+            {"id": "tc_2", "type": "function", "function": {"name": "mutating_tool", "arguments": "{}"}},
+        ]
+
+        def _tier(name: str) -> str:
+            return "mutating" if name == "mutating_tool" else "readonly"
+
+        with patch("app.agent.loop_dispatch.get_tool_safety_tier", side_effect=_tier):
+            assert _tool_calls_are_parallel_safe(calls) is False
+
+    @pytest.mark.asyncio
     async def test_single_tool_uses_sequential_path(self):
         """With only 1 tool call, the sequential path should be used even when parallel is enabled."""
         from app.agent.loop import run_agent_tool_loop

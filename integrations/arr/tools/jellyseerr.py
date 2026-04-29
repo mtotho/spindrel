@@ -332,7 +332,7 @@ def _media_status(code: int) -> str:
             "required": ["action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {

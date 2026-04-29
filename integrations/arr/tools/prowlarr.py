@@ -638,7 +638,7 @@ async def _delete(path: str, timeout: float = 15.0):
             "required": ["action"],
         },
     },
-}, returns={
+}, safety_tier="mutating", returns={
         "type": "object",
         "properties": {
             "status": {

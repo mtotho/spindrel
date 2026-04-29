@@ -23,8 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.agent.bots import BotConfig, MemoryConfig
 from app.db.models import Bot as BotRow, Message as MessageRow, Session as SessionRow, TraceEvent
 from app.domain.channel_events import ChannelEventKind
-from app.routers.chat._context import BotContext
-from app.routers.chat._schemas import ChatRequest
+from app.services.turn_context import BotContext
+from app.schemas.chat import ChatRequest
 from app.services import session_locks
 from app.services.agent_harnesses.base import TurnResult
 from app.services.channel_events import _next_seq, _replay_buffer

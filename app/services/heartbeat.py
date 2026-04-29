@@ -379,7 +379,7 @@ async def _fire_heartbeat_workflow(hb: ChannelHeartbeat, now: datetime) -> None:
         run_record = HeartbeatRun(
             heartbeat_id=hb.id,
             run_at=now,
-            status="running",
+            status="queued",
         )
         db.add(run_record)
 
@@ -486,6 +486,18 @@ async def _prepare_heartbeat_run(
         channel = await db.get(Channel, hb.channel_id)
         if not channel:
             logger.warning("Heartbeat %s: channel %s not found, skipping", hb.id, hb.channel_id)
+            return None
+        active_run = (await db.execute(
+            select(HeartbeatRun.id)
+            .where(
+                HeartbeatRun.heartbeat_id == hb.id,
+                HeartbeatRun.completed_at.is_(None),
+                HeartbeatRun.status.in_(["queued", "running"]),
+            )
+            .limit(1)
+        )).scalar_one_or_none()
+        if active_run is not None:
+            logger.info("Heartbeat %s: active run %s already queued/running, skipping", hb.id, active_run)
             return None
 
         dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
@@ -797,6 +809,64 @@ async def _finalize_heartbeat_run(
         await db.commit()
 
 
+def _heartbeat_task_execution_config(
+    hb: ChannelHeartbeat,
+    prepared: _PreparedHeartbeatRun,
+) -> dict:
+    cfg = dict(getattr(hb, "execution_config", None) or {})
+    cfg.setdefault("history_mode", "recent")
+    cfg.setdefault("history_recent_count", settings.HEARTBEAT_MAX_HISTORY_TURNS)
+    cfg["skip_tool_approval"] = bool(cfg.get("skip_tool_approval", hb.skip_tool_approval))
+    cfg["system_preamble"] = prepared.heartbeat_preamble
+    cfg["model_override"] = prepared.model_override
+    cfg["model_provider_id_override"] = prepared.provider_id_override
+    cfg["fallback_models"] = prepared.fallback_models
+    cfg["run_control_policy"] = prepared.execution_policy
+    if getattr(hb, "harness_effort", None):
+        cfg["harness_effort"] = hb.harness_effort
+    if prepared.injected_tools:
+        cfg["additional_tool_schemas"] = prepared.injected_tools
+    cfg["heartbeat"] = {
+        "heartbeat_id": str(hb.id),
+        "heartbeat_run_id": str(prepared.run_id),
+        "dispatch_mode": prepared.dispatch_mode,
+        "dispatch_results": bool(hb.dispatch_results),
+        "trigger_rag_loop": bool(prepared.trigger_rag_loop),
+        "repetition_detected": bool(prepared.repetition_detected),
+    }
+    return cfg
+
+
+async def _enqueue_heartbeat_task(
+    hb: ChannelHeartbeat,
+    prepared: _PreparedHeartbeatRun,
+) -> uuid.UUID:
+    task = Task(
+        bot_id=prepared.bot_id,
+        client_id=prepared.client_id,
+        session_id=prepared.session_id,
+        channel_id=prepared.channel_id,
+        prompt=prepared.prompt,
+        title=f"Heartbeat — {prepared.channel.name}",
+        status="pending",
+        task_type="heartbeat",
+        dispatch_type=prepared.dispatch_type,
+        dispatch_config=dict(prepared.dispatch_config or {}),
+        callback_config={},
+        execution_config=_heartbeat_task_execution_config(hb, prepared),
+        scheduled_at=datetime.now(timezone.utc),
+        max_run_seconds=resolve_heartbeat_timeout(hb),
+        created_at=datetime.now(timezone.utc),
+    )
+    async with async_session() as db:
+        db.add(task)
+        run_rec = await db.get(HeartbeatRun, prepared.run_id)
+        if run_rec:
+            run_rec.task_id = task.id
+        await db.commit()
+    return task.id
+
+
 async def _run_harness_heartbeat_if_needed(
     hb: ChannelHeartbeat,
     prepared: _PreparedHeartbeatRun,
@@ -1046,7 +1116,7 @@ async def _run_spindrel_heartbeat(
 
 
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
-    """Execute a heartbeat directly (no Task row) and record history.
+    """Queue a heartbeat execution and record history.
 
     If ``workflow_id`` is set, triggers the workflow instead of running the
     agent prompt.  The heartbeat run record still tracks the outcome.
@@ -1062,32 +1132,11 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
     if prepared is None:
         return
 
+    task_id = await _enqueue_heartbeat_task(hb, prepared)
     logger.info(
-        "Heartbeat %s fired directly for channel %s (bot=%s, next=%s)",
-        hb.id, prepared.channel_id, prepared.bot_id,
+        "Heartbeat %s queued task %s for channel %s (bot=%s, next=%s)",
+        hb.id, task_id, prepared.channel_id, prepared.bot_id,
         prepared.next_run_at.strftime("%H:%M:%S") if prepared.next_run_at else "?",
-    )
-
-    correlation_id = uuid.uuid4()
-    if await _run_harness_heartbeat_if_needed(
-        hb,
-        prepared,
-        correlation_id=correlation_id,
-        now=now,
-    ):
-        return
-
-    result = await _run_spindrel_heartbeat(
-        hb,
-        prepared,
-        correlation_id=correlation_id,
-    )
-    await _finalize_heartbeat_run(
-        hb,
-        prepared,
-        correlation_id=result.correlation_id,
-        result_text=result.result_text,
-        error_text=result.error_text,
     )
 
 

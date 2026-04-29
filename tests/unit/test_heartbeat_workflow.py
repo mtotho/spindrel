@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.heartbeat import _fire_heartbeat_workflow, fire_heartbeat
+from app.services.heartbeat import _fire_heartbeat_workflow, _heartbeat_task_execution_config, fire_heartbeat
 
 
 def _make_heartbeat(**overrides):
@@ -24,6 +24,12 @@ def _make_heartbeat(**overrides):
     hb.timezone = None
     hb.max_run_seconds = None
     hb.workflow_session_mode = overrides.get("workflow_session_mode", None)
+    hb.skip_tool_approval = overrides.get("skip_tool_approval", False)
+    hb.execution_config = overrides.get("execution_config", None)
+    hb.model = overrides.get("model", "")
+    hb.model_provider_id = overrides.get("model_provider_id", None)
+    hb.fallback_models = overrides.get("fallback_models", [])
+    hb.harness_effort = overrides.get("harness_effort", None)
     return hb
 
 
@@ -81,6 +87,37 @@ class TestFireHeartbeatDelegatesToWorkflow:
 
             await fire_heartbeat(hb)
             mock_wf.assert_not_called()
+
+    def test_prompt_heartbeat_task_config_preserves_selected_tools(self):
+        hb = _make_heartbeat(
+            workflow_id=None,
+            skip_tool_approval=True,
+            execution_config={"tools": ["sonarr_calendar", "qbit_torrents"]},
+            model="gpt-test",
+            model_provider_id="provider-test",
+            fallback_models=[{"model": "fallback"}],
+        )
+        prepared = MagicMock()
+        prepared.heartbeat_preamble = "heartbeat preamble"
+        prepared.model_override = "gpt-test"
+        prepared.provider_id_override = "provider-test"
+        prepared.fallback_models = [{"model": "fallback"}]
+        prepared.execution_policy = {"tool_surface": "focused_escape"}
+        prepared.injected_tools = [{"function": {"name": "post_heartbeat_to_channel"}}]
+        prepared.run_id = uuid.uuid4()
+        prepared.dispatch_mode = "optional"
+        prepared.trigger_rag_loop = False
+        prepared.repetition_detected = False
+
+        cfg = _heartbeat_task_execution_config(hb, prepared)
+
+        assert cfg["tools"] == ["sonarr_calendar", "qbit_torrents"]
+        assert cfg["skip_tool_approval"] is True
+        assert cfg["system_preamble"] == "heartbeat preamble"
+        assert cfg["model_override"] == "gpt-test"
+        assert cfg["model_provider_id_override"] == "provider-test"
+        assert cfg["additional_tool_schemas"][0]["function"]["name"] == "post_heartbeat_to_channel"
+        assert cfg["heartbeat"]["heartbeat_run_id"] == str(prepared.run_id)
 
 
 class TestFireHeartbeatWorkflow:

@@ -49,7 +49,7 @@ def _base_messages():
 class TestPrimaryBot:
     @pytest.mark.asyncio
     async def test_no_system_prompt_swap(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: [
@@ -65,7 +65,7 @@ class TestPrimaryBot:
 
     @pytest.mark.asyncio
     async def test_no_preamble(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: [
@@ -80,7 +80,7 @@ class TestPrimaryBot:
 
     @pytest.mark.asyncio
     async def test_metadata_stripped(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: [
@@ -95,7 +95,7 @@ class TestPrimaryBot:
 
     @pytest.mark.asyncio
     async def test_user_attribution_applied(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: [
@@ -110,7 +110,7 @@ class TestPrimaryBot:
 
     @pytest.mark.asyncio
     async def test_raw_snapshot_includes_user_message(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: [
@@ -133,7 +133,7 @@ class TestPrimaryBot:
 class TestRoutedBot:
     @pytest.mark.asyncio
     async def test_system_prompt_swapped(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.agent.bots.get_bot", side_effect=lambda bid: PRIMARY if bid == "primary-bot" else MEMBER), \
@@ -154,7 +154,7 @@ class TestRoutedBot:
 
     @pytest.mark.asyncio
     async def test_preamble_generated(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.agent.bots.get_bot", side_effect=lambda bid: PRIMARY if bid == "primary-bot" else MEMBER), \
@@ -175,7 +175,7 @@ class TestRoutedBot:
 
     @pytest.mark.asyncio
     async def test_member_config_applied(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         config = {"response_style": "brief", "system_prompt_addon": "Be extra helpful.", "model_override": "gpt-3.5"}
@@ -199,7 +199,7 @@ class TestRoutedBot:
 
     @pytest.mark.asyncio
     async def test_history_rewritten(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "system", "content": "I am primary."},
@@ -231,7 +231,7 @@ class TestRoutedBot:
 class TestMemberBotSnapshot:
     @pytest.mark.asyncio
     async def test_user_prompt_extracted_from_snapshot_end(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "user", "content": "earlier msg"},
@@ -258,7 +258,7 @@ class TestMemberBotSnapshot:
 
     @pytest.mark.asyncio
     async def test_bot_messages_at_end_not_extracted(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "user", "content": "hello"},
@@ -281,7 +281,7 @@ class TestMemberBotSnapshot:
 
     @pytest.mark.asyncio
     async def test_mentioning_bot_name_in_preamble(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "user", "content": "hello", "_metadata": {"sender_type": "human"}},
@@ -304,7 +304,7 @@ class TestMemberBotSnapshot:
 
     @pytest.mark.asyncio
     async def test_invocation_message_in_preamble(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "user", "content": "hello", "_metadata": {"sender_type": "human"}},
@@ -330,7 +330,7 @@ class TestMemberBotSnapshot:
     async def test_extracted_msg_removed_even_with_member_config(self):
         """Regression: _inject_member_config appends system msg, which broke the
         messages[-1].role == 'user' check for removing the extracted message."""
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "user", "content": "earlier msg"},
@@ -361,7 +361,7 @@ class TestMemberBotSnapshot:
     @pytest.mark.asyncio
     async def test_user_attribution_applied_in_member_path(self):
         """This is THE BUG FIX: _apply_user_attribution was missing from member bot path."""
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "user", "content": "hello from bob", "_metadata": {"sender_display_name": "Bob", "sender_type": "human"}},
@@ -393,7 +393,7 @@ class TestPipelineOrder:
     @pytest.mark.asyncio
     async def test_raw_snapshot_captured_before_rewrite(self):
         """Raw snapshot must be captured BEFORE rewrite mutates messages."""
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = [
             {"role": "system", "content": "I am primary."},
@@ -420,7 +420,7 @@ class TestPipelineOrder:
 
     @pytest.mark.asyncio
     async def test_strip_removes_metadata(self):
-        from app.routers.chat._context import prepare_bot_context
+        from app.services.turn_context import prepare_bot_context
 
         messages = _base_messages()
         with patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: [
@@ -440,7 +440,7 @@ class TestPipelineOrder:
 
 class TestBuildIdentityPreamble:
     def test_primary_returns_none(self):
-        from app.routers.chat._context import _build_identity_preamble
+        from app.services.turn_context import _build_identity_preamble
 
         result = _build_identity_preamble(
             bot=PRIMARY, primary_bot_id="primary-bot",
@@ -449,7 +449,7 @@ class TestBuildIdentityPreamble:
         assert result is None
 
     def test_routed_includes_not_primary(self):
-        from app.routers.chat._context import _build_identity_preamble
+        from app.services.turn_context import _build_identity_preamble
 
         result = _build_identity_preamble(
             bot=MEMBER, primary_bot_id="primary-bot",
@@ -460,7 +460,7 @@ class TestBuildIdentityPreamble:
         assert "Respond only as Helper Bot" in result
 
     def test_mentioned_includes_mentioning_bot_name(self):
-        from app.routers.chat._context import _build_identity_preamble
+        from app.services.turn_context import _build_identity_preamble
 
         with patch("app.agent.bots.get_bot", return_value=MENTIONER):
             result = _build_identity_preamble(
@@ -472,7 +472,7 @@ class TestBuildIdentityPreamble:
         assert "mentioned you" in result
 
     def test_invoked_includes_invocation_message(self):
-        from app.routers.chat._context import _build_identity_preamble
+        from app.services.turn_context import _build_identity_preamble
 
         with patch("app.agent.bots.get_bot", return_value=MENTIONER):
             result = _build_identity_preamble(
