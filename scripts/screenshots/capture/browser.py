@@ -17,6 +17,8 @@ from typing import AsyncIterator
 
 from playwright.async_api import Browser, BrowserContext, async_playwright
 
+from scripts.screenshots.playwright_runtime import launch_async_browser
+
 
 @dataclass
 class AuthBundle:
@@ -91,7 +93,7 @@ async def browser_context(
 ) -> AsyncIterator[tuple[Browser, BrowserContext]]:
     """Yield an authed Playwright browser + context for one capture batch."""
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        browser = await launch_async_browser(pw, headless=True)
         context = await browser.new_context(
             viewport=viewport,
             color_scheme=color_scheme,

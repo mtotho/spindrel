@@ -12,6 +12,7 @@ import {
   useWorkspaceFileContent,
   useWriteWorkspaceFile,
 } from "@/src/api/hooks/useWorkspaces";
+import { resolveChannelFileViewerScope } from "@/src/lib/channelFileNavigation";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { CodeEditor } from "./CodeEditor";
@@ -54,9 +55,11 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   // Decide which API to use based on path scope.
   // Workspace-relative path inside the channel → use channel endpoints (preserves re-indexing).
   // Anything else → use workspace endpoints.
+  const fileScope = resolveChannelFileViewerScope(channelId, filePath);
+  const useChannelEndpoint = fileScope.kind === "channel";
+  const channelRelPath = useChannelEndpoint ? fileScope.path : null;
+  const workspacePath = fileScope.path;
   const channelPrefix = `channels/${channelId}/`;
-  const useChannelEndpoint = filePath.startsWith(channelPrefix);
-  const channelRelPath = useChannelEndpoint ? filePath.slice(channelPrefix.length) : null;
 
   // Channel hooks (only enabled when scope matches)
   const channelContent = useChannelWorkspaceFileContent(
@@ -68,7 +71,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   // Workspace hooks (only enabled when scope is outside the channel)
   const workspaceContent = useWorkspaceFileContent(
     !useChannelEndpoint ? workspaceId : undefined,
-    !useChannelEndpoint && !isImage ? filePath : null,
+    !useChannelEndpoint && !isImage ? workspacePath : null,
   );
   const workspaceWrite = useWriteWorkspaceFile(workspaceId ?? "");
 
@@ -92,7 +95,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
     const url = useChannelEndpoint
       ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(channelRelPath!)}`
       : workspaceId
-        ? `${serverUrl}/api/v1/workspaces/${workspaceId}/files/raw?path=${encodeURIComponent(filePath)}`
+        ? `${serverUrl}/api/v1/workspaces/${workspaceId}/files/raw?path=${encodeURIComponent(workspacePath)}`
         : null;
     if (!url) { setImageLoading(false); return; }
     fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
@@ -104,7 +107,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
       .catch(() => setImageBlobUrl(null))
       .finally(() => setImageLoading(false));
     return () => { if (revoke) URL.revokeObjectURL(revoke); };
-  }, [isImage, serverUrl, channelId, workspaceId, useChannelEndpoint, channelRelPath, filePath]);
+  }, [isImage, serverUrl, channelId, workspaceId, useChannelEndpoint, channelRelPath, workspacePath]);
 
   const [editContent, setEditContent] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -141,7 +144,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
 
   const handleSave = useCallback(() => {
     if (!isDirty || editContent == null) return;
-    const writePath = useChannelEndpoint ? channelRelPath! : filePath;
+    const writePath = useChannelEndpoint ? channelRelPath! : workspacePath;
     writeMutation.mutate(
       { path: writePath, content: editContent },
       {
@@ -152,7 +155,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
         },
       },
     );
-  }, [filePath, useChannelEndpoint, channelRelPath, editContent, isDirty, writeMutation, refetch]);
+  }, [useChannelEndpoint, channelRelPath, workspacePath, editContent, isDirty, writeMutation, refetch]);
 
   // Keyboard shortcut: Ctrl/Cmd+S to save
   useEffect(() => {

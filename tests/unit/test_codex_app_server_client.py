@@ -112,6 +112,26 @@ async def test_request_response_correlation(monkeypatch) -> None:
         await client.close()
 
 
+async def test_spawn_uses_large_stream_limit(monkeypatch) -> None:
+    fake = _FakeProc()
+    calls: list[dict] = []
+
+    async def _fake_create(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return fake
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_create)
+    monkeypatch.setenv("CODEX_BIN", "/bin/true")
+    client = CodexAppServer()
+    await client._open()
+    try:
+        assert calls, "codex app-server subprocess was not spawned"
+        assert calls[0]["kwargs"]["limit"] >= 16 * 1024 * 1024
+    finally:
+        fake._wait_event.set()
+        await client.close()
+
+
 async def test_request_error_raises_codex_error(monkeypatch) -> None:
     client, fake = await _make_client(monkeypatch)
     try:

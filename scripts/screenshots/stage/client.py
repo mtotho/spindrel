@@ -265,6 +265,18 @@ class SpindrelClient:
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
 
+    def write_channel_workspace_file(self, channel_id: str, path: str, content: str) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN PUT /channels/%s/workspace/files/content path=%s", channel_id, path)
+            return {"path": path, "dry_run": True}
+        r = self._http.put(
+            f"/api/v1/channels/{channel_id}/workspace/files/content",
+            params={"path": path},
+            json={"content": content},
+        )
+        r.raise_for_status()
+        return r.json()
+
     def list_session_messages(self, session_id: str, *, limit: int = 20) -> list[dict]:
         r = self._http.get(
             f"/api/v1/sessions/{session_id}/messages",

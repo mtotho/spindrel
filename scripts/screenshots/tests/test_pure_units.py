@@ -18,6 +18,7 @@ import pytest
 
 from scripts.screenshots import config
 from scripts.screenshots import harness_live
+from scripts.screenshots import playwright_runtime
 from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
     FLAGSHIP_SPECS,
@@ -26,6 +27,36 @@ from scripts.screenshots.capture.specs import (
 )
 from scripts.screenshots.stage import envelopes
 from scripts.screenshots.stage.scenarios.harness import stage_harness
+
+
+class _SyncChromium:
+    def __init__(self, *, fail_connect: bool = False, fail_launch: bool = False) -> None:
+        self.fail_connect = fail_connect
+        self.fail_launch = fail_launch
+        self.calls: list[tuple[str, dict]] = []
+
+    def connect(self, endpoint: str):
+        self.calls.append(("connect", {"endpoint": endpoint}))
+        if self.fail_connect:
+            raise RuntimeError("connect failed")
+        return f"playwright:{endpoint}"
+
+    def connect_over_cdp(self, endpoint: str):
+        self.calls.append(("connect_over_cdp", {"endpoint": endpoint}))
+        if self.fail_connect:
+            raise RuntimeError("cdp failed")
+        return f"cdp:{endpoint}"
+
+    def launch(self, **kwargs):
+        self.calls.append(("launch", kwargs))
+        if self.fail_launch:
+            raise RuntimeError("Executable doesn't exist at /tmp/chromium")
+        return {"launch": kwargs}
+
+
+class _SyncPlaywright:
+    def __init__(self, chromium: _SyncChromium) -> None:
+        self.chromium = chromium
 
 
 class _HarnessDryRunClient:
@@ -213,3 +244,77 @@ def test_harness_live_style_command_specs_type_slash_query():
     assert [spec.chat_mode for spec in specs] == ["default", "terminal"]
     assert all(spec.slash_query == "/style" for spec in specs)
     assert all("Switch chat style" in spec.contains for spec in specs)
+
+
+def test_playwright_runtime_candidates_prefer_remote_then_runtime_then_executable(monkeypatch):
+    runtime_candidate = playwright_runtime.BrowserLaunchCandidate(
+        kind="remote",
+        source="runtime-service:browser.playwright",
+        endpoint="ws://playwright-local:3000",
+        protocol="cdp",
+    )
+    monkeypatch.setattr(playwright_runtime, "_runtime_service_candidate", lambda: runtime_candidate)
+    env = {
+        "PLAYWRIGHT_WS_URL": "ws://explicit:3000",
+        "PLAYWRIGHT_CONNECT_PROTOCOL": "playwright",
+        "PLAYWRIGHT_CHROMIUM_EXECUTABLE": "/snap/bin/chromium",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        candidates = playwright_runtime.launch_candidates()
+
+    assert [(c.source, c.endpoint, c.executable_path) for c in candidates] == [
+        ("PLAYWRIGHT_WS_URL", "ws://explicit:3000", None),
+        ("runtime-service:browser.playwright", "ws://playwright-local:3000", None),
+        ("PLAYWRIGHT_CHROMIUM_EXECUTABLE", None, "/snap/bin/chromium"),
+        ("playwright-managed", None, None),
+    ]
+
+
+def test_playwright_runtime_uses_explicit_remote_before_local_executable(monkeypatch):
+    monkeypatch.setattr(playwright_runtime, "_runtime_service_candidate", lambda: None)
+    chromium = _SyncChromium()
+    pw = _SyncPlaywright(chromium)
+
+    with patch.dict(
+        os.environ,
+        {
+            "PLAYWRIGHT_WS_URL": "ws://explicit:3000",
+            "PLAYWRIGHT_CONNECT_PROTOCOL": "cdp",
+            "PLAYWRIGHT_CHROMIUM_EXECUTABLE": "/snap/bin/chromium",
+        },
+        clear=True,
+    ):
+        browser = playwright_runtime.launch_sync_browser(pw)
+
+    assert browser == "cdp:ws://explicit:3000"
+    assert chromium.calls == [("connect_over_cdp", {"endpoint": "ws://explicit:3000"})]
+
+
+def test_playwright_runtime_falls_back_to_explicit_executable(monkeypatch):
+    monkeypatch.setattr(playwright_runtime, "_runtime_service_candidate", lambda: None)
+    chromium = _SyncChromium(fail_connect=True)
+    pw = _SyncPlaywright(chromium)
+
+    with patch.dict(
+        os.environ,
+        {
+            "PLAYWRIGHT_WS_URL": "ws://down:3000",
+            "PLAYWRIGHT_CHROMIUM_EXECUTABLE": "/snap/bin/chromium",
+        },
+        clear=True,
+    ):
+        browser = playwright_runtime.launch_sync_browser(pw)
+
+    assert browser == {"launch": {"headless": True, "executable_path": "/snap/bin/chromium"}}
+    assert [call[0] for call in chromium.calls] == ["connect", "connect_over_cdp", "launch"]
+
+
+def test_playwright_runtime_missing_managed_browser_error_is_actionable(monkeypatch):
+    monkeypatch.setattr(playwright_runtime, "_runtime_service_candidate", lambda: None)
+    chromium = _SyncChromium(fail_launch=True)
+    pw = _SyncPlaywright(chromium)
+
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(RuntimeError, match="python -m playwright install chromium"):
+            playwright_runtime.launch_sync_browser(pw)

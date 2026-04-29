@@ -184,6 +184,16 @@ async def lifespan(application: FastAPI):
             "Applied bootstrap integration intent: %s",
             ", ".join(_bootstrapped_integrations),
         )
+    from app.services.runtime_services import ensure_required_providers_for_active_integrations
+    _runtime_provider_sync = await ensure_required_providers_for_active_integrations()
+    if _runtime_provider_sync:
+        logger.info(
+            "Enabled runtime provider integrations: %s",
+            "; ".join(
+                f"{consumer} -> {', '.join(providers)}"
+                for consumer, providers in sorted(_runtime_provider_sync.items())
+            ),
+        )
     from app.services.widget_packages_seeder import seed_widget_packages
     await seed_widget_packages()
     from app.services.widget_templates import load_widget_templates_from_db

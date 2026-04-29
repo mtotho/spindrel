@@ -42,6 +42,8 @@
     "src/lib/unreadNavigation.test.ts",
     "src/lib/channelNavigation.ts",
     "src/lib/channelNavigation.test.ts",
+    "src/lib/channelFileNavigation.ts",
+    "src/lib/channelFileNavigation.test.ts",
     "src/lib/recentPages.ts",
     "src/lib/historyModeMeta.ts",
     "src/lib/historyModeMeta.test.ts",

@@ -106,3 +106,31 @@ class TestRuntimeServices:
         assert enabled == ["browser_automation"]
         assert applied == [("browser_automation", "enabled")]
 
+    @pytest.mark.asyncio
+    async def test_startup_enables_providers_for_already_active_consumers(self, monkeypatch):
+        import app.services.runtime_services as rs
+
+        manifests = _manifests()
+        statuses = {"web_search": "enabled", "browser_automation": "available"}
+        applied = []
+        monkeypatch.setattr(rs, "get_all_manifests", lambda: manifests)
+        monkeypatch.setattr(rs, "get_manifest", lambda iid: manifests.get(iid))
+        monkeypatch.setattr(rs, "get_value", lambda iid, key, default="": {
+            ("web_search", "WEB_SEARCH_MODE"): "searxng",
+        }.get((iid, key), default))
+
+        async def fake_set_status(integration_id, status):
+            statuses[integration_id] = status
+            applied.append((integration_id, status))
+
+        monkeypatch.setattr("app.services.integration_settings.get_status", lambda iid: statuses.get(iid, "available"))
+        monkeypatch.setattr("app.services.integration_settings.set_status", fake_set_status)
+        monkeypatch.setattr(
+            "app.services.integration_settings.is_active",
+            lambda iid: statuses.get(iid) == "enabled",
+        )
+
+        enabled = await rs.ensure_required_providers_for_active_integrations()
+
+        assert enabled == {"web_search": ["browser_automation"]}
+        assert applied == [("browser_automation", "enabled")]

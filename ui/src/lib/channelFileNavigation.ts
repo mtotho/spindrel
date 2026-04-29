@@ -16,6 +16,31 @@ export function defaultChannelBrowsePath(channelId: string): string {
   return `channels/${channelId}`;
 }
 
+export interface ChannelFileViewerScope {
+  kind: "channel" | "workspace";
+  path: string;
+}
+
+const WORKSPACE_SCOPE_PREFIXES = ["bots/", "common/", "projects/", "workspaces/"];
+
+export function resolveChannelFileViewerScope(
+  channelId: string,
+  filePath: string,
+): ChannelFileViewerScope {
+  const normalized = normalizeWorkspaceNavigationPath(filePath) ?? "";
+  const channelPrefix = `${defaultChannelBrowsePath(channelId)}/`;
+  if (normalized.startsWith(channelPrefix)) {
+    return { kind: "channel", path: normalized.slice(channelPrefix.length) };
+  }
+  if (
+    normalized.startsWith("channels/")
+    || WORKSPACE_SCOPE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+  ) {
+    return { kind: "workspace", path: normalized };
+  }
+  return { kind: "channel", path: normalized };
+}
+
 export function directoryForWorkspaceFile(path: string): string {
   const normalized = normalizeWorkspaceNavigationPath(path);
   if (!normalized) return "";

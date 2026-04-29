@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-28 (session controls, auto-compaction, and live smoke diagnostics expanded)
+updated: 2026-04-29 (browser runtime and harness parity diagnostics)
 ---
 # Track - Harness SDK
 
@@ -209,6 +209,9 @@ Approval mapping intent (final values from schema):
 - Task and heartbeat auto-approval maps to a run-scoped harness `bypassPermissions` override, enabling unattended automation without mutating the interactive session's stored approval mode.
 - Task create/update/detail APIs and shared task forms surface `skip_tool_approval`; heartbeat forms show run target and tool policies for harness runner mode instead of hiding them behind the normal-agent path.
 - Added live automation parity coverage: `HARNESS_PARITY_TIER=automation` creates a disposable scheduled task against a fresh existing session, selects `list_channels`, runs it manually, and verifies the bridge tool call plus renderable persisted tool-result envelope.
+- Browser runtime parity: startup now reconciles runtime-service providers for already-enabled consumers before dependency/tool loading, so existing `web_search` installs auto-enable `browser_automation` and its stack/tools on upgrade.
+- Screenshot/runtime tooling now shares one Playwright launcher: `PLAYWRIGHT_WS_URL`, then the `browser_automation` runtime-service endpoint, then explicit `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, then Playwright-managed Chromium with an install hint.
+- Live harness parity bridge tier now verifies the `browser_automation` Docker stack, agent-container DNS for `playwright-local`, registered `headless_browser_*` tools, and a real Codex/Claude harness call through `headless_browser_open`.
 
 ### Finish-line pass — 2026-04-27
 

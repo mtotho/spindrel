@@ -475,7 +475,7 @@ runtime_services:
         values: ["searxng"]
 ```
 
-Lifecycle stays explicit: enabling a consumer can auto-enable its provider, but the provider integration remains separately visible and can expose its own tools only through normal activation, pinning, or admin enablement paths.
+Lifecycle stays explicit: enabling a consumer can auto-enable its provider, and startup re-runs that provider reconciliation for already-enabled consumers after manifest loading. The provider integration remains separately visible and can expose its own tools only through normal activation, pinning, or admin enablement paths.
 
 For other binaries follow the same pattern: declare in `dependencies.system`, look up with `shutil.which()`, and (optionally) call `install_system_package(apt_package)` from your tool when a missing binary is recoverable. If the lookup pattern ends up duplicated in a second integration, lift it into `integrations/sdk.py` rather than copy-pasting.
 

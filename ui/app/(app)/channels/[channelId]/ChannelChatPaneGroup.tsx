@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, Maximize2, Minus, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Maximize2, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
@@ -30,7 +30,7 @@ interface ChannelChatPaneGroupProps {
   onClosePane: (paneId: string) => void;
   onMaximizePane: (paneId: string) => void;
   onRestorePanes: () => void;
-  onMinimizePane: (paneId: string) => void;
+  onUnsplitPane: (paneId: string) => void;
   onMovePane: (paneId: string, direction: "left" | "right") => void;
   onCommitPaneWidths: (widths: Record<string, number>) => void;
   onMakePrimary: (pane: ChannelChatPane) => void;
@@ -99,7 +99,7 @@ function PaneHeader({
   onClose,
   onMaximize,
   onRestore,
-  onMinimize,
+  onUnsplit,
   onMoveLeft,
   onMoveRight,
   onMakePrimary,
@@ -115,7 +115,7 @@ function PaneHeader({
   onClose: () => void;
   onMaximize: () => void;
   onRestore: () => void;
-  onMinimize: () => void;
+  onUnsplit: () => void;
   onMoveLeft: () => void;
   onMoveRight: () => void;
   onMakePrimary: () => void;
@@ -182,15 +182,6 @@ function PaneHeader({
       <div className="flex shrink-0 items-center gap-0.5">
         <button
           type="button"
-          onClick={onMinimize}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
-          aria-label="Minimize to mini chat"
-          title="Minimize to mini chat"
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          type="button"
           onClick={maximized ? onRestore : onMaximize}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
           aria-label={maximized ? "Restore splits" : "Maximize pane"}
@@ -237,12 +228,12 @@ function PaneHeader({
             <button
               type="button"
               onClick={() => {
-                onMinimize();
+                onUnsplit();
                 setMenuOpen(false);
               }}
               className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
             >
-              Minimize to mini chat
+              Unsplit to this pane
             </button>
             <button
               type="button"
@@ -325,7 +316,7 @@ export function ChannelChatPaneGroup({
   onClosePane,
   onMaximizePane,
   onRestorePanes,
-  onMinimizePane,
+  onUnsplitPane,
   onMovePane,
   onCommitPaneWidths,
   onMakePrimary,
@@ -426,7 +417,7 @@ export function ChannelChatPaneGroup({
                 onClose={() => onClosePane(pane.id)}
                 onMaximize={() => onMaximizePane(pane.id)}
                 onRestore={onRestorePanes}
-                onMinimize={() => onMinimizePane(pane.id)}
+                onUnsplit={() => onUnsplitPane(pane.id)}
                 onMoveLeft={() => onMovePane(pane.id, "left")}
                 onMoveRight={() => onMovePane(pane.id, "right")}
                 onMakePrimary={() => onMakePrimary(pane)}

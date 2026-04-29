@@ -279,11 +279,12 @@ test("channel route delegates session pane orchestration to its local controller
   assert.match(channelRoute, /useChannelSessionPaneController/);
   assert.doesNotMatch(channelRoute, /const focusPane = useCallback/);
   assert.doesNotMatch(channelRoute, /const minimizePane = useCallback/);
+  assert.doesNotMatch(channelRoute, /onMinimizePane/);
   assert.doesNotMatch(channelRoute, /const replacePaneWithPendingSplit = useCallback/);
   assert.doesNotMatch(channelRoute, /const activateChannelSessionSurface = useCallback/);
   assert.doesNotMatch(channelRoute, /usePromoteScratchSession/);
   assert.match(paneController, /const focusPane = useCallback/);
-  assert.match(paneController, /const minimizePane = useCallback/);
+  assert.match(paneController, /const unsplitPane = useCallback/);
   assert.match(paneController, /const replacePaneWithPendingSplit = useCallback/);
   assert.match(paneController, /const activateChannelSessionSurface = useCallback/);
   assert.match(paneController, /usePromoteScratchSession/);
@@ -305,8 +306,12 @@ test("channel route renders desktop session tabs through dedicated components an
 
   assert.match(channelRoute, /buildChannelSessionTabItems/);
   assert.match(channelRoute, /<ChannelSessionTabStrip/);
+  assert.match(channelRoute, /tabs=\{topTabs\}/);
   assert.match(channelRoute, /<ChannelSessionInlinePicker/);
   assert.match(channelRoute, /hiddenSessionTabKeys/);
+  assert.match(channelRoute, /fileTabPaths/);
+  assert.match(channelRoute, /selectFileTabNow/);
+  assert.match(channelRoute, /fileTabKey/);
   assert.match(channelRoute, /sessionTabLayouts/);
   assert.match(channelRoute, /pendingSessionTabKey/);
   assert.match(channelRoute, /openSessionTabSurfaceKeys/);
@@ -317,6 +322,11 @@ test("channel route renders desktop session tabs through dedicated components an
   assert.match(sessionTabs, /data-testid="channel-session-tab-menu"/);
   assert.match(sessionTabs, /Focus open pane/);
   assert.match(sessionTabs, /Already open/);
+  assert.match(sessionTabs, /Unsplit to/);
+  assert.match(sessionTabs, /ChannelFileTabItem/);
+  assert.match(sessionTabs, /ChannelTopTabItem/);
+  assert.match(sessionTabs, /FileText/);
+  assert.match(sessionTabs, /Already split/);
   assert.match(sessionTabs, /<DragOverlay/);
   assert.match(sessionTabs, /activationConstraint: \{ distance: 2 \}/);
   assert.match(sessionTabs, /data-testid="channel-session-inline-picker"/);

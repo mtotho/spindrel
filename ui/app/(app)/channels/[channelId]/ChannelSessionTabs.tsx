@@ -53,6 +53,7 @@ interface ChannelSessionTabStripProps {
   onClose: (tab: ChannelTopTabItem) => void;
   onReorder: (dragKey: string, targetKey: string) => void;
   onSplit: (tab: ChannelTopTabItem) => void;
+  onUnsplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
   onFocusOpenSurface: (tab: ChannelTopTabItem) => void;
   onReplaceFocused: (tab: ChannelTopTabItem) => void;
   onMakePrimary: (tab: ChannelTopTabItem) => void;
@@ -69,6 +70,7 @@ export function ChannelSessionTabStrip({
   onClose,
   onReorder,
   onSplit,
+  onUnsplitPane,
   onFocusOpenSurface,
   onReplaceFocused,
   onMakePrimary,
@@ -108,7 +110,7 @@ export function ChannelSessionTabStrip({
     >
       <div
         data-testid="channel-session-tab-strip"
-        className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto px-3 pb-1 text-[12px]"
+        className="scroll-subtle flex h-9 shrink-0 items-center gap-1 overflow-x-auto px-3 pb-1 text-[12px]"
       >
         <SortableContext items={tabKeys} strategy={horizontalListSortingStrategy}>
           {tabs.map((tab) => (
@@ -119,6 +121,7 @@ export function ChannelSessionTabStrip({
               onFocusSplitPane={onFocusSplitPane}
               onClose={onClose}
               onSplit={onSplit}
+              onUnsplitPane={onUnsplitPane}
               onFocusOpenSurface={onFocusOpenSurface}
               onReplaceFocused={onReplaceFocused}
               onMakePrimary={onMakePrimary}
@@ -151,6 +154,7 @@ interface SortableSessionTabProps {
   onFocusSplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
   onClose: (tab: ChannelTopTabItem) => void;
   onSplit: (tab: ChannelTopTabItem) => void;
+  onUnsplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
   onFocusOpenSurface: (tab: ChannelTopTabItem) => void;
   onReplaceFocused: (tab: ChannelTopTabItem) => void;
   onMakePrimary: (tab: ChannelTopTabItem) => void;
@@ -165,6 +169,7 @@ function SortableSessionTab({
   onFocusSplitPane,
   onClose,
   onSplit,
+  onUnsplitPane,
   onFocusOpenSurface,
   onReplaceFocused,
   onMakePrimary,
@@ -339,14 +344,14 @@ function SortableSessionTab({
           {tab.kind === "split" ? (
             <>
               <div className="my-1 h-px bg-surface-border/60" />
-              <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Focus pane</div>
+              <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Unsplit to</div>
               {tab.panes.map((pane) => (
                 <button
                   key={pane.id}
                   type="button"
                   onClick={() => {
                     setMenuPosition(null);
-                    onFocusSplitPane(tab, pane.id);
+                    onUnsplitPane(tab, pane.id);
                   }}
                   className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
                 >
@@ -546,9 +551,9 @@ export function ChannelSessionInlinePicker({
   return (
     <div
       data-testid="channel-session-inline-picker"
-      className="flex min-h-0 flex-1 items-center justify-center bg-surface px-6 py-8"
+      className="flex min-h-0 flex-1 items-stretch justify-center overflow-hidden bg-surface px-6 py-6"
     >
-      <div className="flex w-full max-w-2xl flex-col gap-4">
+      <div className="flex min-h-0 w-full max-w-2xl flex-col gap-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-text">Choose a session</div>
@@ -575,7 +580,7 @@ export function ChannelSessionInlinePicker({
             className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-dim"
           />
         </label>
-        <div className="min-h-[220px] overflow-hidden rounded-md bg-surface-raised/35">
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-md bg-surface-raised/35">
           {isLoading && <div className="px-4 py-8 text-sm text-text-dim">Loading sessions...</div>}
           {error && (
             <div className="px-4 py-8 text-sm text-danger">

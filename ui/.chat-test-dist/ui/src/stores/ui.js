@@ -19,6 +19,7 @@ export function defaultChannelPanelPrefs() {
         sessionPanels: [],
         chatPaneLayout: defaultChannelChatPaneLayout(),
         sessionTabLayouts: [],
+        fileTabPaths: [],
         hiddenSessionTabKeys: [],
         sessionTabOrderKeys: [],
         topChromeCollapsed: false,
@@ -48,6 +49,7 @@ function normalizeChannelPanelPrefs(prefs) {
         sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
         chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
         sessionTabLayouts: normalizeChannelSessionTabLayouts(prefs?.sessionTabLayouts),
+        fileTabPaths: normalizeFileTabPaths(prefs?.fileTabPaths),
         hiddenSessionTabKeys: Array.isArray(prefs?.hiddenSessionTabKeys)
             ? prefs.hiddenSessionTabKeys.filter((key) => typeof key === "string" && key.length > 0).slice(0, 40)
             : [],
@@ -57,6 +59,22 @@ function normalizeChannelPanelPrefs(prefs) {
         topChromeCollapsed: prefs?.topChromeCollapsed ?? base.topChromeCollapsed,
         collapseHintDismissed: prefs?.collapseHintDismissed ?? base.collapseHintDismissed,
     };
+}
+function normalizeFileTabPaths(value) {
+    if (!Array.isArray(value))
+        return [];
+    const paths = [];
+    for (const item of value) {
+        if (typeof item !== "string")
+            continue;
+        const path = item.trim().replace(/^\/+/, "");
+        if (!path || paths.includes(path))
+            continue;
+        paths.push(path);
+        if (paths.length >= 20)
+            break;
+    }
+    return paths;
 }
 export const SIDEBAR_MIN_WIDTH = 180;
 export const SIDEBAR_MAX_WIDTH = 360;

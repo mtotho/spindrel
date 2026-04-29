@@ -14,10 +14,12 @@ from app.services.workspace_attention import (
     acknowledge_attention_items_bulk,
     assign_attention_item,
     actor_label,
+    create_attention_triage_run,
     create_user_attention_item,
     get_attention_item,
     list_attention_items,
     mark_attention_responded,
+    record_attention_triage_feedback,
     resolve_attention_item,
     serialize_attention_item,
     serialize_attention_items,
@@ -54,6 +56,16 @@ class AttentionBulkAcknowledgeRequest(BaseModel):
     target_kind: str | None = None
     target_id: str | None = None
     channel_id: uuid.UUID | None = None
+
+
+class AttentionTriageRunRequest(BaseModel):
+    scope: str = "all_active"
+
+
+class AttentionTriageFeedbackRequest(BaseModel):
+    verdict: str
+    note: str | None = None
+    route: str | None = None
 
 
 @router.post("")
@@ -108,6 +120,24 @@ async def acknowledge_attention_bulk(
     }
 
 
+@router.post("/triage-runs")
+async def create_attention_triage_run_route(
+    body: AttentionTriageRunRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.scope != "all_active":
+        raise HTTPException(400, "scope must be all_active.")
+    try:
+        return await create_attention_triage_run(
+            db,
+            auth=auth,
+            actor=actor_label(auth),
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 @router.get("")
 async def get_attention_items(
     status: str | None = None,
@@ -151,6 +181,29 @@ async def acknowledge_attention(
         item = await acknowledge_attention_item(db, item_id)
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e
+    return {"item": await serialize_attention_item(db, item)}
+
+
+@router.post("/{item_id}/triage-feedback")
+async def attention_triage_feedback(
+    item_id: uuid.UUID,
+    body: AttentionTriageFeedbackRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        item = await record_attention_triage_feedback(
+            db,
+            item_id,
+            verdict=body.verdict,
+            actor=actor_label(auth),
+            note=body.note,
+            route=body.route,
+        )
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
     return {"item": await serialize_attention_item(db, item)}
 
 

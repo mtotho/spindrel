@@ -26,7 +26,6 @@ import {
   buildScratchChatSource,
   defaultChannelChatPaneLayout,
   maximizeChannelChatPane,
-  minimizeChannelChatPane,
   moveChannelChatPane,
   paneIdForSurface,
   removeChannelChatPane,
@@ -375,26 +374,22 @@ export function useChannelSessionPaneController({
       chatPaneLayout: restoreChannelChatPanes(current.chatPaneLayout),
     }));
   }, [channelId, patchChannelPanelPrefs]);
-  const minimizePane = useCallback((paneId: string) => {
+  const unsplitPane = useCallback((paneId: string) => {
     if (!channelId) return;
-    setScratchOpen(false);
-    setScratchPinnedSessionId(null);
-    let remainingSurface: ChannelSessionSurface | null = null;
+    let selectedSurface: ChannelSessionSurface | null = null;
     patchChannelPanelPrefs(channelId, (current) => ({
       chatPaneLayout: (() => {
-        const next = minimizeChannelChatPane(current.chatPaneLayout, paneId);
-        if (next.panes.length === 1) {
-          remainingSurface = next.panes[0]?.surface ?? { kind: "primary" };
-          return {
-            ...defaultChannelChatPaneLayout(),
-            miniPane: next.miniPane,
-          };
-        }
-        return next;
+        const pane = current.chatPaneLayout.panes.find((candidate) => candidate.id === paneId) ?? null;
+        if (!pane) return current.chatPaneLayout;
+        selectedSurface = pane.surface;
+        return {
+          ...defaultChannelChatPaneLayout(),
+          miniPane: current.chatPaneLayout.miniPane,
+        };
       })(),
     }));
-    if (remainingSurface) {
-      navigate(buildChannelSessionRoute(channelId, remainingSurface));
+    if (selectedSurface) {
+      navigate(buildChannelSessionRoute(channelId, selectedSurface));
     }
   }, [channelId, navigate, patchChannelPanelPrefs]);
   const movePane = useCallback((paneId: string, direction: "left" | "right") => {
@@ -548,7 +543,7 @@ export function useChannelSessionPaneController({
     closePane,
     maximizePane,
     restorePanes,
-    minimizePane,
+    unsplitPane,
     movePane,
     commitPaneWidths,
     activateChannelSessionSurface,

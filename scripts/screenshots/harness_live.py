@@ -24,6 +24,8 @@ from typing import Iterable
 import httpx
 from playwright.async_api import Browser, Page, async_playwright
 
+from scripts.screenshots.playwright_runtime import launch_async_browser
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DOCS_IMAGES = REPO_ROOT / "docs" / "images"
@@ -317,7 +319,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
 
         paths: list[Path] = []
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
+            browser = await launch_async_browser(pw, headless=True)
             try:
                 for spec in specs:
                     print(f"capturing {spec.name}", flush=True)

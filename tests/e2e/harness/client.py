@@ -611,6 +611,21 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def list_docker_stacks(self) -> list[dict]:
+        resp = await self._client.get("/api/v1/admin/docker-stacks")
+        resp.raise_for_status()
+        return list(resp.json() or [])
+
+    async def get_docker_stack_status(self, stack_id: str) -> list[dict]:
+        resp = await self._client.get(f"/api/v1/admin/docker-stacks/{stack_id}/status")
+        resp.raise_for_status()
+        return list(resp.json() or [])
+
+    async def list_admin_tools(self) -> list[dict]:
+        resp = await self._client.get("/api/v1/admin/tools")
+        resp.raise_for_status()
+        return list(resp.json() or [])
+
     async def get_channel_config(self, channel_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/channels/{channel_id}/config")
         resp.raise_for_status()

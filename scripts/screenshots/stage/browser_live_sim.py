@@ -36,6 +36,8 @@ from typing import Any
 import websockets
 from playwright.async_api import Page, async_playwright
 
+from scripts.screenshots.playwright_runtime import launch_async_browser
+
 logger = logging.getLogger("browser_live_sim")
 
 
@@ -100,7 +102,7 @@ async def _serve(api_url: str, token: str, *, start_url: str, headless: bool) ->
     ws_url = f"{ws_url}/integrations/browser_live/ws?token={token}&label=screenshot-sim"
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=headless)
+        browser = await launch_async_browser(pw, headless=headless)
         context = await browser.new_context(viewport={"width": 1280, "height": 800})
         page = await context.new_page()
         await page.goto(start_url, wait_until="load", timeout=30000)

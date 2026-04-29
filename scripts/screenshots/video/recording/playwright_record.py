@@ -33,6 +33,8 @@ from typing import Any
 
 from playwright.sync_api import sync_playwright
 
+from scripts.screenshots.playwright_runtime import launch_sync_browser
+
 
 logger = logging.getLogger("screenshots.video.recording")
 
@@ -90,7 +92,7 @@ def record_actions(
     )
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = launch_sync_browser(pw, headless=True)
         try:
             context = browser.new_context(
                 viewport={"width": width, "height": height},

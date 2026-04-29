@@ -22,6 +22,8 @@ from typing import Literal
 
 from playwright.sync_api import sync_playwright
 
+from scripts.screenshots.playwright_runtime import launch_sync_browser
+
 
 logger = logging.getLogger("screenshots.video.doc_capture")
 
@@ -122,7 +124,7 @@ def capture_full_page(
     logger.info("doc capture (full page): %s → %s", url, out)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = launch_sync_browser(pw, headless=True)
         try:
             # DPR=1 keeps the captured PNG manageable for very long guides.
             # Output video is 1080p, so 2x source supersamples needlessly and
@@ -173,7 +175,7 @@ def capture_callout(
 
     vw, vh = viewport
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = launch_sync_browser(pw, headless=True)
         try:
             context = browser.new_context(
                 viewport={"width": vw, "height": vh},

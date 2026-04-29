@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-28 (attachment receipts)
+updated: 2026-04-29 (channel tabs)
 ---
 # Track — UI Polish
 
@@ -53,7 +53,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Fixed terminal-mode mobile tool rows: result previews no longer force horizontal page scroll, and the primary tool label stays intact while secondary path/preview text truncates within the row.
 - [x] Fixed mobile file-tool path overflow: generic file-tool rows now keep operation labels separate from long workspace paths, target paths left-truncate to show the end-most segment, and the row wraps within chat width instead of forcing horizontal page scroll.
 - [x] Fixed `/find` chat jumps: default search now matches the active visible session, `--all` makes broader channel-session search explicit, and result clicks load older pages until the target message is mounted before scrolling/highlighting.
-- [x] Added desktop channel session tabs sourced from local browser recents, with stable user-reorderable ordering, instant ghost-preview drag, quiet primary/unread indication, immediate pending feedback, saved conjoined split-layout tabs, a right-click split action menu, close-to-hide behavior, docs screenshots, and an inline session chooser when every recent tab is hidden.
+- [x] Added desktop channel session tabs sourced from local browser recents, with stable user-reorderable ordering, instant ghost-preview drag, quiet primary/unread indication, immediate pending feedback, saved conjoined split-layout tabs, a right-click split/unsplit action menu, close-to-hide behavior, docs screenshots, and an inline session chooser when every recent tab is hidden.
+- [x] Folded channel workspace files into the same top tab strip: opening a file selects/adds a file tab instead of forcing split, file tabs can explicitly split right, direct `open_file=notes/...` links resolve through channel file endpoints, and the screenshot harness now captures the loaded file-tab split state.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 

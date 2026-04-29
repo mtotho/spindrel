@@ -8,11 +8,16 @@ Runs locally, talks to the e2e instance at `10.10.30.208:18000`, lands PNGs in
 ```bash
 cd scripts/screenshots
 pip install -r requirements.txt
-playwright install chromium
 cp .env.example .env
 # Fill in SPINDREL_LOGIN_EMAIL / SPINDREL_LOGIN_PASSWORD for an admin user on
 # the e2e instance. SPINDREL_API_KEY defaults to the baked e2e key.
 ```
+
+Browser capture uses the shared launcher in `scripts/screenshots/playwright_runtime.py`.
+It tries `PLAYWRIGHT_WS_URL`, then the `browser_automation` runtime-service
+endpoint, then `PLAYWRIGHT_CHROMIUM_EXECUTABLE` such as `/snap/bin/chromium`,
+then Playwright-managed Chromium. If no backend is available, install the
+managed fallback with `python -m playwright install chromium`.
 
 ## Usage
 

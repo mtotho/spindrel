@@ -8,6 +8,7 @@ from .._exec import run_server_helper
 from ..client import SpindrelClient
 
 CHANNEL_SESSION_TABS_CLIENT_ID = "screenshot:channel-session-tabs"
+CHANNEL_SESSION_TABS_FILE_PATH = "notes/session-tab-workflow.md"
 
 
 def stage_channel_session_tabs(
@@ -45,6 +46,16 @@ def stage_channel_session_tabs(
             dry_run=dry_run,
         )
 
+    client.write_channel_workspace_file(
+        channel_id,
+        CHANNEL_SESSION_TABS_FILE_PATH,
+        (
+            "# Session tab workflow\n\n"
+            "A file opens into the same low-chrome tab strip as recent sessions.\n\n"
+            "- Selecting an open file tab should not reorder the strip.\n"
+            "- Split right is an explicit tab action.\n"
+        ),
+    )
     state.channels["channel_session_tabs"] = channel_id
     state.bots["channel_session_tabs"] = KB_BOT_ID
     return state

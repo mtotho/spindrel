@@ -6,7 +6,8 @@ import {
   defaultChannelBrowsePath,
   directoryForWorkspaceFile,
   readChannelFileIntent,
-} from "./channelFileNavigation.ts";
+  resolveChannelFileViewerScope,
+} from "./channelFileNavigation.js";
 
 test("buildChannelFileHref keeps channel routes on the main chat when no session is provided", () => {
   assert.equal(
@@ -88,5 +89,27 @@ test("readChannelFileIntent round-trips the workspace root sentinel", () => {
   assert.deepEqual(readChannelFileIntent(root, "channel-1"), {
     directoryPath: "",
     openFile: "README.md",
+  });
+});
+
+test("resolveChannelFileViewerScope treats direct open_file paths as channel relative", () => {
+  assert.deepEqual(resolveChannelFileViewerScope("channel-1", "notes/plan.md"), {
+    kind: "channel",
+    path: "notes/plan.md",
+  });
+  assert.deepEqual(resolveChannelFileViewerScope("channel-1", "channels/channel-1/notes/plan.md"), {
+    kind: "channel",
+    path: "notes/plan.md",
+  });
+});
+
+test("resolveChannelFileViewerScope preserves shared workspace files outside this channel", () => {
+  assert.deepEqual(resolveChannelFileViewerScope("channel-1", "channels/channel-2/notes/plan.md"), {
+    kind: "workspace",
+    path: "channels/channel-2/notes/plan.md",
+  });
+  assert.deepEqual(resolveChannelFileViewerScope("channel-1", "bots/bot-1/persona.md"), {
+    kind: "workspace",
+    path: "bots/bot-1/persona.md",
   });
 });

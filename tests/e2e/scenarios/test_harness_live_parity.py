@@ -20,6 +20,8 @@ import asyncio
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -51,6 +53,18 @@ CORE_BRIDGE_BASELINE_TOOLS = (
     "read_conversation_history",
     "list_sub_sessions",
     "read_sub_session",
+)
+
+HEADLESS_BROWSER_TOOLS = (
+    "headless_browser_open",
+    "headless_browser_goto",
+    "headless_browser_snapshot",
+    "headless_browser_click",
+    "headless_browser_type",
+    "headless_browser_screenshot",
+    "headless_browser_eval",
+    "headless_browser_close",
+    "headless_browser_status",
 )
 
 
@@ -462,6 +476,41 @@ async def _assert_usage_surfaces_harness_channel(
     ), f"harness usage did not contribute to channel breakdown for {channel_id}: {groups}"
 
 
+async def _assert_browser_runtime_live_diagnostics(client: E2EClient) -> None:
+    stacks = await client.list_docker_stacks()
+    browser_stacks = [s for s in stacks if s.get("integration_id") == "browser_automation"]
+    assert browser_stacks, "browser_automation docker stack is not registered"
+    stack = browser_stacks[0]
+    assert stack.get("status") == "running", f"browser_automation stack is not running: {stack}"
+
+    services = await client.get_docker_stack_status(str(stack["id"]))
+    assert any(
+        service.get("name") == "playwright" and service.get("state") == "running"
+        for service in services
+    ), f"playwright service is not running: {services}"
+
+    tools = await client.list_admin_tools()
+    tool_names = {str(tool.get("tool_name") or tool.get("name") or "") for tool in tools}
+    missing = [tool for tool in HEADLESS_BROWSER_TOOLS if tool not in tool_names]
+    assert not missing, f"headless browser tools are not indexed: {missing}"
+
+    if not shutil.which("docker"):
+        pytest.skip("docker CLI is not available for container DNS diagnostics")
+    container = os.environ.get("HARNESS_PARITY_AGENT_CONTAINER", "agent-server-agent-server-1")
+    host = os.environ.get("HARNESS_PARITY_PLAYWRIGHT_HOST", "playwright-local")
+    proc = subprocess.run(
+        ["docker", "exec", container, "getent", "hosts", host],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=20,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        f"agent container could not resolve {host!r}; stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    )
+
+
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
 async def test_live_harness_core_parity_controls_trace_and_context(
@@ -546,6 +595,12 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         )
 
 
+@pytest.mark.asyncio
+async def test_live_browser_automation_runtime_diagnostics(client: E2EClient) -> None:
+    _requires_tier("bridge")
+    await _assert_browser_runtime_live_diagnostics(client)
+
+
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
 async def test_live_harness_bridge_tools_persist_and_renderable(
@@ -608,6 +663,51 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
     )
     status = await client.get_session_harness_status(session_id)
     _assert_bridge_baseline(status)
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_browser_tool_call_uses_shared_runtime(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("bridge")
+    await _assert_browser_runtime_live_diagnostics(client)
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+    await client.set_session_approval_mode(session_id, "bypassPermissions")
+
+    result = await client.chat_session_stream(
+        (
+            "Browser runtime diagnostic. Use @tool:headless_browser_open. "
+            "You must call the host-provided headless_browser_open tool exactly once "
+            "with url \"https://example.com\". Do not use shell commands. "
+            "After the tool result, reply with the page title and whether the URL opened."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert any(
+        event.type == "tool_start"
+        and event.data.get("tool") in {"headless_browser_open", "mcp__spindrel__headless_browser_open"}
+        for event in result.events
+    ), "harness did not call headless_browser_open"
+
+    cleanup = await client.chat_session_stream(
+        (
+            "Use @tool:headless_browser_close. Call the host-provided "
+            "headless_browser_close tool once to close the browser session. "
+            "Do not use shell commands."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(cleanup)
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

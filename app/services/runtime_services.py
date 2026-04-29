@@ -184,3 +184,23 @@ async def ensure_required_providers_enabled(integration_id: str) -> list[str]:
         await set_status(provider_id, "enabled")
         enabled.append(provider_id)
     return enabled
+
+
+async def ensure_required_providers_for_active_integrations() -> dict[str, list[str]]:
+    """Enable runtime providers required by already-active consumers.
+
+    This covers upgrade/startup recovery: an integration such as ``web_search``
+    may already be enabled before a shared provider integration exists in the
+    manifest set.  Running this before dependency/tool loading makes the new
+    provider visible to the normal startup lifecycle.
+    """
+    from app.services.integration_settings import is_active
+
+    enabled_by_consumer: dict[str, list[str]] = {}
+    for integration_id in sorted(get_all_manifests()):
+        if not is_active(integration_id):
+            continue
+        enabled = await ensure_required_providers_enabled(integration_id)
+        if enabled:
+            enabled_by_consumer[integration_id] = enabled
+    return enabled_by_consumer

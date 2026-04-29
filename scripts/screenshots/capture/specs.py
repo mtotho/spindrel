@@ -1645,6 +1645,49 @@ _ASSERT_SESSION_TABS_JS = (
     "await new Promise((resolve) => setTimeout(resolve, 50));"
 )
 
+_SESSION_FILE_TAB_PATH = "notes/session-tab-workflow.md"
+_SESSION_FILE_TABS_READY = (
+    "document.querySelectorAll('[data-testid=\"channel-session-tab\"]').length >= 5"
+    f" && document.querySelector('[data-session-tab-key=\"file:{_SESSION_FILE_TAB_PATH}\"][data-active=\"true\"]')"
+    " && document.querySelector('[data-testid=\"channel-session-tab-strip\"]')"
+    " && document.querySelectorAll('[class*=\"bg-skeleton\"]').length === 0"
+)
+
+_ASSERT_AND_SPLIT_FILE_TAB_JS = (
+    "const waitFor = async (predicate, label, timeout = 10000) => {"
+    "  const started = Date.now();"
+    "  while (Date.now() - started < timeout) {"
+    "    if (predicate()) return;"
+    "    await new Promise((resolve) => setTimeout(resolve, 120));"
+    "  }"
+    "  throw new Error(`timed out waiting for ${label}`);"
+    "};"
+    f"const fileTab = document.querySelector('[data-session-tab-key=\"file:{_SESSION_FILE_TAB_PATH}\"]');"
+    "if (!fileTab) throw new Error('file tab missing');"
+    "if (fileTab.getAttribute('data-active') !== 'true') throw new Error('file tab not active after route open');"
+    "fileTab.click();"
+    "await new Promise((resolve) => setTimeout(resolve, 120));"
+    "if (fileTab.getAttribute('data-loading') === 'true') throw new Error('active file tab showed loading on click');"
+    "fileTab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 360, clientY: 120 }));"
+    "await new Promise((resolve) => setTimeout(resolve, 80));"
+    "const menu = document.querySelector('[data-testid=\"channel-session-tab-menu\"]');"
+    "if (!menu || !/Split right/.test(menu.textContent || '')) throw new Error('file tab split action missing');"
+    "const splitButton = [...menu.querySelectorAll('button')].find((button) => /Split right/.test(button.textContent || ''));"
+    "if (!splitButton) throw new Error('file tab split button missing');"
+    "splitButton.click();"
+    "await waitFor(() => /Split/.test(fileTab.textContent || ''), 'file split tab label');"
+    "await waitFor(() => document.querySelectorAll('[class*=\"bg-skeleton\"]').length === 0, 'chat skeletons to clear');"
+    "await waitFor(() => !document.querySelector('.animate-spin'), 'loading indicators to clear');"
+)
+
+_ASSERT_FILE_TABS_SETTLED_JS = (
+    f"const fileTab = document.querySelector('[data-session-tab-key=\"file:{_SESSION_FILE_TAB_PATH}\"]');"
+    "if (!fileTab) throw new Error('file tab missing after split');"
+    "if (!/Split/.test(fileTab.textContent || '')) throw new Error('file split state missing from tab');"
+    "if (document.querySelectorAll('[class*=\"bg-skeleton\"]').length > 0) throw new Error('skeletons still visible in file-tab capture');"
+    "if (document.querySelector('.animate-spin')) throw new Error('loading indicator still visible in file-tab capture');"
+)
+
 _CLOSE_ALL_SESSION_TABS_JS = (
     "const waitFor = async (predicate, label) => {"
     "  const started = Date.now();"
@@ -1691,6 +1734,18 @@ CHANNEL_SESSION_TAB_SPECS: list[ScreenshotSpec] = [
             "if (!document.querySelector('[data-testid=\"channel-session-inline-picker\"]')) throw new Error('inline picker missing after closing tabs');"
             "if (document.querySelector('[data-testid=\"channel-session-tab-strip\"]')) throw new Error('tab strip still visible after closing all tabs');"
         ),
+    ),
+    ScreenshotSpec(
+        name="channel-session-file-tabs",
+        route=f"/channels/{{channel_session_tabs}}?open_file=notes%2Fsession-tab-workflow.md",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SESSION_FILE_TABS_READY,
+        output="channel-session-file-tabs.png",
+        color_scheme="dark",
+        extra_init_scripts=["CHANNEL_SESSION_TABS_INIT"],
+        pre_capture_js=_ASSERT_AND_SPLIT_FILE_TAB_JS,
+        assert_js=_ASSERT_FILE_TABS_SETTLED_JS,
     ),
 ]
 

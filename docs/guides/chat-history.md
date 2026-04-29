@@ -32,6 +32,12 @@ Split layouts are saved as conjoined tabs so a two-pane working set can be
 restored without using the full session picker. Right-clicking a tab exposes the
 same split actions used elsewhere in the channel UI.
 
+Files opened from the channel workspace use the same tab strip. Opening a file
+selects or adds its tab without changing the session-tab order; splitting the
+file next to chat is an explicit tab action.
+
+![Channel file tab split next to chat](../images/channel-session-file-tabs.png)
+
 When every recent tab is closed, the channel shows the inline session chooser
 instead of an empty strip.
 
