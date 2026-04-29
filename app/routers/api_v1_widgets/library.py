@@ -173,16 +173,13 @@ async def read_integration_widget_content(
     integration_id: str,
     path: str = Query(...),
 ):
-    """Serve the raw HTML of an integration widget at
-    ``integrations/<integration_id>/widgets/<path>``."""
-    from app.services.html_widget_scanner import INTEGRATIONS_ROOT
-    integration_dir = (INTEGRATIONS_ROOT / integration_id).resolve()
-    # Guard against `..` or absolute integration_id escaping INTEGRATIONS_ROOT.
-    try:
-        integration_dir.relative_to(INTEGRATIONS_ROOT)
-    except ValueError:
+    """Serve the raw HTML of an integration widget."""
+    from integrations.discovery import resolve_integration_path
+
+    widgets_dir_path = resolve_integration_path(integration_id, "widgets")
+    if widgets_dir_path is None:
         raise HTTPException(404, "Integration not found")
-    widgets_dir = str(integration_dir / "widgets")
+    widgets_dir = str(widgets_dir_path)
     if not os.path.isdir(widgets_dir):
         raise HTTPException(404, "Integration widgets dir not found")
     return _serve_widget_file(widgets_dir, path)
@@ -639,13 +636,16 @@ async def get_widget_manifest(
     if scope == "integration":
         if not integration_id or not path:
             raise HTTPException(400, "integration_id + path required for integration scope.")
-        # integration bundles: integrations/<id>/widgets/<path>; manifest sits
-        # alongside index.html if present.
-        integ_root = os.path.realpath(
-            os.path.join(os.getcwd(), "integrations", integration_id, "widgets")
-        )
+        # integration bundles: <resolved integration>/widgets/<path>; manifest
+        # sits alongside index.html if present.
+        from integrations.discovery import resolve_integration_path
+
+        integ_root_path = resolve_integration_path(integration_id, "widgets")
+        if integ_root_path is None:
+            raise HTTPException(404, "Integration not found")
+        integ_root = os.path.realpath(integ_root_path)
         target_dir = os.path.dirname(os.path.realpath(os.path.join(integ_root, path)))
-        if not target_dir.startswith(integ_root):
+        if not (target_dir == integ_root or target_dir.startswith(integ_root + os.sep)):
             raise HTTPException(400, "Invalid path.")
         manifest_path = os.path.join(target_dir, "widget.yaml")
         return _read(manifest_path)

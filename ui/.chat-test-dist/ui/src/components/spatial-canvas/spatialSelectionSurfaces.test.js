@@ -175,8 +175,9 @@ test("Attention operator sweep is global and normal assignment hides the operato
     assert.match(source, /Ready for review/);
     assert.match(source, /Processed by operator/);
     assert.match(source, /bots\.filter\(\(bot\) => bot\.id !== OPERATOR_BOT_ID\)/);
-    assert.match(source, /Assign current issue/);
-    assert.match(source, /Only sends issue \{currentIndex \+ 1\} to a normal bot/);
+    assert.match(source, /Send this issue to a bot/);
+    assert.match(source, /Optional follow-up for issue \{currentIndex \+ 1\}/);
+    assert.match(source, /Operator sweep handles the whole queue/);
     assert.match(source, /bots=\{assignableBots\}/);
     assert.match(source, /Accepting trains future sweeps/);
     assert.match(source, /Accept finding/);

@@ -538,15 +538,25 @@ export function ChannelHeader({
         )}
         {!isSystemChannel && bot && (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
-            <a
-              className="header-bot-link"
-              onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
-              href={`/admin/bots/${bot.id}`}
-              style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              title={bot.name}
-            >
-              {bot.name}
-            </a>
+            {isMobile ? (
+              <span
+                className="header-bot-label"
+                style={{ fontSize: 11, color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={bot.name}
+              >
+                {bot.name}
+              </span>
+            ) : (
+              <a
+                className="header-bot-link"
+                onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
+                href={`/admin/bots/${bot.id}`}
+                style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                title={bot.name}
+              >
+                {bot.name}
+              </a>
+            )}
             {bot.harness_runtime && (
               <HarnessHeaderChrome
                 runtime={bot.harness_runtime}

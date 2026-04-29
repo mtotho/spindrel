@@ -129,6 +129,8 @@ test("mobile channel header does not make the whole title open context chrome", 
     assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !!onContextBudgetClick;/);
     assert.match(channelHeader, /data-testid="channel-header-title-region"/);
     assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
+    assert.match(channelHeader, /isMobile \? \(/);
+    assert.match(channelHeader, /className="header-bot-label"/);
     assert.match(channelHeader, /compact && !contextNeedsAttention\) return null;/);
     assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
     assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);

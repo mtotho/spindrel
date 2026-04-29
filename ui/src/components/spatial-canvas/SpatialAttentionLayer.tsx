@@ -375,7 +375,7 @@ export function AttentionHubContent({
             title="Configure an operator triage run for all active Attention Items"
           >
             {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {visibleTriageRun || operatorRunOpen ? "Operator run" : "Operator sweep"}
+            Operator sweep
           </button>
           <button type="button" className="rounded-md p-2 text-text-muted hover:bg-surface-overlay hover:text-text" onClick={() => setCreating((v) => !v)} title="Create Attention Item">
             <Plus size={16} />
@@ -430,7 +430,7 @@ export function AttentionHubContent({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {visibleTriageRun && <OperatorTriageRunPanel run={visibleTriageRun} />}
+          {visibleTriageRun && <OperatorTriageRunPanel run={visibleTriageRun} mode="summary" />}
           <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
           <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
           <AttentionLane title="Unprocessed" items={grouped.needs} onSelect={onSelect} />
@@ -501,7 +501,7 @@ function OperatorRunWorkspace({
         )}
       </div>
       {run ? (
-        <OperatorTriageRunPanel run={run} />
+        <OperatorTriageRunPanel run={run} mode="full" />
       ) : (
         <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/35 p-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
@@ -600,17 +600,18 @@ function OperatorTriageSetup({
   );
 }
 
-function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
+function OperatorTriageRunPanel({ run, mode = "full" }: { run: AttentionTriageRunResponse; mode?: "summary" | "full" }) {
   const status = runStatusLabel(run);
   const canShowTranscript = Boolean(run.session_id && run.parent_channel_id);
   const counts = run.counts;
+  const showTranscript = mode === "full";
   return (
-    <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/35 p-3">
+    <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/30 p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
             <Sparkles size={13} />
-            Operator run
+            Operator sweep
           </div>
           <div className="mt-1 truncate text-xs text-text-muted">
             {plural(run.item_count, "item")} · {run.effective_model || run.model_override || "default model"} · {formatRunTime(run.created_at)}
@@ -632,21 +633,29 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
         </div>
       )}
       {run.error && <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{run.error}</div>}
-      <div className="relative h-64 min-h-0 overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
-        <div className="absolute inset-0 overflow-hidden">
-          {canShowTranscript ? (
-            <SessionChatView
-              sessionId={run.session_id!}
-              parentChannelId={run.parent_channel_id!}
-              botId={run.bot_id}
-              chatMode="default"
-              emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
-            />
-          ) : (
-            <div className="px-3 py-4 text-xs text-text-dim">Transcript is not available for this run.</div>
-          )}
+      {showTranscript ? (
+        <div className="relative h-[min(62vh,640px)] min-h-[420px] overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
+          <div className="absolute inset-0 overflow-hidden">
+            {canShowTranscript ? (
+              <SessionChatView
+                sessionId={run.session_id!}
+                parentChannelId={run.parent_channel_id!}
+                botId={run.bot_id}
+                chatMode="default"
+                emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
+              />
+            ) : (
+              <div className="px-3 py-4 text-xs text-text-dim">Transcript is not available for this run.</div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-md bg-surface-raised/45 px-3 py-2 text-xs leading-5 text-text-muted">
+          {status === "complete"
+            ? "Sweep complete. Open Operator sweep for the transcript, then review the items below."
+            : "Open Operator sweep to watch the transcript and review outcomes."}
+        </div>
+      )}
     </section>
   );
 }
@@ -865,7 +874,7 @@ function AttentionDetail({
     <div className="min-h-0 flex-1 space-y-3 overflow-auto px-3 pb-3 pt-1">
       <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>Back to all issues</button>
 
-      <section className="space-y-2 rounded-md bg-surface-raised/35 p-2.5">
+      <section className="space-y-2 rounded-md bg-surface-raised/20 p-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Target</div>
@@ -930,22 +939,6 @@ function AttentionDetail({
         )}
       </section>
 
-      <section className="space-y-2 rounded-md bg-surface-raised/35 p-2.5">
-        <div>
-          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80"><Bot size={13} /> Assign current issue</div>
-          <div className="mt-1 text-xs text-text-dim">Only sends issue {currentIndex + 1} to a normal bot. Use Operator sweep for all active issues.</div>
-        </div>
-        <BotPicker value={botId} onChange={setBotId} bots={assignableBots} allowNone />
-        <div className="grid grid-cols-2 gap-2 rounded-md bg-surface-overlay/45 p-0.5">
-          <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "next_heartbeat" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
-          <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "run_now" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("run_now")}>Run now</button>
-        </div>
-        <textarea className="min-h-20 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Assignment instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
-        <button type="button" disabled={!botId || assign.isPending} className="rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50" onClick={() => assign.mutate({ itemId: item.id, bot_id: botId, mode, instructions })}>
-          Assign
-        </button>
-      </section>
-
       <section className="space-y-3">
         <div>
           <h2 className="text-lg font-medium text-text">{item.title}</h2>
@@ -999,6 +992,22 @@ function AttentionDetail({
           Resolve
         </button>
       </div>
+
+      <section className="space-y-2 rounded-md bg-surface-raised/20 p-2">
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80"><Bot size={13} /> Send this issue to a bot</div>
+          <div className="mt-1 text-xs text-text-dim">Optional follow-up for issue {currentIndex + 1}. Operator sweep handles the whole queue.</div>
+        </div>
+        <BotPicker value={botId} onChange={setBotId} bots={assignableBots} allowNone />
+        <div className="grid grid-cols-2 gap-2 rounded-md bg-surface-overlay/35 p-0.5">
+          <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "next_heartbeat" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("next_heartbeat")}>Next heartbeat</button>
+          <button type="button" className={`rounded px-2 py-1.5 text-xs font-medium ${mode === "run_now" ? "bg-accent/[0.08] text-accent" : "text-text-muted hover:bg-surface-overlay/60 hover:text-text"}`} onClick={() => setMode("run_now")}>Run now</button>
+        </div>
+        <textarea className="min-h-16 w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none placeholder:text-text-dim focus:border-accent" placeholder="Instructions for the selected bot" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        <button type="button" disabled={!botId || assign.isPending} className="rounded-md bg-accent/[0.08] px-3 py-2 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50" onClick={() => assign.mutate({ itemId: item.id, bot_id: botId, mode, instructions })}>
+          Send to bot
+        </button>
+      </section>
     </div>
   );
 }

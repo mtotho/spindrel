@@ -391,9 +391,13 @@ def _resolve_html_widget_manifest_path(
     if source_kind == "integration":
         integration_id = envelope.get("source_integration_id")
         if isinstance(integration_id, str) and integration_id.strip():
-            root = Path(__file__).resolve().parents[2] / "integrations" / integration_id / "widgets"
+            from integrations.discovery import resolve_integration_path
+
+            root = resolve_integration_path(integration_id, "widgets")
+            if root is None:
+                return None
             manifest_path = (root / rel_path).resolve().parent / "widget.yaml"
-            if manifest_path.is_file():
+            if _is_path_within(manifest_path, root) and manifest_path.is_file():
                 return manifest_path
     elif source_kind == "channel":
         channel_id = envelope.get("source_channel_id")

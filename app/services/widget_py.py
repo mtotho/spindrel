@@ -404,8 +404,8 @@ def _resolve_bundle_dir(pin) -> Path:
     - ``builtin`` — bundle lives at ``BUILTIN_WIDGET_ROOT / <source_path>``'s
       parent. No bot / channel needed; the filesystem is a server-wide
       source of truth.
-    - ``integration`` — ``INTEGRATIONS_ROOT / <source_integration_id> /
-      widgets / <source_path>``'s parent. No bot needed.
+    - ``integration`` — resolved integration source / ``widgets`` /
+      ``<source_path>``'s parent. No bot needed.
     - ``channel`` (or missing, legacy default) — resolves against the
       channel workspace, which requires both ``source_channel_id`` and a
       ``source_bot_id`` (bots own the workspace root).
@@ -441,15 +441,12 @@ def _resolve_bundle_dir(pin) -> Path:
             raise ValueError(
                 "integration pin missing source_integration_id — cannot resolve bundle dir"
             )
-        from app.services.html_widget_scanner import INTEGRATIONS_ROOT
-        integration_widgets_root = (
-            INTEGRATIONS_ROOT / integration_id / "widgets"
-        ).resolve()
-        try:
-            integration_widgets_root.relative_to(INTEGRATIONS_ROOT)
-        except ValueError:
+        from integrations.discovery import resolve_integration_path
+
+        integration_widgets_root = resolve_integration_path(integration_id, "widgets")
+        if integration_widgets_root is None:
             raise ValueError(
-                f"integration_id {integration_id!r} escapes integrations root"
+                f"integration_id {integration_id!r} does not resolve to an integration"
             )
         bundle_dir = (integration_widgets_root / source_path).resolve().parent
         try:

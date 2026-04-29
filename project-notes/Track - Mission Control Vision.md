@@ -371,6 +371,10 @@ Acceptance:
   "home/orchestrator" product lane.
 - The old orchestrator bot/channel may remain as compatibility substrate, but
   user-facing navigation should converge on Mission Control.
+- Near-term operator triage uses existing Attention items and `attention_triage`
+  tasks as the durable substrate. Processed/noisy items can leave active
+  Attention, but their outcomes must remain recoverable through operator run
+  history.
 - Mission tasks remain the execution truth until a later track explicitly adds
   heartbeat consumption.
 - Mission Control suggestions require human approval before creating durable

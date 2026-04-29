@@ -27,6 +27,7 @@ from app.services.integration_catalog import (
     get_activation_manifests,
 )
 from integrations.discovery import (
+    IntegrationSource,
     _INTEGRATIONS_DIR,
     _PACKAGES_DIR,
     _all_integration_dirs,
@@ -38,10 +39,13 @@ from integrations.discovery import (
     all_integration_dirs,
     discover_identity_fields,
     discover_integrations,
+    find_integration_source,
     import_integration_module,
     iter_integration_candidates,
+    iter_integration_sources,
     load_new_integrations,
     load_single_integration,
+    resolve_integration_path,
 )
 from integrations.manifest_setup import (
     _backfill_event_filter_options,
@@ -82,6 +86,7 @@ __all__ = [
     "_loaded_ids",
     "_manifest_to_setup",
     "_resolve_cmd",
+    "IntegrationSource",
     "all_integration_dirs",
     "backfill_event_filter_options",
     "discover_activation_manifests",
@@ -101,8 +106,11 @@ __all__ = [
     "get_setup",
     "import_integration_module",
     "iter_integration_candidates",
+    "iter_integration_sources",
+    "find_integration_source",
     "load_new_integrations",
     "load_single_integration",
     "manifest_to_setup",
+    "resolve_integration_path",
     "resolve_cmd",
 ]

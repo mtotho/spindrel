@@ -775,6 +775,12 @@ async def _assert_mobile_header_safe(page: Any, *, label: str) -> None:
     assert await page.get_by_text("Harness context").count() == 0, (
         f"{label} mobile title click opened harness context chrome"
     )
+    assert await page.get_by_text("Configuration overhead").count() == 0, (
+        f"{label} mobile title click opened bot info chrome"
+    )
+    assert await page.get_by_text("View full context details").count() == 0, (
+        f"{label} mobile title click opened bot info context details"
+    )
 
     more = page.locator('[aria-label="More actions"]').first
     if await more.count() == 0:

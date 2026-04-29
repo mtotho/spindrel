@@ -4,7 +4,7 @@ Walks three widget sources and parses their frontmatter metadata so the
 "Add widget" catalog can surface them with a clear provenance badge:
 
   - ``source="builtin"`` — ``app/tools/local/widgets/`` (ships with the repo)
-  - ``source="integration"`` — ``integrations/<id>/widgets/`` (per-integration)
+  - ``source="integration"`` — ``<resolved integration>/<id>/widgets/``
   - ``source="channel"`` — ``<channel_workspace>/`` (user/bot-authored)
 
 Files that a core ``widgets/<tool>/template.yaml`` or an integration's
@@ -64,6 +64,8 @@ if TYPE_CHECKING:
 # parents[0]=services, parents[1]=app, parents[2]=repo.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILTIN_WIDGET_ROOT = (_REPO_ROOT / "app" / "tools" / "local" / "widgets").resolve()
+# Compatibility constant for older tests/imports. Integration scans resolve
+# through integrations.discovery so external/package roots use the same seam.
 INTEGRATIONS_ROOT = (_REPO_ROOT / "integrations").resolve()
 
 logger = logging.getLogger(__name__)
@@ -408,14 +410,13 @@ def _collect_tool_renderer_paths() -> set[str]:
             if yaml_path.is_file():
                 paths.update(_extract_html_template_paths(yaml_path, entry))
 
-    # Per-integration tool renderers live under integrations/<id>/integration.yaml.
-    if INTEGRATIONS_ROOT.is_dir():
-        for child in INTEGRATIONS_ROOT.iterdir():
-            if not child.is_dir() or child.name.startswith("_") or child.name == "__pycache__":
-                continue
-            yaml_path = child / "integration.yaml"
-            if yaml_path.is_file():
-                paths.update(_extract_html_template_paths(yaml_path, child))
+    # Per-integration tool renderers live under each resolved integration root.
+    from integrations.discovery import iter_integration_sources
+
+    for source in iter_integration_sources():
+        yaml_path = source.path / "integration.yaml"
+        if yaml_path.is_file():
+            paths.update(_extract_html_template_paths(yaml_path, source.path))
 
     return paths
 
@@ -544,25 +545,24 @@ def scan_builtin() -> list[dict]:
 
 
 def scan_integration(integration_id: str) -> list[dict]:
-    """Walk ``integrations/<integration_id>/widgets/`` for standalone widgets.
+    """Walk a resolved integration's ``widgets/`` dir for standalone widgets.
 
     Returns an empty list when the integration has no widgets dir. Tool
     renderers referenced by the integration's ``tool_widgets`` block are
     excluded.
     """
-    integration_dir = (INTEGRATIONS_ROOT / integration_id).resolve()
-    # Guard against path traversal via integration_id.
-    try:
-        integration_dir.relative_to(INTEGRATIONS_ROOT)
-    except ValueError:
+    from integrations.discovery import find_integration_source
+
+    source = find_integration_source(integration_id)
+    if source is None:
         return []
-    widgets_dir = integration_dir / "widgets"
+    widgets_dir = source.path / "widgets"
     excluded = _collect_tool_renderer_paths()
     return _walk_standalone_html(
         widgets_dir,
-        cache_scope=f"__integration__:{integration_id}",
+        cache_scope=f"__integration__:{source.integration_id}",
         source="integration",
-        integration_id=integration_id,
+        integration_id=source.integration_id,
         excluded_abs_paths=excluded,
     )
 
@@ -571,25 +571,23 @@ def scan_all_integrations() -> list[tuple[str, list[dict]]]:
     """Walk every integration directory. Returns ``[(integration_id, entries), ...]``
     sorted by integration_id. Integrations with zero standalone widgets are
     omitted so the caller can render a compact list."""
-    if not INTEGRATIONS_ROOT.is_dir():
-        return []
+    from integrations.discovery import iter_integration_sources
+
     excluded = _collect_tool_renderer_paths()
     out: list[tuple[str, list[dict]]] = []
-    for child in sorted(INTEGRATIONS_ROOT.iterdir(), key=lambda p: p.name):
-        if not child.is_dir() or child.name.startswith("_") or child.name == "__pycache__":
-            continue
-        widgets_dir = child / "widgets"
+    for source in sorted(iter_integration_sources(), key=lambda s: s.integration_id):
+        widgets_dir = source.path / "widgets"
         if not widgets_dir.is_dir():
             continue
         entries = _walk_standalone_html(
             widgets_dir,
-            cache_scope=f"__integration__:{child.name}",
+            cache_scope=f"__integration__:{source.integration_id}",
             source="integration",
-            integration_id=child.name,
+            integration_id=source.integration_id,
             excluded_abs_paths=excluded,
         )
         if entries:
-            out.append((child.name, entries))
+            out.append((source.integration_id, entries))
     return out
 
 

@@ -22,16 +22,16 @@ _VALID_FEATURES = {
 
 
 def _get_scaffold_dir() -> Path | None:
-    """Return the workspace integrations directory (first external path in INTEGRATION_DIRS)."""
+    """Return the first writable external integration directory."""
     try:
-        from app.config import settings
-        extra = settings.INTEGRATION_DIRS
+        from app.services.paths import effective_integration_dirs
+
+        candidates = effective_integration_dirs()
     except Exception:
         import os
-        extra = os.environ.get("INTEGRATION_DIRS", "")
-    if not extra:
-        return None
-    for p in extra.split(":"):
+
+        candidates = os.environ.get("INTEGRATION_DIRS", "").split(":")
+    for p in candidates:
         p = p.strip()
         if not p:
             continue

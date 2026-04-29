@@ -19,6 +19,22 @@ _PACKAGES_DIR = _INTEGRATIONS_DIR.parent / "packages"
 _loaded_ids: set[str] = set()
 
 
+@dataclasses.dataclass(frozen=True)
+class IntegrationSource:
+    """Resolved integration directory with source metadata.
+
+    This is the side-effect-free source-of-truth for integration filesystem
+    roots. Consumers that need assets, widgets, manifests, tools, harnesses,
+    or setup metadata should resolve through this seam instead of rebuilding
+    ``integrations/<id>`` paths locally.
+    """
+
+    integration_id: str
+    path: Path
+    source: str
+    is_external: bool
+
+
 def all_integration_dirs() -> list[Path]:
     """Return all integration directories: in-repo integrations/, packages/, + external."""
     dirs = [_INTEGRATIONS_DIR, _PACKAGES_DIR]
@@ -38,6 +54,71 @@ def all_integration_dirs() -> list[Path]:
                     if path.is_dir():
                         dirs.append(path)
     return dirs
+
+
+def _source_for_base_dir(base_dir: Path) -> tuple[str, bool]:
+    base_dir = Path(base_dir)
+    if base_dir.resolve() == _INTEGRATIONS_DIR.resolve():
+        return "integration", False
+    if base_dir.resolve() == _PACKAGES_DIR.resolve():
+        return "package", False
+    return "external", True
+
+
+def iter_integration_sources() -> list[IntegrationSource]:
+    """Return resolved integration sources.
+
+    Later directories override earlier ones, preserving the existing host
+    policy: external dirs override packages, packages override in-repo
+    integrations, and later external dirs override earlier external dirs.
+    """
+    seen: dict[str, int] = {}
+    results: list[IntegrationSource] = []
+    for base_dir in all_integration_dirs():
+        base_dir = Path(base_dir)
+        source, is_external = _source_for_base_dir(base_dir)
+        if not base_dir.is_dir():
+            continue
+        for candidate in sorted(base_dir.iterdir()):
+            if not candidate.is_dir() or candidate.name.startswith(("_", ".")):
+                continue
+            integration_source = IntegrationSource(
+                integration_id=candidate.name,
+                path=candidate.resolve(),
+                source=source,
+                is_external=is_external,
+            )
+            if candidate.name in seen:
+                results[seen[candidate.name]] = integration_source
+            else:
+                seen[candidate.name] = len(results)
+                results.append(integration_source)
+    return results
+
+
+def find_integration_source(integration_id: str) -> IntegrationSource | None:
+    """Return the active source for ``integration_id`` or None."""
+    if not integration_id or "/" in integration_id or "\\" in integration_id:
+        return None
+    if integration_id in {".", ".."}:
+        return None
+    for source in iter_integration_sources():
+        if source.integration_id == integration_id:
+            return source
+    return None
+
+
+def resolve_integration_path(integration_id: str, *parts: str | Path) -> Path | None:
+    """Resolve a path under an integration source with traversal protection."""
+    source = find_integration_source(integration_id)
+    if source is None:
+        return None
+    target = source.path.joinpath(*parts).resolve()
+    try:
+        target.relative_to(source.path)
+    except ValueError:
+        return None
+    return target
 
 
 def import_integration_module(
@@ -67,28 +148,10 @@ def iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
 
     Later directories override earlier ones: external > package > integration.
     """
-    seen: dict[str, int] = {}
-    results: list[tuple[Path, str, bool, str]] = []
-    for base_dir in all_integration_dirs():
-        if base_dir == _INTEGRATIONS_DIR:
-            source = "integration"
-        elif base_dir == _PACKAGES_DIR:
-            source = "package"
-        else:
-            source = "external"
-        is_external = source not in ("integration", "package")
-        if not base_dir.is_dir():
-            continue
-        for candidate in sorted(base_dir.iterdir()):
-            if not candidate.is_dir() or candidate.name.startswith(("_", ".")):
-                continue
-            name = candidate.name
-            if name in seen:
-                results[seen[name]] = (candidate, name, is_external, source)
-            else:
-                seen[name] = len(results)
-                results.append((candidate, name, is_external, source))
-    return results
+    return [
+        (source.path, source.integration_id, source.is_external, source.source)
+        for source in iter_integration_sources()
+    ]
 
 
 def _auto_register_target(integration_id: str, target_spec: dict) -> bool:

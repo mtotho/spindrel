@@ -2,9 +2,8 @@
 roots plus tool-renderer exclusion.
 
 Complements ``test_html_widget_scanner.py`` (channel-workspace scans). Uses
-tmp_path + monkeypatching of the module-level ``BUILTIN_WIDGET_ROOT`` /
-``INTEGRATIONS_ROOT`` constants so the tests don't depend on the real repo
-layout.
+tmp_path + monkeypatching of the built-in root / integration-source resolver
+so the tests don't depend on the real repo layout.
 """
 from __future__ import annotations
 
@@ -32,6 +31,23 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _patch_integration_sources(monkeypatch, roots: dict[str, Path]) -> None:
+    from integrations.discovery import IntegrationSource
+
+    monkeypatch.setattr(
+        "integrations.discovery.iter_integration_sources",
+        lambda: [
+            IntegrationSource(
+                integration_id=integration_id,
+                path=root.resolve(),
+                source="external",
+                is_external=True,
+            )
+            for integration_id, root in roots.items()
+        ],
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clear_cache():
     """Scanner keeps a process-local cache keyed on ``(scope, rel_path)``. Each
@@ -55,7 +71,7 @@ class TestScanBuiltin:
 
         monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", tmp_path)
         # No `.widgets.yaml` siblings in tmp — nothing to exclude.
-        monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path / "missing")
+        _patch_integration_sources(monkeypatch, {})
 
         _write(
             tmp_path / "notes" / "index.html",
@@ -93,7 +109,7 @@ class TestScanBuiltin:
         # file it references.
         widgets_root = tmp_path / "tools" / "local" / "widgets"
         monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", widgets_root)
-        monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path / "missing")
+        _patch_integration_sources(monkeypatch, {})
 
         # Standalone widget — should surface.
         _write(
@@ -124,9 +140,7 @@ class TestScanBuiltin:
         monkeypatch.setattr(
             html_widget_scanner, "BUILTIN_WIDGET_ROOT", tmp_path / "does-not-exist",
         )
-        monkeypatch.setattr(
-            html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path / "also-missing",
-        )
+        _patch_integration_sources(monkeypatch, {})
         assert html_widget_scanner.scan_builtin() == []
 
 
@@ -138,9 +152,10 @@ class TestScanIntegration:
     def test_scan_integration_returns_source_and_id(self, tmp_path, monkeypatch):
         from app.services import html_widget_scanner
         monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", tmp_path / "missing-builtin")
-        monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path)
 
-        widgets_dir = tmp_path / "frigate" / "widgets"
+        root = tmp_path / "frigate"
+        _patch_integration_sources(monkeypatch, {"frigate": root})
+        widgets_dir = root / "widgets"
         _write(
             widgets_dir / "custom_dashboard.html",
             WIDGET_HTML_WITH_FRONTMATTER.format(
@@ -161,9 +176,9 @@ class TestScanIntegration:
         standalone catalog."""
         from app.services import html_widget_scanner
         monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", tmp_path / "missing-builtin")
-        monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path)
 
         integ_dir = tmp_path / "openweather"
+        _patch_integration_sources(monkeypatch, {"openweather": integ_dir})
         widgets_dir = integ_dir / "widgets"
         _write(
             widgets_dir / "get_weather.html",
@@ -192,7 +207,7 @@ class TestScanIntegration:
         """``integration_id`` containing ``..`` must not escape the integrations
         root."""
         from app.services import html_widget_scanner
-        monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path)
+        _patch_integration_sources(monkeypatch, {})
 
         # Even if a file exists outside the root, the traversal guard returns [].
         outside = tmp_path.parent / "outside" / "widgets"
@@ -207,7 +222,14 @@ class TestScanIntegration:
         grouped response so the UI renders compactly."""
         from app.services import html_widget_scanner
         monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", tmp_path / "missing-builtin")
-        monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", tmp_path)
+        _patch_integration_sources(
+            monkeypatch,
+            {
+                "frigate": tmp_path / "frigate",
+                "gmail": tmp_path / "gmail",
+                "github": tmp_path / "github",
+            },
+        )
 
         # frigate has one standalone widget.
         _write(

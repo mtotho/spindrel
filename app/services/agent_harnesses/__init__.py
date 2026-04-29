@@ -65,7 +65,7 @@ def runtime_names() -> list[str]:
 
 
 def discover_and_load_harnesses() -> None:
-    """Import ``integrations/*/harness.py`` for active integrations only.
+    """Import ``harness.py`` from each active resolved integration source.
 
     Each harness module self-registers via ``register_runtime`` as a side
     effect of import. Called once at app startup from ``app/main.py`` after
@@ -73,14 +73,13 @@ def discover_and_load_harnesses() -> None:
     ``app/tools/loader.py:_scan_integration_tools``.
     """
     from app.services.integration_settings import is_active
+    from integrations.discovery import iter_integration_sources
 
-    root = Path(__file__).parent.parent.parent.parent  # repo root
-    integrations_dir = root / "integrations"
-    if not integrations_dir.is_dir():
-        return
-
-    for harness_file in sorted(integrations_dir.glob("*/harness.py")):
-        integration_id = harness_file.parent.name
+    for source in sorted(iter_integration_sources(), key=lambda s: s.integration_id):
+        harness_file = source.path / "harness.py"
+        if not harness_file.is_file():
+            continue
+        integration_id = source.integration_id
         try:
             if not is_active(integration_id):
                 logger.info(
@@ -92,7 +91,12 @@ def discover_and_load_harnesses() -> None:
             # integration manifest validation runs separately.
             continue
         try:
-            _import_harness_module(harness_file, integration_id)
+            _import_harness_module(
+                harness_file,
+                integration_id,
+                is_external=source.is_external,
+                source=source.source,
+            )
         except ImportError as exc:
             # Integration's Python deps aren't installed (e.g. claude-agent-sdk
             # missing). pip-install the requirements.txt now and retry — this
@@ -103,7 +107,7 @@ def discover_and_load_harnesses() -> None:
                 "Harness for %s failed to import (%s) — auto-installing deps and retrying",
                 integration_id, exc,
             )
-            installed = _auto_install_integration_deps(harness_file.parent, integration_id)
+            installed = _auto_install_integration_deps(source.path, integration_id)
             if not installed:
                 logger.error(
                     "Could not install deps for %s; harness skipped. Click "
@@ -112,7 +116,12 @@ def discover_and_load_harnesses() -> None:
                 )
                 continue
             try:
-                _import_harness_module(harness_file, integration_id)
+                _import_harness_module(
+                    harness_file,
+                    integration_id,
+                    is_external=source.is_external,
+                    source=source.source,
+                )
             except Exception as exc2:
                 logger.exception(
                     "Harness import retry for %s still failed after pip install: %s",
@@ -155,17 +164,23 @@ def _auto_install_integration_deps(integration_dir: Path, integration_id: str) -
     return True
 
 
-def _import_harness_module(harness_file: Path, integration_id: str) -> None:
-    """Import ``integrations/<id>/harness.py`` so its ``register_runtime``
-    side effect fires."""
-    import importlib.util
+def _import_harness_module(
+    harness_file: Path,
+    integration_id: str,
+    *,
+    is_external: bool = False,
+    source: str = "integration",
+) -> None:
+    """Import an integration ``harness.py`` so its registration side effect fires."""
+    from integrations.discovery import import_integration_module
 
-    module_name = f"integrations.{integration_id}.harness"
-    spec = importlib.util.spec_from_file_location(module_name, harness_file)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot build import spec for {harness_file}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    import_integration_module(
+        integration_id,
+        "harness",
+        harness_file,
+        is_external,
+        source,
+    )
 
 
 __all__ = [
