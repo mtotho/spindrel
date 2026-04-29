@@ -143,8 +143,8 @@ checks the in-settings preset surface plus desktop and mobile drawer framing.
 ## Channel Widget Usefulness Run
 
 Use this bundle when changing the channel dashboard widget proposal affordance,
-usefulness drawer, Channel Settings -> Dashboard usefulness summary, or Bot
-widget agency control:
+usefulness drawer, recent bot widget change receipts, Channel Settings ->
+Dashboard usefulness summary, or Bot widget agency control:
 
 ```bash
 python -m scripts.screenshots stage --only channel-widget-usefulness
@@ -165,7 +165,8 @@ widget hidden by the channel's chat layout mode. Capture uses a narrow browser
 shim for the assessment endpoint so artifacts stay deterministic when
 the shared e2e API lags the UI branch; the dashboard pins themselves are real.
 Inspect all three images before closeout: the bundle checks the dashboard
-toolbar affordance, the proposal drawer, and the compact settings summary.
+toolbar affordance, the widget proposal drawer, recent bot widget change
+receipts, and the compact settings summary.
 
 ## Widget Authoring Runtime Check
 

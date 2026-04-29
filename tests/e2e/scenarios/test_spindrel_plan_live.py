@@ -532,7 +532,7 @@ async def test_live_spindrel_record_plan_progress_tool(client: E2EClient) -> Non
     result = await client.chat_session_stream(
         (
             "Native execution diagnostic. Use @tool:record_plan_progress now with "
-            "outcome 'step_done', step_id 'step-1', summary 'Completed step one in the live "
+            "outcome 'progress', step_id 'step-1', summary 'Started step one in the live "
             "native plan parity test', and evidence 'E2E progress tool call'. "
             "Do not call any file or shell tools."
         ),
@@ -547,12 +547,12 @@ async def test_live_spindrel_record_plan_progress_tool(client: E2EClient) -> Non
     state = await client.get_session_plan_state(session_id)
     assert state["mode"] == "executing"
     latest = ((state.get("adherence") or {}).get("latest_outcome") or {})
-    assert latest.get("outcome") == "step_done"
+    assert latest.get("outcome") == "progress"
     assert latest.get("step_id") == "step-1"
 
     plan = await client.get_session_plan(session_id)
     steps = {step["id"]: step for step in plan.get("steps") or []}
-    assert steps["step-1"]["status"] == "done"
+    assert steps["step-1"]["status"] == "in_progress"
     messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
     assert _has_plan_envelope(messages, title)
     _record_session("progress", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
@@ -721,12 +721,12 @@ async def test_live_spindrel_behavior_answered_questions_drive_plan(client: E2EC
         title=question_title,
         answers=[
             {
-                "question_id": "risk",
+                "question_id": "risk_focus",
                 "label": "Risk focus",
                 "answer": "Prioritize stale-plan handling and missing-outcome blocking.",
             },
             {
-                "question_id": "done",
+                "question_id": "done_signal",
                 "label": "Done signal",
                 "answer": "Behavior tier catches wall-of-text planning regressions.",
             },
@@ -1043,6 +1043,7 @@ async def test_live_spindrel_stress_publish_validation_retry_recovers(client: E2
         (
             "Native stress diagnostic. Use @tool:publish_plan now. Do not ask follow-up questions. "
             "First try the exact step labels requested here, then recover if the tool rejects a weak label. "
+            "You already have explicit permission to do that retry behavior; do not ask to confirm it. "
             f"Publish a professional plan titled {title!r}. "
             "Use summary 'Verify native Spindrel plan publish recovery after a rejected weak step label.' "
             "Use scope 'Live E2E diagnostics only; no repository mutation is in scope.' "

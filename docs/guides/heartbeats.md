@@ -196,6 +196,13 @@ The relevant policy flag is `allow_attention_beacons`. When enabled, the bot
 can use `place_attention_beacon` to create or refresh a deduped Attention
 Item, and `resolve_attention_beacon` to resolve one of its own items.
 
+Heartbeats can also opt into the higher-level `report_issue` tool with
+`execution_config.allow_issue_reporting`. This is off by default and is meant
+for durable blockers, missing permissions, recurring tool/system failures,
+setup problems, or user decisions discovered during the run. Reported issues
+enter Attention as a high-priority bot report and may absorb matching automatic
+structured-failure signals as evidence.
+
 Heartbeat context includes nearby and self-authored bot beacons so bots can
 avoid duplicating warnings and can resolve stale ones. System-authored
 structured-failure beacons remain admin-only and are not injected into bot

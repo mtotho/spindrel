@@ -209,6 +209,7 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     modelOverride, setModelOverride,
     harnessEffort, setHarnessEffort,
     skipToolApproval, setSkipToolApproval,
+    allowIssueReporting, setAllowIssueReporting,
     fallbackModels, setFallbackModels,
     bots, channels, skillOptions, allTools,
     sessionTarget, setSessionTarget,
@@ -267,6 +268,12 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           onChange={setSkipToolApproval}
           label="Auto-approve tool calls"
           description="For automated runs only. Selected tools can run without waiting for manual approval."
+        />
+        <Toggle
+          value={allowIssueReporting}
+          onChange={setAllowIssueReporting}
+          label="Allow issue reporting"
+          description="Lets this run create a review item when it finds a durable blocker, missing permission, or system problem."
         />
       </div>
 

@@ -2165,7 +2165,7 @@ _ASSERT_WIDGET_USEFULNESS_STRIP_JS = (
     "const trigger = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
     "if (!trigger) throw new Error('proposal trigger missing');"
     "const text = document.body.innerText || trigger.textContent || '';"
-    "if (!/3 proposals|proposals/.test(text)) throw new Error('proposal trigger count missing');"
+    "if (!/3 widget proposals|widget proposals/i.test(text)) throw new Error('widget proposal trigger count missing');"
     "if (document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]')) throw new Error('persistent review strip should not render');"
 )
 
@@ -2174,6 +2174,7 @@ _ASSERT_WIDGET_USEFULNESS_DRAWER_JS = (
     "if (!drawer) throw new Error('review drawer missing');"
     "const text = drawer.textContent || '';"
     "if (!/Widget proposals/.test(text)) throw new Error('drawer title missing');"
+    "if (!/Recent bot widget changes|bot widget change receipt/i.test(text)) throw new Error('bot widget change receipts missing');"
     "if (!/policy decision|Focus pin|Edit layout/.test(text)) throw new Error('actionable proposal controls missing');"
     "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('proposals missing');"
 )
@@ -2230,12 +2231,39 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
       }
     ]
   };
+  const receipts = {
+    receipts: [
+      {
+        id: "receipt-1",
+        channel_id: "screenshot-channel",
+        dashboard_key: "channel:screenshot-channel",
+        action: "move_pins",
+        summary: "Moved 2 widget pins into the rail so they stay visible while chatting.",
+        reason: "The channel layout hides dock widgets, so the useful status widgets needed a chat-visible zone.",
+        bot_id: "widget-health-bot",
+        session_id: null,
+        correlation_id: "00000000-0000-4000-8000-000000000001",
+        task_id: null,
+        affected_pin_ids: ["screenshot-pin-notes", "screenshot-pin-dock"],
+        before_state: { pins: [{ id: "screenshot-pin-dock", label: "Usefulness dock panel", zone: "dock", grid_layout: { x: 0, y: 0, w: 1, h: 10 } }] },
+        after_state: { pins: [{ id: "screenshot-pin-dock", label: "Usefulness dock panel", zone: "rail", grid_layout: { x: 0, y: 10, w: 1, h: 10 } }] },
+        metadata: { moves: [{ pin_id: "screenshot-pin-dock", zone: "rail" }] },
+        created_at: "2026-04-29T17:40:00Z"
+      }
+    ]
+  };
   window.fetch = async (input, init) => {
     const raw = typeof input === "string" ? input : input?.url;
     if (raw) {
       const url = new URL(raw, window.location.origin);
       if (/\\/api\\/v1\\/admin\\/channels\\/[^/]+\\/widget-usefulness$/.test(url.pathname)) {
         return new Response(JSON.stringify(assessment), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (/\\/api\\/v1\\/admin\\/channels\\/[^/]+\\/widget-agency\\/receipts$/.test(url.pathname)) {
+        return new Response(JSON.stringify(receipts), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -2302,7 +2330,8 @@ CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
             "if (!summary) throw new Error('settings summary missing');"
             "const text = document.body.innerText || summary.textContent || '';"
             "if (!/Widget usefulness/.test(text)) throw new Error('settings usefulness title missing');"
-            "if (!/pins|proposals|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
+            "if (!/pins|widget proposals|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
+            "if (!/bot widget change|Moved 2 widget pins/.test(text)) throw new Error('settings receipt summary missing');"
         ),
     ),
 ]
@@ -2395,7 +2424,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "return { ok: combined.includes('README.md') "
             "&& combined.includes('overview.md') "
             "&& combined.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
-            "&& combined.includes('agent-server'), "
+            "&& combined.includes('spindrel'), "
             "detail: 'Project Blueprint editor did not expose files, knowledge, repos, and secrets' };"
         ),
     ),
@@ -2503,27 +2532,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
         output="project-workspace-channels.png",
         color_scheme="dark",
-        pre_capture_js=(
-            "const trigger = document.querySelector('[data-testid=\"project-workspace-channel-attach\"] button[aria-haspopup=\"listbox\"]');"
-            "if (!trigger) throw new Error('attach channel picker trigger missing');"
-            "trigger.click();"
-            "await new Promise((resolve) => setTimeout(resolve, 120));"
-            "const search = document.querySelector('input[placeholder=\"Search channels...\"]');"
-            "if (!search) throw new Error('attach picker search missing');"
-            "const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;"
-            "setter.call(search, 'Project workspace attach');"
-            "search.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'Project workspace attach' }));"
-            "const started = Date.now();"
-            "while (!document.body.innerText.includes('Project workspace attach candidate')) {"
-            "  if (Date.now() - started > 5000) throw new Error('attach candidate did not appear');"
-            "  await new Promise((resolve) => setTimeout(resolve, 100));"
-            "}"
-        ),
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Create Channel') "
             "&& text.includes('Attach Existing Channel') "
-            "&& text.includes('Project workspace attach candidate') "
+            "&& text.includes('Select channel') "
             "&& text.includes('Detach'), "
             "detail: 'Project Channels tab did not expose membership controls' };"
         ),

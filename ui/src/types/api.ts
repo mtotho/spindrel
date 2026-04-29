@@ -738,6 +738,28 @@ export interface WidgetUsefulnessAssessment {
   recommendations: WidgetUsefulnessRecommendation[];
 }
 
+export interface WidgetAgencyReceipt {
+  id: string;
+  channel_id?: string | null;
+  dashboard_key: string;
+  action: string;
+  summary: string;
+  reason?: string | null;
+  bot_id?: string | null;
+  session_id?: string | null;
+  correlation_id?: string | null;
+  task_id?: string | null;
+  affected_pin_ids: string[];
+  before_state: Record<string, unknown>;
+  after_state: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+}
+
+export interface WidgetAgencyReceiptList {
+  receipts: WidgetAgencyReceipt[];
+}
+
 /** {x, y, w, h} in the 12-column dashboard grid. Empty object when unset. */
 export interface GridLayoutItem {
   x: number;

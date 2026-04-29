@@ -384,6 +384,8 @@ def _normalize_heartbeat_execution_config(value: Any) -> dict | None:
             raise HTTPException(status_code=400, detail="execution_config.history_recent_count must be an integer")
     if "skip_tool_approval" in value:
         out["skip_tool_approval"] = bool(value["skip_tool_approval"])
+    if "allow_issue_reporting" in value:
+        out["allow_issue_reporting"] = bool(value["allow_issue_reporting"])
     if "session_target" in value:
         from app.services.session_targets import normalize_session_target
         try:
@@ -415,6 +417,28 @@ class TaskOut(BaseModel):
 
 class TaskListOut(BaseModel):
     tasks: list[TaskOut]
+
+
+class WidgetAgencyReceiptOut(BaseModel):
+    id: str
+    channel_id: str | None = None
+    dashboard_key: str
+    action: str
+    summary: str
+    reason: str | None = None
+    bot_id: str | None = None
+    session_id: str | None = None
+    correlation_id: str | None = None
+    task_id: str | None = None
+    affected_pin_ids: list[str] = Field(default_factory=list)
+    before_state: dict[str, Any] = Field(default_factory=dict)
+    after_state: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+
+
+class WidgetAgencyReceiptListOut(BaseModel):
+    receipts: list[WidgetAgencyReceiptOut]
 
 
 class ChannelSettingsUpdate(BaseModel):
@@ -649,6 +673,31 @@ async def admin_channel_widget_usefulness(
         return await assess_channel_widget_usefulness(db, channel_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Channel not found")
+
+
+@router.get(
+    "/channels/{channel_id}/widget-agency/receipts",
+    response_model=WidgetAgencyReceiptListOut,
+)
+async def admin_channel_widget_agency_receipts(
+    channel_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("channels:read")),
+):
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    from app.services.widget_agency_receipts import list_channel_widget_agency_receipts
+
+    return {
+        "receipts": await list_channel_widget_agency_receipts(
+            db,
+            channel_id,
+            limit=limit,
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

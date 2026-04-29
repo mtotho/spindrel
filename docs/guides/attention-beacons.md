@@ -33,10 +33,20 @@ Bot-authored items are created through policy-gated spatial tools:
 
 - `place_attention_beacon`
 - `resolve_attention_beacon`
+- `report_issue`
 
 The channel bot policy field is `allow_attention_beacons`. Defaults are off.
 If a bot omits a target, the item attaches to the source channel. Source bots
 can update or resolve only their own items.
+
+`report_issue` is separate from spatial beacon authorship. It is injected only
+for scheduled tasks and channel heartbeats whose execution config enables
+`allow_issue_reporting`. Use it when the bot finds a durable blocker, missing
+permission, recurring tool/system failure, setup problem, or user decision. A
+reported issue is stored as a bot-authored Attention Item with
+`evidence.report_issue`, is prioritized above automatic structured failures,
+and can fold matching automatic signals into its evidence when target and
+signature match.
 
 System-authored items come from persisted structured failures:
 
@@ -132,6 +142,12 @@ required clicks. Structured detectors record source-event fingerprints, so
 rescanning the same persisted `ToolCall`, `TraceEvent`, or `HeartbeatRun` does
 not reopen an acknowledged item. A genuinely new matching source event can
 reopen the item.
+
+Automatic structured failures use a 24 hour same-signature cooldown after
+acknowledgement. Repeated automatic failures update occurrence/evidence without
+immediately returning to active review unless severity escalates or the cooldown
+expires. Bot-reported issues are exempt from that cooldown because the bot is
+making an explicit judgment that the item needs review.
 
 Resolution is explicit. Humans can resolve items. A source bot can resolve
 its own items through `resolve_attention_beacon`.

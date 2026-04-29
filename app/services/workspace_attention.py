@@ -48,6 +48,18 @@ VALID_ASSIGNMENT_MODES = {"next_heartbeat", "run_now"}
 STRUCTURED_ERROR_DETECTOR_ID = "system:structured-errors"
 OPERATOR_TRIAGE_BOT_ID = "orchestrator"
 OPERATOR_TRIAGE_TOOL_NAME = "report_attention_triage_batch"
+REPORT_ISSUE_TOOL_NAME = "report_issue"
+AUTO_SIGNAL_REOPEN_COOLDOWN = timedelta(hours=24)
+SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
+BOT_REPORT_CATEGORIES = {
+    "needs_review",
+    "needs_fix",
+    "blocked",
+    "missing_permission",
+    "system_issue",
+    "setup_issue",
+    "user_decision",
+}
 OPERATOR_TRIAGE_PROCESSED_CLASSIFICATIONS = {
     "benign",
     "noise",
@@ -100,6 +112,45 @@ def derive_dedupe_key(*parts: str | None) -> str:
         return normalize_dedupe_key(raw)
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
     return f"{normalize_dedupe_key(raw[:120])}-{digest}"
+
+
+def _severity_rank(value: str | None) -> int:
+    return SEVERITY_RANK.get(value or "warning", 1)
+
+
+def _auto_signal_signature(
+    *,
+    kind: str,
+    channel_id: uuid.UUID | None,
+    target_kind: str,
+    target_id: str,
+    name: str | None = None,
+    error_kind: str | None = None,
+    text: str | None = None,
+) -> str:
+    return derive_dedupe_key(
+        "auto-signal",
+        kind,
+        str(channel_id) if channel_id else None,
+        target_kind,
+        target_id,
+        name,
+        error_kind,
+        _error_signature(text or ""),
+    )
+
+
+def _extract_signal_signature(evidence: dict | None) -> str | None:
+    if not isinstance(evidence, dict):
+        return None
+    auto_signal = evidence.get("auto_signal")
+    if isinstance(auto_signal, dict) and auto_signal.get("signature"):
+        return str(auto_signal["signature"])
+    report = evidence.get("report_issue")
+    if isinstance(report, dict) and report.get("signal_signature"):
+        return str(report["signal_signature"])
+    value = evidence.get("signal_signature") or evidence.get("signature")
+    return str(value) if value else None
 
 
 def _merge_evidence(old: dict | None, new: dict | None) -> dict:
@@ -170,6 +221,7 @@ async def place_attention_item(
     evidence: dict | None = None,
     latest_correlation_id: uuid.UUID | None = None,
     source_event_key: str | None = None,
+    reopen_after: timedelta | None = None,
 ) -> WorkspaceAttentionItem:
     if source_type not in {"bot", "system", "user"}:
         raise ValidationError("source_type must be 'bot', 'system', or 'user'")
@@ -214,7 +266,14 @@ async def place_attention_item(
         existing.latest_correlation_id = latest_correlation_id or existing.latest_correlation_id
         existing.occurrence_count = int(existing.occurrence_count or 0) + 1
         if existing.status in {"acknowledged", "responded"}:
-            existing.status = "open"
+            should_reopen = True
+            if reopen_after is not None:
+                last_seen = existing.last_seen_at or existing.updated_at or existing.first_seen_at or now
+                cooled_down = now - last_seen >= reopen_after
+                escalated = _severity_rank(severity) > _severity_rank(existing.severity)
+                should_reopen = cooled_down or escalated
+            if should_reopen:
+                existing.status = "open"
         existing.last_seen_at = now
         existing.updated_at = now
         flag_modified(existing, "next_steps")
@@ -374,6 +433,171 @@ async def create_user_attention_item(
         next_steps=next_steps or [],
         dedupe_key=f"user:{uuid.uuid4()}",
     )
+
+
+async def _fold_system_signal_into_bot_report(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID | None,
+    target_kind: str,
+    target_id: str,
+    signal_signature: str | None,
+    evidence: dict,
+    latest_correlation_id: uuid.UUID | None = None,
+) -> WorkspaceAttentionItem | None:
+    if not signal_signature:
+        return None
+    items = list((await db.execute(
+        select(WorkspaceAttentionItem).where(
+            WorkspaceAttentionItem.source_type == "bot",
+            WorkspaceAttentionItem.channel_id == channel_id,
+            WorkspaceAttentionItem.target_kind == target_kind,
+            WorkspaceAttentionItem.target_id == target_id,
+            WorkspaceAttentionItem.status.in_(DEDUPE_STATUSES),
+        ).order_by(desc(WorkspaceAttentionItem.last_seen_at)).limit(25)
+    )).scalars().all())
+    now = _now()
+    for item in items:
+        item_evidence = dict(item.evidence or {})
+        report = item_evidence.get("report_issue")
+        if not isinstance(report, dict) or report.get("signal_signature") != signal_signature:
+            continue
+        collapsed = list(item_evidence.get("collapsed_system_signals") or [])
+        collapsed.append({
+            "at": now.isoformat(),
+            "signal_signature": signal_signature,
+            "evidence": evidence,
+            "correlation_id": str(latest_correlation_id) if latest_correlation_id else None,
+        })
+        item_evidence["collapsed_system_signals"] = collapsed[-10:]
+        item.evidence = item_evidence
+        item.occurrence_count = int(item.occurrence_count or 0) + 1
+        item.last_seen_at = now
+        item.updated_at = now
+        item.latest_correlation_id = latest_correlation_id or item.latest_correlation_id
+        if item.status == "acknowledged":
+            item.status = "open"
+        flag_modified(item, "evidence")
+        await db.commit()
+        await db.refresh(item)
+        return item
+    return None
+
+
+async def _collapse_existing_system_signals_for_report(
+    db: AsyncSession,
+    *,
+    report_item: WorkspaceAttentionItem,
+    signal_signature: str | None,
+) -> None:
+    if not signal_signature:
+        return
+    system_items = list((await db.execute(
+        select(WorkspaceAttentionItem).where(
+            WorkspaceAttentionItem.source_type == "system",
+            WorkspaceAttentionItem.channel_id == report_item.channel_id,
+            WorkspaceAttentionItem.target_kind == report_item.target_kind,
+            WorkspaceAttentionItem.target_id == report_item.target_id,
+            WorkspaceAttentionItem.status.in_(VISIBLE_STATUSES),
+        )
+    )).scalars().all())
+    now = _now()
+    report_evidence = dict(report_item.evidence or {})
+    collapsed = list(report_evidence.get("collapsed_system_signals") or [])
+    changed = False
+    for item in system_items:
+        if _extract_signal_signature(item.evidence) != signal_signature:
+            continue
+        collapsed.append({
+            "at": now.isoformat(),
+            "signal_signature": signal_signature,
+            "collapsed_item_id": str(item.id),
+            "title": item.title,
+            "message": item.message,
+            "count": item.occurrence_count,
+        })
+        item.status = "acknowledged"
+        item.updated_at = now
+        changed = True
+    if changed:
+        report_evidence["collapsed_system_signals"] = collapsed[-10:]
+        report_item.evidence = report_evidence
+        report_item.updated_at = now
+        report_item.last_seen_at = now
+        flag_modified(report_item, "evidence")
+        await db.commit()
+        await db.refresh(report_item)
+
+
+async def report_bot_issue(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+    title: str,
+    summary: str,
+    category: str = "needs_review",
+    suggested_action: str | None = None,
+    severity: str = "warning",
+    target_kind: str | None = None,
+    target_id: str | None = None,
+    dedupe_key: str | None = None,
+    evidence: dict | None = None,
+    task_id: uuid.UUID | None = None,
+    run_origin: str | None = None,
+    latest_correlation_id: uuid.UUID | None = None,
+) -> WorkspaceAttentionItem:
+    category = normalize_dedupe_key(category or "needs_review").replace("-", "_")
+    if category not in BOT_REPORT_CATEGORIES:
+        category = "needs_review"
+    if severity not in VALID_SEVERITIES:
+        severity = "warning"
+    resolved_target_kind = target_kind or ("channel" if channel_id else "bot")
+    resolved_target_id = target_id or (str(channel_id) if channel_id else bot_id)
+    if resolved_target_kind not in VALID_TARGET_KINDS:
+        raise ValidationError(f"target_kind must be one of {sorted(VALID_TARGET_KINDS)}")
+    raw_evidence = dict(evidence or {})
+    signal_signature = _extract_signal_signature(raw_evidence)
+    if not signal_signature and raw_evidence.get("tool_name"):
+        signal_signature = _auto_signal_signature(
+            kind=str(raw_evidence.get("kind") or "tool_call"),
+            channel_id=channel_id,
+            target_kind=resolved_target_kind,
+            target_id=str(resolved_target_id),
+            name=str(raw_evidence.get("tool_name") or ""),
+            error_kind=str(raw_evidence.get("error_kind") or ""),
+            text=str(raw_evidence.get("error") or raw_evidence.get("message") or summary),
+        )
+    report_evidence = {
+        **raw_evidence,
+        "report_issue": {
+            "category": category,
+            "suggested_action": suggested_action or "",
+            "reported_by": bot_id,
+            "reported_at": _now().isoformat(),
+            "task_id": str(task_id) if task_id else None,
+            "origin": run_origin,
+            "signal_signature": signal_signature,
+        },
+    }
+    item = await place_attention_item(
+        db,
+        source_type="bot",
+        source_id=bot_id,
+        channel_id=channel_id,
+        target_kind=resolved_target_kind,
+        target_id=str(resolved_target_id),
+        title=title,
+        message=summary,
+        severity=severity,
+        requires_response=True,
+        next_steps=[suggested_action] if suggested_action else [],
+        dedupe_key=dedupe_key or derive_dedupe_key("report_issue", bot_id, category, resolved_target_kind, str(resolved_target_id), signal_signature, title),
+        evidence=report_evidence,
+        latest_correlation_id=latest_correlation_id,
+    )
+    await _collapse_existing_system_signals_for_report(db, report_item=item, signal_signature=signal_signature)
+    return item
 
 
 def _assignment_prompt(item: WorkspaceAttentionItem, instructions: str | None) -> str:
@@ -1204,7 +1428,26 @@ async def list_attention_items(
         desc(WorkspaceAttentionItem.status == "open"),
         desc(WorkspaceAttentionItem.last_seen_at),
     )
-    return list((await db.execute(stmt)).scalars().all())
+    items = list((await db.execute(stmt)).scalars().all())
+
+    def _priority(item: WorkspaceAttentionItem) -> tuple[int, int, float]:
+        evidence = item.evidence or {}
+        report = evidence.get("report_issue") if isinstance(evidence, dict) else None
+        triage = evidence.get("operator_triage") if isinstance(evidence, dict) else None
+        if isinstance(report, dict):
+            bucket = 0
+        elif isinstance(triage, dict) and triage.get("state") == "ready_for_review":
+            bucket = 1
+        elif item.status == "open" and item.source_type in {"bot", "user"}:
+            bucket = 2
+        elif item.status == "open":
+            bucket = 3
+        else:
+            bucket = 4
+        ts = item.last_seen_at or item.first_seen_at or datetime.min.replace(tzinfo=timezone.utc)
+        return (bucket, -_severity_rank(item.severity), -ts.timestamp())
+
+    return sorted(items, key=_priority)
 
 
 async def _target_node_id(db: AsyncSession, item: WorkspaceAttentionItem) -> str | None:
@@ -1448,6 +1691,40 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
         )
         if not should_surface:
             continue
+        auto_signature = _auto_signal_signature(
+            kind="tool_call",
+            channel_id=channel_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            name=call.tool_name,
+            error_kind=call.error_kind,
+            text=str(text),
+        )
+        evidence = {
+            "kind": "tool_call",
+            "tool_call_id": str(call.id),
+            "tool_name": call.tool_name,
+            "classification": classification,
+            "error_kind": call.error_kind,
+            "correlation_id": str(call.correlation_id) if call.correlation_id else None,
+            "auto_signal": {
+                "signature": auto_signature,
+                "kind": "tool_call",
+                "tool_name": call.tool_name,
+                "error_kind": call.error_kind,
+            },
+        }
+        folded = await _fold_system_signal_into_bot_report(
+            db,
+            channel_id=channel_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            signal_signature=auto_signature,
+            evidence=evidence,
+            latest_correlation_id=call.correlation_id,
+        )
+        if folded is not None:
+            continue
         item = await place_attention_item(
             db,
             source_type="system",
@@ -1460,16 +1737,10 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             severity=severity,
             requires_response=False,
             dedupe_key=signature,
-            evidence={
-                "kind": "tool_call",
-                "tool_call_id": str(call.id),
-                "tool_name": call.tool_name,
-                "classification": classification,
-                "error_kind": call.error_kind,
-                "correlation_id": str(call.correlation_id) if call.correlation_id else None,
-            },
+            evidence=evidence,
             latest_correlation_id=call.correlation_id,
             source_event_key=f"tool_call:{call.id}",
+            reopen_after=AUTO_SIGNAL_REOPEN_COOLDOWN,
         )
         if item.occurrence_count == 1:
             created += 1
@@ -1487,6 +1758,39 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
         data = event.data or {}
         text = str(data.get("error") or data.get("message") or event.event_name or event.event_type)
         signature = derive_dedupe_key("trace", str(channel_id), event.bot_id, event.event_type, _error_signature(text))
+        auto_signature = _auto_signal_signature(
+            kind="trace_event",
+            channel_id=channel_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            name=event.event_type,
+            error_kind=event.event_name,
+            text=text,
+        )
+        evidence = {
+            "kind": "trace_event",
+            "trace_event_id": str(event.id),
+            "event_type": event.event_type,
+            "event_name": event.event_name,
+            "correlation_id": str(event.correlation_id) if event.correlation_id else None,
+            "auto_signal": {
+                "signature": auto_signature,
+                "kind": "trace_event",
+                "event_type": event.event_type,
+                "event_name": event.event_name,
+            },
+        }
+        folded = await _fold_system_signal_into_bot_report(
+            db,
+            channel_id=channel_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            signal_signature=auto_signature,
+            evidence=evidence,
+            latest_correlation_id=event.correlation_id,
+        )
+        if folded is not None:
+            continue
         item = await place_attention_item(
             db,
             source_type="system",
@@ -1498,15 +1802,10 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             message=text[:1000],
             severity="error",
             dedupe_key=signature,
-            evidence={
-                "kind": "trace_event",
-                "trace_event_id": str(event.id),
-                "event_type": event.event_type,
-                "event_name": event.event_name,
-                "correlation_id": str(event.correlation_id) if event.correlation_id else None,
-            },
+            evidence=evidence,
             latest_correlation_id=event.correlation_id,
             source_event_key=f"trace_event:{event.id}",
+            reopen_after=AUTO_SIGNAL_REOPEN_COOLDOWN,
         )
         if item.occurrence_count == 1:
             created += 1
@@ -1522,6 +1821,38 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
     for run, hb in runs:
         text = run.error or "Heartbeat run failed"
         signature = derive_dedupe_key("heartbeat", str(hb.channel_id), _error_signature(text))
+        auto_signature = _auto_signal_signature(
+            kind="heartbeat_run",
+            channel_id=hb.channel_id,
+            target_kind="channel",
+            target_id=str(hb.channel_id),
+            name="heartbeat",
+            error_kind=run.status,
+            text=text,
+        )
+        evidence = {
+            "kind": "heartbeat_run",
+            "heartbeat_run_id": str(run.id),
+            "heartbeat_id": str(hb.id),
+            "correlation_id": str(run.correlation_id) if run.correlation_id else None,
+            "auto_signal": {
+                "signature": auto_signature,
+                "kind": "heartbeat_run",
+                "heartbeat_id": str(hb.id),
+                "status": run.status,
+            },
+        }
+        folded = await _fold_system_signal_into_bot_report(
+            db,
+            channel_id=hb.channel_id,
+            target_kind="channel",
+            target_id=str(hb.channel_id),
+            signal_signature=auto_signature,
+            evidence=evidence,
+            latest_correlation_id=run.correlation_id,
+        )
+        if folded is not None:
+            continue
         item = await place_attention_item(
             db,
             source_type="system",
@@ -1533,14 +1864,10 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             message=text[:1000],
             severity="warning",
             dedupe_key=signature,
-            evidence={
-                "kind": "heartbeat_run",
-                "heartbeat_run_id": str(run.id),
-                "heartbeat_id": str(hb.id),
-                "correlation_id": str(run.correlation_id) if run.correlation_id else None,
-            },
+            evidence=evidence,
             latest_correlation_id=run.correlation_id,
             source_event_key=f"heartbeat_run:{run.id}",
+            reopen_after=AUTO_SIGNAL_REOPEN_COOLDOWN,
         )
         if item.occurrence_count == 1:
             created += 1

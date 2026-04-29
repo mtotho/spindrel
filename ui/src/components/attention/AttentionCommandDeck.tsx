@@ -109,6 +109,11 @@ function humanizeSuggestedAction(action?: string | null): string {
     .trim();
 }
 
+function getBotReport(item: WorkspaceAttentionItem): any | null {
+  const report = item.evidence?.report_issue;
+  return report && typeof report === "object" ? report : null;
+}
+
 function severityClass(item: WorkspaceAttentionItem): string {
   if (item.severity === "critical" || item.severity === "error") return "text-danger";
   if (item.severity === "warning") return "text-warning";
@@ -455,6 +460,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
   const resolve = useResolveAttentionItem();
   const triageFeedback = useSubmitAttentionTriageFeedback();
   const triage = getOperatorTriage(item);
+  const botReport = getBotReport(item);
   const workflowState = getAttentionWorkflowState(item);
   const reviewed = workflowState === "operator_review";
   const readonly = workflowState === "processed" || workflowState === "closed";
@@ -465,7 +471,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            {reviewed ? "Operator finding" : "Unreviewed item"}
+            {botReport ? "Bot report" : reviewed ? "Operator finding" : "Unreviewed item"}
           </div>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal text-text">{item.title}</h2>
           <div className="mt-1 text-sm text-text-muted">
@@ -497,6 +503,31 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
           )}
         </div>
       </div>
+
+      {botReport && (
+        <section className="mb-4 rounded-md bg-accent/[0.08] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
+              <Sparkles size={13} />
+              Bot report
+            </span>
+            {botReport.category && (
+              <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">
+                {String(botReport.category).replaceAll("_", " ")}
+              </span>
+            )}
+          </div>
+          <p className="mt-3 text-sm leading-6 text-text-muted">
+            Reported by {botReport.reported_by ?? item.source_id}. This was raised by an enabled task or heartbeat because the bot found something that needs review.
+          </p>
+          {botReport.suggested_action && (
+            <p className="mt-3 text-sm leading-6 text-text">
+              <span className="text-text-dim">Next: </span>
+              {humanizeSuggestedAction(botReport.suggested_action)}
+            </p>
+          )}
+        </section>
+      )}
 
       {triage && (
         <section className="mb-4 rounded-md bg-surface-overlay/35 px-4 py-3">

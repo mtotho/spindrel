@@ -10,6 +10,7 @@ import {
 export const OPERATOR_BOT_ID = "orchestrator";
 
 export type AttentionWorkflowState =
+  | "bot_report"
   | "operator_review"
   | "in_sweep"
   | "processed"
@@ -30,6 +31,7 @@ export type AttentionBuckets = Record<AttentionLaneKey, WorkspaceAttentionItem[]
 export const severityRank: Record<string, number> = { info: 0, warning: 1, error: 2, critical: 3 };
 
 export function getAttentionWorkflowState(item: WorkspaceAttentionItem): AttentionWorkflowState {
+  if (item.source_type === "bot" && item.evidence?.report_issue) return "bot_report";
   if (isOperatorTriageRunning(item)) return "in_sweep";
   if (isOperatorTriageReadyForReview(item)) return "operator_review";
   if (isOperatorTriageProcessed(item)) return "processed";
@@ -40,7 +42,7 @@ export function getAttentionWorkflowState(item: WorkspaceAttentionItem): Attenti
 
 export function isAttentionStillActionable(item: WorkspaceAttentionItem): boolean {
   const state = getAttentionWorkflowState(item);
-  return state === "operator_review" || state === "in_sweep" || state === "assigned" || state === "untriaged";
+  return state === "bot_report" || state === "operator_review" || state === "in_sweep" || state === "assigned" || state === "untriaged";
 }
 
 export function isAttentionSweepCandidate(item: WorkspaceAttentionItem): boolean {
@@ -58,7 +60,7 @@ export function sweepCandidateItems(items: WorkspaceAttentionItem[]): WorkspaceA
 
 export function attentionLaneFor(item: WorkspaceAttentionItem): AttentionLaneKey {
   const state = getAttentionWorkflowState(item);
-  if (state === "operator_review") return "review";
+  if (state === "bot_report" || state === "operator_review") return "review";
   if (state === "in_sweep") return "triage";
   if (state === "processed") return "processed";
   if (state === "closed") return "closed";
@@ -98,6 +100,7 @@ export function attentionBucketSummary(buckets: AttentionBuckets): string {
 
 export function attentionItemTriageLabel(item: WorkspaceAttentionItem): string {
   const state = getAttentionWorkflowState(item);
+  if (state === "bot_report") return "bot report";
   if (state === "operator_review") return "operator review";
   if (state === "in_sweep") return "operator running";
   if (state === "processed") return "cleared by operator";
@@ -108,6 +111,7 @@ export function attentionItemTriageLabel(item: WorkspaceAttentionItem): string {
 
 export function attentionMapCueLabel(item: WorkspaceAttentionItem): string {
   const triage = getOperatorTriage(item);
+  if (getAttentionWorkflowState(item) === "bot_report") return "Bot reported issue";
   if (getAttentionWorkflowState(item) === "operator_review") {
     return triage?.classification ? `Operator reviewed: ${triage.classification.replaceAll("_", " ")}` : "Operator reviewed";
   }

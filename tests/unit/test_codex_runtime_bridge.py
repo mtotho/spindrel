@@ -198,10 +198,7 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_PLUGIN_READ,
         {"pluginName": "fixture"},
     )
-    assert _resolve_codex_native_app_server_call("plugins", ("install", "fixture")) == (
-        schema.METHOD_PLUGIN_INSTALL,
-        {"pluginName": "fixture"},
-    )
+    assert _resolve_codex_native_app_server_call("plugins", ("install", "fixture")) == (None, {})
     assert _resolve_codex_native_app_server_call("plugins", ("uninstall", "fixture-id")) == (
         schema.METHOD_PLUGIN_UNINSTALL,
         {"pluginId": "fixture-id"},

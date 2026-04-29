@@ -45,8 +45,8 @@ def stage_project_workspace(
     bot = client.ensure_bot(
         bot_id=PROJECT_BOT_ID,
         name="Project Screenshot Bot",
-        model="llama3.2",
-        model_provider_id="ollama",
+        model="gemini-2.5-flash-lite",
+        model_provider_id="gemini",
         system_prompt=(
             "You are a screenshot fixture bot. When asked to use memory, call the "
             "host-provided memory tool exactly as requested and then answer briefly."
@@ -54,8 +54,8 @@ def stage_project_workspace(
     )
     client.update_bot(
         str(bot["id"]),
-        model="llama3.2",
-        model_provider_id="ollama",
+        model="gemini-2.5-flash-lite",
+        model_provider_id="gemini",
         memory_scheme="workspace-files",
     )
     state.bots["project_bot"] = PROJECT_BOT_ID
@@ -102,7 +102,7 @@ def stage_project_workspace(
             "name": "spindrel",
             "url": "https://github.com/mtotho/spindrel.git",
             "path": "spindrel",
-            "branch": "main",
+            "branch": "development",
         }],
         env={"NODE_ENV": "development", "PROJECT_KIND": "screenshot"},
         required_secrets=[BOUND_SECRET_NAME, SECOND_BOUND_SECRET_NAME],
@@ -118,13 +118,32 @@ def stage_project_workspace(
         secret_bindings={BOUND_SECRET_NAME: str(existing_secret["id"]), SECOND_BOUND_SECRET_NAME: str(existing_secret_two["id"])},
     )
     blueprint_project_id = str(blueprint_project["id"])
+    blueprint_project = client.update_project(
+        blueprint_project_id,
+        metadata_={
+            **(blueprint_project.get("metadata_") or {}),
+            "blueprint": {
+                "id": blueprint_id,
+                "name": blueprint["name"],
+                "slug": blueprint["slug"],
+            },
+            "blueprint_snapshot": {
+                "folders": blueprint.get("folders") or [],
+                "files": blueprint.get("files") or {},
+                "knowledge_files": blueprint.get("knowledge_files") or {},
+                "repos": blueprint.get("repos") or [],
+                "env": blueprint.get("env") or {},
+                "required_secrets": blueprint.get("required_secrets") or [],
+            },
+        },
+    )
     state.dashboards["project_workspace_blueprint_project"] = blueprint_project_id
     client.update_project_secret_bindings(
         blueprint_project_id,
         {BOUND_SECRET_NAME: str(existing_secret["id"]), SECOND_BOUND_SECRET_NAME: str(existing_secret_two["id"])},
     )
     setup = client.get_project_setup(blueprint_project_id)
-    if not setup.get("runs"):
+    if not any(run.get("status") == "succeeded" for run in (setup.get("runs") or [])):
         client.run_project_setup(blueprint_project_id)
 
     channel = client.ensure_channel(

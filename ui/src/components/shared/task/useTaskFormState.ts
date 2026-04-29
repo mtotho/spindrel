@@ -57,6 +57,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [modelOverride, setModelOverride] = useState("");
   const [harnessEffort, setHarnessEffort] = useState("");
   const [skipToolApproval, setSkipToolApproval] = useState(false);
+  const [allowIssueReporting, setAllowIssueReporting] = useState(false);
   const [fallbackModels, setFallbackModels] = useState<Array<{ model: string; provider_id?: string | null }>>([]);
   const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [workflowId, setWorkflowId] = useState<string | null>(null);
@@ -95,6 +96,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
       setHarnessEffort(existingTask.harness_effort ?? existingTask.execution_config?.harness_effort ?? "");
       setSkipToolApproval(!!(existingTask.skip_tool_approval ?? existingTask.execution_config?.skip_tool_approval));
+      setAllowIssueReporting(!!(existingTask.allow_issue_reporting ?? existingTask.execution_config?.allow_issue_reporting));
       setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
       setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
       setWorkflowId(existingTask.workflow_id ?? null);
@@ -132,6 +134,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
       setHarnessEffort(existingTask.harness_effort ?? existingTask.execution_config?.harness_effort ?? "");
       setSkipToolApproval(!!(existingTask.skip_tool_approval ?? existingTask.execution_config?.skip_tool_approval));
+      setAllowIssueReporting(!!(existingTask.allow_issue_reporting ?? existingTask.execution_config?.allow_issue_reporting));
       setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
       setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
       setWorkflowId(existingTask.workflow_id ?? null);
@@ -212,6 +215,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           model_override: modelOverride || null,
           harness_effort: harnessEffort || null,
           skip_tool_approval: skipToolApproval,
+          allow_issue_reporting: allowIssueReporting,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
           workflow_id: workflowId || null,
@@ -244,6 +248,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           model_override: modelOverride || null,
           harness_effort: harnessEffort || null,
           skip_tool_approval: skipToolApproval,
+          allow_issue_reporting: allowIssueReporting,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
           workflow_id: workflowId || null,
@@ -261,7 +266,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, sessionTarget, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, skipToolApproval, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
+  }, [prompt, title, botId, channelId, sessionTarget, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, skipToolApproval, allowIssueReporting, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -311,6 +316,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     modelOverride, setModelOverride,
     harnessEffort, setHarnessEffort,
     skipToolApproval, setSkipToolApproval,
+    allowIssueReporting, setAllowIssueReporting,
     fallbackModels, setFallbackModels,
     maxRunSeconds, setMaxRunSeconds,
     workflowId, setWorkflowId,

@@ -1079,6 +1079,18 @@ export function HeartbeatTab({
                 label="Auto-approve tool calls"
                 description="Skip tool approval policies for heartbeat runs. Tools execute without waiting for manual approval."
               />
+              <Toggle
+                value={!!hbForm.execution_config?.allow_issue_reporting}
+                onChange={(v) => updateHbForm((f: any) => ({
+                  ...f,
+                  execution_config: {
+                    ...(f.execution_config ?? {}),
+                    allow_issue_reporting: v,
+                  },
+                }))}
+                label="Allow issue reporting"
+                description="Lets heartbeat create a review item when it finds a durable blocker, missing permission, or system problem."
+              />
             </Section>
             <Section title="Limits">
               <div className="flex flex-col gap-3">

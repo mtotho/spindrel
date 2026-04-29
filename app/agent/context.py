@@ -54,6 +54,12 @@ current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_
 # Default None is treated as "chat" by policy (least-restrictive, interactive).
 current_run_origin: ContextVar[str | None] = ContextVar("current_run_origin", default=None)
 
+# Current background Task row, when an agent turn is running from the task
+# worker rather than live chat. Tools use this for scoped capabilities such as
+# opt-in issue reporting.
+current_task_id: ContextVar[uuid.UUID | None] = ContextVar("current_task_id", default=None)
+current_issue_reporting_enabled: ContextVar[bool] = ContextVar("current_issue_reporting_enabled", default=False)
+
 # Effective model/provider for the current agent run (after override resolution).
 # Tools read these to propagate the model to callback tasks.
 current_model_override: ContextVar[str | None] = ContextVar("current_model_override", default=None)

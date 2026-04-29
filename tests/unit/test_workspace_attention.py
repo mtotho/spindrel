@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,6 +23,7 @@ from app.services.workspace_attention import (
     mark_attention_responded,
     place_attention_item,
     record_attention_triage_feedback,
+    report_bot_issue,
     report_attention_assignment,
     report_attention_triage_batch,
     resolve_attention_item,
@@ -235,6 +236,88 @@ async def test_acknowledged_structured_item_reopens_for_new_source_event(db_sess
     assert reopened.id == item.id
     assert reopened.status == "open"
     assert reopened.occurrence_count == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_signal_cooldown_keeps_acknowledged_repeats_hidden(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+        source_event_key="tool_call:one",
+    )
+    await acknowledge_attention_item(db_session, item.id)
+    repeated = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Tool failed",
+        dedupe_key="tool-x",
+        source_event_key="tool_call:two",
+        reopen_after=timedelta(hours=24),
+    )
+
+    assert repeated.id == item.id
+    assert repeated.status == "acknowledged"
+    assert repeated.occurrence_count == 2
+
+
+@pytest.mark.asyncio
+async def test_report_bot_issue_prioritizes_and_collapses_matching_system_signal(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    await db_session.commit()
+    signal = "auto-signal:tool:ops"
+    system_item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:structured-errors",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="search_memory failed",
+        message="Decimal is not JSON serializable",
+        severity="critical",
+        dedupe_key="tool-search-memory",
+        evidence={"auto_signal": {"signature": signal, "kind": "tool_call", "tool_name": "search_memory"}},
+    )
+    bot_report = await report_bot_issue(
+        db_session,
+        bot_id="bot-a",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Memory search cannot serialize result",
+        summary="search_memory repeatedly fails with Decimal JSON serialization.",
+        category="needs_fix",
+        suggested_action="Fix Decimal serialization in search_memory responses.",
+        severity="error",
+        evidence={"signal_signature": signal, "tool_name": "search_memory", "error": "Decimal is not JSON serializable"},
+    )
+
+    refreshed_system = await db_session.get(type(system_item), system_item.id)
+    assert refreshed_system.status == "acknowledged"
+    assert (bot_report.evidence or {})["report_issue"]["category"] == "needs_fix"
+    assert (bot_report.evidence or {})["collapsed_system_signals"][0]["collapsed_item_id"] == str(system_item.id)
+
+    visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+    assert visible[0].id == bot_report.id
+    assert system_item.id not in {item.id for item in visible}
 
 
 @pytest.mark.asyncio

@@ -289,10 +289,12 @@ Both flavors share the same authoring loop. There is no JSX server-side typechec
 | `inspect_widget_pin` | Post-pin runtime trace | Reads the in-memory debug ring (cap 50, newest-first) for a pinned widget: every `callTool` request+response (real envelope shape — no guessing the JSON path), every `loadAttachment` result, every uncaught JS error / unhandled promise rejection / `console.*` call / `spindrel.log.*` entry. For `runtime: react`, Babel compile errors are mirrored to `spindrel.log.error` so they show up here with the same shape as a runtime JS error. |
 
 The channel dashboard UI surfaces the same usefulness assessment as compact
-proposal affordances and a drawer. Channel Settings -> Dashboard shows a compact
-summary plus the Bot widget agency setting: `propose` means bots can only publish
-proposals, while `propose_and_fix` lets scheduled or chat-triggered bot work
-apply safe dashboard fixes and report what changed.
+widget proposal affordances and a drawer. Channel Settings -> Dashboard shows a
+compact summary plus the Bot widget agency setting: `propose` means bots can
+only publish widget proposals, while `propose_and_fix` lets scheduled or
+chat-triggered bot work apply safe dashboard fixes. Bot-applied changes are
+recorded as bot widget change receipts with the action, affected pins, compact
+before/after state, and the tool-supplied reason.
 
 Iteration recipe for a React widget:
 

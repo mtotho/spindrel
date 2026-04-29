@@ -169,6 +169,14 @@ treats the transcript as its own full panel surface with a compact chat variant,
 then lists review/processed buckets below it instead of embedding a cramped
 chat card inside the overview.
 
+Bot-reported issue lane follow-up: scheduled tasks and channel heartbeats can
+opt into `allow_issue_reporting`, which injects a scoped `report_issue` tool.
+Those reports stay inside the existing Attention Item substrate with
+`evidence.report_issue`, sort ahead of automatic system/tool failures, and can
+absorb matching automatic signals as evidence. This preserves the current
+Mission Control Review model: bots can raise a judgment, Operator can classify
+the broader queue, and humans still make the visible decision.
+
 ### Starboard / Command Deck Pivot - 2026-04-29
 
 The Attention experiment exposed a deeper IA problem: Starboard cannot be the
@@ -453,6 +461,10 @@ Acceptance:
   tasks as the durable substrate. Processed/noisy items can leave active
   Attention, but their outcomes must remain recoverable through operator run
   history.
+- Bot-reported issues are Attention Items, not a new alert system. Enable
+  `report_issue` only per scheduled task or heartbeat, prioritize those reports
+  above automatic detector noise, and fold same-target same-signature detector
+  events into the report evidence.
 - Mission tasks remain the execution truth until a later track explicitly adds
   heartbeat consumption.
 - Mission Control suggestions require human approval before creating durable

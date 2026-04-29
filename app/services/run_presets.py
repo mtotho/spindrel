@@ -18,8 +18,8 @@ Use the widget inspection tools to understand the current dashboard before propo
 3. Call check_dashboard_widgets only when the assessment points to health/runtime concerns.
 4. Use check_widget or inspect_widget_pin when a specific widget or pin needs deeper inspection.
 5. Read widget_agency_mode from the assessment:
-   - propose: return concise proposals only.
-   - propose_and_fix: apply safe dashboard fixes with the dashboard tools, then explain what changed and why.
+   - propose: return concise widget proposals only.
+   - propose_and_fix: apply safe dashboard fixes with the dashboard tools. Pass a concise `reason` to each mutating dashboard tool so the bot widget change receipt explains why it changed.
 
 Look for actionable issues:
 - broken, stale, or low-signal widgets
@@ -28,7 +28,7 @@ Look for actionable issues:
 - missing coverage where a widget would make the channel easier to operate
 - places where existing widgets could be clearer, smaller, or more task-focused
 
-Return concise proposals with concrete next actions. If there are no actionable proposals, say: No actionable widget proposals.
+Return concise widget proposals with concrete next actions. If there are no actionable widget proposals, say: No actionable widget proposals.
 
 Safe fixes in propose_and_fix mode are limited to dashboard operations: move/resize pins, change zones, remove obvious duplicates, pin clearly identified existing widgets, and adjust dashboard chrome. Do not rewrite widget source code in this task."""
 

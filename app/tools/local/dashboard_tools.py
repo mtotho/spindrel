@@ -24,7 +24,12 @@ import logging
 import uuid
 from typing import Any
 
-from app.agent.context import current_bot_id, current_channel_id
+from app.agent.context import (
+    current_bot_id,
+    current_channel_id,
+    current_correlation_id,
+    current_session_id,
+)
 from app.tools.registry import register
 from app.services.widget_usefulness import normalize_widget_agency_mode
 
@@ -61,6 +66,58 @@ async def _widget_agency_mutation_error(dashboard_key: str) -> str | None:
         "'Propose + fix' before bots can create, move, delete, or adjust "
         "channel dashboard widgets."
     )
+
+
+async def _record_widget_agency_receipt_safe(
+    *,
+    dashboard_key: str,
+    action: str,
+    summary: str,
+    reason: str | None = None,
+    affected_pin_ids: list[str] | None = None,
+    before_dashboard: dict[str, Any] | None = None,
+    after_dashboard: dict[str, Any] | None = None,
+    before_pins: list[dict[str, Any]] | None = None,
+    after_pins: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[str | None, str | None]:
+    channel_id = _channel_id_from_dashboard_key(dashboard_key)
+    if channel_id is None:
+        return None, None
+
+    try:
+        from app.db.engine import async_session
+        from app.services.widget_agency_receipts import (
+            build_widget_agency_state,
+            create_widget_agency_receipt,
+        )
+
+        async with async_session() as db:
+            receipt = await create_widget_agency_receipt(
+                db,
+                channel_id=channel_id,
+                dashboard_key=dashboard_key,
+                action=action,
+                summary=summary,
+                reason=reason,
+                bot_id=current_bot_id.get(),
+                session_id=current_session_id.get(),
+                correlation_id=current_correlation_id.get(),
+                affected_pin_ids=affected_pin_ids,
+                before_state=build_widget_agency_state(
+                    dashboard=before_dashboard,
+                    pins=before_pins,
+                ),
+                after_state=build_widget_agency_state(
+                    dashboard=after_dashboard,
+                    pins=after_pins,
+                ),
+                metadata=metadata,
+            )
+            return str(receipt.id), None
+    except Exception as exc:  # noqa: BLE001 - receipts must not roll back edits
+        logger.exception("failed to record widget agency receipt for %s", action)
+        return None, f"Dashboard changed, but recording the bot widget change receipt failed: {exc}"
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +284,14 @@ _PIN_WIDGET_SCHEMA = {
                         "widget's default_config before rendering."
                     ),
                 },
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "Brief reason for this bot widget change. Stored in "
+                        "the channel's bot widget change receipt when agency "
+                        "mode permits fixes."
+                    ),
+                },
             },
             "required": ["widget"],
         },
@@ -273,6 +338,10 @@ _MOVE_PINS_SCHEMA = {
                         "dashboard."
                     ),
                 },
+                "reason": {
+                    "type": "string",
+                    "description": "Brief reason stored in the bot widget change receipt.",
+                },
             },
             "required": ["moves"],
         },
@@ -303,6 +372,10 @@ _UNPIN_SCHEMA = {
                         "re-pins later."
                     ),
                 },
+                "reason": {
+                    "type": "string",
+                    "description": "Brief reason stored in the bot widget change receipt.",
+                },
             },
             "required": ["pin_id"],
         },
@@ -322,7 +395,13 @@ _PROMOTE_SCHEMA = {
         ),
         "parameters": {
             "type": "object",
-            "properties": {"pin_id": {"type": "string"}},
+            "properties": {
+                "pin_id": {"type": "string"},
+                "reason": {
+                    "type": "string",
+                    "description": "Brief reason stored in the bot widget change receipt.",
+                },
+            },
             "required": ["pin_id"],
         },
     },
@@ -340,7 +419,13 @@ _DEMOTE_SCHEMA = {
         ),
         "parameters": {
             "type": "object",
-            "properties": {"pin_id": {"type": "string"}},
+            "properties": {
+                "pin_id": {"type": "string"},
+                "reason": {
+                    "type": "string",
+                    "description": "Brief reason stored in the bot widget change receipt.",
+                },
+            },
             "required": ["pin_id"],
         },
     },
@@ -384,6 +469,10 @@ _SET_CHROME_SCHEMA = {
                         "Cleaner look on dense dashboards. False: always "
                         "show scrollbars."
                     ),
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Brief reason stored in the bot widget change receipt.",
                 },
             },
         },
@@ -498,6 +587,8 @@ _PIN_WIDGET_RETURNS = {
             },
         },
         "ascii_preview": {"type": "string"},
+        "receipt_id": {"type": "string"},
+        "receipt_warning": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -509,6 +600,8 @@ _MOVE_RETURNS = {
         "llm": {"type": "string"},
         "updated": {"type": "integer"},
         "ascii_preview": {"type": "string"},
+        "receipt_id": {"type": "string"},
+        "receipt_warning": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -519,6 +612,8 @@ _UNPIN_RETURNS = {
     "properties": {
         "llm": {"type": "string"},
         "ok": {"type": "boolean"},
+        "receipt_id": {"type": "string"},
+        "receipt_warning": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -529,6 +624,8 @@ _PROMOTE_DEMOTE_RETURNS = {
     "properties": {
         "llm": {"type": "string"},
         "pin": _PIN_RESULT_SCHEMA,
+        "receipt_id": {"type": "string"},
+        "receipt_warning": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -540,6 +637,8 @@ _SET_CHROME_RETURNS = {
         "llm": {"type": "string"},
         "dashboard_key": {"type": "string"},
         "grid_config": {"type": "object"},
+        "receipt_id": {"type": "string"},
+        "receipt_warning": {"type": "string"},
         "error": {"type": "string"},
     },
 }
@@ -1088,6 +1187,7 @@ async def pin_widget(
     auth_scope: str = "user",
     tool_args: dict[str, Any] | None = None,
     widget_config: dict[str, Any] | None = None,
+    reason: str | None = None,
 ) -> str:
     if zone not in ("rail", "header", "dock", "grid"):
         return json.dumps({"error": f"invalid zone: {zone!r}"})
@@ -1152,7 +1252,7 @@ async def pin_widget(
         list_pins,
         serialize_pin,
     )
-    from app.services.dashboards import ensure_channel_dashboard, get_dashboard
+    from app.services.dashboards import ensure_channel_dashboard, get_dashboard, serialize_dashboard
 
     default_w, default_h = default_size_for_zone(zone)  # type: ignore[arg-type]
     wp = w if w is not None else default_w
@@ -1164,10 +1264,12 @@ async def pin_widget(
         if key.startswith("channel:") and channel_id is not None:
             await ensure_channel_dashboard(db, channel_id)
         dashboard_row = await get_dashboard(db, key)
+        before_dashboard = serialize_dashboard(dashboard_row)
         preset_name = resolve_preset_name(dashboard_row.grid_config)
 
         existing_pins = await list_pins(db, dashboard_key=key)
         existing = [serialize_pin(p) for p in existing_pins]
+        before_pins = list(existing)
         native_widget_ref = entry.get("widget_ref") if entry else None
 
         # Refuse duplicates — same source + identity on the same dashboard.
@@ -1303,13 +1405,35 @@ async def pin_widget(
         f"x={final_x},y={final_y},w={wp},h={hp} (auth scope: {scope_desc}). "
         f"pin_id={pin.id}."
     )
-    return json.dumps({
+    receipt_id, receipt_warning = await _record_widget_agency_receipt_safe(
+        dashboard_key=key,
+        action="pin_widget",
+        summary=narrative,
+        reason=reason,
+        affected_pin_ids=[str(pin.id)],
+        before_dashboard=before_dashboard,
+        after_dashboard=dashboard_dict,
+        before_pins=before_pins,
+        after_pins=pins,
+        metadata={
+            "widget": widget,
+            "source_kind": source_kind,
+            "zone": zone,
+            "auth_scope": auth_scope,
+        },
+    )
+    out = {
         "pin_id": str(pin.id),
         "zone": zone,
         "grid_layout": {"x": int(final_x), "y": int(final_y), "w": int(wp), "h": int(hp)},
         "ascii_preview": ascii_preview,
         "llm": narrative + "\n\n" + ascii_preview,
-    })
+    }
+    if receipt_id:
+        out["receipt_id"] = receipt_id
+    if receipt_warning:
+        out["receipt_warning"] = receipt_warning
+    return json.dumps(out)
 
 
 @register(
@@ -1321,6 +1445,7 @@ async def pin_widget(
 async def move_pins(
     moves: list[dict[str, Any]] | None = None,
     dashboard_key: str | None = None,
+    reason: str | None = None,
 ) -> str:
     if not moves or not isinstance(moves, list):
         return json.dumps({"error": "moves must be a non-empty list"})
@@ -1340,6 +1465,9 @@ async def move_pins(
     async with async_session() as db:
         existing = await list_pins(db, dashboard_key=key)
         by_id = {str(p.id): p for p in existing}
+        before_pin_dicts = [serialize_pin(p) for p in existing]
+        before_dashboard_row = await get_dashboard(db, key)
+        before_dashboard = serialize_dashboard(before_dashboard_row)
 
         items: list[dict[str, Any]] = []
         for m in moves:
@@ -1383,11 +1511,29 @@ async def move_pins(
         f"Moved {result.get('updated', 0)} pin(s) on {key}. "
         f"Preview:"
     )
-    return json.dumps({
+    affected_pin_ids = [str(item.get("id")) for item in items if item.get("id")]
+    receipt_id, receipt_warning = await _record_widget_agency_receipt_safe(
+        dashboard_key=key,
+        action="move_pins",
+        summary=f"Moved {result.get('updated', 0)} widget pin(s) on {key}.",
+        reason=reason,
+        affected_pin_ids=affected_pin_ids,
+        before_dashboard=before_dashboard,
+        after_dashboard=dashboard_dict,
+        before_pins=before_pin_dicts,
+        after_pins=pin_dicts,
+        metadata={"moves": moves},
+    )
+    out = {
         "updated": int(result.get("updated", 0)),
         "ascii_preview": ascii_preview,
         "llm": narrative + "\n" + ascii_preview,
-    })
+    }
+    if receipt_id:
+        out["receipt_id"] = receipt_id
+    if receipt_warning:
+        out["receipt_warning"] = receipt_warning
+    return json.dumps(out)
 
 
 @register(
@@ -1399,6 +1545,7 @@ async def move_pins(
 async def unpin_widget(
     pin_id: str,
     delete_bundle_data: bool = False,
+    reason: str | None = None,
 ) -> str:
     try:
         pid = uuid.UUID(pin_id)
@@ -1406,11 +1553,13 @@ async def unpin_widget(
         return json.dumps({"error": f"invalid pin_id: {pin_id!r}"})
 
     from app.db.engine import async_session
-    from app.services.dashboard_pins import delete_pin, get_pin
+    from app.services.dashboard_pins import delete_pin, get_pin, serialize_pin
 
     async with async_session() as db:
         try:
             pin = await get_pin(db, pid)
+            dashboard_key = pin.dashboard_key
+            before_pin = serialize_pin(pin)
             policy_err = await _widget_agency_mutation_error(pin.dashboard_key)
             if policy_err:
                 return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
@@ -1424,7 +1573,22 @@ async def unpin_widget(
     llm = f"Unpinned widget {pin_id}."
     if result.get("bundle_data_deleted"):
         llm += f" Also deleted bundle data at {result.get('orphan_path')}."
-    return json.dumps({"ok": True, "llm": llm})
+    receipt_id, receipt_warning = await _record_widget_agency_receipt_safe(
+        dashboard_key=dashboard_key,
+        action="unpin_widget",
+        summary=llm,
+        reason=reason,
+        affected_pin_ids=[pin_id],
+        before_pins=[before_pin],
+        after_pins=[],
+        metadata={"delete_bundle_data": bool(delete_bundle_data)},
+    )
+    out = {"ok": True, "llm": llm}
+    if receipt_id:
+        out["receipt_id"] = receipt_id
+    if receipt_warning:
+        out["receipt_warning"] = receipt_warning
+    return json.dumps(out)
 
 
 @register(
@@ -1433,18 +1597,20 @@ async def unpin_widget(
     requires_bot_context=True,
     returns=_PROMOTE_DEMOTE_RETURNS,
 )
-async def promote_panel(pin_id: str) -> str:
+async def promote_panel(pin_id: str, reason: str | None = None) -> str:
     try:
         pid = uuid.UUID(pin_id)
     except (TypeError, ValueError):
         return json.dumps({"error": f"invalid pin_id: {pin_id!r}"})
 
     from app.db.engine import async_session
-    from app.services.dashboard_pins import get_pin, promote_pin_to_panel
+    from app.services.dashboard_pins import get_pin, promote_pin_to_panel, serialize_pin
 
     async with async_session() as db:
         try:
             pin = await get_pin(db, pid)
+            dashboard_key = pin.dashboard_key
+            before_pin = serialize_pin(pin)
             policy_err = await _widget_agency_mutation_error(pin.dashboard_key)
             if policy_err:
                 return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
@@ -1454,13 +1620,28 @@ async def promote_panel(pin_id: str) -> str:
             return json.dumps({"error": str(exc)})
 
     label = pin_dict.get("display_label") or pin_dict.get("tool_name") or pin_id
-    return json.dumps({
+    summary = (
+        f"Promoted {label!r} to the dashboard's main panel. The grid "
+        "matrix is suppressed in favour of this pin."
+    )
+    receipt_id, receipt_warning = await _record_widget_agency_receipt_safe(
+        dashboard_key=dashboard_key,
+        action="promote_panel",
+        summary=summary,
+        reason=reason,
+        affected_pin_ids=[pin_id],
+        before_pins=[before_pin],
+        after_pins=[pin_dict],
+    )
+    out = {
         "pin": {**pin_dict, "visible_in_chat": _visible_in_chat(pin_dict.get("zone") or "grid")},
-        "llm": (
-            f"Promoted {label!r} to the dashboard's main panel. The grid "
-            "matrix is suppressed in favour of this pin."
-        ),
-    })
+        "llm": summary,
+    }
+    if receipt_id:
+        out["receipt_id"] = receipt_id
+    if receipt_warning:
+        out["receipt_warning"] = receipt_warning
+    return json.dumps(out)
 
 
 @register(
@@ -1469,18 +1650,20 @@ async def promote_panel(pin_id: str) -> str:
     requires_bot_context=True,
     returns=_PROMOTE_DEMOTE_RETURNS,
 )
-async def demote_panel(pin_id: str) -> str:
+async def demote_panel(pin_id: str, reason: str | None = None) -> str:
     try:
         pid = uuid.UUID(pin_id)
     except (TypeError, ValueError):
         return json.dumps({"error": f"invalid pin_id: {pin_id!r}"})
 
     from app.db.engine import async_session
-    from app.services.dashboard_pins import demote_pin_from_panel, get_pin
+    from app.services.dashboard_pins import demote_pin_from_panel, get_pin, serialize_pin
 
     async with async_session() as db:
         try:
             pin = await get_pin(db, pid)
+            dashboard_key = pin.dashboard_key
+            before_pin = serialize_pin(pin)
             policy_err = await _widget_agency_mutation_error(pin.dashboard_key)
             if policy_err:
                 return json.dumps({"error": policy_err, "llm": policy_err, "policy": "widget_agency_propose"})
@@ -1490,10 +1673,25 @@ async def demote_panel(pin_id: str) -> str:
             return json.dumps({"error": str(exc)})
 
     label = pin_dict.get("display_label") or pin_dict.get("tool_name") or pin_id
-    return json.dumps({
+    summary = f"Demoted {label!r} from panel mode."
+    receipt_id, receipt_warning = await _record_widget_agency_receipt_safe(
+        dashboard_key=dashboard_key,
+        action="demote_panel",
+        summary=summary,
+        reason=reason,
+        affected_pin_ids=[pin_id],
+        before_pins=[before_pin],
+        after_pins=[pin_dict],
+    )
+    out = {
         "pin": {**pin_dict, "visible_in_chat": _visible_in_chat(pin_dict.get("zone") or "grid")},
-        "llm": f"Demoted {label!r} from panel mode.",
-    })
+        "llm": summary,
+    }
+    if receipt_id:
+        out["receipt_id"] = receipt_id
+    if receipt_warning:
+        out["receipt_warning"] = receipt_warning
+    return json.dumps(out)
 
 
 @register(
@@ -1506,6 +1704,7 @@ async def set_dashboard_chrome(
     dashboard_key: str | None = None,
     borderless: bool | None = None,
     hover_scrollbars: bool | None = None,
+    reason: str | None = None,
 ) -> str:
     if borderless is None and hover_scrollbars is None:
         return json.dumps({
@@ -1525,7 +1724,7 @@ async def set_dashboard_chrome(
 
     from app.db.engine import async_session
     from app.services.dashboards import (
-        ensure_channel_dashboard, get_dashboard, update_dashboard,
+        ensure_channel_dashboard, get_dashboard, serialize_dashboard, update_dashboard,
     )
 
     async with async_session() as db:
@@ -1534,6 +1733,7 @@ async def set_dashboard_chrome(
 
         try:
             row = await get_dashboard(db, key)
+            before_dashboard = serialize_dashboard(row)
         except Exception as exc:
             logger.exception("set_dashboard_chrome: get_dashboard failed")
             return json.dumps({"error": str(exc)})
@@ -1562,11 +1762,29 @@ async def set_dashboard_chrome(
     narrative = (
         f"Updated dashboard {key!r} chrome: {', '.join(changes)}."
     )
-    return json.dumps({
+    after_dashboard = serialize_dashboard(updated)
+    receipt_id, receipt_warning = await _record_widget_agency_receipt_safe(
+        dashboard_key=key,
+        action="set_dashboard_chrome",
+        summary=narrative,
+        reason=reason,
+        before_dashboard=before_dashboard,
+        after_dashboard=after_dashboard,
+        metadata={
+            "borderless": borderless,
+            "hover_scrollbars": hover_scrollbars,
+        },
+    )
+    out = {
         "dashboard_key": key,
         "grid_config": updated.grid_config or {},
         "llm": narrative,
-    })
+    }
+    if receipt_id:
+        out["receipt_id"] = receipt_id
+    if receipt_warning:
+        out["receipt_warning"] = receipt_warning
+    return json.dumps(out)
 
 
 def _validate_action_args(schema: dict[str, Any], args: dict[str, Any] | None) -> str | None:

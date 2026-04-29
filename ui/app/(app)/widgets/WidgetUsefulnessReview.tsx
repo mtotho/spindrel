@@ -1,14 +1,15 @@
-import { AlertTriangle, CheckCircle2, Eye, LayoutDashboard, MessageSquare, RefreshCw, Search, Settings, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Clock3, Eye, LayoutDashboard, MessageSquare, RefreshCw, Search, Settings, ShieldCheck, Sparkles, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type {
   WidgetUsefulnessAssessment,
+  WidgetAgencyReceipt,
   WidgetUsefulnessRecommendation,
   WidgetUsefulnessSeverity,
   WidgetUsefulnessStatus,
 } from "@/src/types/api";
-import { useChannelWidgetUsefulness } from "@/src/api/hooks/useWidgetUsefulness";
+import { useChannelWidgetAgencyReceipts, useChannelWidgetUsefulness } from "@/src/api/hooks/useWidgetUsefulness";
 import { Spinner } from "@/src/components/shared/Spinner";
 
 function statusTone(status?: WidgetUsefulnessStatus | null): {
@@ -85,6 +86,70 @@ function topFinding(assessment?: WidgetUsefulnessAssessment | null) {
   return assessment?.recommendations?.[0] ?? null;
 }
 
+function actionLabel(action: string): string {
+  return action.replace(/_/g, " ");
+}
+
+function formatReceiptTime(value?: string | null): string {
+  if (!value) return "recently";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function receiptPinLabel(receipt: WidgetAgencyReceipt): string | null {
+  const afterPins = (receipt.after_state as { pins?: unknown }).pins;
+  const beforePins = (receipt.before_state as { pins?: unknown }).pins;
+  const pins = Array.isArray(afterPins) && afterPins.length ? afterPins : beforePins;
+  if (!Array.isArray(pins) || !pins.length) return null;
+  const labels = pins
+    .map((pin) => {
+      if (!pin || typeof pin !== "object") return null;
+      const label = (pin as { label?: unknown; tool_name?: unknown }).label ?? (pin as { tool_name?: unknown }).tool_name;
+      return typeof label === "string" && label.trim() ? label.trim() : null;
+    })
+    .filter(Boolean) as string[];
+  if (!labels.length) return null;
+  return labels.slice(0, 2).join(", ") + (labels.length > 2 ? ` +${labels.length - 2}` : "");
+}
+
+function BotWidgetChangeList({
+  receipts,
+  loading,
+}: {
+  receipts: WidgetAgencyReceipt[];
+  loading?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-surface-raised/40 px-3 py-3" data-testid="widget-agency-receipts">
+      <div className="flex items-center justify-between gap-2">
+        <div className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-text">
+          <Bot size={13} />
+          Recent bot widget changes
+        </div>
+        {loading && <Spinner />}
+      </div>
+      {!loading && receipts.length === 0 && (
+        <div className="text-[12px] leading-relaxed text-text-dim">No bot-applied widget changes recorded.</div>
+      )}
+      {receipts.slice(0, 6).map((receipt) => (
+        <div key={receipt.id} className="rounded-md bg-surface-overlay/30 px-2.5 py-2" data-testid="widget-agency-receipt-row">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Pill className="bg-accent/10 text-accent">{actionLabel(receipt.action)}</Pill>
+            {receiptPinLabel(receipt) && <Pill>{receiptPinLabel(receipt)}</Pill>}
+            <span className="inline-flex items-center gap-1 text-[11px] text-text-dim">
+              <Clock3 size={11} />
+              {formatReceiptTime(receipt.created_at)}
+            </span>
+          </div>
+          <div className="mt-1 text-[12px] leading-relaxed text-text-muted">{receipt.summary}</div>
+          {receipt.reason && <div className="mt-1 text-[12px] leading-relaxed text-text-dim">Reason: {receipt.reason}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function WidgetUsefulnessToolbarButton({
   channelId,
   checkingHealth,
@@ -107,7 +172,7 @@ export function WidgetUsefulnessToolbarButton({
   const assessment = query.data;
   const tone = statusTone(assessment?.status);
   const findingCount = assessment?.recommendations.length ?? 0;
-  const label = findingCount > 0 ? `${findingCount} proposals` : "Widget proposals";
+  const label = findingCount > 0 ? `${findingCount} widget proposals` : "Widget proposals";
 
   return (
     <>
@@ -127,6 +192,7 @@ export function WidgetUsefulnessToolbarButton({
       </button>
       {drawerOpen && (
         <WidgetUsefulnessDrawer
+          channelId={channelId}
           assessment={assessment ?? null}
           isLoading={query.isLoading}
           error={query.error}
@@ -146,9 +212,11 @@ export function WidgetUsefulnessToolbarButton({
 
 export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: string }) {
   const query = useChannelWidgetUsefulness(channelId);
+  const receiptsQuery = useChannelWidgetAgencyReceipts(channelId, 3);
   const assessment = query.data;
   const finding = topFinding(assessment);
   const tone = statusTone(assessment?.status);
+  const latestReceipt = receiptsQuery.data?.receipts?.[0] ?? null;
 
   return (
     <div className="mt-4 flex flex-col gap-3 rounded-md bg-surface-raised/45 px-3 py-3" data-testid="channel-widget-usefulness-settings-summary">
@@ -178,7 +246,17 @@ export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: stri
           <Pill>{assessment.chat_visible_pin_count} chat-visible</Pill>
           <Pill>layout:{assessment.layout_mode}</Pill>
           <Pill>{assessment.widget_agency_mode === "propose_and_fix" ? "propose + fix" : "propose"}</Pill>
-          {assessment.recommendations.length > 0 && <Pill className="bg-warning/10 text-warning-muted">{assessment.recommendations.length} proposals</Pill>}
+          {assessment.recommendations.length > 0 && <Pill className="bg-warning/10 text-warning-muted">{assessment.recommendations.length} widget proposals</Pill>}
+        </div>
+      )}
+      {latestReceipt && (
+        <div className="rounded-md bg-surface-overlay/30 px-2.5 py-2" data-testid="widget-agency-latest-receipt">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Pill className="bg-accent/10 text-accent">bot widget change</Pill>
+            <Pill>{actionLabel(latestReceipt.action)}</Pill>
+            <span className="text-[11px] text-text-dim">{formatReceiptTime(latestReceipt.created_at)}</span>
+          </div>
+          <div className="mt-1 text-[12px] leading-relaxed text-text-muted">{latestReceipt.summary}</div>
         </div>
       )}
       {query.error && (
@@ -191,6 +269,7 @@ export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: stri
 }
 
 function WidgetUsefulnessDrawer({
+  channelId,
   assessment,
   isLoading,
   error,
@@ -203,6 +282,7 @@ function WidgetUsefulnessDrawer({
   onEditLayout,
   onOpenSettings,
 }: {
+  channelId: string;
   assessment: WidgetUsefulnessAssessment | null;
   isLoading: boolean;
   error: unknown;
@@ -215,6 +295,7 @@ function WidgetUsefulnessDrawer({
   onEditLayout?: () => void;
   onOpenSettings?: () => void;
 }) {
+  const receiptsQuery = useChannelWidgetAgencyReceipts(channelId, 8);
   if (typeof document === "undefined") return null;
   const recommendations = assessment?.recommendations ?? [];
   const tone = statusTone(assessment?.status);
@@ -264,6 +345,11 @@ function WidgetUsefulnessDrawer({
               </p>
               {errorMessage && <p className="text-[12px] text-danger">{errorMessage}</p>}
             </div>
+
+            <BotWidgetChangeList
+              receipts={receiptsQuery.data?.receipts ?? []}
+              loading={receiptsQuery.isLoading}
+            />
 
             {!isLoading && !errorMessage && recommendations.length === 0 && (
               <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/30 px-4 py-8 text-center text-[13px] text-text-dim">
@@ -327,7 +413,7 @@ function WidgetUsefulnessDrawer({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border px-5 py-3">
           <p className="max-w-[48ch] text-[11px] leading-relaxed text-text-dim">
-            In Propose mode, bots publish proposals only. In Propose + fix mode, approved bot tasks can apply safe dashboard changes and report what changed.
+            In Propose mode, bots publish widget proposals only. In Propose + fix mode, approved bot tasks can apply safe dashboard changes and record bot widget change receipts.
           </p>
           <div className="flex items-center gap-1.5">
             {onCheckHealth && (

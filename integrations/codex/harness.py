@@ -525,7 +525,10 @@ def _resolve_codex_native_app_server_call(
         if first == "read" and len(cleaned) >= 2:
             return schema.METHOD_PLUGIN_READ, {"pluginName": cleaned[1]}
         if first in {"install", "i"} and len(cleaned) >= 2:
-            return schema.METHOD_PLUGIN_INSTALL, {"pluginName": cleaned[1]}
+            # The app-server plugin/install method installs from a marketplace
+            # selector, not a bare CLI plugin name. Keep CLI-shaped installs as
+            # terminal handoff so we do not fake success or send invalid params.
+            return None, {}
         if first in {"uninstall", "remove", "rm"} and len(cleaned) >= 2:
             return schema.METHOD_PLUGIN_UNINSTALL, {"pluginId": cleaned[1]}
         return None, {}

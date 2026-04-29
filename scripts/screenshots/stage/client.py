@@ -244,6 +244,16 @@ class SpindrelClient:
             return r.json()
         return self._post("/api/v1/projects", json=body).json()
 
+    def update_project(self, project_id: str, **fields: Any) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /projects/%s fields=%s", project_id, sorted(fields))
+            return {"id": project_id, **fields}
+        r = self._http.patch(f"/api/v1/projects/{project_id}", json=fields)
+        if r.status_code >= 400:
+            logger.error("PATCH /projects/%s -> %s body=%s", project_id, r.status_code, r.text[:300])
+        r.raise_for_status()
+        return r.json()
+
     def list_project_blueprints(self) -> list[dict]:
         r = self._http.get("/api/v1/projects/blueprints")
         if r.status_code == 404:

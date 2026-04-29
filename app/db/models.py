@@ -2662,6 +2662,57 @@ class WidgetHealthCheck(Base):
     )
 
 
+class WidgetAgencyReceipt(Base):
+    """Durable audit row for bot-applied channel-dashboard widget changes."""
+
+    __tablename__ = "widget_agency_receipts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    dashboard_key: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    affected_pin_ids: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list,
+    )
+    before_state: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    after_state: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_widget_agency_receipts_channel_created", "channel_id", text("created_at DESC")),
+        Index("ix_widget_agency_receipts_dashboard_created", "dashboard_key", text("created_at DESC")),
+        Index("ix_widget_agency_receipts_correlation", "correlation_id"),
+    )
+
+
 class WidgetCronSubscription(Base):
     """One scheduled ``@on_cron`` handler declared by a pinned widget bundle.
 

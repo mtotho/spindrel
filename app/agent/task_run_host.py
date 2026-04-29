@@ -74,6 +74,8 @@ def _harness_task_turn_overrides(ecfg: dict) -> dict:
             if value and value not in seen:
                 seen.add(value)
                 out.append(value)
+        if key == "tools" and bool(ecfg.get("allow_issue_reporting")) and "report_issue" not in seen:
+            out.append("report_issue")
         return tuple(out)
 
     return {
@@ -83,6 +85,16 @@ def _harness_task_turn_overrides(ecfg: dict) -> dict:
             "bypassPermissions" if bool(ecfg.get("skip_tool_approval")) else None
         ),
     }
+
+
+_ISSUE_REPORTING_PREAMBLE = """\
+[Issue reporting]
+This run may report durable issues with the report_issue tool. Use it only when
+you found a real blocker, missing permission, recurring system/tool failure, or
+setup problem that needs a human decision. Do not report ordinary task progress,
+temporary noise, or issues you can fix directly. Keep reports concise and
+actionable: what happened, why it matters, and the next useful action.
+"""
 
 
 async def _prepare_task_run(
@@ -251,6 +263,25 @@ async def _prepare_task_run(
     if ecfg_tool_names:
         from app.tools.registry import get_local_tool_schemas
         injected_tools = get_local_tool_schemas(ecfg_tool_names) or None
+    if bool(ecfg.get("allow_issue_reporting")):
+        from app.tools.registry import get_local_tool_schemas
+        report_tools = get_local_tool_schemas(["report_issue"]) or []
+        injected_tools = list(injected_tools or [])
+        existing_names = {
+            (schema.get("function") or {}).get("name")
+            for schema in injected_tools
+            if isinstance(schema, dict)
+        }
+        for schema in report_tools:
+            name = (schema.get("function") or {}).get("name") if isinstance(schema, dict) else None
+            if name and name not in existing_names:
+                injected_tools.append(schema)
+                existing_names.add(name)
+        system_preamble = (
+            f"{system_preamble.rstrip()}\n\n{_ISSUE_REPORTING_PREAMBLE}"
+            if system_preamble
+            else _ISSUE_REPORTING_PREAMBLE
+        )
     additional_tool_schemas = ecfg.get("additional_tool_schemas") or None
     if additional_tool_schemas:
         injected_tools = list(injected_tools or [])
@@ -794,6 +825,9 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
         prepared = await _prepare_task_run(task, _task_channel, deps)
         _task_timeout = prepared.task_timeout
         correlation_id = prepared.correlation_id
+        from app.agent.context import current_issue_reporting_enabled, current_task_id
+        current_task_id.set(task.id)
+        current_issue_reporting_enabled.set(bool(prepared.ecfg.get("allow_issue_reporting")))
         if task.task_type == "heartbeat":
             await deps.mark_heartbeat_task_started(task, correlation_id)
         if await _run_harness_task_if_needed(prepared, turn_id=_turn_id, deps=deps):
@@ -880,5 +914,8 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
             task, turn_id=_turn_id, error=str(exc)[:500], log_label="error",
         )
     finally:
+        from app.agent.context import current_issue_reporting_enabled, current_task_id
+        current_task_id.set(None)
+        current_issue_reporting_enabled.set(False)
         if _lock_acquired:
             deps.session_locks.release(task.session_id)

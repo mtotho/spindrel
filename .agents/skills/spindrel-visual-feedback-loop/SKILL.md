@@ -75,8 +75,8 @@ drawer only; it must not create a scheduled task during capture.
 ## Channel Widget Usefulness Loop
 
 Use this target when changing the channel dashboard widget proposal affordance,
-usefulness drawer, Channel Settings -> Dashboard usefulness summary, or Bot
-widget agency control.
+usefulness drawer, recent bot widget change receipts, Channel Settings ->
+Dashboard usefulness summary, or Bot widget agency control.
 
 ```bash
 python -m scripts.screenshots stage --only channel-widget-usefulness
@@ -92,10 +92,11 @@ docs/images/channel-widget-usefulness-drawer.png
 docs/images/channel-widget-usefulness-settings.png
 ```
 
-Inspect the toolbar affordance, drawer, and settings summary. The staged dashboard should
-show real duplicate/visibility pin state. Capture uses a narrow browser shim
-for the assessment endpoint when the shared e2e API lags the UI branch; capture
-must not create or mutate widgets.
+Inspect the toolbar affordance, drawer, recent bot widget change receipts, and
+settings summary. The staged dashboard should show real duplicate/visibility
+pin state. Capture uses a narrow browser shim for the assessment/receipt
+endpoints when the shared e2e API lags the UI branch; capture must not create or
+mutate widgets.
 
 ## Project Workspace Loop
 

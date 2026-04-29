@@ -303,6 +303,10 @@ Starboard copy are now pinned by the spatial surface tests.
 - Bot-owned widget management is permissioned separately from object tugging. `allow_spatial_widget_management` only permits create/move/resize/remove for spatial widgets whose `source_bot_id` matches the acting bot.
 - Attention Items are domain state, not spatial nodes. `workspace_attention_items` owns lifecycle, dedupe, evidence, and future assignment shape; Beacons are the canvas rendering attached to existing channel/bot/widget/system targets. `workspace_spatial_nodes` remains position-only.
 - Bot-authored Attention Beacons are opt-in per channel bot policy via `allow_attention_beacons`; source bots may update/resolve only their own items, while humans can override.
+- Bot-reported issues are also Attention Items. Scheduled tasks and heartbeats
+  can opt into `allow_issue_reporting`, which injects `report_issue`; the map
+  should render those as high-priority attention state on the target, not as a
+  separate spatial primitive.
 - User-authored Attention Items are first-class work-intake items, visible to normal channel viewers, and can be assigned from Mission Control / the compatibility Command Center intake API.
 - Workspace Missions are the long-lived coordination layer for bot work. They are visible in Mission Control and on the map, but execution stays task-backed so runs keep the existing scheduler, model overrides, tracing, and task result surfaces.
 - Spatial object state is sourced from existing primitives first. The canvas may

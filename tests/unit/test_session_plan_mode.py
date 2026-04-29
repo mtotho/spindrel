@@ -72,6 +72,7 @@ def test_planning_context_exists_before_first_plan(monkeypatch, tmp_path):
     assert any("publish" in line.lower() for line in lines)
     assert any("ask_plan_questions" in line for line in lines)
     assert any("target subsystem" in line and "ask_plan_questions" in line for line in lines)
+    assert any("publish_plan now" in line and "not to ask follow-up questions" in line for line in lines)
     assert all("Canonical plan file:" not in line for line in lines)
     artifact_context = spm.build_plan_artifact_context(session)
     assert artifact_context is not None
@@ -103,6 +104,34 @@ def test_planning_state_records_question_answers_and_enters_context(monkeypatch,
     assert context is not None
     assert "Planning state capsule" in context
     assert "Strictness: Guardrail-first" in context
+
+
+def test_plan_question_answers_resolve_matching_open_questions(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+    spm.update_planning_state(
+        session,
+        open_questions=[
+            {"question_id": "risk_focus", "text": "Risk focus"},
+            {"question_id": "done_signal", "text": "Done signal"},
+            {"question_id": "mutation_scope", "text": "Mutation scope"},
+        ],
+        reason="ask_plan_questions",
+    )
+
+    state = spm.record_plan_question_answers(
+        session,
+        title="Behavior parity choices",
+        answers=[
+            {"question_id": "risk", "label": "Risk focus", "answer": "Prioritize stale-plan handling."},
+            {"question_id": "done", "label": "Done signal", "answer": "Catch wall-of-text regressions."},
+        ],
+    )
+
+    assert [item["text"] for item in state["open_questions"]] == ["Mutation scope"]
+    persisted = spm.get_planning_state(session)
+    assert [item["text"] for item in persisted["open_questions"]] == ["Mutation scope"]
 
 
 def test_plan_artifact_context_summarizes_canonical_plan(monkeypatch, tmp_path):

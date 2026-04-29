@@ -101,6 +101,7 @@ export interface TaskDetail {
   model_provider_id_override?: string | null;
   harness_effort?: string | null;
   skip_tool_approval?: boolean | null;
+  allow_issue_reporting?: boolean | null;
   fallback_models?: { model: string; provider_id?: string | null }[] | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
@@ -140,6 +141,7 @@ export interface TaskCreatePayload {
   model_provider_id_override?: string | null;
   harness_effort?: string | null;
   skip_tool_approval?: boolean | null;
+  allow_issue_reporting?: boolean | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
   trigger_config?: Record<string, any> | null;
@@ -171,6 +173,7 @@ export interface TaskUpdatePayload {
   model_provider_id_override?: string | null;
   harness_effort?: string | null;
   skip_tool_approval?: boolean | null;
+  allow_issue_reporting?: boolean | null;
   workflow_id?: string | null;
   workflow_session_mode?: string | null;
   trigger_config?: Record<string, any> | null;

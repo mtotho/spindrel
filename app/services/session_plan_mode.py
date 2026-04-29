@@ -215,6 +215,10 @@ def _dedupe_recent_items(items: list[dict[str, Any]], *, key: str = "text", limi
     return deduped[-limit:]
 
 
+def _planning_match_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
 def _planning_state_default() -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -333,11 +337,20 @@ def record_plan_question_answers(
     source_message_id: str | None = None,
 ) -> dict[str, Any]:
     decisions: list[dict[str, Any]] = []
+    answered_keys: set[str] = set()
     for answer in answers:
         value = str(answer.get("answer") or "").strip()
         if not value:
             continue
         label = str(answer.get("label") or answer.get("question_id") or "Plan question").strip()
+        answered_keys.update(
+            key
+            for key in (
+                _planning_match_key(answer.get("question_id")),
+                _planning_match_key(label),
+            )
+            if key
+        )
         decisions.append({
             "text": f"{label}: {value}",
             "question_id": answer.get("question_id"),
@@ -351,7 +364,31 @@ def record_plan_question_answers(
         "source_message_id": source_message_id,
         "source": "plan_question_answer",
     }] if decisions else []
-    return update_planning_state(session, decisions=decisions, evidence=evidence, reason="plan_question_answers")
+    state = update_planning_state(session, decisions=decisions, evidence=evidence, reason="plan_question_answers")
+    if answered_keys:
+        unresolved_questions = []
+        for question in state.get("open_questions") or []:
+            if not isinstance(question, dict):
+                unresolved_questions.append(question)
+                continue
+            question_keys = {
+                key
+                for key in (
+                    _planning_match_key(question.get("question_id")),
+                    _planning_match_key(question.get("label")),
+                    _planning_match_key(question.get("text")),
+                )
+                if key
+            }
+            if not question_keys.intersection(answered_keys):
+                unresolved_questions.append(question)
+        if len(unresolved_questions) != len(state.get("open_questions") or []):
+            state["open_questions"] = unresolved_questions
+            meta = _session_plan_meta(session)
+            meta[PLAN_PLANNING_STATE_METADATA_KEY] = state
+            session.metadata_ = meta
+            flag_modified(session, "metadata_")
+    return state
 
 
 @dataclass
@@ -2397,6 +2434,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
                 "Your first job in plan mode is to narrow scope. Explore/read available context first when possible, then ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
                 "If the user asks for a plan but the target subsystem, success signal, mutation scope, or verification expectation is missing, call ask_plan_questions instead of answering with prose or publishing a draft.",
                 "If the user explicitly asks for a structured question card, you must use ask_plan_questions.",
+                "If the user explicitly says to use publish_plan now, says not to ask follow-up questions, and provides the professional plan fields, treat that as permission to publish; do not ask a confirmation question just to confirm tool usage, exact labels, or retry behavior.",
                 "A publishable plan must be decision-complete: goal and success criteria clear, scope and non-goals explicit, key implementation changes named, interface/API/type impact stated, assumptions/defaults recorded, concrete execution steps listed, and verification/test plan included.",
                 "Treat the visible planning-state capsule as durable notes for the back-and-forth: preserve confirmed decisions, open questions, constraints, assumptions, non-goals, evidence, and preference changes there instead of relying only on chat history.",
                 "Formatting contract: keep chat replies short, avoid giant markdown sections/lists unless the user explicitly asks for a prose writeup, and use tools for structured planning surfaces instead of hand-formatting them in chat.",
