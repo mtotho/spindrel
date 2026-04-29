@@ -587,9 +587,10 @@ export function TerminalToolTranscript({
             <div
               className="grid min-w-0 max-w-full items-baseline gap-x-2"
               style={{
-                gridTemplateColumns: "14px minmax(0, max-content) minmax(0, 1fr)",
+                gridTemplateColumns: "14px minmax(0, 11rem) minmax(0, 1fr)",
                 fontSize: 12,
                 lineHeight: 1.45,
+                overflow: "hidden",
               }}
             >
               <span
@@ -608,7 +609,7 @@ export function TerminalToolTranscript({
                   color: rowTone,
                   fontWeight: 600,
                   minWidth: 0,
-                  maxWidth: "42ch",
+                  maxWidth: "100%",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -624,6 +625,7 @@ export function TerminalToolTranscript({
                   flexWrap: "wrap",
                   gap: "0 8px",
                   alignItems: "baseline",
+                  overflow: "hidden",
                 }}
               >
                 {metaLabel && <span>{metaLabel}</span>}
@@ -673,6 +675,10 @@ export function TerminalToolTranscript({
                   fontFamily: TERMINAL_FONT_STACK,
                   fontSize: 11.5,
                   lineHeight: 1.45,
+                  maxWidth: "100%",
+                  overflowX: "hidden",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
                 }}
               >
                 {output.text}
@@ -705,6 +711,8 @@ export function TerminalToolTranscript({
                   marginLeft: 6,
                   marginTop: 3,
                   paddingLeft: 14,
+                  maxWidth: "100%",
+                  overflowX: "hidden",
                 }}
               >
                 {formattedArgs && (
@@ -716,6 +724,10 @@ export function TerminalToolTranscript({
                       fontSize: 11,
                       lineHeight: 1.45,
                       marginBottom: entry.env ? 6 : 0,
+                      maxWidth: "100%",
+                      overflowX: "hidden",
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word",
                     }}
                   >
                     {formattedArgs}
@@ -730,6 +742,9 @@ export function TerminalToolTranscript({
                       fontFamily: TERMINAL_FONT_STACK,
                       fontSize: 11.5,
                       lineHeight: 1.45,
+                      maxWidth: "100%",
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word",
                     }}
                   >
                     {expandedTerminalOutput(entry.env)}

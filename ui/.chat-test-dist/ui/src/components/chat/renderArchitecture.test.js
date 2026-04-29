@@ -121,6 +121,12 @@ test("harness channel settings keep the channel prompt editor visible", () => {
     assert.notEqual(harnessProjectSection, -1);
     assert.match(settingsSections.slice(harnessBranchStart, harnessProjectSection), /<ChannelPromptSection\s+form=\{form\}/);
 });
+test("mobile channel header does not make the whole title open context chrome", () => {
+    const channelHeader = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
+    assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !!onContextBudgetClick;/);
+    assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
+    assert.match(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+});
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
     const richToolResult = readChatFile("RichToolResult.tsx");
     const machineStatusRenderer = readFileSync(resolve(CHAT_DIR, "renderers/machineControl/MachineTargetStatusRenderer.tsx"), "utf8");

@@ -338,6 +338,7 @@ export function ChannelHeader({
     danger: boolean;
   }>;
   const showMobileOverflow = isMobile && mobileOverflowActions.length > 0;
+  const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !!onContextBudgetClick;
 
   const updateMobileOverflowPosition = React.useCallback(() => {
     const rect = mobileOverflowRef.current?.getBoundingClientRect();
@@ -415,9 +416,9 @@ export function ChannelHeader({
       )}
 
       <div
-        style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "6px 0", cursor: isMobile && !isSystemChannel && bot ? "pointer" : undefined }}
-        onClick={isMobile && !isSystemChannel && bot ? onContextBudgetClick : undefined}
-        title={isMobile && !isSystemChannel && bot ? bot.name : undefined}
+        style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "6px 0", cursor: titleOpensContext ? "pointer" : undefined }}
+        onClick={titleOpensContext ? onContextBudgetClick : undefined}
+        title={titleOpensContext ? bot.name : undefined}
       >
         <div className="flex flex-row items-center gap-2 min-w-0">
           <span
@@ -806,7 +807,7 @@ function HarnessHeaderChrome({
   const { data: caps } = useRuntimeCapabilities(runtime);
   const displayName = caps?.display_name ?? runtime;
   if (compact) {
-    return sessionId ? <HarnessStatusPill sessionId={sessionId} t={t} /> : null;
+    return sessionId ? <HarnessStatusPill sessionId={sessionId} t={t} compact /> : null;
   }
   return (
     <>
@@ -837,9 +838,11 @@ function HarnessHeaderChrome({
 function HarnessStatusPill({
   sessionId,
   t,
+  compact = false,
 }: {
   sessionId: string;
   t: ReturnType<typeof useThemeTokens>;
+  compact?: boolean;
 }) {
   const { data } = useSessionHarnessStatus(sessionId);
   const [open, setOpen] = React.useState(false);
@@ -863,6 +866,10 @@ function HarnessStatusPill({
   const contextTokens = typeof diagnostics?.context_tokens === "number" ? diagnostics.context_tokens : null;
   const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
   const bridge = (data.bridge_status ?? {}) as Record<string, unknown>;
+  const bridgeErrors = [
+    typeof bridge.error === "string" && bridge.error ? bridge.error : null,
+    ...(Array.isArray(bridge.inventory_errors) ? bridge.inventory_errors.map(String) : []),
+  ].filter(Boolean);
   const nativeCompact = (data.native_compaction ?? null) as Record<string, unknown> | null;
   const compactBefore = (nativeCompact?.context_before ?? null) as Record<string, unknown> | null;
   const compactAfter = (nativeCompact?.context_after ?? null) as Record<string, unknown> | null;
@@ -879,23 +886,50 @@ function HarnessStatusPill({
   const lastHintRows = Array.isArray(data.last_hints_sent) ? data.last_hints_sent : [];
   const projectDir = (data.project_dir ?? {}) as Record<string, unknown>;
   const projectPathLabel = typeof projectDir.path === "string" ? projectDir.path : null;
+  const contextNeedsAttention =
+    data.pending_hint_count > 0
+    || bridgeErrors.length > 0
+    || (typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60)
+    || (!!confidence && confidence !== "high");
+  if (compact && !contextNeedsAttention) return null;
+  const compactLabel = data.pending_hint_count > 0
+    ? `${data.pending_hint_count}`
+    : typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60
+      ? `${Math.round(data.context_remaining_pct)}%`
+      : "ctx";
   return (
     <span className="relative inline-flex shrink-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex max-w-[14rem] items-center gap-1 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text"
+        className={
+          compact
+            ? "inline-flex h-5 min-w-5 items-center justify-center rounded bg-surface-overlay px-1 text-[10px] text-text-muted hover:text-text"
+            : "inline-flex max-w-[14rem] items-center gap-1 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text"
+        }
         style={{
-          color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
+          color: bridgeErrors.length > 0
+            ? t.warningMuted
+            : data.pending_hint_count > 0
+              ? t.warningMuted
+              : typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60
+                ? t.warningMuted
+                : t.textMuted,
           fontFamily: "'Menlo', monospace",
         }}
         title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}${confidence ? `, confidence ${confidence}` : ""}.`}
       >
-        ctx {remainingLabel ?? usageLabel ?? resume}{remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}{confidence && confidence !== "high" ? ` · ${confidence}` : ""}{hints}
+        {compact
+          ? compactLabel
+          : <>ctx {remainingLabel ?? usageLabel ?? resume}{remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}{confidence && confidence !== "high" ? ` · ${confidence}` : ""}{hints}</>}
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full z-[1000] mt-2 w-80 rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+          className={
+            compact
+              ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+              : "absolute right-0 top-full z-[1000] mt-2 max-h-[min(78vh,680px)] w-80 overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+          }
           style={{ fontFamily: "system-ui, sans-serif" }}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -905,14 +939,14 @@ function HarnessStatusPill({
             </button>
           </div>
           <div className="grid gap-1">
-            <div><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
-            <div><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{remainingSource ? ` · ${remainingSource}` : ""}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
+            <div className="min-w-0 break-words"><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
+            <div className="min-w-0 break-words"><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{remainingSource ? ` · ${remainingSource}` : ""}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
             <div><span className="text-text-dim">Estimate</span> {confidence || "none"}{contextTokens ? ` · ${contextTokens.toLocaleString()} tokens` : ""}</div>
             {contextReason && (
-              <div><span className="text-text-dim">Reason</span> {contextReason}</div>
+              <div className="min-w-0 break-words"><span className="text-text-dim">Reason</span> {contextReason}</div>
             )}
             {sourceFields.length > 0 && (
-              <div><span className="text-text-dim">Usage fields</span> <span className="font-mono text-[10px]">{sourceFields.join(", ")}</span></div>
+              <div className="min-w-0 break-words"><span className="text-text-dim">Usage fields</span> <span className="font-mono text-[10px] break-all">{sourceFields.join(", ")}</span></div>
             )}
             <div>
               <span className="text-text-dim">Native compact</span>{" "}
@@ -937,17 +971,16 @@ function HarnessStatusPill({
                 </a>
               </div>
             )}
-            <div><span className="text-text-dim">CWD</span> <span className="font-mono text-[10px]">{data.effective_cwd || "unknown"}</span>{data.effective_cwd_source ? ` · ${data.effective_cwd_source}` : ""}</div>
-            {projectPathLabel && <div><span className="text-text-dim">Project</span> <span className="font-mono text-[10px]">/{projectPathLabel}</span></div>}
-            {data.bot_workspace_dir && <div><span className="text-text-dim">Bot memory root</span> <span className="font-mono text-[10px]">{data.bot_workspace_dir}</span></div>}
+            <div className="min-w-0 break-words"><span className="text-text-dim">CWD</span> <span className="font-mono text-[10px] break-all">{data.effective_cwd || "unknown"}</span>{data.effective_cwd_source ? ` · ${data.effective_cwd_source}` : ""}</div>
+            {projectPathLabel && <div className="min-w-0 break-words"><span className="text-text-dim">Project</span> <span className="font-mono text-[10px] break-all">/{projectPathLabel}</span></div>}
+            {data.bot_workspace_dir && <div className="min-w-0 break-words"><span className="text-text-dim">Bot memory root</span> <span className="font-mono text-[10px] break-all">{data.bot_workspace_dir}</span></div>}
             <div><span className="text-text-dim">Bridge</span> {String(bridge.status || "unknown")} · {exportedTools.length} tool{exportedTools.length === 1 ? "" : "s"}</div>
-            {typeof bridge.error === "string" && bridge.error && <div className="text-warning-muted">{bridge.error}</div>}
-            {Array.isArray(bridge.inventory_errors) && bridge.inventory_errors.length > 0 && (
-              <div className="text-warning-muted">{bridge.inventory_errors.map(String).join("; ")}</div>
+            {bridgeErrors.length > 0 && (
+              <div className="min-w-0 break-words text-warning-muted">{bridgeErrors.join("; ")}</div>
             )}
-            {explicitTools.length > 0 && <div><span className="text-text-dim">One-turn tools</span> {explicitTools.join(", ")}</div>}
-            {taggedSkills.length > 0 && <div><span className="text-text-dim">Tagged skills</span> {taggedSkills.join(", ")}</div>}
-            {ignoredClientTools.length > 0 && <div><span className="text-text-dim">Not bridgeable</span> {ignoredClientTools.join(", ")}</div>}
+            {explicitTools.length > 0 && <div className="min-w-0 break-words"><span className="text-text-dim">One-turn tools</span> {explicitTools.join(", ")}</div>}
+            {taggedSkills.length > 0 && <div className="min-w-0 break-words"><span className="text-text-dim">Tagged skills</span> {taggedSkills.join(", ")}</div>}
+            {ignoredClientTools.length > 0 && <div className="min-w-0 break-words"><span className="text-text-dim">Not bridgeable</span> {ignoredClientTools.join(", ")}</div>}
           </div>
           <div className="mt-3 border-t border-surface-border pt-2">
             <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Pending hints</div>
@@ -987,7 +1020,7 @@ function HarnessStatusPill({
           {exportedTools.length > 0 && (
             <div className="mt-3 border-t border-surface-border pt-2">
               <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Exported tools</div>
-              <div className="max-h-24 overflow-auto font-mono text-[10px] leading-4">{exportedTools.join(", ")}</div>
+              <div className="max-h-24 overflow-auto break-words font-mono text-[10px] leading-4">{exportedTools.join(", ")}</div>
             </div>
           )}
         </div>
