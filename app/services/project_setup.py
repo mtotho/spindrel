@@ -12,9 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Project, ProjectSecretBinding, ProjectSetupRun, SecretValue
-from app.services.encryption import decrypt
+from app.db.models import Project, ProjectSecretBinding, ProjectSetupRun
 from app.services.projects import normalize_project_path, project_directory_from_project
+from app.services.project_runtime import (
+    build_project_runtime_environment,
+    project_snapshot,
+    redact_known_values,
+    required_secret_names,
+)
 from app.services.secret_registry import redact
 
 
@@ -27,29 +32,6 @@ RUN_STATUS_FAILED = "failed"
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _snapshot(project: Project) -> dict[str, Any]:
-    metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
-    snapshot = metadata.get("blueprint_snapshot")
-    return dict(snapshot) if isinstance(snapshot, dict) else {}
-
-
-def _secret_name(raw: Any) -> str:
-    if isinstance(raw, str):
-        return raw.strip()
-    if isinstance(raw, dict):
-        return str(raw.get("name") or raw.get("key") or "").strip()
-    return ""
-
-
-def _required_secret_names(snapshot: dict[str, Any]) -> list[str]:
-    names: list[str] = []
-    for item in snapshot.get("required_secrets") or []:
-        name = _secret_name(item)
-        if name and name not in names:
-            names.append(name)
-    return names
 
 
 def _repo_name_from_url(url: str) -> str:
@@ -110,14 +92,14 @@ def build_project_setup_plan(
     bindings: list[ProjectSecretBinding],
 ) -> dict[str, Any]:
     """Return a secret-safe setup plan derived from the applied snapshot."""
-    snapshot = _snapshot(project)
+    snapshot = project_snapshot(project)
     repos = [_normalize_repo(repo, index) for index, repo in enumerate(snapshot.get("repos") or [])]
-    env = snapshot.get("env") if isinstance(snapshot.get("env"), dict) else {}
+    runtime_env = build_project_runtime_environment(project, bindings=bindings)
 
     bindings_by_name = {binding.logical_name: binding for binding in bindings}
     secret_slots: list[dict[str, Any]] = []
     missing_secrets: list[str] = []
-    for name in _required_secret_names(snapshot):
+    for name in required_secret_names(snapshot):
         binding = bindings_by_name.get(name)
         bound = bool(binding and binding.secret_value_id)
         if not bound:
@@ -146,9 +128,10 @@ def build_project_setup_plan(
         "ready": ready,
         "reasons": reasons,
         "repos": repos,
-        "env": {str(key): str(value) for key, value in env.items()},
+        "env": {key: str(runtime_env.env[key]) for key in runtime_env.env_default_keys if key in runtime_env.env},
         "secret_slots": secret_slots,
         "missing_secrets": missing_secrets,
+        "runtime": runtime_env.safe_payload(),
     }
 
 
@@ -171,10 +154,7 @@ def _safe_repo_target(project_root: str, repo_path: str) -> Path:
 
 
 def _redact_with_values(text: str, values: dict[str, str]) -> str:
-    redacted = redact(text)
-    for value in sorted((v for v in values.values() if v), key=len, reverse=True):
-        redacted = redacted.replace(value, "[REDACTED]")
-    return redacted
+    return redact_known_values(redact(text), values)
 
 
 async def _run_git_clone(
@@ -238,15 +218,12 @@ async def execute_project_setup_plan(
 
 
 async def resolve_project_secret_env(db: AsyncSession, project_id: uuid.UUID) -> dict[str, str]:
-    rows = (await db.execute(
-        select(ProjectSecretBinding, SecretValue)
-        .join(SecretValue, SecretValue.id == ProjectSecretBinding.secret_value_id)
-        .where(ProjectSecretBinding.project_id == project_id)
-    )).all()
-    env: dict[str, str] = {}
-    for binding, secret in rows:
-        env[binding.logical_name] = decrypt(secret.value)
-    return env
+    from app.services.project_runtime import load_project_runtime_environment_for_id
+
+    runtime_env = await load_project_runtime_environment_for_id(db, project_id)
+    if runtime_env is None:
+        return {}
+    return {key: str(runtime_env.env[key]) for key in runtime_env.secret_keys if key in runtime_env.env}
 
 
 async def list_project_setup_runs(db: AsyncSession, project_id: uuid.UUID, *, limit: int = 5) -> list[ProjectSetupRun]:

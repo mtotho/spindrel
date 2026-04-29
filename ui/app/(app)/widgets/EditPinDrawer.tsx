@@ -8,7 +8,7 @@
  * and action-dispatched button flips stay on merge:true semantics.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Maximize2, Minimize2, Trash2, X } from "lucide-react";
+import { ChevronDown, Code2, Loader2, Maximize2, Minimize2, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -53,6 +53,17 @@ function isRenderableSchemaField(field: WidgetConfigSchemaField): boolean {
     || field.type === "number";
 }
 
+function renderConfigValue(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const pin = useDashboardPinsStore((s) =>
     pinId ? s.pins.find((p) => p.id === pinId) ?? null : null,
@@ -79,12 +90,17 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const [deleteChecking, setDeleteChecking] = useState(false);
   const [deleteConfirmNeeded, setDeleteConfirmNeeded] = useState(false);
   const [deleteDeleting, setDeleteDeleting] = useState(false);
+  const [advancedJsonOpen, setAdvancedJsonOpen] = useState(false);
 
   useEffect(() => {
     if (!pin) return;
+    const configSchemaProperties = pin.config_schema?.properties ?? {};
+    const schemaEntries = Object.entries(configSchemaProperties);
+    const renderableEntries = schemaEntries.filter(([, field]) => isRenderableSchemaField(field));
     setLabel(pin.display_label ?? "");
     setJsonText(prettyJson(pin.widget_config ?? {}));
     setScope(pinScopeFromBotId(pin.source_bot_id ?? null));
+    setAdvancedJsonOpen(!pin.config_schema || renderableEntries.length === 0 || schemaEntries.length > renderableEntries.length);
     setError(null);
     setSavedFlash(false);
   }, [pin?.id]);
@@ -237,6 +253,8 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     () => Object.keys(configSchemaProperties).length - schemaFields.length,
     [configSchemaProperties, schemaFields.length],
   );
+  const hasSchemaControls = !!pin?.config_schema && schemaFields.length > 0;
+  const showJsonEditor = !hasSchemaControls || advancedJsonOpen || jsonError || unsupportedSchemaFieldCount > 0;
 
   if (!isOpen) return null;
 
@@ -368,6 +386,7 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
         className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-[440px] flex flex-col border-l border-surface-border bg-surface-raised shadow-2xl"
         role="dialog"
         aria-label="Edit pin"
+        data-testid="edit-pin-drawer"
       >
         <header className="flex items-center justify-between border-b border-surface-border px-4 py-3">
           <div className="flex flex-col">
@@ -527,29 +546,41 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
             />
           )}
 
-          {pin?.config_schema && schemaFields.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+          {hasSchemaControls && (
+            <div className="flex flex-col gap-3 rounded-md border border-surface-border bg-surface px-3 py-3" data-testid="widget-settings-section">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-                  Config fields
-                </span>
-                <span className="text-[10px] text-text-dim">
+                <div className="inline-flex items-center gap-1.5">
+                  <SlidersHorizontal size={13} className="text-accent" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                    Widget settings
+                  </span>
+                </div>
+                <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-[10px] text-text-dim">
                   {schemaFields.length} field{schemaFields.length === 1 ? "" : "s"}
                 </span>
               </div>
+              <p className="text-[11px] leading-snug text-text-muted">
+                These controls edit the widget&apos;s saved configuration. Changes appear in Advanced JSON before you save.
+              </p>
               {schemaFields.map(([fieldId, field]) => {
                 const required = requiredConfigFields.has(fieldId);
                 const title = field.title ?? fieldId;
                 const description = field.description ?? null;
                 const rawValue = parsedConfig?.[fieldId];
+                const hasDefault = field.default !== undefined;
                 const enumValues = Array.isArray(field.enum)
                   ? field.enum.filter((item) => ["string", "number", "boolean"].includes(typeof item))
                   : [];
                 return (
-                  <label key={fieldId} className="flex flex-col gap-1">
-                    <span className="text-[11px] font-medium text-text">
-                      {title}
-                      {required ? <span className="ml-1 text-danger">*</span> : null}
+                  <label key={fieldId} className="flex flex-col gap-1.5" data-testid={`widget-config-field-${fieldId}`}>
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-text">
+                      <span>{title}</span>
+                      {required ? <span className="text-danger">*</span> : <span className="text-text-dim">(optional)</span>}
+                      {rawValue === undefined && hasDefault ? (
+                        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-normal text-text-dim">
+                          default {renderConfigValue(field.default)}
+                        </span>
+                      ) : null}
                     </span>
                     {enumValues.length > 0 ? (
                       <SelectDropdown
@@ -704,11 +735,29 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
             </>
           )}
 
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-                Widget config (JSON)
-              </span>
+          <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-2.5" data-testid="advanced-widget-json-section">
+            <div className="flex items-center justify-between gap-2">
+              {hasSchemaControls ? (
+                <button
+                  type="button"
+                  onClick={() => setAdvancedJsonOpen((open) => !open)}
+                  className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-dim transition-colors hover:text-text"
+                  aria-expanded={showJsonEditor}
+                  data-testid="advanced-widget-json-toggle"
+                >
+                  <ChevronDown
+                    size={13}
+                    className={"transition-transform " + (showJsonEditor ? "rotate-0" : "-rotate-90")}
+                  />
+                  <Code2 size={13} />
+                  Advanced JSON
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  <Code2 size={13} />
+                  Widget config (JSON)
+                </span>
+              )}
               <button
                 type="button"
                 onClick={handleReset}
@@ -717,25 +766,35 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
                 Reset to {"{}"}
               </button>
             </div>
-            <textarea
-              value={jsonText}
-              onChange={(e) => setJsonText(e.target.value)}
-              spellCheck={false}
-              className={
-                "h-64 resize-none rounded-md border bg-input px-2.5 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent/40 " +
-                (jsonError ? "border-danger/60" : "border-surface-border")
-              }
-            />
-            {jsonError ? (
-              <span className="text-[11px] text-danger">
-                Invalid JSON — config must be a JSON object.
-              </span>
-            ) : (
-              <span className="text-[11px] text-text-dim">
-                {pin?.config_schema
-                  ? "Schema-aware controls update this JSON live. Save replaces the entire config object."
-                  : "Save replaces the entire config object."}
-              </span>
+            {!showJsonEditor && (
+              <p className="text-[11px] leading-snug text-text-muted">
+                Hidden because this widget exposes editable settings above.
+              </p>
+            )}
+            {showJsonEditor && (
+              <>
+                <textarea
+                  value={jsonText}
+                  onChange={(e) => setJsonText(e.target.value)}
+                  spellCheck={false}
+                  data-testid="advanced-widget-json-editor"
+                  className={
+                    "h-64 resize-none rounded-md border bg-input px-2.5 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent/40 " +
+                    (jsonError ? "border-danger/60" : "border-surface-border")
+                  }
+                />
+                {jsonError ? (
+                  <span className="text-[11px] text-danger">
+                    Invalid JSON — config must be a JSON object.
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-text-dim">
+                    {pin?.config_schema
+                      ? "Settings controls update this JSON live. Save replaces the entire config object."
+                      : "Save replaces the entire config object."}
+                  </span>
+                )}
+              </>
             )}
           </div>
 

@@ -15,6 +15,7 @@ Evergreen scope for first-class Project roots inside the singleton SharedWorkspa
 - Project-bound turns use the Project root for files, search, terminal, exec, harness cwd, context injection, and channel workspace search.
 - Bot-private workspace-files memory remains separate and is written through the dedicated `memory` tool.
 - Project-scoped knowledge lives under `.spindrel/knowledge-base` inside the Project root.
+- Project runtime env is derived from the applied Blueprint snapshot plus Project secret bindings. UI/API surfaces expose key names and readiness only; values are injected process-local into Project terminals, exec, and harness turns and are redacted from tool/harness event output.
 
 ## Phase Log
 
@@ -26,8 +27,9 @@ Evergreen scope for first-class Project roots inside the singleton SharedWorkspa
 - [x] **Phase 3A - Blueprints v0** — Project Blueprints are first-class reusable recipes with DB-backed CRUD, Project creation from a blueprint, starter folder/file/knowledge-file materialization, applied blueprint snapshots, repo/env declarations, and Project-level secret binding slots. v0 intentionally records repo/env/secret declarations without cloning repos, running setup, or injecting secret values into runtimes.
 - [x] **Phase 3B - Blueprint management surface** — Blueprints now have dedicated admin routes for library/detail editing, richer editors for starter files, knowledge files, repo declarations, env defaults, and required secrets, DELETE support that clears live references while preserving Project snapshots, and Project creation preview for selected recipes. The Project Workspace screenshot bundle now covers Blueprint library, editor, and applied-Blueprint settings artifacts.
 - [x] **Phase 3C - Blueprint setup runs** — Project Setup now turns the applied Blueprint snapshot into a clone-only runtime plan with Project-scoped secret-slot readiness, persisted setup-run history, conservative repo path safety, existing-path skip behavior, and redacted logs. The Project detail surface has a Setup tab and the Project Workspace screenshot bundle has setup readiness/run-history specs queued for the e2e server once that instance has the current Project Blueprint routes.
+- [x] **Phase 3D - Runtime environment** — Project runtime env now has a backend work-surface service, safe readiness API, Project Settings readiness card, setup-plan integration, Project terminal/exec injection, Codex/Claude harness env handoff, and runtime-value redaction across exec and harness event envelopes. Screenshot spec now asserts runtime readiness and no secret leakage; live e2e capture is waiting on the e2e backend deployment of `/api/v1/projects/{id}/runtime-env`.
 
 ## Queued Follow-Ups
 
 - Fresh instances: task/session-scoped disposable Project roots, with Docker sidecars considered only after filesystem/worktree semantics are proven.
-- Blueprint runtime deepening: expand setup beyond clone-only after repo/env/secret semantics have been validated in screenshots and deployed E2E.
+- Blueprint runtime deepening: add setup command phases and fresh-instance preparation after repo/env/secret semantics have been validated on deployed E2E.

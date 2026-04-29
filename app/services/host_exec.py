@@ -55,7 +55,14 @@ class HostExecResult:
 
 
 class HostExecService:
-    async def run(self, command: str, working_dir: str, bot_config: "HostExecConfig") -> HostExecResult:  # noqa: F821
+    async def run(
+        self,
+        command: str,
+        working_dir: str,
+        bot_config: "HostExecConfig",  # noqa: F821
+        *,
+        extra_env: dict[str, str] | None = None,
+    ) -> HostExecResult:
         """Execute a shell command on the host with security validation."""
         from app.agent.bots import HostExecConfig  # local import to avoid circular
 
@@ -82,6 +89,7 @@ class HostExecService:
         real_wd = self._validate_working_dir(working_dir, bot_config)
         self._validate_command(command, bot_config)
         env = self._build_env(bot_config)
+        env.update(extra_env or {})
 
         logger.info("[host_exec] command=%r working_dir=%r", command, real_wd)
 

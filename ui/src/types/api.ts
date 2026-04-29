@@ -1469,6 +1469,16 @@ export interface ProjectSetup {
   runs: ProjectSetupRun[];
 }
 
+export interface ProjectRuntimeEnv {
+  source: string;
+  ready: boolean;
+  env_default_keys?: string[];
+  secret_keys?: string[];
+  missing_secrets?: string[];
+  invalid_env_keys?: string[];
+  reserved_env_keys?: string[];
+}
+
 export interface ProjectWrite {
   workspace_id?: string | null;
   name?: string | null;

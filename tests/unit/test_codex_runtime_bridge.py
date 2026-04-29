@@ -6,25 +6,43 @@ https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md
 
 from __future__ import annotations
 
+import uuid
+
 from integrations.codex import schema
 from integrations.codex.harness import (
+    _build_turn_input,
     _codex_native_command_is_mutating,
+    _codex_skill_paths_by_name,
     _dynamic_tool_entry,
     _dynamic_tools_changed,
     _dynamic_tools_signature,
     _extract_thread_id,
     _extract_turn_id,
+    _extract_codex_skill_tokens,
     _prompt_with_bridge_guidance,
     _resolve_codex_native_app_server_call,
     _server_supports_dynamic_tools,
     _summarize_native_command_result,
 )
-from integrations.sdk import HarnessToolSpec
+from integrations.sdk import HarnessInputAttachment, HarnessInputManifest, HarnessToolSpec, build_turn_context
 
 
 class _FakeClient:
     def __init__(self, capabilities: dict | None) -> None:
         self.server_capabilities = capabilities or {}
+
+
+def _turn_ctx(manifest: HarnessInputManifest | None = None):
+    return build_turn_context(
+        spindrel_session_id=uuid.uuid4(),
+        bot_id="codex-bot",
+        turn_id=uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        workdir="/tmp/project",
+        harness_session_id=None,
+        permission_mode="default",
+        input_manifest=manifest,
+    )
 
 
 def test_dynamic_tools_supported_when_capability_true():
@@ -159,6 +177,72 @@ def test_text_input_item_shape():
     """Per README: turn/start.input is an array of typed content items."""
     item = schema.text_input_item("hello world")
     assert item == {"type": "text", "text": "hello world"}
+
+
+def test_codex_turn_input_maps_manifest_images_to_native_items():
+    ctx = _turn_ctx(HarnessInputManifest(
+        attachments=(
+            HarnessInputAttachment(
+                kind="image",
+                source="inline_attachment",
+                name="screen.png",
+                mime_type="image/png",
+                content_base64="AAA",
+            ),
+            HarnessInputAttachment(
+                kind="image",
+                source="channel_workspace",
+                name="photo.jpg",
+                mime_type="image/jpeg",
+                path="/tmp/project/data/photo.jpg",
+            ),
+        )
+    ))
+
+    items = _build_turn_input("Look at these.", ctx)
+
+    assert items[0] == {"type": "text", "text": "Look at these."}
+    assert items[1] == {"type": "image", "url": "data:image/png;base64,AAA"}
+    assert items[2] == {"type": "localImage", "path": "/tmp/project/data/photo.jpg"}
+
+
+def test_harness_input_manifest_metadata_redacts_inline_image_bytes():
+    manifest = HarnessInputManifest(
+        attachments=(
+            HarnessInputAttachment(
+                kind="image",
+                source="inline_attachment",
+                name="screen.png",
+                mime_type="image/png",
+                content_base64="VERY_SECRET_BASE64",
+            ),
+        )
+    )
+
+    metadata = manifest.metadata(runtime_items=({"type": "image", "url": "data:image/png;base64,VERY_SECRET_BASE64"},))
+
+    assert metadata["runtime_item_counts"] == {"image": 1}
+    assert metadata["attachments"][0]["has_inline_content"] is True
+    assert "VERY_SECRET_BASE64" not in str(metadata)
+
+
+def test_codex_skill_token_and_path_resolution():
+    assert _extract_codex_skill_tokens("$skill-creator do it and $review.bot, now") == (
+        "skill-creator",
+        "review.bot",
+    )
+    paths = _codex_skill_paths_by_name({
+        "data": [
+            {
+                "cwd": "/tmp/project",
+                "skills": [
+                    {"name": "skill-creator", "path": "/home/me/.codex/skills/skill-creator/SKILL.md"},
+                    {"name": "missing-path"},
+                ],
+            }
+        ]
+    })
+    assert paths == {"skill-creator": "/home/me/.codex/skills/skill-creator/SKILL.md"}
 
 
 def test_initialize_capabilities_carries_experimental_api():

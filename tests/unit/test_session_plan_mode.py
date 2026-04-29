@@ -1040,3 +1040,53 @@ def test_needs_replan_semantic_review_blocks_mutation_but_allows_replan(monkeypa
     )
     assert reason is not None
     assert "needs replanning" in reason
+
+
+def test_unsupported_semantic_review_blocks_next_mutation_but_allows_progress(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Semantic Unsupported Guard",
+        summary="Block execution when review says the claimed step is unsupported.",
+        scope="Execution guard behavior.",
+        acceptance_criteria=["Unsupported semantic review blocks further mutation."],
+        **_professional_fields(),
+        steps=[{"id": "ship", "label": "Ship the planned behavior"}],
+    )
+    spm.approve_session_plan(session)
+
+    spm.record_plan_semantic_review(
+        session,
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "step_id": "ship",
+            "outcome": "step_done",
+            "verdict": spm.PLAN_SEMANTIC_REVIEW_UNSUPPORTED,
+            "semantic_status": spm.PLAN_SEMANTIC_STATUS_WARNING,
+            "confidence": 0.93,
+            "reason": "Execution evidence did not support the recorded completion.",
+            "recommended_action": "repeat_step",
+        },
+    )
+
+    assert not spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="record_plan_progress",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    reason = spm.plan_mode_tool_denial_reason(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    assert reason is not None
+    assert "unsupported" in reason

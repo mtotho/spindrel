@@ -989,6 +989,7 @@ export function PinnedToolWidget({
               className={ctrlBtnClass}
               aria-label="Edit pin"
               title="Edit pin"
+              data-testid="dashboard-pin-edit-button"
             >
               <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
             </button>

@@ -26,6 +26,7 @@ from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
     CHANNEL_WIDGET_USEFULNESS_SPECS,
     FLAGSHIP_SPECS,
+    PIN_CONFIG_EDITOR_SPECS,
     PROJECT_WORKSPACE_SPECS,
     SPATIAL_CHECK_SPECS,
     STARBOARD_SPECS,
@@ -234,6 +235,23 @@ def test_channel_widget_usefulness_specs_have_assertions_and_artifacts():
     routes = {spec.name: spec.route for spec in resolved}
     assert routes["channel-widget-usefulness-dashboard"] == "/widgets/channel/channel-1"
     assert routes["channel-widget-usefulness-settings"] == "/channels/channel-1/settings#dashboard"
+
+
+def test_pin_config_editor_specs_open_target_pin_and_have_artifacts():
+    resolved = resolve_specs(
+        PIN_CONFIG_EDITOR_SPECS,
+        {
+            "dashboard_pin_config_channel": "channel-1",
+            "dashboard_pin_config_pin": "pin-1",
+        },
+    )
+
+    assert {spec.output for spec in resolved} == {
+        "dashboard-pin-config-editor.png",
+        "dashboard-pin-config-editor-mobile.png",
+    }
+    assert all(spec.assert_js for spec in resolved)
+    assert all("edit_pin=pin-1" in spec.route for spec in resolved)
 
 
 def test_resolve_specs_preserves_assertions():

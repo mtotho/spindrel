@@ -818,6 +818,7 @@ async def _execute_native_runtime_command(
     from app.services.agent_harnesses.project import resolve_harness_paths
     from app.services.agent_harnesses.session_state import load_latest_harness_metadata
     from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.project_runtime import load_project_runtime_environment_for_id
 
     bot = get_bot(session.bot_id)
     runtime_name = getattr(bot, "harness_runtime", None)
@@ -845,12 +846,17 @@ async def _execute_native_runtime_command(
         channel_id=session.channel_id or session.parent_channel_id,
         bot=bot,
     )
+    runtime_env = None
+    work_surface = getattr(paths, "work_surface", None)
+    if work_surface is not None and work_surface.kind == "project":
+        runtime_env = await load_project_runtime_environment_for_id(ctx.db, work_surface.project_id)
     turn_ctx = build_turn_context(
         spindrel_session_id=session.id,
         bot_id=bot.id,
         turn_id=uuid.uuid4(),
         channel_id=session.channel_id or session.parent_channel_id,
         workdir=paths.bot_workspace_dir,
+        env=dict(runtime_env.env) if runtime_env is not None else None,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
         permission_mode=mode,
         model=settings.model,
@@ -1062,6 +1068,15 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         )
         if usage:
             lines.append(f"Last usage: {usage}")
+        input_manifest = (harness_meta or {}).get("input_manifest") if harness_meta else None
+        if isinstance(input_manifest, dict):
+            item_counts = input_manifest.get("runtime_item_counts")
+            attachments = input_manifest.get("attachments")
+            if isinstance(item_counts, dict) and item_counts:
+                counts = ", ".join(f"{key}={value}" for key, value in sorted(item_counts.items()))
+                lines.append(f"Last runtime input items: {counts}")
+            if isinstance(attachments, list) and attachments:
+                lines.append(f"Last runtime attachments: {len(attachments)}")
         context_diagnostics = normalize_context_usage(
             usage if isinstance(usage, dict) else None,
             runtime=bot.harness_runtime,
@@ -1111,6 +1126,7 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
                 "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
                 "native_compaction": native_compaction,
                 "usage": usage,
+                "input_manifest": input_manifest if isinstance(input_manifest, dict) else None,
             },
             fallback_text="\n".join(lines),
         )

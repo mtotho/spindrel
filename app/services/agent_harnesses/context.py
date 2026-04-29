@@ -15,6 +15,7 @@ from app.db.engine import async_session as _default_session_factory
 from app.services.agent_harnesses.base import (
     DbSessionFactory,
     HarnessContextHint,
+    HarnessInputManifest,
     TurnContext,
 )
 
@@ -28,12 +29,14 @@ def build_turn_context(
     workdir: str,
     harness_session_id: str | None,
     permission_mode: str,
+    env: Mapping[str, str] | None = None,
     model: str | None = None,
     effort: str | None = None,
     runtime_settings: Mapping[str, Any] | None = None,
     context_hints: tuple[HarnessContextHint, ...] = (),
     ephemeral_tool_names: tuple[str, ...] = (),
     tagged_skill_ids: tuple[str, ...] = (),
+    input_manifest: HarnessInputManifest | None = None,
     session_plan_mode: str = "chat",
     harness_metadata: Mapping[str, Any] | None = None,
     db_session_factory: DbSessionFactory | None = None,
@@ -50,6 +53,7 @@ def build_turn_context(
         bot_id=bot_id,
         turn_id=turn_id,
         workdir=workdir,
+        env=env or {},
         harness_session_id=harness_session_id,
         permission_mode=permission_mode,
         db_session_factory=db_session_factory or _default_session_factory,
@@ -59,6 +63,7 @@ def build_turn_context(
         context_hints=context_hints,
         ephemeral_tool_names=ephemeral_tool_names,
         tagged_skill_ids=tagged_skill_ids,
+        input_manifest=input_manifest or HarnessInputManifest(),
         session_plan_mode=session_plan_mode,
         harness_metadata=harness_metadata or {},
     )

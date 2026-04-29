@@ -213,6 +213,7 @@ export default function WidgetsDashboardPage() {
   const builderPresetId = searchParams.get("builder_preset") ?? "";
   const builderStep = (searchParams.get("builder_step") ?? "catalog") as
     "catalog" | "configure" | "preview";
+  const requestedEditPinId = searchParams.get("edit_pin");
   const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
   const scratchSessionIdFromQuery = searchParams.get("scratch_session_id");
   const scratchReturnSessionId = useScratchReturnStore(
@@ -268,6 +269,34 @@ export default function WidgetsDashboardPage() {
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < 768 : false,
   );
+  useEffect(() => {
+    if (!requestedEditPinId) return;
+    if (pins.some((p) => p.id === requestedEditPinId)) {
+      setEditingPinId(requestedEditPinId);
+    }
+  }, [pins, requestedEditPinId]);
+  const openEditPinDrawer = useCallback((pinId: string) => {
+    setEditingPinId(pinId);
+    setSearchParams(
+      (prev) => {
+        const patch = new URLSearchParams(prev);
+        patch.set("edit_pin", pinId);
+        return patch;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+  const closeEditPinDrawer = useCallback(() => {
+    setEditingPinId(null);
+    setSearchParams(
+      (prev) => {
+        const patch = new URLSearchParams(prev);
+        patch.delete("edit_pin");
+        return patch;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
   useEffect(() => {
     const mql = window.matchMedia("(max-width: 767px)");
     const update = () => setIsMobile(mql.matches);
@@ -520,7 +549,7 @@ export default function WidgetsDashboardPage() {
             );
           }}
           onFocusPin={focusPin}
-          onEditPin={(id) => setEditingPinId(id)}
+          onEditPin={openEditPinDrawer}
           onEditLayout={() => setEditMode(true)}
           onOpenSettings={() => navigate(`/channels/${channelScopedId}/settings#dashboard`)}
         />
@@ -691,7 +720,7 @@ export default function WidgetsDashboardPage() {
             layoutEditable={layoutEditable}
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
-            onEditPin={(id) => setEditingPinId(id)}
+            onEditPin={openEditPinDrawer}
           />
         )}
         {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && channelScopedId && !isMobile && (
@@ -702,7 +731,7 @@ export default function WidgetsDashboardPage() {
             editMode={layoutEditable}
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
-            onEditPin={(id) => setEditingPinId(id)}
+            onEditPin={openEditPinDrawer}
             channelId={channelScopedId}
           />
         )}
@@ -746,7 +775,7 @@ export default function WidgetsDashboardPage() {
                     onUnpin={handleUnpin}
                     onEnvelopeUpdate={handleEnvelopeUpdate}
                     editMode={layoutEditable}
-                    onEdit={() => setEditingPinId(p.id)}
+                    onEdit={() => openEditPinDrawer(p.id)}
                     borderless={chrome.borderless}
                     hoverScrollbars={chrome.hoverScrollbars}
                     hideTitles={chrome.hideTitles}
@@ -797,7 +826,7 @@ export default function WidgetsDashboardPage() {
       />
       <EditPinDrawer
         pinId={editingPinId}
-        onClose={() => setEditingPinId(null)}
+        onClose={closeEditPinDrawer}
         preset={preset}
       />
       <CreateDashboardSheet

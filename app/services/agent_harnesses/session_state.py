@@ -836,6 +836,7 @@ async def run_native_harness_compact(
     from app.services.agent_harnesses.context import build_turn_context
     from app.services.agent_harnesses.project import resolve_harness_paths
     from app.services.agent_harnesses.settings import load_session_settings
+    from app.services.project_runtime import load_project_runtime_environment_for_id
 
     session = await db.get(Session, session_id)
     if session is None:
@@ -854,6 +855,13 @@ async def run_native_harness_compact(
         channel_id=session.channel_id or session.parent_channel_id,
         bot=bot,
     )
+    runtime_env = None
+    work_surface = getattr(harness_paths, "work_surface", None)
+    if work_surface is not None and work_surface.kind == "project":
+        runtime_env = await load_project_runtime_environment_for_id(
+            db,
+            work_surface.project_id,
+        )
     harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
     prior_harness_session_id = (harness_meta or {}).get("session_id")
     prior_usage = (harness_meta or {}).get("usage") if isinstance(harness_meta, dict) else None
@@ -890,6 +898,7 @@ async def run_native_harness_compact(
         bot_id=bot.id,
         turn_id=trace_correlation_id,
         workdir=harness_paths.workdir,
+        env=dict(runtime_env.env) if runtime_env is not None else None,
         harness_session_id=prior_harness_session_id,
         permission_mode=permission_mode,
         db_session_factory=async_session,

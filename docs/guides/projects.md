@@ -33,11 +33,11 @@ files, repo declarations, env defaults, and required secret binding slots.
 
 ![Project Blueprint editor with starter files and declarations](../images/project-workspace-blueprint-editor.png)
 
-Blueprint v0 materializes files and records declarations. Project Setup turns
-the applied snapshot into a clone-only setup plan: it validates repo targets,
-checks Project-scoped secret slots, clones missing repos, skips existing paths,
-and records redacted run history. Secret values stay in the secret vault;
-Projects only store bindings to those vault entries.
+Blueprint materializes files and records declarations. Project Setup turns the
+applied snapshot into a clone-only setup plan: it validates repo targets, checks
+Project-scoped secret slots, clones missing repos, skips existing paths, and
+records redacted run history. Secret values stay in the secret vault; Projects
+only store bindings to those vault entries.
 
 ## Applied Blueprints
 
@@ -47,6 +47,13 @@ When a Project is created from a Blueprint, the Project stores an applied
 snapshot. Editing or deleting the Blueprint later does not rewrite existing
 Projects. Use the Project settings Blueprint section to inspect the snapshot,
 repo/env declarations, materialization result, and required secret bindings.
+
+The Project runtime environment is derived from the applied snapshot, not from
+later Blueprint edits. Env defaults and bound Project secrets are injected into
+Project terminals, `exec_command`, and harness-backed Project turns. Settings
+show key names and missing bindings only; secret values are not returned by the
+Project API or rendered in the UI. Missing required secrets warn in readiness
+surfaces but do not block general Project runtimes.
 
 ## Channels And Memory
 

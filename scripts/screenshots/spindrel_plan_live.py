@@ -214,7 +214,9 @@ def _build_specs(
         wait = (
             "document.querySelector('[data-plan-card-mode]') !== null "
             "&& document.body.innerText.toLowerCase().includes('native spindrel progress parity') "
-            "&& (document.body.innerText.toLowerCase().includes('done') "
+            "&& (document.body.innerText.toLowerCase().includes('progress') "
+            "|| document.body.innerText.toLowerCase().includes('started step one') "
+            "|| document.body.innerText.toLowerCase().includes('done') "
             "|| document.body.innerText.toLowerCase().includes('step_done') "
             "|| document.body.innerText.toLowerCase().includes('completed step one'))"
         )

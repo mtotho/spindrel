@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import uuid
 from contextlib import suppress
@@ -21,6 +22,7 @@ from app.db.engine import async_session
 from app.db.models import Session as SessionRow
 from app.services import session_locks
 from app.services.agent_harnesses import ChannelEventEmitter, get_runtime
+from app.services.agent_harnesses.base import HarnessInputAttachment, HarnessInputManifest
 from app.services.sessions import persist_turn
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,80 @@ def merge_harness_turn_selections(
     )
 
 
+def _build_harness_input_manifest(
+    *,
+    tagged_skill_ids: tuple[str, ...],
+    attachments: tuple[dict[str, Any], ...],
+    msg_metadata: dict | None,
+    channel_id: uuid.UUID | None,
+    bot: BotConfig,
+) -> HarnessInputManifest:
+    prepared: list[HarnessInputAttachment] = []
+
+    for entry in attachments:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("type") or "file")
+        mime_type = str(entry.get("mime_type") or "application/octet-stream")
+        content = entry.get("content")
+        if kind == "image" and isinstance(content, str) and content:
+            prepared.append(
+                HarnessInputAttachment(
+                    kind="image",
+                    source="inline_attachment",
+                    name=str(entry.get("name") or ""),
+                    mime_type=mime_type,
+                    content_base64=content,
+                    attachment_id=str(entry.get("attachment_id") or "") or None,
+                )
+            )
+
+    workspace_uploads = tuple(
+        item for item in ((msg_metadata or {}).get("workspace_uploads") or ())
+        if isinstance(item, dict)
+    )
+    if workspace_uploads and channel_id is not None:
+        root = _safe_channel_workspace_root(channel_id, bot)
+        if root:
+            root_real = os.path.realpath(root)
+            for item in workspace_uploads:
+                mime_type = str(item.get("mime_type") or "application/octet-stream")
+                if not mime_type.startswith("image/"):
+                    continue
+                rel_path = str(item.get("path") or "").strip()
+                if not rel_path:
+                    continue
+                abs_path = os.path.realpath(os.path.join(root_real, rel_path))
+                if not (abs_path == root_real or abs_path.startswith(root_real + os.sep)):
+                    continue
+                prepared.append(
+                    HarnessInputAttachment(
+                        kind="image",
+                        source="channel_workspace",
+                        name=str(item.get("filename") or os.path.basename(rel_path)),
+                        mime_type=mime_type,
+                        path=abs_path,
+                        size_bytes=item.get("size_bytes") if isinstance(item.get("size_bytes"), int) else None,
+                    )
+                )
+
+    return HarnessInputManifest(
+        tagged_skill_ids=tuple(tagged_skill_ids),
+        attachments=tuple(prepared),
+        workspace_uploads=workspace_uploads,
+    )
+
+
+def _safe_channel_workspace_root(channel_id: uuid.UUID, bot: BotConfig) -> str | None:
+    try:
+        from app.services.channel_workspace import get_channel_workspace_root
+
+        return get_channel_workspace_root(str(channel_id), bot)
+    except Exception:
+        logger.warning("harness: failed to resolve channel workspace root for %s", channel_id, exc_info=True)
+        return None
+
+
 async def load_harness_channel_prompt_hint(db, channel_id: uuid.UUID | None):
     """Return the channel prompt as a harness host instruction, if configured."""
     if channel_id is None:
@@ -140,6 +216,7 @@ async def run_harness_turn(
     harness_permission_mode_override: str | None = None,
     harness_tool_names: tuple[str, ...] | list[str] = (),
     harness_skill_ids: tuple[str, ...] | list[str] = (),
+    harness_attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     async_session_factory=async_session,
     get_runtime_fn: Callable[[str], Any] = get_runtime,
     persist_turn_fn: Callable[..., Awaitable[Any]] = persist_turn,
@@ -189,6 +266,7 @@ async def run_harness_turn(
         project_directory_payload,
         resolve_harness_paths,
     )
+    from app.services.project_runtime import load_project_runtime_environment_for_id
     from app.services.agent_harnesses.session_state import (
         clear_consumed_context_hints,
         hint_preview,
@@ -204,6 +282,13 @@ async def run_harness_turn(
         except Exception as exc:
             return "", f"could not resolve harness workspace for bot: {exc}"
         workdir = harness_paths.workdir
+        runtime_env = None
+        work_surface = getattr(harness_paths, "work_surface", None)
+        if work_surface is not None and work_surface.kind == "project":
+            runtime_env = await load_project_runtime_environment_for_id(
+                db,
+                work_surface.project_id,
+            )
         session_permission_mode = await load_session_mode(db, session_id)
         permission_mode = harness_permission_mode_override or session_permission_mode
         harness_settings = await load_session_settings(db, session_id)
@@ -258,6 +343,14 @@ async def run_harness_turn(
             )
         )
 
+    input_manifest = _build_harness_input_manifest(
+        tagged_skill_ids=tagged_skill_ids,
+        attachments=tuple(harness_attachments or ()),
+        msg_metadata=msg_metadata,
+        channel_id=channel_id,
+        bot=bot,
+    )
+
     memory_hint = build_workspace_files_memory_hint(bot, harness_paths.bot_workspace_dir)
     if memory_hint is not None:
         context_hints.append(memory_hint)
@@ -267,6 +360,7 @@ async def run_harness_turn(
         turn_id=turn_id,
         bot_id=bot.id,
         session_id=session_id,
+        redact_text=runtime_env.redact_text if runtime_env is not None else None,
     )
 
     ctx = build_turn_context(
@@ -275,6 +369,7 @@ async def run_harness_turn(
         bot_id=bot.id,
         turn_id=turn_id,
         workdir=workdir,
+        env=dict(runtime_env.env) if runtime_env is not None else None,
         harness_session_id=prior_session_id,
         permission_mode=permission_mode,
         db_session_factory=async_session_factory,
@@ -284,6 +379,7 @@ async def run_harness_turn(
         context_hints=tuple(context_hints),
         ephemeral_tool_names=explicit_tool_names,
         tagged_skill_ids=tagged_skill_ids,
+        input_manifest=input_manifest,
         session_plan_mode=session_plan_mode,
         harness_metadata=harness_meta or {},
     )
@@ -318,6 +414,7 @@ async def run_harness_turn(
                 "bot_workspace_dir": harness_paths.bot_workspace_dir,
                 "project_dir": project_directory_payload(harness_paths.project_dir),
                 "last_hints_sent": [hint_preview(hint) for hint in context_hints],
+                "input_manifest": input_manifest.metadata(),
             },
         }
         if persisted_tool_calls:
@@ -373,6 +470,7 @@ async def run_harness_turn(
                 "bot_workspace_dir": harness_paths.bot_workspace_dir,
                 "project_dir": project_directory_payload(harness_paths.project_dir),
                 "last_hints_sent": [hint_preview(hint) for hint in context_hints],
+                "input_manifest": input_manifest.metadata(),
             },
         }
         if persisted_tool_calls:
@@ -442,6 +540,7 @@ async def run_harness_turn(
             "bot_workspace_dir": harness_paths.bot_workspace_dir,
             "project_dir": project_directory_payload(harness_paths.project_dir),
             "last_hints_sent": [hint_preview(hint) for hint in context_hints],
+            "input_manifest": input_manifest.metadata(),
             **(result.metadata or {}),
         },
     }

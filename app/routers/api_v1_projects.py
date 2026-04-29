@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Channel, Project, ProjectBlueprint, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
+from app.services.project_runtime import load_project_runtime_environment
 from app.services.projects import (
     materialize_project_blueprint,
     normalize_project_path,
@@ -138,6 +139,16 @@ class ProjectSetupRunOut(BaseModel):
 class ProjectSetupOut(BaseModel):
     plan: dict
     runs: list[ProjectSetupRunOut] = Field(default_factory=list)
+
+
+class ProjectRuntimeEnvOut(BaseModel):
+    source: str
+    ready: bool
+    env_default_keys: list[str] = Field(default_factory=list)
+    secret_keys: list[str] = Field(default_factory=list)
+    missing_secrets: list[str] = Field(default_factory=list)
+    invalid_env_keys: list[str] = Field(default_factory=list)
+    reserved_env_keys: list[str] = Field(default_factory=list)
 
 
 class ProjectFromBlueprintWrite(BaseModel):
@@ -597,6 +608,19 @@ async def get_project_setup(
     plan = await load_project_setup_plan(db, project)
     runs = await list_project_setup_runs(db, project_id)
     return ProjectSetupOut(plan=plan, runs=[_setup_run_out(run) for run in runs])
+
+
+@router.get("/{project_id}/runtime-env", response_model=ProjectRuntimeEnvOut)
+async def get_project_runtime_env(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    runtime_env = await load_project_runtime_environment(db, project)
+    return ProjectRuntimeEnvOut(**runtime_env.safe_payload())
 
 
 @router.post("/{project_id}/setup/runs", response_model=ProjectSetupRunOut, status_code=201)

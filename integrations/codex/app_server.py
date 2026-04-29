@@ -140,8 +140,9 @@ class ServerRequest:
 class CodexAppServer:
     """Async context manager wrapping a spawned ``codex app-server`` process."""
 
-    def __init__(self, *, binary: str | None = None) -> None:
+    def __init__(self, *, binary: str | None = None, extra_env: dict[str, str] | None = None) -> None:
         self._binary = binary
+        self._extra_env = dict(extra_env or {})
         self._proc: asyncio.subprocess.Process | None = None
         self._next_id = 1
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
@@ -156,8 +157,8 @@ class CodexAppServer:
 
     @classmethod
     @asynccontextmanager
-    async def spawn(cls) -> "AsyncIterator[CodexAppServer]":
-        client = cls()
+    async def spawn(cls, *, extra_env: dict[str, str] | None = None) -> "AsyncIterator[CodexAppServer]":
+        client = cls(extra_env=extra_env)
         await client._open()
         try:
             yield client
@@ -172,6 +173,7 @@ class CodexAppServer:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, **self._extra_env},
             limit=_stream_limit_bytes(),
         )
         self._reader_task = asyncio.create_task(self._read_loop(), name="codex-app-server-reader")

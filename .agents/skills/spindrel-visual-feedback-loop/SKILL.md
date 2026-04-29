@@ -39,6 +39,8 @@ Expected documentation artifacts:
 docs/images/spatial-check-map-brief-selection.png
 docs/images/spatial-check-jump-starboard-framing.png
 docs/images/spatial-check-attention-badge.png
+docs/images/spatial-check-attention-review-deck.png
+docs/images/spatial-check-attention-run-log.png
 docs/images/spatial-check-hover-suppression.png
 docs/images/spatial-check-overview-hover-calm.png
 docs/images/spatial-check-cluster-focus-calm.png
@@ -98,6 +100,28 @@ pin state. Capture uses a narrow browser shim for the assessment/receipt
 endpoints when the shared e2e API lags the UI branch; capture must not create or
 mutate widgets.
 
+## Dashboard Pin Config Editor Loop
+
+Use this target when changing the dashboard pin editor, widget config schema
+controls, or the Advanced JSON escape hatch.
+
+```bash
+python -m scripts.screenshots stage --only dashboard-pin-config-editor
+python -m scripts.screenshots capture --only dashboard-pin-config-editor
+python -m scripts.screenshots check
+```
+
+Expected documentation artifacts:
+
+```text
+docs/images/dashboard-pin-config-editor.png
+docs/images/dashboard-pin-config-editor-mobile.png
+```
+
+Inspect both desktop and mobile drawer captures. The staged dashboard pin is
+real, while capture uses a narrow browser shim to attach a deterministic
+`config_schema` so the settings controls render with Advanced JSON collapsed.
+
 ## Project Workspace Loop
 
 Use this target when changing Project workspace pages, Project Blueprints,
@@ -127,8 +151,8 @@ docs/images/project-workspace-memory-tool.png
 
 Inspect all eleven images before closing out. The bundle checks Project admin
 surfaces, Blueprint management, setup readiness/run history, applied Blueprint
-settings, channel settings, Project-rooted file/terminal behavior, and the
-memory-tool transcript envelope.
+settings, runtime-env readiness, channel settings, Project-rooted file/terminal
+behavior, and the memory-tool transcript envelope.
 
 ## Widget Authoring Runtime Loop
 

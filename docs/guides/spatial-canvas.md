@@ -234,10 +234,10 @@ Attention signals** toggle hides these map signals without changing Attention
 Item state.
 
 Clicking a target signal selects the target and opens Map Brief. Map Brief can
-link directly to the raw signal or reviewed finding in `/hub/attention`; the
-full page owns queue triage, acknowledgements, Operator findings, run receipts,
-and transcript evidence. The global Attention entry point can still acknowledge
-all visible active items after confirmation.
+link directly to the unreviewed item or reviewed finding in `/hub/attention`;
+the full page owns queue triage, acknowledgements, bot reports, Operator
+findings, sweep receipts, and transcript evidence. The global Attention entry
+point can still acknowledge all visible active items after confirmation.
 
 The canvas also has a fixed **Attention Hub** landmark above the seed center.
 Opening it shows the compact Attention station in Starboard; the station's

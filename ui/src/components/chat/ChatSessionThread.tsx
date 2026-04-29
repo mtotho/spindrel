@@ -31,6 +31,7 @@ import { SessionChatView } from "./SessionChatView";
 import { useSessionResumeCard } from "./useSessionResumeCard";
 import { ChatComposerShell } from "./ChatComposerShell";
 import { MessageInput, type PendingFile } from "./MessageInput";
+import { buildChatAttachmentPayload } from "./chatAttachmentPayload";
 import { useHarnessComposerProps } from "./useHarnessComposerProps";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { MessageBubble } from "./MessageBubble";
@@ -224,7 +225,7 @@ export function ThreadChatSession({
   });
 
   const handleSend = useCallback(
-    async (message: string, _files?: PendingFile[]) => {
+    async (message: string, files?: PendingFile[]) => {
       setSendError(null);
       let sid = effectiveSessionId;
       try {
@@ -238,6 +239,8 @@ export function ThreadChatSession({
           onSessionSpawned?.(sid);
         }
         const clientLocalId = makeClientLocalId();
+        const attachmentPayload = buildChatAttachmentPayload(files);
+        const workspaceUploads = attachmentPayload.workspace_uploads ?? [];
         useChatStore.getState().addMessage(sid, {
           id: `msg-${clientLocalId}`,
           session_id: sid,
@@ -249,6 +252,7 @@ export function ThreadChatSession({
             sender_type: "human",
             client_local_id: clientLocalId,
             local_status: "sending",
+            ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
           },
         });
         await submitChat.mutateAsync({
@@ -261,7 +265,10 @@ export function ThreadChatSession({
             source: "web",
             sender_type: "human",
             client_local_id: clientLocalId,
+            ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
           },
+          ...(attachmentPayload.attachments?.length ? { attachments: attachmentPayload.attachments } : {}),
+          ...(attachmentPayload.file_metadata?.length ? { file_metadata: attachmentPayload.file_metadata } : {}),
           ...(modelOverride
             ? {
                 model_override: modelOverride,

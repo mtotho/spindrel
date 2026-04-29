@@ -120,7 +120,7 @@ class TestRecoverStuckTasksFiresHook:
     @pytest.mark.asyncio
     async def test_fires_hook_on_recovery(self):
         """When a task is recovered, _fire_task_complete should be called."""
-        from app.agent.tasks import recover_stuck_tasks
+        from app.agent.task_worker_host import recover_stuck_tasks
 
         task_id = uuid.uuid4()
         old_time = datetime.now(timezone.utc) - timedelta(hours=1)
@@ -164,7 +164,7 @@ class TestRecoverStuckTasksFiresHook:
         # Verify the function source code contains the hook call
         import inspect
         source = inspect.getsource(recover_stuck_tasks)
-        assert "_fire_task_complete" in source, "recover_stuck_tasks must call _fire_task_complete"
+        assert "fire_task_complete" in source, "recover_stuck_tasks must call the completion hook"
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ class TestTaskWorkerPeriodicRecovery:
 
     def test_task_worker_calls_recovery_periodically(self):
         """task_worker source should include periodic recovery logic."""
-        from app.agent.tasks import task_worker
+        from app.agent.task_worker_host import task_worker
         import inspect
         source = inspect.getsource(task_worker)
         assert "last_recovery_at" in source, "task_worker should track last recovery time"

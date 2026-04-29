@@ -6,6 +6,7 @@ import type {
   ProjectBlueprint,
   ProjectBlueprintWrite,
   ProjectFromBlueprintWrite,
+  ProjectRuntimeEnv,
   ProjectSetup,
   ProjectSetupRun,
   ProjectWrite,
@@ -38,6 +39,14 @@ export function useProjectSetup(projectId: string | undefined) {
   return useQuery({
     queryKey: ["projects", projectId, "setup"],
     queryFn: () => apiFetch<ProjectSetup>(`/api/v1/projects/${projectId}/setup`),
+    enabled: !!projectId,
+  });
+}
+
+export function useProjectRuntimeEnv(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "runtime-env"],
+    queryFn: () => apiFetch<ProjectRuntimeEnv>(`/api/v1/projects/${projectId}/runtime-env`),
     enabled: !!projectId,
   });
 }
@@ -136,6 +145,7 @@ export function useUpdateProjectSecretBindings(projectId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["projects", projectId] });
       qc.invalidateQueries({ queryKey: ["projects", projectId, "setup"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "runtime-env"] });
     },
   });
 }

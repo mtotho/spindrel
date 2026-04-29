@@ -1,0 +1,205 @@
+"""Project runtime environment policy.
+
+Project Blueprints declare env defaults and required secret slots. This module
+turns the applied Project snapshot plus Project secret bindings into the
+process environment that Project-bound runtimes can use, while keeping display
+payloads secret-safe.
+"""
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Mapping
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.db.models import Project, ProjectSecretBinding, SecretValue
+from app.services.encryption import decrypt
+from app.services.secret_registry import redact
+
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_RESERVED_ENV_NAMES = {
+    "AGENT_SERVER_API_KEY",
+    "AGENT_SERVER_URL",
+    "DATABASE_URL",
+    "ENCRYPTION_KEY",
+    "JWT_SECRET",
+}
+_RESERVED_ENV_PREFIXES = ("SPINDREL_INTERNAL_",)
+
+
+@dataclass(frozen=True)
+class ProjectRuntimeEnvironment:
+    """Resolved Project env for process execution plus safe readiness metadata."""
+
+    project_id: str
+    env: Mapping[str, str] = field(repr=False)
+    env_default_keys: tuple[str, ...] = ()
+    secret_keys: tuple[str, ...] = ()
+    missing_secrets: tuple[str, ...] = ()
+    invalid_env_keys: tuple[str, ...] = ()
+    reserved_env_keys: tuple[str, ...] = ()
+
+    @property
+    def ready(self) -> bool:
+        return not self.missing_secrets and not self.invalid_env_keys and not self.reserved_env_keys
+
+    def redact_text(self, text: str) -> str:
+        redacted = redact(text)
+        values = sorted((str(value) for value in self.env.values() if value), key=len, reverse=True)
+        for value in values:
+            redacted = redacted.replace(value, "[REDACTED]")
+        return redacted
+
+    def safe_payload(self) -> dict[str, Any]:
+        return {
+            "source": "blueprint_snapshot",
+            "ready": self.ready,
+            "env_default_keys": list(self.env_default_keys),
+            "secret_keys": list(self.secret_keys),
+            "missing_secrets": list(self.missing_secrets),
+            "invalid_env_keys": list(self.invalid_env_keys),
+            "reserved_env_keys": list(self.reserved_env_keys),
+        }
+
+
+def project_snapshot(project: Project) -> dict[str, Any]:
+    metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
+    snapshot = metadata.get("blueprint_snapshot")
+    return dict(snapshot) if isinstance(snapshot, dict) else {}
+
+
+def secret_name(raw: Any) -> str:
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, dict):
+        return str(raw.get("name") or raw.get("key") or "").strip()
+    return ""
+
+
+def required_secret_names(snapshot: Mapping[str, Any]) -> list[str]:
+    names: list[str] = []
+    for item in snapshot.get("required_secrets") or []:
+        name = secret_name(item)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def is_valid_env_name(name: str) -> bool:
+    return bool(_ENV_NAME_RE.match(name))
+
+
+def is_reserved_env_name(name: str) -> bool:
+    return name in _RESERVED_ENV_NAMES or any(name.startswith(prefix) for prefix in _RESERVED_ENV_PREFIXES)
+
+
+def _normalize_env(raw: Any) -> tuple[dict[str, str], list[str], list[str]]:
+    if not isinstance(raw, dict):
+        return {}, [], []
+    env: dict[str, str] = {}
+    invalid: list[str] = []
+    reserved: list[str] = []
+    for key, value in raw.items():
+        name = str(key).strip()
+        if not is_valid_env_name(name) or "\x00" in str(value):
+            invalid.append(name or str(key))
+            continue
+        if is_reserved_env_name(name):
+            reserved.append(name)
+            continue
+        env[name] = str(value)
+    return env, invalid, reserved
+
+
+def build_project_runtime_environment(
+    project: Project,
+    *,
+    bindings: list[ProjectSecretBinding],
+) -> ProjectRuntimeEnvironment:
+    snapshot = project_snapshot(project)
+    env_defaults, invalid_env_keys, reserved_env_keys = _normalize_env(snapshot.get("env"))
+    env = dict(env_defaults)
+    binding_by_name = {binding.logical_name: binding for binding in bindings}
+    secret_keys: list[str] = []
+    missing_secrets: list[str] = []
+
+    for name in required_secret_names(snapshot):
+        binding = binding_by_name.get(name)
+        if binding is None or binding.secret_value_id is None or binding.secret_value is None:
+            missing_secrets.append(name)
+            continue
+        if not is_valid_env_name(name):
+            invalid_env_keys.append(name)
+            continue
+        if is_reserved_env_name(name):
+            reserved_env_keys.append(name)
+            continue
+        secret_keys.append(name)
+        raw_value = getattr(binding.secret_value, "value", None)
+        if raw_value is not None:
+            env[name] = decrypt(raw_value)
+
+    for binding in bindings:
+        name = binding.logical_name
+        if name in secret_keys or name in missing_secrets:
+            continue
+        if binding.secret_value_id is None or binding.secret_value is None:
+            continue
+        if not is_valid_env_name(name):
+            invalid_env_keys.append(name)
+            continue
+        if is_reserved_env_name(name):
+            reserved_env_keys.append(name)
+            continue
+        secret_keys.append(name)
+        raw_value = getattr(binding.secret_value, "value", None)
+        if raw_value is not None:
+            env[name] = decrypt(raw_value)
+
+    return ProjectRuntimeEnvironment(
+        project_id=str(project.id),
+        env=env,
+        env_default_keys=tuple(sorted(env_defaults)),
+        secret_keys=tuple(sorted(secret_keys)),
+        missing_secrets=tuple(missing_secrets),
+        invalid_env_keys=tuple(dict.fromkeys(invalid_env_keys)),
+        reserved_env_keys=tuple(dict.fromkeys(reserved_env_keys)),
+    )
+
+
+async def load_project_runtime_environment(
+    db: AsyncSession,
+    project: Project,
+) -> ProjectRuntimeEnvironment:
+    bindings = (await db.execute(
+        select(ProjectSecretBinding)
+        .options(selectinload(ProjectSecretBinding.secret_value))
+        .where(ProjectSecretBinding.project_id == project.id)
+        .order_by(ProjectSecretBinding.logical_name)
+    )).scalars().all()
+    return build_project_runtime_environment(project, bindings=list(bindings))
+
+
+async def load_project_runtime_environment_for_id(
+    db: AsyncSession,
+    project_id: uuid.UUID | str | None,
+) -> ProjectRuntimeEnvironment | None:
+    if project_id is None:
+        return None
+    try:
+        project_uuid = uuid.UUID(str(project_id))
+    except ValueError:
+        return None
+    project = await db.get(Project, project_uuid)
+    if project is None:
+        return None
+    return await load_project_runtime_environment(db, project)
+
+
+def redact_known_values(text: str, values: Mapping[str, str]) -> str:
+    env = ProjectRuntimeEnvironment(project_id="", env=values)
+    return env.redact_text(text)

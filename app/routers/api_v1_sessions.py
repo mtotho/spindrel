@@ -949,6 +949,7 @@ class HarnessStatusOut(BaseModel):
     bot_workspace_dir: str | None = None
     project_dir: dict[str, Any] | None = None
     bridge_status: dict[str, Any] = Field(default_factory=dict)
+    input_manifest: dict[str, Any] | None = None
     context_note: str
 
 
@@ -1116,6 +1117,7 @@ async def get_harness_status(
         bot_workspace_dir=(harness_meta or {}).get("bot_workspace_dir") or harness_paths.bot_workspace_dir,
         project_dir=(harness_meta or {}).get("project_dir") or project_directory_payload(harness_paths.project_dir),
         bridge_status=bridge_status,
+        input_manifest=(harness_meta or {}).get("input_manifest") if harness_meta else None,
         context_note=(
             "Native harness context is provider-managed; Spindrel tracks resume id, "
             "native compaction events, and pending host hints for this session."

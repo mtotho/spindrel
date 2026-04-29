@@ -139,6 +139,7 @@ async def create_session(
     *,
     seed_command: Optional[str] = None,
     cwd: Optional[str] = None,
+    extra_env: Optional[dict[str, str]] = None,
 ) -> TerminalSession:
     """Spawn a new bash PTY session and register it.
 
@@ -163,6 +164,7 @@ async def create_session(
     fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
     env = os.environ.copy()
+    env.update(extra_env or {})
     env["TERM"] = "xterm-256color"
     # Stop bash printing motd / locale spam noise in the first prompt.
     env.setdefault("PS1", r"\u@\h:\w\$ ")

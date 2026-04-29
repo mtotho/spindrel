@@ -145,17 +145,36 @@ class ChannelEventEmitter:
         turn_id: uuid.UUID,
         bot_id: str,
         session_id: uuid.UUID | None = None,
+        redact_text: Callable[[str], str] | None = None,
     ) -> None:
         self._channel_id = channel_id
         self._turn_id = turn_id
         self._bot_id = bot_id
         self._session_id = session_id
         self._tool_entries: list[HarnessToolTranscriptEntry] = []
+        self._runtime_redact_text = redact_text
+
+    def _redact_text(self, text: str) -> str:
+        text = _redact_text(text)
+        if self._runtime_redact_text is not None:
+            text = self._runtime_redact_text(text)
+        return text
+
+    def _redact_value(self, value: object) -> object:
+        if isinstance(value, str):
+            return self._redact_text(value)
+        if isinstance(value, list):
+            return [self._redact_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._redact_value(item) for item in value)
+        if isinstance(value, dict):
+            return {key: self._redact_value(item) for key, item in value.items()}
+        return value
 
     def token(self, delta: str) -> None:
         if not delta:
             return
-        delta = _redact_text(delta)
+        delta = self._redact_text(delta)
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -173,7 +192,7 @@ class ChannelEventEmitter:
     def thinking(self, delta: str) -> None:
         if not delta:
             return
-        delta = _redact_text(delta)
+        delta = self._redact_text(delta)
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -196,7 +215,7 @@ class ChannelEventEmitter:
         tool_call_id: str | None = None,
     ) -> None:
         call_id = tool_call_id or f"harness:{len(self._tool_entries) + 1}"
-        redacted_args = _redact_value(arguments or {})
+        redacted_args = self._redact_value(arguments or {})
         for entry in self._tool_entries:
             if entry.id == call_id:
                 entry.name = tool_name
@@ -237,9 +256,9 @@ class ChannelEventEmitter:
         surface: str | None = None,
         summary: dict | None = None,
     ) -> None:
-        result_summary = _redact_text(result_summary)
-        redacted_envelope = _redact_value(envelope) if envelope else None
-        redacted_summary = _redact_value(summary) if summary else None
+        result_summary = self._redact_text(result_summary)
+        redacted_envelope = self._redact_value(envelope) if envelope else None
+        redacted_summary = self._redact_value(summary) if summary else None
         if not isinstance(redacted_envelope, dict):
             redacted_envelope = None
         if not isinstance(redacted_summary, dict):
@@ -342,6 +361,74 @@ class HarnessContextHint:
     host-owned instructions that should be placed before contextual hints."""
 
 
+@dataclass(frozen=True)
+class HarnessInputAttachment:
+    """One user-supplied attachment prepared for a native harness turn.
+
+    ``content_base64`` is runtime input only and must never be copied into
+    persisted diagnostics. Use :meth:`metadata` for transcript-safe summaries.
+    """
+
+    kind: str
+    source: str
+    name: str = ""
+    mime_type: str = "application/octet-stream"
+    content_base64: str | None = None
+    path: str | None = None
+    attachment_id: str | None = None
+    size_bytes: int | None = None
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "source": self.source,
+            "name": self.name,
+            "mime_type": self.mime_type,
+            "attachment_id": self.attachment_id,
+            "path": self.path,
+            "size_bytes": self.size_bytes,
+            "has_inline_content": bool(self.content_base64),
+        }
+
+
+@dataclass(frozen=True)
+class HarnessInputManifest:
+    """Structured host inputs sent to a native harness turn."""
+
+    tagged_skill_ids: tuple[str, ...] = ()
+    attachments: tuple[HarnessInputAttachment, ...] = ()
+    workspace_uploads: tuple[Mapping[str, Any], ...] = ()
+
+    def metadata(
+        self,
+        *,
+        runtime_items: tuple[Mapping[str, Any], ...] = (),
+        warnings: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Return a persisted, secret-safe summary of the native input surface."""
+
+        item_counts: dict[str, int] = {}
+        for item in runtime_items:
+            kind = str(item.get("type") or "unknown")
+            item_counts[kind] = item_counts.get(kind, 0) + 1
+        return {
+            "tagged_skill_ids": list(self.tagged_skill_ids),
+            "attachments": [attachment.metadata() for attachment in self.attachments],
+            "workspace_uploads": [dict(item) for item in self.workspace_uploads],
+            "runtime_items": [
+                {
+                    "type": item.get("type"),
+                    "name": item.get("name"),
+                    "path": item.get("path"),
+                    "source": item.get("source"),
+                }
+                for item in runtime_items
+            ],
+            "runtime_item_counts": item_counts,
+            "warnings": list(warnings),
+        }
+
+
 def render_context_hints_for_prompt(
     prompt: str,
     hints: tuple[HarnessContextHint, ...],
@@ -419,6 +506,9 @@ class TurnContext:
     """One of ``bypassPermissions`` | ``acceptEdits`` | ``default`` | ``plan``."""
     db_session_factory: DbSessionFactory
     """Open a short DB scope: ``async with ctx.db_session_factory() as db: ...``."""
+    env: Mapping[str, str] = field(default_factory=dict)
+    """Per-turn process env from the Project runtime policy. Values are for
+    runtime process execution only; adapters must not render them into prompts."""
     model: str | None = None
     """Per-session harness model id, or ``None`` to let the runtime pick its
     default. Runtime adapters translate to the SDK-native kwarg
@@ -439,6 +529,10 @@ class TurnContext:
     """Explicit ``@tool:<name>`` selections for this single user send."""
     tagged_skill_ids: tuple[str, ...] = ()
     """Explicit ``@skill:<id>`` selections for this single user send."""
+    input_manifest: HarnessInputManifest = field(default_factory=HarnessInputManifest)
+    """Structured non-text inputs for this harness turn. Runtime adapters may
+    translate these into native input items; persisted metadata must use the
+    manifest's redacted summary instead of raw inline content."""
     session_plan_mode: str = "chat"
     """Spindrel session plan-mode state (``chat`` / ``planning`` /
     ``executing`` / ``blocked`` / ``done``). Distinct from

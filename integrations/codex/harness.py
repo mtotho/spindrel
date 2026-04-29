@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -104,6 +105,7 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
 
 _AUTH_STATUS_CACHE: dict[str, tuple[float, AuthStatus]] = {}
 _AUTH_STATUS_TTL = 30.0  # seconds
+_CODEX_SKILL_TOKEN_RE = re.compile(r"(?<![\w$])\$([A-Za-z][\w.-]*)")
 
 
 class CodexRuntime:
@@ -185,7 +187,7 @@ class CodexRuntime:
         prompt: str,
         emit: ChannelEventEmitter,
     ) -> TurnResult:
-        async with CodexAppServer.spawn() as client:
+        async with CodexAppServer.spawn(extra_env=dict(ctx.env)) as client:
             await client.initialize()
 
             params = _build_thread_start_params(ctx)
@@ -229,6 +231,7 @@ class CodexRuntime:
                 thread_id=thread_id,
                 prompt=_prompt_with_bridge_guidance(prompt, exported),
                 ctx=ctx,
+                native_input_items=await _resolve_codex_native_input_items(client, prompt, ctx),
             )
             turn_resp = await client.request(schema.METHOD_TURN_START, turn_params)
             turn_id = _extract_turn_id(turn_resp) or ""
@@ -319,6 +322,9 @@ class CodexRuntime:
                     "codex_dynamic_tools_signature": dynamic_tools_signature or "",
                     "codex_dynamic_tools": list(exported),
                     "codex_dynamic_tools_namespace": "spindrel",
+                    "input_manifest": ctx.input_manifest.metadata(
+                        runtime_items=tuple(turn_params.get("input") or ()),
+                    ),
                     **_native_plan_metadata(result_meta),
                 }
             )
@@ -336,7 +342,7 @@ class CodexRuntime:
                 error="missing_harness_session_id",
             )
         try:
-            async with CodexAppServer.spawn() as client:
+            async with CodexAppServer.spawn(extra_env=dict(ctx.env)) as client:
                 await client.initialize()
                 await client.request(
                     schema.METHOD_THREAD_RESUME,
@@ -395,7 +401,6 @@ class CodexRuntime:
         args: tuple[str, ...],
         ctx: TurnContext,
     ) -> HarnessRuntimeCommandResult:
-        del ctx
         args = tuple(arg for arg in args if arg)
         resolved = _resolve_codex_native_app_server_call(command_id, args)
         if resolved is None:
@@ -419,7 +424,7 @@ class CodexRuntime:
                 payload={"args": list(args), "suggested_command": suggested_command},
             )
         try:
-            async with CodexAppServer.spawn() as client:
+            async with CodexAppServer.spawn(extra_env=dict(ctx.env)) as client:
                 await client.initialize()
                 result = await client.request(method, params, timeout=20.0)
         except CodexBinaryNotFound as exc:
@@ -592,14 +597,110 @@ def _parse_codex_config_value(raw: str) -> Any:
         return text
 
 
-def _build_turn_input(prompt: str, ctx: TurnContext) -> list[dict[str, Any]]:
+def _build_turn_input(
+    prompt: str,
+    ctx: TurnContext,
+    *,
+    native_input_items: tuple[dict[str, Any], ...] = (),
+) -> list[dict[str, Any]]:
     """Compose the codex ``turn/start.input`` array.
 
-    The protocol takes an array of typed content items; we send one
-    ``{type: "text", text: ...}`` item that includes any one-shot host
-    context hints inline before the user prompt.
+    The protocol takes an array of typed content items. Text still carries
+    host hints, while manifest inputs become native Codex items when possible.
     """
-    return [schema.text_input_item(render_context_hints_for_prompt(prompt, ctx.context_hints))]
+    items: list[dict[str, Any]] = [
+        schema.text_input_item(render_context_hints_for_prompt(prompt, ctx.context_hints))
+    ]
+    for attachment in ctx.input_manifest.attachments:
+        if attachment.kind != "image":
+            continue
+        if attachment.content_base64:
+            items.append({
+                "type": schema.INPUT_ITEM_IMAGE,
+                "url": f"data:{attachment.mime_type};base64,{attachment.content_base64}",
+            })
+        elif attachment.path:
+            items.append({
+                "type": schema.INPUT_ITEM_LOCAL_IMAGE,
+                "path": attachment.path,
+            })
+    items.extend(dict(item) for item in native_input_items)
+    return items
+
+
+async def _resolve_codex_native_input_items(
+    client: CodexAppServer,
+    prompt: str,
+    ctx: TurnContext,
+) -> tuple[dict[str, Any], ...]:
+    """Resolve prompt-native Codex affordances into typed input items.
+
+    Codex skills are invoked by ``$name`` in text; adding a sibling ``skill``
+    item lets app-server inject the exact skill body without model-side lookup.
+    If resolution fails, the text marker remains intact and Codex can still
+    attempt its native fallback.
+    """
+
+    names = _extract_codex_skill_tokens(prompt)
+    if not names:
+        return ()
+    try:
+        result = await client.request(
+            schema.METHOD_SKILLS_LIST,
+            {"cwds": [ctx.workdir]},
+            timeout=5.0,
+        )
+    except Exception:
+        logger.info("codex: skills/list failed while resolving native skill input items", exc_info=True)
+        return ()
+    by_name = _codex_skill_paths_by_name(result)
+    items: list[dict[str, Any]] = []
+    for name in names:
+        path = by_name.get(name)
+        if not path:
+            continue
+        items.append({
+            "type": schema.INPUT_ITEM_SKILL,
+            "name": name,
+            "path": path,
+        })
+    return tuple(items)
+
+
+def _extract_codex_skill_tokens(prompt: str) -> tuple[str, ...]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _CODEX_SKILL_TOKEN_RE.finditer(prompt or ""):
+        name = match.group(1).strip().rstrip(".,;:!?")
+        if name and name not in seen:
+            seen.add(name)
+            found.append(name)
+    return tuple(found)
+
+
+def _codex_skill_paths_by_name(result: dict[str, Any] | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, list):
+        return out
+    for cwd_entry in data:
+        if not isinstance(cwd_entry, dict):
+            continue
+        skills = cwd_entry.get("skills")
+        if not isinstance(skills, list):
+            continue
+        for skill in skills:
+            if not isinstance(skill, dict):
+                continue
+            name = skill.get("name")
+            path = (
+                skill.get("path")
+                or skill.get("skillPath")
+                or skill.get("filePath")
+            )
+            if isinstance(name, str) and name and isinstance(path, str) and path:
+                out.setdefault(name, path)
+    return out
 
 
 def _build_thread_start_params(ctx: TurnContext) -> dict[str, Any]:
@@ -692,11 +793,12 @@ def _build_turn_start_params(
     thread_id: str,
     prompt: str,
     ctx: TurnContext,
+    native_input_items: tuple[dict[str, Any], ...] = (),
 ) -> dict[str, Any]:
     """Build current-schema ``turn/start`` params for every Codex turn."""
     params: dict[str, Any] = {
         "threadId": thread_id,
-        "input": _build_turn_input(prompt, ctx),
+        "input": _build_turn_input(prompt, ctx, native_input_items=native_input_items),
         "cwd": ctx.workdir,
     }
     if ctx.model:

@@ -77,27 +77,38 @@ async def exec_command(command: str, working_dir: str = "") -> str:
         # --- Bot hooks: before_access ---
         from app.services.bot_hooks import run_before_access, run_after_exec, schedule_after_write
         effective_working_dir = working_dir or "/workspace"
-        if not working_dir:
-            ch_id = current_channel_id.get()
-            if ch_id is not None:
-                try:
-                    from app.db.engine import async_session
-                    from app.services.projects import resolve_channel_work_surface_by_id
+        runtime_env = None
+        ch_id = current_channel_id.get()
+        if ch_id is not None:
+            try:
+                from app.db.engine import async_session
+                from app.services.project_runtime import load_project_runtime_environment_for_id
+                from app.services.projects import resolve_channel_work_surface_by_id
 
-                    async with async_session() as db:
-                        surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
+                async with async_session() as db:
+                    surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
                     if surface is not None and surface.kind == "project":
-                        working_dir = surface.root_host_path
-                        effective_working_dir = working_dir
-                except Exception:
-                    logger.debug("Could not resolve project cwd for exec_command", exc_info=True)
+                        if not working_dir:
+                            working_dir = surface.root_host_path
+                            effective_working_dir = working_dir
+                        runtime_env = await load_project_runtime_environment_for_id(db, surface.project_id)
+            except Exception:
+                logger.debug("Could not resolve project runtime for exec_command", exc_info=True)
         block_err = await run_before_access(bot_id, effective_working_dir)
         if block_err:
             return json.dumps({"error": "hook_blocked", "message": block_err}, ensure_ascii=False)
 
         try:
             from app.services.workspace import workspace_service
-            result = await workspace_service.exec(bot_id, command, bot.workspace, working_dir, bot=bot)
+            result = await workspace_service.exec(
+                bot_id,
+                command,
+                bot.workspace,
+                working_dir,
+                bot=bot,
+                extra_env=dict(runtime_env.env) if runtime_env is not None else None,
+                redact_output=runtime_env.redact_text if runtime_env is not None else None,
+            )
 
             # --- Bot hooks: after_exec + after_write ---
             await run_after_exec(bot_id, effective_working_dir)

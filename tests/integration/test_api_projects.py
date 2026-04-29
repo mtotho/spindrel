@@ -174,6 +174,14 @@ class TestProjectsApi:
         assert body["plan"]["repos"][0]["url"] == "https://github.com/mtotho/spindrel.git"
         assert "ghp_super_secret_setup_token" not in str(body)
 
+        runtime = await client.get(f"/api/v1/projects/{project_id}/runtime-env", headers=AUTH_HEADERS)
+        assert runtime.status_code == 200
+        runtime_body = runtime.json()
+        assert runtime_body["env_default_keys"] == ["NODE_ENV"]
+        assert runtime_body["secret_keys"] == [secret.name]
+        assert runtime_body["missing_secrets"] == ["NPM_TOKEN"]
+        assert "ghp_super_secret_setup_token" not in str(runtime_body)
+
         not_ready = await client.post(f"/api/v1/projects/{project_id}/setup/runs", headers=AUTH_HEADERS)
         assert not_ready.status_code == 409
 

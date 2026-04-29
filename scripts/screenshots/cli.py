@@ -34,6 +34,7 @@ from scripts.screenshots.capture.specs import (
     INTEGRATIONS_SPECS,
     MOBILE_HOME_SPECS,
     NOTIFICATIONS_SPECS,
+    PIN_CONFIG_EDITOR_SPECS,
     PROJECT_WORKSPACE_SPECS,
     SPATIAL_CHECK_SPECS,
     SPATIAL_SPECS,
@@ -102,6 +103,11 @@ from scripts.screenshots.stage.scenarios.channel_widget_usefulness import (
     stage_channel_widget_usefulness,
     teardown_channel_widget_usefulness,
 )
+from scripts.screenshots.stage.scenarios.dashboard_pin_config_editor import (
+    DASHBOARD_PIN_CONFIG_CLIENT_ID,
+    stage_dashboard_pin_config_editor,
+    teardown_dashboard_pin_config_editor,
+)
 from scripts.screenshots.stage.scenarios.voice_input import (
     VOICE_INPUT_CHANNEL_CLIENT_ID,
     stage_voice_input,
@@ -119,7 +125,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "voice-input", "channel-session-tabs", "channel-quick-automations", "channel-widget-usefulness", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard", "project-workspace"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "spatial-checks", "attachment-checks", "voice-input", "channel-session-tabs", "channel-quick-automations", "channel-widget-usefulness", "dashboard-pin-config-editor", "integration-chat", "harness", "notifications", "attention", "widget-pin", "mobile-home", "starboard", "project-workspace"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -250,6 +256,13 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             state = stage_channel_widget_usefulness(client, dry_run=dry_run)
         print("staged (channel-widget-usefulness):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
+    if only == "dashboard-pin-config-editor":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_dashboard_pin_config_editor(client, dry_run=dry_run)
+        print("staged (dashboard-pin-config-editor):")
         for k, v in asdict(state).items():
             print(f"  {k}: {v}")
         return state
@@ -449,6 +462,24 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
                 )
             placeholders["channel_widget_usefulness"] = str(ch["id"])
             spec_list = CHANNEL_WIDGET_USEFULNESS_SPECS
+        elif only == "dashboard-pin-config-editor":
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            ch = all_channels.get(DASHBOARD_PIN_CONFIG_CLIENT_ID)
+            if not ch:
+                raise SystemExit(
+                    "screenshot:dashboard-pin-config-editor channel not found. Run `stage --only dashboard-pin-config-editor` first."
+                )
+            channel_id = str(ch["id"])
+            dashboard_key = f"channel:{channel_id}"
+            pins = client.list_pins(dashboard_key=dashboard_key)
+            pin = next((p for p in pins if p.get("display_label") == "Configurable status"), None)
+            if not pin or not pin.get("id"):
+                raise SystemExit(
+                    "Configurable status pin not found. Run `stage --only dashboard-pin-config-editor` first."
+                )
+            placeholders["dashboard_pin_config_channel"] = channel_id
+            placeholders["dashboard_pin_config_pin"] = str(pin["id"])
+            spec_list = PIN_CONFIG_EDITOR_SPECS
         elif only == "project-workspace":
             all_channels = {c.get("client_id"): c for c in client.list_channels()}
             ch = all_channels.get(PROJECT_CHANNEL_CLIENT_ID)
@@ -716,6 +747,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             teardown_channel_widget_usefulness(client)
         print("teardown (channel-widget-usefulness): removed seeded widget-usefulness channel")
+        return
+    if only == "dashboard-pin-config-editor":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_dashboard_pin_config_editor(client)
+        print("teardown (dashboard-pin-config-editor): removed seeded config-editor channel")
         return
     if only == "voice-input":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:

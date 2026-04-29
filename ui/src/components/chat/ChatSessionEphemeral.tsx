@@ -31,6 +31,7 @@ import { SessionChatView } from "./SessionChatView";
 import { useSessionResumeCard } from "./useSessionResumeCard";
 import { ChatComposerShell } from "./ChatComposerShell";
 import { MessageInput, type PendingFile } from "./MessageInput";
+import { buildChatAttachmentPayload } from "./chatAttachmentPayload";
 import { useHarnessComposerProps } from "./useHarnessComposerProps";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { MessageBubble } from "./MessageBubble";
@@ -222,7 +223,7 @@ export function EphemeralChatSession({
   const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(sessionId);
 
   const handleSend = useCallback(
-    async (message: string, _files?: PendingFile[]) => {
+    async (message: string, files?: PendingFile[]) => {
       setSendError(null);
       if (!botId) {
         setSendError("Pick a bot first.");
@@ -255,6 +256,8 @@ export function EphemeralChatSession({
 
       try {
         const clientLocalId = makeClientLocalId();
+        const attachmentPayload = buildChatAttachmentPayload(files);
+        const workspaceUploads = attachmentPayload.workspace_uploads ?? [];
         useChatStore.getState().addMessage(activeSessionId, {
           id: `msg-${clientLocalId}`,
           session_id: activeSessionId,
@@ -266,6 +269,7 @@ export function EphemeralChatSession({
             sender_type: "human",
             client_local_id: clientLocalId,
             local_status: "sending",
+            ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
           },
         });
         const result = await submitChat.mutateAsync({
@@ -278,7 +282,10 @@ export function EphemeralChatSession({
             source: "web",
             sender_type: "human",
             client_local_id: clientLocalId,
+            ...(workspaceUploads.length ? { workspace_uploads: workspaceUploads } : {}),
           },
+          ...(attachmentPayload.attachments?.length ? { attachments: attachmentPayload.attachments } : {}),
+          ...(attachmentPayload.file_metadata?.length ? { file_metadata: attachmentPayload.file_metadata } : {}),
           ...(modelOverride ? {
             model_override: modelOverride,
             model_provider_id_override: modelProviderId,

@@ -718,11 +718,24 @@ def _semantic_status_from_review(review: dict[str, Any] | None) -> str:
 
 
 def _runtime_semantic_needs_replan(runtime: dict[str, Any], session: Session) -> bool:
-    semantic_status = str(runtime.get("semantic_status") or "").strip()
-    if semantic_status == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN:
-        return True
+    review = _runtime_latest_semantic_review(runtime, session)
+    return _semantic_status_from_review(review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN
+
+
+def _runtime_latest_semantic_review(runtime: dict[str, Any], session: Session) -> dict[str, Any] | None:
+    review = runtime.get("latest_semantic_review")
+    if isinstance(review, dict):
+        return review
     adherence = _normalize_adherence((session.metadata_ or {}).get(PLAN_ADHERENCE_METADATA_KEY))
-    return _semantic_status_from_review(adherence.get("latest_semantic_review")) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN
+    review = adherence.get("latest_semantic_review")
+    return review if isinstance(review, dict) else None
+
+
+def _runtime_semantic_blocks_mutation(runtime: dict[str, Any], session: Session) -> bool:
+    review = _runtime_latest_semantic_review(runtime, session)
+    if _semantic_status_from_review(review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN:
+        return True
+    return str((review or {}).get("verdict") or "").strip() == PLAN_SEMANTIC_REVIEW_UNSUPPORTED
 
 
 def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None) -> dict[str, Any]:
@@ -2547,7 +2560,7 @@ def tool_allowed_in_plan_mode(
         return plan is not None and accepted_revision > 0
     if runtime.get("pending_turn_outcome"):
         return False
-    if _runtime_semantic_needs_replan(runtime, session):
+    if _runtime_semantic_blocks_mutation(runtime, session):
         return False
     if mode == PLAN_MODE_BLOCKED or runtime.get("replan"):
         return False
@@ -2580,8 +2593,11 @@ def plan_mode_tool_denial_reason(
             return "The accepted plan has a pending replan request. Mutating tools are disabled until the plan is revised and approved again."
         if runtime.get("pending_turn_outcome"):
             return "The previous execution turn is missing a plan outcome. Use record_plan_progress before running more mutating tools."
-        if _runtime_semantic_needs_replan(runtime, session):
+        latest_review = _runtime_latest_semantic_review(runtime, session)
+        if _semantic_status_from_review(latest_review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN:
             return "The latest plan adherence review says the accepted plan needs replanning. Use request_plan_replan before running more mutating tools."
+        if str((latest_review or {}).get("verdict") or "").strip() == PLAN_SEMANTIC_REVIEW_UNSUPPORTED:
+            return "The latest plan adherence review says the recorded step is unsupported. Repeat the step or record corrected progress before running more mutating tools."
         return "Plan execution guard blocked this mutating tool because the accepted revision/current step contract is not valid."
     if mode == PLAN_MODE_BLOCKED:
         runtime_raw = (session.metadata_ or {}).get(PLAN_RUNTIME_METADATA_KEY)

@@ -21,9 +21,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db.models import Project
 from app.dependencies import ApiKeyAuth, get_db, verify_admin_auth
+from app.services.project_runtime import ProjectRuntimeEnvironment, load_project_runtime_environment
 from app.services.terminal import (
     TerminalSessionLimitError,
     close_session,
@@ -64,11 +68,35 @@ class CreateTerminalSessionOut(BaseModel):
     session_id: str
 
 
-def _resolve_terminal_cwd(cwd: str | None) -> str | None:
-    if not cwd:
+async def _project_runtime_for_workspace_path(
+    db: AsyncSession,
+    *,
+    workspace_id: str,
+    rel_path: str,
+) -> ProjectRuntimeEnvironment | None:
+    projects = (await db.execute(
+        select(Project).where(Project.workspace_id == uuid.UUID(workspace_id))
+    )).scalars().all()
+    normalized = rel_path.strip("/")
+    matches = [
+        project for project in projects
+        if normalized == project.root_path.strip("/")
+        or normalized.startswith(project.root_path.strip("/") + "/")
+    ]
+    if not matches:
         return None
+    project = max(matches, key=lambda item: len(item.root_path))
+    return await load_project_runtime_environment(db, project)
+
+
+async def _resolve_terminal_cwd(
+    db: AsyncSession,
+    cwd: str | None,
+) -> tuple[str | None, ProjectRuntimeEnvironment | None]:
+    if not cwd:
+        return None, None
     if not cwd.startswith("workspace://"):
-        return cwd
+        return cwd, None
     parsed = urlparse(cwd)
     workspace_id = parsed.netloc
     try:
@@ -89,7 +117,12 @@ def _resolve_terminal_cwd(cwd: str | None) -> str | None:
     if resolved != root and not resolved.startswith(root_prefix):
         raise HTTPException(status_code=422, detail="workspace cwd must stay inside the workspace")
     os.makedirs(resolved, exist_ok=True)
-    return resolved
+    runtime_env = await _project_runtime_for_workspace_path(
+        db,
+        workspace_id=workspace_id,
+        rel_path="/".join(parts),
+    )
+    return resolved, runtime_env
 
 
 @router.post(
@@ -99,6 +132,7 @@ def _resolve_terminal_cwd(cwd: str | None) -> str | None:
 async def create_terminal_session(
     body: CreateTerminalSessionIn,
     auth=Depends(verify_admin_auth),
+    db: AsyncSession = Depends(get_db),
 ):
     """Mint a fresh terminal session. The caller must then connect a WS to
     ``/admin/terminal/{session_id}`` within ~30s or the PTY will be swept.
@@ -108,10 +142,12 @@ async def create_terminal_session(
 
     user_key = _user_key_from_auth(auth)
     try:
+        cwd, runtime_env = await _resolve_terminal_cwd(db, body.cwd)
         session = await create_session(
             user_key,
             seed_command=body.seed_command,
-            cwd=_resolve_terminal_cwd(body.cwd),
+            cwd=cwd,
+            extra_env=dict(runtime_env.env) if runtime_env is not None else None,
         )
     except TerminalSessionLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))

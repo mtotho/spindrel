@@ -159,6 +159,21 @@ def _outcome_mentions_touched_path(outcome: dict[str, Any], touched_paths: list[
     return False
 
 
+def _text_mentions_touched_path(text: str, touched_paths: list[str]) -> bool:
+    if not touched_paths:
+        return True
+    haystack = str(text or "").replace("\\", "/").lower()
+    for path in touched_paths:
+        for variant in _path_evidence_variants(path):
+            if variant in haystack:
+                return True
+    return False
+
+
+def _text_contains_path_signal(text: str) -> bool:
+    return bool(re.search(r"(?<!\w)(?:[./][\w.-]+|[\w.-]+/[\w./-]+)", str(text or "")))
+
+
 def _step_is_execution_oriented(step_label: str | None, step_note: str | None) -> bool:
     text = " ".join(part for part in [step_label or "", step_note or ""] if part).strip()
     if not text:
@@ -300,7 +315,37 @@ def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[s
         and bundle["step"]["execution_oriented"]
     ):
         touched_paths = [str(path) for path in features.get("touched_paths") or []]
-        if _outcome_mentions_touched_path(bundle["outcome"], touched_paths):
+        plan_text = json.dumps(
+            [
+                bundle.get("plan", {}).get("title"),
+                bundle.get("plan", {}).get("summary"),
+                bundle.get("plan", {}).get("scope"),
+                bundle.get("plan", {}).get("key_changes"),
+                bundle.get("plan", {}).get("acceptance_criteria"),
+                bundle["step"].get("label"),
+                bundle["step"].get("note"),
+            ],
+            default=str,
+        )
+        if touched_paths and _text_contains_path_signal(plan_text) and not _text_mentions_touched_path(plan_text, touched_paths):
+            flags.append("mutation_path_outside_plan_contract")
+            return flags, {
+                "verdict": PLAN_SEMANTIC_REVIEW_UNSUPPORTED,
+                "semantic_status": PLAN_SEMANTIC_STATUS_WARNING,
+                "confidence": 0.93,
+                "reason": "The turn mutated a path that is not named by the accepted plan contract for this step.",
+                "recommended_action": "repeat_step",
+            }
+        if not _outcome_mentions_touched_path(bundle["outcome"], touched_paths):
+            flags.append("mutation_path_not_claimed")
+            return flags, {
+                "verdict": PLAN_SEMANTIC_REVIEW_UNSUPPORTED,
+                "semantic_status": PLAN_SEMANTIC_STATUS_WARNING,
+                "confidence": 0.91,
+                "reason": "The turn mutated a path that was not included in the recorded completion evidence.",
+                "recommended_action": "repeat_step",
+            }
+        else:
             flags.append("step_done_supported_by_mutation")
             return flags, {
                 "verdict": PLAN_SEMANTIC_REVIEW_SUPPORTED,
@@ -455,6 +500,8 @@ async def review_plan_adherence(
         "plan": {
             "title": review_plan.title,
             "summary": review_plan.summary,
+            "scope": review_plan.scope,
+            "key_changes": list(review_plan.key_changes),
             "acceptance_criteria": list(review_plan.acceptance_criteria),
         },
         "outcome": selected_outcome,

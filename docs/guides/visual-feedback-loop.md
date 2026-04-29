@@ -24,6 +24,8 @@ spatial-check-map-brief-selection.png
 spatial-check-jump-starboard-framing.png
 spatial-check-channel-schedule-satellites.png
 spatial-check-attention-badge.png
+spatial-check-attention-review-deck.png
+spatial-check-attention-run-log.png
 spatial-check-hover-suppression.png
 spatial-check-overview-hover-calm.png
 spatial-check-cluster-focus-calm.png
@@ -114,7 +116,7 @@ API, seeds a Blueprint-created Project with secret bindings, runs clone-only
 setup for `https://github.com/mtotho/spindrel.git`, and seeds a memory-tool
 turn. Inspect all eleven images before closing out: the bundle intentionally
 checks Project admin surfaces, Blueprint management, Project setup, Project
-settings, and the channel transcript.
+runtime-env readiness, Project settings, and the channel transcript.
 
 ## Channel Quick Automations Run
 
@@ -167,6 +169,29 @@ the shared e2e API lags the UI branch; the dashboard pins themselves are real.
 Inspect all three images before closeout: the bundle checks the dashboard
 toolbar affordance, the widget proposal drawer, recent bot widget change
 receipts, and the compact settings summary.
+
+## Dashboard Pin Config Editor Run
+
+Use this bundle when changing the dashboard pin editor, widget config schema
+controls, or the advanced JSON escape hatch:
+
+```bash
+python -m scripts.screenshots stage --only dashboard-pin-config-editor
+python -m scripts.screenshots capture --only dashboard-pin-config-editor
+python -m scripts.screenshots check
+```
+
+Expected artifacts:
+
+```text
+dashboard-pin-config-editor.png
+dashboard-pin-config-editor-mobile.png
+```
+
+The staging step creates one real channel dashboard pin. Capture uses a narrow
+browser shim to attach a deterministic `config_schema` to that pin so the UI
+shows schema-backed settings with Advanced JSON collapsed. Inspect both desktop
+and mobile drawer captures before closeout.
 
 ## Widget Authoring Runtime Check
 

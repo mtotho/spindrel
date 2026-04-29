@@ -59,6 +59,9 @@ def test_setup_plan_uses_blueprint_snapshot_and_secret_bindings() -> None:
     ]
     assert plan["secret_slots"][0]["bound"] is True
     assert plan["secret_slots"][0]["secret_value_name"] == "github"
+    assert plan["runtime"]["env_default_keys"] == ["NODE_ENV"]
+    assert plan["runtime"]["secret_keys"] == ["GITHUB_TOKEN"]
+    assert plan["runtime"]["missing_secrets"] == ["NPM_TOKEN"]
 
 
 def test_setup_plan_rejects_repo_paths_outside_project() -> None:

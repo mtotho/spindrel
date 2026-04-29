@@ -63,6 +63,7 @@ from app.services.agent_harnesses.turn_host import (
     load_harness_channel_prompt_hint as _load_harness_channel_prompt_hint,
     load_prior_harness_session_id as _load_prior_harness_session_id,
     merge_harness_turn_selections as _merge_harness_turn_selections,
+    parse_harness_explicit_tags as _parse_harness_explicit_tags,
     metadata_has_codex_plan_signal as _metadata_has_codex_plan_signal,
     mirror_harness_native_plan_state as _mirror_harness_native_plan_state_host,
     persist_harness_failure as _persist_harness_failure,
@@ -118,6 +119,7 @@ async def _run_harness_turn(
     harness_permission_mode_override: str | None = None,
     harness_tool_names: tuple[str, ...] | list[str] = (),
     harness_skill_ids: tuple[str, ...] | list[str] = (),
+    harness_attachments: tuple[dict] | list[dict] = (),
 ) -> tuple[str, str | None]:
     """Compatibility wrapper for the harness host Module."""
     return await _run_harness_turn_host(
@@ -137,6 +139,7 @@ async def _run_harness_turn(
         harness_permission_mode_override=harness_permission_mode_override,
         harness_tool_names=harness_tool_names,
         harness_skill_ids=harness_skill_ids,
+        harness_attachments=harness_attachments,
         async_session_factory=async_session,
         get_runtime_fn=get_runtime,
         persist_turn_fn=persist_turn,
@@ -359,6 +362,7 @@ async def _pre_persist_user_message(
         metadata=metadata,
         pre_allocated_id=uuid.UUID(pre_id_str) if pre_id_str else None,
         suppress_outbox=scope.suppress_outbox,
+        harness_attachments=tuple(att_payload or ()),
     )
 
 

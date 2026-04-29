@@ -13,6 +13,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from sqlalchemy import select
 
@@ -107,7 +108,7 @@ class SharedWorkspaceService:
     # are intentionally excluded — bots get only what they need.
     _ENV_PASSTHROUGH = {"PATH", "HOME", "USER", "LANG", "TERM", "SHELL", "TMPDIR", "TZ"}
 
-    def _build_env(self, ws: SharedWorkspace) -> dict[str, str]:
+    def _build_env(self, ws: SharedWorkspace, *, extra_env: dict[str, str] | None = None) -> dict[str, str]:
         """Build a sanitized environment dict for subprocess execution.
 
         Starts with an empty dict and only passes through safe system vars.
@@ -118,6 +119,9 @@ class SharedWorkspaceService:
         env = {k: v for k, v in os.environ.items() if k in self._ENV_PASSTHROUGH}
         # Add workspace-configured env vars
         for k, v in (ws.env or {}).items():
+            if k and self._ENV_NAME_RE.match(k) and "\x00" not in str(v):
+                env[k] = str(v)
+        for k, v in (extra_env or {}).items():
             if k and self._ENV_NAME_RE.match(k) and "\x00" not in str(v):
                 env[k] = str(v)
         # Auto-inject server API access (setdefault so workspace env can override).
@@ -189,6 +193,8 @@ class SharedWorkspaceService:
         working_dir: str = "",
         timeout: int | None = None,
         max_bytes: int | None = None,
+        extra_env: dict[str, str] | None = None,
+        redact_output: Callable[[str], str] | None = None,
     ) -> ExecResult:
         """Execute a command via subprocess in the workspace directory."""
         # Ensure workspace dirs exist
@@ -225,7 +231,7 @@ class SharedWorkspaceService:
         _max_bytes = max_bytes or 65536
 
         # Build environment
-        env = self._build_env(ws)
+        env = self._build_env(ws, extra_env=extra_env)
 
         # Inject per-bot API key
         try:
@@ -270,6 +276,9 @@ class SharedWorkspaceService:
         elapsed = int((time.monotonic() - start) * 1000)
         stdout_str = stdout_bytes[:_max_bytes].decode(errors="replace")
         stderr_str = stderr_bytes[:_max_bytes].decode(errors="replace")
+        if redact_output is not None:
+            stdout_str = redact_output(stdout_str)
+            stderr_str = redact_output(stderr_str)
         truncated = len(stdout_bytes) > _max_bytes or len(stderr_bytes) > _max_bytes
 
         return ExecResult(

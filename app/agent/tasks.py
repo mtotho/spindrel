@@ -1,6 +1,5 @@
 """Task worker: runs scheduled/deferred agent tasks and dispatches results."""
 import asyncio
-import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -319,204 +318,39 @@ async def fire_event_triggers(event_source: str, event_type: str, event_data: di
     )
 
 
+def _task_exec_deps():
+    from app.agent.recording import schedule_exec_completion_record
+    from app.agent.task_exec_host import TaskExecHostDeps
+    from app.services.sandbox import sandbox_service
+    from app.services.workspace import workspace_service
+    from app.tools.local.exec_tool import build_exec_script
+
+    return TaskExecHostDeps(
+        async_session=async_session,
+        settings=settings,
+        get_bot=get_bot,
+        build_exec_script=build_exec_script,
+        sandbox_service=sandbox_service,
+        workspace_service=workspace_service,
+        resolve_task_timeout=resolve_task_timeout,
+        fire_task_complete=_fire_task_complete,
+        mark_task_failed_in_db=_mark_task_failed_in_db,
+        publish_turn_ended=_publish_turn_ended,
+        publish_turn_ended_safe=_publish_turn_ended_safe,
+        schedule_exec_completion_record=schedule_exec_completion_record,
+        sleep=asyncio.sleep,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Runner helpers
 # ---------------------------------------------------------------------------
 
-def _parse_uuid_opt(cfg: dict, key: str) -> uuid.UUID | None:
-    """Parse an optional UUID from a config dict."""
-    raw = cfg.get(key)
-    if not raw:
-        return None
-    try:
-        return uuid.UUID(str(raw))
-    except (ValueError, TypeError):
-        return None
-
 async def run_exec_task(task: Task) -> None:
     """Execute a raw exec task: run command in sandbox, store result, dispatch."""
-    logger.info("Running exec task %s", task.id)
-    now = datetime.now(timezone.utc)
-    _turn_id = uuid.uuid4()
+    from app.agent.task_exec_host import run_exec_task as run_exec_task_host
 
-    async with async_session() as db:
-        t = await db.get(Task, task.id)
-        if t is None:
-            return
-        t.status = "running"
-        t.run_at = now
-        await db.commit()
-
-    # Read execution params from execution_config (new) with fallback to callback_config (legacy)
-    ecfg = task.execution_config or task.callback_config or {}
-    cfg = task.callback_config or {}
-    command = ecfg.get("command", "")
-    args = ecfg.get("args", [])
-    working_directory = ecfg.get("working_directory")
-    stream_to = ecfg.get("stream_to")
-    output_dispatch_type = ecfg.get("output_dispatch_type", task.dispatch_type or "none")
-    output_dispatch_config = ecfg.get("output_dispatch_config") or dict(task.dispatch_config or {})
-    source_correlation_id = _parse_uuid_opt(ecfg, "source_correlation_id")
-    sandbox_instance_id = _parse_uuid_opt(ecfg, "sandbox_instance_id")
-
-    try:
-        from app.agent.bots import get_bot
-        from app.agent.recording import schedule_exec_completion_record
-        from app.services.sandbox import sandbox_service
-        from app.tools.local.exec_tool import build_exec_script
-
-        bot = get_bot(task.bot_id)
-        script = build_exec_script(command, args, working_directory, stream_to)
-
-        # Resolve timeout (initialized before try so except handlers can reference it)
-        _exec_timeout = resolve_task_timeout(task)  # type: int
-
-        async def _do_exec():
-            if sandbox_instance_id is not None:
-                from app.config import settings as _settings
-                if not _settings.DOCKER_SANDBOX_ENABLED:
-                    raise RuntimeError("DOCKER_SANDBOX_ENABLED is false")
-                allowed = bot.docker_sandbox_profiles or None
-                instance = await sandbox_service.get_instance_for_bot(
-                    sandbox_instance_id, bot.id, allowed_profiles=allowed
-                )
-                if instance is None:
-                    raise RuntimeError("Sandbox instance not found or not allowed")
-                return await sandbox_service.exec(instance, script)
-            elif bot.workspace.enabled or bot.shared_workspace_id:
-                from app.services.workspace import workspace_service
-                ws_result = await workspace_service.exec(bot.id, script, bot.workspace, working_directory or "", bot=bot)
-                from dataclasses import dataclass as _dc
-                @_dc
-                class _R:
-                    stdout: str; stderr: str; exit_code: int; truncated: bool; duration_ms: int
-                return _R(stdout=ws_result.stdout, stderr=ws_result.stderr,
-                            exit_code=ws_result.exit_code, truncated=ws_result.truncated,
-                            duration_ms=ws_result.duration_ms)
-            elif bot.bot_sandbox.enabled:
-                return await sandbox_service.exec_bot_local(bot.id, script, bot.bot_sandbox)
-            else:
-                raise RuntimeError("No sandbox available for exec task")
-
-        result = await asyncio.wait_for(_do_exec(), timeout=_exec_timeout)
-
-        parts = []
-        if result.stdout:
-            parts.append(result.stdout)
-        if result.stderr:
-            parts.append(f"[stderr]\n{result.stderr}")
-        if result.truncated:
-            parts.append("[output truncated]")
-        parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
-        result_text = "\n".join(parts)
-
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "complete"
-                t.result = result_text
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-
-        await _fire_task_complete(task, "complete")
-
-        _err: str | None = None
-        if result.exit_code != 0:
-            _err = ((result.stderr or "").strip()[:500] or f"non-zero exit {result.exit_code}")
-        schedule_exec_completion_record(
-            command=command,
-            task_id=task.id,
-            session_id=task.session_id,
-            client_id=task.client_id,
-            bot_id=task.bot_id,
-            correlation_id=source_correlation_id,
-            exit_code=result.exit_code,
-            duration_ms=result.duration_ms,
-            truncated=result.truncated,
-            result_text=result_text,
-            error=_err,
-        )
-        await asyncio.sleep(0)
-
-        output_task = Task(
-            id=task.id,
-            bot_id=task.bot_id,
-            channel_id=task.channel_id,
-            dispatch_type=output_dispatch_type,
-            dispatch_config=output_dispatch_config,
-        )
-        await _publish_turn_ended(output_task, turn_id=_turn_id, result=result_text)
-
-        if cfg.get("notify_parent") and result_text:
-            _parent_bot_id = cfg.get("parent_bot_id")
-            _parent_session_str = cfg.get("parent_session_id")
-            _parent_client_id = cfg.get("parent_client_id")
-            if _parent_bot_id and _parent_session_str:
-                try:
-                    _parent_session_id = uuid.UUID(_parent_session_str)
-                    _cb_task = Task(
-                        bot_id=_parent_bot_id,
-                        client_id=_parent_client_id,
-                        session_id=_parent_session_id,
-                        channel_id=task.channel_id,
-                        prompt=f"[Exec task completed: {command}]\n\n{result_text}",
-                        status="pending",
-                        task_type="callback",
-                        dispatch_type=output_dispatch_type,
-                        dispatch_config=dict(output_dispatch_config),
-                        parent_task_id=task.id,
-                        created_at=datetime.now(timezone.utc),
-                    )
-                    async with async_session() as db:
-                        db.add(_cb_task)
-                        await db.commit()
-                        await db.refresh(_cb_task)
-                    logger.info(
-                        "Exec task %s: created parent callback task %s (bot=%s, session=%s)",
-                        task.id, _cb_task.id, _parent_bot_id, _parent_session_id,
-                    )
-                except Exception:
-                    logger.exception("Failed to create parent callback task for exec task %s", task.id)
-
-    except asyncio.TimeoutError:
-        logger.error("Exec task %s timed out after %ds", task.id, _exec_timeout)
-        _timeout_msg = f"Timed out after {_exec_timeout}s"
-        await _mark_task_failed_in_db(task.id, error=_timeout_msg)
-        await _fire_task_complete(task, "failed")
-        output_task = Task(
-            id=task.id, bot_id=task.bot_id, channel_id=task.channel_id,
-            dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
-        )
-        await _publish_turn_ended_safe(
-            output_task,
-            turn_id=_turn_id,
-            error=_timeout_msg,
-            log_label="timeout error for exec task",
-        )
-
-    except Exception as exc:
-        logger.exception("Exec task %s failed", task.id)
-        await _mark_task_failed_in_db(task.id, error=str(exc)[:4000])
-        await _fire_task_complete(task, "failed")
-        try:
-            from app.agent.recording import schedule_exec_completion_record
-
-            schedule_exec_completion_record(
-                command=command or "unknown",
-                task_id=task.id,
-                session_id=task.session_id,
-                client_id=task.client_id,
-                bot_id=task.bot_id,
-                correlation_id=source_correlation_id,
-                exit_code=-1,
-                duration_ms=0,
-                truncated=False,
-                result_text="",
-                error=str(exc)[:4000],
-            )
-            await asyncio.sleep(0)
-        except Exception:
-            logger.exception("Failed to schedule exec failure record for task %s", task.id)
+    await run_exec_task_host(task, deps=_task_exec_deps())
 
 
 async def _run_workflow_trigger_task(task: Task) -> None:
@@ -778,32 +612,59 @@ async def run_task(task: Task) -> None:
     )
 
 
+def _task_worker_deps():
+    from app.agent.task_worker_host import TaskWorkerHostDeps
+
+    async def _spawn_due_widget_crons() -> None:
+        from app.services.widget_cron import spawn_due_widget_crons
+
+        await spawn_due_widget_crons()
+
+    async def _spawn_due_native_widget_ticks() -> None:
+        from app.services.standing_orders import spawn_due_native_widget_ticks
+
+        await spawn_due_native_widget_ticks()
+
+    async def _check_memory_hygiene() -> None:
+        from app.services.memory_hygiene import check_memory_hygiene
+
+        await check_memory_hygiene()
+
+    async def _maybe_run_daily_summary():
+        from app.services.system_health_summary import maybe_run_daily_summary
+
+        return await maybe_run_daily_summary()
+
+    return TaskWorkerHostDeps(
+        async_session=async_session,
+        settings=settings,
+        resolve_task_timeout=resolve_task_timeout,
+        record_timeout_event=_record_timeout_event,
+        fire_task_complete=_fire_task_complete,
+        fetch_due_tasks=fetch_due_tasks,
+        run_task=run_task,
+        recover_stuck_tasks=recover_stuck_tasks,
+        recover_stalled_workflow_runs=recover_stalled_workflow_runs,
+        spawn_due_schedules=spawn_due_schedules,
+        spawn_due_subscriptions=spawn_due_subscriptions,
+        spawn_due_widget_crons=_spawn_due_widget_crons,
+        spawn_due_native_widget_ticks=_spawn_due_native_widget_ticks,
+        check_memory_hygiene=_check_memory_hygiene,
+        maybe_run_daily_summary=_maybe_run_daily_summary,
+        create_task=asyncio.create_task,
+        sleep=asyncio.sleep,
+    )
+
+
 async def fetch_due_tasks() -> list[Task]:
     """Atomically fetch pending tasks and mark them running.
 
     Uses FOR UPDATE SKIP LOCKED to prevent duplicate pickup across
     concurrent poll cycles.
     """
-    now = datetime.now(timezone.utc)
-    async with async_session() as db:
-        stmt = (
-            select(Task)
-            .where(Task.status == "pending")
-            .where(
-                (Task.scheduled_at.is_(None)) | (Task.scheduled_at <= now)
-            )
-            .limit(20)
-            .with_for_update(skip_locked=True)
-        )
-        tasks = list((await db.execute(stmt)).scalars().all())
-        for t in tasks:
-            t.status = "running"
-            t.run_at = now
-        await db.commit()
-        # Expunge so they're usable outside the session
-        for t in tasks:
-            db.expunge(t)
-        return tasks
+    from app.agent.task_worker_host import fetch_due_tasks as fetch_due_tasks_host
+
+    return await fetch_due_tasks_host(deps=_task_worker_deps())
 
 
 async def recover_stuck_tasks() -> None:
@@ -812,53 +673,9 @@ async def recover_stuck_tasks() -> None:
     Called periodically by task_worker to clean up tasks stuck from crashes/timeouts.
     Fires the task completion hook so workflow runs advance properly.
     """
-    now = datetime.now(timezone.utc)
-    async with async_session() as db:
-        stmt = select(Task).where(Task.status == "running", Task.run_at.isnot(None))
-        running = list((await db.execute(stmt)).scalars().all())
+    from app.agent.task_worker_host import recover_stuck_tasks as recover_stuck_tasks_host
 
-    if not running:
-        return
-
-    # Build a channel cache for timeout resolution
-    channel_ids = {t.channel_id for t in running if t.channel_id}
-    channels_by_id: dict[uuid.UUID, Channel] = {}
-    if channel_ids:
-        async with async_session() as db:
-            ch_rows = (await db.execute(
-                select(Channel).where(Channel.id.in_(channel_ids))
-            )).scalars().all()
-            channels_by_id = {ch.id: ch for ch in ch_rows}
-
-    recovered = 0
-    for task in running:
-        ch = channels_by_id.get(task.channel_id) if task.channel_id else None
-        timeout = resolve_task_timeout(task, ch)
-        elapsed = (now - task.run_at).total_seconds()
-        if elapsed > timeout:
-            async with async_session() as db:
-                t = await db.get(Task, task.id)
-                if t and t.status == "running":
-                    t.status = "failed"
-                    t.error = f"Recovered: stuck running for {int(elapsed)}s (timeout={timeout}s)"
-                    t.completed_at = now
-                    await db.commit()
-                    recovered += 1
-                    logger.warning("Recovered stuck task %s (running %ds, timeout %ds)", task.id, int(elapsed), timeout)
-                    # Record a trace event so the logs UI can display the timeout
-                    await _record_timeout_event(task, t.correlation_id, t.error)
-                    # For workflow tasks, skip the hook to prevent auto-resume
-                    # on server restart. The stalled-run sweep will handle them.
-                    is_workflow_task = bool((task.callback_config or {}).get("workflow_run_id"))
-                    if is_workflow_task:
-                        logger.warning(
-                            "Recovered stuck workflow task %s — skipping hook (stalled-run sweep will handle)",
-                            task.id,
-                        )
-                    else:
-                        await _fire_task_complete(t, "failed")
-    if recovered:
-        logger.info("Recovered %d stuck tasks", recovered)
+    await recover_stuck_tasks_host(deps=_task_worker_deps())
 
 
 async def recover_stalled_workflow_runs() -> None:
@@ -870,204 +687,15 @@ async def recover_stalled_workflow_runs() -> None:
     3. All steps still "pending" after 5 min (advance_workflow failed before starting)
     4. All steps terminal but run still "running" (advance_workflow failed after last step)
     """
-    from app.db.models import WorkflowRun
+    from app.agent.task_worker_host import (
+        recover_stalled_workflow_runs as recover_stalled_workflow_runs_host,
+    )
 
-    now = datetime.now(timezone.utc)
-
-    async with async_session() as db:
-        stmt = (
-            select(WorkflowRun)
-            .where(WorkflowRun.status.in_(["running", "awaiting_approval"]))
-        )
-        stalled = list((await db.execute(stmt)).scalars().all())
-
-    if not stalled:
-        return
-
-    recovered = 0
-    for run in stalled:
-        step_states = list(run.step_states or [])
-        # Find the running step
-        running_step_idx = None
-        for i, st in enumerate(step_states):
-            if st.get("status") == "running":
-                running_step_idx = i
-                break
-
-        if running_step_idx is None:
-            # Scenario 3: run is "running" but ALL steps are still "pending".
-            # This happens when advance_workflow fails before setting step 0 to
-            # "running" (e.g. exception in _create_step_task that wasn't caught,
-            # or the hook chain failed silently).
-            if (
-                run.status == "running"
-                and step_states
-                and all(s.get("status") == "pending" for s in step_states)
-            ):
-                created_at = run.created_at
-                if created_at and created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-                if created_at and (now - created_at).total_seconds() > 300:
-                    logger.warning(
-                        "Recovering stalled workflow run %s — all %d steps still pending after %ds",
-                        run.id, len(step_states), int((now - created_at).total_seconds()),
-                    )
-                    try:
-                        from app.services.workflow_executor import advance_workflow
-                        await advance_workflow(run.id)
-                        recovered += 1
-                    except Exception:
-                        logger.exception("Recovery advance_workflow failed for run %s", run.id)
-
-            # Scenario 4: run is "running" but ALL steps are terminal (done/skipped/failed).
-            # This happens when advance_workflow fails after on_step_task_completed commits
-            # the step state but before marking the run complete.
-            elif (
-                run.status == "running"
-                and step_states
-                and all(s.get("status") in ("done", "skipped", "failed") for s in step_states)
-            ):
-                logger.warning(
-                    "Recovering stalled workflow run %s — all %d steps terminal but run still 'running'",
-                    run.id, len(step_states),
-                )
-                try:
-                    from app.services.workflow_executor import advance_workflow
-                    await advance_workflow(run.id)
-                    recovered += 1
-                except Exception:
-                    logger.exception("Recovery advance_workflow failed for run %s", run.id)
-
-            continue
-
-        state = step_states[running_step_idx]
-        started_at_str = state.get("started_at")
-        if started_at_str:
-            try:
-                started_at = datetime.fromisoformat(started_at_str)
-                if started_at.tzinfo is None:
-                    started_at = started_at.replace(tzinfo=timezone.utc)
-                elapsed_s = (now - started_at).total_seconds()
-                if elapsed_s < 300:  # Not stale until 5 minutes
-                    continue
-            except (ValueError, TypeError):
-                pass
-
-        task_id_str = state.get("task_id")
-        if task_id_str:
-            # Scenario 1: step has a task_id — check if the task is terminal
-            try:
-                task_uuid = uuid.UUID(task_id_str)
-            except (ValueError, TypeError):
-                continue
-            async with async_session() as db:
-                task = await db.get(Task, task_uuid)
-            if task and task.status in ("complete", "failed", "cancelled"):
-                # Re-fire the step completion callback
-                logger.warning(
-                    "Recovering stalled workflow run %s step %d — task %s is %s but hook never fired",
-                    run.id, running_step_idx, task.id, task.status,
-                )
-                from app.services.workflow_executor import on_step_task_completed
-                await on_step_task_completed(
-                    str(run.id), running_step_idx, task.status, task,
-                )
-                recovered += 1
-        else:
-            # Scenario 2: step is running but no task was ever created (crash)
-            logger.warning(
-                "Recovering stalled workflow run %s step %d — no task_id, marking failed",
-                run.id, running_step_idx,
-            )
-            async with async_session() as db:
-                fresh_run = await db.get(WorkflowRun, run.id)
-                if fresh_run and fresh_run.status in ("running", "awaiting_approval"):
-                    import copy as _copy
-                    from app.services.workflow_executor import _set_step_states
-                    ss = _copy.deepcopy(fresh_run.step_states or [])
-                    ss[running_step_idx]["status"] = "failed"
-                    ss[running_step_idx]["error"] = "Recovered: task was never created (server crash)"
-                    ss[running_step_idx]["completed_at"] = now.isoformat()
-                    _set_step_states(fresh_run, ss)
-                    await db.commit()
-            from app.services.workflow_executor import advance_workflow
-            await advance_workflow(run.id)
-            recovered += 1
-
-    if recovered:
-        logger.info("Recovered %d stalled workflow runs", recovered)
+    await recover_stalled_workflow_runs_host(deps=_task_worker_deps())
 
 
 async def task_worker() -> None:
     """Background worker loop: polls for due tasks every 5 seconds."""
-    logger.info("Task worker started")
-    try:
-        await recover_stuck_tasks()
-    except Exception:
-        logger.exception("recover_stuck_tasks failed at startup")
+    from app.agent.task_worker_host import task_worker as task_worker_host
 
-    last_recovery_at = datetime.now(timezone.utc)
-    last_workflow_sweep_at = datetime.now(timezone.utc)
-    last_hygiene_check_at = datetime.now(timezone.utc)
-    last_daily_summary_check_at = datetime.now(timezone.utc) - timedelta(minutes=10)
-
-    while True:
-        try:
-            if settings.SYSTEM_PAUSED:
-                await asyncio.sleep(5)
-                continue
-            # Spawn concrete tasks from active schedule templates first
-            await spawn_due_schedules()
-            # Then fire any per-channel subscriptions whose cron is due
-            await spawn_due_subscriptions()
-            # Then fire any widget @on_cron handlers whose schedule is due
-            from app.services.widget_cron import spawn_due_widget_crons
-            await spawn_due_widget_crons()
-            # Native-widget cron path (Standing Orders, etc.) — parallel to
-            # the HTML @on_cron lane; queries WidgetInstance rows directly.
-            from app.services.standing_orders import spawn_due_native_widget_ticks
-            await spawn_due_native_widget_ticks()
-            # Then fetch and run all due concrete tasks
-            due = await fetch_due_tasks()
-            for task in due:
-                asyncio.create_task(run_task(task))
-
-            now = datetime.now(timezone.utc)
-
-            # Periodic stuck-task recovery (every 60s)
-            if (now - last_recovery_at).total_seconds() >= 60:
-                last_recovery_at = now
-                try:
-                    await recover_stuck_tasks()
-                except Exception:
-                    logger.exception("periodic recover_stuck_tasks failed")
-
-            # Periodic stalled workflow run sweep (every 2 min)
-            if (now - last_workflow_sweep_at).total_seconds() >= 120:
-                last_workflow_sweep_at = now
-                try:
-                    await recover_stalled_workflow_runs()
-                except Exception:
-                    logger.exception("recover_stalled_workflow_runs failed")
-
-            # Periodic memory hygiene check (every 60s)
-            if (now - last_hygiene_check_at).total_seconds() >= 60:
-                last_hygiene_check_at = now
-                try:
-                    from app.services.memory_hygiene import check_memory_hygiene
-                    await check_memory_hygiene()
-                except Exception:
-                    logger.exception("check_memory_hygiene failed")
-
-            # Daily system-health summary lane (cheap once-per-day gate inside)
-            if (now - last_daily_summary_check_at).total_seconds() >= 300:
-                last_daily_summary_check_at = now
-                try:
-                    from app.services.system_health_summary import maybe_run_daily_summary
-                    await maybe_run_daily_summary()
-                except Exception:
-                    logger.exception("maybe_run_daily_summary failed")
-
-        except Exception:
-            logger.exception("task_worker poll error")
-        await asyncio.sleep(5)
+    await task_worker_host(deps=_task_worker_deps())

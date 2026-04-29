@@ -20,6 +20,13 @@ def _bundle(*, outcome: str, features: dict, step_label: str = "Implement the ch
     return {
         "outcome": {"outcome": outcome},
         "features": features,
+        "plan": {
+            "title": "Semantic Review Plan",
+            "summary": "Verify semantic review behavior.",
+            "scope": "Plan adherence review only.",
+            "key_changes": [],
+            "acceptance_criteria": [],
+        },
         "step": {
             "id": "step-1",
             "label": step_label,
@@ -165,6 +172,80 @@ def test_deterministic_assessment_supports_canonical_workspace_path_for_relative
     assert "step_done_supported_by_mutation" in flags
     assert review is not None
     assert review["verdict"] == "supported"
+
+
+def test_deterministic_assessment_rejects_mutation_outside_named_plan_path():
+    planned_path = ".spindrel-plan-parity/planned-marker.txt"
+    wrong_path = ".spindrel-plan-parity/wrong-marker.txt"
+    flags, review = _deterministic_assessment(
+        {
+            **_bundle(
+                outcome="step_done",
+                features={
+                    "had_successful_tool": True,
+                    "had_supporting_successful_tool": True,
+                    "had_any_error": False,
+                    "all_tool_calls_failed": False,
+                    "read_only_only": False,
+                    "had_mutation": True,
+                    "had_supporting_mutation": True,
+                    "had_verification_signal": False,
+                    "requested_replan": False,
+                    "touched_paths": [wrong_path],
+                },
+                step_label="Create the planned marker file",
+            ),
+            "plan": {
+                "title": "Wrong Path Review",
+                "summary": "Verify wrong-path mutations are not accepted as plan completion.",
+                "scope": f"Create only {planned_path}.",
+                "key_changes": [f"Create {planned_path}."],
+                "acceptance_criteria": [f"{planned_path} exists."],
+            },
+            "outcome": {
+                "outcome": "step_done",
+                "summary": f"Created {wrong_path}.",
+                "evidence": wrong_path,
+            },
+        }
+    )
+
+    assert "mutation_path_outside_plan_contract" in flags
+    assert review is not None
+    assert review["verdict"] == "unsupported"
+    assert review["recommended_action"] == "repeat_step"
+
+
+def test_deterministic_assessment_rejects_unclaimed_mutation_path():
+    flags, review = _deterministic_assessment(
+        {
+            **_bundle(
+                outcome="step_done",
+                features={
+                    "had_successful_tool": True,
+                    "had_supporting_successful_tool": True,
+                    "had_any_error": False,
+                    "all_tool_calls_failed": False,
+                    "read_only_only": False,
+                    "had_mutation": True,
+                    "had_supporting_mutation": True,
+                    "had_verification_signal": False,
+                    "requested_replan": False,
+                    "touched_paths": [".spindrel-plan-parity/adherence-marker.txt"],
+                },
+                step_label="Create the planned marker file",
+            ),
+            "outcome": {
+                "outcome": "step_done",
+                "summary": "Created the planned marker.",
+                "evidence": "tool output",
+            },
+        }
+    )
+
+    assert "mutation_path_not_claimed" in flags
+    assert review is not None
+    assert review["verdict"] == "unsupported"
 
 
 def _professional_fields() -> dict:

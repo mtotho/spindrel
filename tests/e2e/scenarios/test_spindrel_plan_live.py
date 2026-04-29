@@ -1328,3 +1328,84 @@ async def test_live_spindrel_adherence_executes_plan_records_and_reviews(client:
     runtime = reviewed.get("runtime") or {}
     assert runtime.get("latest_semantic_review"), runtime
     _record_session("adherence_review", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutation(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_negative")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex
+    planned_path = f".spindrel-plan-parity/negative-planned-{marker}.txt"
+    wrong_path = f".spindrel-plan-parity/negative-wrong-{marker}.txt"
+    blocked_path = f".spindrel-plan-parity/negative-blocked-{marker}.txt"
+    wrong_content = f"wrong native plan adherence {marker}"
+    title = f"Native Spindrel Negative Adherence Review {int(time.time())}"
+    for rel_path in (planned_path, wrong_path, blocked_path):
+        await client.delete_workspace_path(workspace_id, rel_path)
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": title,
+            "summary": "Verify native Spindrel plan review rejects completion recorded for wrong work.",
+            "scope": f"Live E2E diagnostics only; create only {planned_path!r}.",
+            "key_changes": [f"Create the planned marker file {planned_path}, not any alternate path."],
+            "interfaces": ["No public API changes; workspace artifact and plan adherence state only."],
+            "assumptions_and_defaults": ["Use the dedicated live E2E channel and detached session."],
+            "test_plan": ["Create a wrong-path artifact, review adherence, and verify later mutation is blocked."],
+            "risks": ["An agent may mark a plan step done after doing nearby but incorrect work."],
+            "acceptance_criteria": [f"Only {planned_path} satisfies the accepted plan."],
+            "steps": [
+                {"id": "create-marker", "label": "Create the planned adherence marker file"},
+                {"id": "review-adherence", "label": "Review plan adherence evidence"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+    approved = await client.approve_session_plan(session_id, revision=1)
+    assert approved["mode"] == "executing"
+
+    result = await client.chat_session_stream(
+        (
+            "Native negative adherence diagnostic. This is intentionally wrong-work test data. "
+            f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} "
+            f"with exactly this content: {wrong_content!r}. Do not write the planned file. "
+            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
+            f"summary 'Created the wrong marker file for negative adherence review', and evidence {wrong_path!r}."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "file" in result.tools_used
+    assert "record_plan_progress" in result.tools_used
+    assert await _workspace_file_exists(client, workspace_id, wrong_path)
+    assert not await _workspace_file_exists(client, workspace_id, planned_path)
+
+    review_resp = await client.post(f"/sessions/{session_id}/plan/review-adherence", json={})
+    assert review_resp.status_code == 200, review_resp.text
+    reviewed = review_resp.json()
+    review = ((reviewed.get("adherence") or {}).get("latest_semantic_review") or {})
+    assert review.get("verdict") == "unsupported", review
+    assert review.get("semantic_status") == "warning", review
+    assert "mutation_path_outside_plan_contract" in (review.get("deterministic_flags") or [])
+
+    blocked = await client.chat_session_stream(
+        (
+            "Native negative adherence diagnostic. Without repeating the failed plan step, "
+            f"attempt to use @tool:file to create relative file {blocked_path!r} with text 'must be blocked'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(blocked)
+    assert not await _workspace_file_exists(client, workspace_id, blocked_path), (
+        "unsupported adherence review did not block a later mutating file tool"
+    )
+    _record_session("adherence_negative", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

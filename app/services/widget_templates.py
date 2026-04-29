@@ -35,11 +35,12 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from app.agent.tool_dispatch import ToolResultEnvelope
+if TYPE_CHECKING:
+    from app.agent.tool_dispatch import ToolResultEnvelope
 
 logger = logging.getLogger(__name__)
 
@@ -509,6 +510,8 @@ def _build_widget_template_envelope(
     template_id: str | None = None,
     runtime: str | None = None,
 ) -> ToolResultEnvelope:
+    from app.agent.tool_dispatch import ToolResultEnvelope
+
     if isinstance(body, str):
         body_text = body
     else:

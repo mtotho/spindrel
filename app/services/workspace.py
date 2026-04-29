@@ -2,6 +2,7 @@
 import logging
 import os
 from dataclasses import dataclass
+from typing import Callable
 
 from app.agent.bots import (
     BotConfig,
@@ -72,23 +73,27 @@ class WorkspaceService:
         workspace: WorkspaceConfig,
         working_dir: str = "",
         bot: BotConfig | None = None,
+        extra_env: dict[str, str] | None = None,
+        redact_output: Callable[[str], str] | None = None,
     ) -> ExecResult:
         """Execute a command in the workspace via subprocess."""
         if bot and bot.shared_workspace_id:
-            return await self._exec_shared(bot, command, working_dir)
+            return await self._exec_shared(bot, command, working_dir, extra_env=extra_env, redact_output=redact_output)
 
         if not workspace.enabled:
             raise WorkspaceError("Workspace is not enabled for this bot.")
 
         # All workspace types execute in the same process environment —
         # the "docker" vs "host" distinction is legacy.
-        return await self._exec_host(bot_id, command, workspace, working_dir)
+        return await self._exec_host(bot_id, command, workspace, working_dir, extra_env=extra_env, redact_output=redact_output)
 
     async def _exec_shared(
         self,
         bot: BotConfig,
         command: str,
         working_dir: str,
+        extra_env: dict[str, str] | None = None,
+        redact_output: Callable[[str], str] | None = None,
     ) -> ExecResult:
         """Execute via subprocess in the shared workspace directory."""
         from app.services.shared_workspace import shared_workspace_service
@@ -104,6 +109,8 @@ class WorkspaceService:
             ws, bot.id, command, working_dir=working_dir,
             timeout=bot.workspace.timeout,
             max_bytes=bot.workspace.max_output_bytes,
+            extra_env=extra_env,
+            redact_output=redact_output,
         )
         return ExecResult(
             stdout=result.stdout,
@@ -120,6 +127,8 @@ class WorkspaceService:
         command: str,
         workspace: WorkspaceConfig,
         working_dir: str,
+        extra_env: dict[str, str] | None = None,
+        redact_output: Callable[[str], str] | None = None,
     ) -> ExecResult:
         """Execute on the host via the host_exec service."""
         from app.services.host_exec import host_exec_service
@@ -142,10 +151,15 @@ class WorkspaceService:
             max_output_bytes=workspace.max_output_bytes,
         )
 
-        result = await host_exec_service.run(command, working_dir, exec_config)
+        result = await host_exec_service.run(command, working_dir, exec_config, extra_env=extra_env)
+        stdout = result.stdout
+        stderr = result.stderr
+        if redact_output is not None:
+            stdout = redact_output(stdout)
+            stderr = redact_output(stderr)
         return ExecResult(
-            stdout=result.stdout,
-            stderr=result.stderr,
+            stdout=stdout,
+            stderr=stderr,
             exit_code=result.exit_code,
             truncated=result.truncated,
             duration_ms=result.duration_ms,

@@ -9,7 +9,6 @@ import {
   Inbox,
   Loader2,
   MessageSquare,
-  Play,
   Radar,
   Sparkles,
   XCircle,
@@ -114,6 +113,12 @@ function getBotReport(item: WorkspaceAttentionItem): any | null {
   return report && typeof report === "object" ? report : null;
 }
 
+function decisionLabel(item: WorkspaceAttentionItem): string {
+  if (getBotReport(item)) return "Bot report";
+  if (getAttentionWorkflowState(item) === "operator_review") return "Operator finding";
+  return "Needs review";
+}
+
 function severityClass(item: WorkspaceAttentionItem): string {
   if (item.severity === "critical" || item.severity === "error") return "text-danger";
   if (item.severity === "warning") return "text-warning";
@@ -155,6 +160,7 @@ export function AttentionCommandDeck({
   const sweepBusy = startTriage.isPending || sweepStarting || hasActiveRun;
   const counts = {
     review: buckets.review.length,
+    botReports: buckets.review.filter((item) => getBotReport(item)).length,
     inbox: buckets.untriaged.length + buckets.assigned.length,
     running: buckets.triage.length,
     cleared: buckets.processed.length,
@@ -192,7 +198,7 @@ export function AttentionCommandDeck({
   useEffect(() => {
     if (!selected) return;
     const state = getAttentionWorkflowState(selected);
-    if (state === "operator_review") setDeckMode("review");
+    if (state === "operator_review" || state === "bot_report") setDeckMode("review");
     else if (state === "processed" || state === "closed") setDeckMode("cleared");
     else if (state === "in_sweep") setDeckMode("runs");
     else setDeckMode("inbox");
@@ -203,12 +209,12 @@ export function AttentionCommandDeck({
     if (sweepBusy) {
       onSelect(null);
       setDeckMode("runs");
-      setNotice("Operator sweep is already running. Stay here for the run log.");
+      setNotice("Operator sweep is already running. Stay here for the sweep history.");
       return;
     }
     if (!sweepable.length) {
       setDeckMode(buckets.review.length ? "review" : "inbox");
-      setNotice(buckets.review.length ? "No new items to sweep. Review the existing Operator findings." : "No unreviewed items are ready for Operator.");
+      setNotice(buckets.review.length ? "No new items to sweep. Review the existing findings." : "No unreviewed items are ready for Operator.");
       return;
     }
     onSelect(null);
@@ -217,7 +223,7 @@ export function AttentionCommandDeck({
     startTriage.mutate({}, {
       onSuccess: (run) => {
         onRunSelect?.(run.task_id);
-        setNotice("Operator sweep started. Stay on the run log while findings arrive.");
+        setNotice("Operator sweep started. Stay on the sweep history while findings arrive.");
       },
       onError: (error) => {
         setSweepStarting(false);
@@ -251,12 +257,12 @@ export function AttentionCommandDeck({
     }
     if (counts.review > 0) {
       return {
-        eyebrow: viewingFirstReview ? "Reviewing now" : "Next decision",
-        title: viewingFirstReview ? "Review this Operator finding" : "Review the first Operator finding",
+        eyebrow: viewingFirstReview ? "Current finding" : "Next decision",
+        title: viewingFirstReview ? "Decide on this finding" : "Open the first finding",
         detail: viewingFirstReview
-          ? `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting. Decide on this one, then continue down the queue.`
-          : `${counts.review} finding${counts.review === 1 ? "" : "s"} already classified and waiting for a decision.`,
-        action: viewingFirstReview ? null : "Open first finding",
+          ? `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting. Accept it, clear it, or mark it wrong.`
+          : `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting for a decision.`,
+        action: viewingFirstReview ? null : "Review first finding",
         icon: <Sparkles size={15} />,
         onClick: () => focusReviewFinding(),
       };
@@ -264,7 +270,7 @@ export function AttentionCommandDeck({
     if (counts.inbox > 0) {
       return {
         eyebrow: "Unreviewed items",
-        title: "Run Operator sweep",
+        title: "Sweep unreviewed items",
         detail: `${counts.inbox} item${counts.inbox === 1 ? "" : "s"} can be classified before you review them manually.`,
         action: "Start sweep",
         icon: <Sparkles size={15} />,
@@ -290,8 +296,9 @@ export function AttentionCommandDeck({
               <Radar size={13} />
               Mission Control Review
             </div>
-            <div className="mt-1 text-sm text-text-muted">
-              {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings · {counts.inbox} unreviewed · {counts.cleared} cleared
+            <div className="mt-1 text-sm leading-5 text-text-muted">
+              {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings
+              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.inbox} unreviewed · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -301,7 +308,7 @@ export function AttentionCommandDeck({
               onClick={() => setDeckMode("runs")}
             >
               <Clock size={14} />
-              Runs
+              Sweeps
             </button>
             <button
               type="button"
@@ -310,7 +317,7 @@ export function AttentionCommandDeck({
               onClick={startSweep}
             >
               {sweepBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {sweepBusy ? "Sweep running" : sweepable.length ? "Run Operator sweep" : "Nothing to sweep"}
+              {sweepBusy ? "Sweep running" : sweepable.length ? "Sweep unreviewed" : "Nothing to sweep"}
             </button>
           </div>
         </div>
@@ -335,17 +342,12 @@ export function AttentionCommandDeck({
                 {whatNow.icon}
                 {whatNow.action}
               </button>
-            ) : (
-              <span className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-surface-raised/50 px-3 text-sm font-medium text-text-muted">
-                {whatNow.icon}
-                Reviewing now
-              </span>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
         <DeckQueue
           mode={mode}
           counts={counts}
@@ -358,7 +360,7 @@ export function AttentionCommandDeck({
           }}
           onSelect={onSelect}
         />
-        <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 outline-none lg:border-l lg:border-t-0">
+        <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 outline-none md:border-l md:border-t-0">
           {mode === "runs" ? (
             <RunLogWorkspace pending={sweepBusy} runs={runs} selectedRunId={selectedRunId} onRunSelect={onRunSelect} />
           ) : displayItem ? (
@@ -382,20 +384,20 @@ function DeckQueue({
   onSelect,
 }: {
   mode: DeckMode;
-  counts: { review: number; inbox: number; running: number; cleared: number; closed: number };
+  counts: { review: number; botReports: number; inbox: number; running: number; cleared: number; closed: number };
   runCount: number;
   items: WorkspaceAttentionItem[];
   selectedId: string | null;
   onModeChange: (mode: DeckMode) => void;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
 }) {
-  const title = mode === "inbox" ? "Unreviewed items" : mode === "review" ? "Operator findings" : mode === "cleared" ? "Cleared items" : "Run log";
+  const title = mode === "inbox" ? "Unreviewed" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
   return (
     <aside className="min-h-0 overflow-y-auto px-3 py-3">
       <div className="grid grid-cols-2 gap-1.5">
-        <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Review" count={counts.review} onClick={() => onModeChange("review")} />
+        <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
         <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Unreviewed" count={counts.inbox} onClick={() => onModeChange("inbox")} />
-        <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Runs" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
+        <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Sweeps" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
         <ModeButton active={mode === "cleared"} icon={<Archive size={14} />} label="Cleared" count={counts.cleared + counts.closed} onClick={() => onModeChange("cleared")} />
       </div>
 
@@ -407,7 +409,7 @@ function DeckQueue({
         <div className="space-y-1">
           {mode === "runs" ? (
             <div className="rounded-md bg-surface-raised/35 px-3 py-3 text-xs leading-5 text-text-muted">
-              Pick a run in the center panel. Run logs explain which items became findings, which were cleared, and where the transcript evidence lives.
+              Pick a sweep in the detail panel. Receipts explain which items became findings, which were cleared, and where the transcript evidence lives.
             </div>
           ) : items.length ? items.map((item) => (
             <button
@@ -423,7 +425,7 @@ function DeckQueue({
                 <span className={`shrink-0 text-[10px] ${severityClass(item)}`}>{item.severity}</span>
               </div>
               <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-text-dim">
-                <span className="truncate">{attentionItemTriageLabel(item)} · {targetLabel(item)}</span>
+                <span className="truncate">{decisionLabel(item)} · {targetLabel(item)}</span>
               </div>
             </button>
           )) : (
@@ -471,7 +473,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
-            {botReport ? "Bot report" : reviewed ? "Operator finding" : "Unreviewed item"}
+            {botReport ? "Bot-reported issue" : reviewed ? "Operator finding" : "Unreviewed item"}
           </div>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal text-text">{item.title}</h2>
           <div className="mt-1 text-sm text-text-muted">
@@ -486,14 +488,14 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
           ) : onReply && (
             <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-accent hover:bg-accent/[0.08]" onClick={() => onReply(item)}>
               <MessageSquare size={15} />
-              Reply
+              Reply in channel
             </button>
           )}
           {!readonly && (
             <>
               <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={() => acknowledge.mutate(item.id)}>
                 <Check size={15} />
-                Acknowledge
+                Clear
               </button>
               <button type="button" className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={() => resolve.mutate(item.id)}>
                 <XCircle size={15} />
@@ -508,7 +510,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
         <section className="mb-4 rounded-md bg-accent/[0.08] px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
-              <Sparkles size={13} />
+              <Bot size={13} />
               Bot report
             </span>
             {botReport.category && (
@@ -518,7 +520,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
             )}
           </div>
           <p className="mt-3 text-sm leading-6 text-text-muted">
-            Reported by {botReport.reported_by ?? item.source_id}. This was raised by an enabled task or heartbeat because the bot found something that needs review.
+            Reported by {botReport.reported_by ?? item.source_id}. This came from a task or heartbeat because the bot found something it could not safely finish alone.
           </p>
           {botReport.suggested_action && (
             <p className="mt-3 text-sm leading-6 text-text">
@@ -534,7 +536,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
               <Sparkles size={13} />
-              Operator review
+              Operator finding
             </span>
             {triage.classification && <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">{triage.classification.replaceAll("_", " ")}</span>}
             <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-accent">{routeLabel(triage.route)}</span>
@@ -569,7 +571,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
                   if (note !== null) triageFeedback.mutate({ itemId: item.id, verdict: "rerouted", note, route: triage.route ?? null });
                 }}
               >
-                Change routing
+                Change next action
               </button>
             </div>
           )}
@@ -668,10 +670,10 @@ function RunLogWorkspace({
   return (
     <div className="mx-auto max-w-5xl">
       <div className="mb-4">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator runs</div>
-        <h2 className="mt-1 text-2xl font-semibold text-text">Run log</h2>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator sweeps</div>
+        <h2 className="mt-1 text-2xl font-semibold text-text">Sweep history</h2>
         <p className="mt-1 text-sm text-text-muted">
-          Run logs explain how unreviewed items became findings or cleared noise.
+          Sweep receipts show which unreviewed items became findings and which were cleared.
         </p>
       </div>
 
@@ -705,7 +707,7 @@ function RunLogWorkspace({
             </button>
           )) : (
             <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/35 px-3 py-6 text-center text-xs text-text-dim">
-              No Operator runs yet.
+              No Operator sweeps yet.
             </div>
           )}
         </aside>
@@ -715,7 +717,7 @@ function RunLogWorkspace({
             <RunReceipt run={selectedRun} />
           ) : (
             <div className="rounded-md bg-surface-raised/35 px-4 py-8 text-center text-sm text-text-dim">
-              Start a sweep to create a run log.
+              Start a sweep to create a receipt.
             </div>
           )}
         </section>

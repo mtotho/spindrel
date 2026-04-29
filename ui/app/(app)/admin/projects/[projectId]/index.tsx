@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, Hash, KeyRound, Layers, Play, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useProject, useProjectChannels, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useProject, useProjectChannels, useProjectRuntimeEnv, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
@@ -24,7 +24,7 @@ import {
 import { Spinner } from "@/src/components/shared/Spinner";
 import { WorkspaceFileBrowserSurface } from "@/src/components/workspace/WorkspaceFileBrowserSurface";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import type { Channel, Project, ProjectSetup } from "@/src/types/api";
+import type { Channel, Project, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
 
 const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
@@ -168,6 +168,76 @@ function ProjectBlueprintSection({ project }: { project: Project }) {
               })}
             </div>
           </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function ProjectRuntimeSection({ runtimeEnv }: { runtimeEnv?: ProjectRuntimeEnv }) {
+  const envKeys = runtimeEnv?.env_default_keys ?? [];
+  const secretKeys = runtimeEnv?.secret_keys ?? [];
+  const missingSecrets = runtimeEnv?.missing_secrets ?? [];
+  const invalidKeys = [...(runtimeEnv?.invalid_env_keys ?? []), ...(runtimeEnv?.reserved_env_keys ?? [])];
+  const hasWarnings = missingSecrets.length > 0 || invalidKeys.length > 0;
+  const statusLabel = !runtimeEnv ? "loading" : hasWarnings ? "warning" : "ready";
+  const statusVariant = !runtimeEnv ? "neutral" : hasWarnings ? "warning" : "success";
+  const statusIcon = !runtimeEnv ? <Clock3 size={14} /> : hasWarnings ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />;
+  const title = !runtimeEnv
+    ? "Runtime env loading"
+    : hasWarnings
+      ? "Runtime env needs bindings"
+      : envKeys.length > 0 || secretKeys.length > 0
+        ? "Runtime env available"
+        : "No runtime env declared";
+
+  return (
+    <Section
+      title="Runtime Environment"
+      description="Project Blueprint env defaults and bound secrets are injected into Project terminals, exec tools, and harness turns."
+    >
+      <div data-testid="project-runtime-env-readiness" className="flex flex-col gap-3">
+        <SettingsControlRow
+          leading={statusIcon}
+          title={title}
+          description={
+            !runtimeEnv
+              ? "Runtime keys will appear here once the Project snapshot and secret bindings load."
+              : hasWarnings
+              ? "Missing secret bindings warn here; general Project runtimes still start with available values."
+              : "Values are process-only and are not rendered in Project settings, prompt context, or setup logs."
+          }
+          meta={<StatusBadge label={statusLabel} variant={statusVariant} />}
+        />
+        <div className="grid gap-2 md:grid-cols-2">
+          <SettingsControlRow
+            leading={<Hash size={14} />}
+            title="Env defaults"
+            description={envKeys.length > 0 ? envKeys.join(", ") : "No default keys declared"}
+            meta={<QuietPill label={`${envKeys.length}`} />}
+          />
+          <SettingsControlRow
+            leading={<KeyRound size={14} />}
+            title="Bound secrets"
+            description={secretKeys.length > 0 ? secretKeys.join(", ") : "No bound secret keys available"}
+            meta={<QuietPill label={`${secretKeys.length}`} tone={secretKeys.length > 0 ? "success" : "neutral"} />}
+          />
+        </div>
+        {missingSecrets.length > 0 && (
+          <SettingsControlRow
+            leading={<AlertTriangle size={14} />}
+            title="Missing required secrets"
+            description={missingSecrets.join(", ")}
+            meta={<StatusBadge label="warning" variant="warning" />}
+          />
+        )}
+        {invalidKeys.length > 0 && (
+          <SettingsControlRow
+            leading={<AlertTriangle size={14} />}
+            title="Skipped env keys"
+            description={invalidKeys.join(", ")}
+            meta={<StatusBadge label="skipped" variant="warning" />}
+          />
         )}
       </div>
     </Section>
@@ -542,6 +612,7 @@ export default function ProjectDetail() {
   const { data: project, isLoading } = useProject(projectId);
   const { data: channels } = useProjectChannels(projectId);
   const { data: setup } = useProjectSetup(projectId);
+  const { data: runtimeEnv } = useProjectRuntimeEnv(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id);
   const updateProject = useUpdateProject(projectId);
   const [tab, setTab] = useHashTab<ProjectTab>("Files", TABS);
@@ -696,6 +767,7 @@ export default function ProjectDetail() {
               </Section>
 
               <ProjectBlueprintSection project={project} />
+              <ProjectRuntimeSection runtimeEnv={runtimeEnv} />
             </div>
           </div>
         )}

@@ -1383,8 +1383,9 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
-            "if (!text.includes('Findings') || !text.includes('Unreviewed') || !text.includes('Runs') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
+            "if (!text.includes('Findings') || !text.includes('Unreviewed') || !text.includes('Sweeps') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
             "if (!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('what-now lane missing');"
+            "if (text.includes('Reviewing now')) throw new Error('stale reviewing-now copy is visible');"
             "if (text.includes('Open in Attention') || text.includes('Open deck')) throw new Error('legacy attention launcher copy is visible');"
             "if (text.includes('Raw signal') || text.includes('raw signal') || text.includes('Next best click')) throw new Error('legacy review language is visible');"
         ),
@@ -1396,13 +1397,13 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')"
-            " && document.body.innerText.includes('Run log')"
+            " && document.body.innerText.includes('Sweep history')"
         ),
         output="spatial-check-attention-run-log.png",
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
-            "if (!text.includes('Operator runs')) throw new Error('run log workspace missing');"
+            "if (!text.includes('Operator sweeps')) throw new Error('sweep history workspace missing');"
             "if (text.includes('Transcript') && !text.includes('Transcript evidence')) throw new Error('transcript disclosure does not use evidence copy');"
         ),
     ),
@@ -2338,6 +2339,115 @@ CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
+# Dashboard pin config editor — schema-backed EditPinDrawer NUX.
+# ---------------------------------------------------------------------------
+
+_PIN_CONFIG_EDITOR_SCHEMA_INIT = """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  const configSchema = {
+    type: "object",
+    required: ["entity_id"],
+    properties: {
+      entity_id: {
+        type: "string",
+        title: "Entity",
+        description: "Widget data source used for this pinned status card.",
+        default: "sensor.front_door"
+      },
+      units: {
+        type: "string",
+        title: "Units",
+        description: "Display units for numeric values.",
+        enum: ["imperial", "metric"],
+        default: "imperial"
+      },
+      compact: {
+        type: "boolean",
+        title: "Compact layout",
+        description: "Reduce padding and secondary metadata inside the widget.",
+        default: false
+      },
+      refresh_interval: {
+        type: "integer",
+        title: "Refresh interval",
+        description: "Polling cadence in seconds.",
+        default: 60
+      }
+    }
+  };
+  const config = {
+    entity_id: "sensor.front_door",
+    units: "imperial",
+    compact: false,
+    refresh_interval: 60
+  };
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (/\\/api\\/v1\\/widgets\\/dashboard$/.test(url.pathname)) {
+        const response = await originalFetch(input, init);
+        const body = await response.json();
+        body.pins = (body.pins || []).map((pin) => {
+          if (pin.display_label !== "Configurable status") return pin;
+          return {
+            ...pin,
+            widget_config: { ...config, ...(pin.widget_config || {}) },
+            config_schema: configSchema
+          };
+        });
+        return new Response(JSON.stringify(body), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+"""
+
+_ASSERT_PIN_CONFIG_EDITOR_JS = (
+    "const drawer = document.querySelector('[data-testid=\"edit-pin-drawer\"]');"
+    "if (!drawer) throw new Error('edit pin drawer missing');"
+    "const settings = drawer.querySelector('[data-testid=\"widget-settings-section\"]');"
+    "if (!settings) throw new Error('widget settings section missing');"
+    "const text = drawer.textContent || '';"
+    "if (!/Widget settings|Entity|Units|Compact layout|Refresh interval/.test(text)) throw new Error('schema settings controls missing');"
+    "if (drawer.querySelector('[data-testid=\"advanced-widget-json-editor\"]')) throw new Error('advanced JSON should be collapsed by default');"
+    "const toggle = drawer.querySelector('[data-testid=\"advanced-widget-json-toggle\"]');"
+    "if (!toggle || toggle.getAttribute('aria-expanded') !== 'false') throw new Error('advanced JSON toggle not collapsed');"
+)
+
+PIN_CONFIG_EDITOR_SPECS: list[ScreenshotSpec] = [
+    ScreenshotSpec(
+        name="dashboard-pin-config-editor",
+        route="/widgets/channel/{dashboard_pin_config_channel}?edit_pin={dashboard_pin_config_pin}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg="!!document.querySelector('[data-testid=\"edit-pin-drawer\"]') && /Widget settings/.test(document.body.textContent || '')",
+        output="dashboard-pin-config-editor.png",
+        color_scheme="dark",
+        extra_init_scripts=[_PIN_CONFIG_EDITOR_SCHEMA_INIT],
+        assert_js=_ASSERT_PIN_CONFIG_EDITOR_JS,
+    ),
+    ScreenshotSpec(
+        name="dashboard-pin-config-editor-mobile",
+        route="/widgets/channel/{dashboard_pin_config_channel}?edit_pin={dashboard_pin_config_pin}",
+        viewport={"width": 390, "height": 844},
+        wait_kind="function",
+        wait_arg="!!document.querySelector('[data-testid=\"edit-pin-drawer\"]') && /Widget settings/.test(document.body.textContent || '')",
+        output="dashboard-pin-config-editor-mobile.png",
+        color_scheme="dark",
+        extra_init_scripts=[_PIN_CONFIG_EDITOR_SCHEMA_INIT],
+        assert_js=_ASSERT_PIN_CONFIG_EDITOR_JS,
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Project workspace captures — validates the shared Project primitive across
 # admin Projects, channel settings, Project-rooted files, and memory-tool
 # transcript presentation. Staging creates one reusable Project and attaches a
@@ -2435,6 +2545,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-blueprint-section\"]') "
+            "&& !!document.querySelector('[data-testid=\"project-runtime-env-readiness\"]') "
             "&& document.body.innerText.includes('Screenshot Service Blueprint')"
         ),
         output="project-workspace-settings-blueprint.png",
@@ -2447,8 +2558,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
             "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN') "
             "&& normalized.includes('repo declarations') "
-            "&& normalized.includes('env defaults'), "
-            "detail: 'Project settings did not expose applied Blueprint declarations and bindings' };"
+            "&& normalized.includes('env defaults') "
+            "&& normalized.includes('runtime env available') "
+            "&& text.includes('PROJECT_KIND') "
+            "&& !text.includes('screenshot-token'), "
+            "detail: 'Project settings did not expose runtime env readiness without leaking secret values' };"
         ),
     ),
     ScreenshotSpec(

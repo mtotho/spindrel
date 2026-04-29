@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import subprocess
-from typing import Any
+from typing import Any, Mapping
 
 from integrations.sdk import (
     AllowDeny,
@@ -296,6 +296,7 @@ class ClaudeCodeRuntime:
         if ctx.model:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
+        _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         # ctx.runtime_settings is reserved for future Claude/Codex-specific knobs.
 
@@ -353,6 +354,7 @@ class ClaudeCodeRuntime:
             usage=result_meta.get("usage"),
             metadata={
                 "claude_native_slash_commands": result_meta.get("claude_native_slash_commands") or [],
+                "input_manifest": ctx.input_manifest.metadata(),
             },
         )
 
@@ -391,6 +393,7 @@ class ClaudeCodeRuntime:
         if ctx.model:
             options_kwargs["model"] = ctx.model
         _set_effort_kwarg(ClaudeAgentOptions, options_kwargs, ctx.effort)
+        _set_env_kwarg(ClaudeAgentOptions, options_kwargs, ctx.env)
         _set_streaming_permission_hooks(ClaudeAgentOptions, options_kwargs)
         opts = ClaudeAgentOptions(**options_kwargs)
 
@@ -736,6 +739,29 @@ def _set_effort_kwarg(
             "claude-code: installed ClaudeAgentOptions exposes no effort/thinking kwarg; "
             "ignoring harness effort=%s for this turn",
             effort,
+        )
+
+
+def _set_env_kwarg(
+    options_cls: Any,
+    options_kwargs: dict[str, Any],
+    env: Mapping[str, str],
+) -> None:
+    if not env:
+        return
+    try:
+        sig = inspect.signature(options_cls)
+        names = set(sig.parameters)
+    except Exception:
+        names = set(getattr(options_cls, "__annotations__", {}) or {})
+    if "env" in names:
+        options_kwargs["env"] = dict(env)
+    elif "extra_env" in names:
+        options_kwargs["extra_env"] = dict(env)
+    else:
+        logger.warning(
+            "claude-code: installed ClaudeAgentOptions exposes no env kwarg; "
+            "Project runtime env was not injected into this Claude turn"
         )
 
 

@@ -314,6 +314,8 @@ from app.services.agent_harnesses.base import (  # noqa: E402, F401
     HarnessBridgeInventory,
     HarnessCompactResult,
     HarnessContextHint,
+    HarnessInputAttachment,
+    HarnessInputManifest,
     HarnessModelOption,
     HarnessRuntime,
     HarnessRuntimeCommandResult,
