@@ -43,6 +43,7 @@ def seeded_catalog(tmp_path, monkeypatch):
     """Monkey-patch the scanner roots to tmp dirs so the test doesn't depend
     on (or pollute) the real repo's widget inventory."""
     from app.services import html_widget_scanner
+    from integrations.discovery import IntegrationSource
 
     builtin_root = tmp_path / "builtin"
     integrations_root = tmp_path / "integrations"
@@ -70,7 +71,6 @@ def seeded_catalog(tmp_path, monkeypatch):
     )
 
     # Integration with one standalone widget + one excluded tool renderer.
-    monkeypatch.setattr(html_widget_scanner, "INTEGRATIONS_ROOT", integrations_root)
     frigate_widgets = integrations_root / "frigate" / "widgets"
     frigate_widgets.mkdir(parents=True)
     (frigate_widgets / "dash.html").write_text(
@@ -85,6 +85,17 @@ def seeded_catalog(tmp_path, monkeypatch):
         "    html_template:\n"
         "      path: widgets/events.html\n",
         encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "integrations.discovery.iter_integration_sources",
+        lambda: [
+            IntegrationSource(
+                integration_id="frigate",
+                path=(integrations_root / "frigate").resolve(),
+                source="external",
+                is_external=True,
+            )
+        ],
     )
 
     html_widget_scanner.invalidate_cache()

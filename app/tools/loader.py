@@ -85,40 +85,10 @@ def _ensure_external_integration_importable(integration_dir: Path, integration_i
             logger.debug("Could not pre-import %s for external integration %s", py_file.name, integration_id)
 
 
-def _scan_integration_tools(base_dir: Path, *, is_external: bool = False) -> None:
-    """Scan base_dir/*/tools/*.py for integration tools."""
-    import app.tools.registry as _registry
-
-    if not base_dir.is_dir():
-        return
-    for intg_tools_dir in sorted(base_dir.glob("*/tools")):
-        if not intg_tools_dir.is_dir():
-            continue
-        integration_id = intg_tools_dir.parent.name
-        # Skip disabled or unconfigured integrations
-        try:
-            from app.services.integration_settings import is_active
-            if not is_active(integration_id):
-                logger.info("Skipping tools for inactive integration: %s", integration_id)
-                continue
-        except Exception:
-            pass
-        # External integrations need their modules registered for dotted imports
-        if is_external:
-            _ensure_external_integration_importable(intg_tools_dir.parent, integration_id)
-        _registry._current_source_integration = integration_id
-        try:
-            for py_file in sorted(intg_tools_dir.glob("*.py")):
-                if not py_file.name.startswith("_"):
-                    _import_tool_file(py_file)
-        finally:
-            _registry._current_source_integration = None
-
-
 def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
     """Import `*.py` from each directory (non-recursive). Underscore-prefixed files skipped.
 
-    Also discovers tools from integrations/*/tools/*.py (in-repo and INTEGRATION_DIRS).
+    Also discovers tools from every resolved integration source.
     """
     root = _project_root()
     dirs: list[Path] = [root / "tools"]
@@ -133,23 +103,24 @@ def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
                 continue
             _import_tool_file(py_file)
 
-    # Auto-discover integrations/*/tools/*.py and packages/*/tools/*.py (in-repo)
-    _scan_integration_tools(root / "integrations")
-    _scan_integration_tools(root / "packages")
-
-    # Auto-discover external integrations from the same source of truth as the
-    # integration catalog/router scanners: SPINDREL_HOME, legacy
-    # INTEGRATION_DIRS, and runtime-added workspace integration dirs.
     try:
-        from app.services.paths import effective_integration_dirs
+        from integrations.discovery import iter_integration_sources
 
-        for p in effective_integration_dirs():
-            _scan_integration_tools(Path(p), is_external=True)
+        for source in iter_integration_sources():
+            try:
+                from app.services.integration_settings import is_active
+
+                if not is_active(source.integration_id):
+                    logger.info("Skipping tools for inactive integration: %s", source.integration_id)
+                    continue
+            except Exception:
+                pass
+            load_integration_tools(source.path, is_external=source.is_external)
     except Exception:
-        logger.exception("Failed to discover external integration tool directories")
+        logger.exception("Failed to discover integration tool directories")
 
 
-def load_integration_tools(integration_dir: Path) -> list[str]:
+def load_integration_tools(integration_dir: Path, *, is_external: bool | None = None) -> list[str]:
     """Load tools from a single integration directory.
 
     Scans {integration_dir}/tools/*.py, imports each via _import_tool_file().
@@ -161,12 +132,20 @@ def load_integration_tools(integration_dir: Path) -> list[str]:
     if not tools_dir.is_dir():
         return []
 
-    # Check if this is an external integration (not under integrations/ or packages/)
-    root = _project_root()
-    is_external = not (
-        str(integration_dir.resolve()).startswith(str(root / "integrations"))
-        or str(integration_dir.resolve()).startswith(str(root / "packages"))
-    )
+    # Direct callers may omit source metadata; keep the old standalone helper
+    # behavior by treating non-repo paths as external.
+    if is_external is None:
+        root = _project_root()
+        resolved = integration_dir.resolve()
+        repo_roots = ((root / "integrations").resolve(), (root / "packages").resolve())
+        is_external = True
+        for repo_root in repo_roots:
+            try:
+                resolved.relative_to(repo_root)
+            except ValueError:
+                continue
+            is_external = False
+            break
     if is_external:
         _ensure_external_integration_importable(integration_dir, integration_dir.name)
 

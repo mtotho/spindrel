@@ -169,6 +169,10 @@ test("Attention operator sweep is global and normal assignment hides the operato
     assert.match(source, /out of DB connections/);
     assert.match(source, /Back to sweep setup/);
     assert.match(source, /Operator history/);
+    assert.match(source, /mode="summary"/);
+    assert.match(source, /mode="full"/);
+    assert.match(source, /h-\[min\(62vh,640px\)\] min-h-\[420px\]/);
+    assert.match(source, /Open Operator sweep for the transcript/);
     assert.match(source, /recoveredTriageRun/);
     assert.match(source, /visibleTriageRun/);
     assert.match(source, /getOperatorTriage\(item\)/);

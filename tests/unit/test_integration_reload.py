@@ -430,10 +430,11 @@ class TestLoadIntegrationTools:
         result = load_integration_tools(tmp_path)
         assert result == []
 
-    def test_discover_and_load_tools_scans_effective_external_integration_dirs(self, tmp_path):
+    def test_discover_and_load_tools_scans_resolved_external_integration_sources(self, tmp_path):
         """SPINDREL_HOME/HOME_LOCAL_DIR integrations must register tools at startup."""
         from app.tools.loader import discover_and_load_tools
         from app.tools.registry import _tools
+        from integrations.discovery import IntegrationSource
 
         integration_root = tmp_path / "spindrel-home"
         tools_dir = integration_root / "bennieloggins" / "tools"
@@ -456,7 +457,17 @@ class TestLoadIntegrationTools:
 
         _tools.pop("bennie_health_check", None)
         try:
-            with patch("app.services.paths.effective_integration_dirs", return_value=[str(integration_root)]), \
+            with patch(
+                "integrations.discovery.iter_integration_sources",
+                return_value=[
+                    IntegrationSource(
+                        integration_id="bennieloggins",
+                        path=(integration_root / "bennieloggins").resolve(),
+                        source="external",
+                        is_external=True,
+                    )
+                ],
+            ), \
                  patch("app.services.integration_settings.is_active", return_value=True):
                 discover_and_load_tools([])
 

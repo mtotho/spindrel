@@ -3,7 +3,7 @@
 A *suite* is a group of widget bundles that share a server-side SQLite DB.
 Members opt in via ``db.shared: <suite_id>`` in their per-bundle widget.yaml;
 the matching ``suite.yaml`` at ``app/tools/local/widgets/<suite_id>/``
-(or ``integrations/*/widgets/<suite_id>/``) owns the shared schema.
+(or a resolved integration's ``widgets/<suite_id>/``) owns the shared schema.
 
 Public surface
 --------------
@@ -53,11 +53,6 @@ _BUILTIN_WIDGETS_DIR = (
     Path(__file__).resolve().parents[1] / "tools" / "local" / "widgets"
 ).resolve()
 
-_INTEGRATIONS_DIR = (
-    Path(__file__).resolve().parents[2] / "integrations"
-).resolve()
-
-
 def _discovery_roots() -> list[Path]:
     """Return every directory whose subfolders may contain ``<id>/suite.yaml``.
 
@@ -68,11 +63,12 @@ def _discovery_roots() -> list[Path]:
     roots: list[Path] = []
     if _BUILTIN_WIDGETS_DIR.is_dir():
         roots.append(_BUILTIN_WIDGETS_DIR)
-    if _INTEGRATIONS_DIR.is_dir():
-        for integ in _INTEGRATIONS_DIR.iterdir():
-            candidate = integ / "widgets"
-            if candidate.is_dir():
-                roots.append(candidate.resolve())
+    from integrations.discovery import iter_integration_sources
+
+    for source in iter_integration_sources():
+        candidate = source.path / "widgets"
+        if candidate.is_dir():
+            roots.append(candidate.resolve())
     return roots
 
 

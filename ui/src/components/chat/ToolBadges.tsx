@@ -105,6 +105,184 @@ function terminalOutputPreview(env: ToolResultEnvelope | undefined): {
   };
 }
 
+type TerminalCodeLine = {
+  number: string;
+  text: string;
+};
+
+function targetExtension(target: string | null | undefined): string {
+  const clean = (target ?? "").split(/[?#]/)[0] ?? "";
+  const match = clean.match(/\.([a-z0-9]+)$/i);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function detectTerminalCodeLanguage(text: string, target: string | null | undefined): "html" | "css" | "js" | "json" | "shell" | "text" {
+  const ext = targetExtension(target);
+  if (["html", "htm", "xml", "svg"].includes(ext)) return "html";
+  if (["css", "scss", "sass"].includes(ext)) return "css";
+  if (["js", "jsx", "ts", "tsx", "mjs", "cjs"].includes(ext)) return "js";
+  if (["json", "jsonc"].includes(ext)) return "json";
+  if (["sh", "bash", "zsh"].includes(ext)) return "shell";
+  const trimmed = text.trimStart();
+  if (/^(<!doctype\s+html|<html[\s>]|<\w[\s>])/i.test(trimmed)) return "html";
+  if (/^[{\[]/.test(trimmed)) return "json";
+  if (/^([.#]?[a-z0-9_-]+\s*\{|:[\w-]+\s*\{)/i.test(trimmed)) return "css";
+  if (/\b(function|const|let|import|export|interface|type)\b/.test(trimmed)) return "js";
+  return "text";
+}
+
+function splitTerminalCodeLines(text: string): TerminalCodeLine[] {
+  const lines = text.split(/\r?\n/);
+  const numbered = lines.map((line) => line.match(/^\s*(\d+)\s(.*)$/));
+  const sequentialMatches = numbered.filter((match, index) => match && Number(match[1]) === index + 1).length;
+  const hasSequentialGutter = sequentialMatches >= Math.min(3, Math.max(1, lines.length));
+  return lines.map((line, index) => {
+    const match = hasSequentialGutter ? numbered[index] : null;
+    return {
+      number: match?.[1] ?? String(index + 1),
+      text: match?.[2] ?? line,
+    };
+  });
+}
+
+function looksLikeTerminalCodeOutput(entry: SharedToolTranscriptEntry, text: string, target: string | null | undefined): boolean {
+  const label = `${entry.label} ${target ?? ""}`.toLowerCase();
+  if (/\b(write|edit|wrote|created|updated|file)\b/.test(label) && detectTerminalCodeLanguage(text, target) !== "text") return true;
+  const lines = text.split(/\r?\n/);
+  const numbered = lines.filter((line, index) => {
+    const match = line.match(/^\s*(\d+)\s/);
+    return match && Number(match[1]) === index + 1;
+  }).length;
+  return numbered >= Math.min(3, Math.max(1, lines.length)) && detectTerminalCodeLanguage(text, target) !== "text";
+}
+
+function renderHighlightedTerminalLine(line: string, language: ReturnType<typeof detectTerminalCodeLanguage>, t: ThemeTokens): ReactNode {
+  if (!line) return " ";
+  if (language === "html") {
+    const parts = line.split(/(<!--.*?-->|<\/?[A-Za-z][^>]*>|"[^"]*"|'[^']*')/g).filter((part) => part.length > 0);
+    return parts.map((part, index) => {
+      if (part.startsWith("<!--")) return <span key={index} style={{ color: t.textDim }}>{part}</span>;
+      if (part.startsWith("<")) {
+        const tag = part.match(/^(<\/?)([A-Za-z][\w:-]*)(.*?)(\/?>)$/);
+        if (!tag) return <span key={index} style={{ color: t.accent }}>{part}</span>;
+        return (
+          <span key={index}>
+            <span style={{ color: t.textDim }}>{tag[1]}</span>
+            <span style={{ color: t.accent }}>{tag[2]}</span>
+            <span style={{ color: t.textMuted }}>{tag[3]}</span>
+            <span style={{ color: t.textDim }}>{tag[4]}</span>
+          </span>
+        );
+      }
+      if ((part.startsWith("\"") && part.endsWith("\"")) || (part.startsWith("'") && part.endsWith("'"))) {
+        return <span key={index} style={{ color: t.success }}>{part}</span>;
+      }
+      return <span key={index} style={{ color: t.textMuted }}>{part}</span>;
+    });
+  }
+  if (language === "json" || language === "js") {
+    const parts = line.split(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\b(?:const|let|var|function|return|import|export|from|type|interface|class|new|if|else|true|false|null)\b|\b\d+(?:\.\d+)?\b|\/\/.*$)/g).filter((part) => part !== undefined && part.length > 0);
+    return parts.map((part, index) => {
+      if (part.startsWith("//")) return <span key={index} style={{ color: t.textDim }}>{part}</span>;
+      if ((part.startsWith("\"") && part.endsWith("\"")) || (part.startsWith("'") && part.endsWith("'"))) return <span key={index} style={{ color: t.success }}>{part}</span>;
+      if (/^\d/.test(part)) return <span key={index} style={{ color: t.warning }}>{part}</span>;
+      if (/^(const|let|var|function|return|import|export|from|type|interface|class|new|if|else|true|false|null)$/.test(part)) return <span key={index} style={{ color: t.purple }}>{part}</span>;
+      return <span key={index} style={{ color: t.textMuted }}>{part}</span>;
+    });
+  }
+  if (language === "css") {
+    const property = line.match(/^(\s*[-_a-zA-Z][-_a-zA-Z0-9]*)(\s*:)(.*)$/);
+    if (property) {
+      return (
+        <>
+          <span style={{ color: t.accent }}>{property[1]}</span>
+          <span style={{ color: t.textDim }}>{property[2]}</span>
+          <span style={{ color: t.success }}>{property[3]}</span>
+        </>
+      );
+    }
+  }
+  if (language === "shell") {
+    const listing = line.match(/^([dl-][rwx-]{9})(\s+\d+\s+\S+\s+\S+\s+\S+\s+\w+\s+\d+\s+[\d:]+\s+)(.*)$/);
+    if (listing) {
+      return (
+        <>
+          <span style={{ color: t.textDim }}>{listing[1]}</span>
+          <span style={{ color: t.textMuted }}>{listing[2]}</span>
+          <span style={{ color: listing[1].startsWith("d") ? t.accent : t.textMuted }}>{listing[3]}</span>
+        </>
+      );
+    }
+  }
+  return <span style={{ color: t.textMuted }}>{line}</span>;
+}
+
+function TerminalCodeOutput({
+  text,
+  entry,
+  target,
+  t,
+  isError,
+}: {
+  text: string;
+  entry: SharedToolTranscriptEntry;
+  target: string | null | undefined;
+  t: ThemeTokens;
+  isError: boolean;
+}) {
+  const language = detectTerminalCodeLanguage(text, target);
+  const rows = splitTerminalCodeLines(text);
+  return (
+    <div
+      data-testid="terminal-code-output"
+      className="min-w-0 max-w-full overflow-hidden"
+      style={{
+        borderLeft: `1px solid ${isError ? t.dangerBorder : t.surfaceBorder}`,
+        marginLeft: 6,
+        marginTop: 3,
+        paddingLeft: 10,
+        fontFamily: TERMINAL_FONT_STACK,
+        fontSize: 11.5,
+        lineHeight: 1.45,
+      }}
+    >
+      {rows.map((row, index) => (
+        <div
+          key={`${entry.id}-code-${index}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "4ch minmax(0, 1fr)",
+            columnGap: 10,
+            alignItems: "start",
+            maxWidth: "100%",
+          }}
+        >
+          <span
+            style={{
+              color: t.textDim,
+              fontVariantNumeric: "tabular-nums",
+              textAlign: "right",
+              userSelect: "none",
+            }}
+          >
+            {row.number}
+          </span>
+          <span
+            style={{
+              color: isError ? t.dangerMuted : t.textMuted,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {renderHighlightedTerminalLine(row.text, language, t)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function expandedTerminalOutput(env: ToolResultEnvelope | undefined): string {
   const output = normalizeTerminalOutput(env);
   if (output.length <= TERMINAL_EXPANDED_OUTPUT_CHARS) return output;
@@ -579,8 +757,20 @@ export function TerminalToolTranscript({
         const hasLargeOutput = !!output?.isLarge;
         const hasExpandableDetails = !!formattedArgs || hasLargeOutput || (!!entry.env && !output);
         const canToggle = hasExpandableDetails && entry.detailKind !== "inline-diff";
-        const rowTone = entry.isError ? t.danger : entry.tone === "warning" ? t.warning : t.text;
+        const rowTone = entry.isError
+          ? t.danger
+          : entry.tone === "warning"
+            ? t.warning
+            : entry.tone === "success"
+              ? t.success
+              : entry.tone === "accent"
+                ? t.accent
+                : entry.isRunning
+                  ? t.text
+                  : t.textMuted;
         const statusGlyph = entry.isError ? "x" : entry.approval ? "?" : ">";
+        const renderCodeOutput = output && !output.isLarge && entry.detailKind !== "inline-diff"
+          && looksLikeTerminalCodeOutput(entry, output.text, target);
 
         return (
           <div key={`${entry.id}:${idx}`} className="min-w-0 max-w-full overflow-hidden" data-testid="tool-transcript-row">
@@ -666,12 +856,24 @@ export function TerminalToolTranscript({
               </span>
             </div>
 
-            {output && !output.isLarge && entry.detailKind !== "inline-diff" && (
+            {renderCodeOutput && (
+              <div data-testid="terminal-tool-output">
+                <TerminalCodeOutput
+                  text={output.text}
+                  entry={entry}
+                  target={target}
+                  t={t}
+                  isError={entry.isError}
+                />
+              </div>
+            )}
+
+            {output && !output.isLarge && entry.detailKind !== "inline-diff" && !renderCodeOutput && (
               <pre
                 data-testid="terminal-tool-output"
                 className="m-0 whitespace-pre-wrap break-words"
                 style={{
-                  color: entry.isError ? t.dangerMuted : t.textMuted,
+                  color: entry.isError ? t.dangerMuted : t.textDim,
                   borderLeft: `1px solid ${entry.isError ? t.dangerBorder : t.surfaceBorder}`,
                   marginLeft: 6,
                   marginTop: 2,
@@ -738,21 +940,33 @@ export function TerminalToolTranscript({
                   </pre>
                 )}
                 {entry.env && output?.isLarge && (
-                  <pre
-                    data-testid="terminal-tool-output"
-                    className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap break-words"
-                    style={{
-                      color: entry.isError ? t.dangerMuted : t.textMuted,
-                      fontFamily: TERMINAL_FONT_STACK,
-                      fontSize: 11.5,
-                      lineHeight: 1.45,
-                      maxWidth: "100%",
-                      overflowWrap: "anywhere",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {expandedTerminalOutput(entry.env)}
-                  </pre>
+                  looksLikeTerminalCodeOutput(entry, expandedTerminalOutput(entry.env), target) ? (
+                    <div data-testid="terminal-tool-output">
+                      <TerminalCodeOutput
+                        text={expandedTerminalOutput(entry.env)}
+                        entry={entry}
+                        target={target}
+                        t={t}
+                        isError={entry.isError}
+                      />
+                    </div>
+                  ) : (
+                    <pre
+                      data-testid="terminal-tool-output"
+                      className="m-0 max-h-[520px] overflow-auto whitespace-pre-wrap break-words"
+                      style={{
+                        color: entry.isError ? t.dangerMuted : t.textDim,
+                        fontFamily: TERMINAL_FONT_STACK,
+                        fontSize: 11.5,
+                        lineHeight: 1.45,
+                        maxWidth: "100%",
+                        overflowWrap: "anywhere",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {expandedTerminalOutput(entry.env)}
+                    </pre>
+                  )
                 )}
                 {entry.env && !output && (
                   entry.isError ? (

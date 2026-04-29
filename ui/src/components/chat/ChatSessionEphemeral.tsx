@@ -49,6 +49,7 @@ import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
+import { applyChatStyleSideEffect } from "./slashStyleSideEffects";
 import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { useModelGroups } from "@/src/api/hooks/useModels";
 import { resolveProviderForModel } from "./slashArgSources";
@@ -377,7 +378,7 @@ export function EphemeralChatSession({
       }
       if (result.command_id === "style") {
         const channelForStyle = scratchBoundChannelId ?? parentChannelId;
-        if (channelForStyle) qc.invalidateQueries({ queryKey: ["channel", channelForStyle] });
+        applyChatStyleSideEffect(qc, channelForStyle, result);
       }
     },
   });

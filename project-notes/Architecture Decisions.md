@@ -10,6 +10,17 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Integration filesystem sources resolve through `integrations.discovery`
+**Decided 2026-04-29.** Integration filesystem roots are resolved by `integrations.discovery` as `IntegrationSource` objects. App services that need integration-owned files must call the resolver seam instead of reconstructing `integrations/<id>` paths or reading only legacy `INTEGRATION_DIRS`.
+
+**Load-bearing invariants.**
+- Source precedence stays external > package > in-repo for the same integration id.
+- File consumers use `resolve_integration_path(...)` or a resolved `IntegrationSource.path` plus local path-within-root guards.
+- Tool loading, widget scanning/serving/manifests, widget.py handlers, widget suites, harness runtimes, and scaffold root selection all share the same source policy.
+- `SPINDREL_HOME` / `HOME_LOCAL_DIR`, legacy `INTEGRATION_DIRS`, and runtime integration dirs remain external integration base directories whose child folders are integrations.
+
+**Why.** The catalog split made discovery side-effect-free but left several consumers with stale repo-only path knowledge. Centralizing the source policy gives custom integrations one locality boundary and prevents fixing tools while widgets, harnesses, or scaffold paths drift again.
+
 ### Startup-owned secrets are configured after settings load
 **Decided 2026-04-28.** First-boot environment persistence lives in `app/services/startup_env.py`, not inline in `app/main.py` or import-time auth module code. Startup loads DB-backed settings/providers, then persists missing process-critical env values and configures runtime modules with the resolved values.
 

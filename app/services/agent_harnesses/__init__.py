@@ -69,8 +69,7 @@ def discover_and_load_harnesses() -> None:
 
     Each harness module self-registers via ``register_runtime`` as a side
     effect of import. Called once at app startup from ``app/main.py`` after
-    ``discover_and_load_tools``. Mirrors the tool-loader pattern in
-    ``app/tools/loader.py:_scan_integration_tools``.
+    ``discover_and_load_tools``. Mirrors the tool-loader source resolver path.
     """
     from app.services.integration_settings import is_active
     from integrations.discovery import iter_integration_sources

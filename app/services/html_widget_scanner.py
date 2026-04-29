@@ -64,9 +64,6 @@ if TYPE_CHECKING:
 # parents[0]=services, parents[1]=app, parents[2]=repo.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILTIN_WIDGET_ROOT = (_REPO_ROOT / "app" / "tools" / "local" / "widgets").resolve()
-# Compatibility constant for older tests/imports. Integration scans resolve
-# through integrations.discovery so external/package roots use the same seam.
-INTEGRATIONS_ROOT = (_REPO_ROOT / "integrations").resolve()
 
 logger = logging.getLogger(__name__)
 

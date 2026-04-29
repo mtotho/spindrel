@@ -75,10 +75,22 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
     assert.match(toolBadges, /data-testid="terminal-tool-label"/);
     assert.match(toolBadges, /data-testid="terminal-tool-meta"/);
     assert.match(toolBadges, /data-testid="terminal-tool-output"/);
+    assert.match(toolBadges, /data-testid="terminal-code-output"/);
+    assert.match(toolBadges, /looksLikeTerminalCodeOutput/);
     assert.match(toolBadges, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
     assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
     assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
     assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
+});
+test("style slash command updates live channel cache instead of refresh-only invalidation", () => {
+    const useChannelChat = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelChat.ts"), "utf8");
+    const chatSessionSources = readChatSessionSourceModes();
+    const styleSideEffects = readChatFile("slashStyleSideEffects.ts");
+    assert.match(styleSideEffects, /queryClient\.setQueryData<any>\(\["channels", channelId\]/);
+    assert.match(styleSideEffects, /delete config\.chat_mode/);
+    assert.match(useChannelChat, /applyChatStyleSideEffect\(queryClient, channelId, result\)/);
+    assert.match(chatSessionSources, /applyChatStyleSideEffect\(qc, parentChannelId, result\)/);
+    assert.doesNotMatch(chatSessionSources, /\["channel", parentChannelId\]/);
 });
 test("ChatSession stays a source router over dedicated source-mode modules", () => {
     const chatSession = readChatFile("ChatSession.tsx");

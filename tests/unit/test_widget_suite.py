@@ -9,7 +9,9 @@ import pytest
 from app.services.widget_suite import (
     SuiteError,
     clear_suite_cache,
+    load_suite,
     parse_suite_manifest,
+    scan_suites,
 )
 
 
@@ -210,3 +212,44 @@ class TestParseSuiteManifest:
         )
         with pytest.raises(SuiteError, match="'db' is required"):
             parse_suite_manifest(p)
+
+
+class TestSuiteDiscovery:
+    def test_load_suite_discovers_external_integration_widget_suites(self, tmp_path, monkeypatch):
+        from app.services import widget_suite
+        from integrations.discovery import IntegrationSource
+
+        integration_root = tmp_path / "spindrel-home" / "bennieloggins"
+        _write(
+            integration_root / "widgets" / "ops",
+            "suite.yaml",
+            """
+            name: Ops
+            members: [status]
+            db:
+              schema_version: 1
+              migrations:
+                - from: 0
+                  to: 1
+                  sql: "create table status (id integer primary key);"
+            """,
+        )
+        monkeypatch.setattr(widget_suite, "_BUILTIN_WIDGETS_DIR", tmp_path / "missing")
+        monkeypatch.setattr(
+            "integrations.discovery.iter_integration_sources",
+            lambda: [
+                IntegrationSource(
+                    integration_id="bennieloggins",
+                    path=integration_root.resolve(),
+                    source="external",
+                    is_external=True,
+                )
+            ],
+        )
+
+        suite = load_suite("ops")
+        suites = scan_suites()
+
+        assert suite is not None
+        assert suite.name == "Ops"
+        assert [item.suite_id for item in suites] == ["ops"]

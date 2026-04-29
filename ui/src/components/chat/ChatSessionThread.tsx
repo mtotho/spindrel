@@ -49,6 +49,7 @@ import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
+import { applyChatStyleSideEffect } from "./slashStyleSideEffects";
 import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { useModelGroups } from "@/src/api/hooks/useModels";
 import { resolveProviderForModel } from "./slashArgSources";
@@ -217,7 +218,7 @@ export function ThreadChatSession({
         qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
       }
       if (result.command_id === "style") {
-        qc.invalidateQueries({ queryKey: ["channel", parentChannelId] });
+        applyChatStyleSideEffect(qc, parentChannelId, result);
       }
     },
   });

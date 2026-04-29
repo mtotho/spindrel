@@ -55,6 +55,8 @@
     "src/components/chat/slashCommands.test.ts",
     "src/components/chat/slashCommandSurfaces.ts",
     "src/components/chat/slashCommandSurfaces.test.ts",
+    "src/components/chat/slashStyleSideEffects.ts",
+    "src/components/chat/slashStyleSideEffects.test.ts",
     "src/components/chat/composerSubmit.ts",
     "src/components/chat/composerSubmit.test.ts",
     "src/components/chat/chatCancelRequest.ts",

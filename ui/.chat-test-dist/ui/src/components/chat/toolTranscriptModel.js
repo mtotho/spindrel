@@ -423,6 +423,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             target: summary.target_label ? null : target,
             env: result,
             isError: false,
+            isRunning: false,
             detailKind: "inline-diff",
             detail: extractDiffText(result),
             tone: "muted",
@@ -438,6 +439,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             target: summary.target_label ? null : target,
             env: result,
             isError: false,
+            isRunning: false,
             detailKind: "collapsed-read",
             detail: null,
             tone: "muted",
@@ -452,6 +454,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
         target: summary.target_label ? null : target,
         env: result,
         isError: summary.kind === "error",
+        isRunning: false,
         detailKind: result ? "expandable" : "none",
         detail: summary.kind === "error" ? summary.error || null : null,
         tone: summary.kind === "error" ? "danger" : "default",
@@ -482,6 +485,7 @@ function buildPersistedEntry(toolName, args, result, toolSummary, rawCall) {
             target: fileToolTarget,
             env: result,
             isError: false,
+            isRunning: false,
             detailKind: isRead ? "collapsed-read" : diff ? "inline-diff" : "expandable",
             detail: isRead ? null : (diff ?? extractNonJsonOutput(result)),
             tone: /^deleted\s+/i.test(summary) ? "danger" : "muted",
@@ -499,6 +503,7 @@ function buildPersistedEntry(toolName, args, result, toolSummary, rawCall) {
         args,
         env: result,
         isError: isErrorEnvelope(result),
+        isRunning: false,
         detailKind: result || args ? "expandable" : "none",
         detail: (() => {
             const paramsDetail = formatSimpleParams(args);
@@ -726,6 +731,7 @@ export function buildLiveToolEntries(toolCalls) {
                     ? `Expired: ${toolName}`
                     : base.label,
             detail: formatSimpleParams(tc.args) || tc.approvalReason || tc.capability?.description || base.detail || null,
+            isRunning: tc.status === "running",
             tone: tc.status === "awaiting_approval"
                 ? "warning"
                 : tc.status === "denied"
@@ -733,7 +739,7 @@ export function buildLiveToolEntries(toolCalls) {
                     : tc.status === "expired"
                         ? "muted"
                         : tc.status === "running"
-                            ? "muted"
+                            ? "default"
                             : base.tone,
             approval: tc.approvalId && tc.status === "awaiting_approval" ? {
                 approvalId: tc.approvalId,

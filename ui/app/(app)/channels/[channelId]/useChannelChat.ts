@@ -17,6 +17,7 @@ import { resolveProviderForModel } from "@/src/components/chat/slashArgSources";
 import { resolveAvailableSlashCommandIds } from "@/src/components/chat/slashCommandSurfaces";
 import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message } from "@/src/types/api";
 import { useSlashCommandExecutor } from "@/src/components/chat/useSlashCommandExecutor";
+import { applyChatStyleSideEffect } from "@/src/components/chat/slashStyleSideEffects";
 import { useThemeStore } from "@/src/stores/theme";
 import { isHarnessQuestionTransportMessage } from "@/src/components/chat/harnessQuestionMessages";
 import { buildChatCancelRequest } from "@/src/components/chat/chatCancelRequest";
@@ -762,8 +763,12 @@ export function useChannelChat({
         queryClient.invalidateQueries({ queryKey: ["session-plan", channel?.active_session_id ?? undefined] });
       }
       if (result.command_id === "style" || result.command_id === "rename") {
-        queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
-        queryClient.invalidateQueries({ queryKey: ["channels"] });
+        if (result.command_id === "style") {
+          applyChatStyleSideEffect(queryClient, channelId, result);
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+          queryClient.invalidateQueries({ queryKey: ["channels"] });
+        }
       }
     },
   });
