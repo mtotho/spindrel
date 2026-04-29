@@ -597,7 +597,8 @@ class Settings(BaseSettings):
     COMPACTION_LIVE_HISTORY_MAX_TOKENS: int = 60_000   # Absolute cap for replayable live history before early compaction fires.
 
     # STT / Transcription
-    STT_PROVIDER: str = "local"  # "local" (faster-whisper) or future: "groq", "openai"
+    STT_PROVIDER: str = "local"  # "local" (faster-whisper); "test" only in e2e
+    STT_TEST_TRANSCRIPT: str = "voice input e2e transcript"
     WHISPER_MODEL: str = "base.en"
     WHISPER_DEVICE: str = "auto"  # "auto", "cpu", "cuda"
     WHISPER_COMPUTE_TYPE: str = "auto"  # "auto", "int8", "float16", "float32"

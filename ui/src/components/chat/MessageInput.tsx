@@ -403,8 +403,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
       <div style={{ flexShrink: 0, marginTop: isTerminalMode ? 10 : 0 }}>
         {/* Audio recorder error */}
         {recorder.error && (
-          <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
-            <span style={{ color: "#ef4444", fontSize: 12 }}>{recorder.error}</span>
+          <div role="alert" style={{ padding: "4px 20px", background: t.dangerSubtle }}>
+            <span style={{ color: t.danger, fontSize: 12 }}>{recorder.error}</span>
           </div>
         )}
         {/* Pending file previews */}
@@ -884,6 +884,19 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
               {/* Send / Stop / Mic button */}
               <button
                 data-testid="chat-composer-send"
+                data-audio-state={recorder.isRecording ? "recording" : showMic ? "idle" : "off"}
+                aria-label={
+                  showStop ? "Stop response"
+                  : recorder.isRecording ? "Send recording"
+                  : showMic ? "Record audio"
+                  : "Send message"
+                }
+                title={
+                  showStop ? "Stop response"
+                  : recorder.isRecording ? "Send recording"
+                  : showMic ? "Record audio"
+                  : "Send message"
+                }
                 className="send-btn"
                 onClick={
                   (showStop && stopArmed) ? () => { tapHaptic(12); onCancel?.(); }

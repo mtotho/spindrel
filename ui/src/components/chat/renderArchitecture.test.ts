@@ -97,8 +97,13 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
   assert.match(toolBadges, /data-testid="terminal-tool-meta"/);
   assert.match(toolBadges, /data-testid="terminal-tool-output"/);
   assert.match(toolBadges, /data-testid="terminal-code-output"/);
+  assert.match(toolBadges, /data-testid="terminal-diff-output"/);
+  assert.match(toolBadges, /function TerminalDiffOutput/);
+  assert.match(toolBadges, /parseTerminalDiffRows/);
+  assert.match(toolBadges, /renderHtmlTag/);
   assert.match(toolBadges, /looksLikeTerminalCodeOutput/);
   assert.match(toolBadges, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
+  assert.match(toolBadges, /gridTemplateColumns:\s*"4ch 4ch 2ch minmax\(0, 1fr\)"/);
   assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
   assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
   assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);

@@ -110,6 +110,13 @@ type TerminalCodeLine = {
   text: string;
 };
 
+type TerminalDiffLine =
+  | { kind: "add"; text: string; oldNo: string; newNo: string; sign: "+" }
+  | { kind: "remove"; text: string; oldNo: string; newNo: string; sign: "-" }
+  | { kind: "context"; text: string; oldNo: string; newNo: string; sign: " " }
+  | { kind: "hunk"; text: string; oldNo: string; newNo: string; sign: "@" }
+  | { kind: "meta"; text: string; oldNo: string; newNo: string; sign: "" };
+
 function targetExtension(target: string | null | undefined): string {
   const clean = (target ?? "").split(/[?#]/)[0] ?? "";
   const match = clean.match(/\.([a-z0-9]+)$/i);
@@ -156,6 +163,25 @@ function looksLikeTerminalCodeOutput(entry: SharedToolTranscriptEntry, text: str
   return numbered >= Math.min(3, Math.max(1, lines.length)) && detectTerminalCodeLanguage(text, target) !== "text";
 }
 
+function renderHtmlTag(part: string, t: ThemeTokens): ReactNode {
+  const tag = part.match(/^(<\/?)([A-Za-z][\w:-]*)(.*?)(\/?>)$/);
+  if (!tag) return <span style={{ color: t.accent }}>{part}</span>;
+  const attrs = tag[3].split(/(\s+[A-Za-z_:][\w:.-]*)(=)("[^"]*"|'[^']*'|[^\s"'=<>`]+)?/g).filter((token) => token.length > 0);
+  return (
+    <>
+      <span style={{ color: t.textDim }}>{tag[1]}</span>
+      <span style={{ color: t.accent }}>{tag[2]}</span>
+      {attrs.map((token, index) => {
+        if (/^\s+[A-Za-z_:][\w:.-]*$/.test(token)) return <span key={index} style={{ color: t.warning }}>{token}</span>;
+        if (token === "=") return <span key={index} style={{ color: t.textDim }}>{token}</span>;
+        if (/^("[^"]*"|'[^']*'|[^\s"'=<>`]+)$/.test(token)) return <span key={index} style={{ color: t.success }}>{token}</span>;
+        return <span key={index} style={{ color: t.textMuted }}>{token}</span>;
+      })}
+      <span style={{ color: t.textDim }}>{tag[4]}</span>
+    </>
+  );
+}
+
 function renderHighlightedTerminalLine(line: string, language: ReturnType<typeof detectTerminalCodeLanguage>, t: ThemeTokens): ReactNode {
   if (!line) return " ";
   if (language === "html") {
@@ -163,16 +189,7 @@ function renderHighlightedTerminalLine(line: string, language: ReturnType<typeof
     return parts.map((part, index) => {
       if (part.startsWith("<!--")) return <span key={index} style={{ color: t.textDim }}>{part}</span>;
       if (part.startsWith("<")) {
-        const tag = part.match(/^(<\/?)([A-Za-z][\w:-]*)(.*?)(\/?>)$/);
-        if (!tag) return <span key={index} style={{ color: t.accent }}>{part}</span>;
-        return (
-          <span key={index}>
-            <span style={{ color: t.textDim }}>{tag[1]}</span>
-            <span style={{ color: t.accent }}>{tag[2]}</span>
-            <span style={{ color: t.textMuted }}>{tag[3]}</span>
-            <span style={{ color: t.textDim }}>{tag[4]}</span>
-          </span>
-        );
+        return <span key={index}>{renderHtmlTag(part, t)}</span>;
       }
       if ((part.startsWith("\"") && part.endsWith("\"")) || (part.startsWith("'") && part.endsWith("'"))) {
         return <span key={index} style={{ color: t.success }}>{part}</span>;
@@ -215,6 +232,119 @@ function renderHighlightedTerminalLine(line: string, language: ReturnType<typeof
     }
   }
   return <span style={{ color: t.textMuted }}>{line}</span>;
+}
+
+function parseTerminalDiffRows(detail: string): TerminalDiffLine[] {
+  const rows: TerminalDiffLine[] = [];
+  let oldLine: number | null = null;
+  let newLine: number | null = null;
+
+  for (const rawLine of detail.split(/\r?\n/)) {
+    const hunk = rawLine.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[2]);
+      rows.push({ kind: "hunk", text: rawLine, oldNo: "", newNo: "", sign: "@" });
+      continue;
+    }
+    if (rawLine.startsWith("---") || rawLine.startsWith("+++") || rawLine.startsWith("\\")) {
+      rows.push({ kind: "meta", text: rawLine, oldNo: "", newNo: "", sign: "" });
+      continue;
+    }
+    if (rawLine.startsWith("+")) {
+      rows.push({ kind: "add", text: rawLine.slice(1), oldNo: "", newNo: newLine != null ? String(newLine) : "", sign: "+" });
+      if (newLine != null) newLine += 1;
+      continue;
+    }
+    if (rawLine.startsWith("-")) {
+      rows.push({ kind: "remove", text: rawLine.slice(1), oldNo: oldLine != null ? String(oldLine) : "", newNo: "", sign: "-" });
+      if (oldLine != null) oldLine += 1;
+      continue;
+    }
+    rows.push({
+      kind: "context",
+      text: rawLine.startsWith(" ") ? rawLine.slice(1) : rawLine,
+      oldNo: oldLine != null ? String(oldLine) : "",
+      newNo: newLine != null ? String(newLine) : "",
+      sign: " ",
+    });
+    if (oldLine != null) oldLine += 1;
+    if (newLine != null) newLine += 1;
+  }
+
+  return rows.filter((row) => row.kind !== "meta");
+}
+
+function terminalDiffColors(row: TerminalDiffLine, t: ThemeTokens) {
+  if (row.kind === "add") return { background: t.successSubtle, color: t.success, text: t.contentText };
+  if (row.kind === "remove") return { background: t.dangerSubtle, color: t.danger, text: t.contentText };
+  if (row.kind === "hunk") return { background: t.accentSubtle, color: t.accent, text: t.accent };
+  return { background: "transparent", color: t.textDim, text: t.textMuted };
+}
+
+function TerminalDiffOutput({
+  detail,
+  rowId,
+  label,
+  metaLabel,
+  t,
+}: {
+  detail: string;
+  rowId: string;
+  label?: string | null;
+  metaLabel?: string | null;
+  t: ThemeTokens;
+}) {
+  const rows = parseTerminalDiffRows(detail);
+  return (
+    <div
+      data-testid="terminal-diff-output"
+      className="min-w-0 max-w-full overflow-hidden"
+      style={{
+        borderLeft: `1px solid ${t.surfaceBorder}`,
+        marginLeft: 6,
+        marginTop: 3,
+        paddingLeft: 10,
+        fontFamily: TERMINAL_FONT_STACK,
+        fontSize: 11.5,
+        lineHeight: 1.45,
+      }}
+    >
+      {renderDiffTitle(label, metaLabel, t)}
+      {rows.map((row, index) => {
+        const colors = terminalDiffColors(row, t);
+        return (
+          <div
+            key={`${rowId}-terminal-diff-${index}`}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "4ch 4ch 2ch minmax(0, 1fr)",
+              columnGap: 6,
+              alignItems: "start",
+              maxWidth: "100%",
+              background: colors.background,
+              borderRadius: 3,
+              padding: "0 4px 0 0",
+            }}
+          >
+            <span style={{ color: t.textDim, textAlign: "right", userSelect: "none", fontVariantNumeric: "tabular-nums" }}>{row.oldNo}</span>
+            <span style={{ color: t.textDim, textAlign: "right", userSelect: "none", fontVariantNumeric: "tabular-nums" }}>{row.newNo}</span>
+            <span style={{ color: colors.color, textAlign: "center", userSelect: "none" }}>{row.sign}</span>
+            <span
+              style={{
+                color: colors.text,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                overflowWrap: "anywhere",
+              }}
+            >
+              {row.text || " "}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function TerminalCodeOutput({
@@ -892,9 +1022,13 @@ export function TerminalToolTranscript({
             )}
 
             {entry.detailKind === "inline-diff" && entry.detail && (
-              <div data-testid="terminal-tool-output">
-                {renderDiffBlock(entry.detail, t, entry.id, true, label, metaLabel)}
-              </div>
+              <TerminalDiffOutput
+                detail={entry.detail}
+                rowId={entry.id}
+                label={label}
+                metaLabel={metaLabel}
+                t={t}
+              />
             )}
 
             {entry.approval && onApproval && (

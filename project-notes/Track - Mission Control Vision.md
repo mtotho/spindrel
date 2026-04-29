@@ -153,6 +153,14 @@ This is a proving slice for Mission Control: chat-native session, structured
 card output, approval/review loop, and live Attention cleanup, without making
 the product depend on a durable mission system.
 
+2026-04-29 refinement: Attention now treats Operator output as a visible review
+pipeline, not hidden metadata inside the old raw alert inbox. Starboard bucket
+copy leads with review/untriaged/cleared counts, sweep candidates exclude items
+already in Operator Review, review details put the Operator finding before raw
+evidence, and Map Brief distinguishes operator-reviewed findings from raw red
+alerts. This keeps the current Attention primitives while making the sweep feel
+like it transformed the queue.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

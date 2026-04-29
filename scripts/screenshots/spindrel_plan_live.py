@@ -1,0 +1,261 @@
+"""Capture live native Spindrel plan-mode screenshots into docs/images.
+
+This utility is separate from the staged screenshot pipeline and from harness
+captures. It consumes session ids produced by ``run_spindrel_plan_live.sh`` and
+opens the real UI against those live native Spindrel plan-mode sessions.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
+
+import httpx
+from playwright.async_api import Browser, Page, async_playwright
+
+from scripts.screenshots.playwright_runtime import launch_async_browser
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DOCS_IMAGES = REPO_ROOT / "docs" / "images"
+DEFAULT_CHANNEL_ID = "67a06926-87e6-40fb-b85b-7eac36c74b98"
+DEFAULT_SESSIONS_JSON = Path("/tmp/spindrel-plan-parity/spindrel-plan-sessions.json")
+FORBIDDEN_HARNESS_TEXT = ("harness-spindrel:", "harness has a question", "harness sdk")
+
+
+@dataclass(frozen=True)
+class CaptureSpec:
+    name: str
+    route: str
+    wait_js: str
+    contains: tuple[str, ...]
+    not_contains: tuple[str, ...] = FORBIDDEN_HARNESS_TEXT
+    theme: str = "dark"
+    viewport: tuple[int, int] = (1440, 900)
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip() or default
+
+
+def _require_env(name: str) -> str:
+    value = _env(name)
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
+
+def _auth_init_script(*, api_url: str, api_key: str, theme: str) -> str:
+    auth_state = {
+        "serverUrl": api_url,
+        "apiKey": api_key,
+        "accessToken": "",
+        "refreshToken": "",
+        "user": {
+            "id": "spindrel-plan-visual-capture",
+            "email": "spindrel-plan-visual@spindrel.local",
+            "display_name": "Spindrel Plan Visual Capture",
+            "avatar_url": None,
+            "integration_config": {},
+            "is_admin": True,
+            "auth_method": "api_key",
+            "scopes": ["*"],
+        },
+        "isConfigured": True,
+    }
+    theme_state = {"mode": theme}
+    return "\n".join((
+        f"localStorage.setItem('agent-auth', {json.dumps(json.dumps({'state': auth_state, 'version': 0}))});",
+        f"localStorage.setItem('agent-theme', {json.dumps(json.dumps({'state': theme_state, 'version': 0}))});",
+    ))
+
+
+def _load_session_artifact(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Session artifact is not valid JSON: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"Session artifact must be a JSON object: {path}")
+    return {str(key): str(value) for key, value in data.items() if value is not None}
+
+
+def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
+    artifact = _load_session_artifact(Path(args.sessions_json))
+    return {
+        "channel_id": args.channel_id or artifact.get("channel_id") or DEFAULT_CHANNEL_ID,
+        "question_session_id": args.question_session_id or artifact.get("question_session_id", ""),
+        "plan_session_id": args.plan_session_id or artifact.get("plan_session_id", ""),
+    }
+
+
+def _build_specs(browser_url: str, *, channel_id: str, question_session_id: str, plan_session_id: str) -> list[CaptureSpec]:
+    specs: list[CaptureSpec] = []
+    if question_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{question_session_id}"
+        wait = (
+            "document.body.innerText.toLowerCase().includes('native plan parity questions') "
+            "&& document.body.innerText.toLowerCase().includes('submit answers')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-question-card-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native plan parity questions", "Submit Answers"),
+        ))
+    if plan_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{plan_session_id}"
+        wait = (
+            "document.body.innerText.toLowerCase().includes('native spindrel plan parity') "
+            "&& (document.body.innerText.toLowerCase().includes('approve & execute') "
+            "|| document.body.innerText.toLowerCase().includes('exit plan mode'))"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-card-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Plan Parity",),
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-card-mobile-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Plan Parity",),
+            viewport=(390, 844),
+        ))
+    return specs
+
+
+async def _api(client: httpx.AsyncClient, method: str, path: str, **kwargs):
+    resp = await client.request(method, path, **kwargs)
+    resp.raise_for_status()
+    return resp.json() if resp.content else None
+
+
+async def _assert_sessions_exist(
+    client: httpx.AsyncClient,
+    *,
+    question_session_id: str,
+    plan_session_id: str,
+) -> None:
+    for session_id in (question_session_id, plan_session_id):
+        if session_id:
+            await _api(client, "GET", f"/sessions/{session_id}/plan-state")
+
+
+async def _capture_one(
+    browser: Browser,
+    spec: CaptureSpec,
+    *,
+    browser_api_url: str,
+    api_key: str,
+    output_dir: Path,
+) -> Path:
+    width, height = spec.viewport
+    context = await browser.new_context(
+        base_url=spec.route,
+        viewport={"width": width, "height": height},
+        color_scheme=spec.theme,
+    )
+    await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
+    page: Page = await context.new_page()
+    await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
+    await page.wait_for_function(spec.wait_js, timeout=60_000)
+    await page.wait_for_timeout(750)
+    text = await page.locator("body").inner_text(timeout=5_000)
+    lower = text.lower()
+    missing = [needle for needle in spec.contains if needle.lower() not in lower]
+    if missing:
+        raise AssertionError(f"{spec.name}: missing visible text {missing!r}")
+    forbidden = [needle for needle in spec.not_contains if needle.lower() in lower]
+    if forbidden:
+        raise AssertionError(f"{spec.name}: unexpected visible text {forbidden!r}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"{spec.name}.png"
+    await page.screenshot(path=str(path), full_page=False)
+    await context.close()
+    return path
+
+
+async def capture(args: argparse.Namespace) -> list[Path]:
+    api_url = args.api_url.rstrip("/")
+    browser_url = args.browser_url.rstrip("/")
+    browser_api_url = args.browser_api_url.rstrip("/")
+    api_key = args.api_key
+    output_dir = Path(args.output_dir)
+    resolved = _resolve_session_ids(args)
+    specs = _build_specs(
+        browser_url,
+        channel_id=resolved["channel_id"],
+        question_session_id=resolved["question_session_id"],
+        plan_session_id=resolved["plan_session_id"],
+    )
+    if not specs:
+        raise SystemExit(
+            "No native plan sessions to capture. Run scripts/run_spindrel_plan_live.sh --tier publish "
+            "or pass --question-session-id/--plan-session-id."
+        )
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    timeout = httpx.Timeout(60.0, read=300.0)
+    async with httpx.AsyncClient(base_url=api_url, headers=headers, timeout=timeout) as client:
+        await _assert_sessions_exist(
+            client,
+            question_session_id=resolved["question_session_id"],
+            plan_session_id=resolved["plan_session_id"],
+        )
+
+    paths: list[Path] = []
+    async with async_playwright() as pw:
+        browser = await launch_async_browser(pw, headless=True)
+        try:
+            for spec in specs:
+                print(f"capturing {spec.name}", flush=True)
+                path = await _capture_one(
+                    browser,
+                    spec,
+                    browser_api_url=browser_api_url,
+                    api_key=api_key,
+                    output_dir=output_dir,
+                )
+                print(f"captured {spec.name}: {path}", flush=True)
+                paths.append(path)
+        finally:
+            await browser.close()
+    return paths
+
+
+def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="spindrel_plan_live_screenshots")
+    default_api_url = _env("SPINDREL_URL", "http://10.10.30.208:8000")
+    default_ui_url = _env("SPINDREL_UI_URL", default_api_url)
+    default_browser_url = _env("SPINDREL_BROWSER_URL", default_ui_url)
+    default_browser_api_url = _env("SPINDREL_BROWSER_API_URL", default_browser_url)
+    parser.add_argument("--api-url", default=default_api_url)
+    parser.add_argument("--ui-url", default=default_ui_url)
+    parser.add_argument("--browser-url", default=default_browser_url)
+    parser.add_argument("--browser-api-url", default=default_browser_api_url)
+    parser.add_argument("--api-key", default=_env("SPINDREL_API_KEY") or _env("E2E_API_KEY"))
+    parser.add_argument("--output-dir", default=_env("DOCS_IMAGES_DIR", str(DEFAULT_DOCS_IMAGES)))
+    parser.add_argument("--channel-id", default=_env("SPINDREL_PLAN_CHANNEL_ID", DEFAULT_CHANNEL_ID))
+    parser.add_argument("--sessions-json", default=_env("SPINDREL_PLAN_SESSIONS_JSON", str(DEFAULT_SESSIONS_JSON)))
+    parser.add_argument("--question-session-id", default=_env("SPINDREL_PLAN_QUESTION_SESSION_ID"))
+    parser.add_argument("--plan-session-id", default=_env("SPINDREL_PLAN_CARD_SESSION_ID"))
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if not args.api_key:
+        args.api_key = _require_env("SPINDREL_API_KEY")
+    return args
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    asyncio.run(capture(_parse(argv)))
+
+
+if __name__ == "__main__":
+    main()

@@ -104,3 +104,39 @@ Question-card captures require a pending harness question and
 `HARNESS_VISUAL_QUESTION_SESSION_ID`; the normal bridge, terminal write,
 `/style` command-picker, and usage-log captures rediscover the latest E2E
 sessions from the configured harness channels.
+
+## Native Spindrel Plan Mode Run
+
+Native plan-mode screenshots use real live Spindrel sessions rather than
+synthetic screenshot staging. First run the live diagnostics to create fresh
+detached sessions on the dedicated native-plan E2E channel:
+
+```bash
+./scripts/run_spindrel_plan_live.sh --tier publish
+```
+
+The runner writes the latest session ids to
+`/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`. Capture the matching
+UI artifacts with:
+
+```bash
+SPINDREL_API_KEY=... \
+python -m scripts.screenshots.spindrel_plan_live \
+  --api-url http://10.10.30.208:8000 \
+  --ui-url http://10.10.30.208:8000 \
+  --browser-url http://10.10.30.208:8000 \
+  --output-dir docs/images
+```
+
+Expected artifacts:
+
+```text
+spindrel-plan-question-card-dark.png
+spindrel-plan-card-default-dark.png
+spindrel-plan-card-mobile-dark.png
+```
+
+When Playwright runs in the shared Docker browser runtime, use the same
+container-IP pattern documented in `scripts/screenshots/README.md`, replacing
+`scripts.screenshots.harness_live` with
+`scripts.screenshots.spindrel_plan_live`.

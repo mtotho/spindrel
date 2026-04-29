@@ -118,8 +118,9 @@ test("Map Brief active attention is actionable without opening the Attention pan
   assert.match(source, /data-testid="map-brief-attention-actions"/);
   assert.match(source, /Acknowledge target/);
   assert.match(source, /scope:\s*"target"/);
-  assert.match(source, /Open in Attention/);
-  assert.match(source, /label: "Review issue"/);
+  assert.match(source, /Open review/);
+  assert.match(source, /operator-reviewed finding/);
+  assert.match(source, /label: hasOperatorReview \? "Review finding" : "Review issue"/);
 });
 
 test("clusters surface aggregate actionable cues without opening selection chrome", () => {
@@ -141,8 +142,8 @@ test("spatial glanceability uses shared cue markers and compass without side str
   assert.match(cueSource, /data-testid="spatial-action-compass"/);
   assert.match(cueSource, /data-spatial-action-compass-collapsed/);
   assert.match(cueSource, /topActionCompassItems/);
-  assert.match(cueSource, /Needs action/);
-  assert.match(cueSource, /Best next clicks from live map state/);
+  assert.match(cueSource, /Next actions/);
+  assert.match(cueSource, /Best review targets from live map state/);
   assert.match(cueSource, /data-spatial-action-compass-selected/);
   assert.match(cueSource, /cueCountLabel/);
   assert.match(cueSource, /selectedItem/);
@@ -161,7 +162,7 @@ test("Map Brief warning lines expose concrete review targets", () => {
   const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
   const typeSource = readFileSync(resolve(process.cwd(), "src/api/types/workspaceMapState.ts"), "utf8");
   assert.match(chromeSource, /data-testid="map-brief-signal-action"/);
-  assert.match(chromeSource, /Review in Attention/);
+  assert.match(chromeSource, /Review finding/);
   assert.match(chromeSource, /Open trace/);
   assert.match(chromeSource, /Open automation/);
   assert.match(chromeSource, /openTraceInspector/);
@@ -171,9 +172,14 @@ test("Map Brief warning lines expose concrete review targets", () => {
 
 test("Attention operator sweep is global and normal assignment hides the operator bot", () => {
   const source = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
-  assert.match(source, /const OPERATOR_BOT_ID = "orchestrator"/);
+  const modelSource = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionModel.ts"), "utf8");
+  assert.match(modelSource, /OPERATOR_BOT_ID = "orchestrator"/);
+  assert.match(modelSource, /getAttentionWorkflowState/);
+  assert.match(modelSource, /attentionBucketSummary/);
+  assert.match(modelSource, /operator_review/);
+  assert.match(modelSource, /isAttentionSweepCandidate/);
   assert.match(source, /Operator sweep/);
-  assert.match(source, /Runs across all active issues, not just the selected target/);
+  assert.match(source, /Runs across untriaged issues, not just the selected target/);
   assert.match(source, /Model override/);
   assert.match(source, /Start sweep/);
   assert.match(source, /setOperatorRunOpen\(true\)/);
@@ -184,10 +190,15 @@ test("Attention operator sweep is global and normal assignment hides the operato
   assert.match(source, /out of DB connections/);
   assert.match(source, /Back to sweep setup/);
   assert.match(source, /Operator history/);
-  assert.match(source, /mode="summary"/);
-  assert.match(source, /mode="full"/);
+  assert.match(source, /OperatorReviewOverview/);
+  assert.match(source, /Open run/);
+  assert.match(source, /attentionBucketSummary\(grouped\)/);
+  assert.match(source, /<OperatorTriageRunPanel run=\{run\}/);
   assert.match(source, /h-\[min\(62vh,640px\)\] min-h-\[420px\]/);
-  assert.match(source, /Open Operator sweep for the transcript/);
+  assert.match(source, /Operator Review/);
+  assert.match(source, /Evidence/);
+  assert.match(source, /Review these findings/);
+  assert.match(source, /cleared by Operator/);
   assert.match(source, /recoveredTriageRun/);
   assert.match(source, /visibleTriageRun/);
   assert.match(source, /getOperatorTriage\(item\)/);

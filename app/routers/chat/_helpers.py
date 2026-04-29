@@ -304,14 +304,13 @@ async def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> st
     Runs in a thread to avoid blocking the event loop (Whisper is CPU-bound).
     """
     import asyncio
-    import base64
     import tempfile
+    from app.services.audio_input import decode_base64_audio
 
     def _sync_transcribe() -> str:
-        raw = base64.b64decode(audio_b64)
-        ext = f".{audio_format}" if audio_format else ".m4a"
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=True) as tmp:
-            tmp.write(raw)
+        audio = decode_base64_audio(audio_b64, audio_format)
+        with tempfile.NamedTemporaryFile(suffix=audio.suffix, delete=True) as tmp:
+            tmp.write(audio.data)
             tmp.flush()
             return stt_transcribe(tmp.name)
 

@@ -38,6 +38,7 @@ from app.services.sessions import (
 from app.services.channel_member_turns import maybe_route_to_member_bot
 from app.services.turn_context import prepare_bot_context
 from app.services.turns import SessionBusyError, TurnHandle, start_turn
+from app.services.audio_input import AudioInputError, decode_base64_audio
 
 from ._helpers import (
     _create_attachments_from_metadata,
@@ -204,9 +205,13 @@ async def _enqueue_chat_turn(
     message = req.message
 
     if req.audio_data:
+        try:
+            _decoded_audio = decode_base64_audio(req.audio_data, req.audio_format)
+        except AudioInputError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if _resolve_audio_native(req, bot):
             audio_data = req.audio_data
-            audio_format = req.audio_format
+            audio_format = _decoded_audio.format
             if not message:
                 message = "[audio message]"
             logger.info(
@@ -219,12 +224,11 @@ async def _enqueue_chat_turn(
                 req.bot_id, req.session_id,
             )
             from app.agent.hooks import HookContext, fire_hook_with_override
-            _audio_size_est = len(req.audio_data) * 3 // 4
             _override = await fire_hook_with_override("before_transcription", HookContext(
                 bot_id=req.bot_id,
                 extra={
                     "audio_format": req.audio_format or "m4a",
-                    "audio_size_bytes": _audio_size_est,
+                    "audio_size_bytes": len(_decoded_audio.data),
                     "source": "chat",
                 },
             ))

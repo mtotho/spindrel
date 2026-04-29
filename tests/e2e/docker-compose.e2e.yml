@@ -51,8 +51,9 @@ services:
       HOST_EXEC_ENABLED: "false"
       # Disable heartbeats (set to very high interval)
       HEARTBEAT_ACTIVE_INTERVAL_MINUTES: "9999"
-      # Disable STT warmup
-      STT_PROVIDER: ""
+      # Deterministic local voice-input path for e2e; production default remains local Whisper.
+      STT_PROVIDER: test
+      STT_TEST_TRANSCRIPT: Reply with only VOICE_OK.
       # Web search via SearXNG
       WEB_SEARCH_MODE: "searxng"
       SEARXNG_URL: http://searxng:8080
@@ -76,4 +77,3 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-

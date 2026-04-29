@@ -12,6 +12,7 @@ What we pin here:
 from __future__ import annotations
 
 import os
+import json
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +20,7 @@ import pytest
 from scripts.screenshots import config
 from scripts.screenshots import harness_live
 from scripts.screenshots import playwright_runtime
+from scripts.screenshots import spindrel_plan_live
 from scripts.screenshots.capture.specs import (
     ATTACHMENT_CHECK_SPECS,
     FLAGSHIP_SPECS,
@@ -265,6 +267,62 @@ def test_harness_live_parse_allows_browser_visible_url():
 
 def test_harness_live_terminal_write_rejects_compact_tool_tape():
     assert "tool calls" in harness_live.TERMINAL_WRITE_NOT_CONTAINS
+
+
+def test_spindrel_plan_live_loads_session_artifact(tmp_path):
+    path = tmp_path / "sessions.json"
+    path.write_text(json.dumps({
+        "channel_id": "channel-1",
+        "question_session_id": "question-1",
+        "plan_session_id": "plan-1",
+        "updated_at": 123,
+    }))
+
+    data = spindrel_plan_live._load_session_artifact(path)
+
+    assert data["channel_id"] == "channel-1"
+    assert data["question_session_id"] == "question-1"
+    assert data["plan_session_id"] == "plan-1"
+    assert data["updated_at"] == "123"
+
+
+def test_spindrel_plan_live_builds_expected_specs():
+    specs = spindrel_plan_live._build_specs(
+        "http://ui",
+        channel_id="channel-1",
+        question_session_id="question-1",
+        plan_session_id="plan-1",
+    )
+
+    assert [spec.name for spec in specs] == [
+        "spindrel-plan-question-card-dark",
+        "spindrel-plan-card-default-dark",
+        "spindrel-plan-card-mobile-dark",
+    ]
+    assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
+    assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
+    assert specs[2].viewport == (390, 844)
+    assert all("harness sdk" in spec.not_contains for spec in specs)
+
+
+def test_spindrel_plan_live_parse_allows_browser_visible_url():
+    env = {
+        "SPINDREL_API_KEY": "test-key",
+        "SPINDREL_URL": "http://127.0.0.1:8000",
+        "SPINDREL_UI_URL": "http://127.0.0.1:8000",
+        "SPINDREL_BROWSER_URL": "http://172.18.0.1:8000",
+        "SPINDREL_PLAN_CHANNEL_ID": "channel-1",
+        "SPINDREL_PLAN_SESSIONS_JSON": "/tmp/sessions.json",
+    }
+
+    with patch.dict(os.environ, env, clear=True):
+        args = spindrel_plan_live._parse([])
+
+    assert args.api_url == "http://127.0.0.1:8000"
+    assert args.browser_url == "http://172.18.0.1:8000"
+    assert args.browser_api_url == "http://172.18.0.1:8000"
+    assert args.channel_id == "channel-1"
+    assert args.sessions_json == "/tmp/sessions.json"
 
 
 def test_playwright_runtime_candidates_prefer_remote_then_runtime_then_executable(monkeypatch):

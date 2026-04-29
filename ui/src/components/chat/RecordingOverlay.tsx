@@ -25,6 +25,9 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
 
   return (
     <div
+      data-testid="chat-composer-recording"
+      role="status"
+      aria-live="polite"
       style={{
         flex: 1,
         display: "flex", flexDirection: "row",
@@ -32,7 +35,7 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
         gap: 12,
         padding: isMobile ? "8px 12px" : "10px 16px",
         borderRadius: 10,
-        border: `1px solid #ef4444`,
+        border: `1px solid ${t.danger}`,
         background: t.surfaceRaised,
         minHeight: isMobile ? 36 : 44,
       }}
@@ -43,7 +46,7 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
           width: 10,
           height: 10,
           borderRadius: 5,
-          backgroundColor: "#ef4444",
+          backgroundColor: t.danger,
           animation: "pulse-dot 1.2s ease-in-out infinite",
           flexShrink: 0,
         }}
@@ -63,6 +66,9 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
 
       {/* Cancel button */}
       <button
+        aria-label="Cancel recording"
+        title="Cancel recording"
+        data-testid="chat-composer-recording-cancel"
         onClick={onCancel}
         onMouseEnter={() => setCancelHover(true)}
         onMouseLeave={() => setCancelHover(false)}

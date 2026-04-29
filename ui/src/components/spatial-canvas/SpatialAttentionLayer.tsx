@@ -4,7 +4,6 @@ import {
   getOperatorTriage,
   isOperatorTriageProcessed,
   isOperatorTriageReadyForReview,
-  isOperatorTriageRunning,
   useAcknowledgeAttentionItem,
   useAssignAttentionItem,
   useAttentionTriageRuns,
@@ -20,6 +19,18 @@ import {
   type AttentionSeverity,
   type WorkspaceAttentionItem,
 } from "../../api/hooks/useWorkspaceAttention";
+import {
+  OPERATOR_BOT_ID,
+  activeAttentionItems,
+  attentionBucketSummary,
+  attentionItemTriageLabel,
+  attentionMapCueLabel,
+  bucketAttentionItems,
+  getAttentionWorkflowState,
+  severityRank,
+  sweepCandidateItems,
+  type AttentionBuckets,
+} from "./SpatialAttentionModel";
 import { useBots } from "../../api/hooks/useBots";
 import { useChannels } from "../../api/hooks/useChannels";
 import { BotPicker } from "../shared/BotPicker";
@@ -28,10 +39,8 @@ import { useUIStore } from "../../stores/ui";
 import { openTraceInspector } from "../../stores/traceInspector";
 import { SessionChatView } from "../chat/SessionChatView";
 
-const OPERATOR_BOT_ID = "orchestrator";
-const severityRank: Record<string, number> = { info: 0, warning: 1, error: 2, critical: 3 };
-
 function signalClass(item: WorkspaceAttentionItem): string {
+  if (getAttentionWorkflowState(item) === "operator_review") return "text-accent";
   if (item.source_type === "system") return "text-danger";
   if (item.severity === "critical" || item.severity === "error") return "text-danger";
   if (item.severity === "warning") return "text-warning";
@@ -45,6 +54,8 @@ function severityTextClass(item: WorkspaceAttentionItem): string {
 }
 
 function statusLabel(item: WorkspaceAttentionItem): string {
+  const triageLabel = attentionItemTriageLabel(item);
+  if (triageLabel !== "untriaged") return triageLabel;
   if (item.assignment_status === "running") return "running";
   if (item.assignment_status === "assigned") return "assigned";
   if (item.assignment_status === "reported") return "reported";
@@ -54,12 +65,9 @@ function statusLabel(item: WorkspaceAttentionItem): string {
   return item.status;
 }
 
-function activeItems(items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
-  return items.filter(isActiveAttentionItem);
-}
-
 export function shouldSurfaceAttentionOnMap(item: WorkspaceAttentionItem): boolean {
-  if (!isActiveAttentionItem(item)) return false;
+  if (!isActiveAttentionItem(item) && getAttentionWorkflowState(item) !== "operator_review") return false;
+  if (getAttentionWorkflowState(item) === "operator_review") return true;
   if (item.source_type === "system") {
     const classification = typeof item.evidence?.classification === "string" ? item.evidence.classification : "";
     return item.severity === "critical"
@@ -107,16 +115,16 @@ interface SignalProps {
 }
 
 export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) {
-  const active = activeItems(items).filter(shouldSurfaceAttentionOnMap).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
+  const active = activeAttentionItems(items).filter(shouldSurfaceAttentionOnMap).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
   if (!active.length) return null;
   const primary = active[0];
   const count = active.length;
   const inv = 1 / Math.max(scale, 0.05);
   const occurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
-  const urgent = active.some((item) => item.source_type === "system" || item.severity === "critical");
+  const urgent = active.some((item) => getAttentionWorkflowState(item) !== "operator_review" && (item.source_type === "system" || item.severity === "critical"));
   const label = count === 1
-    ? `${targetLabel(primary)}: ${primary.title} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
-    : `${targetLabel(primary)}: ${plural(count, "active issue")} (${occurrenceCount} occurrences)`;
+    ? `${targetLabel(primary)}: ${attentionMapCueLabel(primary)} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
+    : `${targetLabel(primary)}: ${plural(count, "action item")} (${occurrenceCount} occurrences)`;
   return (
     <div
       className="pointer-events-none absolute left-1/2 top-1/2 z-[50]"
@@ -196,16 +204,6 @@ export function AttentionHubDrawerRoot() {
   );
 }
 
-function laneFor(item: WorkspaceAttentionItem): "review" | "triage" | "needs" | "assigned" | "system" | "processed" {
-  if (isOperatorTriageRunning(item)) return "triage";
-  if (isOperatorTriageReadyForReview(item)) return "review";
-  if (isOperatorTriageProcessed(item)) return "processed";
-  if (item.status === "resolved" || item.status === "acknowledged") return "processed";
-  if (item.source_type === "system") return "system";
-  if (item.assigned_bot_id) return "assigned";
-  return "needs";
-}
-
 function AttentionHubDrawer({
   open,
   items,
@@ -267,7 +265,8 @@ export function AttentionHubContent({
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const operatorBot = bots.find((bot) => bot.id === OPERATOR_BOT_ID);
   const operatorDefaultModel = operatorBot?.model ?? "operator default";
-  const active = activeItems(items);
+  const active = activeAttentionItems(items);
+  const sweepable = sweepCandidateItems(items);
   const activeOccurrenceCount = active.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0);
   const selectedTargetItems = useMemo(() => {
     if (!selected) return [];
@@ -276,19 +275,7 @@ export function AttentionHubContent({
       .filter((item) => targetKey(item) === key)
       .sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
   }, [active, selected]);
-  const grouped = useMemo(() => {
-    const lanes = {
-      review: [] as WorkspaceAttentionItem[],
-      triage: [] as WorkspaceAttentionItem[],
-      needs: [] as WorkspaceAttentionItem[],
-      assigned: [] as WorkspaceAttentionItem[],
-      system: [] as WorkspaceAttentionItem[],
-      processed: [] as WorkspaceAttentionItem[],
-    };
-    for (const item of items) lanes[laneFor(item)].push(item);
-    for (const lane of Object.values(lanes)) lane.sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
-    return lanes;
-  }, [items]);
+  const grouped = useMemo(() => bucketAttentionItems(items), [items]);
   const recoveredTriageRun = useMemo<AttentionTriageRunResponse | null>(() => {
     for (const item of items) {
       const triage = getOperatorTriage(item);
@@ -312,12 +299,12 @@ export function AttentionHubContent({
   const visibleTriageRun = triageRun ?? activeHistoryRun ?? latestHistoryRun ?? recoveredTriageRun;
   const acknowledgeAllActive = () => {
     if (!active.length) return;
-    const ok = window.confirm(`Acknowledge all ${active.length} active Attention Items you can see?`);
+    const ok = window.confirm(`Acknowledge all ${active.length} actionable Attention Items you can see?`);
     if (!ok) return;
     bulkAcknowledge.mutate({ scope: "workspace_visible" }, { onSuccess: () => onSelect(null) });
   };
   const startOperatorSweep = () => {
-    if (!active.length || startTriage.isPending) return;
+    if (!sweepable.length || startTriage.isPending) return;
     setCreating(false);
     onSelect(null);
     setOperatorRunOpen(true);
@@ -343,7 +330,8 @@ export function AttentionHubContent({
             Attention Hub
           </div>
           <div className="mt-1 text-xs text-text-muted">
-            {plural(active.length, "active item")} · {plural(activeOccurrenceCount, "occurrence")}
+            {attentionBucketSummary(grouped)}
+            {activeOccurrenceCount > active.length ? ` · ${plural(activeOccurrenceCount, "occurrence")}` : ""}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -352,13 +340,13 @@ export function AttentionHubContent({
             disabled={!active.length || bulkAcknowledge.isPending}
             className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-40"
             onClick={acknowledgeAllActive}
-            title="Acknowledge all active Attention Items you can see"
+            title="Acknowledge all actionable Attention Items you can see"
           >
             Ack all
           </button>
           <button
             type="button"
-            disabled={!active.length && !visibleTriageRun}
+            disabled={!sweepable.length && !visibleTriageRun && !startTriage.isPending}
             className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08] disabled:opacity-40 ${
               operatorRunOpen ? "bg-accent/[0.08]" : ""
             }`}
@@ -372,7 +360,7 @@ export function AttentionHubContent({
               }
               setTriageOptionsOpen((value) => !value);
             }}
-            title="Configure an operator triage run for all active Attention Items"
+            title="Configure an operator sweep for untriaged Attention Items"
           >
             {startTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
             Operator sweep
@@ -390,8 +378,8 @@ export function AttentionHubContent({
       {triageOptionsOpen && (
         <div className="px-3 pb-2">
           <OperatorTriageSetup
-            activeCount={active.length}
-            occurrenceCount={activeOccurrenceCount}
+            activeCount={sweepable.length}
+            occurrenceCount={sweepable.reduce((total, item) => total + Math.max(1, item.occurrence_count || 1), 0)}
             defaultModel={operatorDefaultModel}
             model={triageModel}
             providerId={triageProviderId}
@@ -430,13 +418,17 @@ export function AttentionHubContent({
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {visibleTriageRun && <OperatorTriageRunPanel run={visibleTriageRun} mode="summary" />}
-          <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
-          <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
-          <AttentionLane title="Unprocessed" items={grouped.needs} onSelect={onSelect} />
-          <AttentionLane title="Assigned" items={grouped.assigned} onSelect={onSelect} />
-          <AttentionLane title="System Errors" items={grouped.system} onSelect={onSelect} />
-          <OperatorRunHistory runs={triageRuns} onSelect={onSelect} />
+          <OperatorReviewOverview
+            run={visibleTriageRun}
+            grouped={grouped}
+            onOpenRun={() => {
+              setOperatorRunOpen(true);
+              setCreating(false);
+              onSelect(null);
+            }}
+            onSelect={onSelect}
+            runs={triageRuns}
+          />
         </div>
       )}
     </>
@@ -459,10 +451,10 @@ function OperatorRunWorkspace({
   grouped: {
     review: WorkspaceAttentionItem[];
     triage: WorkspaceAttentionItem[];
-    needs: WorkspaceAttentionItem[];
+    untriaged: WorkspaceAttentionItem[];
     assigned: WorkspaceAttentionItem[];
-    system: WorkspaceAttentionItem[];
     processed: WorkspaceAttentionItem[];
+    closed: WorkspaceAttentionItem[];
   };
   onBack: () => void;
   onSelect: (item: WorkspaceAttentionItem) => void;
@@ -501,7 +493,7 @@ function OperatorRunWorkspace({
         )}
       </div>
       {run ? (
-        <OperatorTriageRunPanel run={run} mode="full" />
+        <OperatorTriageRunPanel run={run} />
       ) : (
         <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/35 p-3">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
@@ -528,9 +520,79 @@ function OperatorRunWorkspace({
       <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} />
       <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
       <AttentionLane title="Processed by operator" items={grouped.processed.slice(0, 16)} onSelect={onSelect} />
-      <AttentionLane title="Still unprocessed" items={[...grouped.needs, ...grouped.system, ...grouped.assigned].slice(0, 16)} onSelect={onSelect} />
+      <AttentionLane title="Still untriaged" items={[...grouped.untriaged, ...grouped.assigned].slice(0, 16)} onSelect={onSelect} />
       <OperatorRunHistory runs={runs} onSelect={onSelect} />
     </div>
+  );
+}
+
+function OperatorReviewOverview({
+  run,
+  grouped,
+  onOpenRun,
+  onSelect,
+  runs,
+}: {
+  run: AttentionTriageRunResponse | null;
+  grouped: AttentionBuckets;
+  onOpenRun: () => void;
+  onSelect: (item: WorkspaceAttentionItem) => void;
+  runs: AttentionTriageRunResponse[];
+}) {
+  const hasReview = grouped.review.length > 0;
+  const hasTriage = grouped.triage.length > 0;
+  const hasRun = Boolean(run);
+  return (
+    <>
+      {hasRun && (
+        <section className="mb-4 rounded-md bg-surface-overlay/30 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+                <Sparkles size={13} />
+                Operator sweep
+              </div>
+              <div className="mt-1 truncate text-xs text-text-muted">
+                {runStatusLabel(run!)} · {run?.counts?.ready_for_review ?? grouped.review.length} review · {run?.counts?.processed ?? grouped.processed.length} cleared
+              </div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08]"
+              onClick={onOpenRun}
+            >
+              Open run
+            </button>
+          </div>
+        </section>
+      )}
+      {(hasReview || hasTriage) && (
+        <section className="mb-4">
+          <div className="mb-2 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator Review</div>
+              <div className="mt-0.5 text-xs text-text-muted">
+                Review these findings; cleared items are already out of the main path.
+              </div>
+            </div>
+            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">{grouped.review.length}</span>
+          </div>
+          <AttentionLane title="Ready for review" items={grouped.review} onSelect={onSelect} emptyText="No findings need review." />
+          {hasTriage && <AttentionLane title="In operator sweep" items={grouped.triage} onSelect={onSelect} />}
+        </section>
+      )}
+      <AttentionLane title="Untriaged" items={grouped.untriaged} onSelect={onSelect} emptyText="No raw issues are waiting for triage." />
+      <AttentionLane title="Assigned to bots" items={grouped.assigned} onSelect={onSelect} emptyText="No issues are assigned to normal bots." />
+      {grouped.processed.length > 0 && (
+        <section className="mb-4 rounded-md bg-surface-raised/30 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 text-xs text-text-muted">
+            <span>{grouped.processed.length} cleared by Operator</span>
+            <span className="text-text-dim">hidden from review</span>
+          </div>
+        </section>
+      )}
+      <OperatorRunHistory runs={runs} onSelect={onSelect} />
+    </>
   );
 }
 
@@ -564,7 +626,7 @@ function OperatorTriageSetup({
             Operator sweep
           </div>
           <div className="mt-1 text-xs text-text-muted">
-            Runs across all active issues, not just the selected target · {plural(activeCount, "item")} · {plural(occurrenceCount, "occurrence")}
+            Runs across untriaged issues, not just the selected target · {plural(activeCount, "item")} · {plural(occurrenceCount, "occurrence")}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -600,11 +662,10 @@ function OperatorTriageSetup({
   );
 }
 
-function OperatorTriageRunPanel({ run, mode = "full" }: { run: AttentionTriageRunResponse; mode?: "summary" | "full" }) {
+function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
   const status = runStatusLabel(run);
   const canShowTranscript = Boolean(run.session_id && run.parent_channel_id);
   const counts = run.counts;
-  const showTranscript = mode === "full";
   return (
     <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/30 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -633,29 +694,21 @@ function OperatorTriageRunPanel({ run, mode = "full" }: { run: AttentionTriageRu
         </div>
       )}
       {run.error && <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{run.error}</div>}
-      {showTranscript ? (
-        <div className="relative h-[min(62vh,640px)] min-h-[420px] overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
-          <div className="absolute inset-0 overflow-hidden">
-            {canShowTranscript ? (
-              <SessionChatView
-                sessionId={run.session_id!}
-                parentChannelId={run.parent_channel_id!}
-                botId={run.bot_id}
-                chatMode="default"
-                emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
-              />
-            ) : (
-              <div className="px-3 py-4 text-xs text-text-dim">Transcript is not available for this run.</div>
-            )}
-          </div>
+      <div className="relative h-[min(62vh,640px)] min-h-[420px] overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
+        <div className="absolute inset-0 overflow-hidden">
+          {canShowTranscript ? (
+            <SessionChatView
+              sessionId={run.session_id!}
+              parentChannelId={run.parent_channel_id!}
+              botId={run.bot_id}
+              chatMode="default"
+              emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
+            />
+          ) : (
+            <div className="px-3 py-4 text-xs text-text-dim">Transcript is not available for this run.</div>
+          )}
         </div>
-      ) : (
-        <div className="rounded-md bg-surface-raised/45 px-3 py-2 text-xs leading-5 text-text-muted">
-          {status === "complete"
-            ? "Sweep complete. Open Operator sweep for the transcript, then review the items below."
-            : "Open Operator sweep to watch the transcript and review outcomes."}
-        </div>
-      )}
+      </div>
     </section>
   );
 }
@@ -713,7 +766,17 @@ function OperatorRunHistory({ runs, onSelect }: { runs: AttentionTriageRunRespon
   );
 }
 
-function AttentionLane({ title, items, onSelect }: { title: string; items: WorkspaceAttentionItem[]; onSelect: (item: WorkspaceAttentionItem) => void }) {
+function AttentionLane({
+  title,
+  items,
+  onSelect,
+  emptyText = "No items",
+}: {
+  title: string;
+  items: WorkspaceAttentionItem[];
+  onSelect: (item: WorkspaceAttentionItem) => void;
+  emptyText?: string;
+}) {
   return (
     <section className="mb-4">
       <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
@@ -722,7 +785,7 @@ function AttentionLane({ title, items, onSelect }: { title: string; items: Works
       </div>
       <div className="space-y-1">
         {items.length === 0 ? (
-          <div className="rounded-md border border-dashed border-surface-border px-3 py-3 text-xs text-text-dim">No items</div>
+          <div className="rounded-md border border-dashed border-surface-border px-3 py-3 text-xs text-text-dim">{emptyText}</div>
         ) : items.map((item) => {
           const triage = getOperatorTriage(item);
           return (
@@ -751,6 +814,39 @@ function AttentionLane({ title, items, onSelect }: { title: string; items: Works
         })}
       </div>
     </section>
+  );
+}
+
+function AttentionEvidence({ item, collapsed }: { item: WorkspaceAttentionItem; collapsed: boolean }) {
+  const content = (
+    <div className="space-y-3">
+      <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{item.message}</p>
+      {item.assignment_report && (
+        <div className="rounded-md bg-accent/[0.08] p-3">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">Bot Findings</div>
+          <p className="whitespace-pre-wrap text-sm text-text-muted">{item.assignment_report}</p>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 text-xs text-text-dim">
+        <span>Target: {item.target_kind}</span>
+        <span>Count: {item.occurrence_count}</span>
+        <span>Channel: {item.channel_name ?? item.channel_id ?? "none"}</span>
+        <span>Last: {item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "unknown"}</span>
+      </div>
+      {item.latest_correlation_id && (
+        <button type="button" className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-accent hover:bg-accent/10" onClick={() => openTraceInspector({ correlationId: item.latest_correlation_id!, title: item.title })}>
+          <ExternalLink size={14} />
+          Open trace evidence
+        </button>
+      )}
+    </div>
+  );
+  if (!collapsed) return content;
+  return (
+    <details className="rounded-md bg-surface-raised/30 px-3 py-2">
+      <summary className="cursor-pointer text-xs font-medium text-text-muted">Evidence</summary>
+      <div className="mt-3">{content}</div>
+    </details>
   );
 }
 
@@ -844,6 +940,8 @@ function AttentionDetail({
   const [botId, setBotId] = useState(item.assigned_bot_id === OPERATOR_BOT_ID ? "" : item.assigned_bot_id ?? "");
   const [mode, setMode] = useState<AttentionAssignmentMode>(item.assignment_mode ?? "next_heartbeat");
   const [instructions, setInstructions] = useState(item.assignment_instructions ?? "");
+  const workflowState = getAttentionWorkflowState(item);
+  const operatorReviewed = workflowState === "operator_review" || workflowState === "processed";
   useEffect(() => {
     setBotId(item.assigned_bot_id === OPERATOR_BOT_ID ? "" : item.assigned_bot_id ?? "");
     setMode(item.assignment_mode ?? "next_heartbeat");
@@ -872,12 +970,16 @@ function AttentionDetail({
 
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-auto px-3 pb-3 pt-1">
-      <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>Back to all issues</button>
+      <button type="button" className="rounded-md px-2 py-1 text-xs text-text-dim hover:bg-surface-overlay/60 hover:text-text" onClick={onBack}>
+        Back to {operatorReviewed ? "Operator Review" : "all issues"}
+      </button>
 
-      <section className="space-y-2 rounded-md bg-surface-raised/20 p-2">
+      <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Target</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+              {operatorReviewed ? "Review target" : "Target"}
+            </div>
             <div className="mt-1 flex min-w-0 items-center gap-2">
               <span className="truncate text-base font-semibold text-text">{targetLabel(item)}</span>
               <span className="shrink-0 rounded-full bg-surface-overlay px-2 py-0.5 text-xs font-medium text-text-muted">
@@ -941,6 +1043,12 @@ function AttentionDetail({
 
       <section className="space-y-3">
         <div>
+          {operatorReviewed && (
+            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">
+              <Sparkles size={13} />
+              Operator Review
+            </div>
+          )}
           <h2 className="text-lg font-medium text-text">{item.title}</h2>
           <div className="mt-1 text-xs text-text-muted">{item.severity} · {statusLabel(item)} · {item.source_type}</div>
         </div>
@@ -951,25 +1059,7 @@ function AttentionDetail({
           onAcknowledge={() => acknowledge.mutate(item.id, { onSuccess: finishCurrent })}
           onResolve={() => resolve.mutate(item.id, { onSuccess: finishCurrent })}
         />
-        <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{item.message}</p>
-        {item.assignment_report && (
-          <div className="rounded-md bg-accent/[0.08] p-3">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-accent">Bot Findings</div>
-            <p className="whitespace-pre-wrap text-sm text-text-muted">{item.assignment_report}</p>
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2 text-xs text-text-dim">
-          <span>Target: {item.target_kind}</span>
-          <span>Count: {item.occurrence_count}</span>
-          <span>Channel: {item.channel_name ?? item.channel_id ?? "none"}</span>
-          <span>Last: {item.last_seen_at ? new Date(item.last_seen_at).toLocaleString() : "unknown"}</span>
-        </div>
-        {item.latest_correlation_id && (
-          <button type="button" className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-accent hover:bg-accent/10" onClick={() => openTraceInspector({ correlationId: item.latest_correlation_id!, title: item.title })}>
-            <ExternalLink size={14} />
-            Open trace evidence
-          </button>
-        )}
+        <AttentionEvidence item={item} collapsed={operatorReviewed} />
       </section>
 
       <div className="flex flex-wrap gap-2">
@@ -1060,7 +1150,7 @@ function OperatorTriageCard({
           {triage.suggested_action}
         </p>
       )}
-      <p className="text-xs leading-5 text-text-dim">Accepting trains future sweeps. Acknowledge or resolve clears this item from active Attention.</p>
+      <p className="text-xs leading-5 text-text-dim">Accepting trains future sweeps. Acknowledge or resolve removes this review item.</p>
       {triage.review?.verdict ? (
         <div className="text-xs text-text-dim">Review saved: {triage.review.verdict}</div>
       ) : (

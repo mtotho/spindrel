@@ -121,6 +121,26 @@ opened inside the Playwright container and injected into browser auth state.
 The command above is for the main deployed server shape; adapt the host
 checkout, app container, browser container, and port after verification for e2e.
 
+Native Spindrel plan-mode captures use the same network shape after
+`./scripts/run_spindrel_plan_live.sh --tier publish` has written
+`/tmp/spindrel-plan-parity/spindrel-plan-sessions.json`:
+
+```bash
+ssh spindrel-bot 'cd /opt/thoth-server && \
+  browser_ip=$(docker inspect spindrel-local-browser-automation-playwright-1 \
+    --format "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}") && \
+  app_ip=$(docker inspect agent-server-agent-server-1 \
+    --format "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}") && \
+  curl -fsS "http://$browser_ip:3000/json/version" >/dev/null && \
+  PLAYWRIGHT_WS_URL="ws://$browser_ip:3000" \
+  PLAYWRIGHT_CONNECT_PROTOCOL=cdp \
+  SPINDREL_URL="http://$app_ip:8000" \
+  SPINDREL_UI_URL="http://$app_ip:8000" \
+  SPINDREL_BROWSER_URL="http://$app_ip:8000" \
+  DOCS_IMAGES_DIR=/opt/thoth-server/docs/images \
+  .venv/bin/python -m scripts.screenshots.spindrel_plan_live'
+```
+
 ## Usage
 
 ```bash

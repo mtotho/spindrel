@@ -67,11 +67,20 @@ class LocalWhisperProvider(SttProvider):
             raise
 
 
+class TestSttProvider(SttProvider):
+    """Deterministic STT provider for e2e harness runs only."""
+
+    def transcribe(self, audio: "np.ndarray | str") -> str:
+        return settings.STT_TEST_TRANSCRIPT
+
+
 def get_provider() -> SttProvider:
     global _provider
     if _provider is None:
         if settings.STT_PROVIDER == "local":
             _provider = LocalWhisperProvider()
+        elif settings.STT_PROVIDER == "test":
+            _provider = TestSttProvider()
         else:
             raise ValueError(f"Unknown STT_PROVIDER: {settings.STT_PROVIDER}")
     return _provider

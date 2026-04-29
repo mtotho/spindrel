@@ -690,6 +690,48 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_session_plan_state(self, session_id: str) -> dict:
+        resp = await self._client.get(f"/sessions/{session_id}/plan-state")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def start_session_plan_mode(self, session_id: str) -> dict:
+        resp = await self._client.post(f"/sessions/{session_id}/plan/start", json={})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def submit_plan_question_answers(
+        self,
+        session_id: str,
+        *,
+        title: str,
+        answers: list[dict[str, Any]],
+        source_message_id: str | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "title": title,
+            "answers": list(answers),
+        }
+        if source_message_id:
+            payload["source_message_id"] = source_message_id
+        resp = await self._client.post(
+            f"/sessions/{session_id}/plan/question-answers",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_session_plan(self, session_id: str, payload: dict[str, Any]) -> dict:
+        resp = await self._client.post(f"/sessions/{session_id}/plans", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def approve_session_plan(self, session_id: str, revision: int | None = None) -> dict:
+        payload = {"revision": revision} if revision is not None else {}
+        resp = await self._client.post(f"/sessions/{session_id}/plan/approve", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_channel_heartbeat(self, channel_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/heartbeat")
         resp.raise_for_status()

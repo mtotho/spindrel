@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { Activity, AlertTriangle, Bot, Box, CheckCircle, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Wind, X } from "lucide-react";
+import { Activity, AlertTriangle, Bot, Box, CheckCircle, ChevronDown, Clock, Command, Eye, ExternalLink, Hash, History, Home, Info, LayoutList, MapPin, MapPinned, MessageCircle, PanelRightOpen, Plus, Radar, Search, Settings2, Sparkles, Wind, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DensityWindow } from "./UsageDensityLayer";
 import type { DensityIntensity } from "./spatialGeometry";
@@ -8,8 +8,9 @@ import { AttentionHubContent } from "./SpatialAttentionLayer";
 import { CanvasLibraryContent } from "./CanvasLibrarySheet";
 import { CommandCenter } from "../command-center/CommandCenter";
 import { BloatStationContent } from "./BloatSatellite";
-import { isActiveAttentionItem, useBulkAcknowledgeAttentionItems } from "../../api/hooks/useWorkspaceAttention";
+import { useBulkAcknowledgeAttentionItems } from "../../api/hooks/useWorkspaceAttention";
 import type { AttentionTargetKind, WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
+import { activeAttentionItems, getAttentionWorkflowState } from "./SpatialAttentionModel";
 import { WORKSPACE_MAP_STATE_KEY } from "../../api/hooks/useWorkspaceMapState";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
 import { ObjectStatusPill, mapCueIntent, mapCueRank, mapStateMeta } from "./SpatialObjectStatus";
@@ -708,9 +709,10 @@ function SelectedObjectInspector({
   const target = attentionTargetForObject(item);
   const targetAttentionItems = findActiveAttentionItemsForObject(item, attentionItems);
   const firstTargetAttention = targetAttentionItems[0] ?? null;
+  const hasOperatorReview = targetAttentionItems.some((entry) => getAttentionWorkflowState(entry) === "operator_review");
   const primary: StarboardObjectAction | undefined = firstTargetAttention
     ? {
-        label: "Review issue",
+        label: hasOperatorReview ? "Review finding" : "Review issue",
         icon: "open",
         onSelect: () => onOpenAttentionWarning(firstTargetAttention.id),
       }
@@ -777,8 +779,12 @@ function SelectedObjectInspector({
         >
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-medium text-text">
-              <AlertTriangle size={13} className="text-danger" />
-              <span>{targetAttentionItems.length} active attention item{targetAttentionItems.length === 1 ? "" : "s"}</span>
+              {hasOperatorReview ? <Sparkles size={13} className="text-accent" /> : <AlertTriangle size={13} className="text-danger" />}
+              <span>
+                {hasOperatorReview
+                  ? `${targetAttentionItems.length} operator-reviewed finding${targetAttentionItems.length === 1 ? "" : "s"}`
+                  : `${targetAttentionItems.length} untriaged attention item${targetAttentionItems.length === 1 ? "" : "s"}`}
+              </span>
             </div>
             <div className="mt-0.5 truncate text-xs text-text-dim">
               {firstTargetAttention?.title ?? "Attention is active on this target."}
@@ -792,7 +798,7 @@ function SelectedObjectInspector({
                 onClick={() => onOpenAttentionWarning(firstTargetAttention.id)}
               >
                 <ExternalLink size={13} />
-                Open in Attention
+                {hasOperatorReview ? "Open review" : "Open in Attention"}
               </button>
             )}
             <button
@@ -948,7 +954,11 @@ function findActiveAttentionItemsForObject(item: StarboardObjectItem, items: Wor
     if (target.channelId && entry.channel_id === target.channelId && entry.target_id === target.targetId) return true;
     return false;
   };
-  return items.filter((entry) => isActiveAttentionItem(entry) && targetMatches(entry));
+  return activeAttentionItems(items).filter(targetMatches).sort((a, b) => {
+    const aReview = getAttentionWorkflowState(a) === "operator_review" ? 1 : 0;
+    const bReview = getAttentionWorkflowState(b) === "operator_review" ? 1 : 0;
+    return bReview - aReview;
+  });
 }
 
 function InspectorSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
@@ -1024,7 +1034,7 @@ function signalAction(
 ): { label: string; icon: ReactNode; onSelect: () => void } | null {
   if (signal.kind === "attention" && signal.id && onOpenAttentionWarning) {
     return {
-      label: "Review in Attention",
+      label: "Review finding",
       icon: <ExternalLink size={11} />,
       onSelect: () => onOpenAttentionWarning(signal.id!),
     };

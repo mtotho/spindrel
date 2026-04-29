@@ -4,7 +4,8 @@ import tempfile
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import verify_auth_or_user
+from app.dependencies import require_scopes
+from app.services.audio_input import AudioInputError, validate_encoded_audio_file
 from app.stt import transcribe as stt_transcribe
 
 logger = logging.getLogger(__name__)
@@ -16,23 +17,6 @@ BYTES_PER_SAMPLE = 4  # float32
 
 # Content types treated as raw float32 PCM (legacy Python CLI client format)
 RAW_FLOAT32_TYPES = {"application/octet-stream", ""}
-
-# Extensions for common audio MIME types (used for temp file so ffmpeg can detect format)
-MIME_EXTENSIONS = {
-    "audio/mp4": ".m4a",
-    "audio/m4a": ".m4a",
-    "audio/aac": ".aac",
-    "audio/mpeg": ".mp3",
-    "audio/ogg": ".ogg",
-    "audio/webm": ".webm",
-    "audio/wav": ".wav",
-    "audio/x-wav": ".wav",
-    "audio/wave": ".wav",
-    "audio/3gpp": ".3gp",
-    "audio/amr": ".amr",
-    "audio/flac": ".flac",
-}
-
 
 def _transcribe_raw_float32(body: bytes) -> str:
     """Original path: raw float32 PCM at 16kHz mono."""
@@ -56,11 +40,14 @@ def _transcribe_raw_float32(body: bytes) -> str:
 
 def _transcribe_audio_file(body: bytes, content_type: str) -> str:
     """Decode an audio file via ffmpeg (faster-whisper handles this) and transcribe."""
-    ext = MIME_EXTENSIONS.get(content_type, ".m4a")
-    logger.info("POST /transcribe  audio file (%s, %d bytes)", content_type, len(body))
+    try:
+        audio = validate_encoded_audio_file(body, content_type)
+    except AudioInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("POST /transcribe  audio file (%s, %d bytes)", audio.media_type, len(audio.data))
 
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=True) as tmp:
-        tmp.write(body)
+    with tempfile.NamedTemporaryFile(suffix=audio.suffix, delete=True) as tmp:
+        tmp.write(audio.data)
         tmp.flush()
         return stt_transcribe(tmp.name)
 
@@ -68,7 +55,7 @@ def _transcribe_audio_file(body: bytes, content_type: str) -> str:
 @router.post("/transcribe")
 async def transcribe(
     request: Request,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("chat")),
 ):
     body = await request.body()
     if not body:

@@ -221,8 +221,8 @@ export function ActionCompass({
       >
         <button
           type="button"
-          title={`Needs action: ${total}`}
-          aria-label={`Needs action: ${total}`}
+          title={`Next actions: ${total}`}
+          aria-label={`Next actions: ${total}`}
           className="flex h-10 w-10 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay/60 hover:text-text"
           onPointerEnter={() => onHighlight(topItem.id)}
           onPointerLeave={() => onHighlight(null)}
@@ -258,10 +258,10 @@ export function ActionCompass({
       <div className="flex items-end justify-between gap-3 px-1 pb-1.5">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">
-            Needs action
+            Next actions
           </div>
           <div className="mt-0.5 text-xs text-text-muted">
-            Best next clicks from live map state.
+            Best review targets from live map state.
           </div>
         </div>
         <span className="rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim">{items.length}</span>
