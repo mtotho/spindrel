@@ -267,6 +267,7 @@ export function SessionChatView({
       emptyStateComponent={emptyStateComponent}
       scrollPaddingBottom={scrollPaddingBottom}
       chatMode={chatMode}
+      channelId={parentChannelId}
       sessionResumeSlot={sessionResumeSlot}
       bottomSlot={bottomSlot}
       sessionId={sessionId}

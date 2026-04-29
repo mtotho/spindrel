@@ -385,7 +385,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           sourceLabel={(meta.source as string) || "event"}
         />
       ) : displayContent.length > 0 ? (
-        <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
+        <MarkdownContent text={displayContent} t={t} chatMode={chatMode} channelId={channelId} />
       ) : null}
       {((message.attachments && message.attachments.length > 0)
         || Array.isArray(meta.local_attachments)

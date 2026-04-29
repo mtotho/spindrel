@@ -8,6 +8,13 @@
  */
 
 import type { ThemeTokens } from "../../theme/tokens";
+import {
+  buildChannelFileHref,
+  CHANNEL_FILE_LINK_OPEN_EVENT,
+  directoryForWorkspaceFile,
+  resolveChannelLinkedFilePath,
+  type ChannelFileLinkOpenDetail,
+} from "../../lib/channelFileNavigation";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -64,10 +71,12 @@ function InlineRenderer({
   nodes,
   t,
   chatMode = "default",
+  channelId,
 }: {
   nodes: InlineNode[];
   t: ThemeTokens;
   chatMode?: "default" | "terminal";
+  channelId?: string | null;
 }) {
   const isTerminalMode = chatMode === "terminal";
   return (
@@ -108,19 +117,43 @@ function InlineRenderer({
           case "strike":
             return <s key={i}>{n.content}</s>;
           case "link":
+          {
+            const filePath = channelId ? resolveChannelLinkedFilePath(n.href) : null;
+            const href = filePath && channelId
+              ? buildChannelFileHref({
+                  channelId,
+                  directoryPath: directoryForWorkspaceFile(filePath),
+                  openFile: filePath,
+                })
+              : n.href;
             return (
               <a
                 key={i}
-                href={n.href}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={href}
+                target={filePath ? undefined : "_blank"}
+                rel={filePath ? undefined : "noopener noreferrer"}
+                title={filePath ? "Open file. Alt-click to open split." : undefined}
                 style={{ color: t.linkColor, textDecoration: "underline", textDecorationColor: `${t.linkColor}50`, textUnderlineOffset: 2 }}
+                onClick={(event) => {
+                  if (!filePath || !channelId) return;
+                  const openEvent = new CustomEvent<ChannelFileLinkOpenDetail>(
+                    CHANNEL_FILE_LINK_OPEN_EVENT,
+                    {
+                      cancelable: true,
+                      detail: { channelId, path: filePath, split: event.altKey },
+                    },
+                  );
+                  if (!window.dispatchEvent(openEvent)) {
+                    event.preventDefault();
+                  }
+                }}
                 onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecorationColor = t.linkColor; }}
                 onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecorationColor = `${t.linkColor}50`; }}
               >
                 {"content" in n ? n.content : ""}
               </a>
             );
+          }
           case "mention": {
             if (!("prefix" in n)) return null;
             const colors = isTerminalMode
@@ -167,10 +200,12 @@ function TextBlockRenderer({
   text,
   t,
   chatMode = "default",
+  channelId,
 }: {
   text: string;
   t: ThemeTokens;
   chatMode?: "default" | "terminal";
+  channelId?: string | null;
 }) {
   const isTerminalMode = chatMode === "terminal";
   const lines = text.split("\n");
@@ -198,7 +233,7 @@ function TextBlockRenderer({
       const weights = ["700", "700", "600", "600", "600", "600"];
       elements.push(
         <div key={key++} style={{ fontSize: sizes[level - 1], fontWeight: weights[level - 1] as any, color: t.text, margin: `${level <= 2 ? 12 : 8}px 0 4px` }}>
-          <InlineRenderer nodes={parseInline(headingMatch[2])} t={t} chatMode={chatMode} />
+          <InlineRenderer nodes={parseInline(headingMatch[2])} t={t} chatMode={chatMode} channelId={channelId} />
         </div>
       );
       i++;
@@ -223,7 +258,7 @@ function TextBlockRenderer({
             fontStyle: isTerminalMode ? "normal" : "italic",
           }}
         >
-          <InlineRenderer nodes={parseInline(quoteLines.join("\n"))} t={t} chatMode={chatMode} />
+          <InlineRenderer nodes={parseInline(quoteLines.join("\n"))} t={t} chatMode={chatMode} channelId={channelId} />
         </div>
       );
       continue;
@@ -240,7 +275,7 @@ function TextBlockRenderer({
         <ul key={key++} style={{ margin: "4px 0", paddingLeft: 24, listStyleType: "disc" }}>
           {items.map((item, j) => (
             <li key={j} style={{ marginBottom: 2 }}>
-              <InlineRenderer nodes={parseInline(item)} t={t} chatMode={chatMode} />
+              <InlineRenderer nodes={parseInline(item)} t={t} chatMode={chatMode} channelId={channelId} />
             </li>
           ))}
         </ul>
@@ -259,7 +294,7 @@ function TextBlockRenderer({
         <ol key={key++} style={{ margin: "4px 0", paddingLeft: 24 }}>
           {items.map((item, j) => (
             <li key={j} style={{ marginBottom: 2 }}>
-              <InlineRenderer nodes={parseInline(item)} t={t} chatMode={chatMode} />
+              <InlineRenderer nodes={parseInline(item)} t={t} chatMode={chatMode} channelId={channelId} />
             </li>
           ))}
         </ol>
@@ -274,7 +309,7 @@ function TextBlockRenderer({
       const nodes = parseInline(line);
       elements.push(
         <div key={key++}>
-          <InlineRenderer nodes={nodes} t={t} chatMode={chatMode} />
+          <InlineRenderer nodes={nodes} t={t} chatMode={chatMode} channelId={channelId} />
         </div>
       );
     }
@@ -292,10 +327,12 @@ export function MarkdownContent({
   text,
   t,
   chatMode = "default",
+  channelId,
 }: {
   text: string;
   t: ThemeTokens;
   chatMode?: "default" | "terminal";
+  channelId?: string | null;
 }) {
   const isTerminalMode = chatMode === "terminal";
   // Split on fenced code blocks first, then render each segment
@@ -348,7 +385,7 @@ export function MarkdownContent({
             </pre>
           );
         }
-        return <TextBlockRenderer key={i} text={block.content} t={t} chatMode={chatMode} />;
+        return <TextBlockRenderer key={i} text={block.content} t={t} chatMode={chatMode} channelId={channelId} />;
       })}
     </div>
   );

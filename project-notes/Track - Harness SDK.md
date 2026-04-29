@@ -212,6 +212,8 @@ Approval mapping intent (final values from schema):
 - Browser runtime parity: startup now reconciles runtime-service providers for already-enabled consumers before dependency/tool loading, so existing `web_search` installs auto-enable `browser_automation` and its stack/tools on upgrade.
 - Screenshot/runtime tooling now shares one Playwright launcher: `PLAYWRIGHT_WS_URL`, then the `browser_automation` runtime-service endpoint, then explicit `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, then Playwright-managed Chromium with an install hint.
 - Live harness parity bridge tier now verifies the `browser_automation` Docker stack, agent-container DNS for `playwright-local`, registered `headless_browser_*` tools, and a real Codex/Claude harness call through `headless_browser_open`.
+- Spindrel live verification passed after the manifest-default follow-up: `browser_automation` enabled/running, `playwright-local` resolved from the app container, Codex/Claude browser-tool parity passed, and harness docs screenshots regenerated through the shared runtime.
+- Ops docs now pin the instance-detection rule for this path: channel hints and memory are advisory only; agents must verify repo path, port, app container, browser runtime container, health, and runtime DNS before running live browser parity or screenshot capture.
 
 ### Finish-line pass — 2026-04-27
 

@@ -29,6 +29,7 @@ import {
   moveChannelChatPane,
   paneIdForSurface,
   removeChannelChatPane,
+  removeChannelSessionTabLayout,
   restoreChannelChatPanes,
   restoreMiniChannelChatPane,
   splitChannelChatPaneLayout,
@@ -378,6 +379,7 @@ export function useChannelSessionPaneController({
     if (!channelId) return;
     let selectedSurface: ChannelSessionSurface | null = null;
     patchChannelPanelPrefs(channelId, (current) => ({
+      sessionTabLayouts: removeChannelSessionTabLayout(current.sessionTabLayouts, current.chatPaneLayout),
       chatPaneLayout: (() => {
         const pane = current.chatPaneLayout.panes.find((candidate) => candidate.id === paneId) ?? null;
         if (!pane) return current.chatPaneLayout;

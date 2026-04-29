@@ -22,9 +22,11 @@ Starting fresh with `/clear` creates a new conversation, but the section index c
 ## Channel Session Tabs
 
 On desktop, recent channel sessions appear as low-chrome tabs under the channel
-header. Opening a session keeps the tab order stable; drag a tab to reorder it.
-Closing a tab only hides it from the recent-tab strip. It does not delete the
-session or remove it from history.
+header. Newly opened sessions appear at the front of the strip, selecting an
+already-open tab keeps its order stable, and drag still reorders visible tabs.
+The strip stays single-line; extra tabs move into the right-side overflow menu
+instead of creating a horizontal scrollbar. Closing a tab only hides it from the
+recent-tab strip. It does not delete the session or remove it from history.
 
 ![Channel session tabs with a saved split layout and unread marker](../images/channel-session-tabs.png)
 
@@ -33,8 +35,9 @@ restored without using the full session picker. Right-clicking a tab exposes the
 same split actions used elsewhere in the channel UI.
 
 Files opened from the channel workspace use the same tab strip. Opening a file
-selects or adds its tab without changing the session-tab order; splitting the
-file next to chat is an explicit tab action.
+selects or adds its tab at the front; splitting the file next to chat is an
+explicit tab action. Channel file links in chat open the same file tabs, and
+Alt-click opens the file split beside chat.
 
 ![Channel file tab split next to chat](../images/channel-session-file-tabs.png)
 

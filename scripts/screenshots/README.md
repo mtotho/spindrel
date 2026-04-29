@@ -19,6 +19,77 @@ endpoint, then `PLAYWRIGHT_CHROMIUM_EXECUTABLE` such as `/snap/bin/chromium`,
 then Playwright-managed Chromium. If no backend is available, install the
 managed fallback with `python -m playwright install chromium`.
 
+## Spindrel live-server harness captures
+
+Do not rely on memory alone to decide whether you are targeting the main
+Spindrel server or an e2e instance. A channel hint such as "use main Spindrel"
+is helpful, but verify the target before running parity checks or writing
+screenshots. Be explicit about the context: the in-app Codex/Claude harness runs
+inside the Spindrel app container, not in the host checkout.
+
+The main deployed server currently uses:
+
+- Host checkout/control path for SSH/operator commands: `/opt/thoth-server`
+- API/UI from the server host: `http://127.0.0.1:8000`
+- API/UI from the LAN: `http://10.10.30.208:8000`
+- Running app container: `agent-server-agent-server-1`
+- App-container code path: `/app`
+- App-container workspace root: `/workspace-data`
+- Browser stack container: `spindrel-local-browser-automation-playwright-1`
+- Runtime DNS name from the app container: `playwright-local`
+
+E2E instances use their own port, repo path, containers, and API key. Common
+signals are port `18000`, an e2e repo/worktree path, and container names that
+include the e2e instance id. Verify with `docker ps`, health, and the selected
+host checkout before capture.
+
+Run Docker diagnostics from the server host, not the workstation, when the
+check needs container DNS or container names:
+
+```bash
+ssh spindrel-bot "cd /opt/thoth-server && \
+  docker ps --format '{{.Names}}' | grep -E 'agent-server|browser-automation' && \
+  docker exec agent-server-agent-server-1 getent hosts playwright-local"
+```
+
+For an in-app harness turn, do not tell Codex to use `/opt/thoth-server`. The
+harness receives `ctx.workdir` from the channel Project Directory resolver:
+
+- Channel `project_path=common/projects` resolves inside the app container to
+  `/workspace-data/shared/<workspace_id>/common/projects`.
+- The Spindrel repo lives under that cwd as `./spindrel`, matching local
+  developer checkouts where the workspace root is `/home/mtoth/personal` and
+  the repo is `./agent-server`.
+- The harness sends that value to Codex as `cwd` in `thread/start` and
+  `turn/start`.
+- Verify the actual value from the harness status/details surface
+  (`effective_cwd`) or by checking the channel Project Directory; `/opt` is
+  only the host checkout used by SSH maintenance commands.
+
+When capturing docs screenshots, run the script from the host checkout but
+connect to the app through Docker networking. The browser itself runs inside the
+Playwright container, so from that browser `127.0.0.1:8000` means the Playwright
+container, not the Spindrel app container.
+
+```bash
+ssh spindrel-bot 'cd /opt/thoth-server && \
+  browser_ip=$(docker inspect spindrel-local-browser-automation-playwright-1 \
+    --format "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}") && \
+  app_ip=$(docker inspect agent-server-agent-server-1 \
+    --format "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}") && \
+  curl -fsS "http://$browser_ip:3000/json/version" >/dev/null && \
+  PLAYWRIGHT_WS_URL="ws://$browser_ip:3000" \
+  PLAYWRIGHT_CONNECT_PROTOCOL=cdp \
+  SPINDREL_URL="http://$app_ip:8000" \
+  SPINDREL_UI_URL="http://$app_ip:8000" \
+  DOCS_IMAGES_DIR=/opt/thoth-server/docs/images \
+  .venv/bin/python -m scripts.screenshots.harness_live'
+```
+
+Use the matching API key for the instance being captured. The command above is
+for the main deployed server shape; adapt the host checkout, app container,
+browser container, and port after verification for e2e.
+
 ## Usage
 
 ```bash

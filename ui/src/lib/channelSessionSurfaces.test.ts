@@ -17,6 +17,7 @@ import {
   normalizeChannelSessionPanels,
   normalizeChannelSessionTabLayouts,
   removeChannelSessionPanel,
+  removeChannelSessionTabLayout,
   replaceFocusedChannelChatPane,
   restoreMiniChannelChatPane,
   restoreChannelChatPanes,
@@ -414,6 +415,8 @@ const savedSplitLayouts = normalizeChannelSessionTabLayouts([
   { key: "bad", layout: { panes: [{ id: "primary", surface: { kind: "primary" } }], focusedPaneId: "primary", widths: { primary: 1 }, maximizedPaneId: null, miniPane: null } },
 ]);
 assert.deepEqual(savedSplitLayouts.map((layout) => layout.key), ["split:primary|channel:s2"]);
+assert.deepEqual(removeChannelSessionTabLayout(savedSplitLayouts, splitTabKey).map((layout) => layout.key), []);
+assert.deepEqual(removeChannelSessionTabLayout(savedSplitLayouts, splitTabLayout).map((layout) => layout.key), []);
 const hiddenSplitTabs = buildChannelSessionTabItems({
   channelId: "chan",
   currentHref: "/channels/chan/session/s2?surface=channel",

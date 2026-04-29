@@ -55,7 +55,7 @@ interface MobileChannelDrawerProps {
   botId: string | undefined;
   channelDisplayName?: string | null;
   activeFile: string | null;
-  onSelectFile: (workspaceRelativePath: string) => void;
+  onSelectFile: (workspaceRelativePath: string, options?: { split?: boolean }) => void;
   onOpenTerminal?: (workspaceRelativePath: string) => void;
   activeTab?: OmniPanelTab;
   onTabChange?: (tab: OmniPanelTab) => void;

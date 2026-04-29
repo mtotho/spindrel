@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import uuid
@@ -558,7 +559,7 @@ def _operator_triage_prompt(items: list[WorkspaceAttentionItem], channel_names: 
         "- summary: concise evidence-backed finding.\n"
         "- suggested_action: what the human should do next.\n"
         "- route: optional routing hint.\n\n"
-        f"Attention items JSON:\n{payload}"
+        f"Attention items JSON:\n{json.dumps(payload, indent=2, default=str)}"
     )
 
 

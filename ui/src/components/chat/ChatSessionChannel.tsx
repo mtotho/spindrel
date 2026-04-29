@@ -421,6 +421,7 @@ export function ChannelChatSession({
             emptyStateComponent={emptyState}
             scrollPaddingBottom={20}
             chatMode={chatMode}
+            channelId={source.channelId}
             sessionResumeSlot={sessionResumeSlot}
             sessionId={src.sessionId}
             bottomSlot={
@@ -477,6 +478,7 @@ export function ChannelChatSession({
           emptyStateComponent={emptyState}
           scrollPaddingBottom={inputOverlayHeight + 16}
           chatMode={chatMode}
+          channelId={source.channelId}
           sessionResumeSlot={sessionResumeSlot}
           sessionId={src.sessionId}
         />
@@ -563,4 +565,3 @@ export function ChannelChatSession({
     </ChatSessionDock>
   );
 }
-

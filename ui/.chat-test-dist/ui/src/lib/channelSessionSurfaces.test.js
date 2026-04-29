@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { addChannelChatPane, addChannelSessionPanel, buildChannelSessionChatSource, buildChannelSessionPickerEntries, buildChannelSessionPickerGroups, buildChannelSessionRoute, buildChannelSessionTabItems, buildScratchChatSource, getScratchSessionLabel, isUntouchedDraftSession, maximizeChannelChatPane, minimizeChannelChatPane, moveChannelChatPane, normalizeChannelChatPaneLayout, normalizeChannelSessionPanels, normalizeChannelSessionTabLayouts, removeChannelSessionPanel, replaceFocusedChannelChatPane, restoreMiniChannelChatPane, restoreChannelChatPanes, resizeChannelChatPanes, sessionTabKeyForChatPaneLayout, snapshotChannelSessionTabLayout, splitChannelChatPaneLayout, } from "./channelSessionSurfaces.js";
+import { addChannelChatPane, addChannelSessionPanel, buildChannelSessionChatSource, buildChannelSessionPickerEntries, buildChannelSessionPickerGroups, buildChannelSessionRoute, buildChannelSessionTabItems, buildScratchChatSource, getScratchSessionLabel, isUntouchedDraftSession, maximizeChannelChatPane, minimizeChannelChatPane, moveChannelChatPane, normalizeChannelChatPaneLayout, normalizeChannelSessionPanels, normalizeChannelSessionTabLayouts, removeChannelSessionPanel, removeChannelSessionTabLayout, replaceFocusedChannelChatPane, restoreMiniChannelChatPane, restoreChannelChatPanes, resizeChannelChatPanes, sessionTabKeyForChatPaneLayout, snapshotChannelSessionTabLayout, splitChannelChatPaneLayout, } from "./channelSessionSurfaces.js";
 assert.deepEqual(normalizeChannelSessionPanels(null), []);
 assert.deepEqual(normalizeChannelSessionPanels([
     { kind: "scratch", sessionId: "a" },
@@ -351,6 +351,8 @@ const savedSplitLayouts = normalizeChannelSessionTabLayouts([
     { key: "bad", layout: { panes: [{ id: "primary", surface: { kind: "primary" } }], focusedPaneId: "primary", widths: { primary: 1 }, maximizedPaneId: null, miniPane: null } },
 ]);
 assert.deepEqual(savedSplitLayouts.map((layout) => layout.key), ["split:primary|channel:s2"]);
+assert.deepEqual(removeChannelSessionTabLayout(savedSplitLayouts, splitTabKey).map((layout) => layout.key), []);
+assert.deepEqual(removeChannelSessionTabLayout(savedSplitLayouts, splitTabLayout).map((layout) => layout.key), []);
 const hiddenSplitTabs = buildChannelSessionTabItems({
     channelId: "chan",
     currentHref: "/channels/chan/session/s2?surface=channel",

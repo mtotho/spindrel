@@ -110,6 +110,7 @@ export interface ChatMessageAreaProps {
    *  composer so messages can scroll behind it. Default 12. */
   scrollPaddingBottom?: number;
   chatMode?: "default" | "terminal";
+  channelId?: string | null;
   sessionResumeSlot?: React.ReactNode;
   bottomSlot?: React.ReactNode;
   sessionId?: string | null;
@@ -157,6 +158,7 @@ export function ChatMessageArea({
   scrollPaddingTop = 8,
   scrollPaddingBottom = 12,
   chatMode = "default",
+  channelId,
   sessionResumeSlot,
   bottomSlot,
   sessionId,
@@ -336,6 +338,7 @@ export function ChatMessageArea({
       thinkingContent={turn.thinkingContent}
       llmStatus={turn.llmStatus}
       chatMode={chatMode}
+      channelId={channelId}
       waitingForUserInput={harnessQuestionBlockedTurnIds.has(turnId)}
     />
   ));

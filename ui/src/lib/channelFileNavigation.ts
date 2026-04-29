@@ -1,5 +1,12 @@
 export const CHANNEL_FILES_PATH_PARAM = "files_path";
 export const CHANNEL_OPEN_FILE_PARAM = "open_file";
+export const CHANNEL_FILE_LINK_OPEN_EVENT = "spindrel:open-channel-file";
+
+export interface ChannelFileLinkOpenDetail {
+  channelId: string;
+  path: string;
+  split: boolean;
+}
 
 function trimSlashes(value: string): string {
   return value.replace(/^\/+/, "").replace(/\/+$/, "");
@@ -22,6 +29,9 @@ export interface ChannelFileViewerScope {
 }
 
 const WORKSPACE_SCOPE_PREFIXES = ["bots/", "common/", "projects/", "workspaces/"];
+const APP_ROUTE_PREFIXES = ["/admin/", "/channels/", "/settings", "/widgets/", "/tasks/"];
+const EXTERNAL_SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
+const FILE_LIKE_BASENAME_RE = /(^|\/)[^/?#]+\.[A-Za-z0-9][A-Za-z0-9._-]*(?:$|[?#])/;
 
 export function resolveChannelFileViewerScope(
   channelId: string,
@@ -39,6 +49,22 @@ export function resolveChannelFileViewerScope(
     return { kind: "workspace", path: normalized };
   }
   return { kind: "channel", path: normalized };
+}
+
+export function resolveChannelLinkedFilePath(
+  href: string | null | undefined,
+): string | null {
+  if (typeof href !== "string") return null;
+  const raw = href.trim().replace(/^['"]|['"]$/g, "");
+  if (!raw || raw.startsWith("#") || APP_ROUTE_PREFIXES.some((prefix) => raw.startsWith(prefix))) {
+    return null;
+  }
+  if (EXTERNAL_SCHEME_RE.test(raw)) return null;
+  const pathOnly = raw.split("#", 1)[0]?.split("?", 1)[0] ?? "";
+  const normalized = normalizeWorkspaceNavigationPath(decodeURIComponent(pathOnly));
+  if (!normalized) return null;
+  if (!normalized.includes("/") && !FILE_LIKE_BASENAME_RE.test(normalized)) return null;
+  return normalized.replace(/^\.\//, "");
 }
 
 export function directoryForWorkspaceFile(path: string): string {

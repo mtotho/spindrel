@@ -6,6 +6,7 @@ import {
   defaultChannelBrowsePath,
   directoryForWorkspaceFile,
   readChannelFileIntent,
+  resolveChannelLinkedFilePath,
   resolveChannelFileViewerScope,
 } from "./channelFileNavigation.js";
 
@@ -112,4 +113,17 @@ test("resolveChannelFileViewerScope preserves shared workspace files outside thi
     kind: "workspace",
     path: "bots/bot-1/persona.md",
   });
+});
+
+test("resolveChannelLinkedFilePath accepts file-like relative links", () => {
+  assert.equal(resolveChannelLinkedFilePath("AGENTS.md"), "AGENTS.md");
+  assert.equal(resolveChannelLinkedFilePath("./get-latest.sh?raw=1"), "get-latest.sh");
+  assert.equal(resolveChannelLinkedFilePath("common/projects/vault/README.md#top"), "common/projects/vault/README.md");
+});
+
+test("resolveChannelLinkedFilePath rejects external and app navigation links", () => {
+  assert.equal(resolveChannelLinkedFilePath("https://example.com/AGENTS.md"), null);
+  assert.equal(resolveChannelLinkedFilePath("/channels/channel-1?open_file=README.md"), null);
+  assert.equal(resolveChannelLinkedFilePath("#local-heading"), null);
+  assert.equal(resolveChannelLinkedFilePath("plain-word"), null);
 });

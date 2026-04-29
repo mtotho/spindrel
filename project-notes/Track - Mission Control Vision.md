@@ -132,6 +132,21 @@ landmark is doing now, what is scheduled next, what happened recently, and what
 warnings are attached. Mission Control can later consume this model, but it
 must not own the basic map semantics until the product direction is proven.
 
+### Attention Operator Triage - 2026-04-29
+
+The first operator workflow should consume existing Attention primitives rather
+than invent a mission/task-management model. The Hub now starts one
+task-backed operator triage session over all active visible Attention items.
+The operator classifies each item through `report_attention_triage_batch`:
+noise/recovered/duplicate items become processed/acknowledged, and real risks
+stay active as ready-for-review items with a suggested action and optional
+route. Review feedback is written back to the item and operator memory so
+future runs can learn routing preferences.
+
+This is a proving slice for Mission Control: chat-native session, structured
+card output, approval/review loop, and live Attention cleanup, without making
+the product depend on a durable mission system.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

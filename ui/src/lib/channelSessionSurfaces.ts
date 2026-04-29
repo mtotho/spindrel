@@ -332,6 +332,20 @@ export function addChannelSessionTabLayout(
   return [...existing, snapshot].slice(-MAX_CHANNEL_SESSION_TAB_LAYOUTS);
 }
 
+export function removeChannelSessionTabLayout(
+  current: readonly ChannelSessionSavedLayout[] | null | undefined,
+  keyOrLayout: string | ChannelChatPaneLayout | null | undefined,
+): ChannelSessionSavedLayout[] {
+  const normalized = normalizeChannelSessionTabLayouts(current);
+  const key = typeof keyOrLayout === "string"
+    ? keyOrLayout
+    : keyOrLayout
+      ? sessionTabKeyForChatPaneLayout(keyOrLayout)
+      : null;
+  if (!key) return normalized;
+  return normalized.filter((item) => item.key !== key);
+}
+
 export function normalizeChannelSessionTabLayouts(value: unknown): ChannelSessionSavedLayout[] {
   if (!Array.isArray(value)) return [];
   const byKey = new Map<string, ChannelSessionSavedLayout>();
@@ -702,11 +716,14 @@ export function buildChannelSessionTabItems({
 }): ChannelSessionTabItem[] {
   const hidden = new Set(hiddenKeys ?? []);
   const active = activeSurface ?? { kind: "primary" as const };
-  const activeKey = surfaceKey(active);
   const activeLayoutKey = activeLayout ? sessionTabKeyForChatPaneLayout(activeLayout) : null;
+  const activeKey = activeLayoutKey ?? surfaceKey(active);
   const orderedPages: ChannelSessionRecentPageLike[] = [];
-  if (currentHref) orderedPages.push({ href: currentHref });
-  orderedPages.push(...(recentPages ?? []));
+  const recents = recentPages ?? [];
+  if (currentHref) {
+    orderedPages.push(recents.find((page) => page.href === currentHref) ?? { href: currentHref });
+  }
+  orderedPages.push(...recents);
 
   const unreadBySession = new Map(
     (unreadStates ?? []).map((row) => [row.session_id, Math.max(0, row.unread_agent_reply_count)]),

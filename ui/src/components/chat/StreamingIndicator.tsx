@@ -265,6 +265,7 @@ interface Props {
   } | null;
   chatMode?: "default" | "terminal";
   waitingForUserInput?: boolean;
+  channelId?: string | null;
 }
 
 /** Badge showing LLM retry/fallback status during streaming */
@@ -322,6 +323,7 @@ export function StreamingIndicator({
   llmStatus,
   chatMode = "default",
   waitingForUserInput = false,
+  channelId,
 }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
@@ -390,7 +392,7 @@ export function StreamingIndicator({
           />
         ) : displayContent ? (
           <div style={{ contain: "content" }}>
-            <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
+            <MarkdownContent text={displayContent} t={t} chatMode={chatMode} channelId={channelId} />
           </div>
         ) : !waitingForUserInput && !hasVisibleActivity ? (
           /* Typing indicator dots — with optional LLM status badge */

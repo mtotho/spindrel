@@ -95,6 +95,7 @@ import {
   buildChannelSessionTabItems,
   paneIdForSurface,
   replaceFocusedChannelChatPane,
+  removeChannelSessionTabLayout,
   sessionTabKeyForChatPaneLayout,
   snapshotChannelSessionTabLayout,
   splitChannelChatPaneLayout,
@@ -104,15 +105,19 @@ import {
   type ChannelSessionTabItem,
 } from "@/src/lib/channelSessionSurfaces";
 import {
+  CHANNEL_FILE_LINK_OPEN_EVENT,
   CHANNEL_FILES_PATH_PARAM,
   CHANNEL_OPEN_FILE_PARAM,
   directoryForWorkspaceFile,
+  normalizeWorkspaceNavigationPath,
   readChannelFileIntent,
+  type ChannelFileLinkOpenDetail,
 } from "@/src/lib/channelFileNavigation";
 import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
+import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
 import { useMarkRead, useMarkSessionVisible, useUnreadState } from "@/src/api/hooks/useUnread";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
@@ -151,8 +156,16 @@ function fileTabMeta(path: string): string | null {
   return directory || null;
 }
 
+function moveTabKeyToFront(keys: string[], key: string, limit = 40): string[] {
+  return [key, ...keys.filter((candidate) => candidate !== key)].slice(0, limit);
+}
+
+function isWorkspaceScopedPath(path: string): boolean {
+  return /^(bots|channels|common|projects|workspaces)\//.test(path);
+}
+
 type DirtyAction =
-  | { type: "select"; path: string }
+  | { type: "select"; path: string; split?: boolean }
   | { type: "selectSession"; tab: ChannelTopTabItem }
   | { type: "close" }
   | { type: "closeFileTab"; path: string }
@@ -248,6 +261,7 @@ export default function ChatScreen() {
   const markChannelRead = useMarkRead();
   const markSessionVisible = useMarkSessionVisible();
   const { data: unreadState } = useUnreadState();
+  const renameSession = useRenameSession();
 
   // Auto-collapse the global sidebar to its rail whenever the user enters a
   // chat. Maximises horizontal room for the centered chat column; the rail's
@@ -722,6 +736,13 @@ export default function ChatScreen() {
     : undefined;
   const fileWorkspaceId = projectWorkspaceId || workspaceId;
   const fileRootPath = projectPath ? `/${projectPath}` : undefined;
+  const resolveChannelOpenFilePath = useCallback((path: string): string => {
+    const normalized = normalizeWorkspaceNavigationPath(path) ?? path.replace(/^\/+/, "");
+    if (!projectPath || isWorkspaceScopedPath(normalized) || normalized.startsWith(`${projectPath}/`)) {
+      return normalized;
+    }
+    return `${projectPath}/${normalized}`;
+  }, [projectPath]);
   const [terminalRequest, setTerminalRequest] = useState<{ cwd: string; label: string } | null>(null);
   const buildWorkspaceTerminalCwd = useCallback((workspaceRelativePath?: string | null) => {
     if (!fileWorkspaceId) return null;
@@ -954,7 +975,7 @@ export default function ChatScreen() {
     patchChannelPanelPrefs(channelId, (current) => (
       current.sessionTabOrderKeys.includes(activeSessionTabKey)
         ? {}
-        : { sessionTabOrderKeys: [...current.sessionTabOrderKeys, activeSessionTabKey].slice(-40) }
+        : { sessionTabOrderKeys: moveTabKeyToFront(current.sessionTabOrderKeys, activeSessionTabKey) }
     ));
   }, [activeSessionTabKey, channelId, panelPrefs.sessionTabOrderKeys, patchChannelPanelPrefs]);
   useEffect(() => {
@@ -973,6 +994,13 @@ export default function ChatScreen() {
     const key = surfaceKey(surface);
     patchChannelPanelPrefs(channelId, (current) => ({
       hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== key),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const promoteSessionTab = useCallback((tab: ChannelTopTabItem) => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      sessionTabOrderKeys: moveTabKeyToFront(current.sessionTabOrderKeys, tab.key),
+      hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== tab.key),
     }));
   }, [channelId, patchChannelPanelPrefs]);
   const [pendingSessionTabKey, setPendingSessionTabKey] = useState<string | null>(null);
@@ -1009,11 +1037,11 @@ export default function ChatScreen() {
     patchChannelPanelPrefs(channelId, (current) => ({
       fileTabPaths: current.fileTabPaths.includes(path)
         ? current.fileTabPaths
-        : [...current.fileTabPaths, path].slice(-20),
+        : [path, ...current.fileTabPaths].slice(0, 20),
       hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== key),
       sessionTabOrderKeys: current.sessionTabOrderKeys.includes(key)
         ? current.sessionTabOrderKeys
-        : [...current.sessionTabOrderKeys, key].slice(-40),
+        : moveTabKeyToFront(current.sessionTabOrderKeys, key),
     }));
   }, [channelId, patchChannelPanelPrefs]);
   const selectFileTabNow = useCallback((path: string, options?: { split?: boolean }) => {
@@ -1058,8 +1086,20 @@ export default function ChatScreen() {
     if (tab.kind !== "split") return;
     const pane = tab.layout.panes.find((candidate) => candidate.id === paneId) ?? null;
     if (!pane) return;
+    const selectedKey = surfaceKey(pane.surface);
+    if (channelId) {
+      patchChannelPanelPrefs(channelId, (current) => {
+        const orderWithoutSplit = current.sessionTabOrderKeys.filter((key) => key !== tab.key);
+        return {
+          sessionTabLayouts: removeChannelSessionTabLayout(current.sessionTabLayouts, tab.key),
+          sessionTabOrderKeys: moveTabKeyToFront(orderWithoutSplit, selectedKey),
+          hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((key) => key !== tab.key && key !== selectedKey),
+        };
+      });
+    }
+    setPendingSessionTabKey(selectedKey);
     activateChannelSessionSurface(pane.surface, "switch");
-  }, [activateChannelSessionSurface]);
+  }, [activateChannelSessionSurface, channelId, patchChannelPanelPrefs]);
   const predictedSplitTabKey = useCallback((surface: ChannelSessionSurface) => {
     const currentSurface: ChannelSessionSurface = routeSessionSurface ?? { kind: "primary" };
     const currentLayout = panelPrefs.chatPaneLayout;
@@ -1072,17 +1112,23 @@ export default function ChatScreen() {
   const handleSplitSessionTab = useCallback((tab: ChannelTopTabItem) => {
     if (tab.kind === "file") {
       if (fileDirtyRef.current && activeFile !== tab.path) {
-        setPendingDirtyAction({ type: "select", path: tab.path });
+        setPendingDirtyAction({ type: "select", path: tab.path, split: true });
         return;
       }
       selectFileTabNow(tab.path, { split: true });
       return;
     }
     if (tab.kind !== "surface") return;
-    setPendingSessionTabKey(predictedSplitTabKey(tab.surface));
+    const nextKey = predictedSplitTabKey(tab.surface);
+    setPendingSessionTabKey(nextKey);
+    if (channelId) {
+      patchChannelPanelPrefs(channelId, (current) => ({
+        sessionTabOrderKeys: moveTabKeyToFront(current.sessionTabOrderKeys, nextKey),
+      }));
+    }
     unhideSessionTabSurface(tab.surface);
     activateChannelSessionSurface(tab.surface, "split");
-  }, [activateChannelSessionSurface, activeFile, predictedSplitTabKey, selectFileTabNow, unhideSessionTabSurface]);
+  }, [activateChannelSessionSurface, activeFile, channelId, patchChannelPanelPrefs, predictedSplitTabKey, selectFileTabNow, unhideSessionTabSurface]);
   const handleFocusOpenSessionTabSurface = useCallback((tab: ChannelTopTabItem) => {
     if (!channelId || tab.kind !== "surface") return;
     const paneId = paneIdForSurface(tab.surface);
@@ -1111,6 +1157,26 @@ export default function ChatScreen() {
     if (tab.kind !== "surface" || tab.surface.kind === "primary") return;
     makePanePrimary({ id: paneIdForSurface(tab.surface), surface: tab.surface });
   }, [makePanePrimary]);
+  const sessionIdForTopTab = useCallback((tab: ChannelTopTabItem): string | null => {
+    if (tab.kind !== "surface") return null;
+    if (tab.surface.kind === "primary") return channel?.active_session_id ?? null;
+    return tab.surface.sessionId;
+  }, [channel?.active_session_id]);
+  const canRenameSessionTab = useCallback((tab: ChannelTopTabItem) => (
+    tab.kind === "surface" && !!sessionIdForTopTab(tab)
+  ), [sessionIdForTopTab]);
+  const handleRenameSessionTab = useCallback((tab: ChannelTopTabItem, title: string) => {
+    if (!channelId) return;
+    const sessionId = sessionIdForTopTab(tab);
+    const trimmed = title.trim();
+    if (!sessionId || !trimmed) return;
+    renameSession.mutate({
+      session_id: sessionId,
+      title: trimmed,
+      parent_channel_id: channelId,
+      bot_id: channel?.bot_id ?? undefined,
+    });
+  }, [channel?.bot_id, channelId, renameSession, sessionIdForTopTab]);
   const closeFileTabNow = useCallback((path: string) => {
     if (!channelId) return;
     const key = fileTabKey(path);
@@ -1120,7 +1186,7 @@ export default function ChatScreen() {
       sessionTabOrderKeys: current.sessionTabOrderKeys.filter((item) => item !== key),
     }));
     if (activeFile !== path) return;
-    const nextFile = remainingFileTabs[remainingFileTabs.length - 1] ?? null;
+    const nextFile = remainingFileTabs[0] ?? null;
     if (nextFile) {
       setActiveFile(nextFile);
       setSplitMode(false);
@@ -1172,13 +1238,19 @@ export default function ChatScreen() {
       for (const key of visibleKeys) {
         if (!next.includes(key)) next.push(key);
       }
-      return { sessionTabOrderKeys: next.slice(-40) };
+      return { sessionTabOrderKeys: next.slice(0, 40) };
     });
   }, [channelId, patchChannelPanelPrefs, topTabs]);
   const handleOverlayActivateSessionSurface = useCallback((surface: ChannelSessionSurface, intent: "switch" | "split") => {
+    if (channelId) {
+      const key = intent === "split" ? predictedSplitTabKey(surface) : surfaceKey(surface);
+      patchChannelPanelPrefs(channelId, (current) => ({
+        sessionTabOrderKeys: moveTabKeyToFront(current.sessionTabOrderKeys, key),
+      }));
+    }
     unhideSessionTabSurface(surface);
     activateChannelSessionSurface(surface, intent);
-  }, [activateChannelSessionSurface, unhideSessionTabSurface]);
+  }, [activateChannelSessionSurface, channelId, patchChannelPanelPrefs, predictedSplitTabKey, unhideSessionTabSurface]);
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
     if (tab === "files") {
@@ -1419,7 +1491,7 @@ export default function ChatScreen() {
   const executeDirtyAction = useCallback((action: DirtyAction) => {
     switch (action.type) {
       case "select":
-        selectFileTabNow(action.path);
+        selectFileTabNow(action.path, { split: action.split });
         break;
       case "selectSession":
         fileDirtyRef.current = false;
@@ -1448,12 +1520,28 @@ export default function ChatScreen() {
     fileDirtyRef.current = dirty;
   }, []);
 
-  const handleSelectFile = useCallback((path: string) => {
-    if (path === activeFile) return;
-    const action: DirtyAction = { type: "select", path };
-    if (!fileDirtyRef.current) { selectFileTabNow(path); return; }
+  const handleSelectFile = useCallback((path: string, options?: { split?: boolean }) => {
+    const resolvedPath = resolveChannelOpenFilePath(path);
+    if (resolvedPath === activeFile) {
+      if (options?.split && !splitMode) setSplitMode(true);
+      return;
+    }
+    const action: DirtyAction = { type: "select", path: resolvedPath, split: options?.split };
+    if (!fileDirtyRef.current) { selectFileTabNow(resolvedPath, { split: options?.split }); return; }
     setPendingDirtyAction(action);
-  }, [activeFile, selectFileTabNow]);
+  }, [activeFile, resolveChannelOpenFilePath, selectFileTabNow, setSplitMode, splitMode]);
+
+  useEffect(() => {
+    if (!channelId) return;
+    const handleChannelFileLink = (event: Event) => {
+      const detail = (event as CustomEvent<ChannelFileLinkOpenDetail>).detail;
+      if (!detail || detail.channelId !== channelId) return;
+      event.preventDefault();
+      handleSelectFile(detail.path, { split: detail.split });
+    };
+    window.addEventListener(CHANNEL_FILE_LINK_OPEN_EVENT, handleChannelFileLink);
+    return () => window.removeEventListener(CHANNEL_FILE_LINK_OPEN_EVENT, handleChannelFileLink);
+  }, [channelId, handleSelectFile]);
 
   useEffect(() => {
     if (!channelId) return;
@@ -1787,6 +1875,7 @@ export default function ChatScreen() {
     isProcessing: chatState.isProcessing,
     t,
     chatMode,
+    channelId,
     sessionId: channel?.active_session_id,
     onOpenMessageSession: handleOpenFindResultSession,
   };
@@ -2046,12 +2135,15 @@ export default function ChatScreen() {
             onSelect={handleSelectSessionTab}
             onFocusSplitPane={handleFocusSplitSessionTabPane}
             onClose={handleCloseSessionTab}
+            onPromote={promoteSessionTab}
             onReorder={handleReorderSessionTabs}
             onSplit={handleSplitSessionTab}
             onUnsplitPane={handleUnsplitSessionTabPane}
             onFocusOpenSurface={handleFocusOpenSessionTabSurface}
             onReplaceFocused={handleReplaceFocusedSessionTab}
             onMakePrimary={handleMakePrimarySessionTab}
+            canRenameSession={canRenameSessionTab}
+            onRenameSession={handleRenameSessionTab}
             onOpenSessions={openSessionsOverlay}
             openSurfaceKeys={openSessionTabSurfaceKeys}
             splitActive={canvasActive}

@@ -106,7 +106,7 @@ interface FilesTabPanelProps {
   /** Workspace-relative path of the file currently open in the editor; used
    *  to highlight the row in the tree. Null when no file is open. */
   activeFile?: string | null;
-  onSelectFile: (workspaceRelativePath: string) => void;
+  onSelectFile: (workspaceRelativePath: string, options?: { split?: boolean }) => void;
   /** When true the search filter opens focused on mount — wired to the
    *  Cmd+Shift+B global shortcut so "browse files" lands on search-ready. */
   focusSearchOnMount?: boolean;
@@ -877,7 +877,7 @@ export function FilesTabPanel({
                     return;
                   }
                   setSelectedPaths(new Set());
-                  onSelectFile(filePath);
+                  onSelectFile(filePath, { split: !!e?.altKey });
                 },
                 onFileContextMenu: (e, entry) => {
                   const filePath = stripSlashes(entry.path);

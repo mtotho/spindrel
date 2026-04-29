@@ -50,7 +50,7 @@ interface OmniPanelProps {
   /** Channel display name — fuels the Breadcrumb humanizer. */
   channelDisplayName?: string | null;
   activeFile: string | null;
-  onSelectFile: (path: string) => void;
+  onSelectFile: (path: string, options?: { split?: boolean }) => void;
   onOpenTerminal?: (workspaceRelativePath: string) => void;
   onClose: () => void;
   width?: number;

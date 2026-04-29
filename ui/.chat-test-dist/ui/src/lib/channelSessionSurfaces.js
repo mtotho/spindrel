@@ -168,6 +168,17 @@ export function addChannelSessionTabLayout(current, layout) {
     const existing = normalized.filter((item) => item.key !== snapshot.key);
     return [...existing, snapshot].slice(-MAX_CHANNEL_SESSION_TAB_LAYOUTS);
 }
+export function removeChannelSessionTabLayout(current, keyOrLayout) {
+    const normalized = normalizeChannelSessionTabLayouts(current);
+    const key = typeof keyOrLayout === "string"
+        ? keyOrLayout
+        : keyOrLayout
+            ? sessionTabKeyForChatPaneLayout(keyOrLayout)
+            : null;
+    if (!key)
+        return normalized;
+    return normalized.filter((item) => item.key !== key);
+}
 export function normalizeChannelSessionTabLayouts(value) {
     if (!Array.isArray(value))
         return [];
@@ -440,8 +451,8 @@ function buildSplitTabItem({ key, layout, activeLayoutKey, activeSessionId, cata
 export function buildChannelSessionTabItems({ channelId, recentPages, currentHref, activeSurface, activeSessionId, catalog, hiddenKeys, orderKeys, unreadStates, savedLayouts, activeLayout, limit = 8, }) {
     const hidden = new Set(hiddenKeys ?? []);
     const active = activeSurface ?? { kind: "primary" };
-    const activeKey = surfaceKey(active);
     const activeLayoutKey = activeLayout ? sessionTabKeyForChatPaneLayout(activeLayout) : null;
+    const activeKey = activeLayoutKey ?? surfaceKey(active);
     const orderedPages = [];
     if (currentHref)
         orderedPages.push({ href: currentHref });

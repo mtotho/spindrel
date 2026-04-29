@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import ReactDOM from "react-dom";
 import {
   closestCenter,
   DragOverlay,
@@ -17,7 +18,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { FileText, GripVertical, Loader2, Search, StickyNote, X } from "lucide-react";
+import { FileText, GripVertical, Loader2, MoreHorizontal, Search, StickyNote, X } from "lucide-react";
 import {
   buildChannelSessionPickerEntries,
   buildChannelSessionPickerGroups,
@@ -51,12 +52,15 @@ interface ChannelSessionTabStripProps {
   onSelect: (tab: ChannelTopTabItem) => void;
   onFocusSplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
   onClose: (tab: ChannelTopTabItem) => void;
+  onPromote: (tab: ChannelTopTabItem) => void;
   onReorder: (dragKey: string, targetKey: string) => void;
   onSplit: (tab: ChannelTopTabItem) => void;
   onUnsplitPane: (tab: ChannelTopTabItem, paneId: string) => void;
   onFocusOpenSurface: (tab: ChannelTopTabItem) => void;
   onReplaceFocused: (tab: ChannelTopTabItem) => void;
   onMakePrimary: (tab: ChannelTopTabItem) => void;
+  canRenameSession: (tab: ChannelTopTabItem) => boolean;
+  onRenameSession: (tab: ChannelTopTabItem, title: string) => void;
   onOpenSessions?: () => void;
   openSurfaceKeys: string[];
   splitActive: boolean;
@@ -68,23 +72,93 @@ export function ChannelSessionTabStrip({
   onSelect,
   onFocusSplitPane,
   onClose,
+  onPromote,
   onReorder,
   onSplit,
   onUnsplitPane,
   onFocusOpenSurface,
   onReplaceFocused,
   onMakePrimary,
-  onOpenSessions,
+  canRenameSession,
+  onRenameSession,
   openSurfaceKeys,
   splitActive,
   pendingKey,
 }: ChannelSessionTabStripProps) {
-  const tabKeys = useMemo(() => tabs.map((tab) => tab.key), [tabs]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [tabWidths, setTabWidths] = useState<Record<string, number>>({});
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const update = () => setContainerWidth(node.clientWidth);
+    update();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    const node = measureRef.current;
+    if (!node) return;
+    const measure = () => {
+      const next: Record<string, number> = {};
+      node.querySelectorAll<HTMLElement>("[data-measure-tab-key]").forEach((child) => {
+        next[child.dataset.measureTabKey ?? ""] = Math.ceil(child.getBoundingClientRect().width);
+      });
+      setTabWidths(next);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [tabs]);
+  const { visibleTabs, overflowTabs } = useMemo(() => {
+    if (tabs.length === 0) return { visibleTabs: tabs, overflowTabs: [] as ChannelTopTabItem[] };
+    const available = Math.max(0, containerWidth - 24);
+    if (!available) return { visibleTabs: tabs, overflowTabs: [] as ChannelTopTabItem[] };
+    const gap = 4;
+    const overflowButtonWidth = 60;
+    const visible: ChannelTopTabItem[] = [];
+    const hidden: ChannelTopTabItem[] = [];
+    let used = 0;
+    for (let index = 0; index < tabs.length; index++) {
+      const tab = tabs[index]!;
+      const width = tabWidths[tab.key] ?? (tab.kind === "split" ? 240 : 170);
+      const remainingAfterThis = tabs.length - index - 1;
+      const reserve = remainingAfterThis > 0 ? overflowButtonWidth + gap : 0;
+      const nextUsed = used + (visible.length > 0 ? gap : 0) + width;
+      if (visible.length === 0 || nextUsed + reserve <= available) {
+        visible.push(tab);
+        used = nextUsed;
+      } else {
+        hidden.push(tab);
+      }
+    }
+    return { visibleTabs: visible, overflowTabs: hidden };
+  }, [containerWidth, tabWidths, tabs]);
+  const tabKeys = useMemo(() => visibleTabs.map((tab) => tab.key), [visibleTabs]);
   const [activeDragKey, setActiveDragKey] = useState<string | null>(null);
   const activeDragTab = useMemo(
-    () => tabs.find((tab) => tab.key === activeDragKey) ?? null,
-    [activeDragKey, tabs],
+    () => visibleTabs.find((tab) => tab.key === activeDragKey) ?? null,
+    [activeDragKey, visibleTabs],
   );
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const close = () => setOverflowOpen(false);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [overflowOpen]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 2 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -109,11 +183,21 @@ export function ChannelSessionTabStrip({
       onDragCancel={() => setActiveDragKey(null)}
     >
       <div
+        ref={containerRef}
         data-testid="channel-session-tab-strip"
-        className="scroll-subtle flex h-9 shrink-0 items-center gap-1 overflow-x-auto px-3 pb-1 text-[12px]"
+        className="relative flex h-9 shrink-0 items-center gap-1 overflow-hidden px-3 pb-1 text-[12px]"
       >
-        <SortableContext items={tabKeys} strategy={horizontalListSortingStrategy}>
+        <div
+          ref={measureRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 flex h-0 items-center gap-1 overflow-hidden opacity-0"
+        >
           {tabs.map((tab) => (
+            <MeasuredSessionTab key={tab.key} tab={tab} pending={pendingKey === tab.key} />
+          ))}
+        </div>
+        <SortableContext items={tabKeys} strategy={horizontalListSortingStrategy}>
+          {visibleTabs.map((tab) => (
             <SortableSessionTab
               key={tab.key}
               tab={tab}
@@ -125,26 +209,163 @@ export function ChannelSessionTabStrip({
               onFocusOpenSurface={onFocusOpenSurface}
               onReplaceFocused={onReplaceFocused}
               onMakePrimary={onMakePrimary}
+              canRenameSession={canRenameSession}
+              onRenameSession={onRenameSession}
               openSurfaceKeys={openSurfaceKeys}
               splitActive={splitActive}
               pending={pendingKey === tab.key}
             />
           ))}
         </SortableContext>
-        {onOpenSessions && (
+        {overflowTabs.length > 0 && (
+          <div className="relative ml-1 shrink-0">
           <button
             type="button"
-            onClick={onOpenSessions}
-            className="ml-1 flex h-8 shrink-0 items-center rounded-md px-2 text-[11px] text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
+            data-testid="channel-session-tab-overflow-button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOverflowOpen((open) => !open);
+            }}
+            className="flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
+            title={`${overflowTabs.length} hidden ${overflowTabs.length === 1 ? "tab" : "tabs"}`}
           >
+            <MoreHorizontal size={14} />
             More
           </button>
+          {overflowOpen && (
+            <div
+              data-testid="channel-session-tab-overflow-menu"
+              className="absolute right-0 top-8 z-40 max-h-[360px] w-72 overflow-y-auto rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {overflowTabs.map((tab) => (
+                <OverflowTabRow
+                  key={tab.key}
+                  tab={tab}
+                  pending={pendingKey === tab.key}
+                  onSelect={() => {
+                    setOverflowOpen(false);
+                    onPromote(tab);
+                    onSelect(tab);
+                  }}
+                  onClose={() => onClose(tab)}
+                />
+              ))}
+            </div>
+          )}
+          </div>
         )}
       </div>
       <DragOverlay dropAnimation={null}>
         {activeDragTab ? <SessionTabDragGhost tab={activeDragTab} pending={pendingKey === activeDragTab.key} /> : null}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+function MeasuredSessionTab({ tab, pending }: { tab: ChannelTopTabItem; pending: boolean }) {
+  return (
+    <div
+      data-measure-tab-key={tab.key}
+      className={[
+        "flex h-8 shrink-0 items-center gap-1 rounded-md px-1.5 text-left text-[12px]",
+        tab.kind === "split" ? "max-w-[360px]" : "max-w-[260px]",
+      ].join(" ")}
+    >
+      <span className="flex h-6 w-4 shrink-0 items-center justify-center">
+        <GripVertical size={12} />
+      </span>
+      {tab.kind === "split" ? (
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          {tab.panes.map((pane, index) => (
+            <span
+              key={pane.id}
+              className={[
+                "flex h-6 min-w-0 items-center gap-1 border border-surface-border/70 px-2 text-[11px]",
+                index === 0 ? "rounded-l-md" : "",
+                index === tab.panes.length - 1 ? "rounded-r-md" : "",
+              ].join(" ")}
+            >
+              {pane.primary && <span className="h-1.5 w-1.5 shrink-0 rounded-full" />}
+              <span className="min-w-0 truncate">{pane.label}</span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {tab.kind === "file" ? <FileText size={12} className="shrink-0" /> : tab.primary ? <span className="h-1.5 w-1.5 shrink-0 rounded-full" /> : null}
+          <span className="min-w-0 truncate">{tab.label}</span>
+          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] lg:inline">
+            {tab.kind === "file" ? (tab.splitActive ? "Split" : "File") : tab.primary ? "Primary" : "Session"}
+          </span>
+        </div>
+      )}
+      {pending && <Loader2 size={11} className="shrink-0" />}
+      {tab.unreadCount > 0 && <span className="h-4 min-w-4 shrink-0 px-1 text-[9px]">9+</span>}
+      <span className="ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
+        <X size={12} />
+      </span>
+    </div>
+  );
+}
+
+function OverflowTabRow({
+  tab,
+  pending,
+  onSelect,
+  onClose,
+}: {
+  tab: ChannelTopTabItem;
+  pending: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}) {
+  const kindLabel = tab.kind === "file"
+    ? tab.splitActive ? "Split file" : "File"
+    : tab.kind === "split"
+      ? "Split"
+      : tab.primary
+        ? "Primary"
+        : tab.kind === "surface" && tab.surface.kind === "scratch"
+          ? "Scratch"
+          : "Session";
+  return (
+    <div className="group flex min-w-0 items-center gap-1 rounded-md hover:bg-surface-overlay/60">
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-muted group-hover:text-text"
+      >
+        {tab.kind === "file" ? (
+          <FileText size={13} className="shrink-0 text-text-dim" />
+        ) : tab.primary ? (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" />
+        ) : (
+          <StickyNote size={13} className="shrink-0 text-text-dim" />
+        )}
+        <span className="min-w-0 flex-1 truncate">{tab.label}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim">{kindLabel}</span>
+        {pending && <Loader2 size={11} className="shrink-0 animate-spin text-accent" />}
+        {tab.unreadCount > 0 && (
+          <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 px-1 text-[9px] font-semibold text-accent">
+            {tab.unreadCount > 9 ? "9+" : tab.unreadCount}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        aria-label={`Close ${tab.label} tab`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-overlay hover:text-text"
+      >
+        <X size={12} />
+      </button>
+    </div>
   );
 }
 
@@ -158,6 +379,8 @@ interface SortableSessionTabProps {
   onFocusOpenSurface: (tab: ChannelTopTabItem) => void;
   onReplaceFocused: (tab: ChannelTopTabItem) => void;
   onMakePrimary: (tab: ChannelTopTabItem) => void;
+  canRenameSession: (tab: ChannelTopTabItem) => boolean;
+  onRenameSession: (tab: ChannelTopTabItem, title: string) => void;
   openSurfaceKeys: string[];
   splitActive: boolean;
   pending: boolean;
@@ -173,22 +396,50 @@ function SortableSessionTab({
   onFocusOpenSurface,
   onReplaceFocused,
   onMakePrimary,
+  canRenameSession,
+  onRenameSession,
   openSurfaceKeys,
   splitActive,
   pending,
 }: SortableSessionTabProps) {
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
   const surfaceOpen = tab.kind === "surface" && openSurfaceKeys.includes(surfaceKey(tab.surface));
+  const renameable = tab.kind === "surface" && canRenameSession(tab);
   useEffect(() => {
     if (!menuPosition) return;
-    const close = () => setMenuPosition(null);
+    const close = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && menuRef.current?.contains(target)) return;
+      setMenuPosition(null);
+      setRenaming(false);
+    };
     window.addEventListener("pointerdown", close);
-    window.addEventListener("scroll", close, true);
     return () => {
       window.removeEventListener("pointerdown", close);
-      window.removeEventListener("scroll", close, true);
     };
   }, [menuPosition]);
+  useEffect(() => {
+    if (!menuPosition || !renaming) return;
+    const frame = requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuPosition, renaming]);
+  const closeMenu = () => {
+    setMenuPosition(null);
+    setRenaming(false);
+  };
+  const commitRename = () => {
+    const title = renameDraft.trim();
+    if (!renameable || !title) return;
+    onRenameSession(tab, title);
+    closeMenu();
+  };
   const {
     attributes,
     listeners,
@@ -323,121 +574,182 @@ function SortableSessionTab({
       >
         <X size={12} />
       </button>
-      {menuPosition && (
+      {menuPosition && typeof document !== "undefined" && ReactDOM.createPortal((
         <div
+          ref={menuRef}
           data-testid="channel-session-tab-menu"
-          className="fixed z-40 w-52 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg"
+          className="fixed z-40 w-64 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg"
           style={{ left: menuPosition.x, top: menuPosition.y }}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            onClick={() => {
-              setMenuPosition(null);
-              onSelect(tab);
-            }}
-            className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
-          >
-            {tab.kind === "split" ? "Open split" : "Open"}
-          </button>
-          {tab.kind === "split" ? (
-            <>
-              <div className="my-1 h-px bg-surface-border/60" />
-              <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Unsplit to</div>
-              {tab.panes.map((pane) => (
+          {renaming ? (
+            <form
+              className="flex flex-col gap-2 p-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                commitRename();
+              }}
+            >
+              <label className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80" htmlFor={`rename-${tab.key}`}>
+                Rename session
+              </label>
+              <input
+                id={`rename-${tab.key}`}
+                ref={renameInputRef}
+                data-testid="channel-session-tab-rename-input"
+                value={renameDraft}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setRenaming(false);
+                  }
+                }}
+                className="h-8 rounded-md border border-surface-border bg-surface px-2 text-[12px] text-text outline-none focus:border-accent"
+              />
+              <div className="flex items-center justify-end gap-1">
                 <button
-                  key={pane.id}
                   type="button"
                   onClick={() => {
-                    setMenuPosition(null);
-                    onUnsplitPane(tab, pane.id);
+                    setRenaming(false);
                   }}
-                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                  className="rounded px-2 py-1.5 text-[12px] text-text-dim hover:bg-surface-overlay hover:text-text"
                 >
-                  {pane.label}
+                  Cancel
                 </button>
-              ))}
-            </>
-          ) : tab.kind === "file" ? (
+                <button
+                  type="submit"
+                  disabled={!renameDraft.trim()}
+                  className="rounded bg-accent/15 px-2 py-1.5 text-[12px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          ) : (
             <>
               <button
                 type="button"
-                disabled={tab.splitActive}
                 onClick={() => {
-                  setMenuPosition(null);
-                  onSplit(tab);
+                  closeMenu();
+                  onSelect(tab);
                 }}
-                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:text-text-dim disabled:opacity-50"
+                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
               >
-                {tab.splitActive ? "Already split" : "Split right"}
+                {tab.kind === "split" ? "Open split" : "Open"}
+              </button>
+              {tab.kind === "split" ? (
+                <>
+                  <div className="my-1 h-px bg-surface-border/60" />
+                  <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Unsplit to</div>
+                  {tab.panes.map((pane) => (
+                    <button
+                      key={pane.id}
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        onUnsplitPane(tab, pane.id);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                    >
+                      {pane.label}
+                    </button>
+                  ))}
+                </>
+              ) : tab.kind === "file" ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={tab.splitActive}
+                    onClick={() => {
+                      closeMenu();
+                      onSplit(tab);
+                    }}
+                    className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:text-text-dim disabled:opacity-50"
+                  >
+                    {tab.splitActive ? "Already split" : "Split right"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {surfaceOpen ? (
+                    <button
+                      type="button"
+                      disabled={!splitActive}
+                      onClick={() => {
+                        closeMenu();
+                        onFocusOpenSurface(tab);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:text-text-dim disabled:opacity-50"
+                    >
+                      {splitActive ? "Focus open pane" : "Already open"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        onSplit(tab);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                    >
+                      Split right
+                    </button>
+                  )}
+                  {renameable && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameDraft(tab.label);
+                        setRenaming(true);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                    >
+                      Rename session
+                    </button>
+                  )}
+                  {splitActive && !surfaceOpen && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        onReplaceFocused(tab);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                    >
+                      Replace focused split
+                    </button>
+                  )}
+                  {tab.kind === "surface" && tab.surface.kind !== "primary" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        onMakePrimary(tab);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                    >
+                      Set as channel primary
+                    </button>
+                  )}
+                </>
+              )}
+              <div className="my-1 h-px bg-surface-border/60" />
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  onClose(tab);
+                }}
+                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10"
+              >
+                Close tab
               </button>
             </>
-          ) : (
-            <>
-              {surfaceOpen ? (
-                <button
-                  type="button"
-                  disabled={!splitActive}
-                  onClick={() => {
-                    setMenuPosition(null);
-                    onFocusOpenSurface(tab);
-                  }}
-                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:text-text-dim disabled:opacity-50"
-                >
-                  {splitActive ? "Focus open pane" : "Already open"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuPosition(null);
-                    onSplit(tab);
-                  }}
-                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
-                >
-                  Split right
-                </button>
-              )}
-              {splitActive && !surfaceOpen && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuPosition(null);
-                    onReplaceFocused(tab);
-                  }}
-                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
-                >
-                  Replace focused split
-                </button>
-              )}
-              {tab.kind === "surface" && tab.surface.kind !== "primary" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuPosition(null);
-                    onMakePrimary(tab);
-                  }}
-                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
-                >
-                  Set as channel primary
-                </button>
-              )}
-            </>
           )}
-          <div className="my-1 h-px bg-surface-border/60" />
-          <button
-            type="button"
-            onClick={() => {
-              setMenuPosition(null);
-              onClose(tab);
-            }}
-            className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10"
-          >
-            Close tab
-          </button>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

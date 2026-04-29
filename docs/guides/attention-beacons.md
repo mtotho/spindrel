@@ -102,6 +102,23 @@ items for the current target. The global Hub can acknowledge all active items
 visible to the current user; this requires confirmation and respects the same
 admin-only system-item visibility rules as the list API.
 
+The Hub can also start an **operator triage run** across all active visible
+items. This is still Attention, not a separate mission system:
+
+- the run creates one task-backed ephemeral session for the operator bot;
+- the operator receives a read-only tool surface plus
+  `report_attention_triage_batch`;
+- benign, duplicate, expected, recovered, informational, or noisy items are
+  marked processed and acknowledged;
+- true defects, unknown risks, user decisions, and likely product/code issues
+  stay active as ready-for-review items with a suggested action;
+- human review feedback is stored on the item and appended to operator memory
+  so future triage runs can learn routing preferences.
+
+Operator triage is deliberately inspect-and-classify only. It must not mutate
+code, configuration, channels, bots, tasks, widgets, or files as part of the
+triage run.
+
 ## Reply And Resolve
 
 Reply uses the existing channel chat path with attention metadata. A reply

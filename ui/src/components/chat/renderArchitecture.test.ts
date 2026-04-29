@@ -135,6 +135,22 @@ test("channel settings form hydrates header strip shell from saved settings", ()
   assert.match(channelSettings, /header_backdrop_mode:\s*settings\.header_backdrop_mode\s*\?\?\s*"glass"/);
 });
 
+test("harness channel settings keep the channel prompt editor visible", () => {
+  const settingsSections = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelSettingsSections.tsx"),
+    "utf8",
+  );
+  const harnessBranchStart = settingsSections.indexOf("if (harnessRuntime) {");
+  const harnessProjectSection = settingsSections.indexOf("<HarnessProjectDirectorySection", harnessBranchStart);
+
+  assert.notEqual(harnessBranchStart, -1);
+  assert.notEqual(harnessProjectSection, -1);
+  assert.match(
+    settingsSections.slice(harnessBranchStart, harnessProjectSection),
+    /<ChannelPromptSection\s+form=\{form\}/,
+  );
+});
+
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
   const richToolResult = readChatFile("RichToolResult.tsx");
   const machineStatusRenderer = readFileSync(
@@ -318,10 +334,15 @@ test("channel route renders desktop session tabs through dedicated components an
   assert.match(channelRoute, /handleFocusOpenSessionTabSurface/);
   assert.match(channelRoute, /if \(currentSerialized === nextSerialized\) return;/);
   assert.match(sessionTabs, /data-testid="channel-session-tab-strip"/);
+  assert.match(sessionTabs, /data-testid="channel-session-tab-overflow-button"/);
+  assert.match(sessionTabs, /data-testid="channel-session-tab-overflow-menu"/);
+  assert.doesNotMatch(sessionTabs, /overflow-x-auto/);
   assert.match(sessionTabs, /data-testid="channel-session-split-tab"/);
   assert.match(sessionTabs, /data-testid="channel-session-tab-menu"/);
   assert.match(sessionTabs, /Focus open pane/);
   assert.match(sessionTabs, /Already open/);
+  assert.match(sessionTabs, /Rename session/);
+  assert.match(sessionTabs, /data-testid="channel-session-tab-rename-input"/);
   assert.match(sessionTabs, /Unsplit to/);
   assert.match(sessionTabs, /ChannelFileTabItem/);
   assert.match(sessionTabs, /ChannelTopTabItem/);

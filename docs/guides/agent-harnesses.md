@@ -20,14 +20,14 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
     *Old SSH workflow* (still works if you prefer): `docker exec -it spindrel claude login`.
 
-3. **Workspaces — nothing new to mount.** A harness session reuses the bot's existing Spindrel workspace (the same `WORKSPACE_HOST_DIR` mount every other bot uses, default `~/.spindrel-workspaces/<bot_id>/`). No second mount, no parallel directory tree. The bot editor's *Workspace path (override)* field is for the rare case where you want to point the harness at a different directory — e.g. an existing repo on the host or a directory shared across multiple harness sessions.
+3. **Workspaces — nothing new to mount.** A harness session reuses the bot/channel's existing Spindrel workspace mount. In Docker deployments the harness process runs inside the Spindrel app container, so it sees the workspace under the container-local root (`/workspace-data` by default), not under the host checkout. No second mount, no parallel directory tree. The bot editor's *Workspace path (override)* field is for the rare case where you want to point the harness at a different container-visible directory.
 
 4. **Create a harness-backed session owner and seed its workspace.** `/admin/bots` -> New bot. In the **Identity** group, set:
 
     - **Runtime:** `Claude Code`
     - **Workspace path (override):** leave blank — the bot uses its standard Spindrel workspace.
 
-    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there alongside the repo.
+    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. Or set a channel **Project Directory** such as `common/projects`; in Docker that resolves inside the app container to `/workspace-data/shared/<workspace_id>/common/projects`. In that layout the harness cwd is the projects root and the repo is a child directory such as `./spindrel`, matching a local workspace root like `/home/mtoth/personal` with a repo under `./agent-server`.
 
     System prompt and normal prompt/RAG context fields are inert when a runtime is set — the harness owns its native context. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override. Spindrel tool enrollment still matters: selected local/MCP tools are the source for the harness bridge.
 
@@ -41,6 +41,7 @@ If Spindrel runs in Docker (it does), the SDK process runs **inside the Spindrel
 
 - The credential file (`~/.claude/.credentials.json` or `$CLAUDE_CONFIG_DIR/.credentials.json`) is reachable from inside the container.
 - The workspace directory you configure on the bot exists inside the container.
+- Host checkout paths such as `/opt/thoth-server` are not visible unless explicitly mounted. They are for SSH/operator maintenance, not for in-app harness turns.
 
 Two patterns:
 
