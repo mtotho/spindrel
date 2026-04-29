@@ -28,6 +28,8 @@ from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_STREAM_LIMIT_BYTES = 32 * 1024 * 1024
+
 
 class CodexAppServerError(RuntimeError):
     """JSON-RPC error response from the codex app-server."""
@@ -55,6 +57,20 @@ def _resolve_binary() -> str:
             "codex binary not found on PATH. Install it or set CODEX_BIN."
         )
     return found
+
+
+def _stream_limit_bytes() -> int:
+    raw = os.environ.get("CODEX_APP_SERVER_STREAM_LIMIT_BYTES", "").strip()
+    if not raw:
+        return DEFAULT_STREAM_LIMIT_BYTES
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid CODEX_APP_SERVER_STREAM_LIMIT_BYTES=%r", raw
+        )
+        return DEFAULT_STREAM_LIMIT_BYTES
+    return max(value, DEFAULT_STREAM_LIMIT_BYTES)
 
 
 @dataclass
@@ -127,6 +143,7 @@ class CodexAppServer:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=_stream_limit_bytes(),
         )
         self._reader_task = asyncio.create_task(self._read_loop(), name="codex-app-server-reader")
         self._stderr_task = asyncio.create_task(self._stderr_loop(), name="codex-app-server-stderr")

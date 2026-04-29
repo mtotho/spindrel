@@ -50,6 +50,27 @@ export interface WorkspaceAttentionItem {
   };
 }
 
+export interface OperatorTriageState {
+  state?: "running" | "queued" | "processed" | "ready_for_review" | "failed" | string;
+  task_id?: string | null;
+  session_id?: string | null;
+  parent_channel_id?: string | null;
+  operator_bot_id?: string | null;
+  classification?: string | null;
+  confidence?: "low" | "medium" | "high" | string | null;
+  summary?: string | null;
+  suggested_action?: string | null;
+  route?: string | null;
+  review_required?: boolean | null;
+  review?: {
+    verdict?: string | null;
+    note?: string | null;
+    route?: string | null;
+    reviewed_at?: string | null;
+    reviewed_by?: string | null;
+  } | null;
+}
+
 interface AttentionResponse {
   items: WorkspaceAttentionItem[];
 }
@@ -83,6 +104,21 @@ export interface BulkAcknowledgeAttentionInput {
   channel_id?: string | null;
 }
 
+export interface AttentionTriageRunResponse {
+  task_id: string;
+  session_id: string;
+  parent_channel_id: string;
+  bot_id: string;
+  item_count: number;
+}
+
+export interface AttentionTriageFeedbackInput {
+  itemId: string;
+  verdict: "confirmed" | "wrong" | "rerouted";
+  note?: string | null;
+  route?: string | null;
+}
+
 interface BulkAcknowledgeAttentionResponse {
   count: number;
   item_ids: string[];
@@ -93,6 +129,26 @@ export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
   return item.status !== "resolved" && item.status !== "acknowledged";
+}
+
+export function getOperatorTriage(item: WorkspaceAttentionItem): OperatorTriageState | null {
+  const triage = item.evidence?.operator_triage;
+  return triage && typeof triage === "object" ? triage as OperatorTriageState : null;
+}
+
+export function isOperatorTriageRunning(item: WorkspaceAttentionItem): boolean {
+  const triage = getOperatorTriage(item);
+  return triage?.state === "running" || triage?.state === "queued";
+}
+
+export function isOperatorTriageReadyForReview(item: WorkspaceAttentionItem): boolean {
+  const triage = getOperatorTriage(item);
+  return triage?.state === "ready_for_review" || triage?.review_required === true;
+}
+
+export function isOperatorTriageProcessed(item: WorkspaceAttentionItem): boolean {
+  const triage = getOperatorTriage(item);
+  return triage?.state === "processed";
 }
 
 export function reconcileAttentionItems(
@@ -114,14 +170,18 @@ export function reconcileAttentionItems(
 
 export function useWorkspaceAttention(
   channelId?: string | null,
-  options: { enabled?: boolean; refetchInterval?: number | false } = {},
+  options: { enabled?: boolean; refetchInterval?: number | false; includeResolved?: boolean } = {},
 ) {
   const enabled = options.enabled ?? true;
+  const includeResolved = options.includeResolved ?? false;
   return useQuery({
-    queryKey: channelId ? [...WORKSPACE_ATTENTION_KEY, channelId] : WORKSPACE_ATTENTION_KEY,
+    queryKey: channelId
+      ? [...WORKSPACE_ATTENTION_KEY, channelId, { includeResolved }]
+      : [...WORKSPACE_ATTENTION_KEY, { includeResolved }],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (channelId) params.set("channel_id", channelId);
+      if (includeResolved) params.set("include_resolved", "true");
       const suffix = params.toString() ? `?${params.toString()}` : "";
       const res = await apiFetch<AttentionResponse>(`/api/v1/workspace/attention${suffix}`);
       return res.items;
@@ -236,4 +296,44 @@ export function useAssignAttentionItem() {
 
 export function useUnassignAttentionItem() {
   return useAttentionAction((id) => `/api/v1/workspace/attention/${id}/unassign`);
+}
+
+export function useStartAttentionTriageRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch<AttentionTriageRunResponse>("/api/v1/workspace/attention/triage-runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "all_active" }),
+      });
+      return res;
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+    },
+  });
+}
+
+export function useSubmitAttentionTriageFeedback() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ itemId, ...body }: AttentionTriageFeedbackInput) => {
+      const res = await apiFetch<AttentionItemResponse>(`/api/v1/workspace/attention/${itemId}/triage-feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return res.item;
+    },
+    onSuccess: (item) => {
+      qc.setQueriesData<WorkspaceAttentionItem[]>(
+        { queryKey: WORKSPACE_ATTENTION_KEY },
+        (items) => reconcileAttentionItems(items, item),
+      );
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+    },
+  });
 }
