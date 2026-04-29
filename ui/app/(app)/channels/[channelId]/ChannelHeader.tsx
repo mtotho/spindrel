@@ -338,7 +338,7 @@ export function ChannelHeader({
     danger: boolean;
   }>;
   const showMobileOverflow = isMobile && mobileOverflowActions.length > 0;
-  const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !!onContextBudgetClick;
+  const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !bot.harness_runtime && !!onContextBudgetClick;
 
   const updateMobileOverflowPosition = React.useCallback(() => {
     const rect = mobileOverflowRef.current?.getBoundingClientRect();

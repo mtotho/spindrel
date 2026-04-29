@@ -138,7 +138,7 @@ test("harness channel settings keep the channel prompt editor visible", () => {
 });
 test("mobile channel header does not make the whole title open context chrome", () => {
     const channelHeader = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
-    assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !!onContextBudgetClick;/);
+    assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !bot\.harness_runtime && !!onContextBudgetClick;/);
     assert.match(channelHeader, /data-testid="channel-header-title-region"/);
     assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
     assert.match(channelHeader, /isMobile \? \(/);
