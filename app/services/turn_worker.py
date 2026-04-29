@@ -443,6 +443,19 @@ async def _run_harness_turn(
                 pre_user_msg_id=pre_user_msg_id,
                 suppress_outbox=suppress_outbox,
             )
+            from app.services.agent_harnesses.usage import record_harness_token_usage
+
+            await record_harness_token_usage(
+                db,
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                runtime=bot.harness_runtime,
+                model=harness_model,
+                channel_id=channel_id,
+                usage=result.usage if isinstance(result.usage, dict) else None,
+                cost_usd=result.cost_usd,
+            )
     except Exception:
         logger.exception(
             "harness '%s': persist_turn failed for session %s",

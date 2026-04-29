@@ -26,6 +26,7 @@ interface TraceGroup {
   total_cost: number | null;
   total_duration_ms: number | null;
   has_cost_data: boolean;
+  has_harness_usage: boolean;
 }
 
 function groupByCorrelation(entries: UsageLogEntry[], bots: any[] | undefined): TraceGroup[] {
@@ -46,6 +47,7 @@ function groupByCorrelation(entries: UsageLogEntry[], bots: any[] | undefined): 
         total_cost: null,
         total_duration_ms: null,
         has_cost_data: true,
+        has_harness_usage: false,
       };
       map.set(key, group);
     }
@@ -54,6 +56,7 @@ function groupByCorrelation(entries: UsageLogEntry[], bots: any[] | undefined): 
     group.total_completion_tokens += entry.completion_tokens;
     if (entry.cost != null) group.total_cost = (group.total_cost ?? 0) + entry.cost;
     else group.has_cost_data = false;
+    if (entry.billing_source === "harness_sdk") group.has_harness_usage = true;
     if (entry.duration_ms != null) group.total_duration_ms = (group.total_duration_ms ?? 0) + entry.duration_ms;
   }
   return Array.from(map.values());
@@ -109,6 +112,7 @@ export function LogsTab({
                   <QuietPill label={`${fmtTokens(group.total_prompt_tokens + group.total_completion_tokens)} tokens`} />
                   <QuietPill label={fmtDuration(group.total_duration_ms)} />
                   <span className="font-mono text-[11px] text-text">{group.has_cost_data ? fmtCost(group.total_cost) : "--"}</span>
+                  {group.has_harness_usage && <StatusBadge label="harness SDK" variant="neutral" />}
                   {!group.has_cost_data && <StatusBadge label="pricing missing" variant="warning" />}
                 </div>
               }
@@ -133,6 +137,7 @@ export function LogsTab({
                     <QuietPill label={`${fmtTokens(entry.completion_tokens)} out`} />
                     <QuietPill label={fmtDuration(entry.duration_ms)} />
                     <span className="font-mono text-[11px] text-text">{entry.has_cost_data ? fmtCost(entry.cost) : "--"}</span>
+                    {entry.billing_source === "harness_sdk" && <StatusBadge label="harness SDK" variant="neutral" />}
                     {!entry.has_cost_data && <StatusBadge label="pricing missing" variant="warning" />}
                   </div>
                 }

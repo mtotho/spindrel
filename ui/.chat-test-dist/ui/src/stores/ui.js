@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { migrateRecentPage } from "../lib/recentPages";
 import { canonicalizePaletteHref, resolvePaletteRoute } from "../lib/paletteRoutes";
 import { CHANNEL_PANEL_DEFAULT_WIDTH, clampChannelPanelWidth, } from "../lib/channelPanelLayout";
-import { defaultChannelChatPaneLayout, normalizeChannelChatPaneLayout, normalizeChannelSessionPanels, } from "../lib/channelSessionSurfaces";
+import { defaultChannelChatPaneLayout, normalizeChannelChatPaneLayout, normalizeChannelSessionPanels, normalizeChannelSessionTabLayouts, } from "../lib/channelSessionSurfaces";
 export function defaultChannelPanelPrefs() {
     return {
         leftOpen: false,
@@ -18,6 +18,7 @@ export function defaultChannelPanelPrefs() {
         focusModePrior: null,
         sessionPanels: [],
         chatPaneLayout: defaultChannelChatPaneLayout(),
+        sessionTabLayouts: [],
         hiddenSessionTabKeys: [],
         sessionTabOrderKeys: [],
         topChromeCollapsed: false,
@@ -46,6 +47,7 @@ function normalizeChannelPanelPrefs(prefs) {
         focusModePrior,
         sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
         chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
+        sessionTabLayouts: normalizeChannelSessionTabLayouts(prefs?.sessionTabLayouts),
         hiddenSessionTabKeys: Array.isArray(prefs?.hiddenSessionTabKeys)
             ? prefs.hiddenSessionTabKeys.filter((key) => typeof key === "string" && key.length > 0).slice(0, 40)
             : [],

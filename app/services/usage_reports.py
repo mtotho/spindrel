@@ -16,6 +16,7 @@ from app.services.usage_costs import (
     _parse_time,
     _resolve_event_cost,
 )
+from app.services.agent_harnesses.usage import synthetic_harness_provider_name
 from app.schemas.usage import (
     BreakdownGroup,
     CostByDimension,
@@ -248,6 +249,11 @@ async def build_usage_logs(
         ev_model = d.get("model")
         ev_provider = d.get("provider_id")
         ev_channel = d.get("channel_id") or session_channel_map.get(ev.session_id)
+        provider_name = (
+            provider_names.get(ev_provider)
+            if ev_provider
+            else None
+        ) or synthetic_harness_provider_name(ev_provider)
 
         cost = _resolve_event_cost(d, pricing, ptype_map)
 
@@ -257,7 +263,7 @@ async def build_usage_logs(
             correlation_id=str(ev.correlation_id) if ev.correlation_id else None,
             model=ev_model,
             provider_id=ev_provider,
-            provider_name=provider_names.get(ev_provider) if ev_provider else None,
+            provider_name=provider_name,
             bot_id=ev.bot_id,
             channel_id=ev_channel,
             channel_name=channel_name_map.get(ev_channel) if ev_channel else None,
@@ -266,6 +272,7 @@ async def build_usage_logs(
             cost=cost,
             has_cost_data=cost is not None,
             duration_ms=ev.duration_ms,
+            billing_source=d.get("billing_source") or d.get("usage_source"),
         ))
 
     return UsageLogsOut(
@@ -562,6 +569,8 @@ async def build_provider_health(
         provider_name = None
         if pid and pid in _registry:
             provider_name = _registry[pid].display_name
+        if provider_name is None:
+            provider_name = synthetic_harness_provider_name(pid)
 
         rows.append(ProviderHealthRow(
             provider_id=pid,

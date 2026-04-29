@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from app.domain.errors import ValidationError
 from app.schemas.widget_actions import WidgetActionRequest
 from app.services import widget_action_dispatch as dispatch_mod
 
@@ -58,6 +59,16 @@ async def test_exec_capable_tool_requires_bot_context():
     assert resp.error_kind == "forbidden"
     assert "bot context" in (resp.error or "")
     call_local.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_dispatch_raises_domain_validation_error():
+    req = WidgetActionRequest.model_construct(dispatch="unknown")
+
+    with pytest.raises(ValidationError) as excinfo:
+        await dispatch_mod.dispatch_widget_action(req, db=object())
+
+    assert str(excinfo.value) == "Unknown dispatch type: unknown"
 
 
 def test_widget_actions_router_stays_thin() -> None:

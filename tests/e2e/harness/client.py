@@ -590,6 +590,18 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_usage_logs(self, **params: Any) -> dict:
+        clean_params = {key: value for key, value in params.items() if value is not None}
+        resp = await self._client.get("/api/v1/admin/usage/logs", params=clean_params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_usage_breakdown(self, **params: Any) -> dict:
+        clean_params = {key: value for key, value in params.items() if value is not None}
+        resp = await self._client.get("/api/v1/admin/usage/breakdown", params=clean_params)
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_channel_config(self, channel_id: str) -> dict:
         resp = await self._client.get(f"/api/v1/channels/{channel_id}/config")
         resp.raise_for_status()

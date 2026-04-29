@@ -90,8 +90,16 @@ import {
   parseChannelRecentRoute,
 } from "@/src/lib/recentPages";
 import {
+  addChannelChatPane,
+  addChannelSessionTabLayout,
   buildChannelSessionTabItems,
+  paneIdForSurface,
+  replaceFocusedChannelChatPane,
+  sessionTabKeyForChatPaneLayout,
+  snapshotChannelSessionTabLayout,
+  splitChannelChatPaneLayout,
   surfaceKey,
+  type ChannelChatPaneLayout,
   type ChannelSessionSurface,
   type ChannelSessionTabItem,
 } from "@/src/lib/channelSessionSurfaces";
@@ -839,7 +847,8 @@ export default function ChatScreen() {
   );
   const activeSessionTabSurface: ChannelSessionSurface = routeSessionSurface
     ?? (canvasActive && focusedChatPane ? focusedChatPane.surface : { kind: "primary" });
-  const activeSessionTabKey = surfaceKey(activeSessionTabSurface);
+  const activeSplitTabKey = canvasActive ? sessionTabKeyForChatPaneLayout(panelPrefs.chatPaneLayout) : null;
+  const activeSessionTabKey = activeSplitTabKey ?? surfaceKey(activeSessionTabSurface);
   const sessionTabs = useMemo(
     () =>
       channelId
@@ -853,6 +862,8 @@ export default function ChatScreen() {
             hiddenKeys: panelPrefs.hiddenSessionTabKeys,
             orderKeys: panelPrefs.sessionTabOrderKeys,
             unreadStates: unreadState?.states,
+            savedLayouts: panelPrefs.sessionTabLayouts,
+            activeLayout: canvasActive ? panelPrefs.chatPaneLayout : null,
           })
         : [],
     [
@@ -860,12 +871,19 @@ export default function ChatScreen() {
       channel?.active_session_id,
       channelId,
       channelSessionCatalog,
+      canvasActive,
       currentRouteHref,
+      panelPrefs.chatPaneLayout,
       panelPrefs.hiddenSessionTabKeys,
+      panelPrefs.sessionTabLayouts,
       panelPrefs.sessionTabOrderKeys,
       recentPages,
       unreadState?.states,
     ],
+  );
+  const activeSessionTabLayoutSnapshot = useMemo(
+    () => (canvasActive ? snapshotChannelSessionTabLayout(panelPrefs.chatPaneLayout) : null),
+    [canvasActive, panelPrefs.chatPaneLayout],
   );
   useEffect(() => {
     if (!channelId) return;
@@ -876,6 +894,15 @@ export default function ChatScreen() {
         : { sessionTabOrderKeys: [...current.sessionTabOrderKeys, activeSessionTabKey].slice(-40) }
     ));
   }, [activeSessionTabKey, channelId, panelPrefs.sessionTabOrderKeys, patchChannelPanelPrefs]);
+  useEffect(() => {
+    if (!channelId || !activeSessionTabLayoutSnapshot) return;
+    patchChannelPanelPrefs(channelId, (current) => {
+      const nextLayouts = addChannelSessionTabLayout(current.sessionTabLayouts, activeSessionTabLayoutSnapshot.layout);
+      const currentSerialized = JSON.stringify(current.sessionTabLayouts);
+      const nextSerialized = JSON.stringify(nextLayouts);
+      return currentSerialized === nextSerialized ? {} : { sessionTabLayouts: nextLayouts };
+    });
+  }, [activeSessionTabLayoutSnapshot, channelId, patchChannelPanelPrefs]);
   const unhideSessionTabSurface = useCallback((surface: ChannelSessionSurface) => {
     if (!channelId) return;
     const key = surfaceKey(surface);
@@ -883,10 +910,82 @@ export default function ChatScreen() {
       hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== key),
     }));
   }, [channelId, patchChannelPanelPrefs]);
-  const handleSelectSessionTab = useCallback((surface: ChannelSessionSurface) => {
-    unhideSessionTabSurface(surface);
-    activateChannelSessionSurface(surface, "switch");
-  }, [activateChannelSessionSurface, unhideSessionTabSurface]);
+  const [pendingSessionTabKey, setPendingSessionTabKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pendingSessionTabKey) return;
+    if (sessionTabs.some((tab) => tab.key === pendingSessionTabKey && tab.active)) {
+      setPendingSessionTabKey(null);
+    }
+  }, [pendingSessionTabKey, sessionTabs]);
+  useEffect(() => {
+    if (!pendingSessionTabKey) return;
+    const timeout = window.setTimeout(() => setPendingSessionTabKey(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingSessionTabKey]);
+  const restoreSessionTabLayout = useCallback((layout: ChannelChatPaneLayout, focusedPaneId?: string | null) => {
+    if (!channelId) return;
+    const focusedLayout = focusedPaneId
+      ? { ...layout, focusedPaneId }
+      : layout;
+    const splitKey = sessionTabKeyForChatPaneLayout(focusedLayout);
+    if (splitKey) setPendingSessionTabKey(splitKey);
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: focusedLayout,
+      hiddenSessionTabKeys: splitKey
+        ? current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== splitKey)
+        : current.hiddenSessionTabKeys,
+      sessionTabLayouts: addChannelSessionTabLayout(current.sessionTabLayouts, focusedLayout),
+    }));
+    navigate(`/channels/${channelId}`);
+  }, [channelId, navigate, patchChannelPanelPrefs]);
+  const handleSelectSessionTab = useCallback((tab: ChannelSessionTabItem) => {
+    setPendingSessionTabKey(tab.key);
+    if (tab.kind === "split") {
+      restoreSessionTabLayout(tab.layout);
+      return;
+    }
+    unhideSessionTabSurface(tab.surface);
+    activateChannelSessionSurface(tab.surface, "switch");
+  }, [activateChannelSessionSurface, restoreSessionTabLayout, unhideSessionTabSurface]);
+  const handleFocusSplitSessionTabPane = useCallback((tab: ChannelSessionTabItem, paneId: string) => {
+    if (tab.kind !== "split") return;
+    restoreSessionTabLayout(tab.layout, paneId);
+  }, [restoreSessionTabLayout]);
+  const predictedSplitTabKey = useCallback((surface: ChannelSessionSurface) => {
+    const currentSurface: ChannelSessionSurface = routeSessionSurface ?? { kind: "primary" };
+    const currentLayout = panelPrefs.chatPaneLayout;
+    const shouldStartSplitFromRoute = !!routeSessionSurface || currentLayout.panes.length <= 1;
+    const nextLayout = shouldStartSplitFromRoute
+      ? splitChannelChatPaneLayout(currentSurface, surface)
+      : addChannelChatPane(currentLayout, surface);
+    return sessionTabKeyForChatPaneLayout(nextLayout) ?? surfaceKey(surface);
+  }, [panelPrefs.chatPaneLayout, routeSessionSurface]);
+  const handleSplitSessionTab = useCallback((tab: ChannelSessionTabItem) => {
+    if (tab.kind !== "surface") return;
+    setPendingSessionTabKey(predictedSplitTabKey(tab.surface));
+    unhideSessionTabSurface(tab.surface);
+    activateChannelSessionSurface(tab.surface, "split");
+  }, [activateChannelSessionSurface, predictedSplitTabKey, unhideSessionTabSurface]);
+  const handleReplaceFocusedSessionTab = useCallback((tab: ChannelSessionTabItem) => {
+    if (!channelId || tab.kind !== "surface") return;
+    unhideSessionTabSurface(tab.surface);
+    if (!canvasActive) {
+      handleSplitSessionTab(tab);
+      return;
+    }
+    const nextLayout = replaceFocusedChannelChatPane(panelPrefs.chatPaneLayout, tab.surface);
+    setPendingSessionTabKey(sessionTabKeyForChatPaneLayout(nextLayout) ?? tab.key);
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: nextLayout,
+      hiddenSessionTabKeys: current.hiddenSessionTabKeys.filter((hiddenKey) => hiddenKey !== tab.key),
+      sessionTabLayouts: addChannelSessionTabLayout(current.sessionTabLayouts, nextLayout),
+    }));
+    navigate(`/channels/${channelId}`);
+  }, [canvasActive, channelId, handleSplitSessionTab, navigate, panelPrefs.chatPaneLayout, patchChannelPanelPrefs, unhideSessionTabSurface]);
+  const handleMakePrimarySessionTab = useCallback((tab: ChannelSessionTabItem) => {
+    if (tab.kind !== "surface" || tab.surface.kind === "primary") return;
+    makePanePrimary({ id: paneIdForSurface(tab.surface), surface: tab.surface });
+  }, [makePanePrimary]);
   const handleCloseSessionTab = useCallback((tab: ChannelSessionTabItem) => {
     if (!channelId) return;
     const nextTab = tab.active ? sessionTabs.find((candidate) => candidate.key !== tab.key) ?? null : null;
@@ -894,9 +993,9 @@ export default function ChatScreen() {
       hiddenSessionTabKeys: Array.from(new Set([...current.hiddenSessionTabKeys, tab.key])).slice(-40),
     }));
     if (nextTab) {
-      activateChannelSessionSurface(nextTab.surface, "switch");
+      handleSelectSessionTab(nextTab);
     }
-  }, [activateChannelSessionSurface, channelId, patchChannelPanelPrefs, sessionTabs]);
+  }, [channelId, handleSelectSessionTab, patchChannelPanelPrefs, sessionTabs]);
   const handleReorderSessionTabs = useCallback((dragKey: string, targetKey: string) => {
     if (!channelId || dragKey === targetKey) return;
     patchChannelPanelPrefs(channelId, (current) => {
@@ -1785,9 +1884,15 @@ export default function ChatScreen() {
           <ChannelSessionTabStrip
             tabs={sessionTabs}
             onSelect={handleSelectSessionTab}
+            onFocusSplitPane={handleFocusSplitSessionTabPane}
             onClose={handleCloseSessionTab}
             onReorder={handleReorderSessionTabs}
+            onSplit={handleSplitSessionTab}
+            onReplaceFocused={handleReplaceFocusedSessionTab}
+            onMakePrimary={handleMakePrimarySessionTab}
             onOpenSessions={openSessionsOverlay}
+            splitActive={canvasActive}
+            pendingKey={pendingSessionTabKey}
           />
         )}
         {/* Desktop: integration dots inlined into ChannelHeader subtitle.

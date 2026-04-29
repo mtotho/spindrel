@@ -9,6 +9,7 @@ export type ChannelSessionActivationIntent = "switch" | "split";
 
 export const MAX_CHANNEL_SESSION_PANELS = 2;
 export const MAX_CHANNEL_CHAT_PANES = 3;
+export const MAX_CHANNEL_SESSION_TAB_LAYOUTS = 12;
 
 export interface ChannelChatPane {
   id: string;
@@ -35,16 +36,43 @@ export interface ChannelSessionRecentPageLike {
   label?: string | null;
 }
 
-export interface ChannelSessionTabItem {
+interface ChannelSessionTabBase {
   key: string;
-  surface: ChannelSessionSurface;
-  href: string;
   label: string;
   meta: string | null;
   active: boolean;
   primary: boolean;
   closeable: boolean;
   unreadCount: number;
+}
+
+export interface ChannelSessionSurfaceTabItem extends ChannelSessionTabBase {
+  kind: "surface";
+  surface: ChannelSessionSurface;
+  href: string;
+}
+
+export interface ChannelSessionSplitTabPaneItem {
+  id: string;
+  surface: ChannelSessionSurface;
+  label: string;
+  meta: string | null;
+  focused: boolean;
+  primary: boolean;
+  unreadCount: number;
+}
+
+export interface ChannelSessionSplitTabItem extends ChannelSessionTabBase {
+  kind: "split";
+  layout: ChannelChatPaneLayout;
+  panes: ChannelSessionSplitTabPaneItem[];
+}
+
+export type ChannelSessionTabItem = ChannelSessionSurfaceTabItem | ChannelSessionSplitTabItem;
+
+export interface ChannelSessionSavedLayout {
+  key: string;
+  layout: ChannelChatPaneLayout;
 }
 
 export interface ChannelSessionUnreadLike {
@@ -263,6 +291,57 @@ export function normalizeChannelChatPaneLayout(
     maximizedPaneId,
     miniPane,
   };
+}
+
+function restorableSplitLayout(layout: ChannelChatPaneLayout): ChannelChatPaneLayout | null {
+  const normalized = normalizeChannelChatPaneLayout(layout);
+  if (normalized.panes.length < 2) return null;
+  const panes = normalized.panes.slice(0, MAX_CHANNEL_CHAT_PANES);
+  return {
+    panes,
+    focusedPaneId: normalized.focusedPaneId && panes.some((pane) => pane.id === normalized.focusedPaneId)
+      ? normalized.focusedPaneId
+      : panes[0]?.id ?? null,
+    widths: normalizeWidths(panes, normalized.widths),
+    maximizedPaneId: null,
+    miniPane: null,
+  };
+}
+
+export function sessionTabKeyForChatPaneLayout(layout: ChannelChatPaneLayout): string | null {
+  const split = restorableSplitLayout(layout);
+  if (!split) return null;
+  return `split:${split.panes.map((pane) => pane.id).join("|")}`;
+}
+
+export function snapshotChannelSessionTabLayout(layout: ChannelChatPaneLayout): ChannelSessionSavedLayout | null {
+  const split = restorableSplitLayout(layout);
+  if (!split) return null;
+  const key = sessionTabKeyForChatPaneLayout(split);
+  return key ? { key, layout: split } : null;
+}
+
+export function addChannelSessionTabLayout(
+  current: readonly ChannelSessionSavedLayout[] | null | undefined,
+  layout: ChannelChatPaneLayout,
+): ChannelSessionSavedLayout[] {
+  const snapshot = snapshotChannelSessionTabLayout(layout);
+  const normalized = normalizeChannelSessionTabLayouts(current);
+  if (!snapshot) return normalized;
+  const existing = normalized.filter((item) => item.key !== snapshot.key);
+  return [...existing, snapshot].slice(-MAX_CHANNEL_SESSION_TAB_LAYOUTS);
+}
+
+export function normalizeChannelSessionTabLayouts(value: unknown): ChannelSessionSavedLayout[] {
+  if (!Array.isArray(value)) return [];
+  const byKey = new Map<string, ChannelSessionSavedLayout>();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || !("layout" in item)) continue;
+    const snapshot = snapshotChannelSessionTabLayout(item.layout as ChannelChatPaneLayout);
+    if (!snapshot) continue;
+    byKey.set(snapshot.key, snapshot);
+  }
+  return Array.from(byKey.values()).slice(-MAX_CHANNEL_SESSION_TAB_LAYOUTS);
 }
 
 export function addChannelChatPane(
@@ -507,6 +586,93 @@ function metaForSessionTab(
   return stats ? `${kind} · ${stats}` : kind;
 }
 
+function buildSurfaceTabItem({
+  channelId,
+  surface,
+  activeKey,
+  activeSessionId,
+  catalog,
+  recentLabel,
+  unreadBySession,
+}: {
+  channelId: string;
+  surface: ChannelSessionSurface;
+  activeKey: string;
+  activeSessionId?: string | null;
+  catalog?: readonly ChannelSessionCatalogItem[] | null;
+  recentLabel?: string | null;
+  unreadBySession: Map<string, number>;
+}): ChannelSessionSurfaceTabItem {
+  const key = surfaceKey(surface);
+  const row = catalogRowForSurface(surface, catalog, activeSessionId);
+  const surfaceSessionId = surface.kind === "primary" ? null : surface.sessionId;
+  const primary = surface.kind === "primary" || row?.is_active === true || surfaceSessionId === activeSessionId;
+  const tabSessionId = surface.kind === "primary" ? activeSessionId : surface.sessionId;
+  return {
+    kind: "surface",
+    key,
+    surface,
+    href: buildChannelSessionRoute(channelId, surface),
+    label: labelForSessionTab(surface, row, recentLabel),
+    meta: metaForSessionTab(surface, row),
+    active: key === activeKey,
+    primary,
+    closeable: true,
+    unreadCount: tabSessionId ? unreadBySession.get(tabSessionId) ?? 0 : 0,
+  };
+}
+
+function buildSplitTabItem({
+  key,
+  layout,
+  activeLayoutKey,
+  activeSessionId,
+  catalog,
+  unreadBySession,
+}: {
+  key: string;
+  layout: ChannelChatPaneLayout;
+  activeLayoutKey: string | null;
+  activeSessionId?: string | null;
+  catalog?: readonly ChannelSessionCatalogItem[] | null;
+  unreadBySession: Map<string, number>;
+}): ChannelSessionSplitTabItem | null {
+  const snapshot = snapshotChannelSessionTabLayout(layout);
+  if (!snapshot) return null;
+  const panes = snapshot.layout.panes.map((pane): ChannelSessionSplitTabPaneItem => {
+    const row = catalogRowForSurface(pane.surface, catalog, activeSessionId);
+    const surfaceSessionId = pane.surface.kind === "primary" ? null : pane.surface.sessionId;
+    const primary = pane.surface.kind === "primary"
+      || row?.is_active === true
+      || surfaceSessionId === activeSessionId;
+    return {
+      id: pane.id,
+      surface: pane.surface,
+      label: labelForSessionTab(pane.surface, row),
+      meta: metaForSessionTab(pane.surface, row),
+      focused: pane.id === snapshot.layout.focusedPaneId,
+      primary,
+      unreadCount: surfaceSessionId ? unreadBySession.get(surfaceSessionId) ?? 0 : 0,
+    };
+  });
+  const focused = panes.find((pane) => pane.focused) ?? panes[0] ?? null;
+  const totalUnread = panes.reduce((sum, pane) => sum + pane.unreadCount, 0);
+  return {
+    kind: "split",
+    key,
+    layout: snapshot.layout,
+    panes,
+    label: panes.length === 2
+      ? `${panes[0]?.label ?? "Session"} + ${panes[1]?.label ?? "Session"}`
+      : `${panes.length} session split`,
+    meta: focused ? `Split · focused ${focused.label}` : "Split",
+    active: key === activeLayoutKey,
+    primary: panes.some((pane) => pane.primary),
+    closeable: true,
+    unreadCount: totalUnread,
+  };
+}
+
 export function buildChannelSessionTabItems({
   channelId,
   recentPages,
@@ -517,6 +683,8 @@ export function buildChannelSessionTabItems({
   hiddenKeys,
   orderKeys,
   unreadStates,
+  savedLayouts,
+  activeLayout,
   limit = 8,
 }: {
   channelId: string;
@@ -528,11 +696,14 @@ export function buildChannelSessionTabItems({
   hiddenKeys?: readonly string[] | null;
   orderKeys?: readonly string[] | null;
   unreadStates?: readonly ChannelSessionUnreadLike[] | null;
+  savedLayouts?: readonly ChannelSessionSavedLayout[] | null;
+  activeLayout?: ChannelChatPaneLayout | null;
   limit?: number;
 }): ChannelSessionTabItem[] {
   const hidden = new Set(hiddenKeys ?? []);
   const active = activeSurface ?? { kind: "primary" as const };
   const activeKey = surfaceKey(active);
+  const activeLayoutKey = activeLayout ? sessionTabKeyForChatPaneLayout(activeLayout) : null;
   const orderedPages: ChannelSessionRecentPageLike[] = [];
   if (currentHref) orderedPages.push({ href: currentHref });
   orderedPages.push(...(recentPages ?? []));
@@ -548,21 +719,30 @@ export function buildChannelSessionTabItems({
     const key = surfaceKey(surface);
     if (seen.has(key) || hidden.has(key)) continue;
     seen.add(key);
-    const row = catalogRowForSurface(surface, catalog, activeSessionId);
-    const surfaceSessionId = surface.kind === "primary" ? null : surface.sessionId;
-    const primary = surface.kind === "primary" || row?.is_active === true || surfaceSessionId === activeSessionId;
-    const tabSessionId = surface.kind === "primary" ? activeSessionId : surface.sessionId;
-    tabByKey.set(key, {
-      key,
+    tabByKey.set(key, buildSurfaceTabItem({
+      channelId,
       surface,
-      href: buildChannelSessionRoute(channelId, surface),
-      label: labelForSessionTab(surface, row, page.label),
-      meta: metaForSessionTab(surface, row),
-      active: key === activeKey,
-      primary,
-      closeable: true,
-      unreadCount: tabSessionId ? unreadBySession.get(tabSessionId) ?? 0 : 0,
+      activeKey,
+      activeSessionId,
+      catalog,
+      recentLabel: page.label,
+      unreadBySession,
+    }));
+  }
+  const layouts = activeLayout
+    ? addChannelSessionTabLayout(savedLayouts, activeLayout)
+    : normalizeChannelSessionTabLayouts(savedLayouts);
+  for (const layout of layouts) {
+    if (hidden.has(layout.key)) continue;
+    const tab = buildSplitTabItem({
+      key: layout.key,
+      layout: layout.layout,
+      activeLayoutKey,
+      activeSessionId,
+      catalog,
+      unreadBySession,
     });
+    if (tab) tabByKey.set(layout.key, tab);
   }
   const tabs: ChannelSessionTabItem[] = [];
   const emitted = new Set<string>();

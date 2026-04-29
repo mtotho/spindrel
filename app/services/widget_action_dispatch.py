@@ -7,7 +7,6 @@ import logging
 import sqlite3 as _sqlite3
 import uuid
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -66,8 +65,6 @@ def _classify_domain_error(exc: BaseException) -> str:
         return "unprocessable"
     if isinstance(exc, DomainError):
         return "domain"
-    if isinstance(exc, HTTPException):
-        return f"http_{exc.status_code}"
     return "internal"
 
 
@@ -87,7 +84,7 @@ async def dispatch_widget_action(
         return await _dispatch_widget_handler(req, db)
     if req.dispatch == "native_widget":
         return await _dispatch_native_widget(req, db)
-    raise HTTPException(400, f"Unknown dispatch type: {req.dispatch}")
+    raise ValidationError(f"Unknown dispatch type: {req.dispatch}")
 
 
 async def _dispatch_tool(req: WidgetActionRequest, db: AsyncSession) -> WidgetActionResponse:
@@ -497,7 +494,7 @@ async def _dispatch_widget_handler(
 
     try:
         pin = await get_pin(db, req.dashboard_pin_id)
-    except (HTTPException, DomainError) as exc:
+    except DomainError as exc:
         return WidgetActionResponse(
             ok=False,
             error=str(exc.detail),
@@ -551,7 +548,7 @@ async def _dispatch_native_widget(
 
         try:
             pin = await get_pin(db, req.dashboard_pin_id)
-        except (HTTPException, DomainError) as exc:
+        except DomainError as exc:
             return WidgetActionResponse(
                 ok=False,
                 error=str(exc.detail),
@@ -581,7 +578,7 @@ async def _dispatch_native_widget(
         )
         await db.commit()
         await db.refresh(instance)
-    except (HTTPException, DomainError) as exc:
+    except DomainError as exc:
         await db.rollback()
         return WidgetActionResponse(
             ok=False,
@@ -656,7 +653,7 @@ async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionRespo
                 req.config,
                 merge=True,
             )
-    except (HTTPException, DomainError) as exc:
+    except DomainError as exc:
         return WidgetActionResponse(
             ok=False,
             error=f"Pin patch failed: {exc.detail}",

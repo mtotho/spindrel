@@ -145,6 +145,14 @@ def _configured_case(case: HarnessCase) -> tuple[str, str]:
     return channel_id, os.environ.get(case.bot_env, case.default_bot_id).strip()
 
 
+def _expected_usage_provider(case: HarnessCase) -> str:
+    if case.runtime == "codex":
+        return "harness:codex-sdk"
+    if case.runtime == "claude-code":
+        return "harness:claude-code-sdk"
+    return f"harness:{case.runtime}-sdk"
+
+
 async def _fresh_session(client: E2EClient, case: HarnessCase) -> tuple[str, str, str]:
     channel_id, bot_id = _configured_case(case)
     session_id = await client.create_channel_session(channel_id)
@@ -344,6 +352,39 @@ async def _assert_trace_has_turn_context(client: E2EClient, result: StreamResult
     return trace
 
 
+async def _assert_usage_surfaces_harness_channel(
+    client: E2EClient,
+    case: HarnessCase,
+    channel_id: str,
+) -> None:
+    provider_id = _expected_usage_provider(case)
+    logs = await client.get_usage_logs(
+        provider_id=provider_id,
+        channel_id=channel_id,
+        page_size=20,
+    )
+    entries = logs.get("entries") or []
+    assert any(
+        entry.get("provider_id") == provider_id
+        and entry.get("channel_id") == channel_id
+        and entry.get("billing_source") == "harness_sdk"
+        and entry.get("has_cost_data") is True
+        for entry in entries
+    ), f"harness usage log row not found for {provider_id} in channel {channel_id}: {entries}"
+
+    breakdown = await client.get_usage_breakdown(
+        group_by="channel",
+        provider_id=provider_id,
+        channel_id=channel_id,
+    )
+    groups = breakdown.get("groups") or []
+    assert any(
+        group.get("key") == channel_id
+        and int(group.get("tokens") or 0) > 0
+        for group in groups
+    ), f"harness usage did not contribute to channel breakdown for {channel_id}: {groups}"
+
+
 @pytest.mark.parametrize("case", HARNESS_PARAMS)
 @pytest.mark.asyncio
 async def test_live_harness_core_parity_controls_trace_and_context(
@@ -416,6 +457,7 @@ async def test_live_harness_core_parity_controls_trace_and_context(
 
         budget = await client.get_context_budget(channel_id, session_id=session_id)
         assert {"utilization", "consumed_tokens", "total_tokens"} <= set(budget.keys())
+        await _assert_usage_surfaces_harness_channel(client, case, channel_id)
 
         messages = await client.get_session_messages(session_id)
         assert _assistant_messages(messages), "assistant message did not persist"

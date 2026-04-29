@@ -49,6 +49,7 @@ export interface UsageLogEntry {
   cost: number | null;
   has_cost_data: boolean;
   duration_ms: number | null;
+  billing_source: string | null;
 }
 
 export interface UsageLogsResponse {

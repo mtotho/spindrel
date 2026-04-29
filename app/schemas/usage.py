@@ -40,6 +40,7 @@ class UsageLogEntry(BaseModel):
     cost: float | None = None
     has_cost_data: bool = False
     duration_ms: int | None = None
+    billing_source: str | None = None
 
 class UsageLogsOut(BaseModel):
     entries: list[UsageLogEntry] = []

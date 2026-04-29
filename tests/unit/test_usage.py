@@ -181,6 +181,17 @@ class TestResolveEventCost:
         expected = 10_000 * 3 / 1_000_000 + 5_000 * 15 / 1_000_000
         assert abs(cost - expected) < 1e-10
 
+    def test_harness_sdk_usage_is_non_billable_without_pricing(self):
+        d = {
+            "prompt_tokens": 10_000,
+            "completion_tokens": 5_000,
+            "model": "gpt-5.4-mini",
+            "provider_id": "harness:codex-sdk",
+            "usage_source": "harness_sdk",
+        }
+        cost = _resolve_event_cost(d, {}, {})
+        assert cost == 0.0
+
     def test_unknown_provider_uses_default_discount(self):
         """Unknown provider type → default 50% cache discount."""
         d = {"prompt_tokens": 10_000, "completion_tokens": 0,

@@ -98,9 +98,21 @@ class TestResolveEventCostPlanProvider:
             "completion_tokens": 50,
         }
         with patch("app.services.providers._registry", {"my-openai": provider}), \
-             patch("app.services.providers._plan_billed_models", set()):
+            patch("app.services.providers._plan_billed_models", set()):
             cost = _resolve_event_cost(event_data, {}, {"my-openai": "openai"})
             assert cost is None
+
+    def test_harness_provider_returns_zero_when_no_pricing(self):
+        from app.services.usage_costs import _resolve_event_cost
+        event_data = {
+            "provider_id": "harness:claude-code-sdk",
+            "model": "claude/default",
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "usage_source": "harness_sdk",
+        }
+        cost = _resolve_event_cost(event_data, {}, {})
+        assert cost == 0.0
 
     def test_plan_provider_uses_response_cost_when_present(self):
         from app.services.usage_costs import _resolve_event_cost

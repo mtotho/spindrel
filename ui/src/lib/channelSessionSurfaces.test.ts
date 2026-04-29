@@ -15,11 +15,14 @@ import {
   moveChannelChatPane,
   normalizeChannelChatPaneLayout,
   normalizeChannelSessionPanels,
+  normalizeChannelSessionTabLayouts,
   removeChannelSessionPanel,
   replaceFocusedChannelChatPane,
   restoreMiniChannelChatPane,
   restoreChannelChatPanes,
   resizeChannelChatPanes,
+  sessionTabKeyForChatPaneLayout,
+  snapshotChannelSessionTabLayout,
   splitChannelChatPaneLayout,
 } from "./channelSessionSurfaces.js";
 
@@ -344,6 +347,86 @@ assert.deepEqual(stableOrderTabs.map((tab) => [tab.key, tab.active]), [
   ["channel:s2", false],
   ["channel:s1", true],
 ]);
+
+const splitTabLayout = splitChannelChatPaneLayout(
+  { kind: "primary" },
+  { kind: "channel", sessionId: "s2" },
+);
+const splitTabKey = sessionTabKeyForChatPaneLayout(splitTabLayout);
+assert.equal(splitTabKey, "split:primary|channel:s2");
+assert.deepEqual(snapshotChannelSessionTabLayout(splitTabLayout)?.layout.panes.map((pane) => pane.id), [
+  "primary",
+  "channel:s2",
+]);
+const splitTabs = buildChannelSessionTabItems({
+  channelId: "chan",
+  currentHref: "/channels/chan/session/s2?surface=channel",
+  recentPages: [
+    { href: "/channels/chan/session/s1?surface=channel", label: "First pass · #ops" },
+    { href: "/channels/chan/session/s2?surface=channel", label: "Second pass · #ops" },
+  ],
+  activeSurface: { kind: "channel", sessionId: "s2" },
+  activeSessionId: "s1",
+  activeLayout: splitTabLayout,
+  savedLayouts: [],
+  orderKeys: ["channel:s1", splitTabKey!, "channel:s2"],
+  unreadStates: [{ session_id: "s2", unread_agent_reply_count: 4 }],
+  catalog: [
+    {
+      session_id: "s1",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-23T00:00:00Z",
+      last_active: "2026-04-24T00:00:00Z",
+      label: "Primary work",
+      message_count: 9,
+      section_count: 1,
+      is_active: true,
+      is_current: false,
+    },
+    {
+      session_id: "s2",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-25T00:00:00Z",
+      last_active: "2026-04-25T00:00:00Z",
+      label: "Second pass",
+      message_count: 2,
+      section_count: 0,
+      is_active: false,
+      is_current: false,
+    },
+  ],
+});
+assert.deepEqual(splitTabs.map((tab) => [tab.key, tab.kind, tab.active]), [
+  ["channel:s1", "surface", false],
+  ["split:primary|channel:s2", "split", true],
+  ["channel:s2", "surface", false],
+]);
+const splitTab = splitTabs.find((tab) => tab.kind === "split");
+assert.equal(splitTab?.unreadCount, 4);
+assert.deepEqual(splitTab?.kind === "split" ? splitTab.panes.map((pane) => [pane.id, pane.label, pane.primary, pane.focused]) : [], [
+  ["primary", "Primary work", true, false],
+  ["channel:s2", "Second pass", false, true],
+]);
+const savedSplitLayouts = normalizeChannelSessionTabLayouts([
+  { key: "ignored", layout: splitTabLayout },
+  { key: "bad", layout: { panes: [{ id: "primary", surface: { kind: "primary" } }], focusedPaneId: "primary", widths: { primary: 1 }, maximizedPaneId: null, miniPane: null } },
+]);
+assert.deepEqual(savedSplitLayouts.map((layout) => layout.key), ["split:primary|channel:s2"]);
+const hiddenSplitTabs = buildChannelSessionTabItems({
+  channelId: "chan",
+  currentHref: "/channels/chan/session/s2?surface=channel",
+  recentPages: [
+    { href: "/channels/chan/session/s1?surface=channel" },
+    { href: "/channels/chan/session/s2?surface=channel" },
+  ],
+  activeSurface: { kind: "channel", sessionId: "s2" },
+  activeLayout: splitTabLayout,
+  savedLayouts: savedSplitLayouts,
+  hiddenKeys: ["split:primary|channel:s2"],
+});
+assert.deepEqual(hiddenSplitTabs.map((tab) => tab.key), ["channel:s2", "channel:s1"]);
 
 const hiddenTabs = buildChannelSessionTabItems({
   channelId: "chan",

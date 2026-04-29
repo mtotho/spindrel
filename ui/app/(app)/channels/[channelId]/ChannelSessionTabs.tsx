@@ -16,7 +16,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Search, StickyNote, X } from "lucide-react";
+import { GripVertical, Loader2, Search, StickyNote, X } from "lucide-react";
 import {
   buildChannelSessionPickerEntries,
   buildChannelSessionPickerGroups,
@@ -32,10 +32,16 @@ import {
 
 interface ChannelSessionTabStripProps {
   tabs: ChannelSessionTabItem[];
-  onSelect: (surface: ChannelSessionSurface) => void;
+  onSelect: (tab: ChannelSessionTabItem) => void;
+  onFocusSplitPane: (tab: ChannelSessionTabItem, paneId: string) => void;
   onClose: (tab: ChannelSessionTabItem) => void;
   onReorder: (dragKey: string, targetKey: string) => void;
+  onSplit: (tab: ChannelSessionTabItem) => void;
+  onReplaceFocused: (tab: ChannelSessionTabItem) => void;
+  onMakePrimary: (tab: ChannelSessionTabItem) => void;
   onOpenSessions?: () => void;
+  splitActive: boolean;
+  pendingKey?: string | null;
 }
 
 const restrictTabDragToRow: Modifier = ({ transform }) => ({
@@ -46,13 +52,19 @@ const restrictTabDragToRow: Modifier = ({ transform }) => ({
 export function ChannelSessionTabStrip({
   tabs,
   onSelect,
+  onFocusSplitPane,
   onClose,
   onReorder,
+  onSplit,
+  onReplaceFocused,
+  onMakePrimary,
   onOpenSessions,
+  splitActive,
+  pendingKey,
 }: ChannelSessionTabStripProps) {
   const tabKeys = useMemo(() => tabs.map((tab) => tab.key), [tabs]);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { delay: 140, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const handleDragEnd = (event: DragEndEvent) => {
@@ -79,7 +91,13 @@ export function ChannelSessionTabStrip({
               key={tab.key}
               tab={tab}
               onSelect={onSelect}
+              onFocusSplitPane={onFocusSplitPane}
               onClose={onClose}
+              onSplit={onSplit}
+              onReplaceFocused={onReplaceFocused}
+              onMakePrimary={onMakePrimary}
+              splitActive={splitActive}
+              pending={pendingKey === tab.key}
             />
           ))}
         </SortableContext>
@@ -99,16 +117,42 @@ export function ChannelSessionTabStrip({
 
 interface SortableSessionTabProps {
   tab: ChannelSessionTabItem;
-  onSelect: (surface: ChannelSessionSurface) => void;
+  onSelect: (tab: ChannelSessionTabItem) => void;
+  onFocusSplitPane: (tab: ChannelSessionTabItem, paneId: string) => void;
   onClose: (tab: ChannelSessionTabItem) => void;
+  onSplit: (tab: ChannelSessionTabItem) => void;
+  onReplaceFocused: (tab: ChannelSessionTabItem) => void;
+  onMakePrimary: (tab: ChannelSessionTabItem) => void;
+  splitActive: boolean;
+  pending: boolean;
 }
 
-function SortableSessionTab({ tab, onSelect, onClose }: SortableSessionTabProps) {
+function SortableSessionTab({
+  tab,
+  onSelect,
+  onFocusSplitPane,
+  onClose,
+  onSplit,
+  onReplaceFocused,
+  onMakePrimary,
+  splitActive,
+  pending,
+}: SortableSessionTabProps) {
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!menuPosition) return;
+    const close = () => setMenuPosition(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menuPosition]);
   const {
     attributes,
     listeners,
     setNodeRef,
-    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -125,51 +169,92 @@ function SortableSessionTab({ tab, onSelect, onClose }: SortableSessionTabProps)
       data-session-tab-key={tab.key}
       data-active={tab.active ? "true" : "false"}
       data-primary={tab.primary ? "true" : "false"}
+      data-loading={pending ? "true" : "false"}
       data-reorderable="true"
       title={[tab.label, tab.meta].filter(Boolean).join("\n")}
       className={[
-        "group relative flex h-8 max-w-[240px] shrink-0 touch-pan-x items-center gap-1 rounded-md px-1.5 text-left transition-colors",
+        "group relative flex h-8 shrink-0 touch-pan-x items-center gap-1 rounded-md px-1.5 text-left transition-colors",
+        tab.kind === "split" ? "max-w-[360px]" : "max-w-[260px]",
         tab.active
           ? "bg-accent/[0.08] text-text"
           : "text-text-muted hover:bg-surface-overlay/60 hover:text-text",
         isDragging ? "z-10 shadow-sm opacity-95" : "",
+        pending ? "bg-accent/[0.06]" : "",
       ].join(" ")}
+      onClick={() => onSelect(tab)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect(tab);
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuPosition({ x: event.clientX, y: event.clientY });
+      }}
+      {...attributes}
+      {...listeners}
     >
-      <button
-        type="button"
-        ref={setActivatorNodeRef}
-        aria-label={`Reorder ${tab.label} tab`}
-        title="Reorder tab"
-        className="flex h-6 w-4 shrink-0 cursor-grab items-center justify-center rounded text-text-dim/60 transition-colors hover:bg-surface-overlay hover:text-text active:cursor-grabbing"
-        {...attributes}
-        {...listeners}
+      <span
+        aria-hidden="true"
+        className="flex h-6 w-4 shrink-0 cursor-grab items-center justify-center rounded text-text-dim/60 transition-colors group-hover:bg-surface-overlay group-hover:text-text group-active:cursor-grabbing"
       >
         <GripVertical size={12} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelect(tab.surface)}
-        className="flex min-w-0 flex-1 items-center gap-1.5 bg-transparent text-left"
-      >
-        {tab.primary && (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />
-        )}
-        <span className="min-w-0 truncate">{tab.label}</span>
-        {tab.unreadCount > 0 && (
-          <span
-            data-testid="channel-session-tab-unread"
-            className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 px-1 text-[9px] font-semibold text-accent"
-            title={`${tab.unreadCount} unread agent ${tab.unreadCount === 1 ? "reply" : "replies"}`}
-          >
-            {tab.unreadCount > 9 ? "9+" : tab.unreadCount}
-          </span>
-        )}
-        {tab.meta && (
-          <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
-            {tab.primary ? "Primary" : tab.surface.kind === "scratch" ? "Scratch" : "Session"}
-          </span>
-        )}
-      </button>
+      </span>
+      {tab.kind === "split" ? (
+        <div
+          data-testid="channel-session-split-tab"
+          className="flex min-w-0 flex-1 items-center gap-0.5"
+        >
+          {tab.panes.map((pane, index) => (
+            <button
+              key={pane.id}
+              type="button"
+              data-testid="channel-session-split-tab-pane"
+              data-focused={pane.focused ? "true" : "false"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onFocusSplitPane(tab, pane.id);
+              }}
+              className={[
+                "flex h-6 min-w-0 items-center gap-1 border border-surface-border/70 px-2 text-[11px] transition-colors",
+                index === 0 ? "rounded-l-md" : "",
+                index === tab.panes.length - 1 ? "rounded-r-md" : "",
+                pane.focused ? "bg-accent/[0.10] text-text" : "bg-surface/60 text-text-muted hover:bg-surface-overlay/70 hover:text-text",
+              ].join(" ")}
+            >
+              {pane.primary && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />}
+              <span className="min-w-0 truncate">{pane.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {tab.primary && (
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80" aria-hidden="true" />
+          )}
+          <span className="min-w-0 truncate">{tab.label}</span>
+          {tab.meta && (
+            <span className="hidden shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim lg:inline">
+              {tab.primary
+                ? "Primary"
+                : tab.kind === "surface" && tab.surface.kind === "scratch"
+                  ? "Scratch"
+                  : "Session"}
+            </span>
+          )}
+        </div>
+      )}
+      {pending && <Loader2 size={11} className="shrink-0 animate-spin text-accent" aria-hidden="true" />}
+      {tab.unreadCount > 0 && (
+        <span
+          data-testid="channel-session-tab-unread"
+          className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent/15 px-1 text-[9px] font-semibold text-accent"
+          title={`${tab.unreadCount} unread agent ${tab.unreadCount === 1 ? "reply" : "replies"}`}
+        >
+          {tab.unreadCount > 9 ? "9+" : tab.unreadCount}
+        </span>
+      )}
       <span
         className={[
           "absolute inset-x-2 bottom-0 h-px rounded-full transition-colors",
@@ -181,6 +266,7 @@ function SortableSessionTab({ tab, onSelect, onClose }: SortableSessionTabProps)
         type="button"
         aria-label={`Close ${tab.label} tab`}
         title="Close tab"
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
           onClose(tab);
@@ -189,9 +275,97 @@ function SortableSessionTab({ tab, onSelect, onClose }: SortableSessionTabProps)
       >
         <X size={12} />
       </button>
+      {menuPosition && (
+        <div
+          data-testid="channel-session-tab-menu"
+          className="fixed z-40 w-52 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg"
+          style={{ left: menuPosition.x, top: menuPosition.y }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setMenuPosition(null);
+              onSelect(tab);
+            }}
+            className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+          >
+            {tab.kind === "split" ? "Open split" : "Open"}
+          </button>
+          {tab.kind === "split" ? (
+            <>
+              <div className="my-1 h-px bg-surface-border/60" />
+              <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Focus pane</div>
+              {tab.panes.map((pane) => (
+                <button
+                  key={pane.id}
+                  type="button"
+                  onClick={() => {
+                    setMenuPosition(null);
+                    onFocusSplitPane(tab, pane.id);
+                  }}
+                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                >
+                  {pane.label}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuPosition(null);
+                  onSplit(tab);
+                }}
+                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+              >
+                Split right
+              </button>
+              {splitActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuPosition(null);
+                    onReplaceFocused(tab);
+                  }}
+                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                >
+                  Replace focused split
+                </button>
+              )}
+              {tab.kind === "surface" && tab.surface.kind !== "primary" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuPosition(null);
+                    onMakePrimary(tab);
+                  }}
+                  className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+                >
+                  Set as channel primary
+                </button>
+              )}
+            </>
+          )}
+          <div className="my-1 h-px bg-surface-border/60" />
+          <button
+            type="button"
+            onClick={() => {
+              setMenuPosition(null);
+              onClose(tab);
+            }}
+            className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10"
+          >
+            Close tab
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
 interface ChannelSessionInlinePickerProps {
   channelId: string;
   channelLabel?: string | null;

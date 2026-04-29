@@ -10,8 +10,10 @@ import {
   defaultChannelChatPaneLayout,
   normalizeChannelChatPaneLayout,
   normalizeChannelSessionPanels,
+  normalizeChannelSessionTabLayouts,
   type ChannelChatPaneLayout,
   type ChannelSessionPanel,
+  type ChannelSessionSavedLayout,
 } from "../lib/channelSessionSurfaces";
 
 interface DetailPanelState {
@@ -36,6 +38,7 @@ export type OmniPanelTab = "widgets" | "files" | "jump";
 
 export type { ChannelSessionPanel };
 export type { ChannelChatPaneLayout };
+export type { ChannelSessionSavedLayout };
 
 export interface ChannelPanelPrefs {
   leftOpen: boolean;
@@ -54,6 +57,7 @@ export interface ChannelPanelPrefs {
   } | null;
   sessionPanels: ChannelSessionPanel[];
   chatPaneLayout: ChannelChatPaneLayout;
+  sessionTabLayouts: ChannelSessionSavedLayout[];
   hiddenSessionTabKeys: string[];
   sessionTabOrderKeys: string[];
   topChromeCollapsed: boolean;
@@ -78,6 +82,7 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     focusModePrior: null,
     sessionPanels: [],
     chatPaneLayout: defaultChannelChatPaneLayout(),
+    sessionTabLayouts: [],
     hiddenSessionTabKeys: [],
     sessionTabOrderKeys: [],
     topChromeCollapsed: false,
@@ -109,6 +114,7 @@ function normalizeChannelPanelPrefs(
     focusModePrior,
     sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
     chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
+    sessionTabLayouts: normalizeChannelSessionTabLayouts(prefs?.sessionTabLayouts),
     hiddenSessionTabKeys: Array.isArray(prefs?.hiddenSessionTabKeys)
       ? prefs.hiddenSessionTabKeys.filter((key): key is string => typeof key === "string" && key.length > 0).slice(0, 40)
       : [],

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ProviderModel, TraceEvent
+from app.services.agent_harnesses.usage import is_harness_usage_event
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,8 @@ def _resolve_event_cost(
     cost = d.get("response_cost")
     if cost is not None:
         return float(cost)
+    if is_harness_usage_event(d):
+        return 0.0
     pt = d.get("prompt_tokens", 0)
     ct = d.get("completion_tokens", 0)
     ev_provider = d.get("provider_id")

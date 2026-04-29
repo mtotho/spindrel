@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.bots import BotConfig, MemoryConfig
-from app.db.models import Bot as BotRow, Message as MessageRow, Session as SessionRow
+from app.db.models import Bot as BotRow, Message as MessageRow, Session as SessionRow, TraceEvent
 from app.domain.channel_events import ChannelEventKind
 from app.routers.chat._context import BotContext
 from app.routers.chat._schemas import ChatRequest
@@ -233,6 +233,22 @@ class TestHarnessDispatch:
         assert meta["harness"]["runtime"] == "claude-code"
         assert meta["harness"]["session_id"] == "sess_xyz"
         assert meta["harness"]["cost_usd"] == 0.0042
+
+        usage_rows = (await db_session.execute(
+            select(TraceEvent).where(
+                TraceEvent.session_id == handle.session_id,
+                TraceEvent.event_type == "token_usage",
+            )
+        )).scalars().all()
+        assert len(usage_rows) == 1
+        usage = usage_rows[0].data
+        assert usage["provider_id"] == "harness:claude-code-sdk"
+        assert usage["usage_source"] == "harness_sdk"
+        assert usage["billing_mode"] == "non_billable"
+        assert usage["prompt_tokens"] == 10
+        assert usage["completion_tokens"] == 20
+        assert usage["total_tokens"] == 30
+        assert usage["channel_id"] == str(handle.channel_id)
 
     async def test_bot_row_session_state_NOT_written_back(
         self, db_session, harness_setup,

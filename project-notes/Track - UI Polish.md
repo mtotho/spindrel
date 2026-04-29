@@ -501,6 +501,7 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Added an operational bot overview with 30-day calls/tokens/cost and recent trace drilldowns via the shared `TraceActionButton`.
 - [x] Bot prompt/persona editing now uses the shared prompt editor/read-only source viewer instead of the local giant textarea.
 - [x] Cleaned up the bot-scoped Memory & Learning and Workspace & Files groups: legacy inline-style panels/tables became shared-control rows, stat strips, quiet filters, segmented sort, low-chrome hygiene job expanders, and `SourceFileInspector` previews for bot knowledge files.
+- [x] Bot creation Workspace & Files now reflects the shared-workspace invariant: new bots show pending enrollment into the default shared workspace, save responses include the shared membership, and obsolete standalone/Docker-vs-host workspace controls are no longer exposed on the bot editor.
 - [x] `docs/guides/ui-components.md` now canonizes dense admin entity catalogs and grouped detail editors.
 
 ### Verification

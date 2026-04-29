@@ -744,9 +744,35 @@ def _omnipanel_mobile_init_script(chat_main_id: str) -> str:
 
 def _channel_session_tabs_init_script(channel_id: str, latest_session_id: str, older_session_id: str) -> str:
     """Seed local browser recents for the desktop channel session tab strip."""
+    import json as _json
+
     latest_href = f"/channels/{channel_id}/session/{latest_session_id}?surface=channel"
     older_href = f"/channels/{channel_id}/session/{older_session_id}?surface=channel"
     primary_href = f"/channels/{channel_id}"
+    older_key = f"channel:{older_session_id}"
+    latest_key = f"channel:{latest_session_id}"
+    split_key = f"split:{older_key}|{latest_key}"
+    split_layout = {
+        "panes": [
+            {"id": older_key, "surface": {"kind": "channel", "sessionId": older_session_id}},
+            {"id": latest_key, "surface": {"kind": "channel", "sessionId": latest_session_id}},
+        ],
+        "focusedPaneId": latest_key,
+        "widths": {older_key: 0.5, latest_key: 0.5},
+        "maximizedPaneId": None,
+        "miniPane": None,
+    }
+    panel_prefs = {
+        "hiddenSessionTabKeys": [],
+        "sessionTabOrderKeys": [older_key, split_key, latest_key, "primary"],
+        "sessionTabLayouts": [{"key": split_key, "layout": split_layout}],
+        "chatPaneLayout": split_layout,
+    }
+    recent_pages = [
+        {"href": latest_href, "label": "Latest session · #Session tabs demo", "version": 2},
+        {"href": older_href, "label": "Planning session · #Session tabs demo", "version": 2},
+        {"href": primary_href, "label": "Session tabs demo", "version": 2},
+    ]
     return (
         "(() => {\n"
         "  const KEY = 'spindrel-ui';\n"
@@ -765,15 +791,12 @@ def _channel_session_tabs_init_script(channel_id: str, latest_session_id: str, o
         "  };\n"
         "  obj.state = obj.state || {};\n"
         "  obj.state.channelPanelPrefs = obj.state.channelPanelPrefs || {};\n"
+        f"  const panelPrefs = {_json.dumps(panel_prefs)};\n"
         f"  obj.state.channelPanelPrefs[{channel_id!r}] = Object.assign(\n"
         f"    obj.state.channelPanelPrefs[{channel_id!r}] || {{}},\n"
-        f"    {{ hiddenSessionTabKeys: [], sessionTabOrderKeys: ['channel:{older_session_id}', 'channel:{latest_session_id}', 'primary'], chatPaneLayout: {{ panes: [{{ id: 'primary', surface: {{ kind: 'primary' }} }}], focusedPaneId: 'primary', widths: {{ primary: 1 }}, maximizedPaneId: null, miniPane: null }} }}\n"
+        "    panelPrefs\n"
         "  );\n"
-        "  obj.state.recentPages = [\n"
-        f"    {{ href: {latest_href!r}, label: 'Latest session · #Session tabs demo', version: 2 }},\n"
-        f"    {{ href: {older_href!r}, label: 'Planning session · #Session tabs demo', version: 2 }},\n"
-        f"    {{ href: {primary_href!r}, label: 'Session tabs demo', version: 2 }}\n"
-        "  ];\n"
+        f"  obj.state.recentPages = {_json.dumps(recent_pages)};\n"
         "  localStorage.setItem(KEY, JSON.stringify(obj));\n"
         "})();"
     )
@@ -1478,18 +1501,25 @@ ATTACHMENT_CHECK_SPECS: list[ScreenshotSpec] = [
 # ---------------------------------------------------------------------------
 
 _SESSION_TABS_READY = (
-    "document.querySelectorAll('[data-testid=\"channel-session-tab\"]').length >= 3"
+    "document.querySelectorAll('[data-testid=\"channel-session-tab\"]').length >= 4"
     " && document.querySelector('[data-testid=\"channel-session-tab-strip\"]')"
 )
 
 _ASSERT_SESSION_TABS_JS = (
     "const tabs = [...document.querySelectorAll('[data-testid=\"channel-session-tab\"]')];"
-    "if (tabs.length < 3) throw new Error(`expected at least 3 session tabs, saw ${tabs.length}`);"
+    "if (tabs.length < 4) throw new Error(`expected at least 4 session tabs, saw ${tabs.length}`);"
     "if (tabs[0].getAttribute('data-active') === 'true') throw new Error('active tab jumped to the front');"
     "if (!tabs.some((tab) => tab.getAttribute('data-active') === 'true')) throw new Error('active session indicator missing');"
     "if (!tabs.some((tab) => tab.getAttribute('data-primary') === 'true')) throw new Error('primary session indicator missing');"
     "if (!tabs.every((tab) => tab.getAttribute('data-reorderable') === 'true')) throw new Error('session tabs are not reorderable');"
+    "if (!tabs.every((tab) => tab.hasAttribute('data-loading'))) throw new Error('session tabs missing pending loading marker');"
     "if (!document.querySelector('[data-testid=\"channel-session-tab-unread\"]')) throw new Error('unread session badge missing');"
+    "const splitTab = document.querySelector('[data-testid=\"channel-session-split-tab\"]')?.closest('[data-testid=\"channel-session-tab\"]');"
+    "if (!splitTab) throw new Error('split session tab missing');"
+    "if (splitTab.querySelectorAll('[data-testid=\"channel-session-split-tab-pane\"]').length < 2) throw new Error('split tab panes missing');"
+    "splitTab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 240, clientY: 120 }));"
+    "await new Promise((resolve) => setTimeout(resolve, 50));"
+    "if (!document.querySelector('[data-testid=\"channel-session-tab-menu\"]')) throw new Error('session tab context menu missing');"
 )
 
 _CLOSE_ALL_SESSION_TABS_JS = (
@@ -1515,7 +1545,7 @@ _CLOSE_ALL_SESSION_TABS_JS = (
 CHANNEL_SESSION_TAB_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="channel-session-tabs",
-        route="/channels/{channel_session_tabs}/session/{session_tabs_latest}?surface=channel",
+        route="/channels/{channel_session_tabs}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SESSION_TABS_READY,
@@ -1526,7 +1556,7 @@ CHANNEL_SESSION_TAB_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="channel-session-tabs-inline-picker",
-        route="/channels/{channel_session_tabs}/session/{session_tabs_latest}?surface=channel",
+        route="/channels/{channel_session_tabs}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=_SESSION_TABS_READY,
