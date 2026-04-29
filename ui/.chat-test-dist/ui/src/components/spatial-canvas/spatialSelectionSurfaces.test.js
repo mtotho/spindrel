@@ -226,14 +226,25 @@ test("Operator sweep transcript uses a full-width chat surface instead of a nest
 test("Starboard attention station is a summary that launches the command deck", () => {
     const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
     const deckSource = readFileSync(resolve(process.cwd(), "src/components/attention/AttentionCommandDeck.tsx"), "utf8");
+    const rootSource = readFileSync(resolve(process.cwd(), "src/layouts/RootLayout.tsx"), "utf8");
+    const hubPageSource = readFileSync(resolve(process.cwd(), "app/(app)/hub/attention.tsx"), "utf8");
+    const channelHeaderSource = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
     assert.match(chromeSource, /AttentionStarboardSummary/);
     assert.match(chromeSource, /data-testid="starboard-attention-summary"/);
     assert.match(chromeSource, /Open deck/);
     assert.match(chromeSource, /attentionHubHref/);
     assert.doesNotMatch(chromeSource, /<AttentionHubContent/);
+    assert.doesNotMatch(rootSource, /AttentionHubDrawerRoot/);
+    assert.match(hubPageSource, /requestedChannelId/);
+    assert.match(hubPageSource, /requestedMode/);
+    assert.match(channelHeaderSource, /attentionDeckHref\(\{ channelId, mode: "inbox" \}\)/);
     assert.match(deckSource, /Attention Command Deck/);
+    assert.match(deckSource, /What to do now/);
     assert.match(deckSource, /Sweep inbox/);
     assert.match(deckSource, /Run log/);
+    assert.match(deckSource, /RunReceipt/);
+    assert.match(deckSource, /attention-run-receipt/);
+    assert.match(deckSource, />Transcript</);
     assert.match(deckSource, /Send this issue to a bot/);
     assert.match(deckSource, /<details/);
 });

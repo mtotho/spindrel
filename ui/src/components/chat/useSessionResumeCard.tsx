@@ -5,6 +5,7 @@ import {
   useSessionSummary,
   type SessionSummaryResponse,
 } from "@/src/api/hooks/useChannelSessions";
+import { useSessionHarnessStatus } from "@/src/api/hooks/useApprovals";
 import { useBot } from "@/src/api/hooks/useBots";
 import {
   getNewestVisibleMessageAt,
@@ -63,10 +64,16 @@ export function useSessionResumeCard({
   );
   const { data: summary } = useSessionSummary(sessionId, !catalogRow);
   const { data: bot } = useBot(catalogRow?.bot_id ?? summary?.bot_id ?? undefined);
+  const isHarnessBot = !!bot?.harness_runtime;
+  const { data: harnessStatus } = useSessionHarnessStatus(sessionId, isHarnessBot);
 
   const metadata = useMemo<SessionResumeMetadata | null>(() => {
     if (!sessionId || !lastVisibleMessageAt) return null;
     const fallbackKind = seed?.surfaceKind ?? "session";
+    const seededBotModel = isHarnessBot ? null : seed?.botModel;
+    const resolvedBotModel = isHarnessBot
+      ? (harnessStatus?.model ?? null)
+      : (bot?.model ?? null);
     return {
       sessionId,
       channelId: channelId ?? seed?.channelId ?? summary?.channel_id ?? summary?.parent_channel_id ?? null,
@@ -83,13 +90,16 @@ export function useSessionResumeCard({
       messageCount: seed?.messageCount ?? catalogRow?.message_count ?? summary?.message_count ?? messages.length,
       sectionCount: seed?.sectionCount ?? catalogRow?.section_count ?? summary?.section_count ?? 0,
       botName: seed?.botName ?? bot?.name ?? null,
-      botModel: seed?.botModel ?? bot?.model ?? null,
+      botModel: seededBotModel ?? resolvedBotModel,
     };
   }, [
+    bot?.harness_runtime,
     bot?.model,
     bot?.name,
     catalogRow,
     channelId,
+    harnessStatus?.model,
+    isHarnessBot,
     lastVisibleMessageAt,
     messages.length,
     seed,

@@ -676,12 +676,16 @@ export default function ChatScreen() {
 
   // ---- Workspace / file explorer state ----
   const workspaceId = channel?.resolved_workspace_id;
-  const projectPath = typeof channel?.config?.project_path === "string"
-    ? channel.config.project_path.replace(/^\/+|\/+$/g, "")
-    : "";
-  const projectWorkspaceId = typeof channel?.config?.project_workspace_id === "string"
-    ? channel.config.project_workspace_id
-    : undefined;
+  const projectPath = typeof channel?.project?.root_path === "string"
+    ? channel.project.root_path.replace(/^\/+|\/+$/g, "")
+    : typeof channel?.config?.project_path === "string"
+      ? channel.config.project_path.replace(/^\/+|\/+$/g, "")
+      : "";
+  const projectWorkspaceId = typeof channel?.project?.workspace_id === "string"
+    ? channel.project.workspace_id
+    : typeof channel?.config?.project_workspace_id === "string"
+      ? channel.config.project_workspace_id
+      : undefined;
   const fileWorkspaceId = projectWorkspaceId || workspaceId;
   const fileRootPath = projectPath ? `/${projectPath}` : undefined;
   const [terminalRequest, setTerminalRequest] = useState<{ cwd: string; label: string } | null>(null);
@@ -1402,7 +1406,7 @@ export default function ChatScreen() {
       surfaceKind: "primary",
       title: "Primary session",
       botName: bot?.name,
-      botModel: bot?.model,
+      botModel: bot?.harness_runtime ? null : bot?.model,
     },
     onOpenSessions: openSessionsOverlay,
   });

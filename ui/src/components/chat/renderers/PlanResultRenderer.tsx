@@ -8,10 +8,12 @@ import { parsePlanPayload } from "./planPayload";
 export function PlanResultRenderer({
   envelope,
   body,
+  chatMode = "default",
   sessionId,
 }: {
   envelope: ToolResultEnvelope;
   body?: string | Record<string, unknown> | null;
+  chatMode?: "default" | "terminal";
   sessionId?: string;
 }) {
   const sessionPlan = useSessionPlanMode(sessionId);
@@ -54,6 +56,7 @@ export function PlanResultRenderer({
       currentRevision={sessionPlan.state?.revision ?? sessionPlan.data?.revision ?? null}
       acceptedRevision={sessionPlan.state?.accepted_revision ?? sessionPlan.data?.accepted_revision ?? null}
       staleMessage={sessionPlan.staleConflict}
+      chatMode={chatMode}
       onApprove={() => sessionPlan.approvePlan.mutate()}
       onExit={() => sessionPlan.exitPlan.mutate()}
       onStepStatus={(stepId, status) => {

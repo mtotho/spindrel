@@ -209,6 +209,19 @@ async def _exec_sync(
     sandbox_instance_id: str | None = None,
 ) -> str:
     """Execute command synchronously and return result."""
+    if not working_directory:
+        try:
+            ch_id = current_channel_id.get()
+            if ch_id is not None:
+                from app.db.engine import async_session
+                from app.services.projects import resolve_project_directory_for_channel_id
+
+                async with async_session() as db:
+                    project_dir = await resolve_project_directory_for_channel_id(db, ch_id, bot)
+                if project_dir is not None:
+                    working_directory = project_dir.host_path
+        except Exception:
+            logger.debug("Could not resolve project cwd for delegate_to_exec", exc_info=True)
     script = build_exec_script(command, args, working_directory, stream_to)
 
     try:
@@ -305,6 +318,21 @@ async def _exec_deferred(
     }
     if stream_to:
         exec_cfg["stream_to"] = stream_to
+    if not working_directory:
+        try:
+            from app.agent.bots import get_bot
+            from app.db.engine import async_session
+            from app.services.projects import resolve_project_directory_for_channel_id
+
+            bot = get_bot(bot_id)
+            ch_id = current_channel_id.get()
+            if ch_id is not None:
+                async with async_session() as db:
+                    project_dir = await resolve_project_directory_for_channel_id(db, ch_id, bot)
+                if project_dir is not None:
+                    exec_cfg["working_directory"] = project_dir.host_path
+        except Exception:
+            logger.debug("Could not resolve project cwd for deferred delegate_to_exec", exc_info=True)
     if src_corr is not None:
         exec_cfg["source_correlation_id"] = str(src_corr)
 

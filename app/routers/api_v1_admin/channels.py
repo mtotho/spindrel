@@ -26,6 +26,7 @@ from app.db.models import (
     CompactionLog,
     HeartbeatRun,
     Message,
+    Project,
     Session,
     Skill as SkillRow,
     Task,
@@ -241,6 +242,16 @@ class IntegrationBindingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProjectSummaryOut(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    name: str
+    root_path: str
+    slug: str
+
+    model_config = {"from_attributes": True}
+
+
 class ChannelOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -262,6 +273,8 @@ class ChannelOut(BaseModel):
     heartbeat_in_quiet_hours: bool = False
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
+    project_id: Optional[uuid.UUID] = None
+    project: Optional[ProjectSummaryOut] = None
     category: Optional[str] = None
     tags: list[str] = []
     last_message_at: Optional[datetime] = None
@@ -586,6 +599,8 @@ class ChannelSettingsOut(BaseModel):
     workspace_id: Optional[uuid.UUID] = None
     # Resolved workspace ID from bot config (computed, not stored)
     resolved_workspace_id: Optional[str] = None
+    project_id: Optional[uuid.UUID] = None
+    project: Optional[ProjectSummaryOut] = None
     # Harness/project file scope. project_path is workspace-relative.
     project_workspace_id: Optional[str] = None
     project_path: Optional[str] = None
@@ -667,6 +682,7 @@ class ChannelSettingsUpdate(BaseModel):
     model_tier_overrides: Optional[dict] = None
     # Workspace scope
     workspace_id: Optional[str] = None
+    project_id: Optional[str] = None
     # Harness/project file scope. project_path is workspace-relative.
     project_workspace_id: Optional[str] = None
     project_path: Optional[str] = None
@@ -831,7 +847,16 @@ async def admin_channel_detail(
 # Channel settings
 # ---------------------------------------------------------------------------
 
-def _fill_channel_project_settings(out: ChannelSettingsOut, channel: Channel) -> None:
+async def _fill_channel_project_settings(db: AsyncSession, out: ChannelSettingsOut, channel: Channel) -> None:
+    out.project_id = channel.project_id
+    if channel.project_id:
+        project = await db.get(Project, channel.project_id)
+        if project is not None:
+            out.project = ProjectSummaryOut.model_validate(project)
+            out.project_workspace_id = str(project.workspace_id)
+            out.project_path = project.root_path
+            out.resolved_project_workspace_id = str(project.workspace_id)
+            return
     cfg = channel.config or {}
     out.project_workspace_id = (
         str(cfg.get(PROJECT_WORKSPACE_ID_KEY))
@@ -872,7 +897,7 @@ async def admin_channel_settings(
     out.plan_mode_control = (channel.config or {}).get("plan_mode_control") or "auto"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
-    _fill_channel_project_settings(out, channel)
+    await _fill_channel_project_settings(db, out, channel)
     return out
 
 
@@ -915,6 +940,19 @@ async def admin_channel_settings_update(
     if "workspace_id" in updates:
         ws_val = updates.pop("workspace_id")
         channel.workspace_id = uuid.UUID(ws_val) if ws_val else None
+
+    if "project_id" in updates:
+        project_val = updates.pop("project_id")
+        if project_val:
+            try:
+                project_uuid = uuid.UUID(str(project_val))
+            except ValueError:
+                raise HTTPException(status_code=422, detail="project_id must be a UUID")
+            if await db.get(Project, project_uuid) is None:
+                raise HTTPException(status_code=404, detail="project not found")
+            channel.project_id = project_uuid
+        else:
+            channel.project_id = None
 
     if "project_workspace_id" in updates or "project_path" in updates:
         cfg = dict(channel.config or {})
@@ -1101,7 +1139,7 @@ async def admin_channel_settings_update(
     out.plan_mode_control = (channel.config or {}).get("plan_mode_control") or "auto"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     out.pinned_widget_context_enabled = (channel.config or {}).get("pinned_widget_context_enabled", True)
-    _fill_channel_project_settings(out, channel)
+    await _fill_channel_project_settings(db, out, channel)
     return out
 
 

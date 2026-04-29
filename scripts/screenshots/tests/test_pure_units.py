@@ -369,17 +369,33 @@ def test_spindrel_plan_live_builds_expected_specs():
         "spindrel-plan-question-card-dark",
         "spindrel-plan-card-default-dark",
         "spindrel-plan-card-mobile-dark",
+        "spindrel-plan-card-terminal-dark",
         "spindrel-plan-answered-questions-dark",
+        "spindrel-plan-answered-questions-terminal-dark",
         "spindrel-plan-progress-executing-mobile-dark",
+        "spindrel-plan-progress-executing-terminal-dark",
     ]
     assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
     assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
     assert specs[2].viewport == (390, 844)
-    assert specs[3].route == "http://ui/channels/channel-1/session/answered-1"
-    assert specs[4].route == "http://ui/channels/channel-1/session/progress-1"
-    assert specs[4].viewport == (390, 844)
+    assert specs[3].chat_mode == "terminal"
+    assert specs[4].route == "http://ui/channels/channel-1/session/answered-1"
+    assert specs[5].chat_mode == "terminal"
+    assert specs[6].route == "http://ui/channels/channel-1/session/progress-1"
+    assert specs[6].viewport == (390, 844)
+    assert specs[7].chat_mode == "terminal"
     assert specs[1].scroll_text == "Native Spindrel Plan Parity"
     assert all("harness sdk" in spec.not_contains for spec in specs)
+    assert [spec.chat_mode for spec in specs] == [
+        "default",
+        "default",
+        "default",
+        "terminal",
+        "default",
+        "terminal",
+        "default",
+        "terminal",
+    ]
 
 
 def test_spindrel_plan_live_parse_allows_browser_visible_url():

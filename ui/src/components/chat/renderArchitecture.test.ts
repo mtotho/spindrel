@@ -68,13 +68,26 @@ test("native plan replay hydrates out-of-line envelopes before rendering plan ca
   const planRenderer = readChatFile("renderers/PlanResultRenderer.tsx");
   const planPayload = readChatFile("renderers/planPayload.ts");
   const planQuestions = readChatFile("renderers/nativeApps/PlanQuestionsWidget.tsx");
+  const terminalToolTranscript = readChatFile("TerminalToolTranscript.tsx");
+  const sessionPlanCard = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/SessionPlanCard.tsx"),
+    "utf8",
+  );
 
   assert.match(richToolResult, /const PLAN_CONTENT_TYPE = "application\/vnd\.spindrel\.plan\+json"/);
   assert.match(richToolResult, /unwrapFetchedToolResultBody\(envelope, fetched\)/);
   assert.match(richToolResult, /shouldAutoFetchPlan/);
+  assert.match(richToolResult, /chatMode=\{mode === "terminal" \? "terminal" : "default"\}/);
   assert.match(planRenderer, /parsePlanPayload\(body \?\? envelope\.body\)/);
+  assert.match(planRenderer, /chatMode=\{chatMode\}/);
   assert.match(planPayload, /parsed\._envelope/);
   assert.match(planPayload, /parsed\.plan/);
+  assert.match(terminalToolTranscript, /rendersInlineRichTerminalResult/);
+  assert.match(terminalToolTranscript, /application\/vnd\.spindrel\.plan\+json/);
+  assert.match(terminalToolTranscript, /rendererVariant="terminal-chat"/);
+  assert.match(sessionPlanCard, /data-plan-card-mode=\{chatMode\}/);
+  assert.match(sessionPlanCard, /TERMINAL_FONT_STACK/);
+  assert.doesNotMatch(sessionPlanCard, /useThemeTokens/);
 
   assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/plan\/question-answers/);
   assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/messages/);
@@ -210,12 +223,12 @@ test("harness channel settings keep the channel prompt editor visible", () => {
     "utf8",
   );
   const harnessBranchStart = settingsSections.indexOf("if (harnessRuntime) {");
-  const harnessProjectSection = settingsSections.indexOf("<HarnessProjectDirectorySection", harnessBranchStart);
+  const harnessRoutingSection = settingsSections.indexOf("<MessageRoutingSection", harnessBranchStart);
 
   assert.notEqual(harnessBranchStart, -1);
-  assert.notEqual(harnessProjectSection, -1);
+  assert.notEqual(harnessRoutingSection, -1);
   assert.match(
-    settingsSections.slice(harnessBranchStart, harnessProjectSection),
+    settingsSections.slice(harnessBranchStart, harnessRoutingSection),
     /<ChannelPromptSection\s+form=\{form\}/,
   );
 });
@@ -226,6 +239,10 @@ test("mobile channel header does not make the whole title open context chrome", 
     "utf8",
   );
 
+  assert.match(channelHeader, /import \{ useIsMobile \} from "@\/src\/hooks\/useIsMobile";/);
+  assert.match(channelHeader, /isMobile: routeIsMobile/);
+  assert.match(channelHeader, /const detectedMobile = useIsMobile\(\);/);
+  assert.match(channelHeader, /const isMobile = routeIsMobile \|\| detectedMobile;/);
   assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !bot\.harness_runtime && !!onContextBudgetClick;/);
   assert.match(channelHeader, /data-testid="channel-header-title-region"/);
   assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
@@ -247,6 +264,30 @@ test("harness context pressure avoids soft alert chrome", () => {
   assert.match(channelPage, /Native context is low/);
   assert.doesNotMatch(channelPage, /Native context is getting full/);
   assert.doesNotMatch(channelPage, /border-warning\/25 bg-warning\/8/);
+});
+
+test("session resume cards do not show normal bot model labels for harness sessions", () => {
+  const resumeCardHook = readChatFile("useSessionResumeCard.tsx");
+  const approvalsHook = readFileSync(
+    resolve(process.cwd(), "src/api/hooks/useApprovals.ts"),
+    "utf8",
+  );
+  const channelPage = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),
+    "utf8",
+  );
+  const chatSessionSources = readChatSessionSourceModes();
+
+  assert.match(resumeCardHook, /useSessionHarnessStatus\(sessionId, isHarnessBot\)/);
+  assert.match(resumeCardHook, /const isHarnessBot = !!bot\?\.harness_runtime;/);
+  assert.match(resumeCardHook, /const seededBotModel = isHarnessBot \? null : seed\?\.botModel;/);
+  assert.match(resumeCardHook, /const resolvedBotModel = isHarnessBot\s*\?\s*\(harnessStatus\?\.model \?\? null\)\s*:\s*\(bot\?\.model \?\? null\);/);
+  assert.match(resumeCardHook, /botModel: seededBotModel \?\? resolvedBotModel/);
+  assert.match(approvalsHook, /enabled = true/);
+  assert.match(approvalsHook, /enabled: enabled && !!sessionId/);
+  assert.match(channelPage, /botModel:\s*bot\?\.harness_runtime \? null : bot\?\.model/);
+  assert.match(chatSessionSources, /botModel:\s*bot\?\.harness_runtime \? null : bot\?\.model/);
+  assert.match(chatSessionSources, /botModel:\s*sessionBot\?\.harness_runtime \? null : sessionBot\?\.model/);
 });
 
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {

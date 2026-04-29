@@ -27,7 +27,7 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
     - **Runtime:** `Claude Code`
     - **Workspace path (override):** leave blank — the bot uses its standard Spindrel workspace.
 
-    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. Or set a channel **Project Directory** such as `common/projects`; in Docker that resolves inside the app container to `/workspace-data/shared/<workspace_id>/common/projects`. In that layout the harness cwd is the projects root and the repo is a child directory such as `./spindrel`, matching a local workspace root like `/home/mtoth/personal` with a repo under `./agent-server`.
+    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. Or create/select a channel **Project** rooted at a workspace-relative path such as `common/projects`; in Docker that resolves inside the app container to `/workspace-data/shared/<workspace_id>/common/projects`. In that layout the harness cwd is the Project root and repos are child directories such as `./spindrel`, matching a local workspace root like `/home/mtoth/personal` with a repo under `./agent-server`.
 
     System prompt and normal prompt/RAG context fields are inert when a runtime is set — the harness owns its native context. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override. Spindrel tool enrollment still matters: selected local/MCP tools are the source for the harness bridge.
 
@@ -231,7 +231,7 @@ If the SDK bridge is unavailable, Spindrel reports that state in `/context` and 
 
 Just put files in the workspace directory. The harness reads what's there:
 
-- For live Spindrel project work, set the channel Project Directory to `common/projects`. Inside the app container this resolves to `/workspace-data/shared/<workspace_id>/common/projects`; the `spindrel` repo is a child directory under that cwd. Host-only paths such as `/opt/thoth-server` are for SSH/operator commands and are not visible to the harness runtime.
+- For live Spindrel project work, attach the channel to a Project rooted at `common/projects`. Inside the app container this resolves to `/workspace-data/shared/<workspace_id>/common/projects`; the `spindrel` repo is a child directory under that cwd. Host-only paths such as `/opt/thoth-server` are for SSH/operator commands and are not visible to the harness runtime.
 - Want your dotfiles' `CLAUDE.md` in the bot's view? `git clone git@github.com:me/dotfiles /data/harness/my-project/.dotfiles` (or whatever layout makes sense — the harness sees a normal filesystem).
 - Want your vault available? `git clone git@github.com:me/vault /data/harness/my-project/vault` and reference it from your project-level `CLAUDE.md`.
 - Want a Spindrel skill for one turn? Use the composer plus menu or type `@skill:<id>`. The harness gets a tagged-skill index hint and can fetch the body through bridged `get_skill` when the bridge is available.

@@ -557,3 +557,8 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 ### Verification
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` — clean.
 - [x] Targeted grep over refreshed task surfaces for `useThemeTokens`, inline hex/RGBA, native `<select>`, Bootstrap-blue classes, `animate-pulse`, decorative shadow classes, and colored left-border patterns — 0 matches.
+
+## Native Plan Card Polish (2026-04-29)
+
+- [x] Native session plan cards now follow the low-chrome chat surface rules: default mode uses token-only tonal surfaces and compact semantic controls, terminal mode uses a dedicated monospace/dense presentation, and terminal transcripts render plan envelopes inline through the shared rich-result path instead of compact fallback rows.
+- [x] The native plan screenshot harness now captures default/mobile plus terminal plan states for base, answered-question, and execution-progress scenarios against the live Spindrel channel.

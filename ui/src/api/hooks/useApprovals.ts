@@ -256,6 +256,7 @@ export interface HarnessStatus {
 
 export function useSessionHarnessStatus(
   sessionId: string | null | undefined,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: ["session-harness-status", sessionId],
@@ -263,7 +264,7 @@ export function useSessionHarnessStatus(
       apiFetch<HarnessStatus>(
         `/api/v1/sessions/${sessionId}/harness-status`,
       ),
-    enabled: !!sessionId,
+    enabled: enabled && !!sessionId,
     staleTime: 5_000,
     refetchOnWindowFocus: false,
   });

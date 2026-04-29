@@ -79,6 +79,22 @@ async def _get_bot_and_roots(channel_id: str | None = None) -> tuple:
     return bot, ch_id, ws_root, embedding_model
 
 
+async def _get_channel_project_prefix(ch_id: str, bot) -> str | None:
+    try:
+        from app.db.engine import async_session as _async_session
+        from app.db.models import Channel
+        from app.services.projects import resolve_channel_project_directory
+
+        import uuid
+        async with _async_session() as db:
+            channel = await db.get(Channel, uuid.UUID(str(ch_id)))
+            project_dir = await resolve_channel_project_directory(db, channel, bot)
+        return project_dir.path if project_dir is not None else None
+    except Exception:
+        logger.debug("Could not resolve project search prefix for channel %s", ch_id, exc_info=True)
+        return None
+
+
 async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
     """Look up the bot that owns *channel_id*. Returns its BotConfig or None.
 
@@ -207,7 +223,7 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
     from app.services.memory_search import hybrid_memory_search
 
     sentinel = channel_index_bot_id(ch_id)
-    prefix = get_channel_workspace_index_prefix(ch_id)
+    prefix = await _get_channel_project_prefix(ch_id, bot) or get_channel_workspace_index_prefix(ch_id)
 
     try:
         results = await hybrid_memory_search(
@@ -223,6 +239,9 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
         return json.dumps({"count": 0, "results": [], "error": f"Channel workspace search ERROR: {exc}"}, ensure_ascii=False)
 
     if not results:
+        import asyncio
+        from app.services.bot_indexing import reindex_channel
+        asyncio.create_task(reindex_channel(ch_id, bot))
         return json.dumps({"count": 0, "results": [], "message": "No matching workspace content found."}, ensure_ascii=False)
 
     return _format_search_results(results)
@@ -267,7 +286,8 @@ async def search_channel_knowledge(query: str) -> str:
     from app.services.memory_search import hybrid_memory_search
 
     sentinel = channel_index_bot_id(ch_id)
-    prefix = get_channel_knowledge_base_index_prefix(ch_id)
+    project_prefix = await _get_channel_project_prefix(ch_id, bot)
+    prefix = f"{project_prefix}/.spindrel/knowledge-base" if project_prefix else get_channel_knowledge_base_index_prefix(ch_id)
 
     try:
         results = await hybrid_memory_search(

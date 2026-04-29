@@ -20,7 +20,7 @@ REFERENCE_DIR = os.path.join(MEMORY_DIR, "reference")
 # Tools injected at runtime for bots using memory_scheme="workspace-files".
 # Single source of truth — imported by context_assembly, effective-tools endpoint,
 # bot detail endpoint, etc. Do NOT duplicate this list elsewhere.
-MEMORY_SCHEME_TOOLS = ["search_memory", "get_memory_file", "file", "manage_bot_skill"]
+MEMORY_SCHEME_TOOLS = ["search_memory", "get_memory_file", "memory", "manage_bot_skill"]
 
 # Knowledge-base tools hidden when workspace-files memory scheme is active
 MEMORY_SCHEME_HIDDEN_TOOLS = frozenset({

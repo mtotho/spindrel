@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import cast, func, select, Date
+from sqlalchemy import cast, func, or_, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
@@ -506,7 +506,7 @@ async def _memory_activity(
     bot_name_map = {row.id: row.name for row in bot_rows}
     bot_config_map = {bot.id: bot for bot in list_bots()}
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
-    allowed_ops = operations or {"write", "append", "edit"}
+    allowed_ops = operations or {"write", "create", "overwrite", "append", "edit", "replace_section", "rename", "delete", "archive_older_than"}
 
     task_rows = (await db.execute(
         select(TaskRow.correlation_id, TaskRow.task_type)
@@ -517,7 +517,7 @@ async def _memory_activity(
     stmt = (
         select(ToolCall)
         .where(
-            ToolCall.tool_name == "file",
+            or_(ToolCall.tool_name == "file", ToolCall.tool_name == "memory"),
             ToolCall.arguments["operation"].astext.in_(list(allowed_ops)),
         )
         .order_by(ToolCall.created_at.desc())
@@ -532,14 +532,14 @@ async def _memory_activity(
     activity: list[MemoryFileActivity] = []
     for tc in rows:
         path = tc.arguments.get("path", "") if tc.arguments else ""
-        if "memory/" not in path:
+        if tc.tool_name == "file" and "memory/" not in path:
             continue
         corr_str = str(tc.correlation_id) if tc.correlation_id else None
         job_type = corr_to_job.get(corr_str or "")
         if job_types and (job_type or "turn") not in job_types:
             continue
         idx = path.find("memory/")
-        short = path[idx:] if idx >= 0 else path
+        short = path[idx:] if idx >= 0 else f"memory/{path.lstrip('/')}"
         bot_id = tc.bot_id or ""
         bot_name = bot_name_map.get(bot_id, bot_id)
         bot_config = bot_config_map.get(bot_id)
@@ -1104,8 +1104,8 @@ async def learning_overview(
             select(ToolCall.correlation_id, ToolCall.arguments)
             .where(
                 ToolCall.correlation_id.in_(correlation_ids),
-                ToolCall.tool_name == "file",
-                ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
+                or_(ToolCall.tool_name == "file", ToolCall.tool_name == "memory"),
+                ToolCall.arguments["operation"].astext.in_(["write", "create", "overwrite", "append", "edit", "replace_section", "rename", "delete", "archive_older_than"]),
             )
         )).all()
         files_by_corr: dict[str, list[str]] = {}
@@ -1116,6 +1116,8 @@ async def learning_overview(
                 idx = path.find("memory/")
                 short = path[idx:] if idx >= 0 else path
                 files_by_corr.setdefault(str(row.correlation_id), []).append(short)
+            elif path:
+                files_by_corr.setdefault(str(row.correlation_id), []).append(f"memory/{path.lstrip('/')}")
         for run in runs_out:
             if run.correlation_id and run.correlation_id in files_by_corr:
                 run.files_affected = sorted(set(files_by_corr[run.correlation_id]))
@@ -1191,8 +1193,8 @@ async def learning_overview(
     _mem_q = (
         select(ToolCall)
         .where(
-            ToolCall.tool_name == "file",
-            ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
+            or_(ToolCall.tool_name == "file", ToolCall.tool_name == "memory"),
+            ToolCall.arguments["operation"].astext.in_(["write", "create", "overwrite", "append", "edit", "replace_section", "rename", "delete", "archive_older_than"]),
             ToolCall.bot_id.in_(bot_ids) if bot_ids else ToolCall.bot_id.is_(None),
         )
         .order_by(ToolCall.created_at.desc())
@@ -1205,10 +1207,10 @@ async def learning_overview(
     memory_activity: list[MemoryFileActivity] = []
     for tc in memory_writes:
         path = tc.arguments.get("path", "") if tc.arguments else ""
-        if "memory/" not in path:
+        if tc.tool_name == "file" and "memory/" not in path:
             continue
         idx = path.find("memory/")
-        short = path[idx:] if idx >= 0 else path
+        short = path[idx:] if idx >= 0 else f"memory/{path.lstrip('/')}"
         corr_str = str(tc.correlation_id) if tc.correlation_id else None
         is_hygiene = corr_str in hygiene_corr_ids if corr_str else False
         bot_id = tc.bot_id or ""
@@ -1293,8 +1295,8 @@ async def learning_activity(
     mem_rows = (await db.execute(
         select(tc_day_col.label("day"), func.count().label("n"))
         .where(
-            ToolCall.tool_name == "file",
-            ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
+            or_(ToolCall.tool_name == "file", ToolCall.tool_name == "memory"),
+            ToolCall.arguments["operation"].astext.in_(["write", "create", "overwrite", "append", "edit", "replace_section", "rename", "delete", "archive_older_than"]),
             ToolCall.created_at >= cutoff,
         )
         .group_by(tc_day_col)

@@ -46,6 +46,15 @@ done
 
 cd "$PROJECT_ROOT"
 
+PYTHON_BIN=".venv/bin/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    else
+        PYTHON_BIN="python"
+    fi
+fi
+
 if [[ -z "${E2E_API_KEY:-}" ]] && command -v docker >/dev/null 2>&1; then
     E2E_API_KEY="$(docker exec agent-server-agent-server-1 printenv API_KEY 2>/dev/null || true)"
 fi
@@ -82,7 +91,7 @@ wait_for_server_health() {
                 return 0
             fi
         else
-            if python - "$url" <<'PY' >/dev/null 2>&1
+            if "$PYTHON_BIN" - "$url" <<'PY' >/dev/null 2>&1
 import sys
 import urllib.request
 
@@ -107,7 +116,7 @@ preflight_api_surface() {
     if command -v curl >/dev/null 2>&1; then
         openapi="$(curl -fsS --max-time 10 "$base_url/openapi.json" 2>/dev/null || true)"
     else
-        openapi="$(python - "$base_url/openapi.json" <<'PY' 2>/dev/null || true
+        openapi="$("$PYTHON_BIN" - "$base_url/openapi.json" <<'PY' 2>/dev/null || true
 import sys
 import urllib.request
 
@@ -123,7 +132,7 @@ PY
     local openapi_tmp
     openapi_tmp="$(mktemp)"
     printf '%s' "$openapi" > "$openapi_tmp"
-    if ! python - "$HARNESS_PARITY_TIER" "$openapi_tmp" <<'PY'
+    if ! "$PYTHON_BIN" - "$HARNESS_PARITY_TIER" "$openapi_tmp" <<'PY'
 import json
 import sys
 

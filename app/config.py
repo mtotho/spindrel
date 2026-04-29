@@ -31,8 +31,8 @@ current context profile and budget, so fetch/search them explicitly when exact d
 
 **A preference not saved is a preference the user has to repeat.** This is the #1 failure mode.
 
-Use the `file` tool for all memory writes (`edit` / `append` / `create` / `overwrite` / `json_patch`).
-See the `workspace/files` skill for the full operation repertoire and path rules.
+Use the `memory` tool for all memory writes (`edit` / `append` / `create` / `overwrite` / `replace_section`).
+Project or channel file paths can change by channel, but the `memory` tool always targets your private bot memory.
 
 ### {memory_rel}/MEMORY.md — Curated Knowledge Base
 
@@ -63,6 +63,7 @@ documents here, not loose in `{memory_rel}/`.
 ### Memory Tools
 - `search_memory(query)` — hybrid semantic+keyword search across all memory files.
 - `get_memory_file(name)` — read a specific memory file.
+- `memory(operation, path, ...)` — list, read, create, append, edit, replace sections, rename, or delete files inside your private memory root.
 
 For skill authoring (separate from memory), see the `skill_authoring` skill.
 
@@ -95,8 +96,8 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
 - **If you learned a reusable domain pattern, procedure, fix, or workflow**: create or update a skill NOW with `manage_bot_skill(...)`. If the reusable part is executable tool orchestration, attach a named script so future sessions can inspect it with `get_script` or run it directly via `run_script(skill_name=..., script_name=...)`. Skills auto-surface in future sessions — this is your last chance before context is lost. (User preferences and behavioral self-corrections are NOT skills — those go in memory.)
-Use the `file` tool to write to the appropriate files under memory/.
-**For memory/MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). Do NOT attempt to rewrite the whole file.
+Use the `memory` tool to write to the appropriate files.
+**For MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). Do NOT attempt to rewrite the whole file.
 **For daily logs**: use `append`. **For new reference files**: use `create` (errors if the file already exists)."""
 
 
@@ -152,17 +153,17 @@ Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score
 5. **Content type** — Decisions and corrections ALWAYS promote. Observations only if recurring.
 
 Promote entries scoring well on 3+ factors:
-- Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections.
+- Stable facts or decisions → promote to MEMORY.md using `memory(operation="edit")` to update existing sections or `memory(operation="append")` for new sections.
 - Reusable procedures or patterns → `manage_bot_skill(action="upsert", ...)` to create-or-update in one call. If the pattern is executable tool orchestration, attach a named script.
 - Detailed reference info → move to memory/reference/ files
 
 ## Step 5 — Archive maintenance
 - Archive processed logs older than 14 days in ONE idempotent call:
-  `file(operation="archive_older_than", path="memory/logs/", older_than_days=14, destination="memory/logs/archive/")`
+  `memory(operation="archive_older_than", path="logs/", older_than_days=14, destination="logs/archive/")`
   This creates the destination if missing, skips files already present there, and reports `moved` / `skipped_existing` / `skipped_fresh`. Do NOT issue per-file `move` calls — they waste iterations and fail on files a prior pass already archived.
 - Archived logs remain searchable via `search_memory` but won't be auto-injected into context.
 - Only archive logs you've already reviewed and promoted from in this or previous hygiene runs.
-- Clean up orphaned reference files that are no longer linked from MEMORY.md — use `file(operation="delete", path="memory/reference/outdated-file.md")`.
+- Clean up orphaned reference files that are no longer linked from MEMORY.md — use `memory(operation="delete", path="reference/outdated-file.md")`.
 - Update any `<!-- superseded -->` references that are older than 30 days — delete them entirely.
 
 ## Step 6 — Summarize
@@ -195,7 +196,7 @@ and audit auto-inject quality.
 - The "## Working set" snapshot has every field you need (category, stale, script count, fetch/inject counts, source, age). **Do NOT call `manage_bot_skill(action="list")`** — it returns the same data you already have and burns an iteration.
 - To read multiple skill bodies, use the batch form **`manage_bot_skill(action="get", names=["skill-a", "skill-b", ...])`** in one call, not N sequential `action="get"` calls.
 - **Bundle `prune_enrolled_skills` with your last `manage_bot_skill` update/create batch** in a single iteration — they can all run in parallel. Don't split pruning into its own iteration after updates.
-- For the Reflections section edit in MEMORY.md, prefer **`file(operation="replace_section", path="memory/MEMORY.md", heading="## Reflections", content="...new body...")`** over `file(operation="edit", find=..., replace=...)` — you don't have to send the current content as the `find` string.
+- For the Reflections section edit in MEMORY.md, prefer **`memory(operation="replace_section", path="MEMORY.md", heading="## Reflections", content="...new body...")`** over `memory(operation="edit", find=..., replace=...)` — you don't have to send the current content as the `find` string.
 
 ## Step 1 — Cross-channel reflection
 Recent user messages from your channels are in the "## Recent Activity" snapshot appended below.

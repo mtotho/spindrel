@@ -37,6 +37,9 @@ class CaptureSpec:
     theme: str = "dark"
     viewport: tuple[int, int] = (1440, 900)
     scroll_text: str | None = None
+    scroll_plan_text: str | None = None
+    channel_id: str | None = None
+    chat_mode: str | None = None
 
 
 def _env(name: str, default: str = "") -> str:
@@ -120,11 +123,14 @@ def _build_specs(
             wait_js=wait,
             contains=("Plan behavior focus", "Success signal"),
             scroll_text="Plan behavior focus",
+            channel_id=channel_id,
+            chat_mode="default",
         ))
     if plan_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{plan_session_id}"
         wait = (
-            "document.body.innerText.toLowerCase().includes('native spindrel plan parity') "
+            "document.querySelector('[data-plan-card-mode]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel plan parity') "
             "&& (document.body.innerText.toLowerCase().includes('approve & execute') "
             "|| document.body.innerText.toLowerCase().includes('exit plan mode'))"
         )
@@ -134,6 +140,8 @@ def _build_specs(
             wait_js=wait,
             contains=("Native Spindrel Plan Parity",),
             scroll_text="Native Spindrel Plan Parity",
+            channel_id=channel_id,
+            chat_mode="default",
         ))
         specs.append(CaptureSpec(
             name="spindrel-plan-card-mobile-dark",
@@ -142,11 +150,23 @@ def _build_specs(
             contains=("Native Spindrel Plan Parity",),
             viewport=(390, 844),
             scroll_text="Native Spindrel Plan Parity",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-card-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Plan Parity",),
+            scroll_text="Native Spindrel Plan Parity",
+            channel_id=channel_id,
+            chat_mode="terminal",
         ))
     if answered_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{answered_session_id}"
         wait = (
-            "document.body.innerText.toLowerCase().includes('native spindrel answered plan') "
+            "document.querySelector('[data-plan-card-mode]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel answered plan') "
             "&& document.body.innerText.toLowerCase().includes('answer handoff') "
             "&& document.body.innerText.toLowerCase().includes('read submitted plan answers') "
             "&& document.body.innerText.toLowerCase().includes('publish answered plan')"
@@ -156,12 +176,24 @@ def _build_specs(
             route=route,
             wait_js=wait,
             contains=("Native Spindrel Answered Plan", "answer handoff", "Read submitted plan answers", "Publish answered plan"),
-            scroll_text="Native Spindrel Answered Plan",
+            scroll_plan_text="Read submitted plan answers",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-answered-questions-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Answered Plan", "answer handoff", "Read submitted plan answers", "Publish answered plan"),
+            scroll_plan_text="Read submitted plan answers",
+            channel_id=channel_id,
+            chat_mode="terminal",
         ))
     if progress_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{progress_session_id}"
         wait = (
-            "document.body.innerText.toLowerCase().includes('native spindrel progress parity') "
+            "document.querySelector('[data-plan-card-mode]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel progress parity') "
             "&& (document.body.innerText.toLowerCase().includes('done') "
             "|| document.body.innerText.toLowerCase().includes('step_done') "
             "|| document.body.innerText.toLowerCase().includes('completed step one'))"
@@ -173,6 +205,17 @@ def _build_specs(
             contains=("Native Spindrel Progress Parity",),
             viewport=(390, 844),
             scroll_text="Native Spindrel Progress Parity",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-progress-executing-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Progress Parity",),
+            scroll_text="Native Spindrel Progress Parity",
+            channel_id=channel_id,
+            chat_mode="terminal",
         ))
     return specs
 
@@ -214,7 +257,9 @@ async def _capture_one(
     page: Page = await context.new_page()
     await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
     await page.wait_for_function(spec.wait_js, timeout=60_000)
-    if spec.scroll_text:
+    if spec.scroll_plan_text:
+        await page.locator("[data-plan-card-mode]").get_by_text(spec.scroll_plan_text).first.scroll_into_view_if_needed(timeout=10_000)
+    elif spec.scroll_text:
         await page.get_by_text(spec.scroll_text).first.scroll_into_view_if_needed(timeout=10_000)
     await page.wait_for_timeout(750)
     text = await page.locator("body").inner_text(timeout=5_000)
@@ -256,6 +301,11 @@ async def capture(args: argparse.Namespace) -> list[Path]:
     headers = {"Authorization": f"Bearer {api_key}"}
     timeout = httpx.Timeout(60.0, read=300.0)
     async with httpx.AsyncClient(base_url=api_url, headers=headers, timeout=timeout) as client:
+        channel_ids = sorted({spec.channel_id for spec in specs if spec.channel_id and spec.chat_mode})
+        original_configs = {
+            channel_id: await _api(client, "GET", f"/api/v1/channels/{channel_id}/config")
+            for channel_id in channel_ids
+        }
         await _assert_sessions_exist(
             client,
             question_session_id=resolved["question_session_id"],
@@ -264,24 +314,38 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             progress_session_id=resolved["progress_session_id"],
         )
 
-    paths: list[Path] = []
-    async with async_playwright() as pw:
-        browser = await launch_async_browser(pw, headless=True)
-        try:
-            for spec in specs:
-                print(f"capturing {spec.name}", flush=True)
-                path = await _capture_one(
-                    browser,
-                    spec,
-                    browser_api_url=browser_api_url,
-                    api_key=api_key,
-                    output_dir=output_dir,
-                )
-                print(f"captured {spec.name}: {path}", flush=True)
-                paths.append(path)
-        finally:
-            await browser.close()
-    return paths
+        paths: list[Path] = []
+        async with async_playwright() as pw:
+            browser = await launch_async_browser(pw, headless=True)
+            try:
+                for spec in specs:
+                    print(f"capturing {spec.name}", flush=True)
+                    if spec.channel_id and spec.chat_mode:
+                        await _api(
+                            client,
+                            "PATCH",
+                            f"/api/v1/channels/{spec.channel_id}/config",
+                            json={"chat_mode": spec.chat_mode},
+                        )
+                    path = await _capture_one(
+                        browser,
+                        spec,
+                        browser_api_url=browser_api_url,
+                        api_key=api_key,
+                        output_dir=output_dir,
+                    )
+                    print(f"captured {spec.name}: {path}", flush=True)
+                    paths.append(path)
+            finally:
+                await browser.close()
+                for channel_id, config in original_configs.items():
+                    await _api(
+                        client,
+                        "PATCH",
+                        f"/api/v1/channels/{channel_id}/config",
+                        json={"chat_mode": config.get("chat_mode") or "default"},
+                    )
+        return paths
 
 
 def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:

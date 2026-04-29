@@ -636,8 +636,8 @@ export function EphemeralChatSession({
               createdAt: scratchQuery.data?.created_at,
               messageCount: scratchQuery.data?.message_count,
               sectionCount: scratchQuery.data?.section_count,
-              botName: bots?.find((b) => b.id === botId)?.name,
-              botModel: bots?.find((b) => b.id === botId)?.model,
+              botName: sessionBot?.name,
+              botModel: sessionBot?.harness_runtime ? null : sessionBot?.model,
             }}
             onOpenSessions={onOpenSessions}
             bottomSlot={composerInTranscriptFlow ? (

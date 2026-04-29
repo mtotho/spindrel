@@ -1944,6 +1944,21 @@ async def _append_prompt_and_user_message(
 ) -> None:
     inject_chars = ledger.inject_chars
     budget_consume = ledger.consume
+    # --- project prompt (shared across every channel attached to the Project) ---
+    if channel_id is not None and ch_row is not None and getattr(ch_row, "project_id", None):
+        try:
+            from app.db.engine import async_session
+            from app.services.projects import resolve_project_prompt
+
+            async with async_session() as db:
+                _project_prompt = await resolve_project_prompt(db, ch_row)
+            if _project_prompt:
+                messages.append({"role": "system", "content": _project_prompt})
+                inject_chars["project_prompt"] = len(_project_prompt)
+                budget_consume("project_prompt", _project_prompt)
+        except Exception:
+            logger.warning("Failed to resolve project prompt for channel %s", channel_id, exc_info=True)
+
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and ch_row is not None:
         _ch_ws_path = getattr(ch_row, "channel_prompt_workspace_file_path", None)
@@ -2468,8 +2483,29 @@ async def _inject_channel_workspace(
     inject_decisions = ledger.inject_decisions
 
     try:
-        ensure_channel_workspace(ch_id, bot, display_name=ch_row.name)
-        cw_root = get_channel_workspace_root(ch_id, bot)
+        from app.db.engine import async_session
+        from app.services.projects import project_workspace_path, resolve_channel_project_directory
+        from app.services.shared_workspace import shared_workspace_service
+
+        async with async_session() as db:
+            project_dir = await resolve_channel_project_directory(db, ch_row, bot)
+
+        if project_dir is not None:
+            cw_root = project_dir.host_path
+            cw_abs = project_workspace_path(project_dir)
+            index_root = shared_workspace_service.get_host_root(project_dir.workspace_id)
+            channel_index_prefix = project_dir.path
+            helper_prefix = (
+                f"Project workspace — {project_dir.name or project_dir.path}\n"
+                "This channel is attached to the Project root below; treat it as the default working surface for code, files, search, and exec.\n"
+            )
+        else:
+            ensure_channel_workspace(ch_id, bot, display_name=ch_row.name)
+            cw_root = get_channel_workspace_root(ch_id, bot)
+            cw_abs = f"/workspace/channels/{ch_id}"
+            index_root = str(Path(cw_root).parent.parent)
+            channel_index_prefix = f"channels/{ch_id}"
+            helper_prefix = ""
 
         # Collect .md files
         cw_files: list[tuple[str, str]] = []
@@ -2519,7 +2555,6 @@ async def _inject_channel_workspace(
                 logger.warning("Failed to resolve workspace schema template for channel %s", ch_row.id, exc_info=True)
 
         # Build and inject helper prompt
-        cw_abs = f"/workspace/channels/{ch_id}"
         from app.services.providers import resolve_prompt_style
         helper = _render_channel_workspace_prompt(
             workspace_path=cw_abs,
@@ -2532,6 +2567,8 @@ async def _inject_channel_workspace(
                 provider_id_override=provider_id_override,
             ),
         )
+        if helper_prefix:
+            helper = helper_prefix + helper
         if schema_content:
             helper = schema_content + "\n\n" + helper
 
@@ -2573,13 +2610,13 @@ async def _inject_channel_workspace(
             if plan is None:
                 raise RuntimeError("channel RAG requires workspace-enabled bot")
 
-            implicit_kb_prefix = f"channels/{ch_id}/knowledge-base"
+            implicit_kb_prefix = f"{channel_index_prefix}/.spindrel/knowledge-base" if project_dir is not None else f"channels/{ch_id}/knowledge-base"
             seg_dicts: list[dict] = [{
                 "path_prefix": implicit_kb_prefix,
                 "embedding_model": plan.embedding_model,
             }]
             for seg in cw_segments:
-                explicit_prefix = f"channels/{ch_id}/{seg['path_prefix'].strip('/')}"
+                explicit_prefix = f"{channel_index_prefix}/{seg['path_prefix'].strip('/')}"
                 if explicit_prefix.rstrip("/") == implicit_kb_prefix:
                     continue  # user's explicit segment wins, don't double-register
                 seg_dicts.append({
@@ -2591,7 +2628,7 @@ async def _inject_channel_workspace(
             seg_threshold = min((seg.get("similarity_threshold", 0.35) for seg in cw_segments), default=0.35)
             chunks, sim = await retrieve_filesystem_context(
                 user_message, f"channel:{ch_row.id}",
-                roots=[str(Path(cw_root).parent.parent)],
+                roots=[str(Path(index_root).resolve())],
                 embedding_model=plan.embedding_model,
                 segments=seg_dicts,
                 top_k=seg_top_k,

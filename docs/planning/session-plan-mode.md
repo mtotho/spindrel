@@ -6,8 +6,13 @@ This is the canonical document for the web session planning system.
 
 Live native-plan E2E captures for the current transcript UI are stored as
 `../images/spindrel-plan-question-card-dark.png`,
-`../images/spindrel-plan-card-default-dark.png`, and
-`../images/spindrel-plan-card-mobile-dark.png`.
+`../images/spindrel-plan-card-default-dark.png`,
+`../images/spindrel-plan-card-mobile-dark.png`,
+`../images/spindrel-plan-card-terminal-dark.png`,
+`../images/spindrel-plan-answered-questions-dark.png`,
+`../images/spindrel-plan-answered-questions-terminal-dark.png`,
+`../images/spindrel-plan-progress-executing-mobile-dark.png`, and
+`../images/spindrel-plan-progress-executing-terminal-dark.png`.
 
 If plan-mode behavior, prompting, tools, UI, or execution semantics change, update this file first and then update any shorter guides that point at it.
 

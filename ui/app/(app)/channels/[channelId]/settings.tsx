@@ -106,6 +106,8 @@ function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSet
     workspace_schema_template_id: settings.workspace_schema_template_id,
     workspace_schema_content: settings.workspace_schema_content,
     index_segments: settings.index_segments ?? [],
+    project_id: settings.project_id ?? null,
+    project: settings.project ?? null,
     project_workspace_id: settings.project_workspace_id ?? null,
     project_path: settings.project_path ?? null,
     tags: settings.tags ?? [],

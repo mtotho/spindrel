@@ -22,6 +22,7 @@ import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
 import { useWorkspaceAttention } from "@/src/api/hooks/useWorkspaceAttention";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
+import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { attentionDeckHref } from "@/src/lib/hubRoutes";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
 
@@ -108,7 +109,7 @@ export function ChannelHeader({
   bot,
   columns,
   goBack,
-  isMobile,
+  isMobile: routeIsMobile,
   contextBudget,
   onContextBudgetClick,
   sessionHeaderStats,
@@ -129,6 +130,8 @@ export function ChannelHeader({
   scratchFullpageMode,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
+  const detectedMobile = useIsMobile();
+  const isMobile = routeIsMobile || detectedMobile;
   const navigate = useNavigate();
   const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
   const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);

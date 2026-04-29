@@ -107,6 +107,8 @@ export function useUpdateChannelSettings(channelId: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-settings", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
       queryClient.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
       queryClient.invalidateQueries({ queryKey: ["resolved-widget-theme", channelId] });

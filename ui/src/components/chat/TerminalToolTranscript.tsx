@@ -18,6 +18,7 @@ import { HarnessAwareApprovalRow } from "./HarnessApprovalPreview";
 const TERMINAL_INLINE_OUTPUT_CHARS = 1800;
 const TERMINAL_INLINE_OUTPUT_LINES = 18;
 const TERMINAL_EXPANDED_OUTPUT_CHARS = 12000;
+const PLAN_CONTENT_TYPE = "application/vnd.spindrel.plan+json";
 
 function toneColor(isError: boolean, t: ThemeTokens): string {
   return isError ? t.dangerMuted : t.textMuted;
@@ -61,6 +62,11 @@ function terminalOutputPreview(env: ToolResultEnvelope | undefined): { text: str
     text: lines.slice(0, TERMINAL_INLINE_OUTPUT_LINES).join("\n").slice(0, TERMINAL_INLINE_OUTPUT_CHARS),
     isLarge: true,
   };
+}
+
+function rendersInlineRichTerminalResult(env: ToolResultEnvelope | undefined): boolean {
+  if (!env) return false;
+  return env.view_key === "core.plan" || env.content_type === PLAN_CONTENT_TYPE;
 }
 
 function expandedTerminalOutput(env: ToolResultEnvelope | undefined): string {
@@ -153,12 +159,13 @@ export function TerminalToolTranscript({
       {entries.map((entry, idx) => {
         const formattedArgs = entry.args ? formatToolArgs(entry.args) : null;
         const isExpanded = expandedIdx === idx;
-        const output = terminalOutputPreview(entry.env);
+        const inlineRichResult = rendersInlineRichTerminalResult(entry.env);
+        const output = inlineRichResult ? null : terminalOutputPreview(entry.env);
         const label = sanitizeTerminalLabel(entry.label) || "tool";
         const metaLabel = sanitizeTerminalLabel(entry.metaLabel);
         const target = sanitizeTerminalLabel(entry.target);
         const hasLargeOutput = !!output?.isLarge;
-        const hasExpandableDetails = !!formattedArgs || hasLargeOutput || (!!entry.env && !output);
+        const hasExpandableDetails = !inlineRichResult && (!!formattedArgs || hasLargeOutput || (!!entry.env && !output));
         const canToggle = hasExpandableDetails && entry.detailKind !== "inline-diff";
         const rowTone = entry.isError
           ? t.danger
@@ -276,6 +283,20 @@ export function TerminalToolTranscript({
                   decidingIds={decidingIds}
                   t={t}
                   chatMode="terminal"
+                />
+              </div>
+            )}
+
+            {inlineRichResult && entry.env && (
+              <div className="min-w-0" style={{ marginLeft: 22, marginTop: 5, maxWidth: "calc(100% - 22px)" }}>
+                <RichToolResult
+                  envelope={entry.env}
+                  sessionId={sessionId}
+                  channelId={channelId}
+                  botId={botId}
+                  rendererVariant="terminal-chat"
+                  chromeMode="embedded"
+                  t={t}
                 />
               </div>
             )}

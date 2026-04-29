@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.domain.errors import DomainError, NotFoundError
 from app.db.models import (
     Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration,
-    Message, Session, Skill, Task, ToolApproval, ToolCall, TraceEvent,
+    Message, Project, Session, Skill, Task, ToolApproval, ToolCall, TraceEvent,
 )
 from app.dependencies import (
     ApiKeyAuth,
@@ -102,6 +102,16 @@ class IntegrationBindingOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProjectSummaryOut(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    name: str
+    root_path: str
+    slug: str
+
+    model_config = {"from_attributes": True}
+
+
 class ChannelOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -120,6 +130,8 @@ class ChannelOut(BaseModel):
     member_bots: list[ChannelBotMemberOut] = []
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
+    project_id: Optional[uuid.UUID] = None
+    project: Optional[ProjectSummaryOut] = None
     config: dict = {}
     category: Optional[str] = None
     tags: list[str] = []
@@ -470,6 +482,9 @@ async def create_channel(
     await db.commit()
     await db.refresh(channel, ["integrations", "bot_members"])
     out = ChannelOut.model_validate(channel)
+    if channel.project_id:
+        project = await db.get(Project, channel.project_id)
+        out.project = ProjectSummaryOut.model_validate(project) if project else None
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
     out.member_bots = _enrich_bot_members(channel)
@@ -493,9 +508,16 @@ async def list_channels(
         from app.services.channels import bot_channel_filter
         stmt = stmt.where(bot_channel_filter(bot_id))
     channels = (await db.execute(stmt)).scalars().all()
+    project_ids = [ch.project_id for ch in channels if ch.project_id]
+    project_map: dict[uuid.UUID, Project] = {}
+    if project_ids:
+        projects = (await db.execute(select(Project).where(Project.id.in_(project_ids)))).scalars().all()
+        project_map = {project.id: project for project in projects}
 
     def _enrich(ch: Channel) -> ChannelOut:
         out = ChannelOut.model_validate(ch)
+        if ch.project_id and ch.project_id in project_map:
+            out.project = ProjectSummaryOut.model_validate(project_map[ch.project_id])
         ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
         try:
             from app.agent.bots import get_bot
@@ -523,6 +545,8 @@ async def list_channels(
     result = []
     for ch in channels:
         item = ChannelListItemOut.model_validate(ch)
+        if ch.project_id and ch.project_id in project_map:
+            item.project = ProjectSummaryOut.model_validate(project_map[ch.project_id])
         ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
         try:
             from app.agent.bots import get_bot as _get_bot
@@ -554,6 +578,9 @@ async def get_channel(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     out = ChannelOut.model_validate(channel)
+    if channel.project_id:
+        project = await db.get(Project, channel.project_id)
+        out.project = ProjectSummaryOut.model_validate(project) if project else None
     ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
     try:
         from app.agent.bots import get_bot
@@ -1000,7 +1027,11 @@ async def update_channel(
     channel.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(channel, ["integrations"])
-    return ChannelOut.model_validate(channel)
+    out = ChannelOut.model_validate(channel)
+    if channel.project_id:
+        project = await db.get(Project, channel.project_id)
+        out.project = ProjectSummaryOut.model_validate(project) if project else None
+    return out
 
 
 @router.post("/{channel_id}/messages", response_model=InjectResponse, status_code=201)

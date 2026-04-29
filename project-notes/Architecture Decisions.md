@@ -971,3 +971,18 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - A Python scan over session metadata cannot enforce one-target-one-session under concurrent grants.
 - Body-only signatures and static query tokens make captured traffic replayable.
 - These are security boundaries; tests should exercise concrete persistence/signature contracts rather than trusting comments or operator discipline.
+
+### Projects are shared roots inside the singleton Workspace
+**Decided 2026-04-29.** A Project is a named root path inside a `SharedWorkspace`, not a replacement for the singleton Workspace model and not a one-repo-only abstraction.
+
+**What this means.**
+- `projects` owns the reusable root (`workspace_id`, `root_path`, prompt settings, metadata). `channels.project_id` is the primary binding; legacy `channel.config.project_path` remains compatibility fallback.
+- A Project root may contain multiple repos or arbitrary folder layout, e.g. `common/projects` with vault + app repos.
+- Project-bound channels use the Project root as the default work surface for files, terminal cwd, normal exec cwd, harness cwd, context injection, and channel workspace search.
+- Bot-private workspace-files memory is separate from Project cwd. Memory writes go through the dedicated `memory` tool rooted at the bot memory directory.
+- Project-scoped knowledge lives under `.spindrel/knowledge-base` inside the Project root. Existing channel KB remains on disk and is not auto-migrated.
+
+**Why.**
+- The existing SharedWorkspace is the runtime environment/container boundary; overloading it for project folders would reintroduce multi-workspace confusion.
+- A folder-root Project supports multi-repo workspaces and later templates/ephemeral instances without forcing a Git-repo-shaped model too early.
+- Separating memory from cwd prevents Project-bound turns from writing durable bot memory into whichever Project is currently active.

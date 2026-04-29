@@ -110,7 +110,7 @@ export function ChannelChatSession({
       surfaceKind: "primary",
       title: "Primary session",
       botName: bot?.name,
-      botModel: bot?.model,
+      botModel: bot?.harness_runtime ? null : bot?.model,
     },
     onOpenSessions,
   });

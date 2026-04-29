@@ -17,7 +17,7 @@ import re
 import time
 from pathlib import Path
 
-from app.agent.context import current_bot_id, current_session_id
+from app.agent.context import current_bot_id, current_channel_id, current_session_id
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
 
     Handles:
     - /workspace/... container paths (translated via workspace_service)
-    - Relative paths (joined with bot workspace root)
+    - Relative paths (joined with the active work root)
     - Absolute paths (verified to be within allowed boundaries)
 
     For shared workspace bots the boundary is the entire shared workspace root,
@@ -152,9 +152,9 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
             bot.id, path, bot.workspace, bot=bot,
         )
 
-    # Relative paths: join with bot workspace root (bots/{bot_id}/ for shared,
-    # or {base}/{bot_id}/ for standalone).  This means memory/MEMORY.md always
-    # resolves to the bot's own directory.
+    # Relative paths: join with the effective work root. In a Project-bound
+    # channel the caller passes the Project root; otherwise this is the bot root.
+    # Bot-private memory writes should use the dedicated memory tool.
     if not os.path.isabs(path):
         path = os.path.join(ws_root, path)
 
@@ -293,8 +293,9 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
                 "path": {
                     "type": "string",
                     "description": (
-                        "File or directory path. Relative paths resolve from workspace root "
-                        "('.' = workspace root). Container paths (/workspace/...) are translated "
+                        "File or directory path. Relative paths resolve from the active work root "
+                        "('.' = work root; Project root when this channel is attached to a Project). "
+                        "Container paths (/workspace/...) are translated "
                         "automatically. For grep, this is the search root (file or directory). "
                         "For glob, this is the base directory to glob from."
                     ),
@@ -560,6 +561,21 @@ async def file(
     effective_ws_root, effective_bot = await _maybe_resolve_cross_channel(
         path, bot, ws_root,
     )
+
+    if not os.path.isabs(path.strip()) and not path.strip().startswith("widget://"):
+        ch_id = current_channel_id.get()
+        if ch_id is not None:
+            try:
+                from app.db.engine import async_session
+                from app.services.projects import resolve_project_directory_for_channel_id
+
+                async with async_session() as db:
+                    project_dir = await resolve_project_directory_for_channel_id(db, ch_id, bot)
+                if project_dir is not None:
+                    effective_ws_root = project_dir.host_path
+                    effective_bot = bot
+            except Exception:
+                logger.debug("Could not resolve project root for file op", exc_info=True)
 
     # widget:// core scope is read-only to bots; block write ops before
     # _resolve_path executes anything IO-side. widget://bot and widget://workspace

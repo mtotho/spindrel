@@ -340,6 +340,8 @@ export interface Channel {
   heartbeat_in_quiet_hours?: boolean;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
+  project_id?: string | null;
+  project?: ProjectSummary | null;
   config?: {
     pinned_panels?: PinnedPanel[];
     pinned_widgets?: PinnedWidget[];
@@ -763,6 +765,8 @@ export interface ChannelSettings {
   } | null;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
+  project_id?: string | null;
+  project?: ProjectSummary | null;
   project_workspace_id?: string | null;
   project_path?: string | null;
   resolved_project_workspace_id?: string | null;
@@ -1304,6 +1308,42 @@ export interface SharedWorkspace {
   created_at: string;
   updated_at: string;
   bots: WorkspaceBot[];
+}
+
+export interface ProjectSummary {
+  id: string;
+  workspace_id: string;
+  name: string;
+  slug: string;
+  root_path: string;
+}
+
+export interface Project extends ProjectSummary {
+  description?: string | null;
+  prompt?: string | null;
+  prompt_file_path?: string | null;
+  metadata_?: Record<string, any>;
+  resolved?: {
+    project_id?: string | null;
+    name?: string | null;
+    workspace_id: string;
+    path: string;
+    host_path: string;
+  } | null;
+  attached_channel_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectWrite {
+  workspace_id?: string | null;
+  name?: string | null;
+  slug?: string | null;
+  description?: string | null;
+  root_path?: string | null;
+  prompt?: string | null;
+  prompt_file_path?: string | null;
+  metadata_?: Record<string, any> | null;
 }
 
 export interface WorkspaceCreate {

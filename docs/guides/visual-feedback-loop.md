@@ -137,8 +137,11 @@ Expected artifacts:
 spindrel-plan-question-card-dark.png
 spindrel-plan-card-default-dark.png
 spindrel-plan-card-mobile-dark.png
+spindrel-plan-card-terminal-dark.png
 spindrel-plan-answered-questions-dark.png
+spindrel-plan-answered-questions-terminal-dark.png
 spindrel-plan-progress-executing-mobile-dark.png
+spindrel-plan-progress-executing-terminal-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same

@@ -95,6 +95,8 @@ const AdminMemories = lazy(() => import("@/app/(app)/admin/memories"));
 const AdminNotifications = lazy(() => import("@/app/(app)/admin/notifications/index"));
 const AdminPromptTemplates = lazy(() => import("@/app/(app)/admin/prompt-templates/index"));
 const AdminPromptTemplateDetail = lazy(() => import("@/app/(app)/admin/prompt-templates/[templateId]/index"));
+const AdminProjectsIndex = lazy(() => import("@/app/(app)/admin/projects/index"));
+const AdminProjectDetail = lazy(() => import("@/app/(app)/admin/projects/[projectId]/index"));
 const AdminProviders = lazy(() => import("@/app/(app)/admin/providers/index"));
 const AdminProviderDetail = lazy(() => import("@/app/(app)/admin/providers/[providerId]/index"));
 const AdminSandboxes = lazy(() => import("@/app/(app)/admin/sandboxes"));
@@ -244,6 +246,8 @@ export const router = createBrowserRouter([
               { path: "notifications", element: <AdminNotifications /> },
               { path: "prompt-templates", element: <AdminPromptTemplates /> },
               { path: "prompt-templates/:templateId", element: <AdminPromptTemplateDetail /> },
+              { path: "projects", element: <AdminProjectsIndex /> },
+              { path: "projects/:projectId", element: <AdminProjectDetail /> },
               { path: "providers", element: <AdminProviders /> },
               { path: "providers/:providerId", element: <AdminProviderDetail /> },
               { path: "sandboxes", element: <AdminSandboxes /> },

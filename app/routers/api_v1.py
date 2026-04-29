@@ -11,6 +11,7 @@ from app.routers.api_v1_tasks import router as tasks_router
 from app.routers.api_v1_todos import router as todos_router
 from app.routers.api_v1_users import router as users_router
 from app.routers.api_v1_prompt_templates import router as prompt_templates_router
+from app.routers.api_v1_projects import router as projects_router
 from app.routers.api_v1_discover import router as discover_router
 from app.routers.api_v1_workspaces import router as workspaces_router
 from app.routers.api_v1_channel_workspace import router as channel_workspace_router
@@ -49,6 +50,7 @@ router.include_router(channels_router)
 router.include_router(discover_router)
 router.include_router(documents_router)
 router.include_router(prompt_templates_router)
+router.include_router(projects_router)
 router.include_router(sessions_router)
 router.include_router(tasks_router)
 router.include_router(todos_router)

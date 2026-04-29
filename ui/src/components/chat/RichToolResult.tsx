@@ -277,8 +277,8 @@ function renderNativeAppView({
   );
 }
 
-function renderPlanView({ envelope, body, sessionId }: RichResultViewProps) {
-  return <PlanResultRenderer envelope={envelope} body={body} sessionId={sessionId} />;
+function renderPlanView({ envelope, body, mode, sessionId }: RichResultViewProps) {
+  return <PlanResultRenderer envelope={envelope} body={body} chatMode={mode === "terminal" ? "terminal" : "default"} sessionId={sessionId} />;
 }
 
 function renderDefaultSearchResultsView({ data, t }: RichResultViewProps) {

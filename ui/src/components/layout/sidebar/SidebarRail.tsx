@@ -5,6 +5,7 @@ import {
   Brain,
   Bot,
   BookOpen,
+  FolderKanban,
   Hash,
   Inbox,
   LayoutDashboard,
@@ -148,6 +149,7 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
   const isMachinesActive = pathname.startsWith("/admin/machines");
   const isUsageActive = pathname.startsWith("/admin/usage");
   const isLearningActive = pathname.startsWith("/admin/learning");
+  const isProjectsActive = pathname.startsWith("/admin/projects");
   const isHomeActive = pathname === "/" && !search;
 
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -270,6 +272,10 @@ export function SidebarRail({ unreadInboxOpen = false, onToggleUnreadInbox }: Si
 
             <RailLink href="/admin/skills" active={isSkillsActive} title="Skills">
               <BookOpen size={18} className={isSkillsActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
+
+            <RailLink href="/admin/projects" active={isProjectsActive} title="Projects">
+              <FolderKanban size={18} className={isProjectsActive ? "text-accent" : "text-text-dim"} />
             </RailLink>
 
             <RailLink href="/admin/integrations" active={isIntegrationsActive} title="Integrations">

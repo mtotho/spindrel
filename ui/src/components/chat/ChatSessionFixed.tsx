@@ -348,8 +348,8 @@ export function FixedSessionChatSession({
           sessionResumeSeed={{
             surfaceKind: source.externalDelivery === "none" ? "channel" : "session",
             title,
-            botName: bots?.find((b) => b.id === botId)?.name,
-            botModel: bots?.find((b) => b.id === botId)?.model,
+            botName: sessionBot?.name,
+            botModel: sessionBot?.harness_runtime ? null : sessionBot?.model,
           }}
           onOpenSessions={onOpenSessions}
           bottomSlot={composerInTranscriptFlow ? composer : undefined}

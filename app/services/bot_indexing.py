@@ -163,6 +163,7 @@ def _resolve_channel(
     *,
     channel_id: str | None,
     channel_segments: list[dict] | None = None,
+    base_prefix: str | None = None,
 ) -> BotIndexPlan | None:
     if not channel_id:
         raise ValueError("channel_id is required for channel indexing")
@@ -177,7 +178,7 @@ def _resolve_channel(
 
     ch_id = str(channel_id)
     root = str(Path(_get_ws_root(bot)).resolve())
-    base_prefix = f"channels/{ch_id}"
+    base_prefix = (base_prefix or f"channels/{ch_id}").strip("/")
     patterns = [f"{base_prefix}/**/*.md"]
 
     segments = None
@@ -370,11 +371,25 @@ async def reindex_channel(
     """
     from app.agent.fs_indexer import index_directory
 
-    plan = resolve_for(
+    base_prefix = None
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel
+        from app.services.projects import resolve_channel_project_directory
+
+        async with async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            project_dir = await resolve_channel_project_directory(db, channel, bot)
+        if project_dir is not None:
+            base_prefix = project_dir.path
+    except Exception:
+        logger.debug("Could not resolve project index prefix for channel %s", channel_id, exc_info=True)
+
+    plan = _resolve_channel(
         bot,
-        scope="channel",
         channel_id=channel_id,
         channel_segments=channel_segments,
+        base_prefix=base_prefix,
     )
     if plan is None:
         return None

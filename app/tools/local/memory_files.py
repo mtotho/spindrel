@@ -1,9 +1,10 @@
-"""Local tools for file-based memory scheme: search_memory, get_memory_file, search_bot_memory."""
+"""Local tools for file-based memory scheme."""
 from __future__ import annotations
 
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -242,6 +243,203 @@ async def get_memory_file(name: str) -> str:
         return json.dumps({"path": f"memory/{rel}", "content": content}, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": f"Error reading file: {e}"}, ensure_ascii=False)
+
+
+def _resolve_memory_write_path(path: str, memory_root: str) -> str:
+    value = (path or "").strip().replace("\\", "/")
+    if not value:
+        raise ValueError("path is required")
+    if value.startswith("memory/"):
+        value = value[len("memory/"):]
+    parts = [part for part in value.split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        raise ValueError("path must stay inside memory")
+    if not parts:
+        raise ValueError("path is required")
+    if not parts[-1].endswith(".md"):
+        parts[-1] = parts[-1] + ".md"
+    root = os.path.realpath(memory_root)
+    resolved = os.path.realpath(os.path.join(root, *parts))
+    if resolved != root and not resolved.startswith(root + os.sep):
+        raise ValueError("path must stay inside memory")
+    return resolved
+
+
+def _memory_error(message: str) -> str:
+    return json.dumps({"error": message}, ensure_ascii=False)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "memory",
+        "description": (
+            "Read and write your private bot memory files. This tool is always rooted "
+            "at your bot memory directory, even when the channel is attached to a Project. "
+            "Use it instead of the generic file tool for MEMORY.md, daily logs, and reference notes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["list", "read", "create", "overwrite", "append", "edit", "replace_section", "rename", "delete", "archive_older_than"],
+                },
+                "path": {"type": "string", "description": "Path inside memory/, e.g. MEMORY.md, logs/2026-04-29.md, reference/project.md."},
+                "content": {"type": "string"},
+                "find": {"type": "string"},
+                "replace": {"type": "string"},
+                "replace_all": {"type": "boolean"},
+                "heading": {"type": "string"},
+                "destination": {"type": "string"},
+                "older_than_days": {"type": "integer"},
+            },
+            "required": ["operation"],
+        },
+    },
+}, safety_tier="mutating", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "path": {"type": "string"},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "content": {"type": "string"},
+        "message": {"type": "string"},
+        "error": {"type": "string"},
+    },
+})
+async def memory(
+    operation: str,
+    path: str | None = None,
+    content: str | None = None,
+    find: str | None = None,
+    replace: str | None = None,
+    replace_all: bool = False,
+    heading: str | None = None,
+    destination: str | None = None,
+    older_than_days: int | None = None,
+) -> str:
+    bot, bot_id, ws_root = _get_bot_and_root()
+    if not bot or not ws_root:
+        return _memory_error("Memory file access is not available (no workspace context).")
+    if getattr(bot, "memory_scheme", None) != "workspace-files":
+        return _memory_error("This bot does not use workspace-files memory.")
+
+    from app.services.memory_scheme import get_memory_root
+    memory_root = get_memory_root(bot, ws_root=ws_root)
+    os.makedirs(memory_root, exist_ok=True)
+
+    operation = (operation or "").strip()
+    try:
+        if operation == "list":
+            files: list[str] = []
+            for dirpath, _, filenames in os.walk(memory_root):
+                for filename in sorted(filenames):
+                    if filename.endswith(".md"):
+                        files.append(os.path.relpath(os.path.join(dirpath, filename), memory_root))
+            return json.dumps({"files": files}, ensure_ascii=False)
+
+        if operation == "archive_older_than":
+            if not path or not destination:
+                return _memory_error("path and destination are required for archive_older_than.")
+            source_dir = _resolve_memory_write_path(path.rstrip("/") + "/.sentinel.md", memory_root)
+            source_dir = os.path.dirname(source_dir)
+            dest_dir = _resolve_memory_write_path(destination.rstrip("/") + "/.sentinel.md", memory_root)
+            dest_dir = os.path.dirname(dest_dir)
+            cutoff = time.time() - float(older_than_days or 0) * 86400
+            moved: list[str] = []
+            skipped_fresh: list[str] = []
+            skipped_existing: list[str] = []
+            os.makedirs(dest_dir, exist_ok=True)
+            for entry in sorted(Path(source_dir).glob("*.md")) if os.path.isdir(source_dir) else []:
+                if entry.stat().st_mtime > cutoff:
+                    skipped_fresh.append(entry.name)
+                    continue
+                target = Path(dest_dir) / entry.name
+                if target.exists():
+                    skipped_existing.append(entry.name)
+                    continue
+                entry.rename(target)
+                moved.append(entry.name)
+            return json.dumps({
+                "path": f"memory/{os.path.relpath(source_dir, memory_root)}",
+                "destination": f"memory/{os.path.relpath(dest_dir, memory_root)}",
+                "moved": moved,
+                "skipped_fresh": skipped_fresh,
+                "skipped_existing": skipped_existing,
+            }, ensure_ascii=False)
+
+        if not path:
+            return _memory_error("path is required for this operation.")
+        resolved = _resolve_memory_write_path(path, memory_root)
+        rel = os.path.relpath(resolved, memory_root)
+
+        if operation == "read":
+            if not os.path.isfile(resolved):
+                return _memory_error(f"File not found: {rel}")
+            return json.dumps({"path": f"memory/{rel}", "content": Path(resolved).read_text()}, ensure_ascii=False)
+        if operation == "create":
+            if os.path.exists(resolved):
+                return _memory_error(f"File already exists: {rel}")
+            os.makedirs(os.path.dirname(resolved), exist_ok=True)
+            Path(resolved).write_text(content or "")
+        elif operation == "overwrite":
+            os.makedirs(os.path.dirname(resolved), exist_ok=True)
+            Path(resolved).write_text(content or "")
+        elif operation == "append":
+            os.makedirs(os.path.dirname(resolved), exist_ok=True)
+            with open(resolved, "a", encoding="utf-8") as fh:
+                fh.write(content or "")
+        elif operation == "edit":
+            if not os.path.isfile(resolved):
+                return _memory_error(f"File not found: {rel}")
+            if find is None:
+                return _memory_error("find is required for edit.")
+            text = Path(resolved).read_text()
+            count = text.count(find)
+            if count == 0:
+                return _memory_error("find text not found.")
+            if count > 1 and not replace_all:
+                return _memory_error("find text appears multiple times; set replace_all=true.")
+            Path(resolved).write_text(text.replace(find, replace or "", -1 if replace_all else 1))
+        elif operation == "replace_section":
+            if not heading:
+                return _memory_error("heading is required for replace_section.")
+            text = Path(resolved).read_text() if os.path.isfile(resolved) else ""
+            marker = heading.strip()
+            if not marker.startswith("#"):
+                marker = "## " + marker
+            pattern = re.compile(rf"(^|\n){re.escape(marker)}\n.*?(?=\n##? |\Z)", re.DOTALL)
+            section = f"{marker}\n{content or ''}".rstrip() + "\n"
+            if pattern.search(text):
+                text = pattern.sub(lambda m: ("\n" if m.group(1) else "") + section, text, count=1)
+            else:
+                text = (text.rstrip() + "\n\n" + section).lstrip()
+            os.makedirs(os.path.dirname(resolved), exist_ok=True)
+            Path(resolved).write_text(text)
+        elif operation == "rename":
+            if not destination:
+                return _memory_error("destination is required for rename.")
+            target = _resolve_memory_write_path(destination, memory_root)
+            if not os.path.isfile(resolved):
+                return _memory_error(f"File not found: {rel}")
+            if os.path.exists(target):
+                return _memory_error(f"Destination already exists: {os.path.relpath(target, memory_root)}")
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            os.replace(resolved, target)
+            rel = os.path.relpath(target, memory_root)
+        elif operation == "delete":
+            if not os.path.isfile(resolved):
+                return _memory_error(f"File not found: {rel}")
+            os.remove(resolved)
+        else:
+            return _memory_error(f"Unknown operation: {operation}")
+
+        from app.services.bot_hooks import schedule_after_write
+        schedule_after_write(bot_id, f"memory/{rel}")
+        return json.dumps({"path": f"memory/{rel}", "message": f"{operation} complete"}, ensure_ascii=False)
+    except Exception as exc:
+        logger.exception("memory tool %s failed: %s", operation, path)
+        return _memory_error(str(exc))
 
 
 @register({

@@ -43,6 +43,7 @@ Full detail in [[Completed Tracks]].
 |---|---|---|---|
 | System Health Visibility | shipped 2026-04-26 | Rotating JSONL log handler + `read_container_logs` / `get_recent_server_errors` tools + deterministic daily summary + `DailyHealthLandmark` canvas marker | (in [[Architecture Decisions]]) |
 | Mission Control Vision | 2026-04-28 | Operator Map north star: Mission Control is the protected operator room, spatial canvas is the living work map, and AI setup help must inspect real state, stage concrete changes, and require approval. Near-term Professional Quest Board is Phase 1. | [[Track - Mission Control Vision]] |
+| Projects | 2026-04-29 | First-class shared roots inside the singleton Workspace. Channels attach to one Project; Project-bound turns use it for files/search/terminal/exec/harness cwd while bot memory stays separate through the `memory` tool. Templates/ephemeral instances remain follow-on. | (in [[Architecture Decisions]]) |
 | Harness SDK | 2026-04-27 | External agent harnesses as a real runtime lane. Phases 3–6 v1 shipped; scheduled harness heartbeats/tasks now run real harness turns with per-run model/effort | [[Track - Harness SDK]] |
 | Notifications | 2026-04-27 | Reusable targets plus durable per-user/session unread read-state, cross-session UI badges/toasts, and unread reminder plumbing | [[Track - Notifications]] |
 | Spatial Canvas | 2026-04-26 | Workspace-scope infinite plane replacing `HomeGrid`. Channels as draggable tiles, bots as actors, Attention Beacons, zoom-dive to dashboards. `Ctrl+Shift+Space` toggles overlay | [[Track - Spatial Canvas]] |
@@ -91,7 +92,7 @@ Full detail in [[Completed Tracks]].
 _None load-bearing right now._
 
 ## Not Currently Building
-Template onboarding, workflow visual builder, new retrieval mechanisms, multi-tenancy.
+Template onboarding, ephemeral Project instances, workflow visual builder, new retrieval mechanisms, multi-tenancy.
 
 ## Next Phase: Integration Depth — remaining integrations
 Discord audit next (following the playbook), then BlueBubbles. GitHub distinct surface v1 shipped as the repo dashboard preset/widget (issues / PRs / check runs + confirmed issue close/reopen); remaining GitHub depth should build on that surface rather than start a parallel one. Onboarding polish (`docker compose up` → working agent), progressive disclosure in admin UI, docs refresh, Flynn Thoughts test case remain queued.

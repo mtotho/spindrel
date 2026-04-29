@@ -4,6 +4,7 @@ import { Trash2, AlertTriangle, X } from "lucide-react";
 
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
+import { useProjects } from "@/src/api/hooks/useProjects";
 import { useWidgetThemes } from "@/src/api/hooks/useWidgetThemes";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useIsAdmin } from "@/src/hooks/useScope";
@@ -687,7 +688,7 @@ export function ChannelTabSections({
   );
 }
 
-function HarnessProjectDirectorySection({
+function ProjectSection({
   form,
   patch,
   workspaceId,
@@ -696,31 +697,56 @@ function HarnessProjectDirectorySection({
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   workspaceId?: string | null;
 }) {
-  const projectPath = (form.project_path ?? "").replace(/^\/+/, "");
-  const effectiveWorkspaceId = form.project_workspace_id ?? workspaceId ?? null;
+  const { data: projects } = useProjects();
+  const selectedProject = projects?.find((project) => project.id === form.project_id) ?? form.project ?? null;
+  const projectPath = (selectedProject?.root_path ?? form.project_path ?? "").replace(/^\/+/, "");
+  const effectiveWorkspaceId = selectedProject?.workspace_id ?? form.project_workspace_id ?? workspaceId ?? null;
   const terminalHref = effectiveWorkspaceId && projectPath
     ? `/admin/terminal?cwd=${encodeURIComponent(`workspace://${effectiveWorkspaceId}/${projectPath}`)}`
     : null;
   return (
     <Section
-      title="Project Directory"
-      description="Optional workspace-relative directory used by this channel's file browser and harness CWD."
+      title="Project"
+      description="Optional shared Project root used by this channel's file browser, bot working surface, terminal, and harness CWD."
     >
       <FormRow
-        label="Project path"
-        description="Leave blank to use the normal channel workspace. Use a workspace-relative path such as common/projects/spindrel."
+        label="Primary Project"
+        description="Choose a Project to share the same working root across channels."
       >
-        <TextInput
-          value={projectPath}
-          onChangeText={(value) => patch("project_path", (value.trim() || null) as ChannelSettings["project_path"])}
-          placeholder="common/projects/spindrel"
+        <SelectInput
+          value={form.project_id ?? ""}
+          onChange={(value) => patch("project_id", (value || null) as ChannelSettings["project_id"])}
+          options={[
+            { label: "No Project", value: "" },
+            ...(projects ?? []).map((project) => ({
+              label: `${project.name} · /${project.root_path}`,
+              value: project.id,
+            })),
+          ]}
         />
       </FormRow>
+      {!selectedProject && (
+        <FormRow
+          label="Legacy path"
+          description="Compatibility path for existing channels. Prefer creating a Project and selecting it above."
+        >
+          <TextInput
+            value={projectPath}
+            onChangeText={(value) => patch("project_path", (value.trim() || null) as ChannelSettings["project_path"])}
+            placeholder="common/projects/spindrel"
+          />
+        </FormRow>
+      )}
       <InfoBanner>
         {projectPath ? (
           <>
-            File explorer opens at <span className="font-mono">/{projectPath}</span>; harness turns start there.
-            Workspace-files memory hints still point at the bot workspace.{" "}
+            File explorer, terminal, search, and run cwd use <span className="font-mono">/{projectPath}</span>. Bot memory uses the dedicated memory tool.{" "}
+            {selectedProject && (
+              <Link to={`/admin/projects/${selectedProject.id}`} className="font-semibold text-accent hover:underline">
+                Open Project
+              </Link>
+            )}
+            {selectedProject && effectiveWorkspaceId ? " · " : ""}
             {effectiveWorkspaceId && (
               <Link
                 to={`/admin/workspaces/${effectiveWorkspaceId}/files?path=${encodeURIComponent(`/${projectPath}`)}`}
@@ -740,7 +766,7 @@ function HarnessProjectDirectorySection({
           </>
         ) : (
           <>
-            No project directory is set. Harness CWD falls back to the bot harness workdir, then the bot workspace.
+            No Project is set. This channel uses its normal channel workspace and bot workspace defaults.
           </>
         )}
       </InfoBanner>
@@ -783,8 +809,8 @@ export function AgentTabSections({
             </div>
           </div>
         </Section>
+        <ProjectSection form={form} patch={patch} workspaceId={workspaceId} />
         <ChannelPromptSection form={form} patch={patch} workspaceId={workspaceId} settings={settings} channelId={channelId} />
-        <HarnessProjectDirectorySection form={form} patch={patch} workspaceId={workspaceId} />
         <Section
           title="Harness Context"
           description="Native compaction stays inside the harness. Spindrel can prompt or trigger native compact when context pressure is visible."
@@ -827,6 +853,7 @@ export function AgentTabSections({
   return (
     <>
       <AgentIdentitySection form={form} patch={patch} bots={bots} settings={settings} />
+      <ProjectSection form={form} patch={patch} workspaceId={workspaceId} />
       <ChannelPromptSection form={form} patch={patch} workspaceId={workspaceId} settings={settings} channelId={channelId} />
       <MessageRoutingSection form={form} patch={patch} />
       <ModelOverrideSection form={form} patch={patch} bots={bots} settings={settings} />

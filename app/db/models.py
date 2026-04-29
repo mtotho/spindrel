@@ -110,6 +110,12 @@ class Channel(Base):
         nullable=True,
         index=True,
     )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
@@ -133,6 +139,7 @@ class Channel(Base):
     members: Mapped[list["ChannelMember"]] = relationship(
         cascade="all, delete-orphan",
     )
+    project: Mapped[Optional["Project"]] = relationship("Project", back_populates="channels")
     bot_members: Mapped[list["ChannelBotMember"]] = relationship(
         back_populates="channel",
         cascade="all, delete-orphan",
@@ -1237,6 +1244,42 @@ class SharedWorkspaceBot(Base):
     write_access: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
 
     workspace: Mapped["SharedWorkspace"] = relationship("SharedWorkspace", back_populates="bots")
+
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_file_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    workspace: Mapped["SharedWorkspace"] = relationship("SharedWorkspace")
+    channels: Mapped[list["Channel"]] = relationship("Channel", back_populates="project")
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "root_path", name="uq_projects_workspace_root_path"),
+        UniqueConstraint("workspace_id", "slug", name="uq_projects_workspace_slug"),
+    )
 
 
 class Skill(Base):
