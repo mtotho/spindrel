@@ -162,11 +162,13 @@ test("Attention operator sweep is global and normal assignment hides the operato
     assert.match(source, /Model override/);
     assert.match(source, /Start sweep/);
     assert.match(source, /setOperatorRunOpen\(true\)/);
+    assert.match(source, /useAttentionTriageRuns/);
     assert.match(source, /Starting operator sweep/);
     assert.match(source, /Creating the run and transcript/);
     assert.match(source, /Still waiting for the server/);
     assert.match(source, /out of DB connections/);
     assert.match(source, /Back to sweep setup/);
+    assert.match(source, /Operator history/);
     assert.match(source, /recoveredTriageRun/);
     assert.match(source, /visibleTriageRun/);
     assert.match(source, /getOperatorTriage\(item\)/);
@@ -176,8 +178,10 @@ test("Attention operator sweep is global and normal assignment hides the operato
     assert.match(source, /Assign current issue/);
     assert.match(source, /Only sends issue \{currentIndex \+ 1\} to a normal bot/);
     assert.match(source, /bots=\{assignableBots\}/);
-    assert.match(source, /These buttons train the operator triage result/);
-    assert.match(source, /Accept triage/);
+    assert.match(source, /Accepting trains future sweeps/);
+    assert.match(source, /Accept finding/);
+    assert.match(source, /Acknowledge/);
+    assert.match(source, /Resolve/);
     assert.match(source, /Mark wrong/);
     assert.match(source, /Change routing/);
     assert.match(source, /operatorRouteLabel/);

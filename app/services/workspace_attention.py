@@ -584,10 +584,14 @@ def _reuse_active_operator_triage_run(
             "session_id": session_id,
             "parent_channel_id": parent_channel_id,
             "bot_id": str(triage.get("operator_bot_id") or OPERATOR_TRIAGE_BOT_ID),
+            "status": "running",
             "item_count": 0,
             "model_override": None,
             "model_provider_id_override": None,
             "effective_model": operator_model,
+            "created_at": triage.get("started_at"),
+            "completed_at": None,
+            "error": None,
             "_started_at": str(triage.get("started_at") or ""),
         })
         run["item_count"] += 1
@@ -704,6 +708,7 @@ async def create_attention_triage_run(
             ),
             "model_override": clean_model_override,
             "model_provider_id_override": clean_provider_id_override,
+            "effective_model": clean_model_override or operator_bot.model,
         },
         created_at=_now(),
     )
@@ -741,11 +746,141 @@ async def create_attention_triage_run(
         "session_id": str(session.id),
         "parent_channel_id": str(operator_channel.id),
         "bot_id": OPERATOR_TRIAGE_BOT_ID,
+        "status": task.status,
         "item_count": len(active),
         "model_override": clean_model_override,
         "model_provider_id_override": clean_provider_id_override,
         "effective_model": clean_model_override or operator_bot.model,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "error": task.error,
     }
+
+
+def _operator_triage_from_item(item: WorkspaceAttentionItem) -> dict[str, Any]:
+    triage = (item.evidence or {}).get("operator_triage")
+    return triage if isinstance(triage, dict) else {}
+
+
+def _attention_item_visible_to_auth(item: WorkspaceAttentionItem, auth: Any) -> bool:
+    return _is_admin_auth(auth) or item.source_type in {"bot", "user"}
+
+
+def _triage_run_counts(items: list[WorkspaceAttentionItem]) -> dict[str, int]:
+    counts = {
+        "total": len(items),
+        "running": 0,
+        "processed": 0,
+        "ready_for_review": 0,
+        "failed": 0,
+        "unreported": 0,
+    }
+    for item in items:
+        triage = _operator_triage_from_item(item)
+        state = str(triage.get("state") or "").strip()
+        if state in {"running", "queued"}:
+            counts["running"] += 1
+        elif state == "processed":
+            counts["processed"] += 1
+        elif state == "ready_for_review" or triage.get("review_required") is True:
+            counts["ready_for_review"] += 1
+        elif state == "failed":
+            counts["failed"] += 1
+        else:
+            counts["unreported"] += 1
+    return counts
+
+
+def _triage_run_status(task: Task, items: list[WorkspaceAttentionItem]) -> str:
+    if task.status in {"pending", "queued"}:
+        return "queued"
+    if task.status == "running":
+        return "running"
+    if task.status in {"failed", "cancelled", "error"}:
+        return "failed"
+    if any(_operator_triage_from_item(item).get("state") in {"running", "queued"} for item in items):
+        return "running"
+    if any(_operator_triage_from_item(item).get("state") == "failed" for item in items):
+        return "failed"
+    return "complete" if task.status == "complete" else task.status
+
+
+async def _attention_items_for_triage_task(
+    db: AsyncSession,
+    task: Task,
+    *,
+    auth: Any,
+) -> list[WorkspaceAttentionItem]:
+    raw_ids = (task.callback_config or {}).get("attention_item_ids") or []
+    parsed_ids: list[uuid.UUID] = []
+    for raw_id in raw_ids:
+        try:
+            parsed_ids.append(uuid.UUID(str(raw_id)))
+        except (TypeError, ValueError):
+            continue
+    if not parsed_ids:
+        return []
+    rows = list((await db.execute(
+        select(WorkspaceAttentionItem).where(WorkspaceAttentionItem.id.in_(parsed_ids))
+    )).scalars().all())
+    by_id = {row.id: row for row in rows if _attention_item_visible_to_auth(row, auth)}
+    return [by_id[item_id] for item_id in parsed_ids if item_id in by_id]
+
+
+async def serialize_attention_triage_run(
+    db: AsyncSession,
+    task: Task,
+    *,
+    auth: Any,
+) -> dict[str, Any]:
+    items = await _attention_items_for_triage_task(db, task, auth=auth)
+    serialized_items = await serialize_attention_items(db, items)
+    execution_config = task.execution_config or {}
+    return {
+        "task_id": str(task.id),
+        "session_id": str(task.session_id) if task.session_id else None,
+        "parent_channel_id": str(task.channel_id) if task.channel_id else None,
+        "bot_id": task.bot_id,
+        "status": _triage_run_status(task, items),
+        "task_status": task.status,
+        "item_count": len(items),
+        "counts": _triage_run_counts(items),
+        "items": serialized_items,
+        "model_override": execution_config.get("model_override"),
+        "model_provider_id_override": execution_config.get("model_provider_id_override"),
+        "effective_model": execution_config.get("effective_model") or execution_config.get("model_override") or None,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "error": task.error,
+    }
+
+
+async def list_attention_triage_runs(
+    db: AsyncSession,
+    *,
+    auth: Any,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    capped_limit = max(1, min(int(limit or 20), 50))
+    tasks = list((await db.execute(
+        select(Task)
+        .where(Task.task_type == "attention_triage")
+        .order_by(desc(Task.created_at))
+        .limit(capped_limit)
+    )).scalars().all())
+    return [await serialize_attention_triage_run(db, task, auth=auth) for task in tasks]
+
+
+async def get_attention_triage_run(
+    db: AsyncSession,
+    *,
+    auth: Any,
+    task_id: uuid.UUID,
+) -> dict[str, Any]:
+    task = await db.get(Task, task_id)
+    if task is None or task.task_type != "attention_triage":
+        raise NotFoundError("Operator triage run not found.")
+    return await serialize_attention_triage_run(db, task, auth=auth)
 
 
 def _normalize_triage_classification(value: Any) -> str:

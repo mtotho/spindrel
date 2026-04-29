@@ -72,7 +72,10 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
     assert.match(toolBadges, /<TerminalToolTranscript/);
     assert.match(toolBadges, /data-testid="terminal-tool-transcript"/);
     assert.match(toolBadges, /data-testid="tool-transcript-row"/);
+    assert.match(toolBadges, /data-testid="terminal-tool-label"/);
+    assert.match(toolBadges, /data-testid="terminal-tool-meta"/);
     assert.match(toolBadges, /data-testid="terminal-tool-output"/);
+    assert.match(toolBadges, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
     assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
     assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
     assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
@@ -124,8 +127,11 @@ test("harness channel settings keep the channel prompt editor visible", () => {
 test("mobile channel header does not make the whole title open context chrome", () => {
     const channelHeader = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
     assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !!onContextBudgetClick;/);
+    assert.match(channelHeader, /data-testid="channel-header-title-region"/);
     assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
     assert.match(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+    assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
+    assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
 });
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
     const richToolResult = readChatFile("RichToolResult.tsx");

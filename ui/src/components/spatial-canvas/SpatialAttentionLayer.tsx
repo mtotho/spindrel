@@ -7,6 +7,7 @@ import {
   isOperatorTriageRunning,
   useAcknowledgeAttentionItem,
   useAssignAttentionItem,
+  useAttentionTriageRuns,
   useBulkAcknowledgeAttentionItems,
   useCreateAttentionItem,
   useResolveAttentionItem,
@@ -80,6 +81,23 @@ function targetKey(item: WorkspaceAttentionItem): string {
 
 function targetLabel(item: WorkspaceAttentionItem): string {
   return item.channel_name ?? item.target_id ?? item.target_kind;
+}
+
+function isOperatorRunActive(run: AttentionTriageRunResponse | null | undefined): boolean {
+  if (!run) return false;
+  return run.status === "queued" || run.status === "running" || (run.counts?.running ?? 0) > 0;
+}
+
+function runStatusLabel(run: AttentionTriageRunResponse): string {
+  if (run.error || run.status === "failed") return "failed";
+  if (run.status === "queued") return "queued";
+  if (run.status === "running" || (run.counts?.running ?? 0) > 0) return "running";
+  return "complete";
+}
+
+function formatRunTime(value?: string | null): string {
+  if (!value) return "recent";
+  return new Date(value).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 interface SignalProps {
@@ -241,6 +259,10 @@ export function AttentionHubContent({
   const [triageProviderId, setTriageProviderId] = useState<string | null>(null);
   const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const startTriage = useStartAttentionTriageRun();
+  const { data: triageRuns = [] } = useAttentionTriageRuns({
+    limit: 12,
+    refetchInterval: operatorRunOpen || startTriage.isPending ? 5_000 : 15_000,
+  });
   const { data: bots = [] } = useBots();
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const operatorBot = bots.find((bot) => bot.id === OPERATOR_BOT_ID);
@@ -285,7 +307,9 @@ export function AttentionHubContent({
     }
     return null;
   }, [items]);
-  const visibleTriageRun = triageRun ?? recoveredTriageRun;
+  const latestHistoryRun = triageRuns[0] ?? null;
+  const activeHistoryRun = triageRuns.find(isOperatorRunActive) ?? null;
+  const visibleTriageRun = triageRun ?? activeHistoryRun ?? latestHistoryRun ?? recoveredTriageRun;
   const acknowledgeAllActive = () => {
     if (!active.length) return;
     const ok = window.confirm(`Acknowledge all ${active.length} active Attention Items you can see?`);
@@ -384,6 +408,7 @@ export function AttentionHubContent({
       {operatorRunOpen ? (
         <OperatorRunWorkspace
           run={visibleTriageRun}
+          runs={triageRuns}
           pending={startTriage.isPending}
           error={startTriage.error}
           grouped={grouped}
@@ -411,7 +436,7 @@ export function AttentionHubContent({
           <AttentionLane title="Unprocessed" items={grouped.needs} onSelect={onSelect} />
           <AttentionLane title="Assigned" items={grouped.assigned} onSelect={onSelect} />
           <AttentionLane title="System Errors" items={grouped.system} onSelect={onSelect} />
-          <AttentionLane title="Processed by operator" items={grouped.processed.slice(0, 16)} onSelect={onSelect} />
+          <OperatorRunHistory runs={triageRuns} onSelect={onSelect} />
         </div>
       )}
     </>
@@ -420,6 +445,7 @@ export function AttentionHubContent({
 
 function OperatorRunWorkspace({
   run,
+  runs,
   pending,
   error,
   grouped,
@@ -427,6 +453,7 @@ function OperatorRunWorkspace({
   onSelect,
 }: {
   run: AttentionTriageRunResponse | null;
+  runs: AttentionTriageRunResponse[];
   pending: boolean;
   error: unknown;
   grouped: {
@@ -502,6 +529,7 @@ function OperatorRunWorkspace({
       <AttentionLane title="In operator triage" items={grouped.triage} onSelect={onSelect} />
       <AttentionLane title="Processed by operator" items={grouped.processed.slice(0, 16)} onSelect={onSelect} />
       <AttentionLane title="Still unprocessed" items={[...grouped.needs, ...grouped.system, ...grouped.assigned].slice(0, 16)} onSelect={onSelect} />
+      <OperatorRunHistory runs={runs} onSelect={onSelect} />
     </div>
   );
 }
@@ -573,6 +601,9 @@ function OperatorTriageSetup({
 }
 
 function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
+  const status = runStatusLabel(run);
+  const canShowTranscript = Boolean(run.session_id && run.parent_channel_id);
+  const counts = run.counts;
   return (
     <section className="mb-4 space-y-2 rounded-md bg-surface-overlay/35 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -582,21 +613,92 @@ function OperatorTriageRunPanel({ run }: { run: AttentionTriageRunResponse }) {
             Operator run
           </div>
           <div className="mt-1 truncate text-xs text-text-muted">
-            {plural(run.item_count, "item")} · {run.effective_model || run.model_override || "default model"}
+            {plural(run.item_count, "item")} · {run.effective_model || run.model_override || "default model"} · {formatRunTime(run.created_at)}
           </div>
         </div>
-        <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-accent">live</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] ${
+          status === "failed"
+            ? "bg-danger/10 text-danger"
+            : status === "complete"
+              ? "bg-surface-raised text-text-muted"
+              : "bg-accent/10 text-accent"
+        }`}>{status}</span>
       </div>
+      {counts && (
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="rounded-md bg-surface-raised/55 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.ready_for_review}</span> review</div>
+          <div className="rounded-md bg-surface-raised/55 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.processed}</span> processed</div>
+          <div className="rounded-md bg-surface-raised/55 px-2 py-1.5 text-text-muted"><span className="text-text">{counts.running}</span> running</div>
+        </div>
+      )}
+      {run.error && <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{run.error}</div>}
       <div className="relative h-64 min-h-0 overflow-hidden rounded-md bg-surface-raised/70" style={{ contain: "paint" }}>
         <div className="absolute inset-0 overflow-hidden">
-          <SessionChatView
-            sessionId={run.session_id}
-            parentChannelId={run.parent_channel_id}
-            botId={run.bot_id}
-            chatMode="default"
-            emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
-          />
+          {canShowTranscript ? (
+            <SessionChatView
+              sessionId={run.session_id!}
+              parentChannelId={run.parent_channel_id!}
+              botId={run.bot_id}
+              chatMode="default"
+              emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for operator transcript...</div>}
+            />
+          ) : (
+            <div className="px-3 py-4 text-xs text-text-dim">Transcript is not available for this run.</div>
+          )}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function OperatorRunHistory({ runs, onSelect }: { runs: AttentionTriageRunResponse[]; onSelect: (item: WorkspaceAttentionItem) => void }) {
+  if (!runs.length) return null;
+  return (
+    <section className="mb-4">
+      <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">
+        <span>Operator history</span>
+        <span>{runs.length}</span>
+      </div>
+      <div className="space-y-2">
+        {runs.slice(0, 6).map((run) => {
+          const counts = run.counts;
+          const reviewItems = (run.items ?? []).filter(isOperatorTriageReadyForReview);
+          const processedItems = (run.items ?? []).filter(isOperatorTriageProcessed);
+          return (
+            <div key={run.task_id} className="rounded-md bg-surface-raised/35 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 text-xs text-text-muted">
+                  <span className="font-medium text-text">{formatRunTime(run.created_at)}</span>
+                  <span> · {runStatusLabel(run)} · {plural(run.item_count, "item")}</span>
+                </div>
+                {counts && (
+                  <div className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+                    {counts.ready_for_review} review · {counts.processed} done
+                  </div>
+                )}
+              </div>
+              {reviewItems.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {reviewItems.slice(0, 3).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="block w-full truncate rounded px-2 py-1 text-left text-xs text-accent hover:bg-accent/[0.08]"
+                      onClick={() => onSelect(item)}
+                    >
+                      Review: {item.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {reviewItems.length === 0 && processedItems.length > 0 && (
+                <div className="mt-1 truncate text-xs text-text-dim">
+                  Processed: {processedItems.slice(0, 3).map((item) => item.title).join(", ")}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -851,8 +953,10 @@ function AttentionDetail({
         </div>
         <OperatorTriageCard
           item={item}
-          isPending={triageFeedback.isPending}
+          isPending={triageFeedback.isPending || acknowledge.isPending || resolve.isPending}
           onFeedback={(verdict, note, route) => triageFeedback.mutate({ itemId: item.id, verdict, note, route })}
+          onAcknowledge={() => acknowledge.mutate(item.id, { onSuccess: finishCurrent })}
+          onResolve={() => resolve.mutate(item.id, { onSuccess: finishCurrent })}
         />
         <p className="whitespace-pre-wrap text-sm leading-5 text-text-muted">{item.message}</p>
         {item.assignment_report && (
@@ -903,10 +1007,14 @@ function OperatorTriageCard({
   item,
   isPending,
   onFeedback,
+  onAcknowledge,
+  onResolve,
 }: {
   item: WorkspaceAttentionItem;
   isPending: boolean;
   onFeedback: (verdict: "confirmed" | "wrong" | "rerouted", note?: string | null, route?: string | null) => void;
+  onAcknowledge: () => void;
+  onResolve: () => void;
 }) {
   const triage = getOperatorTriage(item);
   if (!triage) return null;
@@ -943,15 +1051,19 @@ function OperatorTriageCard({
           {triage.suggested_action}
         </p>
       )}
-      <p className="text-xs leading-5 text-text-dim">
-        These buttons train the operator triage result. They do not assign the issue or move it to another channel.
-      </p>
+      <p className="text-xs leading-5 text-text-dim">Accepting trains future sweeps. Acknowledge or resolve clears this item from active Attention.</p>
       {triage.review?.verdict ? (
         <div className="text-xs text-text-dim">Review saved: {triage.review.verdict}</div>
       ) : (
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-accent hover:bg-accent/[0.08] disabled:opacity-50" onClick={confirm}>
-            Accept triage
+            Accept finding
+          </button>
+          <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50" onClick={onAcknowledge}>
+            Acknowledge
+          </button>
+          <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50" onClick={onResolve}>
+            Resolve
           </button>
           <button type="button" disabled={isPending} className="rounded-md px-2 py-1.5 text-xs text-text-muted hover:bg-surface-overlay hover:text-text disabled:opacity-50" onClick={markWrong}>
             Mark wrong

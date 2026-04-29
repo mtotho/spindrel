@@ -106,13 +106,27 @@ export interface BulkAcknowledgeAttentionInput {
 
 export interface AttentionTriageRunResponse {
   task_id: string;
-  session_id: string;
-  parent_channel_id: string;
+  session_id: string | null;
+  parent_channel_id: string | null;
   bot_id: string;
+  status?: "queued" | "running" | "complete" | "failed" | string | null;
+  task_status?: string | null;
   item_count: number;
+  counts?: {
+    total: number;
+    running: number;
+    processed: number;
+    ready_for_review: number;
+    failed: number;
+    unreported: number;
+  };
+  items?: WorkspaceAttentionItem[];
   model_override?: string | null;
   model_provider_id_override?: string | null;
   effective_model?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
 }
 
 export interface AttentionTriageRunInput {
@@ -134,6 +148,7 @@ interface BulkAcknowledgeAttentionResponse {
 }
 
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
+export const ATTENTION_TRIAGE_RUNS_KEY = ["workspace-attention-triage-runs"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
   return item.status !== "resolved" && item.status !== "acknowledged";
@@ -216,6 +231,7 @@ function useAttentionAction(path: (id: string) => string) {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
 }
@@ -244,6 +260,7 @@ export function useBulkAcknowledgeAttentionItems() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
 }
@@ -275,6 +292,7 @@ export function useCreateAttentionItem() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
 }
@@ -298,6 +316,7 @@ export function useAssignAttentionItem() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
 }
@@ -319,7 +338,26 @@ export function useStartAttentionTriageRun() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
+  });
+}
+
+export function useAttentionTriageRuns(options: { enabled?: boolean; limit?: number; refetchInterval?: number | false } = {}) {
+  const enabled = options.enabled ?? true;
+  const limit = options.limit ?? 20;
+  return useQuery({
+    queryKey: [...ATTENTION_TRIAGE_RUNS_KEY, { limit }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      const res = await apiFetch<{ runs: AttentionTriageRunResponse[] }>(`/api/v1/workspace/attention/triage-runs?${params.toString()}`);
+      return res.runs;
+    },
+    enabled,
+    refetchInterval: enabled ? options.refetchInterval ?? 10_000 : false,
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
   });
 }
 

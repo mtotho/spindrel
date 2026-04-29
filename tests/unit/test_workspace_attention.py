@@ -15,6 +15,8 @@ from app.services.workspace_attention import (
     create_attention_triage_run,
     create_user_attention_item,
     detect_structured_attention_once,
+    get_attention_triage_run,
+    list_attention_triage_runs,
     list_attention_items,
     mark_attention_responded,
     place_attention_item,
@@ -661,6 +663,7 @@ async def test_operator_triage_run_records_model_override(db_session, bot_regist
     assert task is not None
     assert task.execution_config["model_override"] == "gpt-5.4"
     assert task.execution_config["model_provider_id_override"] == "openai-main"
+    assert task.execution_config["effective_model"] == "gpt-5.4"
     assert run["effective_model"] == "gpt-5.4"
 
 
@@ -760,6 +763,98 @@ async def test_operator_triage_feedback_wrong_reopens_processed_item_for_review(
     assert reviewed.status == "responded"
     assert reviewed.evidence["operator_triage"]["review"]["verdict"] == "wrong"
     assert reviewed.evidence["operator_triage"]["review"]["note"] == "This should have stayed visible."
+
+
+@pytest.mark.asyncio
+async def test_operator_triage_run_history_includes_processed_acknowledged_items(db_session):
+    channel_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="orchestrator:home", bot_id="orchestrator", channel_id=channel_id))
+    await db_session.commit()
+    benign = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Recovered tool error",
+    )
+    risky = await create_user_attention_item(
+        db_session,
+        actor="user:test",
+        channel_id=channel_id,
+        target_kind="channel",
+        target_id=str(channel_id),
+        title="Likely platform bug",
+    )
+    task = Task(
+        id=task_id,
+        bot_id="orchestrator",
+        client_id="orchestrator:home",
+        channel_id=channel_id,
+        session_id=session_id,
+        prompt="triage",
+        title="Operator triage",
+        status="complete",
+        task_type="attention_triage",
+        callback_config={"attention_triage": True, "attention_item_ids": [str(benign.id), str(risky.id)]},
+        execution_config={"model_override": "gpt-5.4"},
+        completed_at=datetime.now(timezone.utc),
+    )
+    db_session.add(task)
+    for item in (benign, risky):
+        item.assigned_bot_id = "orchestrator"
+        item.assignment_status = "running"
+        item.assignment_task_id = task_id
+        item.evidence = {
+            "operator_triage": {
+                "state": "running",
+                "task_id": str(task_id),
+                "session_id": str(session_id),
+                "parent_channel_id": str(channel_id),
+            },
+        }
+    await db_session.commit()
+
+    await report_attention_triage_batch(
+        db_session,
+        bot_id="orchestrator",
+        outcomes=[
+            {
+                "item_id": str(benign.id),
+                "classification": "already_recovered",
+                "review_required": False,
+                "summary": "Recovered.",
+            },
+            {
+                "item_id": str(risky.id),
+                "classification": "likely_spindrel_code_issue",
+                "review_required": True,
+                "summary": "Needs review.",
+            },
+        ],
+    )
+
+    runs = await list_attention_triage_runs(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:read"], name="admin"),
+    )
+    run = next(entry for entry in runs if entry["task_id"] == str(task_id))
+    assert run["status"] == "complete"
+    assert run["effective_model"] == "gpt-5.4"
+    assert run["counts"]["processed"] == 1
+    assert run["counts"]["ready_for_review"] == 1
+    assert {item["title"] for item in run["items"]} == {"Recovered tool error", "Likely platform bug"}
+    assert next(item for item in run["items"] if item["title"] == "Recovered tool error")["status"] == "acknowledged"
+
+    detail = await get_attention_triage_run(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin", "channels:read"], name="admin"),
+        task_id=task_id,
+    )
+    assert detail["counts"] == run["counts"]
 
 
 @pytest.mark.asyncio

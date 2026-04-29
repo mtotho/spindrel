@@ -16,7 +16,9 @@ from app.services.workspace_attention import (
     actor_label,
     create_attention_triage_run,
     create_user_attention_item,
+    get_attention_triage_run,
     get_attention_item,
+    list_attention_triage_runs,
     list_attention_items,
     mark_attention_responded,
     record_attention_triage_feedback,
@@ -68,6 +70,10 @@ class AttentionTriageFeedbackRequest(BaseModel):
     verdict: str
     note: str | None = None
     route: str | None = None
+
+
+class AttentionTriageRunsResponse(BaseModel):
+    runs: list[dict]
 
 
 @router.post("")
@@ -140,6 +146,27 @@ async def create_attention_triage_run_route(
         )
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
+
+
+@router.get("/triage-runs", response_model=AttentionTriageRunsResponse)
+async def list_attention_triage_runs_route(
+    limit: int = 20,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    return {"runs": await list_attention_triage_runs(db, auth=auth, limit=limit)}
+
+
+@router.get("/triage-runs/{task_id}")
+async def get_attention_triage_run_route(
+    task_id: uuid.UUID,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await get_attention_triage_run(db, auth=auth, task_id=task_id)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("")

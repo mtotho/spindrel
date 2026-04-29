@@ -720,6 +720,91 @@ async def _assert_terminal_transcript_ui(
     min_rows: int,
     screenshot_name: str,
 ) -> Path:
+    paths = await _assert_harness_chat_mode_ui(
+        client,
+        channel_id=channel_id,
+        session_id=session_id,
+        marker=marker,
+        chat_mode="terminal",
+        min_rows=min_rows,
+        screenshot_name=screenshot_name,
+    )
+    assert paths, "terminal parity screenshot helper did not return screenshots"
+    return paths[0]
+
+
+async def _assert_no_horizontal_overflow(page: Any, label: str) -> None:
+    metrics = await page.evaluate(
+        """() => ({
+            viewportWidth: window.innerWidth,
+            documentScrollWidth: document.documentElement.scrollWidth,
+            bodyScrollWidth: document.body ? document.body.scrollWidth : 0,
+        })"""
+    )
+    max_scroll = max(
+        int(metrics.get("documentScrollWidth") or 0),
+        int(metrics.get("bodyScrollWidth") or 0),
+    )
+    viewport = int(metrics.get("viewportWidth") or 0)
+    assert max_scroll <= viewport + 2, f"{label} has horizontal overflow: {metrics}"
+
+
+async def _assert_terminal_rows_fit_viewport(page: Any, *, label: str, min_rows: int) -> None:
+    rows = page.locator('[data-testid="tool-transcript-row"]')
+    row_count = await rows.count()
+    assert row_count >= min_rows, f"expected at least {min_rows} terminal tool rows, saw {row_count}"
+    boxes = await rows.evaluate_all(
+        """(nodes) => nodes.map((node) => {
+            const rect = node.getBoundingClientRect();
+            return { left: rect.left, right: rect.right, width: rect.width };
+        })"""
+    )
+    viewport_width = await page.evaluate("() => window.innerWidth")
+    for idx, box in enumerate(boxes):
+        assert box["left"] >= -1, f"{label} terminal row {idx} starts offscreen: {box}"
+        assert box["right"] <= viewport_width + 1, f"{label} terminal row {idx} overflows viewport: {box}"
+
+
+async def _assert_mobile_header_safe(page: Any, *, label: str) -> None:
+    viewport = page.viewport_size or {}
+    if int(viewport.get("width") or 0) > 600:
+        return
+    title = page.locator('[data-testid="channel-header-title-region"]').first
+    await title.click(position={"x": 16, "y": 16})
+    await page.wait_for_timeout(150)
+    assert await page.get_by_text("Harness context").count() == 0, (
+        f"{label} mobile title click opened harness context chrome"
+    )
+
+    more = page.locator('[aria-label="More actions"]').first
+    if await more.count() == 0:
+        return
+    await more.click()
+    menu = page.locator('[data-testid="channel-header-mobile-overflow-menu"]').first
+    await menu.wait_for(state="visible", timeout=5_000)
+    box = await menu.bounding_box()
+    viewport_width = int(viewport.get("width") or 0)
+    viewport_height = int(viewport.get("height") or 0)
+    assert box, f"{label} mobile overflow menu did not produce a bounding box"
+    assert box["x"] >= 0 and box["x"] + box["width"] <= viewport_width + 1, (
+        f"{label} mobile overflow menu is horizontally offscreen: {box}"
+    )
+    assert box["y"] >= 0 and box["y"] + box["height"] <= viewport_height + 1, (
+        f"{label} mobile overflow menu is vertically offscreen: {box}"
+    )
+    await page.keyboard.press("Escape")
+
+
+async def _assert_harness_chat_mode_ui(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    session_id: str,
+    marker: str,
+    chat_mode: str,
+    min_rows: int,
+    screenshot_name: str,
+) -> list[Path]:
     pytest.importorskip("playwright.async_api")
     from playwright.async_api import async_playwright
     from scripts.screenshots.playwright_runtime import launch_async_browser
@@ -727,50 +812,65 @@ async def _assert_terminal_transcript_ui(
     ui_url = _browser_ui_url(client)
     api_url = _browser_api_url(client)
     route = f"{ui_url}/channels/{channel_id}/session/{session_id}"
-    screenshot_path = _artifact_root() / "terminal" / screenshot_name
-    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+    screenshot_stem = Path(screenshot_name).stem
+    screenshots: list[Path] = []
+    viewport_cases = (
+        ("desktop", {"width": 1440, "height": 900}),
+        ("mobile", {"width": 390, "height": 844}),
+    )
 
     async with async_playwright() as pw:
         browser = await launch_async_browser(pw)
         try:
-            context = await browser.new_context(
-                viewport={"width": 1440, "height": 900},
-                color_scheme="dark",
-            )
-            await context.add_init_script(
-                _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
-            )
-            page = await context.new_page()
-            await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
-            await page.wait_for_selector('[data-testid="terminal-tool-transcript"]', timeout=60_000)
-            await page.wait_for_function(
-                "(marker) => document.body.innerText.includes(marker)",
-                arg=marker,
-                timeout=60_000,
-            )
-            await page.reload(wait_until="domcontentloaded", timeout=60_000)
-            await page.wait_for_selector('[data-testid="terminal-tool-transcript"]', timeout=60_000)
-            await page.wait_for_function(
-                "(marker) => document.body.innerText.includes(marker)",
-                arg=marker,
-                timeout=60_000,
-            )
+            for viewport_name, viewport in viewport_cases:
+                context = await browser.new_context(
+                    viewport=viewport,
+                    color_scheme="dark",
+                )
+                await context.add_init_script(
+                    _browser_auth_init_script(api_url=api_url, api_key=client.config.api_key)
+                )
+                page = await context.new_page()
+                await page.goto(route, wait_until="domcontentloaded", timeout=60_000)
+                await page.wait_for_function(
+                    "(marker) => document.body.innerText.includes(marker)",
+                    arg=marker,
+                    timeout=60_000,
+                )
+                await page.reload(wait_until="domcontentloaded", timeout=60_000)
+                await page.wait_for_function(
+                    "(marker) => document.body.innerText.includes(marker)",
+                    arg=marker,
+                    timeout=60_000,
+                )
 
-            rows = page.locator('[data-testid="tool-transcript-row"]')
-            row_count = await rows.count()
-            assert row_count >= min_rows, f"expected at least {min_rows} terminal tool rows, saw {row_count}"
-            assert await page.locator('[data-testid="tool-trace-strip"]').count() == 0
+                label = f"{chat_mode}/{viewport_name}"
+                await _assert_no_horizontal_overflow(page, label)
+                await _assert_mobile_header_safe(page, label=label)
 
-            body = await page.locator("body").inner_text(timeout=10_000)
-            lower = body.lower()
-            assert "harness-spindrel:" not in lower
-            assert "tool calls" not in lower
+                if chat_mode == "terminal":
+                    await page.wait_for_selector('[data-testid="terminal-tool-transcript"]', timeout=60_000)
+                    await _assert_terminal_rows_fit_viewport(page, label=label, min_rows=min_rows)
+                    assert await page.locator('[data-testid="terminal-tool-output"]').count() > 0
+                    assert await page.locator('[data-testid="tool-trace-strip"]').count() == 0
 
-            await page.screenshot(path=str(screenshot_path), full_page=False)
-            await context.close()
+                    body = await page.locator("body").inner_text(timeout=10_000)
+                    lower = body.lower()
+                    assert "harness-spindrel:" not in lower
+                    assert "tool calls" not in lower
+                else:
+                    assert await page.locator('[data-testid="terminal-tool-transcript"]').count() == 0
+                    await page.wait_for_selector('[data-testid="tool-trace-strip"]', timeout=60_000)
+                    assert await page.locator('[data-testid="tool-trace-strip"]').count() > 0
+
+                screenshot_path = _artifact_root() / chat_mode / f"{screenshot_stem}-{viewport_name}.png"
+                screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+                await page.screenshot(path=str(screenshot_path), full_page=False)
+                screenshots.append(screenshot_path)
+                await context.close()
         finally:
             await browser.close()
-    return screenshot_path
+    return screenshots
 
 
 async def _read_workspace_file_with_retry(
@@ -791,6 +891,56 @@ async def _read_workspace_file_with_retry(
     if last_error is not None:
         raise last_error
     raise AssertionError(f"workspace file was not readable: {path}")
+
+
+def _status_context_tokens(status: dict[str, Any]) -> int | None:
+    diagnostics = status.get("context_diagnostics") or {}
+    value = diagnostics.get("context_tokens") if isinstance(diagnostics, dict) else None
+    if isinstance(value, (int, float)) and value >= 0:
+        return int(value)
+    return None
+
+
+def _status_remaining_pct(status: dict[str, Any]) -> float | None:
+    value = status.get("context_remaining_pct")
+    if isinstance(value, (int, float)):
+        return float(value)
+    diagnostics = status.get("context_diagnostics") or {}
+    diag_value = diagnostics.get("remaining_pct") if isinstance(diagnostics, dict) else None
+    if isinstance(diag_value, (int, float)):
+        return float(diag_value)
+    return None
+
+
+def _context_snapshot_tokens(snapshot: dict[str, Any] | None) -> int | None:
+    if not isinstance(snapshot, dict):
+        return None
+    for key in ("context_tokens", "last_total_tokens", "context_total_tokens"):
+        value = snapshot.get(key)
+        if isinstance(value, (int, float)) and value >= 0:
+            return int(value)
+    usage = snapshot.get("usage")
+    if isinstance(usage, dict):
+        for key in ("context_tokens", "last_total_tokens", "context_total_tokens"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)) and value >= 0:
+                return int(value)
+    return None
+
+
+def _context_snapshot_remaining_pct(snapshot: dict[str, Any] | None) -> float | None:
+    if not isinstance(snapshot, dict):
+        return None
+    value = snapshot.get("remaining_pct")
+    if isinstance(value, (int, float)):
+        return float(value)
+    usage = snapshot.get("usage")
+    if isinstance(usage, dict):
+        for key in ("context_remaining_pct", "context_remaining_percent", "remaining_pct"):
+            usage_value = usage.get(key)
+            if isinstance(usage_value, (int, float)):
+                return float(usage_value)
+    return None
 
 
 async def _assert_harness_project_cwd(
@@ -1080,6 +1230,19 @@ async def test_live_harness_terminal_tool_output_is_sequential(
             screenshot_name=f"{case.name}-{marker}.png",
         )
         assert screenshot_path.is_file(), f"terminal parity screenshot was not written: {screenshot_path}"
+        await client.patch_channel_config(channel_id, {"chat_mode": "default"})
+        default_paths = await _assert_harness_chat_mode_ui(
+            client,
+            channel_id=channel_id,
+            session_id=session_id,
+            marker=marker,
+            chat_mode="default",
+            min_rows=len(expected_tools),
+            screenshot_name=f"{case.name}-{marker}.png",
+        )
+        assert all(path.is_file() for path in default_paths), (
+            f"default parity screenshots were not all written: {default_paths}"
+        )
     finally:
         await client.patch_channel_config(
             channel_id,
@@ -1418,6 +1581,7 @@ async def test_live_harness_context_pressure_and_native_compact(
     if not caps.get("native_compaction"):
         pytest.skip(f"{case.runtime} does not advertise native compaction")
 
+    initial_status = await client.get_session_harness_status(session_id)
     filler = "context-pressure-token " * int(os.environ.get("HARNESS_PARITY_CONTEXT_FILL_WORDS", "80"))
     first = await client.chat_session_stream(
         (
@@ -1455,6 +1619,24 @@ async def test_live_harness_context_pressure_and_native_compact(
         pytest.skip("runtime did not report comparable context token estimates")
     assert first_tokens >= 0
     assert second_tokens >= 0
+    initial_tokens = _status_context_tokens(initial_status)
+    if initial_tokens is not None:
+        assert first_tokens >= initial_tokens, (
+            f"context tokens did not increase after first pressure turn: "
+            f"initial={initial_tokens}, first={first_tokens}"
+        )
+    assert second_tokens >= first_tokens, (
+        f"context tokens did not increase across pressure turns: "
+        f"first={first_tokens}, second={second_tokens}"
+    )
+
+    first_remaining = _status_remaining_pct(first_status)
+    second_remaining = _status_remaining_pct(second_status)
+    if first_remaining is not None and second_remaining is not None:
+        assert second_remaining <= first_remaining + 1.0, (
+            f"context remaining increased under pressure: "
+            f"first={first_remaining}, second={second_remaining}"
+        )
 
     compact = await client.execute_slash_command("compact", session_id=session_id)
     assert compact["result_type"] == "harness_native_compaction"
@@ -1465,6 +1647,41 @@ async def test_live_harness_context_pressure_and_native_compact(
     assert native.get("status") == "completed"
     remaining = compact_status.get("context_remaining_pct")
     assert remaining is None or remaining >= 50.0
+    compact_before = native.get("context_before") if isinstance(native, dict) else None
+    compact_after = native.get("context_after") if isinstance(native, dict) else None
+    before_tokens = _context_snapshot_tokens(compact_before)
+    after_tokens = _context_snapshot_tokens(compact_after)
+    before_pct = _context_snapshot_remaining_pct(compact_before)
+    after_pct = _context_snapshot_remaining_pct(compact_after)
+    compact_remaining = _status_remaining_pct(compact_status)
+    compact_tokens = _status_context_tokens(compact_status)
+
+    evidence: list[str] = []
+    if before_pct is not None and after_pct is not None:
+        assert after_pct >= before_pct, (
+            f"native compact reduced remaining percent: before={before_pct}, after={after_pct}"
+        )
+        evidence.append("native context pct improved")
+    if before_tokens is not None and after_tokens is not None:
+        assert after_tokens <= before_tokens, (
+            f"native compact increased context tokens: before={before_tokens}, after={after_tokens}"
+        )
+        evidence.append("native context tokens reduced")
+    if second_remaining is not None and compact_remaining is not None:
+        assert compact_remaining >= second_remaining, (
+            f"context remaining did not recover after native compact: "
+            f"before={second_remaining}, after={compact_remaining}"
+        )
+        evidence.append("status remaining recovered")
+    if compact_tokens is not None:
+        assert compact_tokens <= second_tokens, (
+            f"context tokens did not drop after native compact: before={second_tokens}, after={compact_tokens}"
+        )
+        evidence.append("status context tokens reduced")
+    assert evidence, (
+        "runtime advertised native compaction but did not expose comparable before/after "
+        f"context telemetry; native={native}, compact_status={compact_status}"
+    )
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

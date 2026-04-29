@@ -343,7 +343,7 @@ export function ChannelHeader({
   const updateMobileOverflowPosition = React.useCallback(() => {
     const rect = mobileOverflowRef.current?.getBoundingClientRect();
     if (!rect || typeof window === "undefined") return;
-    const width = 190;
+    const width = Math.min(224, Math.max(184, window.innerWidth - 16));
     setMobileOverflowPos({
       top: rect.bottom + 5,
       left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width)),
@@ -416,6 +416,7 @@ export function ChannelHeader({
       )}
 
       <div
+        data-testid="channel-header-title-region"
         style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "6px 0", cursor: titleOpensContext ? "pointer" : undefined }}
         onClick={titleOpensContext ? onContextBudgetClick : undefined}
         title={titleOpensContext ? bot.name : undefined}
@@ -741,14 +742,14 @@ export function ChannelHeader({
       )}
       {mobileOverflowOpen && typeof document !== "undefined" && createPortal(
         <div
+          data-testid="channel-header-mobile-overflow-menu"
           ref={mobileOverflowMenuRef}
           role="menu"
-          className="fixed overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+          className="fixed max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-1 text-text shadow-xl ring-1 ring-surface-border"
           style={{
             top: mobileOverflowPos.top,
             left: mobileOverflowPos.left,
             width: mobileOverflowPos.width,
-            background: t.surfaceRaised,
             zIndex: 50001,
           }}
         >
@@ -764,11 +765,10 @@ export function ChannelHeader({
                 key={action.key}
                 type="button"
                 role="menuitem"
-                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm transition-colors"
+                className="flex w-full items-center gap-3 rounded px-3 py-2.5 text-left text-sm transition-colors"
                 style={{
                   background: action.active ? t.accentSubtle : "transparent",
                   color,
-                  borderBottom: `1px solid ${t.surfaceBorder}`,
                 }}
                 onClick={() => {
                   setMobileOverflowOpen(false);

@@ -562,9 +562,9 @@ export function TerminalToolTranscript({
   return (
     <div
       data-testid="terminal-tool-transcript"
-      className="flex flex-col"
+      className="flex min-w-0 max-w-full flex-col"
       style={{
-        gap: 7,
+        gap: 8,
         marginTop: 8,
         fontFamily: TERMINAL_FONT_STACK,
       }}
@@ -583,14 +583,13 @@ export function TerminalToolTranscript({
         const statusGlyph = entry.isError ? "x" : entry.approval ? "?" : ">";
 
         return (
-          <div key={`${entry.id}:${idx}`} className="min-w-0 max-w-full" data-testid="tool-transcript-row">
+          <div key={`${entry.id}:${idx}`} className="min-w-0 max-w-full overflow-hidden" data-testid="tool-transcript-row">
             <div
               className="grid min-w-0 max-w-full items-baseline gap-x-2"
               style={{
-                gridTemplateColumns: "14px minmax(0, 11rem) minmax(0, 1fr)",
+                gridTemplateColumns: "14px minmax(0, 1fr)",
                 fontSize: 12,
                 lineHeight: 1.45,
-                overflow: "hidden",
               }}
             >
               <span
@@ -604,44 +603,49 @@ export function TerminalToolTranscript({
                 {statusGlyph}
               </span>
               <span
-                title={label}
-                style={{
-                  color: rowTone,
-                  fontWeight: 600,
-                  minWidth: 0,
-                  maxWidth: "100%",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {label}
-              </span>
-              <span
-                className="min-w-0"
+                className="inline-flex min-w-0 max-w-full flex-wrap items-baseline gap-x-2 gap-y-0 overflow-hidden"
                 style={{
                   color: t.textMuted,
-                  display: "inline-flex",
-                  flexWrap: "wrap",
-                  gap: "0 8px",
-                  alignItems: "baseline",
-                  overflow: "hidden",
                 }}
               >
-                {metaLabel && <span>{metaLabel}</span>}
+                <span
+                  data-testid="terminal-tool-label"
+                  title={label}
+                  style={{
+                    color: rowTone,
+                    fontWeight: 600,
+                    minWidth: 0,
+                    maxWidth: "min(26ch, 100%)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {label}
+                </span>
+                {metaLabel && (
+                  <span
+                    data-testid="terminal-tool-meta"
+                    className="min-w-0 break-words"
+                    style={{ color: t.textDim, overflowWrap: "anywhere" }}
+                  >
+                    {metaLabel}
+                  </span>
+                )}
                 {target && (
                   <span
-                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+                    data-testid="terminal-tool-target"
+                    className="min-w-0 break-words"
                     title={target}
-                    style={{ maxWidth: "min(58ch, 100%)" }}
+                    style={{ maxWidth: "100%", overflowWrap: "anywhere" }}
                   >
                     {target}
                   </span>
                 )}
                 {!output && entry.previewText && (
                   <span
-                    className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-                    style={{ color: toneColor(entry.isError, t), maxWidth: "min(68ch, 100%)" }}
+                    className="min-w-0 break-words"
+                    style={{ color: toneColor(entry.isError, t), maxWidth: "100%", overflowWrap: "anywhere" }}
                   >
                     {entry.previewText}
                   </span>
@@ -675,7 +679,7 @@ export function TerminalToolTranscript({
                   fontFamily: TERMINAL_FONT_STACK,
                   fontSize: 11.5,
                   lineHeight: 1.45,
-                  maxWidth: "100%",
+                  maxWidth: "calc(100% - 22px)",
                   overflowX: "hidden",
                   overflowWrap: "anywhere",
                   wordBreak: "break-word",
@@ -711,7 +715,7 @@ export function TerminalToolTranscript({
                   marginLeft: 6,
                   marginTop: 3,
                   paddingLeft: 14,
-                  maxWidth: "100%",
+                  maxWidth: "calc(100% - 22px)",
                   overflowX: "hidden",
                 }}
               >
