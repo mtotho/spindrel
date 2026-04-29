@@ -695,6 +695,11 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_session_plan(self, session_id: str) -> dict:
+        resp = await self._client.get(f"/sessions/{session_id}/plan")
+        resp.raise_for_status()
+        return resp.json()
+
     async def start_session_plan_mode(self, session_id: str) -> dict:
         resp = await self._client.post(f"/sessions/{session_id}/plan/start", json={})
         resp.raise_for_status()

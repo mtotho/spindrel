@@ -782,6 +782,24 @@ async def _assert_mobile_header_safe(page: Any, *, label: str) -> None:
         f"{label} mobile title click opened bot info context details"
     )
 
+    context_chip = page.locator('[data-testid="harness-context-chip-mobile"]').first
+    await context_chip.wait_for(state="visible", timeout=5_000)
+    await context_chip.click()
+    context_panel = page.locator('[data-testid="harness-context-panel-mobile"]').first
+    await context_panel.wait_for(state="visible", timeout=5_000)
+    panel_box = await context_panel.bounding_box()
+    viewport_width = int(viewport.get("width") or 0)
+    viewport_height = int(viewport.get("height") or 0)
+    assert panel_box, f"{label} mobile harness context did not produce a bounding box"
+    assert panel_box["x"] >= 0 and panel_box["x"] + panel_box["width"] <= viewport_width + 1, (
+        f"{label} mobile harness context is horizontally offscreen: {panel_box}"
+    )
+    assert panel_box["y"] >= 0 and panel_box["y"] + panel_box["height"] <= viewport_height + 1, (
+        f"{label} mobile harness context is vertically offscreen: {panel_box}"
+    )
+    await page.locator('[aria-label="Close context details"]').first.click()
+    await page.wait_for_timeout(100)
+
     more = page.locator('[aria-label="More actions"]').first
     if await more.count() == 0:
         return
@@ -789,8 +807,6 @@ async def _assert_mobile_header_safe(page: Any, *, label: str) -> None:
     menu = page.locator('[data-testid="channel-header-mobile-overflow-menu"]').first
     await menu.wait_for(state="visible", timeout=5_000)
     box = await menu.bounding_box()
-    viewport_width = int(viewport.get("width") or 0)
-    viewport_height = int(viewport.get("height") or 0)
     assert box, f"{label} mobile overflow menu did not produce a bounding box"
     assert box["x"] >= 0 and box["x"] + box["width"] <= viewport_width + 1, (
         f"{label} mobile overflow menu is horizontally offscreen: {box}"

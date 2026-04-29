@@ -38,3 +38,29 @@ test("execution states map to distinct status tones", () => {
     assert.equal(getComposerPlanControlState({ planMode: "blocked", hasPlan: true }).tone, "danger");
     assert.equal(getComposerPlanControlState({ planMode: "done", hasPlan: true }).tone, "success");
 });
+test("harness mode switch presents implement state instead of start-plan action copy", () => {
+    const state = getComposerPlanControlState({
+        planMode: "chat",
+        hasPlan: false,
+        modeSwitch: true,
+    });
+    assert.equal(state.label, "implement");
+    assert.equal(state.title, "Implement mode");
+    assert.equal(state.active, false);
+    assert.equal(state.showMenu, true);
+    assert.equal(state.primaryActionLabel, "Plan mode");
+});
+test("harness mode switch presents plan mode with implement exit action", () => {
+    const state = getComposerPlanControlState({
+        planMode: "planning",
+        hasPlan: true,
+        canApprovePlan: true,
+        modeSwitch: true,
+    });
+    assert.equal(state.label, "plan mode");
+    assert.equal(state.title, "Plan mode is on");
+    assert.equal(state.active, true);
+    assert.equal(state.showMenu, true);
+    assert.equal(state.primaryActionLabel, "Implement");
+    assert.equal(state.canApprove, true);
+});

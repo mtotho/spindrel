@@ -13,6 +13,7 @@ interface ComposerPlanControlProps {
   onOpenChange: (open: boolean) => void;
   planMode: ComposerPlanMode;
   hasPlan: boolean;
+  modeSwitch?: boolean;
   disabled?: boolean;
   planBusy?: boolean;
   onTogglePlanMode?: () => void;
@@ -28,6 +29,7 @@ export function ComposerPlanControl({
   onOpenChange,
   planMode,
   hasPlan,
+  modeSwitch = false,
   disabled = false,
   planBusy = false,
   onTogglePlanMode,
@@ -42,6 +44,7 @@ export function ComposerPlanControl({
   const state = getComposerPlanControlState({
     planMode,
     hasPlan,
+    modeSwitch,
     canApprovePlan: !!onApprovePlan && planMode === "planning",
   });
   const colors = planToneColors(t, state.tone);
@@ -66,6 +69,7 @@ export function ComposerPlanControl({
     <div ref={controlRef} style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
       <button
         type="button"
+        data-testid="composer-plan-mode-control"
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();

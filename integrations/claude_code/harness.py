@@ -952,16 +952,29 @@ def _build_claude_file_change_result(
     tool_call_id: str,
     tool_input: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    """Build a diff envelope only from Claude tool-call arguments.
+    """Build a file-change envelope from Claude tool-call arguments.
 
     Claude's Edit tool carries both ``old_string`` and ``new_string`` in the
     runtime event. That is enough to display the patch without reading the
-    workspace after the turn. Write/MultiEdit remain summary-only unless the
-    runtime starts supplying a complete diff payload.
+    workspace after the turn. Write carries the target content, so expose it as
+    a text envelope and let the UI's existing code preview renderer color it.
+    MultiEdit remains summary-only unless the runtime starts supplying a
+    complete diff payload.
     """
+    path = tool_input.get("file_path") or tool_input.get("path")
+    if tool_name == "Write":
+        content = tool_input.get("content")
+        if not isinstance(path, str) or not isinstance(content, str):
+            return None
+        return build_text_tool_result(
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            body=content,
+            label=f"Wrote {path}",
+        )
+
     if tool_name != "Edit":
         return None
-    path = tool_input.get("file_path") or tool_input.get("path")
     old = tool_input.get("old_string")
     new = tool_input.get("new_string")
     if not all(isinstance(value, str) for value in (path, old, new)):

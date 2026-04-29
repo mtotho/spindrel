@@ -55,6 +55,9 @@ class CaptureSpec:
     channel_id: str | None = None
     chat_mode: str | None = None
     slash_query: str | None = None
+    viewport: tuple[int, int] = (1440, 900)
+    click_selector: str | None = None
+    after_click_wait_js: str | None = None
 
 
 def _env(name: str, default: str = "") -> str:
@@ -131,7 +134,7 @@ async def _capture_one(
 ) -> Path:
     context = await browser.new_context(
         base_url=spec.route,
-        viewport={"width": 1440, "height": 900},
+        viewport={"width": spec.viewport[0], "height": spec.viewport[1]},
         color_scheme=spec.theme,
     )
     await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
@@ -143,6 +146,12 @@ async def _capture_one(
         await editor.click()
         await page.keyboard.type(spec.slash_query)
     await page.wait_for_function(spec.wait_js, timeout=60_000)
+    if spec.click_selector:
+        target = page.locator(spec.click_selector).first
+        await target.wait_for(state="visible", timeout=60_000)
+        await target.click()
+        if spec.after_click_wait_js:
+            await page.wait_for_function(spec.after_click_wait_js, timeout=60_000)
     await page.wait_for_timeout(750)
     text = await page.locator("body").inner_text(timeout=5_000)
     lower = text.lower()
@@ -225,6 +234,41 @@ def _style_command_specs(ui_url: str, channel_id: str, session_id: str) -> list[
             channel_id=channel_id,
             chat_mode="terminal",
             slash_query="/style",
+        ),
+    ]
+
+
+def _mobile_context_specs(ui_url: str, target: RuntimeTarget, session_id: str) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
+    return [
+        CaptureSpec(
+            name=f"harness-{target.name}-mobile-context",
+            route=route,
+            wait_js="document.querySelector('[data-testid=\"harness-context-chip-mobile\"]') !== null",
+            click_selector='[data-testid="harness-context-chip-mobile"]',
+            after_click_wait_js="document.querySelector('[data-testid=\"harness-context-panel-mobile\"]') !== null",
+            contains=("Harness context", "Context", "CWD"),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="terminal",
+            viewport=(390, 844),
+        ),
+    ]
+
+
+def _plan_mode_switcher_specs(ui_url: str, target: RuntimeTarget, session_id: str) -> list[CaptureSpec]:
+    route = f"{ui_url}/channels/{target.channel_id}/session/{session_id}"
+    return [
+        CaptureSpec(
+            name=f"harness-{target.name}-plan-mode-switcher",
+            route=route,
+            wait_js="document.querySelector('[data-testid=\"composer-plan-mode-control\"]') !== null",
+            click_selector='[data-testid="composer-plan-mode-control"]',
+            after_click_wait_js="document.body.innerText.toLowerCase().includes('plan mode')",
+            contains=("plan mode",),
+            theme="dark",
+            channel_id=target.channel_id,
+            chat_mode="terminal",
         ),
     ]
 
@@ -380,6 +424,8 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                 chat_mode="terminal",
             ))
             specs.extend(_project_terminal_specs(browser_url, target, sessions[(target.name, "project")]))
+            specs.extend(_mobile_context_specs(browser_url, target, sessions[(target.name, "project")]))
+            specs.extend(_plan_mode_switcher_specs(browser_url, target, sessions[(target.name, "project")]))
 
         specs.extend(_style_command_specs(browser_url, args.codex_channel_id, sessions[("codex", "bridge")]))
         specs.extend(_native_edit_terminal_specs(browser_url, args.claude_channel_id, sessions[("claude", "native_edit")]))

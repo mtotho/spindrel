@@ -896,12 +896,6 @@ function HarnessStatusPill({
   const lastHintRows = Array.isArray(data.last_hints_sent) ? data.last_hints_sent : [];
   const projectDir = (data.project_dir ?? {}) as Record<string, unknown>;
   const projectPathLabel = typeof projectDir.path === "string" ? projectDir.path : null;
-  const contextNeedsAttention =
-    data.pending_hint_count > 0
-    || bridgeErrors.length > 0
-    || (typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60)
-    || (!!confidence && confidence !== "high");
-  if (compact && !contextNeedsAttention) return null;
   const compactLabel = data.pending_hint_count > 0
     ? `${data.pending_hint_count}`
     : typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60
@@ -911,6 +905,7 @@ function HarnessStatusPill({
     <span className="relative inline-flex shrink-0">
       <button
         type="button"
+        data-testid={compact ? "harness-context-chip-mobile" : "harness-context-chip"}
         onClick={() => setOpen((v) => !v)}
         className={
           compact
@@ -935,6 +930,7 @@ function HarnessStatusPill({
       </button>
       {open && (
         <div
+          data-testid={compact ? "harness-context-panel-mobile" : "harness-context-panel"}
           className={
             compact
               ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"

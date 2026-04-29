@@ -422,6 +422,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             previewText: null,
             target: summary.target_label ? null : target,
             env: result,
+            summary,
             isError: false,
             isRunning: false,
             detailKind: "inline-diff",
@@ -438,6 +439,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
             previewText,
             target: summary.target_label ? null : target,
             env: result,
+            summary,
             isError: false,
             isRunning: false,
             detailKind: "collapsed-read",
@@ -453,6 +455,7 @@ function buildEntryFromSummary(toolName, summary, result, args, rawCall) {
         previewText,
         target: summary.target_label ? null : target,
         env: result,
+        summary,
         isError: summary.kind === "error",
         isRunning: false,
         detailKind: result ? "expandable" : "none",
@@ -484,6 +487,13 @@ function buildPersistedEntry(toolName, args, result, toolSummary, rawCall) {
             previewText: isRead ? previewText : null,
             target: fileToolTarget,
             env: result,
+            summary: diff ? {
+                kind: "diff",
+                subject_type: "file",
+                label: summary,
+                ...(fileToolTarget ? { path: fileToolTarget } : {}),
+                ...(diffStats ? { diff_stats: { additions: diffStats.additions, deletions: diffStats.deletions } } : {}),
+            } : null,
             isError: false,
             isRunning: false,
             detailKind: isRead ? "collapsed-read" : diff ? "inline-diff" : "expandable",
@@ -542,6 +552,12 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
                 },
             };
         }
+        if (renderMode === "terminal" && richSurface === "rich_result" && result) {
+            return {
+                key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
+                transcriptEntries: buildPersistedToolEntries([], [toolCall], [result]),
+            };
+        }
         if (richSurface === "rich_result" && result) {
             return {
                 kind: "rich_result",
@@ -566,6 +582,12 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
                 toolName: toolCall.name,
                 recordId: envelope.record_id ?? undefined,
             },
+        };
+    }
+    if (renderMode === "terminal" && richSurface === "rich_result" && envelope) {
+        return {
+            key: `transcript:${index}:${toolCall.name ?? toolCall.id ?? "tool"}`,
+            transcriptEntries: buildLiveToolEntries([{ ...toolCall, envelope }]),
         };
     }
     if (richSurface === "rich_result" && envelope) {

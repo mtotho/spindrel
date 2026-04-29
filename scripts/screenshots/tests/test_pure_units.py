@@ -276,6 +276,43 @@ def test_harness_live_native_edit_terminal_spec_requires_diff_output():
     assert "After native diff" in specs[0].contains
 
 
+def test_harness_live_mobile_context_specs_are_docs_fixtures():
+    target = harness_live.RuntimeTarget(
+        name="codex",
+        channel_id="channel-1",
+        bridge_label_fragment="Bridge parity diagnostic",
+        write_label_fragment="Use the Spindrel host file bridge tool",
+        project_label_fragment="Harness Project Parity",
+    )
+
+    specs = harness_live._mobile_context_specs("http://ui", target, "session-1")
+
+    assert [spec.name for spec in specs] == ["harness-codex-mobile-context"]
+    assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
+    assert specs[0].chat_mode == "terminal"
+    assert specs[0].viewport == (390, 844)
+    assert specs[0].click_selector == '[data-testid="harness-context-chip-mobile"]'
+    assert "Harness context" in specs[0].contains
+
+
+def test_harness_live_plan_mode_switcher_specs_are_docs_fixtures():
+    target = harness_live.RuntimeTarget(
+        name="claude",
+        channel_id="channel-1",
+        bridge_label_fragment="Bridge parity diagnostic",
+        write_label_fragment="Use the Spindrel host file bridge tool",
+        project_label_fragment="Harness Project Parity",
+    )
+
+    specs = harness_live._plan_mode_switcher_specs("http://ui", target, "session-1")
+
+    assert [spec.name for spec in specs] == ["harness-claude-plan-mode-switcher"]
+    assert specs[0].route == "http://ui/channels/channel-1/session/session-1"
+    assert specs[0].chat_mode == "terminal"
+    assert specs[0].click_selector == '[data-testid="composer-plan-mode-control"]'
+    assert "plan mode" in specs[0].contains
+
+
 def test_harness_live_parse_allows_browser_visible_url():
     env = {
         "SPINDREL_API_KEY": "test-key",
@@ -303,6 +340,8 @@ def test_spindrel_plan_live_loads_session_artifact(tmp_path):
         "channel_id": "channel-1",
         "question_session_id": "question-1",
         "plan_session_id": "plan-1",
+        "answered_session_id": "answered-1",
+        "progress_session_id": "progress-1",
         "updated_at": 123,
     }))
 
@@ -311,6 +350,8 @@ def test_spindrel_plan_live_loads_session_artifact(tmp_path):
     assert data["channel_id"] == "channel-1"
     assert data["question_session_id"] == "question-1"
     assert data["plan_session_id"] == "plan-1"
+    assert data["answered_session_id"] == "answered-1"
+    assert data["progress_session_id"] == "progress-1"
     assert data["updated_at"] == "123"
 
 
@@ -320,16 +361,23 @@ def test_spindrel_plan_live_builds_expected_specs():
         channel_id="channel-1",
         question_session_id="question-1",
         plan_session_id="plan-1",
+        answered_session_id="answered-1",
+        progress_session_id="progress-1",
     )
 
     assert [spec.name for spec in specs] == [
         "spindrel-plan-question-card-dark",
         "spindrel-plan-card-default-dark",
         "spindrel-plan-card-mobile-dark",
+        "spindrel-plan-answered-questions-dark",
+        "spindrel-plan-progress-executing-mobile-dark",
     ]
     assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
     assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
     assert specs[2].viewport == (390, 844)
+    assert specs[3].route == "http://ui/channels/channel-1/session/answered-1"
+    assert specs[4].route == "http://ui/channels/channel-1/session/progress-1"
+    assert specs[4].viewport == (390, 844)
     assert specs[1].scroll_text == "Native Spindrel Plan Parity"
     assert all("harness sdk" in spec.not_contains for spec in specs)
 

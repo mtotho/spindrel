@@ -1420,17 +1420,15 @@ export default function ChatScreen() {
       </div>
     </div>
   ) : null;
-  const harnessAutoCompactionLane = autoCompactPressure ? (
+  const harnessAutoCompactionLane = autoCompactPressure === "hard" ? (
     <div className="px-3 pb-2">
-      <div className="rounded-md border border-warning/25 bg-warning/8 p-3 text-xs text-text-muted">
+      <div className="rounded-md bg-surface-overlay/45 p-3 text-xs text-text-muted">
         <div className="mb-1 font-medium text-text">
-          {autoCompactPressure === "hard" ? "Native context is critically low" : "Native context is getting full"}
+          Native context is low
         </div>
         <div className="mb-3 leading-snug">
           {typeof remainingPct === "number" ? `${Math.round(remainingPct)}% context remains. ` : ""}
-          {autoCompactPressure === "hard"
-            ? "Compact now, open a fresh session, or keep going. Spindrel will not compact unless you choose it."
-            : "Compact now, open a fresh session, or dismiss this prompt for the current session."}
+          Compact now, open a fresh session, or keep going. Spindrel will not compact unless you choose it.
         </div>
         <div className="flex flex-wrap gap-2">
           <button

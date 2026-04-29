@@ -2,7 +2,7 @@
 tags: [agent-server, track, harnesses, integrations, sdk]
 status: active
 created: 2026-04-26
-updated: 2026-04-29 (browser runtime and harness parity diagnostics)
+updated: 2026-04-29 (native plan parity diagnostics, terminal rendering)
 ---
 # Track - Harness SDK
 
@@ -22,6 +22,7 @@ This track covers the stable host contract used by Claude Code and Codex today, 
 - Phase 2 shipped the in-app terminal and per-session resume keying, plus a broad auto-approve `can_use_tool` shim so Claude Code does not stall on SDK permission prompts.
 - Known-secret and common-pattern redaction now applies at the host boundary for harness streams and persisted final assistant text. Native harness tools still execute outside Spindrel's tool dispatcher, so a token printed by the harness should be treated as compromised even if the UI/transcript redacts it afterward.
 - Per-session approval modes, session-scoped model/effort/runtime settings, durable harness question cards, `/compact` / `/context` / `/new` / `/clear`, host hints, and the first Spindrel tool/skill bridge lane are all real.
+- Native Spindrel plan mode now has live parity diagnostics beside the Codex/Claude harness checks: start/exit, question card, publish, approve, answer handoff, execution progress outcome, replan, planning-mode mutation guard, and persisted transcript replay run against the dedicated live Spindrel channel.
 - The integration import boundary matters here: harness runtime modules should import host contracts through `integrations.sdk`, not directly from `app.*`, so the boundary test can stay meaningful.
 
 ## Invariants
@@ -217,6 +218,7 @@ Approval mapping intent (final values from schema):
 - Project-build parity coverage now has a live-verified `HARNESS_PARITY_TIER=project` lane: it sets/verifies channel Project Directory `common/projects`, drives Codex and Claude through plan-then-build for `./e2e-testing/<runtime>-<run_id>`, verifies workspace files through the shared workspace API, captures screenshots through the shared Playwright runtime, and preserves the harness memory policy as hint-only rather than auto-injecting `MEMORY.md`. Deployed verification passed for both runtimes after the host-side runner exported the browser runtime endpoint.
 - Follow-up parity coverage now has `memory`, `skills`, and `replay` tiers staged locally: explicit `get_memory_file` after hint-only memory, `@skill:<id>` plus bridged `get_skill`, and persisted bridge tool replay after message refetch. The live runner now prefers the running app container API key, waits on health, uses `default` for generic readiness, and auto-resolves the browser runtime endpoint. Local verification passed; live execution was blocked in this workspace because port 8000 is not the harness E2E channel instance (only default/orchestrator channels were present).
 - Terminal/default visual parity is now a first-class live terminal-tier check: fresh Codex/Claude turns capture terminal and default screenshots at desktop/mobile sizes, verify terminal rows stay sequential and in viewport, verify default mode still uses the trace strip, and guard mobile header/context-menu behavior. Mobile harness headers keep bot labels inert and harness channel titles off the bot-info click path to avoid rough top-bar taps opening context chrome. Terminal Write/Edit/create-style output renders as line-numbered, lightly syntax-colored code instead of a plain blob, `/style` updates the live channel cache without refresh, and context-tier coverage now requires pressure/compact telemetry to move in the expected direction when comparable fields are reported. The terminal transcript/approval rendering path is split out of `ToolBadges.tsx` so diff/code preview improvements live in dedicated modules and reuse `DiffRenderer`.
+- Follow-up terminal parity now keeps `rich_result` envelopes inside terminal transcript rows instead of sending them through generic tool-badge/card chrome. Claude Code native `Write` emits the supplied file content as a text envelope, so terminal mode can show code/diff-style previews with the same renderer path used by persisted results. Harness screenshot specs now include mobile context access and composer plan/implement mode controls for durable docs artifacts.
 
 ### Finish-line pass — 2026-04-27
 

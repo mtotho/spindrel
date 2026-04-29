@@ -212,9 +212,22 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
   assert.match(channelHeader, /isMobile \? \(/);
   assert.match(channelHeader, /className="header-bot-label"/);
-  assert.match(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+  assert.doesNotMatch(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+  assert.match(channelHeader, /data-testid=\{compact \? "harness-context-chip-mobile" : "harness-context-chip"\}/);
   assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
   assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
+});
+
+test("harness context pressure avoids soft alert chrome", () => {
+  const channelPage = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),
+    "utf8",
+  );
+
+  assert.match(channelPage, /const harnessAutoCompactionLane = autoCompactPressure === "hard"/);
+  assert.match(channelPage, /Native context is low/);
+  assert.doesNotMatch(channelPage, /Native context is getting full/);
+  assert.doesNotMatch(channelPage, /border-warning\/25 bg-warning\/8/);
 });
 
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
@@ -302,6 +315,7 @@ test("MessageInput delegates draft files and submit decision policy", () => {
   assert.match(modelControl, /function HarnessModelPickerContent/);
   assert.match(modelControl, /spindrel:open-model-picker/);
   assert.match(planControl, /getComposerPlanControlState/);
+  assert.match(planControl, /data-testid="composer-plan-mode-control"/);
   assert.match(planControl, /createPortal/);
   assert.match(planControl, /ListTodo/);
   assert.match(planControl, /ChevronDown/);

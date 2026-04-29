@@ -210,6 +210,83 @@ test("diff results stay rich inline in the canonical builder", () => {
         throw new Error("expected rich_result item");
     assert.equal(items[0].envelope.content_type, "application/vnd.spindrel.diff+text");
 });
+test("terminal mode keeps rich diff results in sequential transcript rows", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "terminal",
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-1", kind: "tool_call", toolCallId: "call-edit" }],
+        },
+        toolCalls: [
+            {
+                id: "call-edit",
+                name: "Edit",
+                args: JSON.stringify({ file_path: "notes.md" }),
+                surface: "rich_result",
+                status: "done",
+                summary: {
+                    kind: "diff",
+                    subject_type: "file",
+                    label: "Changed notes.md: +1 -1 lines",
+                    path: "notes.md",
+                    diff_stats: { additions: 1, deletions: 1 },
+                },
+                envelope: {
+                    content_type: "application/vnd.spindrel.diff+text",
+                    body: "--- a/notes.md\n+++ b/notes.md\n@@ -1 +1 @@\n-old\n+new",
+                    plain_body: "Changed notes.md: +1 -1 lines",
+                    display: "inline",
+                    truncated: false,
+                    record_id: "result-edit",
+                    byte_size: 58,
+                },
+            },
+        ],
+    });
+    assert.equal(items[0]?.kind, "transcript");
+    if (items[0]?.kind !== "transcript")
+        throw new Error("expected transcript item");
+    assert.equal(items[0].entries[0]?.detailKind, "inline-diff");
+    assert.equal(items[0].entries[0]?.env?.content_type, "application/vnd.spindrel.diff+text");
+});
+test("terminal mode keeps native Write text envelopes in transcript rows for code preview", () => {
+    const items = buildAssistantTurnBodyItems({
+        renderMode: "terminal",
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-1", kind: "tool_call", toolCallId: "call-write" }],
+        },
+        toolCalls: [
+            {
+                id: "call-write",
+                name: "Write",
+                args: JSON.stringify({ file_path: "index.html" }),
+                surface: "rich_result",
+                status: "done",
+                summary: {
+                    kind: "result",
+                    subject_type: "generic",
+                    label: "Wrote index.html",
+                    preview_text: "Wrote index.html",
+                },
+                envelope: {
+                    content_type: "text/plain",
+                    body: "<!DOCTYPE html>\n<html>\n</html>",
+                    plain_body: "Wrote index.html",
+                    display: "inline",
+                    truncated: false,
+                    record_id: "result-write",
+                    byte_size: 30,
+                },
+            },
+        ],
+    });
+    assert.equal(items[0]?.kind, "transcript");
+    if (items[0]?.kind !== "transcript")
+        throw new Error("expected transcript item");
+    assert.equal(items[0].entries[0]?.label, "Wrote index.html");
+    assert.equal(items[0].entries[0]?.env?.body, "<!DOCTYPE html>\n<html>\n</html>");
+});
 test("live and persisted tool calls render identically through the canonical builder", () => {
     const assistantTurnBody = {
         version: 1,

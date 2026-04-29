@@ -93,10 +93,20 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
         "channel_id": args.channel_id or artifact.get("channel_id") or DEFAULT_CHANNEL_ID,
         "question_session_id": args.question_session_id or artifact.get("question_session_id", ""),
         "plan_session_id": args.plan_session_id or artifact.get("plan_session_id", ""),
+        "answered_session_id": args.answered_session_id or artifact.get("answered_session_id", ""),
+        "progress_session_id": args.progress_session_id or artifact.get("progress_session_id", ""),
     }
 
 
-def _build_specs(browser_url: str, *, channel_id: str, question_session_id: str, plan_session_id: str) -> list[CaptureSpec]:
+def _build_specs(
+    browser_url: str,
+    *,
+    channel_id: str,
+    question_session_id: str,
+    plan_session_id: str,
+    answered_session_id: str = "",
+    progress_session_id: str = "",
+) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
     if question_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{question_session_id}"
@@ -133,6 +143,35 @@ def _build_specs(browser_url: str, *, channel_id: str, question_session_id: str,
             viewport=(390, 844),
             scroll_text="Native Spindrel Plan Parity",
         ))
+    if answered_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{answered_session_id}"
+        wait = (
+            "document.body.innerText.toLowerCase().includes('native spindrel answered plan') "
+            "&& document.body.innerText.toLowerCase().includes('answer handoff')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-answered-questions-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Answered Plan", "answer handoff"),
+            scroll_text="Native Spindrel Answered Plan",
+        ))
+    if progress_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{progress_session_id}"
+        wait = (
+            "document.body.innerText.toLowerCase().includes('native spindrel progress parity') "
+            "&& (document.body.innerText.toLowerCase().includes('done') "
+            "|| document.body.innerText.toLowerCase().includes('step_done') "
+            "|| document.body.innerText.toLowerCase().includes('completed step one'))"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-progress-executing-mobile-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Progress Parity",),
+            viewport=(390, 844),
+            scroll_text="Native Spindrel Progress Parity",
+        ))
     return specs
 
 
@@ -147,8 +186,10 @@ async def _assert_sessions_exist(
     *,
     question_session_id: str,
     plan_session_id: str,
+    answered_session_id: str,
+    progress_session_id: str,
 ) -> None:
-    for session_id in (question_session_id, plan_session_id):
+    for session_id in (question_session_id, plan_session_id, answered_session_id, progress_session_id):
         if session_id:
             await _api(client, "GET", f"/sessions/{session_id}/plan-state")
 
@@ -201,6 +242,8 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         channel_id=resolved["channel_id"],
         question_session_id=resolved["question_session_id"],
         plan_session_id=resolved["plan_session_id"],
+        answered_session_id=resolved["answered_session_id"],
+        progress_session_id=resolved["progress_session_id"],
     )
     if not specs:
         raise SystemExit(
@@ -215,6 +258,8 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             client,
             question_session_id=resolved["question_session_id"],
             plan_session_id=resolved["plan_session_id"],
+            answered_session_id=resolved["answered_session_id"],
+            progress_session_id=resolved["progress_session_id"],
         )
 
     paths: list[Path] = []
@@ -253,6 +298,8 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sessions-json", default=_env("SPINDREL_PLAN_SESSIONS_JSON", str(DEFAULT_SESSIONS_JSON)))
     parser.add_argument("--question-session-id", default=_env("SPINDREL_PLAN_QUESTION_SESSION_ID"))
     parser.add_argument("--plan-session-id", default=_env("SPINDREL_PLAN_CARD_SESSION_ID"))
+    parser.add_argument("--answered-session-id", default=_env("SPINDREL_PLAN_ANSWERED_SESSION_ID"))
+    parser.add_argument("--progress-session-id", default=_env("SPINDREL_PLAN_PROGRESS_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:
         args.api_key = _require_env("SPINDREL_API_KEY")

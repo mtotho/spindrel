@@ -355,6 +355,51 @@ def test_edit_tool_result_emits_runtime_supplied_diff_envelope():
     assert result["summary"]["path"] == "app.py"
 
 
+def test_write_tool_result_emits_runtime_supplied_code_envelope():
+    emitter = _RecordingEmitter()
+    result_meta: dict = {}
+    msg_start = AssistantMessage(
+        content=[
+            ToolUseBlock(
+                id="tu_write",
+                name="Write",
+                input={
+                    "file_path": "index.html",
+                    "content": "<!DOCTYPE html>\n<html>\n</html>\n",
+                },
+            )
+        ],
+        model="claude-sonnet-4-6",
+    )
+    msg_result = UserMessage(
+        content=[ToolResultBlock(tool_use_id="tu_write", content="written", is_error=False)],
+    )
+
+    _bridge_message(
+        msg_start,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={},
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+    _bridge_message(
+        msg_result,
+        ctx=_ctx(),
+        emit=emitter,
+        tool_name_by_use_id={"tu_write": "Write"},
+        final_text_parts=[],
+        result_meta=result_meta,
+    )
+
+    result = emitter.calls[-1][1]
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["content_type"] == "text/plain"
+    assert result["envelope"]["plain_body"] == "Wrote index.html"
+    assert result["envelope"]["body"].startswith("<!DOCTYPE html>")
+    assert result["summary"]["label"] == "Wrote index.html"
+
+
 def test_spindrel_mcp_tool_result_reuses_dispatcher_envelope():
     emitter = _RecordingEmitter()
     result_meta = {

@@ -27,7 +27,7 @@ test("assistant turn rows use one canonical renderer path across streaming and p
     assert.doesNotMatch(streamingIndicator, /buildOrderedTurnBodyItemsFromLive/);
     assert.match(streamingIndicator, /<OrderedTranscript/);
     assert.match(streamingIndicator, /chatMode=\{chatMode\}/);
-    assert.equal(existsSync(resolve(CHAT_DIR, "TerminalToolTranscript.tsx")), false);
+    assert.equal(existsSync(resolve(CHAT_DIR, "TerminalToolTranscript.tsx")), true);
 });
 test("default-mode composer width is centralized through ChatComposerShell", () => {
     const channelPage = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"), "utf8");
@@ -51,6 +51,8 @@ test("chat modes centralize composer placement and rich result mode conventions"
 test("chat rich-result wrappers explicitly separate renderer variant from chrome ownership", () => {
     const orderedTranscript = readChatFile("OrderedTranscript.tsx");
     const toolBadges = readChatFile("ToolBadges.tsx");
+    const toolTranscriptRows = readChatFile("ToolTranscriptRows.tsx");
+    const terminalToolTranscript = readChatFile("TerminalToolTranscript.tsx");
     const richToolResult = readChatFile("RichToolResult.tsx");
     const widgetCard = readChatFile("WidgetCard.tsx");
     assert.match(richToolResult, /RichRendererChromeMode/);
@@ -59,32 +61,41 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
     assert.match(orderedTranscript, /rendererVariant="terminal-chat"/);
     assert.match(orderedTranscript, /chromeMode="embedded"/);
     assert.match(orderedTranscript, /rendererVariant="default-chat"/);
-    assert.match(toolBadges, /rendererVariant=\{isTerminalMode \? "terminal-chat" : "default-chat"\}/);
-    assert.match(toolBadges, /chromeMode="embedded"/);
+    assert.match(toolTranscriptRows, /rendererVariant="default-chat"/);
+    assert.match(terminalToolTranscript, /rendererVariant="terminal-chat"/);
+    assert.match(toolTranscriptRows, /chromeMode="embedded"/);
+    assert.match(terminalToolTranscript, /chromeMode="embedded"/);
     assert.match(orderedTranscript, /chatMode=\{chatMode\}/);
     assert.match(widgetCard, /chatMode\?:\s*"default"\s*\|\s*"terminal"/);
     assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
 });
 test("terminal tool transcript uses CLI-style sequential rows instead of compact tape", () => {
     const toolBadges = readChatFile("ToolBadges.tsx");
+    const toolTranscriptRows = readChatFile("ToolTranscriptRows.tsx");
+    const terminalToolTranscript = readChatFile("TerminalToolTranscript.tsx");
+    const harnessApprovalPreview = readChatFile("HarnessApprovalPreview.tsx");
+    const codePreviewRenderer = readChatFile("CodePreviewRenderer.tsx");
     const toolTraceStrip = readChatFile("ToolTraceStrip.tsx");
     assert.match(toolBadges, /const isTerminalMode = chatMode === "terminal"/);
-    assert.match(toolBadges, /<TerminalToolTranscript/);
-    assert.match(toolBadges, /data-testid="terminal-tool-transcript"/);
-    assert.match(toolBadges, /data-testid="tool-transcript-row"/);
-    assert.match(toolBadges, /data-testid="terminal-tool-label"/);
-    assert.match(toolBadges, /data-testid="terminal-tool-meta"/);
-    assert.match(toolBadges, /data-testid="terminal-tool-output"/);
-    assert.match(toolBadges, /data-testid="terminal-code-output"/);
-    assert.match(toolBadges, /data-testid="terminal-diff-output"/);
-    assert.match(toolBadges, /function TerminalDiffOutput/);
-    assert.match(toolBadges, /parseTerminalDiffRows/);
-    assert.match(toolBadges, /renderHtmlTag/);
-    assert.match(toolBadges, /looksLikeTerminalCodeOutput/);
-    assert.match(toolBadges, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
-    assert.match(toolBadges, /gridTemplateColumns:\s*"4ch 4ch 2ch minmax\(0, 1fr\)"/);
+    assert.match(toolTranscriptRows, /<TerminalToolTranscript/);
+    assert.match(terminalToolTranscript, /data-testid="terminal-tool-transcript"/);
+    assert.match(terminalToolTranscript, /data-testid="tool-transcript-row"/);
+    assert.match(terminalToolTranscript, /data-testid="terminal-tool-label"/);
+    assert.match(terminalToolTranscript, /data-testid="terminal-tool-meta"/);
+    assert.match(terminalToolTranscript, /data-testid="terminal-tool-output"/);
+    assert.match(codePreviewRenderer, /data-testid=\{testId\}/);
+    assert.match(terminalToolTranscript, /data-testid="terminal-diff-output"/);
+    assert.match(terminalToolTranscript, /DiffRenderer/);
+    assert.match(harnessApprovalPreview, /DiffRenderer/);
+    assert.match(harnessApprovalPreview, /CodePreviewRenderer/);
+    assert.doesNotMatch(toolBadges, /function TerminalToolTranscript/);
+    assert.doesNotMatch(toolBadges, /function HarnessToolPreview/);
+    assert.doesNotMatch(toolBadges, /parseTerminalDiffRows/);
+    assert.match(terminalToolTranscript, /looksLikeCodePreview/);
+    assert.match(terminalToolTranscript, /gridTemplateColumns:\s*"14px minmax\(0, 1fr\)"/);
+    assert.match(codePreviewRenderer, /gridTemplateColumns:\s*"4ch minmax\(0, 1fr\)"/);
     assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
-    assert.match(toolBadges, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
+    assert.match(toolTranscriptRows, /if \(!hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
     assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
 });
 test("style slash command updates live channel cache instead of refresh-only invalidation", () => {
@@ -148,9 +159,17 @@ test("mobile channel header does not make the whole title open context chrome", 
     assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
     assert.match(channelHeader, /isMobile \? \(/);
     assert.match(channelHeader, /className="header-bot-label"/);
-    assert.match(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+    assert.doesNotMatch(channelHeader, /compact && !contextNeedsAttention\) return null;/);
+    assert.match(channelHeader, /data-testid=\{compact \? "harness-context-chip-mobile" : "harness-context-chip"\}/);
     assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
     assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
+});
+test("harness context pressure avoids soft alert chrome", () => {
+    const channelPage = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"), "utf8");
+    assert.match(channelPage, /const harnessAutoCompactionLane = autoCompactPressure === "hard"/);
+    assert.match(channelPage, /Native context is low/);
+    assert.doesNotMatch(channelPage, /Native context is getting full/);
+    assert.doesNotMatch(channelPage, /border-warning\/25 bg-warning\/8/);
 });
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
     const richToolResult = readChatFile("RichToolResult.tsx");
@@ -218,6 +237,7 @@ test("MessageInput delegates draft files and submit decision policy", () => {
     assert.match(modelControl, /function HarnessModelPickerContent/);
     assert.match(modelControl, /spindrel:open-model-picker/);
     assert.match(planControl, /getComposerPlanControlState/);
+    assert.match(planControl, /data-testid="composer-plan-mode-control"/);
     assert.match(planControl, /createPortal/);
     assert.match(planControl, /ListTodo/);
     assert.match(planControl, /ChevronDown/);
@@ -248,6 +268,18 @@ test("chat sends thread a stable client-local id through optimistic rows and req
     assert.match(channelHook, /local_status:\s*"queued"/);
     assert.match(channelEvents, /incomingClientLocalId/);
     assert.match(chatMessageArea, /meta\.client_local_id/);
+});
+test("mobile chat transcript uses full-width content instead of avatar gutter", () => {
+    const messageBubble = readChatFile("MessageBubble.tsx");
+    const streamingIndicator = readChatFile("StreamingIndicator.tsx");
+    const chatMessageArea = readChatFile("ChatMessageArea.tsx");
+    assert.match(messageBubble, /const detectedMobile = useIsMobile\(\);/);
+    assert.match(messageBubble, /const effectiveMobile = isMobile \|\| detectedMobile;/);
+    assert.match(messageBubble, /const narrow = effectiveMobile \|\| compactLayout;/);
+    assert.match(streamingIndicator, /const isMobile = useIsMobile\(\);/);
+    assert.match(streamingIndicator, /!\s*isTerminalMode && !isMobile/);
+    assert.match(chatMessageArea, /const contentHorizontalPadding = isMobile \? 4 : 16;/);
+    assert.doesNotMatch(chatMessageArea, /className="w-full mx-auto px-4"/);
 });
 test("channel route delegates session pane orchestration to its local controller", () => {
     const channelRoute = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"), "utf8");

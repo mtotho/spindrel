@@ -335,6 +335,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
       onOpenChange={setShowPlanMenu}
       planMode={planMode}
       hasPlan={hasPlan}
+      modeSwitch={isHarness}
       disabled={disabled}
       planBusy={planBusy}
       onTogglePlanMode={onTogglePlanMode}

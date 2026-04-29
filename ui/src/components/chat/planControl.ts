@@ -16,11 +16,26 @@ export function getComposerPlanControlState({
   planMode,
   hasPlan,
   canApprovePlan = false,
+  modeSwitch = false,
 }: {
   planMode: ComposerPlanMode;
   hasPlan: boolean;
   canApprovePlan?: boolean;
+  modeSwitch?: boolean;
 }): ComposerPlanControlState {
+  if (modeSwitch) {
+    const inPlanMode = planMode != null && planMode !== "chat";
+    return {
+      label: inPlanMode ? "plan mode" : "implement",
+      title: inPlanMode ? "Plan mode is on" : "Implement mode",
+      tone: inPlanMode ? "warning" : "neutral",
+      active: inPlanMode,
+      showMenu: true,
+      primaryActionLabel: inPlanMode ? "Implement" : "Plan mode",
+      canApprove: canApprovePlan && planMode === "planning",
+    };
+  }
+
   switch (planMode) {
     case "planning":
       return {

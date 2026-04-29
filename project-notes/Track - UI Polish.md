@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-29 (channel tabs)
+updated: 2026-04-29 (channel tabs, harness terminal polish)
 ---
 # Track — UI Polish
 
@@ -534,6 +534,8 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Added attachment screenshot checks as their own `scripts/screenshots --only attachment-checks` bundle, with staged drag/drop coverage for the overlay, pending routing tray, and post-send optimistic receipts.
 - [x] Polished attachment pending/sent receipts after visual review: default mode now uses a compact low-chrome shelf/receipt treatment, terminal mode keeps image thumbnails but drops boxed row chrome, and optimistic image thumbs persist through send/stream settle.
 - [x] Added the terminal attachment screenshot artifact `docs/images/chat-attachments-terminal-sent-receipts.png` and referenced it from the canonical "How Spindrel works" guide alongside the default attachment screenshots.
+- [x] Tightened harness terminal-mode chrome: harness composer plan controls present as an implement/plan mode switcher, mobile context is available through a bounded context chip instead of hidden behind the bot-info path, and soft context pressure no longer shows alert-style warning chrome.
+- [x] Moved terminal-mode harness rich results back through transcript-owned rows: diff/code previews stay inline and sequential, while default chat still uses the trace strip/card treatment. Claude Code native `Write` now supplies the written content envelope so terminal can render code instead of a plain white summary blob.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node --test .chat-test-dist/src/components/chat/orderedTranscriptGrouping.test.js .chat-test-dist/src/components/chat/chatKeyboard.test.js`

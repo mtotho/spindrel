@@ -695,6 +695,13 @@ function resolveOrderedTool(
       };
     }
 
+    if (renderMode === "terminal" && richSurface === "rich_result" && result) {
+      return {
+        key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
+        transcriptEntries: buildPersistedToolEntries([], [toolCall], [result]),
+      };
+    }
+
     if (richSurface === "rich_result" && result) {
       return {
         kind: "rich_result",
@@ -722,6 +729,13 @@ function resolveOrderedTool(
         toolName: toolCall.name,
         recordId: envelope.record_id ?? undefined,
       },
+    };
+  }
+
+  if (renderMode === "terminal" && richSurface === "rich_result" && envelope) {
+    return {
+      key: `transcript:${index}:${toolCall.name ?? toolCall.id ?? "tool"}`,
+      transcriptEntries: buildLiveToolEntries([{ ...toolCall, envelope }]),
     };
   }
 

@@ -169,6 +169,36 @@ treats the transcript as its own full panel surface with a compact chat variant,
 then lists review/processed buckets below it instead of embedding a cramped
 chat card inside the overview.
 
+### Starboard / Command Deck Pivot - 2026-04-29
+
+The Attention experiment exposed a deeper IA problem: Starboard cannot be the
+object inspector, raw alert inbox, Operator sweep launcher, reviewed-findings
+queue, transcript viewer, bot assignment form, and run history at the same
+time. That model makes every state look like every other state, especially in a
+narrow drawer.
+
+Lock the product split:
+
+- **Canvas** is the living world. It should show where things are, what is hot,
+  what is running, and what changed, then route the user toward the right place.
+- **Starboard** is the contextual inspector. It explains the selected object,
+  local risk, local next action, and where to go next. It should not host the
+  full Attention/Operator workbench.
+- **Attention Command Deck** is the serious review surface. It owns raw
+  Attention, Operator findings, cleared items, active sweeps, evidence, and run
+  logs in a larger layout.
+
+Operator sweep is a queue transformation, not a chat-first interaction:
+untriaged signals become reviewed findings, cleared/noise is visibly separated,
+and the transcript becomes a run log/evidence record. Product UI says
+**Operator**; the `orchestrator` bot/channel remain compatibility substrate
+only.
+
+Near-term implementation should make `/hub/attention` the canonical Attention
+Command Deck, keep `/hub/mission-control` for the broader Mission Control
+surface, and change Starboard's Attention station into a compact launcher and
+object-local summary. Do not introduce a mission system for this pivot.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:

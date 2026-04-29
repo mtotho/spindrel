@@ -115,7 +115,7 @@ synthetic screenshot staging. First run the live diagnostics to create fresh
 detached sessions on the dedicated native-plan E2E channel:
 
 ```bash
-./scripts/run_spindrel_plan_live.sh --tier publish
+./scripts/run_spindrel_plan_live.sh --tier replay
 ```
 
 The runner writes the latest session ids to
@@ -137,6 +137,8 @@ Expected artifacts:
 spindrel-plan-question-card-dark.png
 spindrel-plan-card-default-dark.png
 spindrel-plan-card-mobile-dark.png
+spindrel-plan-answered-questions-dark.png
+spindrel-plan-progress-executing-mobile-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same

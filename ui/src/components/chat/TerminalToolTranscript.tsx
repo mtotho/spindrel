@@ -39,7 +39,7 @@ function normalizeTerminalOutput(env: ToolResultEnvelope | undefined): string {
   if (!env) return "";
   const body = envelopeBodyText(env).trim();
   const plain = (env.plain_body ?? "").trim();
-  const raw = plain || body;
+  const raw = body || plain;
   if (!raw) return "";
   if (env.content_type.toLowerCase().includes("json")) {
     try {
