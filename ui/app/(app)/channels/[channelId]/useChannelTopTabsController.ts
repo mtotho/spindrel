@@ -635,6 +635,7 @@ export function useChannelTopTabsController({
     openSessionTabSurfaceKeys,
     pendingSessionTabKey,
     pendingDirtyAction,
+    unhideSessionTabSurface,
     promoteSessionTab,
     handleSelectSessionTab,
     handleFocusSplitSessionTabPane,

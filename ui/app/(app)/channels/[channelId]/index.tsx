@@ -825,6 +825,7 @@ export default function ChatScreen() {
     openSessionTabSurfaceKeys,
     pendingSessionTabKey,
     pendingDirtyAction,
+    unhideSessionTabSurface,
     promoteSessionTab,
     handleSelectSessionTab,
     handleFocusSplitSessionTabPane,
@@ -2054,11 +2055,8 @@ export default function ChatScreen() {
         message="You have unsaved changes. Discard them?"
         confirmLabel="Discard"
         variant="warning"
-        onConfirm={() => {
-          if (pendingDirtyAction) executeDirtyAction(pendingDirtyAction);
-          setPendingDirtyAction(null);
-        }}
-        onCancel={() => setPendingDirtyAction(null)}
+        onConfirm={confirmPendingDirtyAction}
+        onCancel={cancelPendingDirtyAction}
       />
       {secretWarning && (
         <SecretWarningDialog

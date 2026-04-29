@@ -79,7 +79,7 @@ test("selected objects get a world anchor and suppress competing hover cards", (
     assert.match(source, /showLabel: true/);
     assert.match(source, /data-spatial-selected-anchor-label/);
     assert.match(source, /SelectedObjectAnchor/);
-    assert.match(source, /ring-1 ring-offset-2/);
+    assert.match(source, /ring-1 ring-accent\/38 ring-offset-2/);
     assert.match(source, /!starboardOpen \|\| !selectedSpatialObject/);
     assert.match(source, /!channelClusterMode/);
     assert.match(source, /interactiveZoom >= 0\.65/);
@@ -108,6 +108,7 @@ test("Map Brief active attention is actionable without opening the Attention pan
     assert.match(source, /Acknowledge target/);
     assert.match(source, /scope:\s*"target"/);
     assert.match(source, /Open in Attention/);
+    assert.match(source, /label: "Review issue"/);
 });
 test("clusters surface aggregate actionable cues without opening selection chrome", () => {
     const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
@@ -124,8 +125,8 @@ test("spatial glanceability uses shared cue markers and compass without side str
     const overlaySource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasOverlays.tsx"), "utf8");
     const modelSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialStarboardModels.tsx"), "utf8");
     assert.match(cueSource, /data-testid="spatial-action-cue-marker"/);
-    assert.match(cueSource, /data-spatial-action-cue-halo/);
     assert.match(cueSource, /data-testid="spatial-action-compass"/);
+    assert.match(cueSource, /data-spatial-action-compass-collapsed/);
     assert.match(cueSource, /topActionCompassItems/);
     assert.match(cueSource, /Needs action/);
     assert.match(cueSource, /Best next clicks from live map state/);
@@ -133,11 +134,23 @@ test("spatial glanceability uses shared cue markers and compass without side str
     assert.match(cueSource, /cueCountLabel/);
     assert.match(cueSource, /selectedItem/);
     assert.match(cueSource, /rankedItems\.filter\(\(item\) => item\.id !== selectedItem\.id\)/);
-    assert.match(cueSource, /item\.id !== selectedObjectId/);
+    assert.match(overlaySource, /collapsed=\{Boolean\(starboardOpen && selectedStarboardObject\)\}/);
     assert.match(worldSource, /<SpatialActionCueLayer/);
     assert.match(overlaySource, /<ActionCompass/);
     assert.match(modelSource, /worldW: node\.world_w/);
     assert.match(modelSource, /worldH: node\.world_h/);
+    assert.doesNotMatch(cueSource, /data-spatial-action-cue-halo/);
     assert.doesNotMatch(cueSource, /border-l-/);
     assert.doesNotMatch(cueSource, /animate-/);
+});
+test("Map Brief warning lines expose concrete review targets", () => {
+    const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+    const typeSource = readFileSync(resolve(process.cwd(), "src/api/types/workspaceMapState.ts"), "utf8");
+    assert.match(chromeSource, /data-testid="map-brief-signal-action"/);
+    assert.match(chromeSource, /Review in Attention/);
+    assert.match(chromeSource, /Open trace/);
+    assert.match(chromeSource, /Open automation/);
+    assert.match(chromeSource, /openTraceInspector/);
+    assert.match(chromeSource, /signal\.correlation_id/);
+    assert.match(typeSource, /correlation_id\?: string \| null/);
 });

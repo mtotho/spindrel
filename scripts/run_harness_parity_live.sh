@@ -64,8 +64,18 @@ export HARNESS_PARITY_CODEX_CHANNEL_ID="${HARNESS_PARITY_CODEX_CHANNEL_ID:-41fc9
 export HARNESS_PARITY_CLAUDE_CHANNEL_ID="${HARNESS_PARITY_CLAUDE_CHANNEL_ID:-71eb14fd-a482-5bdd-a9a2-e60d9e951169}"
 export HARNESS_PARITY_AGENT_CONTAINER="${HARNESS_PARITY_AGENT_CONTAINER:-agent-server-agent-server-1}"
 export HARNESS_PARITY_PLAYWRIGHT_HOST="${HARNESS_PARITY_PLAYWRIGHT_HOST:-playwright-local}"
+export HARNESS_PARITY_PLAYWRIGHT_CONTAINER="${HARNESS_PARITY_PLAYWRIGHT_CONTAINER:-spindrel-local-browser-automation-playwright-1}"
 export HARNESS_PARITY_PROJECT_PATH="${HARNESS_PARITY_PROJECT_PATH:-common/projects}"
 export HARNESS_PARITY_PROJECT_TIMEOUT="${HARNESS_PARITY_PROJECT_TIMEOUT:-600}"
+
+if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && command -v docker >/dev/null 2>&1; then
+    browser_ip="$(docker inspect "$HARNESS_PARITY_PLAYWRIGHT_CONTAINER" \
+        --format '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null || true)"
+    if [[ -n "$browser_ip" ]]; then
+        export PLAYWRIGHT_WS_URL="ws://$browser_ip:3000"
+        export PLAYWRIGHT_CONNECT_PROTOCOL="${PLAYWRIGHT_CONNECT_PROTOCOL:-cdp}"
+    fi
+fi
 
 echo "=== Harness Live Parity ==="
 echo "  Server: ${E2E_HOST}:${E2E_PORT}"
@@ -73,6 +83,7 @@ echo "  Tier:   ${HARNESS_PARITY_TIER}"
 echo "  Codex:  ${HARNESS_PARITY_CODEX_CHANNEL_ID}"
 echo "  Claude: ${HARNESS_PARITY_CLAUDE_CHANNEL_ID}"
 echo "  Browser host: ${HARNESS_PARITY_PLAYWRIGHT_HOST}"
+echo "  Browser ws: ${PLAYWRIGHT_WS_URL:-<auto/runtime-service/managed>}"
 echo "  Project path: ${HARNESS_PARITY_PROJECT_PATH}"
 echo "  Project timeout: ${HARNESS_PARITY_PROJECT_TIMEOUT}"
 echo ""

@@ -1,8 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
-import { AlertTriangle, Clock3, History, Radio } from "lucide-react";
+import { AlertTriangle, ChevronRight, Clock3, History, ListChecks, Radio } from "lucide-react";
 import { mapCueIntent, mapCueRank, mapStateLabel, mapStateMeta, mapStateTone } from "./SpatialObjectStatus.js";
 const CUE_VIEWPORT_MARGIN_WORLD = 220;
-const CUE_DOT_THRESHOLD = 0.35;
 export function objectWorldBbox(item, margin = 0) {
     const w = item.worldW ?? 96;
     const h = item.worldH ?? 72;
@@ -21,9 +20,6 @@ export function objectNearViewport(item, viewport) {
 }
 export function shouldRenderCueMarker(item) {
     return Boolean(item.workState && mapCueIntent(item.workState) !== "quiet");
-}
-export function shouldShowCueHalo(item, selectedObjectId, scale) {
-    return shouldRenderCueMarker(item) && item.id !== selectedObjectId && scale >= CUE_DOT_THRESHOLD;
 }
 export function topActionCompassItems(objects, viewport, limit = 3) {
     return objects
@@ -88,6 +84,9 @@ function cueCountLabel(item) {
         return `${counts.recent}`;
     return null;
 }
+function actionCount(objects) {
+    return objects.filter(shouldRenderCueMarker).length;
+}
 function kindLabel(kind) {
     if (kind === "channel")
         return "Channel";
@@ -105,20 +104,21 @@ export function SpatialActionCueLayer({ objects, selectedObjectId, highlightedOb
     return (_jsx(_Fragment, { children: visible.map((item) => {
             const intent = mapCueIntent(item.workState);
             const Icon = cueIcon(intent);
-            const showHalo = shouldShowCueHalo(item, selectedObjectId, scale);
             const highlighted = highlightedObjectId === item.id;
             const width = Math.max(42, Math.min(220, (item.worldW ?? 96) * scale + 24));
             const height = Math.max(34, Math.min(160, (item.worldH ?? 72) * scale + 24));
             const toneClass = cueToneClass(item);
+            const badgeX = Math.round(width / 2 - 10);
+            const badgeY = Math.round(-height / 2 + 2);
             return (_jsx("div", { "data-testid": "spatial-action-cue-marker", "data-spatial-action-cue-id": item.id, "data-spatial-action-cue-intent": intent, title: cueTitle(item), className: "pointer-events-none absolute z-[4996]", style: {
                     left: item.worldX,
                     top: item.worldY,
                     transform: `translate(-50%, -50%) scale(${inverseScale})`,
                     transformOrigin: "center center",
-                }, children: _jsxs("div", { className: `relative transition-transform duration-150 ${highlighted ? "scale-105" : "scale-100"}`, children: [showHalo && (_jsx("div", { "data-spatial-action-cue-halo": "true", className: `rounded-md ring-1 ring-offset-2 ring-offset-surface ${toneClass}`, style: { width, height } })), _jsxs("div", { className: `absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full ring-1 ${toneClass}`, children: [_jsx(Icon, { size: 13 }), _jsx("span", { className: "sr-only", children: cueLabel(item) })] })] }) }, `action-cue-${item.id}`));
+                }, children: _jsx("div", { className: `relative transition-transform duration-150 ${highlighted ? "scale-110" : "scale-100"}`, style: { width: 0, height: 0 }, children: _jsxs("div", { className: `absolute flex h-5 w-5 items-center justify-center rounded-full ring-1 backdrop-blur-sm ${toneClass} ${highlighted ? "ring-2 ring-accent/35" : ""}`, style: { transform: `translate(${badgeX}px, ${badgeY}px)` }, children: [_jsx(Icon, { size: 13 }), _jsx("span", { className: "sr-only", children: cueLabel(item) })] }) }) }, `action-cue-${item.id}`));
         }) }));
 }
-export function ActionCompass({ objects, viewport, selectedObjectId, highlightedObjectId, onHighlight, }) {
+export function ActionCompass({ objects, viewport, selectedObjectId, highlightedObjectId, onHighlight, collapsed = false, }) {
     const selectedItem = selectedObjectId
         ? objects.find((item) => item.id === selectedObjectId && shouldRenderCueMarker(item)) ?? null
         : null;
@@ -128,6 +128,13 @@ export function ActionCompass({ objects, viewport, selectedObjectId, highlighted
         : rankedItems.slice(0, 3);
     if (!items.length)
         return null;
+    if (collapsed) {
+        const total = actionCount(objects);
+        const topItem = items[0];
+        const intent = mapCueIntent(topItem.workState);
+        const Icon = cueIcon(intent);
+        return (_jsxs("div", { "data-testid": "spatial-action-compass", "data-spatial-action-compass-collapsed": "true", className: "absolute left-4 top-4 z-[2] flex flex-col items-center gap-1 rounded-md bg-surface-raised/90 p-1.5 text-text ring-1 ring-surface-border/70", onPointerDown: (event) => event.stopPropagation(), children: [_jsx("button", { type: "button", title: `Needs action: ${total}`, "aria-label": `Needs action: ${total}`, className: "flex h-10 w-10 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay/60 hover:text-text", onPointerEnter: () => onHighlight(topItem.id), onPointerLeave: () => onHighlight(null), onFocus: () => onHighlight(topItem.id), onBlur: () => onHighlight(null), onClick: () => topItem.onSelect(), children: _jsx(ListChecks, { size: 17 }) }), _jsx("button", { type: "button", title: `${cueLabel(topItem)}: ${topItem.label}`, "aria-label": `${cueLabel(topItem)}: ${topItem.label}`, className: `flex h-8 w-8 items-center justify-center rounded-full ring-1 ${cueToneClass(topItem)}`, onPointerEnter: () => onHighlight(topItem.id), onPointerLeave: () => onHighlight(null), onFocus: () => onHighlight(topItem.id), onBlur: () => onHighlight(null), onClick: () => topItem.onSelect(), children: _jsx(Icon, { size: 13 }) }), _jsx("span", { className: "rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted", children: total })] }));
+    }
     return (_jsxs("div", { "data-testid": "spatial-action-compass", className: "absolute left-4 top-4 z-[2] w-[320px] rounded-md bg-surface-raised/90 p-2 text-sm text-text ring-1 ring-surface-border/70", onPointerDown: (event) => event.stopPropagation(), children: [_jsxs("div", { className: "flex items-end justify-between gap-3 px-1 pb-1.5", children: [_jsxs("div", { children: [_jsx("div", { className: "text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75", children: "Needs action" }), _jsx("div", { className: "mt-0.5 text-xs text-text-muted", children: "Best next clicks from live map state." })] }), _jsx("span", { className: "rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim", children: items.length })] }), _jsx("div", { className: "space-y-1", children: items.map((item, index) => {
                     const intent = mapCueIntent(item.workState);
                     const Icon = cueIcon(intent);
@@ -136,6 +143,6 @@ export function ActionCompass({ objects, viewport, selectedObjectId, highlighted
                     const count = cueCountLabel(item);
                     return (_jsxs("button", { type: "button", "data-testid": "spatial-action-compass-row", "data-spatial-action-compass-id": item.id, "data-spatial-action-compass-intent": intent, "data-spatial-action-compass-selected": selected ? "true" : "false", className: `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 ${selected || highlighted
                             ? "bg-accent/[0.08] ring-1 ring-accent/15"
-                            : "hover:bg-surface-overlay/60 focus-visible:bg-surface-overlay/60"}`, onPointerEnter: () => onHighlight(item.id), onPointerLeave: () => onHighlight(null), onFocus: () => onHighlight(item.id), onBlur: () => onHighlight(null), onClick: () => item.onSelect(), children: [_jsx("span", { className: `flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ${cueToneClass(item)}`, children: _jsx(Icon, { size: 12 }) }), _jsxs("span", { className: "min-w-0 flex-1", children: [_jsxs("span", { className: "flex min-w-0 items-center gap-1.5", children: [_jsx("span", { className: "truncate text-xs font-medium text-text", children: item.label }), _jsx("span", { className: "shrink-0 rounded-full bg-surface-overlay/50 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-text-dim", children: kindLabel(item.kind) })] }), _jsxs("span", { className: "mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-text-dim", children: [_jsx("span", { className: "shrink-0 font-medium text-text-muted", children: cueLabel(item) }), _jsx("span", { className: "min-w-0 truncate", children: cueReason(item) })] })] }), _jsxs("span", { className: "flex shrink-0 items-center gap-1.5", children: [count && (_jsx("span", { className: "rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted", children: count })), _jsx("span", { className: "text-[10px] font-medium text-text-dim", children: index + 1 })] })] }, item.id));
+                            : "hover:bg-surface-overlay/60 focus-visible:bg-surface-overlay/60"}`, onPointerEnter: () => onHighlight(item.id), onPointerLeave: () => onHighlight(null), onFocus: () => onHighlight(item.id), onBlur: () => onHighlight(null), onClick: () => item.onSelect(), children: [_jsx("span", { className: `flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ${cueToneClass(item)}`, children: _jsx(Icon, { size: 12 }) }), _jsxs("span", { className: "min-w-0 flex-1", children: [_jsxs("span", { className: "flex min-w-0 items-center gap-1.5", children: [_jsx("span", { className: "truncate text-xs font-medium text-text", children: item.label }), _jsx("span", { className: "shrink-0 rounded-full bg-surface-overlay/50 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.06em] text-text-dim", children: kindLabel(item.kind) })] }), _jsxs("span", { className: "mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-text-dim", children: [_jsx("span", { className: "shrink-0 font-medium text-text-muted", children: cueLabel(item) }), _jsx("span", { className: "min-w-0 truncate", children: cueReason(item) })] })] }), _jsxs("span", { className: "flex shrink-0 items-center gap-1.5", children: [count && (_jsx("span", { className: "rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted", children: count })), _jsx(ChevronRight, { size: 13, className: "text-text-dim" }), _jsx("span", { className: "text-[10px] font-medium text-text-dim", children: index + 1 })] })] }, item.id));
                 }) })] }));
 }
