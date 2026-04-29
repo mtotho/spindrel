@@ -4,6 +4,9 @@ No DB needed. Tests feed a synthetic async generator of event dicts through
 ``emit_run_stream_events`` and assert which typed ChannelEvents land on the bus.
 """
 import asyncio
+import ast
+import inspect
+import textwrap
 import uuid
 
 import pytest
@@ -302,6 +305,122 @@ class TestEmitRunStreamEvents:
         assert published[0].kind is ChannelEventKind.CONTEXT_BUDGET
         assert published[0].payload.session_id == sid
 
+    async def test_when_memory_scheme_bootstrap_then_publishes_memory_payload(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "memory_scheme_bootstrap",
+                "memory_scheme": "workspace-files",
+                "files_loaded": 3,
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "memory_scheme_bootstrap"
+        assert published[0].kind is ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP
+        assert published[0].payload.scheme == "workspace-files"
+        assert published[0].payload.files_loaded == 3
+
+    async def test_when_llm_retry_then_publishes_retry_status(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "llm_retry",
+                "model": "gpt-main",
+                "reason": "rate_limit",
+                "attempt": 2,
+                "max_retries": 4,
+                "wait_seconds": 1.5,
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "llm_retry"
+        assert published[0].kind is ChannelEventKind.LLM_STATUS
+        assert published[0].payload.status == "retry"
+        assert published[0].payload.model == "gpt-main"
+        assert published[0].payload.reason == "rate_limit"
+        assert published[0].payload.attempt == 2
+        assert published[0].payload.max_retries == 4
+        assert published[0].payload.wait_seconds == 1.5
+
+    async def test_when_llm_fallback_then_publishes_fallback_status(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "llm_fallback",
+                "from_model": "gpt-main",
+                "to_model": "gpt-backup",
+                "reason": "vision_not_supported",
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "llm_fallback"
+        assert published[0].kind is ChannelEventKind.LLM_STATUS
+        assert published[0].payload.status == "fallback"
+        assert published[0].payload.model == "gpt-main"
+        assert published[0].payload.fallback_model == "gpt-backup"
+        assert published[0].payload.reason == "vision_not_supported"
+
+    async def test_when_llm_cooldown_skip_then_publishes_cooldown_status(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{"type": "llm_cooldown_skip", "model": "gpt-main", "using": "gpt-backup"}],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "llm_cooldown_skip"
+        assert published[0].kind is ChannelEventKind.LLM_STATUS
+        assert published[0].payload.status == "cooldown_skip"
+        assert published[0].payload.model == "gpt-main"
+        assert published[0].payload.fallback_model == "gpt-backup"
+
+    async def test_when_llm_error_then_publishes_error_status(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "llm_error",
+                "model": "gpt-main",
+                "reason": "all_failed",
+                "error": "provider unavailable",
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "llm_error"
+        assert published[0].kind is ChannelEventKind.LLM_STATUS
+        assert published[0].payload.status == "error"
+        assert published[0].payload.model == "gpt-main"
+        assert published[0].payload.reason == "all_failed"
+        assert published[0].payload.error == "provider unavailable"
+
+    async def test_when_auto_inject_then_publishes_skill_event(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "auto_inject",
+                "skill_id": "skill-1",
+                "skill_name": "Skill One",
+                "similarity": 0.91,
+                "source": "rag",
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "auto_inject"
+        assert published[0].kind is ChannelEventKind.SKILL_AUTO_INJECT
+        assert published[0].payload.skill_id == "skill-1"
+        assert published[0].payload.skill_name == "Skill One"
+        assert published[0].payload.similarity == 0.91
+        assert published[0].payload.source == "rag"
+
     async def test_when_multiple_events_then_all_yielded_and_typed_events_published(self):
         ch = uuid.uuid4()
         events = [
@@ -336,3 +455,52 @@ class TestEmitRunStreamEvents:
 
         assert published[0].kind is ChannelEventKind.APPROVAL_RESOLVED
         assert published[0].payload.decision == "approved"
+
+
+class TestTurnEventEmitArchitecture:
+    def test_emit_run_stream_events_stays_publish_only_coordinator(self):
+        import app.services.turn_event_emit as mod
+
+        source = textwrap.dedent(inspect.getsource(mod.emit_run_stream_events))
+        tree = ast.parse(source)
+        fn = tree.body[0]
+
+        assert isinstance(fn, ast.AsyncFunctionDef)
+        assert fn.end_lineno - fn.lineno + 1 <= 55
+        assert "_typed_event_from_run_stream_event" in source
+        for forbidden in (
+            "TurnStreamTokenPayload",
+            "ContextBudgetPayload",
+            "LlmStatusPayload",
+            "SkillAutoInjectPayload",
+            "ApprovalRequestedPayload",
+        ):
+            assert forbidden not in source
+
+    def test_publish_typed_only_called_by_stream_coordinator(self):
+        import app.services.turn_event_emit as mod
+
+        tree = ast.parse(inspect.getsource(mod))
+        callers: set[str] = set()
+        parents: dict[ast.AST, ast.AST] = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "publish_typed"
+            ):
+                continue
+            current: ast.AST = node
+            while current in parents and not isinstance(
+                parents[current],
+                (ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
+                current = parents[current]
+            if current in parents:
+                callers.add(parents[current].name)
+
+        assert callers == {"emit_run_stream_events"}

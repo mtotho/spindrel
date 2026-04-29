@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 from app.domain.channel_events import ChannelEvent, ChannelEventKind
@@ -43,6 +44,14 @@ from app.services.channel_events import publish_typed
 from app.services.tool_presentation import derive_tool_presentation
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _EmitContext:
+    channel_id: uuid.UUID
+    bot_id: str
+    turn_id: uuid.UUID
+    session_id: uuid.UUID | None
 
 
 def _coerce_tool_arguments(raw: Any) -> dict:
@@ -94,6 +103,250 @@ def _tool_presentation_from_event(
     return derived_surface, derived_summary
 
 
+def _build_text_delta_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.TURN_STREAM_TOKEN,
+        payload=TurnStreamTokenPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            delta=event.get("delta", ""),
+            session_id=ctx.session_id,
+        ),
+    )
+
+
+def _build_thinking_event(event: dict, ctx: _EmitContext) -> ChannelEvent | None:
+    delta = event.get("delta", "")
+    if not delta:
+        return None
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.TURN_STREAM_THINKING,
+        payload=TurnStreamThinkingPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            delta=delta,
+            session_id=ctx.session_id,
+        ),
+    )
+
+
+def _build_tool_start_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    arguments = _coerce_tool_arguments(event.get("args"))
+    surface, summary = _tool_presentation_from_event(
+        tool_name=event.get("tool", ""),
+        arguments=arguments,
+        surface=event.get("surface"),
+        summary=event.get("summary"),
+    )
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.TURN_STREAM_TOOL_START,
+        payload=TurnStreamToolStartPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            tool_name=event.get("tool", ""),
+            tool_call_id=event.get("tool_call_id"),
+            arguments=arguments,
+            surface=surface,
+            summary=summary,
+            session_id=ctx.session_id,
+        ),
+    )
+
+
+def _build_tool_result_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    result_text = event.get("result") or event.get("error") or ""
+    arguments = _coerce_tool_arguments(event.get("args"))
+    surface, summary = _tool_presentation_from_event(
+        tool_name=event.get("tool", ""),
+        arguments=arguments,
+        result=event.get("result"),
+        envelope=event.get("envelope"),
+        error=event.get("error"),
+        surface=event.get("surface"),
+        summary=event.get("summary"),
+    )
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.TURN_STREAM_TOOL_RESULT,
+        payload=TurnStreamToolResultPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            tool_name=event.get("tool", ""),
+            tool_call_id=event.get("tool_call_id"),
+            result_summary=str(result_text)[:500],
+            is_error=bool(event.get("error")),
+            envelope=event.get("envelope"),
+            surface=surface,
+            summary=summary,
+            session_id=ctx.session_id,
+        ),
+    )
+
+
+def _build_approval_requested_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.APPROVAL_REQUESTED,
+        payload=ApprovalRequestedPayload(
+            approval_id=event.get("approval_id", ""),
+            bot_id=ctx.bot_id,
+            tool_name=event.get("tool", ""),
+            arguments=_coerce_tool_arguments(event.get("args")),
+            reason=event.get("reason"),
+            turn_id=ctx.turn_id,
+            session_id=ctx.session_id,
+            tool_type=event.get("tool_type"),
+        ),
+    )
+
+
+def _build_approval_resolved_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.APPROVAL_RESOLVED,
+        payload=ApprovalResolvedPayload(
+            approval_id=event.get("approval_id", ""),
+            decision=event.get("verdict") or event.get("decision") or "",
+            session_id=ctx.session_id,
+        ),
+    )
+
+
+def _build_context_budget_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    try:
+        utilization = float(event.get("utilization") or 0)
+    except (TypeError, ValueError):
+        utilization = 0.0
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.CONTEXT_BUDGET,
+        payload=ContextBudgetPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            consumed_tokens=int(event.get("consumed_tokens") or 0),
+            total_tokens=int(event.get("total_tokens") or 0),
+            utilization=utilization,
+            session_id=ctx.session_id,
+            model=str(event.get("model") or ""),
+            context_profile=event.get("context_profile"),
+            context_origin=event.get("context_origin"),
+            live_history_turns=event.get("live_history_turns"),
+            available_budget=int(event.get("available_budget") or 0),
+            live_history_tokens=int(event.get("live_history_tokens") or 0),
+            live_history_utilization=float(event.get("live_history_utilization") or 0),
+            base_tokens=int(event.get("base_tokens") or 0),
+            static_injection_tokens=int(event.get("static_injection_tokens") or 0),
+            tool_schema_tokens=int(event.get("tool_schema_tokens") or 0),
+            mandatory_static_injections=event.get("mandatory_static_injections") or [],
+            optional_static_injections=event.get("optional_static_injections") or [],
+        ),
+    )
+
+
+def _build_memory_scheme_bootstrap_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP,
+        payload=MemorySchemeBootstrapPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            scheme=str(event.get("scheme") or event.get("memory_scheme") or ""),
+            files_loaded=int(event.get("files_loaded") or 0),
+        ),
+    )
+
+
+def _build_llm_status_event(event: dict, ctx: _EmitContext) -> ChannelEvent | None:
+    etype = event.get("type")
+    if etype == "llm_retry":
+        payload = LlmStatusPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            status="retry",
+            model=str(event.get("model", "")),
+            reason=str(event.get("reason", "")),
+            attempt=int(event.get("attempt", 0)),
+            max_retries=int(event.get("max_retries", 0)),
+            wait_seconds=float(event.get("wait_seconds", 0)),
+        )
+    elif etype == "llm_fallback":
+        payload = LlmStatusPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            status="fallback",
+            model=str(event.get("from_model", "")),
+            reason=str(event.get("reason", "")),
+            fallback_model=str(event.get("to_model", "")),
+        )
+    elif etype == "llm_cooldown_skip":
+        payload = LlmStatusPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            status="cooldown_skip",
+            model=str(event.get("model", "")),
+            fallback_model=str(event.get("using", "")),
+        )
+    elif etype == "llm_error":
+        payload = LlmStatusPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            status="error",
+            model=str(event.get("model", "")),
+            reason=str(event.get("reason", "")),
+            error=str(event.get("error", "")),
+        )
+    else:
+        return None
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.LLM_STATUS,
+        payload=payload,
+    )
+
+
+def _build_skill_auto_inject_event(event: dict, ctx: _EmitContext) -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=ctx.channel_id,
+        kind=ChannelEventKind.SKILL_AUTO_INJECT,
+        payload=SkillAutoInjectPayload(
+            bot_id=ctx.bot_id,
+            turn_id=ctx.turn_id,
+            skill_id=str(event.get("skill_id", "")),
+            skill_name=str(event.get("skill_name", "")),
+            similarity=float(event.get("similarity") or 0.0),
+            source=str(event.get("source", "")),
+        ),
+    )
+
+
+def _typed_event_from_run_stream_event(event: dict, ctx: _EmitContext) -> ChannelEvent | None:
+    etype = event.get("type")
+    if etype == "text_delta":
+        return _build_text_delta_event(event, ctx)
+    if etype == "thinking":
+        return _build_thinking_event(event, ctx)
+    if etype == "tool_start":
+        return _build_tool_start_event(event, ctx)
+    if etype == "tool_result":
+        return _build_tool_result_event(event, ctx)
+    if etype == "approval_request":
+        return _build_approval_requested_event(event, ctx)
+    if etype == "approval_resolved":
+        return _build_approval_resolved_event(event, ctx)
+    if etype == "context_budget":
+        return _build_context_budget_event(event, ctx)
+    if etype == "memory_scheme_bootstrap":
+        return _build_memory_scheme_bootstrap_event(event, ctx)
+    if etype in {"llm_retry", "llm_fallback", "llm_cooldown_skip", "llm_error"}:
+        return _build_llm_status_event(event, ctx)
+    if etype == "auto_inject":
+        return _build_skill_auto_inject_event(event, ctx)
+    return None
+
+
 async def emit_run_stream_events(
     run_stream_iter: AsyncIterator[dict],
     *,
@@ -125,289 +378,14 @@ async def emit_run_stream_events(
     already emitted, so rebroadcasting would double-append in the UI.
     ``TURN_STARTED`` and ``TURN_ENDED`` are the caller's responsibility.
     """
+    ctx = _EmitContext(
+        channel_id=channel_id,
+        bot_id=bot_id,
+        turn_id=turn_id,
+        session_id=session_id,
+    )
     async for event in run_stream_iter:
-        etype = event.get("type")
-
-        if etype == "text_delta":
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.TURN_STREAM_TOKEN,
-                    payload=TurnStreamTokenPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        delta=event.get("delta", ""),
-                        session_id=session_id,
-                    ),
-                ),
-            )
-
-        # Reasoning deltas: `thinking` carries incremental reasoning text from
-        # providers that stream it (OpenAI Responses summary stream, Anthropic
-        # thinking_delta, DeepSeek <think> blocks). Without this publish the
-        # deltas reach the run-stream consumer but never cross the bus, so the
-        # web UI's thinking panel stays empty even when the provider is
-        # emitting summaries. The trailing `thinking_content` event
-        # (`app/agent/loop.py:757`) replays the same accumulated text, so we
-        # deliberately skip that one on the bus to avoid double-appending.
-        elif etype == "thinking":
-            delta = event.get("delta", "")
-            if delta:
-                publish_typed(
-                    channel_id,
-                    ChannelEvent(
-                        channel_id=channel_id,
-                        kind=ChannelEventKind.TURN_STREAM_THINKING,
-                        payload=TurnStreamThinkingPayload(
-                            bot_id=bot_id,
-                            turn_id=turn_id,
-                            delta=delta,
-                            session_id=session_id,
-                        ),
-                    ),
-                )
-
-        elif etype == "tool_start":
-            _arguments = _coerce_tool_arguments(event.get("args"))
-            _surface, _summary = _tool_presentation_from_event(
-                tool_name=event.get("tool", ""),
-                arguments=_arguments,
-                surface=event.get("surface"),
-                summary=event.get("summary"),
-            )
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.TURN_STREAM_TOOL_START,
-                    payload=TurnStreamToolStartPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        tool_name=event.get("tool", ""),
-                        tool_call_id=event.get("tool_call_id"),
-                        arguments=_arguments,
-                        surface=_surface,
-                        summary=_summary,
-                        session_id=session_id,
-                    ),
-                ),
-            )
-
-        elif etype == "tool_result":
-            _result_text = event.get("result") or event.get("error") or ""
-            _arguments = _coerce_tool_arguments(event.get("args"))
-            _surface, _summary = _tool_presentation_from_event(
-                tool_name=event.get("tool", ""),
-                arguments=_arguments,
-                result=event.get("result"),
-                envelope=event.get("envelope"),
-                error=event.get("error"),
-                surface=event.get("surface"),
-                summary=event.get("summary"),
-            )
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.TURN_STREAM_TOOL_RESULT,
-                    payload=TurnStreamToolResultPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        tool_name=event.get("tool", ""),
-                        tool_call_id=event.get("tool_call_id"),
-                        result_summary=str(_result_text)[:500],
-                        is_error=bool(event.get("error")),
-                        envelope=event.get("envelope"),
-                        surface=_surface,
-                        summary=_summary,
-                        session_id=session_id,
-                    ),
-                ),
-            )
-
-        elif etype == "approval_request":
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.APPROVAL_REQUESTED,
-                    payload=ApprovalRequestedPayload(
-                        approval_id=event.get("approval_id", ""),
-                        bot_id=bot_id,
-                        tool_name=event.get("tool", ""),
-                        arguments=_coerce_tool_arguments(event.get("args")),
-                        reason=event.get("reason"),
-                        turn_id=turn_id,
-                        session_id=session_id,
-                        tool_type=event.get("tool_type"),
-                    ),
-                ),
-            )
-
-        elif etype == "approval_resolved":
-            # `app/agent/loop.py:1049,1190` yields the legacy event with the
-            # old field name ``verdict``; the typed payload uses ``decision``.
-            # Translate on the way into the bus so downstream consumers see a
-            # consistent ``decision`` string.
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.APPROVAL_RESOLVED,
-                    payload=ApprovalResolvedPayload(
-                        approval_id=event.get("approval_id", ""),
-                        decision=event.get("verdict") or event.get("decision") or "",
-                        session_id=session_id,
-                    ),
-                ),
-            )
-
-        elif etype == "context_budget":
-            # Untyped metadata event yielded by `app/agent/loop.py` after
-            # context assembly (~line 1522). Publishes a typed snapshot so
-            # the UI can render budget bars and E2E tests can assert on the
-            # stream. Pre-session-16 this was streamed via the legacy SSE
-            # long-poll; after Phase E removed that path, the event never
-            # reached subscribers without an explicit typed bridge.
-            try:
-                util = float(event.get("utilization") or 0)
-            except (TypeError, ValueError):
-                util = 0.0
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.CONTEXT_BUDGET,
-                    payload=ContextBudgetPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        consumed_tokens=int(event.get("consumed_tokens") or 0),
-                        total_tokens=int(event.get("total_tokens") or 0),
-                        utilization=util,
-                        session_id=session_id,
-                        model=str(event.get("model") or ""),
-                        context_profile=event.get("context_profile"),
-                        context_origin=event.get("context_origin"),
-                        live_history_turns=event.get("live_history_turns"),
-                        available_budget=int(event.get("available_budget") or 0),
-                        live_history_tokens=int(event.get("live_history_tokens") or 0),
-                        live_history_utilization=float(event.get("live_history_utilization") or 0),
-                        base_tokens=int(event.get("base_tokens") or 0),
-                        static_injection_tokens=int(event.get("static_injection_tokens") or 0),
-                        tool_schema_tokens=int(event.get("tool_schema_tokens") or 0),
-                        mandatory_static_injections=event.get("mandatory_static_injections") or [],
-                        optional_static_injections=event.get("optional_static_injections") or [],
-                    ),
-                ),
-            )
-
-        elif etype == "memory_scheme_bootstrap":
-            # Same story as context_budget — bridged onto the typed bus so
-            # the stream surfaces "memory bootstrap fired" for the UI +
-            # tests after Phase E killed the SSE long-poll forwarder.
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP,
-                    payload=MemorySchemeBootstrapPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        scheme=str(event.get("scheme") or event.get("memory_scheme") or ""),
-                        files_loaded=int(event.get("files_loaded") or 0),
-                    ),
-                ),
-            )
-
-        elif etype == "llm_retry":
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.LLM_STATUS,
-                    payload=LlmStatusPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        status="retry",
-                        model=str(event.get("model", "")),
-                        reason=str(event.get("reason", "")),
-                        attempt=int(event.get("attempt", 0)),
-                        max_retries=int(event.get("max_retries", 0)),
-                        wait_seconds=float(event.get("wait_seconds", 0)),
-                    ),
-                ),
-            )
-
-        elif etype == "llm_fallback":
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.LLM_STATUS,
-                    payload=LlmStatusPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        status="fallback",
-                        model=str(event.get("from_model", "")),
-                        reason=str(event.get("reason", "")),
-                        fallback_model=str(event.get("to_model", "")),
-                    ),
-                ),
-            )
-
-        elif etype == "llm_cooldown_skip":
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.LLM_STATUS,
-                    payload=LlmStatusPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        status="cooldown_skip",
-                        model=str(event.get("model", "")),
-                        fallback_model=str(event.get("using", "")),
-                    ),
-                ),
-            )
-
-        elif etype == "llm_error":
-            # Terminal failure from the fallback chain — all models tried,
-            # none succeeded. Publishing gets the error into the UI's live
-            # LLM-status chip alongside the trace record emitted by
-            # ``app/agent/loop.py``.
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.LLM_STATUS,
-                    payload=LlmStatusPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        status="error",
-                        model=str(event.get("model", "")),
-                        reason=str(event.get("reason", "")),
-                        error=str(event.get("error", "")),
-                    ),
-                ),
-            )
-
-        elif etype == "auto_inject":
-            publish_typed(
-                channel_id,
-                ChannelEvent(
-                    channel_id=channel_id,
-                    kind=ChannelEventKind.SKILL_AUTO_INJECT,
-                    payload=SkillAutoInjectPayload(
-                        bot_id=bot_id,
-                        turn_id=turn_id,
-                        skill_id=str(event.get("skill_id", "")),
-                        skill_name=str(event.get("skill_name", "")),
-                        similarity=float(event.get("similarity") or 0.0),
-                        source=str(event.get("source", "")),
-                    ),
-                ),
-            )
-
+        typed_event = _typed_event_from_run_stream_event(event, ctx)
+        if typed_event is not None:
+            publish_typed(channel_id, typed_event)
         yield event

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import verify_admin_auth
 
-from . import api_keys, attachments, bot_grants, bots, channel_pipelines, channels, config_state, diagnostics, docker_stacks, docs, fallbacks, harnesses, health, install_cache, integrations, learning, limits, logs, machines, mcp_servers, models, notification_targets, openai_oauth, operations, prompts, providers, secret_values, security_audit, settings, skills, spike_alerts, stats, storage, tasks, tools, turns, upcoming, usage, webhooks, widget_packages, widget_themes, workflows
+from . import api_keys, attachments, bot_grants, bots, channel_pipelines, channels, config_state, diagnostics, docker_stacks, docs, fallbacks, harnesses, health, install_cache, integrations, learning, limits, logs, machines, mcp_servers, models, notification_targets, openai_oauth, operations, prompts, providers, run_presets, secret_values, security_audit, settings, skills, spike_alerts, stats, storage, tasks, tools, turns, upcoming, usage, webhooks, widget_packages, widget_themes, workflows
 
 router = APIRouter(prefix="/admin", tags=["Admin API"], dependencies=[Depends(verify_admin_auth)])
 
@@ -19,6 +19,7 @@ router.include_router(bot_grants.router)
 router.include_router(channels.router)
 router.include_router(channel_pipelines.router)
 router.include_router(tasks.router)
+router.include_router(run_presets.router)
 router.include_router(skills.router)
 router.include_router(providers.router)
 router.include_router(openai_oauth.router)

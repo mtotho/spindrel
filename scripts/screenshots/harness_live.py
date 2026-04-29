@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import fnmatch
 import json
 import os
@@ -160,35 +161,38 @@ async def _capture_one(
         viewport={"width": spec.viewport[0], "height": spec.viewport[1]},
         color_scheme=spec.theme,
     )
-    await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
-    page: Page = await context.new_page()
-    await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
-    if spec.slash_query:
-        editor = page.locator(".tiptap-chat-input [contenteditable='true']").last
-        await editor.wait_for(state="visible", timeout=60_000)
-        await editor.click()
-        await page.keyboard.type(spec.slash_query)
-    await page.wait_for_function(spec.wait_js, timeout=60_000)
-    if spec.click_selector:
-        target = page.locator(spec.click_selector).first
-        await target.wait_for(state="visible", timeout=60_000)
-        await target.click()
-        if spec.after_click_wait_js:
-            await page.wait_for_function(spec.after_click_wait_js, timeout=60_000)
-    await page.wait_for_timeout(750)
-    text = await page.locator("body").inner_text(timeout=5_000)
-    lower = text.lower()
-    missing = [needle for needle in spec.contains if needle.lower() not in lower]
-    if missing:
-        raise AssertionError(f"{spec.name}: missing visible text {missing!r}")
-    forbidden = [needle for needle in spec.not_contains if needle.lower() in lower]
-    if forbidden:
-        raise AssertionError(f"{spec.name}: unexpected visible text {forbidden!r}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"{spec.name}.png"
-    await page.screenshot(path=str(path), full_page=False)
-    await context.close()
-    return path
+    try:
+        await context.add_init_script(_auth_init_script(api_url=browser_api_url, api_key=api_key, theme=spec.theme))
+        page: Page = await context.new_page()
+        await page.goto(spec.route, wait_until="domcontentloaded", timeout=45_000)
+        if spec.slash_query:
+            editor = page.locator(".tiptap-chat-input [contenteditable='true']").last
+            await editor.wait_for(state="visible", timeout=60_000)
+            await editor.click()
+            await page.keyboard.type(spec.slash_query)
+        await page.wait_for_function(spec.wait_js, timeout=60_000)
+        if spec.click_selector:
+            target = page.locator(spec.click_selector).first
+            await target.wait_for(state="visible", timeout=60_000)
+            await target.click()
+            if spec.after_click_wait_js:
+                await page.wait_for_function(spec.after_click_wait_js, timeout=60_000)
+        await page.wait_for_timeout(750)
+        text = await page.locator("body").inner_text(timeout=5_000)
+        lower = text.lower()
+        missing = [needle for needle in spec.contains if needle.lower() not in lower]
+        if missing:
+            raise AssertionError(f"{spec.name}: missing visible text {missing!r}")
+        forbidden = [needle for needle in spec.not_contains if needle.lower() in lower]
+        if forbidden:
+            raise AssertionError(f"{spec.name}: unexpected visible text {forbidden!r}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f"{spec.name}.png"
+        await page.screenshot(path=str(path), full_page=False)
+        return path
+    finally:
+        with contextlib.suppress(Exception):
+            await context.close()
 
 
 def _question_specs(ui_url: str, channel_id: str) -> list[CaptureSpec]:
@@ -459,6 +463,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         specs = _filter_specs(specs, args.only)
 
         paths: list[Path] = []
+        failures: list[tuple[str, str]] = []
         async with async_playwright() as pw:
             browser = await launch_async_browser(pw, headless=True)
             try:
@@ -471,13 +476,22 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                             f"/api/v1/channels/{spec.channel_id}/config",
                             json={"chat_mode": spec.chat_mode},
                         )
-                    path = await _capture_one(
-                        browser,
-                        spec,
-                        browser_api_url=browser_api_url,
-                        api_key=api_key,
-                        output_dir=output_dir,
-                    )
+                    try:
+                        path = await _capture_one(
+                            browser,
+                            spec,
+                            browser_api_url=browser_api_url,
+                            api_key=api_key,
+                            output_dir=output_dir,
+                        )
+                    except Exception as exc:
+                        message = f"{type(exc).__name__}: {exc}"
+                        print(f"failed {spec.name}: {message}", flush=True)
+                        failures.append((spec.name, message))
+                        is_connected = getattr(browser, "is_connected", None)
+                        if callable(is_connected) and not is_connected():
+                            browser = await launch_async_browser(pw, headless=True)
+                        continue
                     print(f"captured {spec.name}: {path}", flush=True)
                     paths.append(path)
             finally:
@@ -489,6 +503,9 @@ async def capture(args: argparse.Namespace) -> list[Path]:
                         f"/api/v1/channels/{channel_id}/config",
                         json={"chat_mode": config.get("chat_mode") or "default"},
                     )
+            if failures:
+                summary = "; ".join(f"{name}: {message}" for name, message in failures)
+                raise SystemExit(f"{len(failures)} harness screenshot capture(s) failed: {summary}")
         return paths
 
 

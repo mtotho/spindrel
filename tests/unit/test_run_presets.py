@@ -1,0 +1,47 @@
+from app.services.run_presets import (
+    get_run_preset,
+    list_run_presets,
+    serialize_run_preset,
+)
+
+
+def test_widget_improvement_healthcheck_defaults_to_normal_channel_task_payload():
+    preset = get_run_preset("widget_improvement_healthcheck")
+
+    assert preset is not None
+    payload = serialize_run_preset(preset)
+    defaults = payload["task_defaults"]
+
+    assert payload["surface"] == "channel_task"
+    assert defaults["title"] == "Widget Improvement Healthcheck"
+    assert defaults["scheduled_at"] == "+1h"
+    assert defaults["recurrence"] == "+1w"
+    assert defaults["task_type"] == "scheduled"
+    assert defaults["trigger_config"] == {"type": "schedule"}
+    assert defaults["history_mode"] == "recent"
+    assert defaults["history_recent_count"] == 30
+    assert defaults["post_final_to_channel"] is False
+    assert defaults["skip_tool_approval"] is False
+    assert defaults["skills"] == [
+        "widgets",
+        "widgets/errors",
+        "widgets/channel_dashboards",
+    ]
+    assert defaults["tools"] == [
+        "describe_dashboard",
+        "check_dashboard_widgets",
+        "check_widget",
+        "inspect_widget_pin",
+    ]
+    assert "No actionable widget findings." in defaults["prompt"]
+
+
+def test_list_run_presets_can_filter_by_surface():
+    assert [preset.id for preset in list_run_presets("channel_task")] == [
+        "widget_improvement_healthcheck"
+    ]
+    assert list_run_presets("missing_surface") == []
+
+
+def test_unknown_run_preset_returns_none():
+    assert get_run_preset("missing") is None
