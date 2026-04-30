@@ -89,7 +89,7 @@ test("dashboard camera never zooms past current dashboard scale", () => {
 test("dashboard camera supports deep zoom-out before spatial handoff CTA", () => {
   const camera = clampDashboardCamera({ x: 1, y: 2, scale: 0.01 });
 
-  assert.equal(camera.scale, 0.14);
+  assert.equal(camera.scale, 0.08);
 });
 
 test("neighbor ghosts stay outside the guided dashboard frame", () => {

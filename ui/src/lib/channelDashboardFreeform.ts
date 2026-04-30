@@ -2,9 +2,9 @@ import type { ChatZone, GridLayoutItem } from "@/src/types/api";
 import type { GridPreset, GridPresetId } from "@/src/lib/dashboardGrid";
 
 export const FREEFORM_CANVAS_MODE = "freeform_v1";
-export const DASHBOARD_CAMERA_MIN_SCALE = 0.14;
+export const DASHBOARD_CAMERA_MIN_SCALE = 0.08;
 export const DASHBOARD_CAMERA_MAX_SCALE = 1;
-export const DASHBOARD_CAMERA_EXIT_SCALE = 0.18;
+export const DASHBOARD_CAMERA_EXIT_SCALE = 0.1;
 export const DASHBOARD_CANVAS_GAP = 12;
 export const DASHBOARD_SIDE_RAIL_WIDTH = 260;
 export const DASHBOARD_HEADER_ROW_HEIGHT = 36;
@@ -358,7 +358,7 @@ export function placeDashboardNeighborGhosts(
       Math.abs(ux) > 0.001 ? halfW / Math.abs(ux) : Number.POSITIVE_INFINITY,
       Math.abs(uy) > 0.001 ? halfH / Math.abs(uy) : Number.POSITIVE_INFINITY,
     );
-    const lane = 360 + (index % 3) * 120;
+    const lane = 720 + (index % 4) * 170;
     return {
       id: neighbor.id,
       channelId: neighbor.channelId,

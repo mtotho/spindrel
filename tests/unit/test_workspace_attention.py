@@ -1272,46 +1272,57 @@ async def test_structured_detector_surfaces_repeated_noisy_file_tool_error(db_se
 
 
 @pytest.mark.parametrize(
-    "tool_name,error_text,repeated,error_kind,expected",
+    "tool_name,error_text,repeated,error_kind,retryable,expected",
     [
-        # Benign 4xx-shaped domain rejection — suppressed when one-off.
-        ("invoke_widget_action", "Cell already occupied", 1, "validation",
-         (False, "benign_domain", "info")),
-        ("invoke_widget_action", "row not found", 1, "not_found",
-         (False, "benign_domain", "info")),
-        ("invoke_widget_action", "state conflict", 2, "conflict",
-         (False, "benign_domain", "info")),
-        # Benign domain repeated ≥ 3 times — surface as warning, not critical.
-        ("invoke_widget_action", "Cell already occupied", 3, "validation",
-         (True, "repeated_domain", "warning")),
-        ("invoke_widget_action", "Cell already occupied", 10, "validation",
-         (True, "repeated_domain", "warning")),
-        # Severe regex match wins over kind — real crashes still page.
-        ("anything", "Traceback (most recent call last)", 1, "validation",
-         (True, "severe", "critical")),
-        ("anything", "permission denied", 1, "internal",
+        # Benign contract kinds are suppressed when one-off.
+        ("invoke_widget_action", "Cell already occupied", 1, "validation", None,
+         (False, "benign_contract", "info")),
+        ("invoke_widget_action", "row not found", 1, "not_found", None,
+         (False, "benign_contract", "info")),
+        ("invoke_widget_action", "state conflict", 2, "conflict", None,
+         (False, "benign_contract", "info")),
+        ("call_api", "API grants not configured", 1, "config_missing", None,
+         (False, "benign_contract", "info")),
+        ("exec_tool", "approval required", 1, "approval_required", None,
+         (False, "benign_contract", "info")),
+        # Contract kind wins over legacy severe-text heuristics.
+        ("call_api", "missing required field: body", 1, "validation", None,
+         (False, "benign_contract", "info")),
+        # Benign contract failures repeated ≥ 3 times surface as warning.
+        ("invoke_widget_action", "Cell already occupied", 3, "validation", None,
+         (True, "repeated_benign_contract", "warning")),
+        ("invoke_widget_action", "Cell already occupied", 10, "validation", None,
+         (True, "repeated_benign_contract", "warning")),
+        # Retryable contract failures are visible, but not critical.
+        ("call_api", "upstream 429", 1, "rate_limited", True,
+         (True, "retryable_contract", "warning")),
+        ("slow_tool", "timed out", 1, "timeout", True,
+         (True, "retryable_contract", "warning")),
+        # Internal contract failures are platform/tool bugs.
+        ("anything", "permission denied", 1, "internal", None,
+         (True, "platform_contract", "critical")),
+        # Severe regex only handles unknown/uncontracted failures.
+        ("anything", "Traceback (most recent call last)", 1, None, None,
          (True, "severe", "critical")),
         # Repeated non-domain failures — critical.
-        ("custom_tool", "weird state", 3, None,
+        ("custom_tool", "weird state", 3, None, None,
          (True, "repeated", "critical")),
         # Noisy file-tool single failure — suppressed.
-        ("read_file", "No such file", 1, None,
+        ("read_file", "No such file", 1, None, None,
          (False, "suppressed_noisy_file_tool", "info")),
         # Default — system error pages.
-        ("custom_tool", "weird state", 1, "internal",
-         (True, "default", "critical")),
-        ("custom_tool", "weird state", 1, None,
+        ("custom_tool", "weird state", 1, None, None,
          (True, "default", "critical")),
         # Unknown error_kind falls through to default branch.
-        ("custom_tool", "weird state", 1, "made_up_kind",
+        ("custom_tool", "weird state", 1, "made_up_kind", None,
          (True, "default", "critical")),
     ],
 )
 def test_tool_attention_classification_matrix(
-    tool_name, error_text, repeated, error_kind, expected,
+    tool_name, error_text, repeated, error_kind, retryable, expected,
 ):
     assert _tool_attention_classification(
-        tool_name, error_text, repeated, error_kind=error_kind,
+        tool_name, error_text, repeated, error_kind=error_kind, retryable=retryable,
     ) == expected
 
 
@@ -1376,7 +1387,7 @@ async def test_structured_detector_surfaces_repeated_benign_domain_as_warning(db
     item = admin_visible[0]
     assert item.title == "invoke_widget_action failed"
     assert item.severity == "warning"
-    assert item.evidence.get("classification") == "repeated_domain"
+    assert item.evidence.get("classification") == "repeated_benign_contract"
     assert item.evidence.get("error_kind") == "validation"
 
 
@@ -1408,4 +1419,44 @@ async def test_structured_detector_keeps_internal_errors_critical(db_session):
 
     assert created == 1
     assert admin_visible[0].severity == "critical"
-    assert admin_visible[0].evidence.get("classification") == "default"
+    assert admin_visible[0].evidence.get("classification") == "platform_contract"
+
+
+@pytest.mark.asyncio
+async def test_structured_detector_uses_contract_fields_for_review_evidence(db_session):
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Ops", bot_id="bot-a", client_id="ops"))
+    db_session.add(Session(id=session_id, client_id="ops", bot_id="bot-a", channel_id=channel_id))
+    db_session.add(ToolCall(
+        session_id=session_id,
+        bot_id="bot-a",
+        tool_name="call_api",
+        tool_type="local",
+        status="error",
+        error="HTTP 429",
+        error_code="http_429",
+        error_kind="rate_limited",
+        retryable=True,
+        retry_after_seconds=30,
+        fallback="Wait for retry_after_seconds when provided, then retry with backoff.",
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    created = await detect_structured_attention_once(db_session)
+    admin_visible = await list_attention_items(
+        db_session,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["admin"], name="admin-key"),
+    )
+
+    assert created == 1
+    item = admin_visible[0]
+    assert item.severity == "warning"
+    assert item.next_steps == ["Wait for retry_after_seconds when provided, then retry with backoff."]
+    assert item.evidence.get("classification") == "retryable_contract"
+    assert item.evidence.get("error_code") == "http_429"
+    assert item.evidence.get("error_kind") == "rate_limited"
+    assert item.evidence.get("retryable") is True
+    assert item.evidence.get("retry_after_seconds") == 30
+    assert item.evidence.get("fallback") == "Wait for retry_after_seconds when provided, then retry with backoff."

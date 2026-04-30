@@ -41,19 +41,20 @@ from app.tools.registry import register
     },
 }, safety_tier="readonly", requires_bot_context=True, returns={
     "type": "object",
-    "properties": {
-        "schema_version": {"type": "string"},
-        "context": {"type": "object"},
-        "api": {"type": "object"},
-        "tool_error_contract": {"type": "object"},
-        "tools": {"type": "object"},
-        "skills": {"type": "object"},
-        "project": {"type": "object"},
-        "runtime_context": {"type": "object"},
-        "work_state": {"type": "object"},
-        "coding_run": {"type": "object"},
-        "harness": {"type": "object"},
-        "widgets": {"type": "object"},
+        "properties": {
+            "schema_version": {"type": "string"},
+            "context": {"type": "object"},
+            "api": {"type": "object"},
+            "tool_error_contract": {"type": "object"},
+            "tools": {"type": "object"},
+            "skills": {"type": "object"},
+            "project": {"type": "object"},
+            "runtime_context": {"type": "object"},
+            "work_state": {"type": "object"},
+            "activity_log": {"type": "object"},
+            "coding_run": {"type": "object"},
+            "harness": {"type": "object"},
+            "widgets": {"type": "object"},
         "doctor": {"type": "object"},
         "error": {"type": "string"},
     },
@@ -178,6 +179,81 @@ async def get_agent_work_snapshot(max_items: int = 10) -> str:
                 "session_id": str(session_id) if session_id else None,
             },
             "work_state": work_state,
+        },
+        ensure_ascii=False,
+    )
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_agent_activity_log",
+        "description": (
+            "Return this agent's recent replayable activity across tool calls, Attention, Mission updates, "
+            "Project run receipts, and widget receipts. Use this to reconstruct what happened before "
+            "continuing work, summarizing progress, or debugging a failure."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["tool_call", "attention", "mission_update", "project_receipt", "widget_receipt"],
+                    "description": "Optional activity kind filter.",
+                },
+                "max_items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Maximum activity items to return. Defaults 20.",
+                },
+                "current_session_only": {
+                    "type": "boolean",
+                    "description": "When true, restrict replay to the current session. Defaults false so handoffs can see recent channel work.",
+                },
+            },
+        },
+    },
+}, safety_tier="readonly", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "context": {"type": "object"},
+        "items": {"type": "array", "items": {"type": "object"}},
+        "supported_kinds": {"type": "array", "items": {"type": "string"}},
+        "error": {"type": "string"},
+    },
+    "required": ["context", "items", "supported_kinds"],
+})
+async def get_agent_activity_log(
+    kind: str | None = None,
+    max_items: int = 20,
+    current_session_only: bool = False,
+) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+    channel_id = current_channel_id.get()
+    session_id = current_session_id.get() if current_session_only else None
+    async with async_session() as db:
+        from app.services.agent_activity import AGENT_ACTIVITY_KINDS, list_agent_activity
+
+        items = await list_agent_activity(
+            db,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            session_id=session_id,
+            kind=kind,
+            limit=max(1, min(int(max_items or 20), 100)),
+        )
+    return json.dumps(
+        {
+            "context": {
+                "bot_id": bot_id,
+                "channel_id": str(channel_id) if channel_id else None,
+                "session_id": str(session_id) if session_id else None,
+            },
+            "supported_kinds": list(AGENT_ACTIVITY_KINDS),
+            "items": items,
         },
         ensure_ascii=False,
     )

@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import ApiKey, Bot, WidgetDashboard, WidgetDashboardPin, WidgetInstance
+from app.db.models import ApiKey, Bot, WidgetDashboard, WidgetDashboardPin, WidgetInstance, WorkspaceSpatialNode
 from app.services.dashboard_grid import (
     DEFAULT_PRESET,
     default_grid_layout as _manifest_default_grid_layout,
@@ -640,6 +640,84 @@ async def _register_pin_post_commit_hooks(
         logger.exception("register_pin_events failed for pin %s", pin.id)
 
 
+async def _ensure_channel_pin_spatial_projection(
+    db: AsyncSession,
+    pin: WidgetDashboardPin,
+) -> None:
+    """Channel dashboard -> Spatial Canvas projection.
+
+    Channel-associated widgets should read as one user-facing object across
+    the channel dashboard and workspace map. Internally they remain two pin
+    rows because the Spatial Canvas stores widget nodes through the reserved
+    ``workspace:spatial`` dashboard.
+    """
+    from app.services.dashboards import is_channel_slug
+
+    if not is_channel_slug(pin.dashboard_key) or pin.source_channel_id is None:
+        return
+    origin = pin.widget_origin or {}
+    if isinstance(origin, dict) and origin.get("source_spatial_pin_id"):
+        return
+    from app.services.workspace_spatial import pin_dashboard_pin_to_canvas
+
+    await pin_dashboard_pin_to_canvas(db, source_dashboard_pin_id=pin.id)
+
+
+async def _delete_linked_channel_spatial_rows(
+    db: AsyncSession,
+    pin: WidgetDashboardPin,
+) -> None:
+    """Delete paired rows for channel-dashboard/spatial projections.
+
+    This is intentionally internal and direct so delete flows can opt out
+    during recursive paired cleanup without bouncing through public service
+    functions forever.
+    """
+    from app.services.dashboards import WORKSPACE_SPATIAL_DASHBOARD_KEY, is_channel_slug
+
+    if is_channel_slug(pin.dashboard_key):
+        rows = (
+            await db.execute(
+                select(WidgetDashboardPin, WorkspaceSpatialNode)
+                .join(
+                    WorkspaceSpatialNode,
+                    WorkspaceSpatialNode.widget_pin_id == WidgetDashboardPin.id,
+                )
+                .where(WidgetDashboardPin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY)
+            )
+        ).all()
+        for spatial_pin, node in rows:
+            origin = spatial_pin.widget_origin or {}
+            if isinstance(origin, dict) and origin.get("source_dashboard_pin_id") == str(pin.id):
+                await db.delete(node)
+                await db.delete(spatial_pin)
+        return
+
+    if pin.dashboard_key != WORKSPACE_SPATIAL_DASHBOARD_KEY:
+        return
+
+    origin = pin.widget_origin or {}
+    source_dashboard_pin_id = origin.get("source_dashboard_pin_id") if isinstance(origin, dict) else None
+    source_spatial_pin_id = str(pin.id)
+
+    channel_rows = (
+        await db.execute(
+            select(WidgetDashboardPin).where(
+                WidgetDashboardPin.dashboard_key.like("channel:%"),
+            )
+        )
+    ).scalars().all()
+    for channel_pin in channel_rows:
+        channel_origin = channel_pin.widget_origin or {}
+        if not isinstance(channel_origin, dict):
+            continue
+        if source_dashboard_pin_id and str(channel_pin.id) == source_dashboard_pin_id:
+            await db.delete(channel_pin)
+            continue
+        if channel_origin.get("source_spatial_pin_id") == source_spatial_pin_id:
+            await db.delete(channel_pin)
+
+
 async def create_pin(
     db: AsyncSession,
     *,
@@ -720,6 +798,7 @@ async def create_pin(
         return pin
 
     await _register_pin_post_commit_hooks(db, pin)
+    await _ensure_channel_pin_spatial_projection(db, pin)
     return pin
 
 
@@ -865,6 +944,7 @@ async def delete_pin(
     pin_id: uuid.UUID,
     *,
     delete_bundle_data: bool = False,
+    delete_linked_projection: bool = True,
 ) -> dict:
     """Delete a dashboard pin.
 
@@ -903,6 +983,9 @@ async def delete_pin(
         await unregister_pin_events(db, pin_id)
     except Exception:
         logger.exception("unregister_pin_events failed for pin %s", pin_id)
+
+    if delete_linked_projection:
+        await _delete_linked_channel_spatial_rows(db, pin)
 
     await db.delete(pin)
     await db.flush()

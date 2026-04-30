@@ -14,6 +14,11 @@ export interface ToolCallItem {
   arguments: Record<string, any>;
   result: string | null;
   error: string | null;
+  error_code: string | null;
+  error_kind: string | null;
+  retryable: boolean | null;
+  retry_after_seconds: number | null;
+  fallback: string | null;
   duration_ms: number | null;
   correlation_id: string | null;
   created_at: string;
@@ -38,6 +43,8 @@ export interface ToolCallFilters {
   tool_type?: string;
   session_id?: string;
   error_only?: boolean;
+  error_kind?: string;
+  retryable?: boolean;
   since?: string;
   until?: string;
   limit?: number;
@@ -51,6 +58,8 @@ export function useToolCalls(filters: ToolCallFilters = {}) {
   if (filters.tool_type) params.set("tool_type", filters.tool_type);
   if (filters.session_id) params.set("session_id", filters.session_id);
   if (filters.error_only) params.set("error_only", "true");
+  if (filters.error_kind) params.set("error_kind", filters.error_kind);
+  if (filters.retryable !== undefined) params.set("retryable", String(filters.retryable));
   if (filters.since) params.set("since", filters.since);
   if (filters.until) params.set("until", filters.until);
   if (filters.limit) params.set("limit", String(filters.limit));

@@ -26,6 +26,7 @@ import {
 import { Spinner } from "@/src/components/shared/Spinner";
 import { WorkspaceFileBrowserSurface } from "@/src/components/workspace/WorkspaceFileBrowserSurface";
 import { useHashTab } from "@/src/hooks/useHashTab";
+import { collapseProjectRunReceiptsForReview } from "@/src/lib/projectRunReceipts";
 import type { Channel, Project, ProjectInstance, ProjectRunReceipt, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
 
 const TerminalPanel = lazy(() =>
@@ -772,6 +773,7 @@ function ProjectRunsSection({
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [request, setRequest] = useState("");
   const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
+  const visibleReceipts = useMemo(() => collapseProjectRunReceiptsForReview(receipts), [receipts]);
 
   useEffect(() => {
     if (!selectedChannelId && channels && channels.length > 0) {
@@ -881,10 +883,10 @@ function ProjectRunsSection({
 
       <Section title="Run Receipts" description="Implementation summaries, test evidence, screenshots, and handoff links published by coding agents.">
         <div className="flex flex-col gap-2">
-          {(!receipts || receipts.length === 0) ? (
+          {visibleReceipts.length === 0 ? (
             <EmptyState message="No coding-run receipts have been published for this Project." />
           ) : (
-            receipts.map((receipt) => (
+            visibleReceipts.map((receipt) => (
               <SettingsControlRow
                 key={receipt.id}
                 leading={<FileText size={14} />}
@@ -892,6 +894,9 @@ function ProjectRunsSection({
                 description={
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span>{formatRunTime(receipt.created_at)} · {receipt.bot_id ?? "unknown bot"}</span>
+                    {(receipt.duplicate_count ?? 1) > 1 && (
+                      <span className="text-[11px] text-text-dim">{receipt.duplicate_count} receipt updates collapsed</span>
+                    )}
                     <span className="truncate font-mono text-[11px] text-text-dim">Files: {compactReceiptList(receipt.changed_files)}</span>
                     <span className="truncate text-[11px] text-text-dim">Tests: {compactReceiptList(receipt.tests)}</span>
                     <span className="truncate text-[11px] text-text-dim">Screenshots: {compactReceiptList(receipt.screenshots)}</span>

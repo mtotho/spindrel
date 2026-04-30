@@ -189,6 +189,7 @@ class ProjectRunReceiptOut(BaseModel):
     task_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
     bot_id: str | None = None
+    idempotency_key: str | None = None
     status: str
     summary: str
     handoff_type: str | None = None
@@ -208,6 +209,7 @@ class ProjectRunReceiptWrite(BaseModel):
     task_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
     bot_id: str | None = None
+    idempotency_key: str | None = None
     status: str = "reported"
     summary: str
     handoff_type: str | None = None
@@ -785,6 +787,7 @@ async def create_project_run_receipt_endpoint(
             tests=body.tests,
             screenshots=body.screenshots,
             metadata=body.metadata,
+            idempotency_key=body.idempotency_key,
         )
     except ValueError as exc:
         message = str(exc)

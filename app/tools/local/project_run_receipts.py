@@ -21,6 +21,8 @@ _RETURNS = {
         "ok": {"type": "boolean"},
         "receipt_id": {"type": "string"},
         "receipt": {"type": "object"},
+        "created": {"type": "boolean"},
+        "updated": {"type": "boolean"},
         "error": {"type": "string"},
     },
     "required": ["ok"],
@@ -85,6 +87,10 @@ def _handoff_value(handoff: dict[str, Any] | None, *keys: str) -> str | None:
                     "type": "object",
                     "description": "Optional review handoff such as pull request URL, branch, base branch, or commit SHA.",
                 },
+                "idempotency_key": {
+                    "type": "string",
+                    "description": "Optional stable key for retries. When omitted, the tool derives one from task, handoff, or git metadata.",
+                },
                 "metadata": {"type": "object", "description": "Optional extra machine-readable run metadata."},
             },
             "required": ["summary"],
@@ -101,6 +107,7 @@ async def publish_project_run_receipt(
     tests: list[Any] | None = None,
     screenshots: list[Any] | None = None,
     handoff: dict[str, Any] | None = None,
+    idempotency_key: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> str:
     from app.db.engine import async_session
@@ -127,9 +134,17 @@ async def publish_project_run_receipt(
                 tests=tests or [],
                 screenshots=screenshots or [],
                 metadata=metadata or {},
+                idempotency_key=idempotency_key,
             )
     except Exception as exc:
         return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     payload = serialize_project_run_receipt(receipt)
-    return json.dumps({"ok": True, "receipt_id": payload["id"], "receipt": payload}, ensure_ascii=False)
+    created = bool(getattr(receipt, "_spindrel_created", True))
+    return json.dumps({
+        "ok": True,
+        "receipt_id": payload["id"],
+        "receipt": payload,
+        "created": created,
+        "updated": not created,
+    }, ensure_ascii=False)

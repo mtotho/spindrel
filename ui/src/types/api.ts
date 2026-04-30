@@ -1493,6 +1493,7 @@ export interface ProjectRunReceipt {
   task_id?: string | null;
   session_id?: string | null;
   bot_id?: string | null;
+  idempotency_key?: string | null;
   status: "reported" | "completed" | "blocked" | "failed" | "needs_review" | string;
   summary: string;
   handoff_type?: string | null;

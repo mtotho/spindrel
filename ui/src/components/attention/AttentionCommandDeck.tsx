@@ -16,6 +16,7 @@ import {
 
 import {
   getOperatorTriage,
+  getToolErrorReviewSignal,
   useAcknowledgeAttentionItem,
   useAssignAttentionItem,
   useAttentionTriageRuns,
@@ -113,8 +114,16 @@ function getBotReport(item: WorkspaceAttentionItem): any | null {
   return report && typeof report === "object" ? report : null;
 }
 
+function toolSignalClass(tone: "muted" | "warning" | "danger"): string {
+  if (tone === "danger") return "bg-danger/10 text-danger-muted";
+  if (tone === "warning") return "bg-warning/10 text-warning";
+  return "bg-surface-raised text-text-muted";
+}
+
 function decisionLabel(item: WorkspaceAttentionItem): string {
   if (getBotReport(item)) return "Bot-reported issue";
+  const toolSignal = getToolErrorReviewSignal(item);
+  if (toolSignal) return toolSignal.label;
   if (getAttentionWorkflowState(item) === "operator_review") return "Operator finding";
   return "Needs review";
 }
@@ -473,6 +482,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
   const reviewed = workflowState === "operator_review";
   const readonly = workflowState === "processed" || workflowState === "closed";
   const suggestedAction = humanizeSuggestedAction(triage?.suggested_action);
+  const toolSignal = getToolErrorReviewSignal(item);
 
   return (
     <article className="mx-auto max-w-3xl">
@@ -482,8 +492,13 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
             {botReport ? "Bot-reported issue" : reviewed ? "Operator finding" : "Unreviewed item"}
           </div>
           <h2 className="mt-1 text-2xl font-semibold tracking-normal text-text">{item.title}</h2>
-          <div className="mt-1 text-sm text-text-muted">
-            {item.severity} · {attentionItemTriageLabel(item)} · {targetLabel(item)} · {formatItemTime(item)}
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-text-muted">
+            <span>{item.severity} · {attentionItemTriageLabel(item)} · {targetLabel(item)} · {formatItemTime(item)}</span>
+            {toolSignal && (
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] ${toolSignalClass(toolSignal.tone)}`}>
+                {toolSignal.label}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -511,6 +526,32 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
           )}
         </div>
       </div>
+
+      {toolSignal && (
+        <section className="mb-4 rounded-md bg-surface-overlay/35 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] ${toolSignalClass(toolSignal.tone)}`}>
+              {toolSignal.label}
+            </span>
+            {toolSignal.errorKind && (
+              <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">
+                {toolSignal.errorKind.replaceAll("_", " ")}
+              </span>
+            )}
+            {toolSignal.errorCode && (
+              <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">
+                {toolSignal.errorCode.replaceAll("_", " ")}
+              </span>
+            )}
+          </div>
+          {toolSignal.nextAction && (
+            <p className="mt-3 text-sm leading-6 text-text">
+              <span className="text-text-dim">Next: </span>
+              {toolSignal.nextAction}
+            </p>
+          )}
+        </section>
+      )}
 
       {botReport && (
         <section className="mb-4 rounded-md bg-accent/[0.08] px-4 py-3">

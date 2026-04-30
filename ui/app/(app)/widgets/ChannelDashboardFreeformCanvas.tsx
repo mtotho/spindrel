@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { DndContext, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, MouseSensor, TouchSensor, type DragEndEvent, type DragStartEvent, useSensor, useSensors } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { LocateFixed, Maximize2, Minus, Plus, Sparkles } from "lucide-react";
@@ -151,10 +151,15 @@ export function ChannelDashboardFreeformCanvas({
     updateViewportMetrics,
   } = useDashboardCanvasCamera(dashboardSlug);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [resizePreview, setResizePreview] = useState<Map<string, GridLayoutItem>>(() => new Map());
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const migratedRef = useRef(false);
   const initialCameraRef = useRef(false);
   const freeformEnabled = isFreeformGridConfig(gridConfig);
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 300, tolerance: 8 } }),
+  );
 
   const origin = useMemo(
     () => originFromGridConfig(gridConfig, preset),
@@ -295,14 +300,6 @@ export function ChannelDashboardFreeformCanvas({
     void persistLayout([{ id: pinId, zone: target.zone, ...next }]);
   }, [cameraRef, frame, layouts, persistLayout, pins, preset]);
 
-  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    if (event.ctrlKey) return;
-    event.preventDefault();
-    updateViewportMetrics();
-    const factor = Math.exp(-event.deltaY * 0.001);
-    zoomAroundPoint(factor, event.clientX, event.clientY);
-  }, [updateViewportMetrics, zoomAroundPoint]);
-
   const beginPan = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
     if ((event.target as HTMLElement).closest("[data-dashboard-tile],button,a,input,textarea,select,[role='button'],iframe")) return;
@@ -326,6 +323,38 @@ export function ChannelDashboardFreeformCanvas({
     target.addEventListener("pointerup", done, { once: true });
     target.addEventListener("pointercancel", done, { once: true });
   }, [cameraRef, scheduleCamera]);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return;
+      event.preventDefault();
+      updateViewportMetrics();
+      const factor = Math.exp(-event.deltaY * 0.00065);
+      zoomAroundPoint(factor, event.clientX, event.clientY);
+    };
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [updateViewportMetrics, viewportRef, zoomAroundPoint]);
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (!viewportRef.current?.contains(document.activeElement)) return;
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        scheduleCamera({ ...cameraRef.current, scale: Math.min(DASHBOARD_CAMERA_MAX_SCALE, cameraRef.current.scale * 1.12) });
+      } else if (event.key === "-" || event.key === "_") {
+        event.preventDefault();
+        scheduleCamera({ ...cameraRef.current, scale: Math.max(DASHBOARD_CAMERA_MIN_SCALE, cameraRef.current.scale / 1.12) });
+      } else if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        scheduleCamera(actualFrameCamera(frame, viewportSize), "immediate");
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [cameraRef, frame, scheduleCamera, viewportRef, viewportSize]);
 
   const channelById = useMemo(() => {
     const out = new Map<string, { name?: string | null }>();
@@ -356,30 +385,32 @@ export function ChannelDashboardFreeformCanvas({
       style={{
         backgroundImage: "radial-gradient(rgb(var(--color-text) / 0.05) 1px, transparent 1px)",
         backgroundSize: "32px 32px",
+        touchAction: "none",
+        overscrollBehavior: "none",
       }}
-      onWheel={handleWheel}
       onPointerDown={beginPan}
+      tabIndex={0}
       data-testid="channel-dashboard-freeform-canvas"
     >
       <CanvasStarfield />
-      <DndContext onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
+      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div
           ref={worldRef}
           className="absolute left-0 top-0 h-[1px] w-[1px] origin-top-left will-change-transform"
           style={{ transform: dashboardCameraTransform(camera) }}
         >
-          <CanvasGuides frame={frame} editMode={editMode} />
+          <CanvasGuides frame={frame} editMode={editMode} scale={camera.scale} />
           {camera.scale <= 0.48 && channelGhosts.map((ghost) => {
             const channelName = channelById.get(ghost.channelId)?.name ?? "Unnamed channel";
             const color = dotColor(ghost.channelId);
             return (
             <div
               key={ghost.id}
-              className="pointer-events-none absolute rounded-xl border bg-surface-raised/75 px-3 py-2 text-[12px] text-text-muted shadow-[0_0_40px_rgba(80,120,255,0.10)] backdrop-blur"
+              className="pointer-events-none absolute rounded-xl border bg-surface-raised/85 px-3 py-2 text-[12px] text-text-muted shadow-[0_0_48px_rgba(80,120,255,0.14)] backdrop-blur"
               style={{
-                left: ghost.x,
-                top: ghost.y,
-                width: 208,
+                left: ghost.x - 120,
+                top: ghost.y - 28,
+                width: 240,
                 opacity: ghost.opacity,
                 borderColor: `${color}55`,
               }}
@@ -392,7 +423,7 @@ export function ChannelDashboardFreeformCanvas({
             </div>
           );})}
           {pins.map((pin, index) => {
-            const layout = layouts.get(pin.id) ?? layoutForPin(pin, index, preset, origin);
+            const layout = resizePreview.get(pin.id) ?? layouts.get(pin.id) ?? layoutForPin(pin, index, preset, origin);
             const zone = normalizeZone(pin);
             const rect = tileRect(pin, layout, frame);
             return (
@@ -433,8 +464,21 @@ export function ChannelDashboardFreeformCanvas({
                         }}
                         clampH={{ min: zone === "header" ? 1 : getWidgetLayoutBounds(pin.widget_presentation, zone, preset.cols.lg).minH }}
                         showRest
+                        onResizing={(box: TileBox) => {
+                          const next = clampDropToZone(zone, box.x, box.y, box.w, box.h, preset.cols.lg);
+                          setResizePreview((current) => {
+                            const clone = new Map(current);
+                            clone.set(pin.id, next);
+                            return clone;
+                          });
+                        }}
                         onCommit={(box: TileBox) => {
                           const next = clampDropToZone(zone, box.x, box.y, box.w, box.h, preset.cols.lg);
+                          setResizePreview((current) => {
+                            const clone = new Map(current);
+                            clone.delete(pin.id);
+                            return clone;
+                          });
                           void persistLayout([{ id: pin.id, zone, ...next }]);
                         }}
                       />
@@ -528,8 +572,9 @@ function DraggableDashboardTile({
   );
 }
 
-function CanvasGuides({ frame, editMode }: { frame: DashboardFrame; editMode: boolean }) {
+function CanvasGuides({ frame, editMode, scale }: { frame: DashboardFrame; editMode: boolean; scale: number }) {
   const guide = editMode ? "border-accent/35 bg-accent/[0.025]" : "border-surface-border/25 bg-white/[0.01]";
+  const labelScale = Number.isFinite(scale) && scale > 0 ? 1 / scale : 1;
   return (
     <>
       <div
@@ -550,10 +595,15 @@ function CanvasGuides({ frame, editMode }: { frame: DashboardFrame; editMode: bo
       />
       {editMode && (
         <div
-          className="pointer-events-none absolute text-[10px] uppercase tracking-wide text-text-dim"
-          style={{ left: frame.centerRect.x, top: frame.headerRect.y - 22 }}
+          className="pointer-events-none absolute whitespace-nowrap rounded-md border border-surface-border/50 bg-surface-raised/80 px-2 py-1 text-[10px] uppercase tracking-wide text-text-dim shadow-sm backdrop-blur"
+          style={{
+            left: frame.centerRect.x,
+            top: frame.headerRect.y - 34,
+            transform: `scale(${labelScale})`,
+            transformOrigin: "left bottom",
+          }}
         >
-          Guided lanes stay available; drag outside them for freeform placement.
+          Guided lanes stay available; drag outside for freeform placement.
         </div>
       )}
     </>
@@ -587,7 +637,7 @@ function CanvasControls({
       <button type="button" className={btn} onClick={onZoomIn} aria-label="Zoom in" title="Zoom in">
         <Plus size={14} />
       </button>
-      <button type="button" className={btn} onClick={onActualSize} aria-label="Actual size" title="Actual size">
+      <button type="button" className={btn} onClick={onActualSize} aria-label="Frame dashboard" title="Frame dashboard">
         <LocateFixed size={14} />
       </button>
       <button type="button" className={btn} onClick={onFit} aria-label="Fit dashboard" title="Fit dashboard">

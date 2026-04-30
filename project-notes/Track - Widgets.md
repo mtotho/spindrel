@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-29 (channel dashboard freeform canvas)
+updated: 2026-04-30 (channel widget projection + dashboard canvas polish)
 ---
 # Track — Widget System DX + Robustness
 
@@ -31,6 +31,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
+- **Channel widget projection + dashboard canvas polish shipped** (2026-04-30) — channel-associated widgets now auto-project across the channel dashboard and Spatial Canvas in both directions, with paired delete/unpin semantics and shared native widget instances where applicable. The channel dashboard canvas keeps grid-cell persistence but makes interaction more spatial: deeper/slower zoom, click-only spatial handoff, exact Spatial Canvas backdrop, a dedicated Frame dashboard control, fixed-size move handles for narrow tiles, live resize preview, stable guide labeling, and farther/clearer nearby-channel ghosts.
 - **Channel dashboard freeform canvas shipped** (2026-04-29) — desktop channel dashboards now render on a spatial-style pan/zoom canvas with current-size max zoom, fit/actual-size controls, freeform placement outside the guided header/rail/dock lanes, a one-time `grid_config.canvas_mode=freeform_v1` origin marker so existing layouts do not jump, viewport-centered placement for newly added widgets, and an explicit click-only handoff to the Spatial Canvas after deep zoom-out. The canvas reuses the Spatial Canvas starfield/grid background, keeps nearby channel ghosts outside the guided frame with real channel names/colors, and the pin host exposes compact header-lane chips plus a larger edit-mode move handle for narrow or iframe-heavy widgets. The refreshed `channel-widget-usefulness` screenshot bundle captures the freeform dashboard surface.
 - **In-context widget authoring receipts shipped** (2026-04-29) — bots can now finish create/update/debug/check/improve runs with `publish_widget_authoring_receipt`, which reuses the durable widget receipt table but marks rows as `kind=authoring` and captures library refs, touched files, health status/summary, check phases, screenshot evidence when compact enough, affected pins, and next actions. The widget usefulness drawer/settings summary now show recent bot widget activity rather than only bot-applied changes, and the widget skill set gained `widgets/authoring_runs` so the bot loop has an explicit receipt step after full checks and pin health.
 - **Bot widget authoring DX spine shipped** (2026-04-29) — bot-authored widget work now starts with `prepare_widget_authoring`, then uses `check_html_widget_authoring` or `check_widget_authoring` before emit/pin, and finishes with `check_widget` only after a real pin exists. The agent-capability manifest now exposes widget-authoring readiness, missing tools/skills, and the HTML/tool-widget check availability, and the shared Agent readiness UI shows that status in bot/channel/composer surfaces. Standalone HTML/library widgets can declare metadata in HTML frontmatter and run the same preview/static/runtime health path before pinning. New screenshot artifact: `channel-widget-authoring-readiness.png` in the `channel-widget-usefulness` bundle verifies the settings Agent readiness row and HTML full-check badge.

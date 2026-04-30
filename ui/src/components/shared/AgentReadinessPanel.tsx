@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, Plug, Sparkles, Wrench } from "lucide-react";
+import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
 
 import { useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding } from "@/src/api/hooks/useAgentCapabilities";
 import { useUpdateBot } from "@/src/api/hooks/useBots";
@@ -198,6 +198,32 @@ function IntegrationReadinessSummary({ manifest }: { manifest: AgentCapabilityMa
   );
 }
 
+function ActivityLogSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
+  const activity = manifest.activity_log;
+  if (!activity?.available) return null;
+  const recentCount = activity.recent_count ?? 0;
+  const counts = activity.recent_counts ?? {};
+  const topKinds = Object.entries(counts)
+    .filter(([, count]) => count > 0)
+    .slice(0, 3)
+    .map(([kind, count]) => `${count} ${kind.replaceAll("_", " ")}`);
+  const latest = activity.recent?.[0];
+  const description = recentCount > 0
+    ? (latest?.summary || topKinds.join(", ") || `${recentCount} recent events`)
+    : "No replayable activity yet";
+  return (
+    <div data-testid="agent-readiness-activity-log">
+      <SettingsControlRow
+        leading={<History size={14} />}
+        title="Recent agent activity"
+        description={description}
+        meta={<QuietPill label={`${recentCount} replayable`} tone={recentCount > 0 ? "info" : "neutral"} />}
+        compact
+      />
+    </div>
+  );
+}
+
 export function AgentReadinessPanel({
   botId,
   channelId,
@@ -302,6 +328,7 @@ export function AgentReadinessPanel({
       </div>
       <CapabilityStats manifest={data} />
       <SurfaceSummary manifest={data} />
+      <ActivityLogSummary manifest={data} />
       <WidgetAuthoringSummary manifest={data} />
       <IntegrationReadinessSummary manifest={data} />
       {findings.length > 0 ? (

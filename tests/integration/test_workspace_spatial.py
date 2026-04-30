@@ -363,6 +363,131 @@ class TestUpdateAndDelete:
 
 
 class TestPinWidgetToCanvas:
+    async def test_channel_dashboard_pin_auto_projects_to_canvas(self, client, db_session):
+        from app.services.dashboard_pins import create_pin
+
+        ch = await _create_channel(client, name="Auto")
+        channel_id = uuid.UUID(ch["id"])
+        source_pin = await create_pin(
+            db_session,
+            source_kind="adhoc",
+            tool_name="echo",
+            envelope=_envelope("auto"),
+            source_channel_id=channel_id,
+            dashboard_key=f"channel:{channel_id}",
+        )
+
+        rows = (
+            await db_session.execute(
+                select(WidgetDashboardPin, WorkspaceSpatialNode)
+                .join(WorkspaceSpatialNode, WorkspaceSpatialNode.widget_pin_id == WidgetDashboardPin.id)
+                .where(WidgetDashboardPin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY)
+            )
+        ).all()
+        matches = [
+            (pin, node)
+            for pin, node in rows
+            if (pin.widget_origin or {}).get("source_dashboard_pin_id") == str(source_pin.id)
+        ]
+        assert len(matches) == 1
+        assert matches[0][0].source_channel_id == channel_id
+        assert matches[0][1].widget_pin_id == matches[0][0].id
+
+    async def test_channel_sourced_canvas_pin_auto_projects_to_channel_dashboard(self, client, db_session):
+        ch = await _create_channel(client, name="Canvas First")
+        channel_id = uuid.UUID(ch["id"])
+
+        r = await client.post(
+            "/api/v1/workspace/spatial/widget-pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "echo",
+                "source_channel_id": str(channel_id),
+                "envelope": _envelope("canvas first"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 201, r.text
+        spatial_pin_id = r.json()["pin"]["id"]
+
+        channel_rows = (
+            await db_session.execute(
+                select(WidgetDashboardPin).where(
+                    WidgetDashboardPin.dashboard_key == f"channel:{channel_id}",
+                )
+            )
+        ).scalars().all()
+        matches = [
+            pin
+            for pin in channel_rows
+            if (pin.widget_origin or {}).get("source_spatial_pin_id") == spatial_pin_id
+        ]
+        assert len(matches) == 1
+        assert matches[0].source_channel_id == channel_id
+
+    async def test_deleting_channel_pin_removes_auto_spatial_projection(self, client, db_session):
+        from app.services.dashboard_pins import create_pin, delete_pin
+
+        ch = await _create_channel(client, name="Delete")
+        channel_id = uuid.UUID(ch["id"])
+        source_pin = await create_pin(
+            db_session,
+            source_kind="adhoc",
+            tool_name="echo",
+            envelope=_envelope("delete"),
+            source_channel_id=channel_id,
+            dashboard_key=f"channel:{channel_id}",
+        )
+
+        await delete_pin(db_session, source_pin.id)
+
+        spatial_rows = (
+            await db_session.execute(
+                select(WidgetDashboardPin).where(
+                    WidgetDashboardPin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY,
+                )
+            )
+        ).scalars().all()
+        assert not [
+            pin for pin in spatial_rows
+            if (pin.widget_origin or {}).get("source_dashboard_pin_id") == str(source_pin.id)
+        ]
+
+    async def test_deleting_channel_sourced_spatial_node_removes_channel_mirror(self, client, db_session):
+        ch = await _create_channel(client, name="Delete Spatial")
+        channel_id = uuid.UUID(ch["id"])
+        r = await client.post(
+            "/api/v1/workspace/spatial/widget-pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "echo",
+                "source_channel_id": str(channel_id),
+                "envelope": _envelope("delete spatial"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 201, r.text
+        spatial_pin_id = r.json()["pin"]["id"]
+        node_id = r.json()["node"]["id"]
+
+        d = await client.delete(
+            f"/api/v1/workspace/spatial/nodes/{node_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert d.status_code == 204
+
+        channel_rows = (
+            await db_session.execute(
+                select(WidgetDashboardPin).where(
+                    WidgetDashboardPin.dashboard_key == f"channel:{channel_id}",
+                )
+            )
+        ).scalars().all()
+        assert not [
+            pin for pin in channel_rows
+            if (pin.widget_origin or {}).get("source_spatial_pin_id") == spatial_pin_id
+        ]
+
     async def test_atomic_pin_and_node_create(self, client, db_session):
         body = {
             "source_kind": "adhoc",

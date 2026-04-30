@@ -886,7 +886,7 @@ function HarnessStatusPill({
             className={
               compact
                 ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
-                : "absolute right-0 top-full z-[1000] mt-2 w-80 rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+                : "absolute right-0 top-full z-[1000] mt-2 w-80 rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border max-[600px]:fixed max-[600px]:left-2 max-[600px]:right-2 max-[600px]:top-14 max-[600px]:z-[50002] max-[600px]:mt-0 max-[600px]:max-h-[calc(100dvh-72px)] max-[600px]:w-auto max-[600px]:overflow-auto"
             }
             style={{ fontFamily: "system-ui, sans-serif" }}
           >
@@ -982,7 +982,7 @@ function HarnessStatusPill({
           className={
             compact
               ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
-              : "absolute right-0 top-full z-[1000] mt-2 max-h-[min(78vh,680px)] w-80 overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+              : "absolute right-0 top-full z-[1000] mt-2 max-h-[min(78vh,680px)] w-80 overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border max-[600px]:fixed max-[600px]:left-2 max-[600px]:right-2 max-[600px]:top-14 max-[600px]:z-[50002] max-[600px]:mt-0 max-[600px]:max-h-[calc(100dvh-72px)] max-[600px]:w-auto"
           }
           style={{ fontFamily: "system-ui, sans-serif" }}
         >

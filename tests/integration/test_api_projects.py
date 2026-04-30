@@ -82,12 +82,62 @@ class TestProjectsApi:
         receipt_body = receipt.json()
         assert receipt_body["project_id"] == project_id
         assert receipt_body["status"] == "completed"
+        assert receipt_body["idempotency_key"] == "handoff:https://example.invalid/review"
         assert receipt_body["changed_files"] == ["app/services/project_run_receipts.py"]
         assert receipt_body["tests"][0]["status"] == "passed"
 
         listed = await client.get(f"/api/v1/projects/{project_id}/run-receipts", headers=AUTH_HEADERS)
         assert listed.status_code == 200
         assert [row["id"] for row in listed.json()] == [receipt_body["id"]]
+
+    async def test_project_run_receipts_are_idempotent(self, client, db_session):
+        workspace = await _workspace(db_session)
+        created = await client.post(
+            "/api/v1/projects",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Idempotent Receipt Project",
+                "root_path": "common/projects/idempotent-receipt",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        first = await client.post(
+            f"/api/v1/projects/{project_id}/run-receipts",
+            json={
+                "idempotency_key": "coding-run:abc123",
+                "status": "needs_review",
+                "summary": "Initial draft handoff.",
+                "changed_files": ["a.py"],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert first.status_code == 201
+        first_body = first.json()
+
+        second = await client.post(
+            f"/api/v1/projects/{project_id}/run-receipts",
+            json={
+                "idempotency_key": "coding-run:abc123",
+                "status": "completed",
+                "summary": "Final handoff.",
+                "changed_files": ["a.py", "b.py"],
+                "screenshots": [{"path": "docs/images/project-workspace-runs.png"}],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert second.status_code == 201
+        second_body = second.json()
+        assert second_body["id"] == first_body["id"]
+        assert second_body["status"] == "completed"
+        assert second_body["summary"] == "Final handoff."
+        assert second_body["changed_files"] == ["a.py", "b.py"]
+
+        listed = await client.get(f"/api/v1/projects/{project_id}/run-receipts", headers=AUTH_HEADERS)
+        assert listed.status_code == 200
+        assert [row["id"] for row in listed.json()] == [first_body["id"]]
 
     async def test_create_project_from_blueprint_materializes_files_and_secret_slots(self, client, db_session, monkeypatch, tmp_path):
         monkeypatch.setattr(

@@ -16,6 +16,7 @@ from app.services.workspace_attention import (
     actor_label,
     create_attention_triage_run,
     create_user_attention_item,
+    get_attention_brief,
     get_attention_triage_run,
     get_attention_item,
     list_attention_triage_runs,
@@ -185,6 +186,15 @@ async def get_attention_items(
         include_resolved=include_resolved,
     )
     return {"items": await serialize_attention_items(db, items)}
+
+
+@router.get("/brief")
+async def get_attention_brief_route(
+    channel_id: uuid.UUID | None = None,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_attention_brief(db, auth=auth, channel_id=channel_id)
 
 
 @router.get("/{item_id}")

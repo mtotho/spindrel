@@ -41,9 +41,9 @@ Expected workflow:
 1. Understand the bug or feature request and read the relevant code before editing.
 2. Make focused code changes.
 3. Run the smallest relevant tests first, then broaden as needed.
-4. For UI changes, run the Project's typecheck and capture screenshots against the e2e-testing server when available.
+4. For UI changes, run the Project's typecheck and capture screenshots against the configured e2e-testing server when available. Use run_e2e_tests(status) first to confirm the target URL.
 5. Prepare a review handoff: branch, changed files, tests, screenshots, and any blocker.
-6. Call publish_project_run_receipt before finishing so the Project page has a durable review record."""
+6. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
 
 
 @dataclass(frozen=True)

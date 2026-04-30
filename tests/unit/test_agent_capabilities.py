@@ -130,6 +130,16 @@ async def test_manifest_includes_runtime_context(monkeypatch):
             "attention": [],
         }
 
+    async def fake_activity_log_payload(*args, **kwargs):
+        return {
+            "available": True,
+            "supported_kinds": ["tool_call"],
+            "supported_filters": ["bot_id", "kind"],
+            "recent_count": 1,
+            "recent_counts": {"tool_call": 1},
+            "recent": [{"kind": "tool_call", "summary": "get_tool_info done"}],
+        }
+
     monkeypatch.setattr(agent_capabilities, "_resolve_context", fake_resolve_context)
     monkeypatch.setattr(agent_capabilities, "_scopes_for_bot", fake_scopes_for_bot)
     monkeypatch.setattr(agent_capabilities, "_tool_payload", fake_tool_payload)
@@ -138,11 +148,13 @@ async def test_manifest_includes_runtime_context(monkeypatch):
     monkeypatch.setattr(agent_capabilities, "_integration_payload", fake_integration_payload)
     monkeypatch.setattr(agent_capabilities, "runtime_context_payload", fake_runtime_context_payload)
     monkeypatch.setattr(agent_capabilities, "work_state_payload", fake_work_state_payload)
+    monkeypatch.setattr(agent_capabilities, "activity_log_payload", fake_activity_log_payload)
 
     manifest = await agent_capabilities.build_agent_capability_manifest(SimpleNamespace(), bot_id="agent")
 
     assert manifest["runtime_context"]["recommendation"] == "continue"
     assert manifest["work_state"]["summary"]["recommended_next_action"] == "idle"
+    assert manifest["activity_log"]["recent_counts"]["tool_call"] == 1
     assert manifest["tool_error_contract"]["version"] == "tool-error.v1"
     assert "validation" in manifest["tool_error_contract"]["benign_review_kinds"]
     assert "context_should_summarize" not in {
@@ -190,6 +202,17 @@ def test_agent_work_snapshot_tool_registered_with_return_schema():
     assert entry["safety_tier"] == "readonly"
     assert entry["requires_bot_context"] is True
     assert entry["returns"]["properties"]["work_state"]["type"] == "object"
+
+
+def test_agent_activity_log_tool_registered_with_return_schema():
+    from app.tools.local import agent_capabilities as _tool_module  # noqa: F401
+    from app.tools.registry import _tools
+
+    entry = _tools["get_agent_activity_log"]
+
+    assert entry["safety_tier"] == "readonly"
+    assert entry["requires_bot_context"] is True
+    assert entry["returns"]["properties"]["items"]["type"] == "array"
 
 
 def test_doctor_flags_missing_api_scopes_and_harness_workdir():

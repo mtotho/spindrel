@@ -6,7 +6,7 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, MutableRefObject } from "react";
-import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2, ShieldCheck, Move } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw, Bug, Maximize2, ShieldCheck, Move } from "lucide-react";
 import { Link, useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
@@ -24,12 +24,6 @@ import type { PinnedWidget, ToolResultEnvelope, WidgetHealthSummary, WidgetScope
 import { useCheckWidgetHealth } from "@/src/api/hooks/useWidgetHealth";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
-import {
-  useDeleteSpatialNode,
-  useFindCanvasNodesByIdentity,
-  useFindCanvasNodesByPinPredicate,
-  usePinWidgetToCanvas,
-} from "@/src/api/hooks/useWorkspaceSpatial";
 import { requestWidgetRefresh } from "@/src/lib/widgetRefreshBatcher";
 import {
   isWidgetRefreshCapable,
@@ -44,7 +38,6 @@ import {
   useDocumentVisible,
   useElementVisible,
 } from "@/src/hooks/useWidgetAutoRefreshVisibility";
-import { envelopeIdentityKey as canvasEnvelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { formatRelativeTime } from "@/src/utils/format";
 import {
   buildWidgetSyncSignature,
@@ -1134,16 +1127,6 @@ export function PinnedToolWidget({
               style={{ color: t.textMuted, opacity: 0.6 }}
             />
           </button>
-          {channelId && (
-            <PinToCanvasIconButton
-              widget={widget}
-              channelId={channelId}
-              btnClass={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
-              iconSize={ctrlIconSize}
-              iconColor={t.textMuted}
-              accentColor={t.accent}
-            />
-          )}
           {(!isDashboard || editMode) && (
             <button
               type="button"
@@ -1223,17 +1206,6 @@ export function PinnedToolWidget({
               style={{ color: t.textMuted, opacity: 0.7 }}
             />
           </button>
-          {channelId && (
-            <PinToCanvasIconButton
-              widget={widget}
-              channelId={channelId}
-              btnClass={ctrlBtnClass}
-              iconSize={ctrlIconSize}
-              iconColor={t.textMuted}
-              iconOpacity={0.7}
-              accentColor={t.accent}
-            />
-          )}
           <button
             type="button"
             onClick={() => onUnpin(widget.id)}
@@ -1352,135 +1324,5 @@ export function PinnedToolWidget({
         />
       )}
     </div>
-  );
-}
-
-/**
- * "Pin to workspace canvas" icon button. Shipped originally on inline
- * `WidgetCard` (chat); now also reachable from any pinned widget tile so the
- * user can promote already-curated channel-dashboard pins onto the canvas
- * without having to wait for a fresh bot emission. Creates a NEW
- * `widget_dashboard_pins` row on the reserved `workspace:spatial` dashboard
- * — independent from the source pin (track decision 4: world pins are their
- * own rows, channel-dashboard edits never touch the world).
- */
-function PinToCanvasIconButton({
-  widget,
-  channelId,
-  btnClass,
-  iconSize,
-  iconColor,
-  iconOpacity = 0.6,
-  accentColor,
-}: {
-  widget: PinnedWidget;
-  channelId: string;
-  btnClass: string;
-  iconSize: number;
-  iconColor: string;
-  iconOpacity?: number;
-  accentColor: string;
-}) {
-  const pin = usePinWidgetToCanvas();
-  const del = useDeleteSpatialNode();
-  const [flash, setFlash] = useState(false);
-  const [canvasError, setCanvasError] = useState<string | null>(null);
-  const sourceBotId =
-    widget.bot_id || widget.envelope?.source_bot_id || null;
-  // Forward the source pin's widget_config to the canvas pin. Without this,
-  // tools with config-driven state_poll behavior (e.g. HA's GetLiveContext,
-  // which falls back to the full-home grid when no entity_id is set) would
-  // poll into a different view on first action and never recover.
-  const sourceWidgetConfig = useDashboardPinsStore(
-    (s) => s.pins.find((p) => p.id === widget.id)?.widget_config,
-  );
-  const widgetConfig = sourceWidgetConfig ?? widget.config ?? null;
-
-  const identityKey = canvasEnvelopeIdentityKey(widget.tool_name, widget.envelope, widgetConfig);
-  const projectionNodes = useFindCanvasNodesByPinPredicate((p) => {
-    const origin = p.widget_origin;
-    return (
-      !!origin
-      && typeof origin.source_dashboard_pin_id === "string"
-      && origin.source_dashboard_pin_id === widget.id
-    );
-  });
-  const identityNodes = useFindCanvasNodesByIdentity(identityKey, (p) =>
-    canvasEnvelopeIdentityKey(
-      p.tool_name,
-      p.envelope as unknown as ToolResultEnvelope,
-      p.widget_config ?? null,
-    ),
-  );
-  const canvasNodes = projectionNodes.length > 0 ? projectionNodes : identityNodes;
-  const isOnCanvas = canvasNodes.length > 0;
-
-  const handle = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCanvasError(null);
-    if (isOnCanvas) {
-      const nodeIds = [...new Set(canvasNodes.map((n) => n.id))];
-      const results = await Promise.allSettled(
-        nodeIds.map((nodeId) => del.mutateAsync(nodeId)),
-      );
-      const failed = results.filter((r) => r.status === "rejected");
-      if (failed.length > 0) {
-        setCanvasError("Remove failed — refresh spatial canvas state");
-        console.error("Remove from canvas failed", failed);
-      }
-      return;
-    }
-    pin.mutate(
-      {
-        source_dashboard_pin_id: widget.id,
-        source_kind: "channel",
-        tool_name: widget.tool_name,
-        envelope: widget.envelope as unknown as Record<string, unknown>,
-        source_channel_id: channelId,
-        source_bot_id: sourceBotId,
-        display_label: widget.envelope?.display_label ?? undefined,
-        widget_config: widgetConfig ?? undefined,
-      },
-      {
-        onSuccess: () => {
-          setFlash(true);
-          window.setTimeout(() => setFlash(false), 1500);
-        },
-        onError: (err) => {
-          setCanvasError(err instanceof Error ? err.message : "Pin to canvas failed");
-        },
-      },
-    );
-  };
-
-  const colorActive = flash || isOnCanvas || !!canvasError;
-  return (
-    <button
-      type="button"
-      disabled={pin.isPending || del.isPending}
-      onClick={handle}
-      className={btnClass}
-      aria-label={isOnCanvas ? "Remove from workspace canvas" : "Pin to workspace canvas"}
-      title={
-        canvasError
-          ? canvasError
-          : flash
-          ? "Pinned to canvas"
-          : isOnCanvas
-          ? canvasNodes.length > 1
-            ? `On canvas (${canvasNodes.length}) — click to remove all`
-            : "On canvas — click to remove"
-          : "Pin to canvas"
-      }
-    >
-      <LayoutGrid
-        size={iconSize}
-        fill={isOnCanvas ? accentColor : "none"}
-        style={{
-          color: colorActive ? accentColor : iconColor,
-          opacity: colorActive ? 1 : iconOpacity,
-        }}
-      />
-    </button>
   );
 }

@@ -81,6 +81,28 @@ function actionClass(tone: Tone, terminal: boolean, disabled = false): string {
   ].join(" ");
 }
 
+function SectionLabel({ children, terminal = false }: { children: ReactNode; terminal?: boolean }) {
+  return (
+    <div
+      className={[
+        "flex min-w-0 items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent/85",
+        terminal ? "leading-5" : "leading-4",
+      ].join(" ")}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/70" />
+      <span className="min-w-0 truncate">{children}</span>
+    </div>
+  );
+}
+
+function InlineLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-accent/75">
+      {children}
+    </div>
+  );
+}
+
 function Section({
   title,
   children,
@@ -94,9 +116,7 @@ function Section({
 }) {
   return (
     <section className={terminal ? "flex flex-col gap-1.5" : "flex flex-col gap-2"}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
-        {title}
-      </div>
+      <SectionLabel terminal={terminal}>{title}</SectionLabel>
       <div
         className={
           quiet
@@ -584,9 +604,7 @@ export function SessionPlanCard({
         <Section title="Planning Notes" terminal={terminal}>
           {planningStateItems.slice(0, 4).map((section) => (
             <div key={section.label} className="flex flex-col gap-1">
-              <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim/70">
-                {section.label}
-              </div>
+              <InlineLabel>{section.label}</InlineLabel>
               {section.items.slice(-3).map((item, idx) => (
                 <div key={`${section.label}-${idx}-${item.text}`} className={terminal ? "text-[11px] text-text-muted" : "text-xs text-text-muted"}>
                   {item.text}

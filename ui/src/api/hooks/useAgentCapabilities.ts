@@ -176,6 +176,44 @@ export interface AgentWorkState {
   }>;
 }
 
+export interface AgentActivityItem {
+  id: string;
+  kind: "tool_call" | "attention" | "mission_update" | "project_receipt" | "widget_receipt" | string;
+  actor: {
+    bot_id?: string | null;
+    session_id?: string | null;
+    task_id?: string | null;
+  };
+  target: {
+    channel_id?: string | null;
+    project_id?: string | null;
+    widget_pin_ids?: string[];
+  };
+  status: "succeeded" | "failed" | "warning" | "reported" | "needs_review" | "unknown" | string;
+  summary: string;
+  next_action?: string | null;
+  trace?: {
+    correlation_id?: string | null;
+    tool_call_id?: string | null;
+  };
+  error?: {
+    error_code?: string | null;
+    error_kind?: string | null;
+    retryable?: boolean | null;
+  };
+  created_at?: string | null;
+  source?: Record<string, unknown>;
+}
+
+export interface AgentActivityLogSummary {
+  available?: boolean;
+  supported_kinds?: string[];
+  supported_filters?: string[];
+  recent_count?: number;
+  recent_counts?: Record<string, number>;
+  recent?: AgentActivityItem[];
+}
+
 export interface AgentToolErrorContract {
   version?: string;
   fields?: string[];
@@ -231,6 +269,7 @@ export interface AgentCapabilityManifest {
   };
   runtime_context?: AgentRuntimeContext;
   work_state?: AgentWorkState;
+  activity_log?: AgentActivityLogSummary;
   widgets: {
     authoring_tools?: string[];
     required_authoring_tools?: string[];

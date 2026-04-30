@@ -25,6 +25,7 @@ Agents that are discovering Spindrel from a running server should start with:
 | `/openapi.json` | Full OpenAPI schema |
 | `/api/v1/discover` | Scoped endpoint catalog for the caller's API key |
 | `/api/v1/agent-capabilities` | Runtime bot/channel/session capability manifest |
+| `/api/v1/agent-activity` | Normalized replay log for bot activity and review evidence |
 
 Repo-dev agents working from the Git checkout should read `llms.txt`, `README.md`, `.agents/manifest.json`, and the relevant `.agents/skills/*/SKILL.md` files. Those repo-dev skills are not Spindrel runtime skills and are not visible to in-app channel agents unless a runtime bridge explicitly supplies them.
 
@@ -153,11 +154,13 @@ curl -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8000/api/v1/agent-capabilities?bot_id=default&include_schemas=true"
 ```
 
-The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, runtime context budget, assigned Mission Control work, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `get_agent_context_snapshot` returns the compact runtime budget/recommendation view, `get_agent_work_snapshot` returns only assigned missions/Attention Items, and `run_agent_doctor` returns only the readiness findings.
+The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, runtime context budget, assigned Mission Control work, recent agent activity, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `get_agent_context_snapshot` returns the compact runtime budget/recommendation view, `get_agent_work_snapshot` returns only assigned missions/Attention Items, `get_agent_activity_log` returns the normalized replay log, and `run_agent_doctor` returns only the readiness findings.
 
 The `runtime_context` section normalizes the latest context budget into `tokens_used`, `tokens_remaining`, `total_tokens`, `percent_full`, `source`, `context_profile`, and a recommendation of `continue`, `summarize`, `handoff`, or `unknown`. Doctor findings flag `context_should_summarize` at 75-89% full and `context_should_handoff` at 90% or higher.
 
 The `work_state` section is read-only. It lists active Mission assignments and assigned Attention Items for the current bot, plus a compact `recommended_next_action` of `idle`, `advance_mission`, or `review_attention`. Mutations still go through the existing mission/attention tools and APIs.
+
+The `activity_log` section is read-only. It summarizes replayable activity already persisted elsewhere: tool calls, Attention Items, Mission updates, Project run receipts, and widget agency receipts. Use `GET /api/v1/agent-activity` or the `get_agent_activity_log` bot tool when an agent needs the actual items. Each item has a stable `kind`, normalized `actor`, `target`, `status`, `summary`, optional `next_action`, optional `trace.correlation_id`, and optional structured `error` fields.
 
 Integration readiness is read-only in v1. The `integrations` section summarizes workspace-level setup health and current-channel activation/binding state; doctor actions route humans to existing Integration or Channel settings instead of enabling integrations, installing dependencies, starting processes, or writing secrets automatically.
 
@@ -648,4 +651,8 @@ add the shared agent error contract when possible:
 
 The contract is published in `/api/v1/agent-capabilities` under
 `tool_error_contract`. `/api/v1/tool-calls` exposes the persisted fields and
-can filter by `error_kind` or `retryable`.
+can filter by `error_kind` or `retryable`. `/api/v1/agent-activity` includes
+the same fields on replay items whose source has structured error evidence.
+Mission Control Review consumes the same fields to suppress one-off benign
+setup/input failures, keep repeated benign failures as low-priority findings,
+and distinguish retryable outages from platform/tool bugs.

@@ -87,6 +87,13 @@ the implementation summary, changed files, tests, screenshots, branch or review
 handoff, and task/session linkage so a later session can pick up from durable
 Project state instead of searching chat history.
 
+Receipts are idempotent by task, handoff URL, git handoff metadata, or an
+explicit `idempotency_key`. Retrying `publish_project_run_receipt` updates the
+same review record instead of creating a stack of duplicate receipts. The
+`run_e2e_tests` tool resolves the same `E2E_*` target used by the test harness,
+so agents running on the main server can probe or execute tests against the
+configured e2e-testing server before adding screenshot evidence.
+
 ## Channels And Memory
 
 ![Project-bound channel settings](../images/project-workspace-channel-settings.png)

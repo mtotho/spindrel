@@ -32,6 +32,13 @@ def _clip_text(value: Any, *, max_chars: int = 12_000) -> str:
     return text
 
 
+def _clip_optional_text(value: Any, *, max_chars: int = 512) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:max_chars]
+
+
 def _normalize_list(value: Any, *, max_items: int = 100) -> list[Any]:
     if value is None:
         return []
@@ -43,6 +50,66 @@ def _normalize_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _derive_idempotency_key(
+    *,
+    explicit: str | None = None,
+    task_id: uuid.UUID | None = None,
+    handoff_url: str | None = None,
+    branch: str | None = None,
+    base_branch: str | None = None,
+    commit_sha: str | None = None,
+    session_id: uuid.UUID | None = None,
+) -> str | None:
+    explicit_key = _clip_optional_text(explicit)
+    if explicit_key:
+        return explicit_key
+    if task_id is not None:
+        return f"task:{task_id}"
+    if handoff_url:
+        return _clip_optional_text(f"handoff:{handoff_url}")
+    if branch and base_branch and commit_sha:
+        return _clip_optional_text(f"git:{base_branch}:{branch}:{commit_sha}")
+    if session_id is not None and branch:
+        return _clip_optional_text(f"session-branch:{session_id}:{branch}")
+    return None
+
+
+def _apply_receipt_values(
+    receipt: ProjectRunReceipt,
+    *,
+    project_instance_id: uuid.UUID | None,
+    task_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+    bot_id: str | None,
+    status: str,
+    summary: str,
+    handoff_type: str | None,
+    handoff_url: str | None,
+    branch: str | None,
+    base_branch: str | None,
+    commit_sha: str | None,
+    changed_files: Any,
+    tests: Any,
+    screenshots: Any,
+    metadata: Any,
+) -> None:
+    receipt.project_instance_id = project_instance_id
+    receipt.task_id = task_id
+    receipt.session_id = session_id
+    receipt.bot_id = bot_id
+    receipt.status = status
+    receipt.summary = _clip_text(summary)
+    receipt.handoff_type = handoff_type
+    receipt.handoff_url = handoff_url
+    receipt.branch = branch
+    receipt.base_branch = base_branch
+    receipt.commit_sha = commit_sha
+    receipt.changed_files = _normalize_list(changed_files)
+    receipt.tests = _normalize_list(tests)
+    receipt.screenshots = _normalize_list(screenshots)
+    receipt.metadata_ = _normalize_dict(metadata)
+
+
 def serialize_project_run_receipt(receipt: ProjectRunReceipt) -> dict[str, Any]:
     return {
         "id": str(receipt.id),
@@ -51,6 +118,7 @@ def serialize_project_run_receipt(receipt: ProjectRunReceipt) -> dict[str, Any]:
         "task_id": str(receipt.task_id) if receipt.task_id else None,
         "session_id": str(receipt.session_id) if receipt.session_id else None,
         "bot_id": receipt.bot_id,
+        "idempotency_key": receipt.idempotency_key,
         "status": receipt.status,
         "summary": receipt.summary,
         "handoff_type": receipt.handoff_type,
@@ -103,6 +171,7 @@ async def create_project_run_receipt(
     tests: Any = None,
     screenshots: Any = None,
     metadata: Any = None,
+    idempotency_key: str | None = None,
 ) -> ProjectRunReceipt:
     project_uuid = _coerce_uuid(project_id, field="project_id")
     if project_uuid is None:
@@ -127,23 +196,53 @@ async def create_project_run_receipt(
     if normalized_status not in VALID_PROJECT_RUN_RECEIPT_STATUSES:
         raise ValueError(f"status must be one of {', '.join(sorted(VALID_PROJECT_RUN_RECEIPT_STATUSES))}")
 
-    receipt = ProjectRunReceipt(
-        project_id=project_uuid,
+    normalized_handoff_url = _clip_optional_text(handoff_url)
+    normalized_branch = _clip_optional_text(branch)
+    normalized_base_branch = _clip_optional_text(base_branch)
+    normalized_commit_sha = _clip_optional_text(commit_sha)
+    normalized_idempotency_key = _derive_idempotency_key(
+        explicit=idempotency_key,
+        task_id=task_uuid,
+        handoff_url=normalized_handoff_url,
+        branch=normalized_branch,
+        base_branch=normalized_base_branch,
+        commit_sha=normalized_commit_sha,
+        session_id=session_uuid,
+    )
+
+    receipt: ProjectRunReceipt | None = None
+    if normalized_idempotency_key:
+        receipt = (await db.execute(
+            select(ProjectRunReceipt).where(
+                ProjectRunReceipt.project_id == project_uuid,
+                ProjectRunReceipt.idempotency_key == normalized_idempotency_key,
+            )
+        )).scalar_one_or_none()
+
+    if receipt is None:
+        receipt = ProjectRunReceipt(project_id=project_uuid, idempotency_key=normalized_idempotency_key)
+        db.add(receipt)
+        setattr(receipt, "_spindrel_created", True)
+    else:
+        setattr(receipt, "_spindrel_created", False)
+
+    _apply_receipt_values(
+        receipt,
         project_instance_id=instance_uuid,
         task_id=task_uuid,
         session_id=session_uuid,
         bot_id=(bot_id or None),
         status=normalized_status,
-        summary=_clip_text(summary),
-        handoff_type=(handoff_type or None),
-        handoff_url=(handoff_url or None),
-        branch=(branch or None),
-        base_branch=(base_branch or None),
-        commit_sha=(commit_sha or None),
-        changed_files=_normalize_list(changed_files),
-        tests=_normalize_list(tests),
-        screenshots=_normalize_list(screenshots),
-        metadata_=_normalize_dict(metadata),
+        summary=summary,
+        handoff_type=_clip_optional_text(handoff_type),
+        handoff_url=normalized_handoff_url,
+        branch=normalized_branch,
+        base_branch=normalized_base_branch,
+        commit_sha=normalized_commit_sha,
+        changed_files=changed_files,
+        tests=tests,
+        screenshots=screenshots,
+        metadata=metadata,
     )
     db.add(receipt)
     await db.commit()

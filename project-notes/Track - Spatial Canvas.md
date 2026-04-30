@@ -1,14 +1,14 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-28 (Actionable map cue model for existing primitives.)
+updated: 2026-04-30 (Channel-associated widget projection.)
 ---
 
 # Track — Spatial Canvas
 
 ## North Star
 
-A workspace-scope **infinite plane** where every channel and every opt-in widget lives as a draggable tile. `/` becomes the canvas on desktop. `Ctrl+Shift+Space` (Cmd+Shift+Space on mac) toggles it as an overlay from any other page — it swaps the main content area; sidebar stays. Double-click a channel tile → animated zoom-dive into that channel's existing widget dashboard. Foundation for the "infinite widget canvas" vision; future dimensions (edges, activity pulses, more node types) stack on top.
+A workspace-scope **infinite plane** where every channel and every channel-associated widget lives as a draggable tile. `/` becomes the canvas on desktop. `Ctrl+Shift+Space` (Cmd+Shift+Space on mac) toggles it as an overlay from any other page — it swaps the main content area; sidebar stays. Double-click a channel tile → animated zoom-dive into that channel's existing widget dashboard. Foundation for the "infinite widget canvas" vision; future dimensions (edges, activity pulses, more node types) stack on top.
 
 Design intent: replace the throwaway `HomeGrid` (a "desktopified command palette") with a surface that *is* the workspace — channels networked in the middle, widgets living freely around them. Giant DND, semantic zoom, iframes-on-world-at-close-zoom, route-change-on-dive.
 
@@ -215,6 +215,13 @@ full Mission Control Review queue as the primary bulk path. Rows remain
 object-local inspection shortcuts, while `Review all` opens the review deck for
 the whole queue. Users can minimize the compass into a sticky compact marker so
 the map keeps a quiet signal without forcing the card to stay open.
+
+2026-04-30 channel-widget projection pass: channel-associated widgets no longer
+have a user-facing dashboard-only/spatial-only distinction. Creating a channel
+dashboard pin creates the paired Spatial Canvas widget placement; creating a
+channel-sourced spatial widget creates the paired channel dashboard pin. The two
+placements keep independent geometry, but projection metadata links their pin
+rows and delete/unpin removes the paired projection.
 
 | Phase | Status | Description |
 |---|---|---|

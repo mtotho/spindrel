@@ -36,6 +36,10 @@ from app.db.models import (
 )
 from app.dependencies import ApiKeyAuth
 from app.domain.errors import NotFoundError, ValidationError
+from app.services.tool_error_contract import (
+    BENIGN_REVIEW_ERROR_KINDS,
+    RETRYABLE_ERROR_KINDS,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -1015,6 +1019,280 @@ def _operator_triage_from_item(item: WorkspaceAttentionItem) -> dict[str, Any]:
     return triage if isinstance(triage, dict) else {}
 
 
+def _serialized_operator_triage(item: dict[str, Any]) -> dict[str, Any]:
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    triage = evidence.get("operator_triage") if isinstance(evidence, dict) else None
+    return triage if isinstance(triage, dict) else {}
+
+
+def _serialized_bot_report(item: dict[str, Any]) -> dict[str, Any]:
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    report = evidence.get("report_issue") if isinstance(evidence, dict) else None
+    return report if isinstance(report, dict) else {}
+
+
+def _serialized_target_label(item: dict[str, Any]) -> str:
+    return str(item.get("channel_name") or item.get("target_id") or item.get("target_kind") or "workspace")
+
+
+def _brief_item_ref(item: dict[str, Any]) -> dict[str, Any]:
+    triage = _serialized_operator_triage(item)
+    return {
+        "id": item.get("id"),
+        "title": item.get("title"),
+        "severity": item.get("severity"),
+        "target_kind": item.get("target_kind"),
+        "target_id": item.get("target_id"),
+        "target_label": _serialized_target_label(item),
+        "channel_id": item.get("channel_id"),
+        "channel_name": item.get("channel_name"),
+        "route": triage.get("route"),
+        "classification": triage.get("classification"),
+        "summary": triage.get("summary") or item.get("assignment_report") or item.get("message"),
+    }
+
+
+def _brief_code_pack_key(item: dict[str, Any]) -> str:
+    title = str(item.get("title") or "attention").lower()
+    title = re.sub(r"\s+failed$", "", title)
+    title = re.sub(r"\s+error$", "", title)
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    error_kind = evidence.get("error_kind") if isinstance(evidence, dict) else None
+    return normalize_dedupe_key(str(error_kind or title or item.get("dedupe_key") or "code-fix"))
+
+
+def _brief_category(item: dict[str, Any]) -> str:
+    triage = _serialized_operator_triage(item)
+    report = _serialized_bot_report(item)
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), dict) else {}
+    text = " ".join(
+        str(value or "")
+        for value in (
+            item.get("title"),
+            item.get("message"),
+            item.get("assignment_report"),
+            triage.get("classification"),
+            triage.get("route"),
+            triage.get("summary"),
+            triage.get("suggested_action"),
+            report.get("category"),
+            report.get("summary"),
+            report.get("suggested_action"),
+            evidence.get("classification") if isinstance(evidence, dict) else None,
+            evidence.get("error_kind") if isinstance(evidence, dict) else None,
+        )
+    ).lower()
+    route = str(triage.get("route") or "").lower()
+    classification = str(triage.get("classification") or "").lower()
+    triage_state = str(triage.get("state") or "").lower()
+    report_category = str(report.get("category") or "").lower()
+
+    if triage_state in {"running", "queued"}:
+        return "running"
+    if triage_state == "processed":
+        return "cleared"
+    if report_category in {"missing_permission", "user_decision", "setup_issue"}:
+        return "decision"
+    if report_category in {"blocked", "system_issue"}:
+        return "blocker"
+    if route in {"owner_channel", "user_decision"} or classification == "user_decision":
+        return "decision"
+    if "permission" in text or "grant scopes" in text:
+        return "decision"
+    if (
+        route == "developer_channel"
+        or classification in {"likely_spindrel_code_issue", "needs_fix"}
+        or "code fix" in text
+        or "platform_contract" in text
+        or "server-side" in text
+    ):
+        return "fix_pack"
+    if triage_state == "ready_for_review" or triage.get("review_required") is True:
+        return "blocker"
+    if item.get("severity") in {"critical", "error"} and int(item.get("occurrence_count") or 0) >= 3:
+        return "fix_pack"
+    return "quiet"
+
+
+def _make_attention_brief_card(item: dict[str, Any], *, kind: str) -> dict[str, Any]:
+    triage = _serialized_operator_triage(item)
+    report = _serialized_bot_report(item)
+    summary = (
+        triage.get("summary")
+        or report.get("summary")
+        or item.get("assignment_report")
+        or item.get("message")
+        or "Review the evidence before taking action."
+    )
+    action_label = "Review finding"
+    if kind == "decision":
+        action_label = "Make decision"
+    elif kind == "fix_pack":
+        action_label = "Open fix pack"
+    elif kind == "blocker":
+        action_label = "Inspect blocker"
+    return {
+        "id": item.get("id"),
+        "kind": kind,
+        "title": item.get("title"),
+        "summary": str(summary)[:700],
+        "severity": item.get("severity"),
+        "target_label": _serialized_target_label(item),
+        "item_ids": [item.get("id")],
+        "action_label": action_label,
+        "action": {"type": "open_item", "item_id": item.get("id")},
+    }
+
+
+def _make_fix_pack(pack_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+    refs = [_brief_item_ref(item) for item in items]
+    primary = refs[0]
+    target_counts: dict[str, int] = {}
+    for ref in refs:
+        target = str(ref.get("target_label") or "workspace")
+        target_counts[target] = target_counts.get(target, 0) + 1
+    target_summary = ", ".join(
+        f"{label} ({count})" if count > 1 else label
+        for label, count in sorted(target_counts.items(), key=lambda row: (-row[1], row[0]))[:4]
+    )
+    summary = str(primary.get("summary") or "Related operator findings point to the same fix area.").strip()
+    prompt = (
+        f"Fix the Attention issue group '{primary.get('title')}'. "
+        f"Targets: {target_summary or primary.get('target_label')}. "
+        f"Evidence: {summary[:900]} "
+        "Start with a regression test, fix the root cause, and keep unrelated changes out."
+    )
+    return {
+        "id": pack_id,
+        "title": str(primary.get("title") or "Code fix"),
+        "summary": summary[:700],
+        "count": len(items),
+        "severity": max((str(item.get("severity") or "warning") for item in items), key=lambda value: _severity_rank(value)),
+        "target_summary": target_summary,
+        "item_ids": [item.get("id") for item in items],
+        "items": refs,
+        "prompt": prompt,
+        "action_label": "Copy fix prompt",
+        "action": {"type": "copy_prompt", "prompt": prompt},
+    }
+
+
+def build_attention_brief_from_serialized(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a read-only operator brief from serialized Attention items."""
+    blockers: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+    quiet: list[dict[str, Any]] = []
+    running: list[dict[str, Any]] = []
+    cleared: list[dict[str, Any]] = []
+    fix_pack_groups: dict[str, list[dict[str, Any]]] = {}
+
+    for item in items:
+        category = _brief_category(item)
+        if category == "fix_pack":
+            fix_pack_groups.setdefault(_brief_code_pack_key(item), []).append(item)
+        elif category == "decision":
+            decisions.append(_make_attention_brief_card(item, kind="decision"))
+        elif category == "blocker":
+            blockers.append(_make_attention_brief_card(item, kind="blocker"))
+        elif category == "running":
+            running.append(_brief_item_ref(item))
+        elif category == "cleared":
+            cleared.append(_brief_item_ref(item))
+        else:
+            quiet.append(_brief_item_ref(item))
+
+    fix_packs = [
+        _make_fix_pack(pack_id, sorted(group, key=lambda item: -int(item.get("occurrence_count") or 0)))
+        for pack_id, group in sorted(fix_pack_groups.items(), key=lambda row: (-len(row[1]), row[0]))
+    ]
+    next_action: dict[str, Any]
+    if decisions:
+        first = decisions[0]
+        next_action = {
+            "kind": "decision",
+            "title": "Make the first owner decision",
+            "description": first["summary"],
+            "action_label": first["action_label"],
+            "item_id": first["id"],
+        }
+    elif fix_packs:
+        first_pack = fix_packs[0]
+        next_action = {
+            "kind": "fix_pack",
+            "title": "Open the first fix pack",
+            "description": first_pack["summary"],
+            "action_label": "Open evidence",
+            "item_id": first_pack["item_ids"][0] if first_pack["item_ids"] else None,
+            "fix_pack_id": first_pack["id"],
+        }
+    elif blockers:
+        first = blockers[0]
+        next_action = {
+            "kind": "blocker",
+            "title": "Inspect the first blocker",
+            "description": first["summary"],
+            "action_label": first["action_label"],
+            "item_id": first["id"],
+        }
+    elif quiet:
+        next_action = {
+            "kind": "quiet_digest",
+            "title": "No high-signal action",
+            "description": f"{len(quiet)} lower-priority item{'s' if len(quiet) != 1 else ''} are available as evidence.",
+            "action_label": "Review evidence",
+            "item_id": quiet[0].get("id") if quiet else None,
+        }
+    else:
+        next_action = {
+            "kind": "empty",
+            "title": "Nothing needs review",
+            "description": "No active Attention items are waiting.",
+            "action_label": None,
+            "item_id": None,
+        }
+
+    quiet_groups: dict[str, int] = {}
+    for item in quiet:
+        label = str(item.get("classification") or item.get("severity") or "other")
+        quiet_groups[label] = quiet_groups.get(label, 0) + 1
+    return {
+        "generated_at": _now().isoformat(),
+        "summary": {
+            "blockers": len(blockers),
+            "fix_packs": len(fix_packs),
+            "decisions": len(decisions),
+            "quiet": len(quiet),
+            "running": len(running),
+            "cleared": len(cleared),
+            "total": len(items),
+        },
+        "next_action": next_action,
+        "blockers": blockers[:6],
+        "fix_packs": fix_packs[:8],
+        "decisions": decisions[:8],
+        "quiet_digest": {
+            "count": len(quiet),
+            "groups": [
+                {"label": label.replace("_", " "), "count": count}
+                for label, count in sorted(quiet_groups.items(), key=lambda row: (-row[1], row[0]))[:8]
+            ],
+        },
+        "running": running[:8],
+        "cleared": cleared[:8],
+    }
+
+
+async def get_attention_brief(
+    db: AsyncSession,
+    *,
+    auth: Any,
+    channel_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    items = await list_attention_items(db, auth=auth, channel_id=channel_id, include_resolved=False)
+    serialized = await serialize_attention_items(db, items)
+    return build_attention_brief_from_serialized(serialized)
+
+
 def _attention_item_visible_to_auth(item: WorkspaceAttentionItem, auth: Any) -> bool:
     return _is_admin_auth(auth) or item.source_type in {"bot", "user"}
 
@@ -1615,13 +1893,6 @@ _SEVERE_TOOL_ERROR_RE = re.compile(
     r"write failed|delete|remove|move|overwrite|missing required|workspace root",
     re.IGNORECASE,
 )
-# 4xx-shaped domain failures: bot tried something the system rejected on
-# input/state grounds. Recoverable, not a system bug. The bot still gets
-# the error in its tool result; the operator surface should not page on it.
-_BENIGN_DOMAIN_ERROR_KINDS = frozenset({
-    "validation", "not_found", "conflict", "forbidden", "unprocessable",
-})
-
 
 def _tool_attention_classification(
     tool_name: str | None,
@@ -1629,6 +1900,7 @@ def _tool_attention_classification(
     repeated_count: int,
     *,
     error_kind: str | None = None,
+    retryable: bool | None = None,
 ) -> tuple[bool, str, str]:
     """Decide whether to surface a failed tool call to attention, and at
     what severity.
@@ -1640,12 +1912,16 @@ def _tool_attention_classification(
     name = (tool_name or "").lower()
     text = error_text or ""
     kind = (error_kind or "").lower() or None
+    if kind in BENIGN_REVIEW_ERROR_KINDS:
+        if repeated_count >= 3:
+            return True, "repeated_benign_contract", "warning"
+        return False, "benign_contract", "info"
+    if retryable is True or kind in RETRYABLE_ERROR_KINDS:
+        return True, "retryable_contract", "warning"
+    if kind == "internal":
+        return True, "platform_contract", "critical"
     if _SEVERE_TOOL_ERROR_RE.search(text):
         return True, "severe", "critical"
-    if kind in _BENIGN_DOMAIN_ERROR_KINDS:
-        if repeated_count >= 3:
-            return True, "repeated_domain", "warning"
-        return False, "benign_domain", "info"
     if repeated_count >= 3:
         return True, "repeated", "critical"
     if name in _NOISY_FILE_TOOL_NAMES or any(part in name for part in _NOISY_FILE_TOOL_PARTS):
@@ -1688,6 +1964,7 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             str(text),
             tool_signature_counts.get(signature, 1),
             error_kind=call.error_kind,
+            retryable=call.retryable,
         )
         if not should_surface:
             continue
@@ -1705,13 +1982,19 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             "tool_call_id": str(call.id),
             "tool_name": call.tool_name,
             "classification": classification,
+            "error_code": call.error_code,
             "error_kind": call.error_kind,
+            "retryable": call.retryable,
+            "retry_after_seconds": call.retry_after_seconds,
+            "fallback": call.fallback,
             "correlation_id": str(call.correlation_id) if call.correlation_id else None,
             "auto_signal": {
                 "signature": auto_signature,
                 "kind": "tool_call",
                 "tool_name": call.tool_name,
+                "error_code": call.error_code,
                 "error_kind": call.error_kind,
+                "retryable": call.retryable,
             },
         }
         folded = await _fold_system_signal_into_bot_report(
@@ -1736,6 +2019,7 @@ async def detect_structured_attention_once(db: AsyncSession, *, since: datetime 
             message=str(text)[:1000],
             severity=severity,
             requires_response=False,
+            next_steps=[call.fallback] if call.fallback else None,
             dedupe_key=signature,
             evidence=evidence,
             latest_correlation_id=call.correlation_id,

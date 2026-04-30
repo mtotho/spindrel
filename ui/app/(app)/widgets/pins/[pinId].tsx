@@ -45,11 +45,21 @@ function shortId(value: string | null | undefined): string {
   return value.length > 12 ? value.slice(0, 8) : value;
 }
 
-function matchesCanvasPin(nodePinId: string | null, nodePinOrigin: unknown, pinId: string): boolean {
+function matchesCanvasPin(
+  nodePinId: string | null,
+  nodePinOrigin: unknown,
+  pinId: string,
+  currentPinOrigin?: unknown,
+): boolean {
   if (nodePinId === pinId) return true;
-  if (!nodePinOrigin || typeof nodePinOrigin !== "object") return false;
-  const origin = nodePinOrigin as { source_dashboard_pin_id?: unknown };
-  return origin.source_dashboard_pin_id === pinId;
+  const nodeOrigin = nodePinOrigin && typeof nodePinOrigin === "object"
+    ? nodePinOrigin as { source_dashboard_pin_id?: unknown }
+    : null;
+  if (nodeOrigin?.source_dashboard_pin_id === pinId) return true;
+  const currentOrigin = currentPinOrigin && typeof currentPinOrigin === "object"
+    ? currentPinOrigin as { source_spatial_pin_id?: unknown }
+    : null;
+  return currentOrigin?.source_spatial_pin_id === nodePinId;
 }
 
 export default function WidgetPinPage() {
@@ -72,9 +82,9 @@ export default function WidgetPinPage() {
   const canvasNode = useMemo(() => {
     if (!pinId || !nodes) return null;
     return nodes.find((node) =>
-      matchesCanvasPin(node.widget_pin_id, node.pin?.widget_origin, pinId),
+      matchesCanvasPin(node.widget_pin_id, node.pin?.widget_origin, pinId, pin?.widget_origin),
     ) ?? null;
-  }, [nodes, pinId]);
+  }, [nodes, pin?.widget_origin, pinId]);
 
   useEffect(() => {
     if (pin?.dashboard_key) void hydrateDashboard(pin.dashboard_key);

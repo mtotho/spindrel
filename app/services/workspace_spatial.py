@@ -15,8 +15,10 @@ position. Two node target shapes:
   dashboard and the matching ``workspace_spatial_nodes`` row in one
   transaction. Cascade-on-delete handles cleanup.
 
-Channel and widget pins are independent — a widget can be on a channel
-dashboard AND on the canvas; the two pin rows are separate.
+Channel-associated widgets are mirrored across the channel dashboard and the
+canvas. Internally the dashboard pin and workspace pin are still separate rows,
+but projection metadata keeps them paired so the user does not have to choose
+"dashboard-only" or "spatial-only".
 """
 from __future__ import annotations
 
@@ -1327,9 +1329,52 @@ async def delete_node(db: AsyncSession, node_id: uuid.UUID) -> None:
     node = await get_node(db, node_id)
     if node.widget_pin_id is not None:
         pin = await db.get(WidgetDashboardPin, node.widget_pin_id)
+        if pin is not None:
+            origin = pin.widget_origin or {}
+            source_dashboard_pin_id = (
+                origin.get("source_dashboard_pin_id")
+                if isinstance(origin, dict)
+                else None
+            )
+            if source_dashboard_pin_id:
+                try:
+                    from app.services.dashboard_pins import delete_pin
+
+                    await delete_pin(
+                        db,
+                        uuid.UUID(str(source_dashboard_pin_id)),
+                        delete_linked_projection=False,
+                    )
+                except (ValueError, NotFoundError):
+                    pass
+            else:
+                channel_rows = (
+                    await db.execute(
+                        select(WidgetDashboardPin).where(
+                            WidgetDashboardPin.dashboard_key.like("channel:%"),
+                        )
+                    )
+                ).scalars().all()
+                for channel_pin in channel_rows:
+                    channel_origin = channel_pin.widget_origin or {}
+                    if (
+                        isinstance(channel_origin, dict)
+                        and channel_origin.get("source_spatial_pin_id") == str(pin.id)
+                    ):
+                        from app.services.dashboard_pins import delete_pin
+
+                        await delete_pin(
+                            db,
+                            channel_pin.id,
+                            delete_linked_projection=False,
+                        )
         # Explicit child-then-parent delete keeps SQLite test parity. In
         # production (Postgres) the FK cascade would handle the node row,
         # but SQLite tests don't enable PRAGMA foreign_keys.
+        node = await db.get(WorkspaceSpatialNode, node_id)
+        pin = await db.get(WidgetDashboardPin, pin.id) if pin is not None else None
+        if node is None:
+            return
         await db.delete(node)
         if pin is not None:
             await db.delete(pin)
@@ -1464,7 +1509,103 @@ async def pin_widget_to_canvas(
     except Exception:
         logger.exception("register_pin_events failed for canvas pin %s", pin.id)
 
+    if source_channel_id is not None:
+        origin = pin.widget_origin or {}
+        if not (isinstance(origin, dict) and origin.get("source_dashboard_pin_id")):
+            await _ensure_channel_dashboard_projection_for_spatial_pin(db, pin, node)
+
     return pin, node
+
+
+async def _ensure_channel_dashboard_projection_for_spatial_pin(
+    db: AsyncSession,
+    spatial_pin: WidgetDashboardPin,
+    spatial_node: WorkspaceSpatialNode,
+) -> WidgetDashboardPin | None:
+    """Mirror a channel-sourced spatial widget into its channel dashboard."""
+    if spatial_pin.source_channel_id is None:
+        return None
+    from app.services.dashboards import channel_slug
+
+    dashboard_key = channel_slug(spatial_pin.source_channel_id)
+    existing_rows = (
+        await db.execute(
+            select(WidgetDashboardPin).where(
+                WidgetDashboardPin.dashboard_key == dashboard_key,
+            )
+        )
+    ).scalars().all()
+    for existing in existing_rows:
+        origin = existing.widget_origin or {}
+        if isinstance(origin, dict) and origin.get("source_spatial_pin_id") == str(spatial_pin.id):
+            return existing
+        if (
+            spatial_pin.widget_instance_id is not None
+            and existing.widget_instance_id == spatial_pin.widget_instance_id
+        ):
+            return existing
+
+    widget_origin = dict(spatial_pin.widget_origin or {})
+    prior_instantiation = widget_origin.get("instantiation_kind")
+    if isinstance(prior_instantiation, str) and prior_instantiation:
+        widget_origin["projected_from_instantiation_kind"] = prior_instantiation
+    widget_origin["source_spatial_pin_id"] = str(spatial_pin.id)
+    widget_origin["source_spatial_node_id"] = str(spatial_node.id)
+    widget_origin["instantiation_kind"] = "spatial_canvas_projection"
+
+    override_instance = None
+    if spatial_pin.widget_instance_id is not None:
+        instance = await db.get(WidgetInstance, spatial_pin.widget_instance_id)
+        if instance is not None and instance.widget_kind == "native_app":
+            override_instance = instance
+
+    base_layout = _default_channel_projection_layout(existing_rows)
+    return await create_pin(
+        db,
+        source_kind=spatial_pin.source_kind,
+        tool_name=spatial_pin.tool_name,
+        envelope=spatial_pin.envelope or {},
+        source_channel_id=spatial_pin.source_channel_id,
+        source_bot_id=spatial_pin.source_bot_id,
+        tool_args=spatial_pin.tool_args or {},
+        widget_config=spatial_pin.widget_config or {},
+        widget_origin=widget_origin,
+        display_label=_source_widget_label(spatial_pin),
+        dashboard_key=dashboard_key,
+        zone="grid",
+        grid_layout=base_layout,
+        override_widget_instance=override_instance,
+    )
+
+
+def _default_channel_projection_layout(existing_rows: list[WidgetDashboardPin]) -> dict[str, int]:
+    """Pick a visible, collision-aware grid slot for spatial -> dashboard mirrors.
+
+    The frontend freeform migration offsets legacy grid coordinates into the
+    spatial dashboard frame, so this server-side slot only needs to be a sane
+    grid placement rather than viewport-specific pixels.
+    """
+    from app.services.dashboard_pins import _default_grid_layout
+
+    occupied = [
+        row.grid_layout
+        for row in existing_rows
+        if (row.zone or "grid") == "grid" and isinstance(row.grid_layout, dict)
+    ]
+    desired = _default_grid_layout(len(existing_rows), channel=True)
+    candidate = dict(desired)
+    while any(_layouts_overlap(candidate, box) for box in occupied):
+        candidate["y"] = int(candidate.get("y", 0)) + 1
+    return candidate
+
+
+def _layouts_overlap(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    try:
+        ax, ay, aw, ah = int(a.get("x", 0)), int(a.get("y", 0)), int(a.get("w", 1)), int(a.get("h", 1))
+        bx, by, bw, bh = int(b.get("x", 0)), int(b.get("y", 0)), int(b.get("w", 1)), int(b.get("h", 1))
+    except (TypeError, ValueError):
+        return False
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
 
 
 def _source_widget_label(pin: WidgetDashboardPin) -> str:

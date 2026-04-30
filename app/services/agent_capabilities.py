@@ -37,6 +37,7 @@ CORE_AGENT_TOOLS = (
     "run_agent_doctor",
     "get_agent_context_snapshot",
     "get_agent_work_snapshot",
+    "get_agent_activity_log",
     "get_tool_info",
     "get_skill",
     "list_api_endpoints",
@@ -461,6 +462,24 @@ async def work_state_payload(
         channel_id=channel_id,
         session_id=session_id,
         max_items=max_items,
+    )
+
+
+async def activity_log_payload(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.agent_activity import agent_activity_summary
+
+    return await agent_activity_summary(
+        db,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        limit=20,
     )
 
 
@@ -1105,6 +1124,12 @@ async def build_agent_capability_manifest(
         session_id=manifest["context"].get("session_id"),
     )
     manifest["work_state"] = await work_state_payload(
+        db,
+        bot_id=manifest["context"].get("bot_id"),
+        channel_id=manifest["context"].get("channel_id"),
+        session_id=manifest["context"].get("session_id"),
+    )
+    manifest["activity_log"] = await activity_log_payload(
         db,
         bot_id=manifest["context"].get("bot_id"),
         channel_id=manifest["context"].get("channel_id"),

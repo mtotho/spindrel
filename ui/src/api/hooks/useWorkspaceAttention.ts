@@ -159,6 +159,50 @@ export function getOperatorTriage(item: WorkspaceAttentionItem): OperatorTriageS
   return triage && typeof triage === "object" ? triage as OperatorTriageState : null;
 }
 
+const BENIGN_TOOL_ERROR_KINDS = new Set([
+  "validation",
+  "not_found",
+  "forbidden",
+  "approval_required",
+  "config_missing",
+  "conflict",
+]);
+
+const RETRYABLE_TOOL_ERROR_KINDS = new Set(["rate_limited", "timeout", "unavailable"]);
+
+export interface ToolErrorReviewSignal {
+  label: string;
+  tone: "muted" | "warning" | "danger";
+  nextAction: string | null;
+  errorCode: string | null;
+  errorKind: string | null;
+  retryable: boolean;
+}
+
+export function getToolErrorReviewSignal(item: WorkspaceAttentionItem): ToolErrorReviewSignal | null {
+  const evidence = item.evidence ?? {};
+  if (evidence.kind !== "tool_call") return null;
+  const classification = typeof evidence.classification === "string" ? evidence.classification : "";
+  const errorKind = typeof evidence.error_kind === "string" ? evidence.error_kind : null;
+  const errorCode = typeof evidence.error_code === "string" ? evidence.error_code : null;
+  const retryable = evidence.retryable === true || (errorKind ? RETRYABLE_TOOL_ERROR_KINDS.has(errorKind) : false);
+  const fallback = typeof evidence.fallback === "string" && evidence.fallback.trim() ? evidence.fallback.trim() : null;
+
+  if (retryable || classification === "retryable_contract") {
+    return { label: "Retryable", tone: "warning", nextAction: fallback, errorCode, errorKind, retryable: true };
+  }
+  if (classification === "repeated_benign_contract") {
+    return { label: "Repeated benign", tone: "warning", nextAction: fallback, errorCode, errorKind, retryable: false };
+  }
+  if (errorKind === "internal" || classification === "platform_contract" || classification === "severe") {
+    return { label: "Platform bug", tone: "danger", nextAction: fallback, errorCode, errorKind, retryable: false };
+  }
+  if (errorKind && BENIGN_TOOL_ERROR_KINDS.has(errorKind)) {
+    return { label: "Benign setup", tone: "muted", nextAction: fallback, errorCode, errorKind, retryable: false };
+  }
+  return { label: "Tool failure", tone: "danger", nextAction: fallback, errorCode, errorKind, retryable: false };
+}
+
 export function isOperatorTriageRunning(item: WorkspaceAttentionItem): boolean {
   const triage = getOperatorTriage(item);
   return triage?.state === "running" || triage?.state === "queued";

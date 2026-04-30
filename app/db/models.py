@@ -1508,6 +1508,7 @@ class ProjectRunReceipt(Base):
     )
     session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'reported'"))
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     handoff_type: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1529,6 +1530,13 @@ class ProjectRunReceipt(Base):
         CheckConstraint("status in ('reported', 'completed', 'blocked', 'failed', 'needs_review')", name="ck_project_run_receipts_status"),
         Index("ix_project_run_receipts_project_created", "project_id", created_at.desc()),
         Index("ix_project_run_receipts_instance_created", "project_instance_id", created_at.desc()),
+        Index(
+            "ux_project_run_receipts_project_idempotency",
+            "project_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
 

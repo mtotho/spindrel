@@ -2,7 +2,7 @@
 
 ![Spatial canvas — every channel as a draggable tile, the Now Well below](../images/spatial-overview-1.png)
 
-The spatial canvas is Spindrel's home surface on desktop: a workspace-scope **infinite plane** where every channel and every opt-in widget lives as a draggable tile. It replaces the old `HomeGrid` "desktopified command palette" with a surface that actually *is* the workspace — channels networked in the middle, widgets living freely around them, scheduled work orbiting a Now Well.
+The spatial canvas is Spindrel's home surface on desktop: a workspace-scope **infinite plane** where every channel and every channel-associated widget lives as a draggable tile. It replaces the old `HomeGrid` "desktopified command palette" with a surface that actually *is* the workspace — channels networked in the middle, widgets living freely around them, scheduled work orbiting a Now Well.
 
 Mobile keeps the existing channel list. The canvas is desktop-only today.
 
@@ -70,12 +70,9 @@ usage, but no glow is shown.
 
 ## Widget tiles
 
-Widgets are **opt-in**. The canvas does not auto-populate with every pinned widget — that would be noise. Two paths put a widget on the canvas:
+Channel-associated widgets project across the channel dashboard and Spatial Canvas automatically. Pinning a widget onto a channel dashboard also creates a canvas placement near that channel; pinning a widget directly to the canvas with a source channel also creates a dashboard placement. Users move and resize the two placements independently, but they do not have to choose "dashboard-only" versus "spatial-only."
 
-1. **From a chat widget** — every widget card in chat has a `Pin to canvas` action (`LayoutGrid` icon, sibling of "Add to dashboard").
-2. **From an existing channel-dashboard pin** — the same `LayoutGrid` icon appears on hover in `PinnedToolWidget` chrome rows. One click projects the widget onto the canvas.
-
-Pinning to the canvas creates an **independent placement**. For ordinary tool/HTML widgets, the canvas pin has its own envelope/config row. For channel-scoped native widgets like Notes and Todo, promoting from the channel dashboard projects the same `WidgetInstance`, so edits in the channel dashboard and on the spatial tile stay identical. Adding a native widget directly from the canvas catalog still creates a fresh instance.
+Internally, the canvas still stores widget tiles as reserved `workspace:spatial` dashboard pins plus `workspace_spatial_nodes` rows. Projection metadata links that row to the channel-dashboard pin. For channel-scoped native widgets like Notes and Todo, the paired placements reuse the same `WidgetInstance`, so edits in the channel dashboard and on the spatial tile stay identical. Adding a native widget directly from the canvas catalog without a source channel still creates a fresh instance.
 
 Widget tiles also have three semantic-zoom levels:
 

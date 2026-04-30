@@ -515,6 +515,11 @@ the system can already inspect" is a shared capability manifest:
   `retryable`, `retry_after_seconds`, and `fallback`, and tool-call audit rows
   persist those fields so later reviews can filter benign validation/setup
   warnings away from retryable outages and platform bugs.
+- Mission Control Review now uses that contract directly for tool-call
+  Attention signals: one-off benign contract failures stay out of the queue,
+  repeated benign failures become low-priority findings, retryable outages stay
+  visible with backoff/fallback context, and internal/platform failures remain
+  high-priority.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

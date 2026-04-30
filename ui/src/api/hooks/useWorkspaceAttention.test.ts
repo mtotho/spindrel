@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reconcileAttentionItems, type WorkspaceAttentionItem } from "./useWorkspaceAttention.js";
+import {
+  getToolErrorReviewSignal,
+  reconcileAttentionItems,
+  type WorkspaceAttentionItem,
+} from "./useWorkspaceAttention.js";
 
 function item(overrides: Partial<WorkspaceAttentionItem> = {}): WorkspaceAttentionItem {
   return {
@@ -44,4 +48,57 @@ test("reconcileAttentionItems removes acknowledged items from active cached list
   const acknowledged = item({ status: "acknowledged" });
 
   assert.deepEqual(reconcileAttentionItems([original], acknowledged), []);
+});
+
+test("getToolErrorReviewSignal labels retryable tool-call evidence", () => {
+  const signal = getToolErrorReviewSignal(item({
+    evidence: {
+      kind: "tool_call",
+      classification: "retryable_contract",
+      error_code: "http_429",
+      error_kind: "rate_limited",
+      retryable: true,
+      fallback: "Wait and retry with backoff.",
+    },
+  }));
+
+  assert.deepEqual(signal, {
+    label: "Retryable",
+    tone: "warning",
+    nextAction: "Wait and retry with backoff.",
+    errorCode: "http_429",
+    errorKind: "rate_limited",
+    retryable: true,
+  });
+});
+
+test("getToolErrorReviewSignal labels repeated benign tool-call evidence", () => {
+  const signal = getToolErrorReviewSignal(item({
+    evidence: {
+      kind: "tool_call",
+      classification: "repeated_benign_contract",
+      error_code: "invalid_json_body",
+      error_kind: "validation",
+      retryable: false,
+    },
+  }));
+
+  assert.equal(signal?.label, "Repeated benign");
+  assert.equal(signal?.tone, "warning");
+  assert.equal(signal?.retryable, false);
+});
+
+test("getToolErrorReviewSignal labels internal tool-call evidence as platform bugs", () => {
+  const signal = getToolErrorReviewSignal(item({
+    evidence: {
+      kind: "tool_call",
+      classification: "platform_contract",
+      error_code: "tool_error",
+      error_kind: "internal",
+      retryable: false,
+    },
+  }));
+
+  assert.equal(signal?.label, "Platform bug");
+  assert.equal(signal?.tone, "danger");
 });
