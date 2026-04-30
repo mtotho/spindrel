@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, Maximize2, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Maximize2,
+  MoreHorizontal,
+  Rows3,
+  X as CloseIcon,
+} from "lucide-react";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionWorkSurfaceControl } from "@/src/components/chat/SessionWorkSurfaceControl";
-import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
+import {
+  useDeleteSession,
+  useRenameSession,
+} from "@/src/api/hooks/useChannelSessions";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { selectIsStreaming, useChatStore } from "@/src/stores/chat";
 import {
   buildChannelSessionChatSource,
@@ -41,7 +52,10 @@ interface ChannelChatPaneGroupProps {
   onToggleFocusLayout?: () => void;
 }
 
-function sessionIdForPane(pane: ChannelChatPane, activeSessionId?: string | null): string | null {
+function sessionIdForPane(
+  pane: ChannelChatPane,
+  activeSessionId?: string | null,
+): string | null {
   if (pane.surface.kind === "primary") return activeSessionId ?? null;
   return pane.surface.sessionId;
 }
@@ -54,39 +68,66 @@ function labelForPane(
   if (surface.kind === "primary") {
     const row = catalog?.find((item) => item.is_active) ?? null;
     return {
-      title: row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim() || "Primary session",
-      meta: row ? `${formatScratchSessionTimestamp(row.last_active)} · ${row.message_count} msgs · ${row.section_count} sections` : null,
+      title:
+        row?.label?.trim() ||
+        row?.summary?.trim() ||
+        row?.preview?.trim() ||
+        "Primary session",
+      meta: row
+        ? `${formatScratchSessionTimestamp(row.last_active)} · ${row.message_count} msgs · ${row.section_count} sections`
+        : null,
       kind: "Primary",
       primary: true,
     };
   }
-  const row = catalog?.find((item) => item.session_id === surface.sessionId) ?? null;
+  const row =
+    catalog?.find((item) => item.session_id === surface.sessionId) ?? null;
   const kind = surface.kind;
   return {
-    title: row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim() || "Untitled session",
-    meta: row ? `${formatScratchSessionTimestamp(row.last_active)} · ${row.message_count} msgs · ${row.section_count} sections` : null,
-    kind: kind === "scratch" ? "Scratch" : row?.is_active ? "Primary" : "Previous",
+    title:
+      row?.label?.trim() ||
+      row?.summary?.trim() ||
+      row?.preview?.trim() ||
+      "Untitled session",
+    meta: row
+      ? `${formatScratchSessionTimestamp(row.last_active)} · ${row.message_count} msgs · ${row.section_count} sections`
+      : null,
+    kind:
+      kind === "scratch" ? "Scratch" : row?.is_active ? "Primary" : "Previous",
     primary: !!row?.is_active,
   };
 }
 
 function formatPaneTokens(value: number | null | undefined): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000_000)
+    return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
   if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
   return String(Math.round(value));
 }
 
-function formatPaneContextStats(stats: ReturnType<typeof useSessionHeaderStats>["data"]): string | null {
+function formatPaneContextStats(
+  stats: ReturnType<typeof useSessionHeaderStats>["data"],
+): string | null {
   if (!stats) return null;
   const tokenBits = [
-    formatPaneTokens(stats.currentPromptTokens ?? stats.grossPromptTokens ?? stats.consumedTokens),
+    formatPaneTokens(
+      stats.currentPromptTokens ??
+        stats.grossPromptTokens ??
+        stats.consumedTokens,
+    ),
     formatPaneTokens(stats.totalTokens),
   ];
   const bits = [
-    tokenBits[0] && tokenBits[1] ? `${tokenBits[0]}/${tokenBits[1]}` : tokenBits[0],
-    typeof stats.turnsInContext === "number" ? `${stats.turnsInContext} turns in ctx` : null,
-    typeof stats.turnsUntilCompaction === "number" ? `${stats.turnsUntilCompaction} until compact` : null,
+    tokenBits[0] && tokenBits[1]
+      ? `${tokenBits[0]}/${tokenBits[1]}`
+      : tokenBits[0],
+    typeof stats.turnsInContext === "number"
+      ? `${stats.turnsInContext} turns in ctx`
+      : null,
+    typeof stats.turnsUntilCompaction === "number"
+      ? `${stats.turnsUntilCompaction} until compact`
+      : null,
   ].filter(Boolean);
   return bits.length > 0 ? bits.join(" · ") : null;
 }
@@ -128,23 +169,35 @@ function PaneHeader({
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const rename = useRenameSession();
+  const deleteSession = useDeleteSession();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const sessionId = sessionIdForPane(pane, activeSessionId);
   const { data: sessionStats } = useSessionHeaderStats(channelId, sessionId);
   const { data: channel } = useChannel(channelId);
   const { data: paneBot } = useBot(channel?.bot_id);
-  const turnActive = useChatStore((state) => sessionId ? selectIsStreaming(state.getChannel(sessionId)) : false);
+  const turnActive = useChatStore((state) =>
+    sessionId ? selectIsStreaming(state.getChannel(sessionId)) : false,
+  );
   const isHarnessBot = !!paneBot?.harness_runtime;
   const header = labelForPane(pane, catalog);
   // Spindrel-side context stats (turns until compact, prompt tokens) are
   // about OUR RAG loop's window. Harness bots delegate context management
   // to the external runtime — these numbers don't apply.
-  const contextStats = isHarnessBot ? null : formatPaneContextStats(sessionStats);
-  const tooltip = [header.title, header.meta, contextStats].filter(Boolean).join(" · ");
+  const contextStats = isHarnessBot
+    ? null
+    : formatPaneContextStats(sessionStats);
+  const tooltip = [header.title, header.meta, contextStats]
+    .filter(Boolean)
+    .join(" · ");
 
   const commitRename = () => {
     if (!sessionId || !title.trim()) return;
     rename.mutate(
-      { session_id: sessionId, title: title.trim(), parent_channel_id: channelId },
+      {
+        session_id: sessionId,
+        title: title.trim(),
+        parent_channel_id: channelId,
+      },
       {
         onSuccess: () => {
           setRenaming(false);
@@ -154,8 +207,50 @@ function PaneHeader({
     );
   };
 
+  const handleMakePrimary = async () => {
+    const confirmed = await confirm(
+      `Set "${header.title}" as the channel primary session?\n\nIntegrations that mirror the channel primary will switch to mirroring this session.`,
+      {
+        title: "Set channel primary?",
+        confirmLabel: "Set primary",
+        variant: "warning",
+      },
+    );
+    if (!confirmed) return;
+    onMakePrimary();
+    setMenuOpen(false);
+  };
+
+  const handleDeleteSession = async () => {
+    if (!sessionId || header.primary) return;
+    const confirmed = await confirm(
+      `Delete "${header.title}"?\n\nThis permanently deletes the session transcript. This cannot be undone.`,
+      {
+        title: "Delete session?",
+        confirmLabel: "Delete",
+        variant: "danger",
+      },
+    );
+    if (!confirmed) return;
+    deleteSession.mutate(
+      {
+        session_id: sessionId,
+        parent_channel_id: channelId,
+        bot_id: channel?.bot_id ?? undefined,
+      },
+      {
+        onSuccess: () => {
+          setMenuOpen(false);
+          onClose();
+        },
+      },
+    );
+  };
+
   return (
-    <div className={`group/pane-header flex h-9 shrink-0 items-center gap-2 border-b border-surface-border/45 bg-surface px-3 ${focused ? "text-text" : "text-text-muted"}`}>
+    <div
+      className={`group/pane-header flex h-9 shrink-0 items-center gap-2 border-b border-surface-border/45 bg-surface px-3 ${focused ? "text-text" : "text-text-muted"}`}
+    >
       <div className="min-w-0 flex-1">
         {renaming ? (
           <input
@@ -170,7 +265,9 @@ function PaneHeader({
           />
         ) : (
           <div className="flex min-w-0 items-center gap-2" title={tooltip}>
-            <span className="min-w-0 max-w-[45%] truncate text-[12px] font-semibold text-text">{header.title}</span>
+            <span className="min-w-0 max-w-[45%] truncate text-[12px] font-semibold text-text">
+              {header.title}
+            </span>
             <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-text-dim">
               {header.kind}
             </span>
@@ -217,7 +314,9 @@ function PaneHeader({
         </button>
         {menuOpen && (
           <div className="absolute right-0 top-8 z-20 w-48 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg">
-            <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Layout</div>
+            <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">
+              Layout
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -263,7 +362,9 @@ function PaneHeader({
               Move right
             </button>
             <div className="my-1 h-px bg-surface-border/60" />
-            <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Session</div>
+            <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">
+              Session
+            </div>
             <button
               type="button"
               disabled={!sessionId}
@@ -280,12 +381,23 @@ function PaneHeader({
               <button
                 type="button"
                 onClick={() => {
-                  onMakePrimary();
-                  setMenuOpen(false);
+                  void handleMakePrimary();
                 }}
                 className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
               >
                 Set as channel primary
+              </button>
+            )}
+            {sessionId && !header.primary && (
+              <button
+                type="button"
+                disabled={deleteSession.isPending}
+                onClick={() => {
+                  void handleDeleteSession();
+                }}
+                className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10 disabled:opacity-50"
+              >
+                Delete session
               </button>
             )}
             {sessionId && (
@@ -309,6 +421,7 @@ function PaneHeader({
           </div>
         )}
       </div>
+      <ConfirmDialogSlot />
     </div>
   );
 }
@@ -338,7 +451,8 @@ export function ChannelChatPaneGroup({
   onToggleFocusLayout,
 }: ChannelChatPaneGroupProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [localWidths, setLocalWidths] = useState<Record<string, number>>(widths);
+  const [localWidths, setLocalWidths] =
+    useState<Record<string, number>>(widths);
   const localWidthsRef = useRef(localWidths);
   const frameRef = useRef<number | null>(null);
 
@@ -347,15 +461,25 @@ export function ChannelChatPaneGroup({
     localWidthsRef.current = widths;
   }, [widths, panes]);
 
-  useEffect(() => () => {
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
 
   const visiblePanes = maximizedPaneId
     ? panes.filter((pane) => pane.id === maximizedPaneId)
     : panes;
-  const total = visiblePanes.reduce((sum, pane) => sum + (localWidths[pane.id] ?? 0), 0) || visiblePanes.length || 1;
-  if (visiblePanes.length === 1 && visiblePanes[0]?.surface.kind === "primary" && !maximizedPaneId) {
+  const total =
+    visiblePanes.reduce((sum, pane) => sum + (localWidths[pane.id] ?? 0), 0) ||
+    visiblePanes.length ||
+    1;
+  if (
+    visiblePanes.length === 1 &&
+    visiblePanes[0]?.surface.kind === "primary" &&
+    !maximizedPaneId
+  ) {
     return (
       <div
         ref={containerRef}
@@ -371,15 +495,26 @@ export function ChannelChatPaneGroup({
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-surface p-6">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="text-[15px] font-semibold text-text">No chat panes open</div>
+          <div className="text-[15px] font-semibold text-text">
+            No chat panes open
+          </div>
           <div className="text-[12px] leading-relaxed text-text-dim">
-            Add the primary session or split another session into this channel canvas.
+            Add the primary session or split another session into this channel
+            canvas.
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onOpenSessions} className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] text-text hover:bg-surface-overlay">
+            <button
+              type="button"
+              onClick={onOpenSessions}
+              className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] text-text hover:bg-surface-overlay"
+            >
               Open session
             </button>
-            <button type="button" onClick={onOpenSessionSplit} className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] text-text hover:bg-surface-overlay">
+            <button
+              type="button"
+              onClick={onOpenSessionSplit}
+              className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] text-text hover:bg-surface-overlay"
+            >
               Add split
             </button>
           </div>
@@ -389,31 +524,50 @@ export function ChannelChatPaneGroup({
   }
 
   return (
-    <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden bg-surface">
+    <div
+      ref={containerRef}
+      className="flex min-h-0 flex-1 overflow-hidden bg-surface"
+    >
       {visiblePanes.map((pane, index) => {
-        const width = ((localWidths[pane.id] ?? 1 / panes.length) / total) * 100;
+        const width =
+          ((localWidths[pane.id] ?? 1 / panes.length) / total) * 100;
         const focused = pane.id === focusedPaneId;
         const maximized = pane.id === maximizedPaneId;
-        const body = pane.surface.kind === "primary"
-          ? primaryNode
-          : (
-              <ChatSession
-                source={pane.surface.kind === "scratch"
-                  ? buildScratchChatSource({ channelId, botId, sessionId: pane.surface.sessionId })
-                  : buildChannelSessionChatSource({ channelId, botId, sessionId: pane.surface.sessionId })}
-                shape="fullpage"
-                open
-                onClose={() => onClosePane(pane.id)}
-                title="Session"
-                emptyState={emptyState}
-                chatMode={chatMode}
-                onOpenSessions={onOpenSessions}
-                onOpenSessionSplit={onOpenSessionSplit}
-                onToggleFocusLayout={onToggleFocusLayout}
-              />
-            );
+        const body =
+          pane.surface.kind === "primary" ? (
+            primaryNode
+          ) : (
+            <ChatSession
+              source={
+                pane.surface.kind === "scratch"
+                  ? buildScratchChatSource({
+                      channelId,
+                      botId,
+                      sessionId: pane.surface.sessionId,
+                    })
+                  : buildChannelSessionChatSource({
+                      channelId,
+                      botId,
+                      sessionId: pane.surface.sessionId,
+                    })
+              }
+              shape="fullpage"
+              open
+              onClose={() => onClosePane(pane.id)}
+              title="Session"
+              emptyState={emptyState}
+              chatMode={chatMode}
+              onOpenSessions={onOpenSessions}
+              onOpenSessionSplit={onOpenSessionSplit}
+              onToggleFocusLayout={onToggleFocusLayout}
+            />
+          );
         return (
-          <div key={pane.id} className="flex min-w-[260px] min-h-0" style={{ flex: `${width} 1 0` }}>
+          <div
+            key={pane.id}
+            className="flex min-w-[260px] min-h-0"
+            style={{ flex: `${width} 1 0` }}
+          >
             <div
               role="button"
               tabIndex={-1}
@@ -453,7 +607,13 @@ export function ChannelChatPaneGroup({
                   const applyDelta = (clientX: number) => {
                     const deltaRatio = (clientX - startX) / widthPx;
                     const next = resizeChannelChatPanes(
-                      { panes, focusedPaneId, widths: startWidths, maximizedPaneId: maximizedPaneId ?? null, miniPane: null },
+                      {
+                        panes,
+                        focusedPaneId,
+                        widths: startWidths,
+                        maximizedPaneId: maximizedPaneId ?? null,
+                        miniPane: null,
+                      },
                       leftId,
                       rightId,
                       deltaRatio,
@@ -463,7 +623,8 @@ export function ChannelChatPaneGroup({
                   };
                   const onMove = (moveEvent: MouseEvent) => {
                     const clientX = moveEvent.clientX;
-                    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+                    if (frameRef.current !== null)
+                      cancelAnimationFrame(frameRef.current);
                     frameRef.current = requestAnimationFrame(() => {
                       frameRef.current = null;
                       applyDelta(clientX);

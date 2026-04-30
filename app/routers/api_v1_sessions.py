@@ -901,6 +901,38 @@ async def update_session(
     return SessionOutDetail(session_id=session.id, title=session.title, summary=session.summary)
 
 
+@router.delete("/{session_id}", status_code=204)
+async def delete_session(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Delete a session row and its transcript.
+
+    Safety rules:
+    - Active channel-primary sessions cannot be deleted directly.
+    - Scratch sessions require owner-user auth.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    channel, _ = await _authorize_session_project_instance_write(db, session, auth)
+
+    if session.session_type != "ephemeral":
+        if channel is None:
+            raise HTTPException(status_code=400, detail="Channel session missing channel")
+        if channel.active_session_id == session.id:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete the channel primary session. Set another session as primary first.",
+            )
+
+    await db.delete(session)
+    await db.commit()
+    return None
+
+
 @router.get("/{session_id}/project-instance", response_model=SessionProjectInstanceOut)
 async def get_session_project_instance(
     session_id: uuid.UUID,
