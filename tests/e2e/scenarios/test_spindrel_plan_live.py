@@ -1769,6 +1769,8 @@ async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client:
     wrong = await client.chat_session_stream(
         (
             "Native unsupported retry diagnostic. Intentionally create the wrong evidence first. "
+            "For this diagnostic only, you must create the wrong marker file so the retry recovery path can be tested; "
+            "do not ask follow-up questions, do not request a replan, and do not record blocked or no_progress for this turn. "
             f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} with text 'wrong retry artifact'. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
             f"summary 'Created wrong retry evidence', and evidence {wrong_path!r}. Do not create the planned file."

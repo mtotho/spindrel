@@ -541,6 +541,11 @@ the system can already inspect" is a shared capability manifest:
   approval reference, result, rollback hint, and trace IDs. The receipt does
   not perform the mutation; Bot/Channel/Project/Widget/Integration APIs remain
   the actual write paths.
+- Agent Readiness repair receipts are now verification receipts, not only
+  mutation logs. After a repair applies, the UI refetches the capability
+  manifest, records whether the original finding disappeared, stores before/
+  after Doctor status and remaining finding codes, and surfaces the latest
+  readiness receipt in the panel and manifest.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing
@@ -551,6 +556,10 @@ the system can already inspect" is a shared capability manifest:
   consumes that brief above the queue, exposes copyable code-fix prompts, and
   makes "kept" Operator findings visibly acknowledged without pretending that
   the raw Attention queue is the product workflow.
+- Added a direct `Clear all` escape hatch to Mission Control Review for the
+  current active review/unreviewed set. It uses the existing bulk acknowledge
+  endpoint, clears the selection on success, and keeps new occurrences eligible
+  to resurface later.
 
 ## Key Invariants
 
@@ -596,6 +605,10 @@ the system can already inspect" is a shared capability manifest:
 - Mission Control Review should open with a brief, not a mailbox. The queue is
   evidence and drilldown; the primary surface should summarize fix packs,
   owner decisions, blockers, quiet/noise, and the single next action.
+- Map alert affordances must never be inert. Aggregates summarize state;
+  clickable per-object attention badges open Mission Control Review for the
+  specific item; object cue markers select the target object; non-clickable
+  warning decoration should be removed or rendered as clearly decorative.
 
 ## References
 

@@ -34,7 +34,27 @@ def test_harness_emitter_redacts_streamed_text_and_tool_result():
         )
 
     assert events[0].payload.delta == "token is [REDACTED]"
-    assert events[1].payload.result_summary == "GITHUB_TOKEN=[REDACTED]"
+    assert events[-1].payload.result_summary == "GITHUB_TOKEN=[REDACTED]"
+
+
+def test_harness_emitter_accumulates_redacted_thinking_text():
+    _enable_secret("ghp_secret_token_think")
+    events = []
+
+    with patch("app.services.agent_harnesses.base.publish_typed") as publish:
+        publish.side_effect = lambda _channel_id, event: events.append(event)
+        emitter = ChannelEventEmitter(
+            channel_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot_id="bot",
+            session_id=uuid.uuid4(),
+        )
+
+        emitter.thinking("checking ghp_secret_token_think")
+        emitter.thinking(" then reading files")
+
+    assert events[0].payload.delta == "checking [REDACTED]"
+    assert emitter.thinking_text() == "checking [REDACTED] then reading files"
 
 
 def test_harness_emitter_redacts_nested_tool_arguments():
@@ -154,3 +174,46 @@ def test_harness_emitter_persists_rich_tool_result_envelope():
     persisted = emitter.persisted_tool_calls()[0]
     assert persisted["surface"] == "rich_result"
     assert persisted["summary"]["kind"] == "diff"
+
+
+def test_harness_emitter_synthesizes_missing_tool_start_for_result_only_events():
+    events = []
+
+    with patch("app.services.agent_harnesses.base.publish_typed") as publish:
+        publish.side_effect = lambda _channel_id, event: events.append(event)
+        emitter = ChannelEventEmitter(
+            channel_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot_id="bot",
+            session_id=uuid.uuid4(),
+        )
+
+        emitter.tool_result(
+            tool_name="codex-event",
+            tool_call_id="item-1",
+            result_summary="completed without a start event",
+        )
+
+    assert [event.kind.value for event in events] == [
+        "turn_stream_tool_start",
+        "turn_stream_tool_result",
+    ]
+    assert events[0].payload.tool_call_id == "item-1"
+    assert events[1].payload.tool_call_id == "item-1"
+    assert emitter.persisted_tool_calls() == [
+        {
+            "id": "item-1",
+            "type": "function",
+            "function": {
+                "name": "codex-event",
+                "arguments": {},
+            },
+            "surface": "transcript",
+            "summary": {
+                "kind": "result",
+                "subject_type": "tool",
+                "label": "codex-event",
+                "preview_text": "completed without a start event",
+            },
+        }
+    ]

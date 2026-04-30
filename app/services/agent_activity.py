@@ -19,6 +19,7 @@ from app.db.models import (
     ProjectRunReceipt,
     Session,
     ToolCall,
+    TraceEvent,
     WidgetAgencyReceipt,
     WorkspaceAttentionItem,
     WorkspaceMission,
@@ -33,6 +34,7 @@ AgentActivityKind = Literal[
     "project_receipt",
     "widget_receipt",
     "execution_receipt",
+    "boundary_access",
 ]
 
 AGENT_ACTIVITY_KINDS: tuple[AgentActivityKind, ...] = (
@@ -42,6 +44,7 @@ AGENT_ACTIVITY_KINDS: tuple[AgentActivityKind, ...] = (
     "project_receipt",
     "widget_receipt",
     "execution_receipt",
+    "boundary_access",
 )
 
 
@@ -510,6 +513,72 @@ async def _execution_receipt_items(
     return items
 
 
+async def _boundary_access_items(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+    correlation_id: uuid.UUID | None,
+    since: datetime | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    stmt = (
+        select(TraceEvent)
+        .where(TraceEvent.event_type.in_(("worksurface_boundary_access", "worksurface_boundary_denied")))
+        .order_by(TraceEvent.created_at.desc())
+        .limit(limit * 3)
+    )
+    if bot_id:
+        stmt = stmt.where(TraceEvent.bot_id == bot_id)
+    if session_id:
+        stmt = stmt.where(TraceEvent.session_id == session_id)
+    if correlation_id:
+        stmt = stmt.where(TraceEvent.correlation_id == correlation_id)
+    stmt = _apply_time(stmt, TraceEvent.created_at, since)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        data = row.data if isinstance(row.data, dict) else {}
+        target_channel = _uuid_or_none(data.get("target_channel_id"))
+        if channel_id and target_channel != channel_id:
+            continue
+
+        allowed = bool(data.get("allowed"))
+        source_tool = _clip(data.get("source_tool"), limit=80) or row.event_name or "WorkSurface"
+        mode = _clip(data.get("mode"), limit=40) or "access"
+        reason = _clip(data.get("reason"), limit=80)
+        decision = "allowed" if allowed else "denied"
+        channel_label = str(target_channel) if target_channel else _clip(data.get("target_channel_id"), limit=80) or "unknown channel"
+        items.append(_activity_item(
+            id=f"boundary_access:{row.id}",
+            kind="boundary_access",
+            actor=_actor(bot_id=row.bot_id, session_id=row.session_id),
+            target=_target(
+                bot_id=data.get("owner_bot_id") if isinstance(data.get("owner_bot_id"), str) else None,
+                channel_id=target_channel,
+            ),
+            status="succeeded" if allowed else "failed",
+            summary=f"{source_tool} {mode} {decision} for channel {channel_label}",
+            next_action=None if allowed else "Add the bot as a channel member or use the channel's primary bot.",
+            trace=_trace(correlation_id=row.correlation_id),
+            error=_error(error_kind="authorization" if not allowed else None),
+            created_at=row.created_at,
+            source={
+                "event_type": row.event_type,
+                "reason": reason,
+                "mode": mode,
+                "source_tool": source_tool,
+                "path": data.get("path"),
+                "current_channel_id": data.get("current_channel_id"),
+            },
+        ))
+        if len(items) >= limit:
+            break
+    return items
+
+
 async def list_agent_activity(
     db: AsyncSession,
     *,
@@ -591,6 +660,16 @@ async def list_agent_activity(
             channel_id=channel_uuid,
             session_id=session_uuid,
             task_id=task_uuid,
+            correlation_id=correlation_uuid,
+            since=since,
+            limit=per_source_limit,
+        ))
+    if "boundary_access" in selected_kinds:
+        items.extend(await _boundary_access_items(
+            db,
+            bot_id=bot_id,
+            channel_id=channel_uuid,
+            session_id=session_uuid,
             correlation_id=correlation_uuid,
             since=since,
             limit=per_source_limit,

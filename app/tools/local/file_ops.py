@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 
 from app.agent.context import current_bot_id, current_channel_id, current_session_id
@@ -185,29 +186,56 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
     return resolved
 
 
-async def _maybe_resolve_cross_channel(path: str, bot, ws_root: str):
-    """If *path* targets another bot's channel and caller has cross_workspace_access,
-    return (effective_ws_root, effective_bot).  Otherwise return (ws_root, bot).
-    """
-    if not bot.cross_workspace_access:
-        return ws_root, bot
-
+async def _maybe_resolve_cross_channel(path: str, bot, ws_root: str, *, mode: str):
+    """Resolve /workspace/channels/<id>/... through channel participant policy."""
     m = _CHANNEL_PATH_RE.match(path.strip())
     if not m:
-        return ws_root, bot
+        return ws_root, bot, None
 
-    channel_id = m.group(1)
+    channel_id = uuid.UUID(m.group(1))
 
-    from app.tools.local.channel_workspace import _resolve_channel_owner_bot
-    owner_bot = await _resolve_channel_owner_bot(channel_id, bot.id)
+    from app.db.engine import async_session
+    from app.services.worksurface_access import (
+        authorize_channel_worksurface,
+        record_worksurface_boundary_event,
+    )
 
-    if owner_bot is None:
+    async with async_session() as db:
+        decision = await authorize_channel_worksurface(
+            db,
+            actor_bot_id=bot.id,
+            channel_id=channel_id,
+        )
+    await record_worksurface_boundary_event(
+        decision,
+        mode=mode,
+        source_tool="file",
+        path=path,
+    )
+    if not decision.allowed:
+        return ws_root, bot, decision.error
+
+    if decision.owner_bot_id is None or decision.owner_bot_id == bot.id:
         # Same bot or couldn't resolve — use caller's workspace
-        return ws_root, bot
+        return ws_root, bot, None
+
+    from app.agent.bots import get_bot
+    owner_bot = get_bot(decision.owner_bot_id)
+    if not owner_bot:
+        return ws_root, bot, "Access denied: channel owner bot is not available."
 
     from app.services.channel_workspace import _get_ws_root
     owner_ws_root = _get_ws_root(owner_bot)
-    return owner_ws_root, owner_bot
+    return owner_ws_root, owner_bot, None
+
+
+def _operation_access_mode(operation: str) -> str:
+    write_ops = {
+        "create", "overwrite", "append", "edit",
+        "json_patch", "restore", "delete", "mkdir", "move",
+        "batch", "archive_older_than", "replace_section",
+    }
+    return "write" if operation in write_ops else "read"
 
 
 def _error(msg: str) -> str:
@@ -555,12 +583,14 @@ async def file(
     if not ws_root:
         return _error("No workspace configured for this bot.")
 
-    # Cross-workspace channel access: if the path targets another bot's
-    # channel and we have cross_workspace_access, switch to that bot's
+    # Cross-channel WorkSurface access is participant-based. If the path
+    # targets a channel owned by another member bot, switch to that owner's
     # workspace root so the path resolves correctly.
-    effective_ws_root, effective_bot = await _maybe_resolve_cross_channel(
-        path, bot, ws_root,
+    effective_ws_root, effective_bot, access_error = await _maybe_resolve_cross_channel(
+        path, bot, ws_root, mode=_operation_access_mode(operation),
     )
+    if access_error:
+        return _error(access_error)
 
     if not os.path.isabs(path.strip()) and not path.strip().startswith("widget://"):
         ch_id = current_channel_id.get()

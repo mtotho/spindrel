@@ -503,6 +503,30 @@ async def agent_status_payload(
     )
 
 
+async def doctor_recent_receipts_payload(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    if not bot_id:
+        return []
+
+    from app.services.execution_receipts import list_execution_receipts, serialize_execution_receipt
+
+    rows = await list_execution_receipts(
+        db,
+        scope="agent_readiness",
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        limit=limit,
+    )
+    return [serialize_execution_receipt(row) for row in rows]
+
+
 def _integration_href(integration_id: str) -> str:
     return f"/admin/integrations/{integration_id}"
 
@@ -1219,6 +1243,12 @@ async def build_agent_capability_manifest(
         "status": "ok",
         "findings": _doctor_findings(manifest),
         "proposed_actions": [],
+        "recent_receipts": await doctor_recent_receipts_payload(
+            db,
+            bot_id=manifest["context"].get("bot_id"),
+            channel_id=manifest["context"].get("channel_id"),
+            session_id=manifest["context"].get("session_id"),
+        ),
     }
     if any(f["severity"] == "error" for f in manifest["doctor"]["findings"]):
         manifest["doctor"]["status"] = "error"

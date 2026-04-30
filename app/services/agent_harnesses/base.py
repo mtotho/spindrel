@@ -152,6 +152,7 @@ class ChannelEventEmitter:
         self._bot_id = bot_id
         self._session_id = session_id
         self._tool_entries: list[HarnessToolTranscriptEntry] = []
+        self._thinking_parts: list[str] = []
         self._runtime_redact_text = redact_text
 
     def _redact_text(self, text: str) -> str:
@@ -193,6 +194,7 @@ class ChannelEventEmitter:
         if not delta:
             return
         delta = self._redact_text(delta)
+        self._thinking_parts.append(delta)
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -206,6 +208,10 @@ class ChannelEventEmitter:
                 ),
             ),
         )
+
+    def thinking_text(self) -> str:
+        """Return redacted thinking text accumulated during this harness turn."""
+        return "".join(self._thinking_parts)
 
     def tool_start(
         self,
@@ -263,15 +269,48 @@ class ChannelEventEmitter:
             redacted_envelope = None
         if not isinstance(redacted_summary, dict):
             redacted_summary = None
-        if tool_call_id:
+        call_id = tool_call_id
+        matched = False
+        if call_id:
             for entry in reversed(self._tool_entries):
-                if entry.id == tool_call_id:
+                if entry.id == call_id:
                     entry.result_summary = result_summary
                     entry.is_error = is_error
                     entry.envelope = redacted_envelope
                     entry.surface = surface
                     entry.summary = redacted_summary
+                    matched = True
                     break
+        if not matched:
+            call_id = call_id or f"harness:{len(self._tool_entries) + 1}"
+            self._tool_entries.append(
+                HarnessToolTranscriptEntry(
+                    id=call_id,
+                    name=tool_name,
+                    arguments={},
+                    result_summary=result_summary,
+                    is_error=is_error,
+                    envelope=redacted_envelope,
+                    surface=surface,
+                    summary=redacted_summary,
+                )
+            )
+            publish_typed(
+                self._channel_id,
+                ChannelEvent(
+                    channel_id=self._channel_id,
+                    kind=ChannelEventKind.TURN_STREAM_TOOL_START,
+                    payload=TurnStreamToolStartPayload(
+                        bot_id=self._bot_id,
+                        turn_id=self._turn_id,
+                        tool_name=tool_name,
+                        tool_call_id=call_id,
+                        arguments={},
+                        surface="harness",
+                        session_id=self._session_id,
+                    ),
+                ),
+            )
         publish_typed(
             self._channel_id,
             ChannelEvent(
@@ -282,7 +321,7 @@ class ChannelEventEmitter:
                     turn_id=self._turn_id,
                     tool_name=tool_name,
                     result_summary=result_summary,
-                    tool_call_id=tool_call_id,
+                    tool_call_id=call_id,
                     is_error=is_error,
                     envelope=redacted_envelope,
                     surface=surface or "harness",

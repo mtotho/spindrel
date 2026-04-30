@@ -32,8 +32,10 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /interface AgentActivityLogSummary/);
   assert.match(hook, /interface ExecutionReceiptWrite/);
   assert.match(hook, /createExecutionReceipt/);
+  assert.match(hook, /fetchAgentCapabilities/);
   assert.match(hook, /\/api\/v1\/execution-receipts/);
   assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
+  assert.match(hook, /recent_receipts\?: ExecutionReceipt\[\]/);
   assert.match(hook, /integrations\?: AgentIntegrationReadiness/);
   assert.match(hook, /agent_status\?: AgentStatusSnapshot/);
   assert.match(hook, /activity_log\?: AgentActivityLogSummary/);
@@ -61,8 +63,16 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /Suggested repairs/);
   assert.match(panel, /ProposedActionRow/);
   assert.match(panel, /createExecutionReceipt/);
+  assert.match(panel, /fetchAgentCapabilities/);
+  assert.match(panel, /finding_resolved/);
+  assert.match(panel, /remaining_findings/);
+  assert.match(panel, /Verified resolved/);
+  assert.match(panel, /Applied, still needs review/);
   assert.match(panel, /agent_readiness/);
   assert.match(panel, /execution receipt/);
+  assert.match(panel, /LastRepairSummary/);
+  assert.match(panel, /agent-readiness-last-repair/);
+  assert.match(panel, /Last repair/);
   assert.match(panel, /Ready to act with current API grants, tools, skills, and runtime context/);
 });
 

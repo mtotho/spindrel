@@ -126,6 +126,7 @@ export function SpatialAttentionSignal({ items, scale, onSelect, interactive = t
   const label = count === 1
     ? `${targetLabel(primary)}: ${attentionMapCueLabel(primary)} - ${statusLabel(primary)}${occurrenceCount > 1 ? ` (${occurrenceCount} occurrences)` : ""}`
     : `${targetLabel(primary)}: ${plural(count, "action item")} (${occurrenceCount} occurrences)`;
+  const badgeClass = `relative flex h-6 min-w-6 items-center justify-center rounded-full bg-surface-raised/95 px-1 text-[10px] font-semibold ring-1 ring-current/35 backdrop-blur ${signalClass(primary)}`;
   return (
     <div
       className="pointer-events-none absolute left-1/2 top-1/2 z-[50]"
@@ -138,22 +139,32 @@ export function SpatialAttentionSignal({ items, scale, onSelect, interactive = t
         aria-hidden
         className={`absolute -inset-2 rounded-full opacity-60 blur-sm ${urgent ? "attention-signal-pulse" : ""} ${signalClass(primary)}`}
       />
+      {!interactive ? (
+        <span
+          data-testid="spatial-attention-badge"
+          aria-hidden="true"
+          className={`pointer-events-none ${badgeClass}`}
+        >
+          <AlertTriangle size={12} aria-hidden />
+          {count > 1 && <span className="ml-0.5 leading-none">{count}</span>}
+        </span>
+      ) : (
       <button
         type="button"
         data-testid="spatial-attention-badge"
-        className={`${interactive ? "pointer-events-auto hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70" : "pointer-events-none"} relative flex h-6 min-w-6 items-center justify-center rounded-full bg-surface-raised/95 px-1 text-[10px] font-semibold ring-1 ring-current/35 backdrop-blur ${signalClass(primary)}`}
+        className={`pointer-events-auto hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 ${badgeClass}`}
         title={label}
         aria-label={label}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
-          if (!interactive) return;
           onSelect(primary);
         }}
       >
         <AlertTriangle size={12} aria-hidden />
         {count > 1 && <span className="ml-0.5 leading-none">{count}</span>}
       </button>
+      )}
     </div>
   );
 }

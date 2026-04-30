@@ -498,7 +498,6 @@ async def _ensure_orchestrator_bot_exists() -> bool:
             history_mode="file",
             delegation_config={
                 "delegate_bots": ["*"],
-                "cross_workspace_access": True,
             },
         )
         try:

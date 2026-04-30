@@ -91,6 +91,18 @@ class _RuntimeCapturingContext:
         )
 
 
+class _RuntimeEmitsThinking:
+    name = "codex"
+
+    async def start_turn(self, *, ctx, prompt, emit):
+        emit.thinking("reading AGENTS.md")
+        emit.thinking(" and inspecting code")
+        return TurnResult(
+            session_id="native-after-thinking-turn",
+            final_text="done",
+        )
+
+
 class _RuntimeNeverCompletes:
     name = "claude-code"
 
@@ -338,6 +350,92 @@ async def test_harness_turn_context_uses_run_scoped_tools_and_permission_overrid
     assert runtime.ctx.ephemeral_tool_names == ("file", "list_channels")
 
 
+async def test_harness_turn_persists_runtime_thinking_for_refresh_visibility(monkeypatch):
+    runtime = _RuntimeEmitsThinking()
+    persisted = []
+
+    async def _persist_turn(db, session_id, bot, messages, from_index, **kwargs):
+        persisted.append(messages)
+        return None
+
+    monkeypatch.setattr(
+        "app.services.turn_worker.async_session",
+        _FakeSessionFactory(),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.get_runtime",
+        lambda runtime_name: runtime,
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker._load_prior_harness_session_id",
+        lambda session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.turn_worker.persist_turn",
+        _persist_turn,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.load_session_mode",
+        lambda db, session_id: _async_value("default"),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.approvals.revoke_turn_bypass",
+        lambda turn_id: None,
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.settings.load_session_settings",
+        lambda db, session_id: _async_value(
+            SimpleNamespace(model=None, effort=None, runtime_settings={})
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_context_hints",
+        lambda db, session_id: _async_value(()),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.clear_consumed_context_hints",
+        lambda db, session_id: _async_value(None),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.session_state.load_latest_harness_metadata",
+        lambda db, session_id: _async_value(({}, None)),
+    )
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        lambda db, channel_id, bot: _async_value(
+            SimpleNamespace(
+                workdir="/tmp",
+                source="bot",
+                bot_workspace_dir="/tmp/bot",
+                project_dir=None,
+            )
+        ),
+    )
+
+    text, error = await _run_harness_turn(
+        channel_id=uuid.uuid4(),
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        bot=SimpleNamespace(
+            id="codex-bot",
+            harness_runtime="codex",
+            harness_workdir="/tmp",
+            memory_scheme=None,
+        ),
+        user_message="look into the bug",
+        correlation_id=uuid.uuid4(),
+        msg_metadata=None,
+        pre_user_msg_id=None,
+        suppress_outbox=True,
+    )
+
+    assert error is None
+    assert text == "done"
+    assistant = persisted[0][1]
+    assert assistant["_thinking_content"] == "reading AGENTS.md and inspecting code"
+
+
 async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypatch):
     runtime = _RuntimeCapturingContext()
 
@@ -419,16 +517,11 @@ async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypa
     assert error is None
     assert text == "done"
     assert runtime.ctx is not None
-    native_hint, channel_hint = runtime.ctx.context_hints[:2]
-    assert native_hint.kind == "native_workspace"
-    assert native_hint.priority == "instruction"
-    assert "native coding harness turn" in native_hint.text
-    assert "AGENTS.md" in native_hint.text
-    assert "Spindrel host tools and context hints are supplemental" in native_hint.text
-    assert channel_hint.kind == "channel_prompt"
-    assert channel_hint.priority == "instruction"
-    assert channel_hint.consume_after_next_turn is False
-    assert "PLAN-123" in channel_hint.text
+    [hint] = runtime.ctx.context_hints
+    assert hint.kind == "channel_prompt"
+    assert hint.priority == "instruction"
+    assert hint.consume_after_next_turn is False
+    assert "PLAN-123" in hint.text
 
 
 async def test_harness_workspace_files_memory_hint_points_without_loading_contents():

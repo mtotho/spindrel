@@ -356,7 +356,7 @@ class TestBotsWithCrossWorkspaceAccess:
         bot = _make_bot("orchestrator", cross_workspace_access=True)
         with patch("app.services.security_audit.list_bots", return_value=[bot]):
             c = _check_bots_with_cross_workspace_access()
-        assert c.status == Status.fail
+        assert c.status == Status.warning
         assert c.severity == Severity.warning
         assert c.details["bots"][0]["bot_id"] == "orchestrator"
 
@@ -408,7 +408,7 @@ class TestWorkSurfaceIsolationStatic:
         assert c.details is not None
         findings = {f["id"]: f for f in c.details["findings"]}
         assert findings["shared_workspace_unscoped_secret_injection"]["status"] == "pass"
-        assert findings["legacy_cross_workspace_access_flag"]["status"] == "warning"
+        assert findings["legacy_cross_workspace_access_flag"]["status"] == "pass"
 
 
 # ---------------------------------------------------------------------------

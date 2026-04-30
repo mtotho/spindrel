@@ -395,6 +395,7 @@ export interface AgentCapabilityManifest {
     status: AgentReadinessStatus;
     findings: AgentDoctorFinding[];
     proposed_actions?: AgentCapabilityAction[];
+    recent_receipts?: ExecutionReceipt[];
   };
 }
 
@@ -406,6 +407,24 @@ export interface AgentCapabilitiesArgs {
   includeEndpoints?: boolean;
   maxTools?: number;
   enabled?: boolean;
+}
+
+export function fetchAgentCapabilities({
+  botId,
+  channelId,
+  sessionId,
+  includeSchemas = false,
+  includeEndpoints = false,
+  maxTools = 40,
+}: AgentCapabilitiesArgs) {
+  const params = new URLSearchParams();
+  if (botId) params.set("bot_id", botId);
+  if (channelId) params.set("channel_id", channelId);
+  if (sessionId) params.set("session_id", sessionId);
+  params.set("include_schemas", includeSchemas ? "true" : "false");
+  params.set("include_endpoints", includeEndpoints ? "true" : "false");
+  params.set("max_tools", String(maxTools));
+  return apiFetch<AgentCapabilityManifest>(`/api/v1/agent-capabilities?${params.toString()}`);
 }
 
 export function useAgentCapabilities({
@@ -427,16 +446,7 @@ export function useAgentCapabilities({
       includeEndpoints,
       maxTools,
     ],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (botId) params.set("bot_id", botId);
-      if (channelId) params.set("channel_id", channelId);
-      if (sessionId) params.set("session_id", sessionId);
-      params.set("include_schemas", includeSchemas ? "true" : "false");
-      params.set("include_endpoints", includeEndpoints ? "true" : "false");
-      params.set("max_tools", String(maxTools));
-      return apiFetch<AgentCapabilityManifest>(`/api/v1/agent-capabilities?${params.toString()}`);
-    },
+    queryFn: () => fetchAgentCapabilities({ botId, channelId, sessionId, includeSchemas, includeEndpoints, maxTools }),
     enabled: enabled && Boolean(botId || channelId || sessionId),
     staleTime: 30_000,
   });

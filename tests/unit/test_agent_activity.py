@@ -14,6 +14,7 @@ from app.db.models import (
     Session,
     SharedWorkspace,
     ToolCall,
+    TraceEvent,
     WidgetAgencyReceipt,
     WorkspaceAttentionItem,
     WorkspaceMission,
@@ -138,6 +139,26 @@ async def _seed_activity(db_session):
             correlation_id=correlation_id,
             created_at=now,
         ),
+        TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id="agent",
+            client_id="client",
+            event_type="worksurface_boundary_denied",
+            event_name="file",
+            data={
+                "actor_bot_id": "agent",
+                "target_channel_id": str(channel_id),
+                "owner_bot_id": "worker",
+                "mode": "read",
+                "source_tool": "file",
+                "reason": "not_participant",
+                "allowed": False,
+                "current_channel_id": str(channel_id),
+                "path": f"/workspace/channels/{channel_id}/notes.md",
+            },
+            created_at=now,
+        ),
     ])
     await db_session.commit()
     return {
@@ -161,6 +182,7 @@ async def test_agent_activity_normalizes_existing_evidence(db_session):
         "project_receipt",
         "widget_receipt",
         "execution_receipt",
+        "boundary_access",
     }
     assert by_kind["tool_call"]["status"] == "failed"
     assert by_kind["tool_call"]["error"] == {
@@ -175,6 +197,8 @@ async def test_agent_activity_normalizes_existing_evidence(db_session):
     assert by_kind["widget_receipt"]["target"]["widget_pin_ids"]
     assert by_kind["execution_receipt"]["source"]["scope"] == "agent_readiness"
     assert by_kind["execution_receipt"]["target"]["bot_id"] == "agent"
+    assert by_kind["boundary_access"]["status"] == "failed"
+    assert by_kind["boundary_access"]["source"]["reason"] == "not_participant"
 
 
 async def test_agent_activity_filters_by_kind_task_and_correlation(db_session):
@@ -215,9 +239,11 @@ async def test_agent_activity_summary_advertises_replay_contract(db_session):
     assert summary["available"] is True
     assert "correlation_id" in summary["supported_filters"]
     assert "tool_call" in summary["supported_kinds"]
-    assert summary["recent_count"] == 6
+    assert "boundary_access" in summary["supported_kinds"]
+    assert summary["recent_count"] == 7
     assert summary["recent_counts"]["tool_call"] == 1
     assert summary["recent_counts"]["execution_receipt"] == 1
+    assert summary["recent_counts"]["boundary_access"] == 1
     assert len(summary["recent"]) == 5
 
 

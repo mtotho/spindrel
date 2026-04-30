@@ -298,17 +298,17 @@ def _check_bots_with_cross_workspace_access() -> SecurityCheck:
             category="agentic_boundaries",
             severity=Severity.warning,
             status=Status.passed,
-            message="No bots have cross-workspace channel access enabled",
+            message="No bots carry deprecated cross_workspace_access config",
         )
     return SecurityCheck(
         id="bots_with_cross_workspace_access",
         category="agentic_boundaries",
         severity=Severity.warning,
-        status=Status.fail,
-        message=f"{len(bots)} bot(s) can access sibling channel workspaces",
+        status=Status.warning,
+        message=f"{len(bots)} bot(s) still carry deprecated cross_workspace_access config",
         recommendation=(
-            "Review whether each bot needs cross_workspace_access. Treat it as a "
-            "workspace-wide trust boundary and audit cross-channel file reads/writes."
+            "Clear this stale config. Channel WorkSurface access is now granted by "
+            "channel ownership or ChannelBotMember participation, not this flag."
         ),
         details={"count": len(bots), "bots": bots[:20]},
     )

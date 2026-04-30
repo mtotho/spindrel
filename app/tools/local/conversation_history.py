@@ -5,11 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
-from sqlalchemy import exists, select, update
+from sqlalchemy import select, update
 
 from app.agent.context import current_bot_id, current_channel_id, current_session_id
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelBotMember, ConversationSection, Message, Session, ToolCall
+from app.db.models import Channel, ConversationSection, Message, Session, ToolCall
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -312,31 +312,30 @@ async def _authorize_channel_read(
     my_channel_id: uuid.UUID | None,
     bot_id: str | None,
 ) -> tuple[str | None, str | None]:
-    if requested_channel_id == my_channel_id:
-        return None, None
-
+    from app.services.worksurface_access import (
+        authorize_channel_worksurface,
+        record_worksurface_boundary_event,
+    )
     async with async_session() as db:
-        channel = await db.get(Channel, requested_channel_id)
-    if not channel:
-        return None, "Access denied: channel not found."
-    if str(channel.bot_id) == bot_id:
-        return None, None
-
-    async with async_session() as db:
-        is_member = await db.scalar(
-            select(exists().where(
-                ChannelBotMember.channel_id == requested_channel_id,
-                ChannelBotMember.bot_id == bot_id,
-            ))
+        decision = await authorize_channel_worksurface(
+            db,
+            actor_bot_id=bot_id,
+            channel_id=requested_channel_id,
         )
-    if is_member:
-        return None, None
-
-    from app.agent.bots import get_bot
-    caller_bot = get_bot(bot_id)
-    if caller_bot and caller_bot.cross_workspace_access:
-        return channel.bot_id, None
-    return None, "Access denied: this bot is not a member of the requested channel."
+        should_trace = (
+            requested_channel_id != my_channel_id
+            or decision.reason == "member"
+            or not decision.allowed
+        )
+        if should_trace:
+            await record_worksurface_boundary_event(
+                decision,
+                mode="history",
+                source_tool="read_conversation_history",
+            )
+    if not decision.allowed:
+        return None, decision.error
+    return decision.owner_bot_id, None
 
 
 async def _load_session_context(

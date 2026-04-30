@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-30 (Channel-associated widget projection.)
+updated: 2026-04-30 (Attention cue cleanup.)
 ---
 
 # Track — Spatial Canvas
@@ -222,6 +222,14 @@ dashboard pin creates the paired Spatial Canvas widget placement; creating a
 channel-sourced spatial widget creates the paired channel dashboard pin. The two
 placements keep independent geometry, but projection metadata links their pin
 rows and delete/unpin removes the paired projection.
+
+Same-day attention cue cleanup: cluster and widget aggregate objects no longer
+paint duplicate non-interactive attention badges on top of their existing cue
+summary. The remaining per-object attention badge opens Mission Control Review
+directly for that item, preserving object selection first but avoiding inert
+red markers that look clickable and do nothing. The separate object cue marker
+layer now also uses real buttons that select the target object instead of
+decorative warning icons.
 
 | Phase | Status | Description |
 |---|---|---|

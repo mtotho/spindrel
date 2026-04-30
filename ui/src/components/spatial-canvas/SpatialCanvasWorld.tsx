@@ -50,7 +50,6 @@ const DIVE_MS = 300;
 type SpatialCanvasWorldProps = Record<string, any> & {
   setHoveredNodeId: React.Dispatch<React.SetStateAction<any>>;
   setSelectedSpatialObject: React.Dispatch<React.SetStateAction<any>>;
-  setSelectedAttentionId: React.Dispatch<React.SetStateAction<any>>;
   setDraggingNodeId: React.Dispatch<React.SetStateAction<any>>;
   setActivatedTileId: React.Dispatch<React.SetStateAction<any>>;
   setMemorySelection: React.Dispatch<React.SetStateAction<any>>;
@@ -124,7 +123,6 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
     starboardOpen,
     diveToChannel,
     attentionByNodeId,
-    setSelectedAttentionId,
     standaloneWidgetClusters,
     clusteredChannelNodeIds,
     draggingNodeId,
@@ -450,14 +448,6 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                   flyToWorldBounds(cluster.worldBounds, CHANNEL_CLUSTER_FOCUS_SCALE, CHANNEL_CLUSTER_FOCUS_SCALE);
                 }}
               />
-              {attentionSignalsVisible && (
-                <SpatialAttentionSignal
-                  items={cluster.members.flatMap((member: any) => attentionByNodeId.get(member.node.id) ?? [])}
-                  scale={camera.scale}
-                  interactive={false}
-                  onSelect={openStarboardAttention}
-                />
-              )}
             </div>
           );
         })}
@@ -478,14 +468,6 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
               zoom={interactiveZoom}
               opacity={widgetOverviewOpacity}
             />
-            {attentionSignalsVisible && (
-              <SpatialAttentionSignal
-                items={cluster.nodes.flatMap((node: SpatialNode) => attentionByNodeId.get(node.id) ?? [])}
-                scale={camera.scale}
-                interactive={false}
-                onSelect={openStarboardAttention}
-              />
-            )}
           </div>
         ))}
         {(nodes ?? []).map((node: SpatialNode) => {
@@ -682,7 +664,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                     else if (node.bot_id) selectNode("bot", node);
                     else if (node.pin) selectNode("widget", node);
                     else if (node.landmark_kind) selectLandmark(node.landmark_kind, node.world_x + node.world_w / 2, node.world_y + node.world_h / 2);
-                    setSelectedAttentionId(item.id);
+                    openStarboardAttention(item);
                   }}
                 />
               )}

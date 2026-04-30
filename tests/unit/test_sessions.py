@@ -490,6 +490,28 @@ class TestPersistTurn:
         assert assistant.metadata_["assistant_turn_body"] == assistant_turn_body
 
     @pytest.mark.asyncio
+    async def test_persists_assistant_thinking_content_on_metadata(self):
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        bot = _make_bot()
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Done.",
+                "_thinking_content": "read AGENTS.md, then inspected code",
+            },
+        ]
+
+        await persist_turn(db, session_id, bot, messages, from_index=0)
+
+        added = [call[0][0] for call in db.add.call_args_list]
+        assistant = next(m for m in added if m.role == "assistant")
+        assert assistant.metadata_["thinking"] == "read AGENTS.md, then inspected code"
+
+    @pytest.mark.asyncio
     async def test_legacy_transcript_entries_upgrade_into_assistant_turn_body(self):
         from app.services.sessions import persist_turn
 

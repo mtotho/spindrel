@@ -22,11 +22,7 @@ from app.db.engine import async_session
 from app.db.models import Session as SessionRow
 from app.services import session_locks
 from app.services.agent_harnesses import ChannelEventEmitter, get_runtime
-from app.services.agent_harnesses.base import (
-    HarnessContextHint,
-    HarnessInputAttachment,
-    HarnessInputManifest,
-)
+from app.services.agent_harnesses.base import HarnessInputAttachment, HarnessInputManifest
 from app.services.sessions import persist_turn
 
 logger = logging.getLogger(__name__)
@@ -202,26 +198,6 @@ async def load_harness_channel_prompt_hint(db, channel_id: uuid.UUID | None):
     )
 
 
-def _build_harness_native_workspace_hint(workdir: str, source: str) -> HarnessContextHint:
-    return HarnessContextHint(
-        kind="native_workspace",
-        source=source or "harness",
-        created_at=datetime.now(timezone.utc).isoformat(),
-        consume_after_next_turn=False,
-        priority="instruction",
-        text=(
-            "This is a native coding harness turn. The runtime current working "
-            f"directory is {workdir}. For normal codebase work, first orient from "
-            "this cwd using the runtime's native filesystem/shell/edit surface. "
-            "Read and follow repository instruction files you find there, such as "
-            "AGENTS.md, CLAUDE.md, README.md, and project docs, before deciding "
-            "which files to inspect or edit. Spindrel host tools and context hints "
-            "are supplemental; use them for Spindrel host state only when the user "
-            "explicitly asks for them or the task actually requires host-side data."
-        ),
-    )
-
-
 async def run_harness_turn(
     *,
     channel_id: uuid.UUID | None,
@@ -321,9 +297,8 @@ async def run_harness_turn(
         harness_model = harness_model_override if harness_model_override is not None else harness_settings.model
         harness_effort = harness_effort_override if harness_effort_override is not None else harness_settings.effort
         context_hints = list(await load_context_hints(db, session_id))
-        context_hints.insert(0, _build_harness_native_workspace_hint(workdir, harness_paths.source))
         if channel_prompt_hint := await load_harness_channel_prompt_hint_fn(db, channel_id):
-            context_hints.insert(1, channel_prompt_hint)
+            context_hints.insert(0, channel_prompt_hint)
         harness_meta, _last_turn_at = await load_latest_harness_metadata(db, session_id)
         session_row = await db.get(SessionRow, session_id)
         session_plan_mode = get_session_plan_mode(session_row) if session_row is not None else "chat"
@@ -428,6 +403,7 @@ async def run_harness_turn(
         persisted_tool_calls = emitter.persisted_tool_calls()
         tool_envelopes = emitter.tool_envelopes()
         assistant_turn_body = emitter.assistant_turn_body(text="")
+        thinking_text = emitter.thinking_text()
         cancelled_assistant_msg: dict = {
             "role": "assistant",
             "content": "",
@@ -453,6 +429,8 @@ async def run_harness_turn(
             ]
         if assistant_turn_body:
             cancelled_assistant_msg["_assistant_turn_body"] = assistant_turn_body
+        if thinking_text:
+            cancelled_assistant_msg["_thinking_content"] = thinking_text
         synthetic_messages: list[dict] = [
             {"role": "user", "content": user_message},
             cancelled_assistant_msg,
@@ -483,6 +461,7 @@ async def run_harness_turn(
         persisted_tool_calls = emitter.persisted_tool_calls()
         tool_envelopes = emitter.tool_envelopes()
         assistant_turn_body = emitter.assistant_turn_body(text="")
+        thinking_text = emitter.thinking_text()
         error_assistant_msg: dict = {
             "role": "assistant",
             "content": build_turn_failure_message(error_text, ""),
@@ -509,6 +488,8 @@ async def run_harness_turn(
             ]
         if assistant_turn_body:
             error_assistant_msg["_assistant_turn_body"] = assistant_turn_body
+        if thinking_text:
+            error_assistant_msg["_thinking_content"] = thinking_text
         synthetic_messages: list[dict] = [
             {"role": "user", "content": user_message},
             error_assistant_msg,
@@ -537,6 +518,7 @@ async def run_harness_turn(
     persisted_tool_calls = emitter.persisted_tool_calls()
     tool_envelopes = emitter.tool_envelopes()
     assistant_turn_body = emitter.assistant_turn_body(text=final_text)
+    thinking_text = emitter.thinking_text()
     await mirror_plan(
         session_id=session_id,
         runtime_name=bot.harness_runtime,
@@ -580,6 +562,8 @@ async def run_harness_turn(
         ]
     if assistant_turn_body:
         assistant_msg["_assistant_turn_body"] = assistant_turn_body
+    if thinking_text:
+        assistant_msg["_thinking_content"] = thinking_text
     synthetic_messages = [{
         "role": "user",
         "content": user_message,

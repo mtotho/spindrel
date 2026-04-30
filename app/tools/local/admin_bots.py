@@ -188,12 +188,20 @@ async def manage_bot(
             if "workspace" in config:
                 row.workspace = {**(row.workspace or {}), **config["workspace"]}
 
+            if config.get("cross_workspace_access"):
+                return json.dumps({
+                    "error": (
+                        "cross_workspace_access is deprecated. Add the bot as a channel "
+                        "member to grant channel WorkSurface access."
+                    )
+                }, ensure_ascii=False)
+
             if "delegate_bots" in config or "cross_workspace_access" in config:
                 dc = dict(row.delegation_config or {})
                 if "delegate_bots" in config:
                     dc["delegate_bots"] = config["delegate_bots"]
                 if "cross_workspace_access" in config:
-                    dc["cross_workspace_access"] = config["cross_workspace_access"]
+                    dc.pop("cross_workspace_access", None)
                 row.delegation_config = dc
 
             if "fallback_models" in config:

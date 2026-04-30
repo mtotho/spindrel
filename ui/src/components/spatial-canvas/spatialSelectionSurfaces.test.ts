@@ -53,9 +53,10 @@ test("attention signal keeps the ring visual-only and makes only the badge click
   const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
   assert.match(source, /pointer-events-none absolute left-1\/2 top-1\/2/);
   assert.match(source, /aria-hidden/);
-  assert.match(source, /interactive \? "pointer-events-auto/);
+  assert.match(source, /!interactive \?/);
   assert.match(source, /relative flex h-6 min-w-6/);
-  assert.match(worldSource, /interactive=\{false\}/);
+  assert.doesNotMatch(worldSource, /interactive=\{false\}/);
+  assert.match(worldSource, /openStarboardAttention\(item\)/);
   assert.match(source, /<AlertTriangle size=\{12\}/);
   assert.doesNotMatch(source, /border-t-2 border-r-2/);
 });
@@ -145,9 +146,9 @@ test("spatial glanceability uses shared cue markers and compass without side str
   const modelSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialStarboardModels.tsx"), "utf8");
   const routerSource = readFileSync(resolve(process.cwd(), "src/router.tsx"), "utf8");
   assert.match(cueSource, /data-testid="spatial-action-cue-marker"/);
-  assert.match(cueSource, /aria-hidden="true"/);
-  assert.doesNotMatch(cueSource, /aria-label=\{`\$\{cueLabel\(item\)\}: \$\{item\.label\}`\}/);
-  assert.doesNotMatch(cueSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*item\.onSelect\(\);/);
+  assert.match(cueSource, /aria-label=\{`\$\{cueLabel\(item\)\}: \$\{item\.label\}`\}/);
+  assert.match(cueSource, /pointer-events-auto absolute flex h-5/);
+  assert.match(cueSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*item\.onSelect\(\);/);
   assert.match(cueSource, /data-testid="spatial-action-compass"/);
   assert.match(cueSource, /data-spatial-action-compass-collapsed/);
   assert.match(cueSource, /data-spatial-action-compass-user-minimized/);
@@ -303,6 +304,9 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
   assert.doesNotMatch(deckSource, /Reviewing now/);
   assert.match(deckSource, /Review first finding/);
   assert.match(deckSource, /Sweep unreviewed/);
+  assert.match(deckSource, /Clear all/);
+  assert.match(deckSource, /useBulkAcknowledgeAttentionItems/);
+  assert.match(deckSource, /scope: "workspace_visible"/);
   assert.match(deckSource, /Unreviewed items/);
   assert.doesNotMatch(deckSource, /Raw signals waiting/);
   assert.doesNotMatch(deckSource, /DeckSideRail/);

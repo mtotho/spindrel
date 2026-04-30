@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.db.models import Channel
 from app.services import agent_capabilities
+from app.services.execution_receipts import create_execution_receipt
 
 
 def test_filter_endpoints_for_scopes_uses_existing_scope_rules(monkeypatch):
@@ -150,6 +152,9 @@ async def test_manifest_includes_runtime_context(monkeypatch):
             "recent_runs": [],
         }
 
+    async def fake_doctor_recent_receipts_payload(*args, **kwargs):
+        return [{"scope": "agent_readiness", "summary": "Verified resolved."}]
+
     monkeypatch.setattr(agent_capabilities, "_resolve_context", fake_resolve_context)
     monkeypatch.setattr(agent_capabilities, "_scopes_for_bot", fake_scopes_for_bot)
     monkeypatch.setattr(agent_capabilities, "_tool_payload", fake_tool_payload)
@@ -160,6 +165,7 @@ async def test_manifest_includes_runtime_context(monkeypatch):
     monkeypatch.setattr(agent_capabilities, "work_state_payload", fake_work_state_payload)
     monkeypatch.setattr(agent_capabilities, "activity_log_payload", fake_activity_log_payload)
     monkeypatch.setattr(agent_capabilities, "agent_status_payload", fake_agent_status_payload)
+    monkeypatch.setattr(agent_capabilities, "doctor_recent_receipts_payload", fake_doctor_recent_receipts_payload)
 
     manifest = await agent_capabilities.build_agent_capability_manifest(SimpleNamespace(), bot_id="agent")
 
@@ -169,9 +175,57 @@ async def test_manifest_includes_runtime_context(monkeypatch):
     assert manifest["activity_log"]["recent_counts"]["tool_call"] == 1
     assert manifest["tool_error_contract"]["version"] == "tool-error.v1"
     assert "validation" in manifest["tool_error_contract"]["benign_review_kinds"]
+    assert manifest["doctor"]["recent_receipts"][0]["summary"] == "Verified resolved."
     assert "context_should_summarize" not in {
         finding["code"] for finding in manifest["doctor"]["findings"]
     }
+
+
+@pytest.mark.asyncio
+async def test_doctor_recent_receipts_payload_filters_agent_readiness_receipts(db_session):
+    channel_id = uuid.uuid4()
+    other_channel_id = uuid.uuid4()
+    db_session.add_all([
+        Channel(id=channel_id, name="Readiness", bot_id="agent", client_id=f"receipt-{uuid.uuid4().hex[:8]}"),
+        Channel(id=other_channel_id, name="Other", bot_id="agent", client_id=f"receipt-{uuid.uuid4().hex[:8]}"),
+    ])
+    await db_session.commit()
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="tool_setup",
+        status="succeeded",
+        summary="Verified resolved.",
+        bot_id="agent",
+        channel_id=channel_id,
+    )
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="tool_setup",
+        status="succeeded",
+        summary="Other channel.",
+        bot_id="agent",
+        channel_id=other_channel_id,
+    )
+    await create_execution_receipt(
+        db_session,
+        scope="general",
+        action_type="tool_setup",
+        status="succeeded",
+        summary="Wrong scope.",
+        bot_id="agent",
+        channel_id=channel_id,
+    )
+
+    receipts = await agent_capabilities.doctor_recent_receipts_payload(
+        db_session,
+        bot_id="agent",
+        channel_id=channel_id,
+    )
+
+    assert [receipt["summary"] for receipt in receipts] == ["Verified resolved."]
+    assert receipts[0]["schema_version"] == "execution-receipt.v1"
 
 
 def test_doctor_flags_runtime_context_pressure():

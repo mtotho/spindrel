@@ -176,7 +176,6 @@ export function SpatialActionCueLayer({
             data-testid="spatial-action-cue-marker"
             data-spatial-action-cue-id={item.id}
             data-spatial-action-cue-intent={intent}
-            title={cueTitle(item)}
             className="pointer-events-none absolute z-[4996]"
             style={{
               left: item.worldX,
@@ -189,16 +188,23 @@ export function SpatialActionCueLayer({
               className={`relative transition-transform duration-150 ${highlighted ? "scale-110" : "scale-100"}`}
               style={{ width: 0, height: 0 }}
             >
-              <div
-                aria-hidden="true"
-                className={`absolute flex h-5 min-w-5 items-center justify-center rounded-full px-1 ring-1 backdrop-blur-sm transition-transform duration-150 ${toneClass} ${
+              <button
+                type="button"
+                title={cueTitle(item)}
+                aria-label={`${cueLabel(item)}: ${item.label}`}
+                className={`pointer-events-auto absolute flex h-5 min-w-5 items-center justify-center rounded-full px-1 ring-1 backdrop-blur-sm transition-transform duration-150 hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 ${toneClass} ${
                   highlighted ? "scale-110 ring-accent/45" : ""
                 }`}
                 style={{ transform: `translate(${badgeX}px, ${badgeY}px)` }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  item.onSelect();
+                }}
               >
                 <Icon size={13} />
                 <span className="sr-only">{cueLabel(item)}</span>
-              </div>
+              </button>
             </div>
           </div>
         );

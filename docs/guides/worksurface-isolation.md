@@ -34,12 +34,12 @@ Do not add a new direct call to `workspace_service.get_workspace_root()`, `chann
 
 ## Operator Capabilities
 
-Cross-boundary autonomous access must be explicit operator power. The legacy `cross_workspace_access` flag is vestigial: it lets a bot use channel IDs in `/workspace/channels/<id>/...` paths to reach sibling channel workspaces. That behavior should migrate to a named operator/orchestrator capability with:
+Cross-boundary autonomous access must be explicit. Channel WorkSurface access is now participant-based:
 
-- which WorkSurface boundaries may be crossed
-- read/write/search/execute permissions
-- visible admin labeling
-- durable audit events when used
+- a channel's primary bot may access the channel WorkSurface
+- bots listed as `ChannelBotMember` participants may access it
+- nonparticipants are denied even if stale `cross_workspace_access` metadata exists
+- file, search, and history boundary decisions emit durable `worksurface_boundary_*` trace events
 
 Logs are not enough for this class of behavior. Logging is supporting evidence; the product surface should show recent operator boundary crossings.
 
@@ -57,13 +57,13 @@ The global Secret Values vault is not an ambient environment for every subproces
 
 The static audit at `app.services.worksurface_isolation_audit` intentionally reports these known gaps until they are remediated:
 
-- `cross_workspace_access` remains a legacy sibling-channel escape hatch
 - `harness_workdir` can bypass a resolved WorkSurface and should be treated as operator-target config
 - `widget://workspace` is shared-workspace scoped and still needs a policy decision: shared library or WorkSurface-published asset
 
 Remediated findings:
 
 - shared workspace subprocess execution no longer injects every Secret Value by default; it only uses `current_allowed_secrets` plus explicit Project runtime `extra_env`
+- legacy `cross_workspace_access` no longer authorizes sibling-channel WorkSurface access; channel files, channel search, history reads, and channel listing now use primary/member participation
 
 ## External Baseline
 

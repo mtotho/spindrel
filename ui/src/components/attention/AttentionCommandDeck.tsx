@@ -20,6 +20,7 @@ import {
   useAcknowledgeAttentionItem,
   useAssignAttentionItem,
   useAttentionTriageRuns,
+  useBulkAcknowledgeAttentionItems,
   useResolveAttentionItem,
   useStartAttentionTriageRun,
   useSubmitAttentionTriageFeedback,
@@ -279,6 +280,25 @@ export function AttentionCommandDeck({
       setNotice("Could not copy the fix prompt from this browser.");
     }
   };
+  const clearableCount = counts.review + counts.inbox;
+  const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
+  const clearActiveAttention = () => {
+    if (!clearableCount || bulkAcknowledge.isPending) return;
+    const scope = channelId ? "this channel" : "the workspace";
+    if (!window.confirm(`Clear ${clearableCount} active attention item${clearableCount === 1 ? "" : "s"} from ${scope}? New occurrences will still show up later.`)) {
+      return;
+    }
+    bulkAcknowledge.mutate(
+      { scope: "workspace_visible", channel_id: channelId ?? null },
+      {
+        onSuccess: (res) => {
+          onSelect(null);
+          setNotice(`Cleared ${res.count} active attention item${res.count === 1 ? "" : "s"}.`);
+        },
+        onError: () => setNotice("Could not clear attention items. Try again from the Attention deck."),
+      },
+    );
+  };
 
   const whatNow = (() => {
     const viewingFirstReview = Boolean(firstReview && mode === "review" && displayItem?.id === firstReview.id);
@@ -354,6 +374,15 @@ export function AttentionCommandDeck({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={!clearableCount || bulkAcknowledge.isPending}
+              className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-text-muted hover:bg-surface-overlay/60 hover:text-text disabled:opacity-40"
+              onClick={clearActiveAttention}
+            >
+              {bulkAcknowledge.isPending ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} />}
+              Clear all
+            </button>
             <button
               type="button"
               className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-text-muted hover:bg-surface-overlay/60 hover:text-text"

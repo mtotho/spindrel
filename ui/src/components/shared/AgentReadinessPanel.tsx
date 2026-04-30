@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Activity, AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
 
-import { createExecutionReceipt, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
+import { createExecutionReceipt, fetchAgentCapabilities, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
 import { useUpdateBot } from "@/src/api/hooks/useBots";
 import { ApiError } from "@/src/api/client";
 import type { BotConfig } from "@/src/types/api";
@@ -225,6 +225,36 @@ function ActivityLogSummary({ manifest }: { manifest: AgentCapabilityManifest })
   );
 }
 
+function receiptTone(status?: string): "success" | "warning" | "danger" | "neutral" {
+  if (status === "succeeded") return "success";
+  if (status === "failed" || status === "blocked") return "danger";
+  if (status === "needs_review") return "warning";
+  return "neutral";
+}
+
+function LastRepairSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
+  const receipt = manifest.doctor.recent_receipts?.[0];
+  if (!receipt) return null;
+  const result = receipt.result || {};
+  const resolved = result.finding_resolved === true;
+  const description = resolved
+    ? receipt.after_summary || "Repair was verified after apply"
+    : receipt.status === "needs_review"
+      ? receipt.rollback_hint || receipt.after_summary || "Repair was applied but still needs review"
+      : receipt.summary;
+  return (
+    <div data-testid="agent-readiness-last-repair">
+      <SettingsControlRow
+        leading={<History size={14} />}
+        title="Last repair"
+        description={description}
+        meta={<QuietPill label={receipt.status || "reported"} tone={receiptTone(receipt.status)} />}
+        compact
+      />
+    </div>
+  );
+}
+
 function statusTone(state?: string): "danger" | "warning" | "info" | "success" | "neutral" {
   if (state === "error") return "danger";
   if (state === "blocked") return "warning";
@@ -321,14 +351,38 @@ export function AgentReadinessPanel({
     setActionError(null);
     setLastReceipt(null);
     setPendingActionId(action.id);
+    const beforeDoctorStatus = data?.doctor.status ?? "unknown";
     try {
       await updateBot.mutateAsync(action.apply.patch as Partial<BotConfig>);
+      let refreshed: AgentCapabilityManifest | null = null;
+      let verificationError: string | null = null;
+      try {
+        refreshed = await fetchAgentCapabilities({
+          botId,
+          channelId,
+          sessionId,
+          includeEndpoints: false,
+          includeSchemas: false,
+          maxTools,
+        });
+      } catch (err) {
+        verificationError = errorMessage(err);
+      }
+      const remainingFindings = refreshed?.doctor.findings ?? [];
+      const remainingCodes = remainingFindings.map((finding) => finding.code);
+      const findingResolved = Boolean(refreshed && !remainingCodes.includes(action.finding_code));
+      const receiptStatus = findingResolved ? "succeeded" : "needs_review";
+      const receiptSummary = verificationError
+        ? `Applied readiness repair, verification failed: ${action.title}`
+        : findingResolved
+          ? `Verified resolved: ${action.title}`
+          : `Applied, still needs review: ${action.title}`;
       try {
         const receipt = await createExecutionReceipt({
           scope: "agent_readiness",
           action_type: action.kind || "bot_patch",
-          status: "succeeded",
-          summary: `Applied readiness repair: ${action.title}`,
+          status: receiptStatus,
+          summary: receiptSummary,
           actor: { kind: "human_ui", surface: "agent_readiness_panel" },
           target: {
             bot_id: botId ?? undefined,
@@ -338,7 +392,9 @@ export function AgentReadinessPanel({
             action_id: action.id,
           },
           before_summary: action.description,
-          after_summary: action.impact,
+          after_summary: findingResolved
+            ? "The original readiness finding no longer appears after refetching the capability manifest."
+            : action.impact,
           approval_required: true,
           approval_ref: "agent_readiness_panel",
           result: {
@@ -346,6 +402,11 @@ export function AgentReadinessPanel({
             patch: action.apply.patch,
             required_actor_scopes: action.required_actor_scopes ?? [],
             grants_scopes: action.grants_scopes ?? [],
+            doctor_status_before: beforeDoctorStatus,
+            doctor_status_after: refreshed?.doctor.status ?? null,
+            finding_resolved: findingResolved,
+            remaining_findings: remainingCodes,
+            verification_error: verificationError,
           },
           rollback_hint: "Open Bot settings and remove the added API scopes or tool enrollments if this repair was not intended.",
           bot_id: botId ?? undefined,
@@ -410,6 +471,7 @@ export function AgentReadinessPanel({
       <SurfaceSummary manifest={data} />
       <AgentStatusSummary manifest={data} />
       <ActivityLogSummary manifest={data} />
+      <LastRepairSummary manifest={data} />
       <WidgetAuthoringSummary manifest={data} />
       <IntegrationReadinessSummary manifest={data} />
       {findings.length > 0 ? (
@@ -443,7 +505,10 @@ export function AgentReadinessPanel({
             </InfoBanner>
           )}
           {lastReceipt && (
-            <InfoBanner variant="success" icon={<CheckCircle2 size={14} />}>
+            <InfoBanner
+              variant={lastReceipt.status === "succeeded" ? "success" : "warning"}
+              icon={<CheckCircle2 size={14} />}
+            >
               {lastReceipt.summary}
             </InfoBanner>
           )}

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from app.agent.context import current_bot_id, current_channel_id
@@ -46,78 +47,78 @@ def _format_search_results(results) -> str:
     return json.dumps({"count": len(items), "results": items}, ensure_ascii=False)
 
 
-async def _get_bot_and_roots(channel_id: str | None = None) -> tuple:
+async def _get_bot_and_roots(channel_id: str | None = None, *, source_tool: str = "search_channel_workspace") -> tuple:
     """Resolve bot, channel_id, workspace root, and embedding model.
 
-    When *channel_id* belongs to a different bot AND the calling bot has
-    ``cross_workspace_access``, we resolve using the *owning* bot's workspace
-    root so the search hits the correct directory.
+    Channel WorkSurface access is participant-based: the primary bot and
+    ChannelBotMember rows may search the channel. Member access resolves using
+    the owning bot's workspace root so search hits the correct directory.
     """
     bot_id = current_bot_id.get()
     ch_id = channel_id or (str(current_channel_id.get()) if current_channel_id.get() else None)
     if not bot_id or not ch_id:
-        return None, None, None, None, None
+        return None, None, None, None, None, "Channel workspace search is not available (no channel workspace context)."
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
     if not bot or not bot.workspace.enabled:
-        return None, None, None, None, None
+        return None, None, None, None, None, "Channel workspace search is not available (no workspace context)."
 
-    # Determine the effective bot whose workspace root to use.
-    effective_bot = bot
-    if channel_id and bot.cross_workspace_access:
-        owner_bot = await _resolve_channel_owner_bot(channel_id, bot_id)
-        if owner_bot is not None:
-            effective_bot = owner_bot
+    try:
+        target_channel_id = uuid.UUID(str(ch_id))
+    except (TypeError, ValueError):
+        return bot, ch_id, None, None, None, f"Unknown channel: {ch_id}"
 
+    from app.db.engine import async_session as _async_session
+    from app.db.models import Channel
+    from app.services.projects import resolve_channel_work_surface
+    from app.services.worksurface_access import (
+        authorize_channel_worksurface,
+        record_worksurface_boundary_event,
+    )
     from app.services.bot_indexing import resolve_for
     from app.services.channel_workspace import _get_ws_root
 
-    ws_root = str(Path(_get_ws_root(effective_bot)).resolve())
+    effective_bot = bot
     surface = None
     try:
-        from app.db.engine import async_session as _async_session
-        from app.db.models import Channel
-        from app.services.projects import resolve_channel_work_surface
-
-        import uuid
         async with _async_session() as db:
-            channel = await db.get(Channel, uuid.UUID(str(ch_id)))
+            decision = await authorize_channel_worksurface(
+                db,
+                actor_bot_id=bot_id,
+                channel_id=target_channel_id,
+            )
+            should_trace = (
+                bool(channel_id)
+                or decision.reason == "member"
+                or not decision.allowed
+            )
+            if should_trace:
+                await record_worksurface_boundary_event(
+                    decision,
+                    mode="search",
+                    source_tool=source_tool,
+                )
+            if not decision.allowed:
+                return bot, ch_id, None, None, None, decision.error
+
+            if decision.owner_bot_id and decision.owner_bot_id != bot_id:
+                owner_bot = get_bot(decision.owner_bot_id)
+                if not owner_bot or not owner_bot.workspace.enabled:
+                    return bot, ch_id, None, None, None, "Access denied: channel owner workspace is not available."
+                effective_bot = owner_bot
+
+            channel = await db.get(Channel, target_channel_id)
             if channel is not None:
                 surface = await resolve_channel_work_surface(db, channel, effective_bot)
     except Exception:
-        logger.debug("Could not resolve work surface for channel %s", ch_id, exc_info=True)
+        logger.debug("Could not resolve work surface access for channel %s", ch_id, exc_info=True)
+        return bot, ch_id, None, None, None, "Channel workspace search is not available (access check failed)."
+
+    ws_root = str(Path(_get_ws_root(effective_bot)).resolve())
     plan = resolve_for(effective_bot, scope="workspace")
     embedding_model = plan.embedding_model if plan is not None else None
-    return bot, ch_id, ws_root, embedding_model, surface
-
-
-async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
-    """Look up the bot that owns *channel_id*. Returns its BotConfig or None.
-
-    Returns None if the channel belongs to the caller (no switch needed)
-    or if the owning bot can't be resolved.
-    """
-    from app.db.engine import async_session as _async_session
-    from sqlalchemy import select
-    from app.db.models import Channel
-
-    async with _async_session() as db:
-        row = (await db.execute(
-            select(Channel.bot_id).where(Channel.id == channel_id)
-        )).first()
-
-    if not row:
-        return None
-    owner_bot_id = str(row.bot_id)
-    if owner_bot_id == caller_bot_id:
-        return None  # same bot, no switch needed
-
-    from app.agent.bots import get_bot
-    owner_bot = get_bot(owner_bot_id)
-    if not owner_bot or not owner_bot.workspace.enabled:
-        return None
-    return owner_bot
+    return bot, ch_id, ws_root, embedding_model, surface, None
 
 
 @register({
@@ -143,9 +144,11 @@ async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
 }, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_archive(query: str) -> str:
     """Search archived workspace files for the current channel."""
-    bot, ch_id, ws_root, embedding_model, _surface = await _get_bot_and_roots()
+    bot, ch_id, ws_root, embedding_model, _surface, access_error = await _get_bot_and_roots(source_tool="search_channel_archive")
     if not bot or not ch_id:
         return json.dumps({"count": 0, "results": [], "error": "Archive search is not available (no channel workspace context)."}, ensure_ascii=False)
+    if access_error:
+        return json.dumps({"count": 0, "results": [], "error": access_error}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
@@ -207,9 +210,14 @@ async def search_channel_archive(query: str) -> str:
 }, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_workspace(query: str, channel_id: str | None = None) -> str:
     """Search channel workspace files (active + archive)."""
-    bot, ch_id, ws_root, embedding_model, surface = await _get_bot_and_roots(channel_id)
+    bot, ch_id, ws_root, embedding_model, surface, access_error = await _get_bot_and_roots(
+        channel_id,
+        source_tool="search_channel_workspace",
+    )
     if not bot or not ch_id:
         return json.dumps({"count": 0, "results": [], "error": "Channel workspace search is not available (no workspace context)."}, ensure_ascii=False)
+    if access_error:
+        return json.dumps({"count": 0, "results": [], "error": access_error}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
@@ -270,9 +278,11 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
 }, requires_bot_context=True, requires_channel_context=True, returns=_SEARCH_RETURNS)
 async def search_channel_knowledge(query: str) -> str:
     """Search the current channel's knowledge-base/ folder."""
-    bot, ch_id, ws_root, embedding_model, surface = await _get_bot_and_roots()
+    bot, ch_id, ws_root, embedding_model, surface, access_error = await _get_bot_and_roots(source_tool="search_channel_knowledge")
     if not bot or not ch_id:
         return json.dumps({"count": 0, "results": [], "error": "Channel knowledge search is not available (no channel workspace context)."}, ensure_ascii=False)
+    if access_error:
+        return json.dumps({"count": 0, "results": [], "error": access_error}, ensure_ascii=False)
 
     query = (query or "").strip()
     if not query:
@@ -349,35 +359,20 @@ async def list_channels() -> str:
     if not bot_id:
         return json.dumps({"count": 0, "channels": [], "error": "Not available (no bot context)."}, ensure_ascii=False)
 
-    from app.agent.bots import get_bot
-    bot = get_bot(bot_id)
-    cross_access = bot.cross_workspace_access if bot else False
-
     from app.db.engine import async_session
     from sqlalchemy import select
-    from app.db.models import Bot as BotRow, Channel
+    from app.db.models import Channel
 
     async with async_session() as db:
-        if cross_access:
-            stmt = (
-                select(
-                    Channel.id, Channel.name, Channel.client_id,
-                    Channel.bot_id,
-                    BotRow.name.label("bot_name"),
-                )
-                .join(BotRow, BotRow.id == Channel.bot_id)
-                .order_by(BotRow.name, Channel.name)
+        from app.services.channels import bot_channel_filter
+        stmt = (
+            select(
+                Channel.id, Channel.name, Channel.client_id,
+                Channel.bot_id,
             )
-        else:
-            from app.services.channels import bot_channel_filter
-            stmt = (
-                select(
-                    Channel.id, Channel.name, Channel.client_id,
-                    Channel.bot_id,
-                )
-                .where(bot_channel_filter(bot_id))
-                .order_by(Channel.name)
-            )
+            .where(bot_channel_filter(bot_id))
+            .order_by(Channel.name)
+        )
         rows = (await db.execute(stmt)).all()
 
     if not rows:
@@ -393,11 +388,7 @@ async def list_channels() -> str:
             "bot_id": str(row.bot_id),
             "is_current": ch_str == my_ch_id,
         }
-        if cross_access:
-            entry["bot_name"] = getattr(row, "bot_name", None) or str(row.bot_id)
-            entry["is_member"] = str(row.bot_id) != bot_id
-        else:
-            entry["is_member"] = str(row.bot_id) != bot_id
+        entry["is_member"] = str(row.bot_id) != bot_id
         channels.append(entry)
 
     return json.dumps({"count": len(channels), "channels": channels}, ensure_ascii=False)

@@ -197,7 +197,8 @@ class BotConfig:
     memory_max_inject_chars: int | None = None
     # Delegation
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
-    cross_workspace_access: bool = False  # if True, channel workspace tools can see/search all bots' channels
+    # Deprecated metadata only; channel WorkSurface access is Channel primary/member based.
+    cross_workspace_access: bool = False
     # LLM sampling parameters (temperature, max_tokens, etc.)
     model_params: dict = field(default_factory=dict)
     # Provider

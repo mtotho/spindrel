@@ -8,7 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.tools.local.conversation_history import read_conversation_history, _parse_section, _read_section_transcript
+from app.services.worksurface_access import ChannelWorkSurfaceAccess
+from app.tools.local.conversation_history import (
+    _authorize_channel_read,
+    _parse_section,
+    _read_section_transcript,
+    read_conversation_history,
+)
 
 
 def _mock_section(**kwargs):
@@ -274,21 +280,19 @@ class TestReadConversationHistorySection:
 
 
 class TestCrossWorkspaceAccess:
-    """Tests for cross-workspace access to other bots' conversation history."""
+    """Tests for participant-based access to other bots' conversation history."""
 
     @pytest.mark.asyncio
-    async def test_cross_workspace_access_allowed(self):
-        """Bot with cross_workspace_access=True can read another bot's channel history."""
+    async def test_channel_member_access_allowed(self):
+        """A channel member bot can read another bot's channel history."""
         my_channel_id = uuid.uuid4()
         other_channel_id = uuid.uuid4()
-        caller_bot_id = "orchestrator"
         owner_bot_id = "worker"
-
-        mock_channel = MagicMock()
-        mock_channel.bot_id = owner_bot_id
-
-        caller_bot = MagicMock()
-        caller_bot.cross_workspace_access = True
+        session = MagicMock()
+        session.id = uuid.uuid4()
+        session.session_type = "primary"
+        session.title = "Worker session"
+        session.summary = ""
 
         sections = [
             _mock_section(channel_id=other_channel_id, sequence=1, title="Worker Section",
@@ -297,28 +301,15 @@ class TestCrossWorkspaceAccess:
         ]
 
         with patch_channel_id(my_channel_id), \
-             patch("app.tools.local.conversation_history.current_bot_id") as mock_bid, \
              patch("app.tools.local.conversation_history.async_session") as mock_session, \
-             patch("app.agent.bots.get_bot", return_value=caller_bot):
-            mock_bid.get.return_value = caller_bot_id
-
-            # First async_session call: channel lookup (cross-channel check)
-            # Second call: section query
-            mock_db1 = AsyncMock()
-            mock_db1.get = AsyncMock(return_value=mock_channel)
-            mock_db2 = AsyncMock()
+             patch("app.tools.local.conversation_history._authorize_channel_read", AsyncMock(return_value=(owner_bot_id, None))), \
+             patch("app.tools.local.conversation_history._load_session_context", AsyncMock(return_value=(session, session, []))):
+            mock_db = AsyncMock()
             mock_result = MagicMock()
             mock_result.scalars.return_value.all.return_value = sections
-            mock_db2.execute = AsyncMock(return_value=mock_result)
-
-            call_count = [0]
-            class FakeCtx:
-                async def __aenter__(self_inner):
-                    call_count[0] += 1
-                    return mock_db1 if call_count[0] == 1 else mock_db2
-                async def __aexit__(self_inner, *args):
-                    return False
-            mock_session.side_effect = lambda: FakeCtx()
+            mock_db.execute = AsyncMock(return_value=mock_result)
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = await read_conversation_history("index", channel_id=other_channel_id)
 
@@ -326,34 +317,47 @@ class TestCrossWorkspaceAccess:
         assert "Access denied" not in result
 
     @pytest.mark.asyncio
-    async def test_cross_workspace_access_denied(self):
-        """Bot without cross_workspace_access cannot read another bot's channel."""
+    async def test_cross_workspace_access_denied_even_with_legacy_flag(self):
+        """The deprecated flag no longer grants history access."""
         my_channel_id = uuid.uuid4()
         other_channel_id = uuid.uuid4()
-        caller_bot_id = "limited_bot"
+        caller_bot_id = "orchestrator"
         owner_bot_id = "worker"
 
-        mock_channel = MagicMock()
-        mock_channel.bot_id = owner_bot_id
+        denied = ChannelWorkSurfaceAccess(
+            allowed=False,
+            reason="not_participant",
+            channel_id=other_channel_id,
+            actor_bot_id=caller_bot_id,
+            owner_bot_id=owner_bot_id,
+        )
 
-        caller_bot = MagicMock()
-        caller_bot.cross_workspace_access = False
+        class FakeCtx:
+            async def __aenter__(self):
+                return object()
+
+            async def __aexit__(self, *args):
+                return False
+
+        async def _authorize(_db, *, actor_bot_id, channel_id):
+            assert actor_bot_id == caller_bot_id
+            assert channel_id == other_channel_id
+            return denied
+
+        async def _record(*_args, **_kwargs):
+            return None
 
         with patch_channel_id(my_channel_id), \
              patch("app.tools.local.conversation_history.current_bot_id") as mock_bid, \
-             patch("app.tools.local.conversation_history.async_session") as mock_session, \
-             patch("app.agent.bots.get_bot", return_value=caller_bot):
+             patch("app.tools.local.conversation_history.async_session", lambda: FakeCtx()), \
+             patch("app.services.worksurface_access.authorize_channel_worksurface", _authorize), \
+             patch("app.services.worksurface_access.record_worksurface_boundary_event", _record):
             mock_bid.get.return_value = caller_bot_id
 
-            mock_db = AsyncMock()
-            mock_db.get = AsyncMock(return_value=mock_channel)
-            mock_db.scalar = AsyncMock(return_value=False)  # not a member
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+            owner, error = await _authorize_channel_read(other_channel_id, my_channel_id, caller_bot_id)
 
-            result = await read_conversation_history("index", channel_id=other_channel_id)
-
-        assert "Access denied" in result
+        assert owner is None
+        assert error == "Access denied: this bot is not a participant in the requested channel."
 
 
 class TestDualRootPathResolution:

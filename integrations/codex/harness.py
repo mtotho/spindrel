@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -298,8 +299,9 @@ class CodexRuntime:
                 current_signature=dynamic_tools_signature,
                 prior_signature=prior_dynamic_tools_signature,
             )
+            thread_restart_reason = _codex_thread_restart_reason(ctx)
 
-            if ctx.harness_session_id and not dynamic_tools_changed:
+            if _should_resume_codex_thread(ctx, dynamic_tools_changed=dynamic_tools_changed):
                 resume_params = {"threadId": ctx.harness_session_id}
                 if ctx.model:
                     resume_params["model"] = ctx.model
@@ -404,6 +406,7 @@ class CodexRuntime:
                     "codex_dynamic_tools_signature": dynamic_tools_signature or "",
                     "codex_dynamic_tools": list(exported),
                     "codex_dynamic_tools_namespace": "spindrel",
+                    "codex_thread_restart_reason": thread_restart_reason,
                     "input_manifest": ctx.input_manifest.metadata(
                         runtime_items=tuple(turn_params.get("input") or ()),
                     ),
@@ -916,6 +919,39 @@ def _dynamic_tools_changed(
     if not harness_session_id:
         return False
     return (current_signature or "") != (prior_signature or "")
+
+
+def _codex_thread_restart_reason(ctx: TurnContext) -> str | None:
+    """Return why a persisted native thread cannot be safely resumed.
+
+    Codex project instructions are discovered from the thread/run cwd. If a
+    Spindrel channel is later assigned to a Project, resuming the old native
+    thread preserves the old instruction chain even if ``turn/start.cwd`` is
+    set correctly. In that case start a fresh Codex thread with the new cwd so
+    Codex performs its native AGENTS.md discovery again.
+    """
+    if not ctx.harness_session_id:
+        return None
+    prior_cwd = ctx.harness_metadata.get("effective_cwd")
+    if not isinstance(prior_cwd, str) or not prior_cwd.strip():
+        return "unknown_prior_cwd"
+    try:
+        prior_norm = os.path.abspath(prior_cwd)
+        current_norm = os.path.abspath(ctx.workdir)
+    except Exception:
+        prior_norm = prior_cwd.rstrip("/")
+        current_norm = str(ctx.workdir).rstrip("/")
+    if prior_norm != current_norm:
+        return "workdir_changed"
+    return None
+
+
+def _should_resume_codex_thread(ctx: TurnContext, *, dynamic_tools_changed: bool) -> bool:
+    return bool(
+        ctx.harness_session_id
+        and not dynamic_tools_changed
+        and _codex_thread_restart_reason(ctx) is None
+    )
 
 
 def _prompt_with_bridge_guidance(prompt: str, exported_tools: list[str]) -> str:

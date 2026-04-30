@@ -13,6 +13,7 @@ from integrations.codex.harness import (
     _build_turn_input,
     _codex_native_app_server_params_for_context,
     _codex_native_command_is_mutating,
+    _codex_thread_restart_reason,
     _codex_skill_paths_by_name,
     _dynamic_tool_entry,
     _dynamic_tools_changed,
@@ -23,6 +24,7 @@ from integrations.codex.harness import (
     _prompt_with_bridge_guidance,
     _resolve_codex_native_app_server_call,
     _server_supports_dynamic_tools,
+    _should_resume_codex_thread,
     _summarize_native_command_result,
 )
 from integrations.sdk import HarnessInputAttachment, HarnessInputManifest, HarnessToolSpec, build_turn_context
@@ -43,6 +45,22 @@ def _turn_ctx(manifest: HarnessInputManifest | None = None):
         harness_session_id=None,
         permission_mode="default",
         input_manifest=manifest,
+    )
+
+
+def _resume_ctx(*, prior_cwd: str | None, workdir: str = "/tmp/project"):
+    metadata = {}
+    if prior_cwd is not None:
+        metadata["effective_cwd"] = prior_cwd
+    return build_turn_context(
+        spindrel_session_id=uuid.uuid4(),
+        bot_id="codex-bot",
+        turn_id=uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        workdir=workdir,
+        harness_session_id="thread-old",
+        permission_mode="default",
+        harness_metadata=metadata,
     )
 
 
@@ -146,6 +164,23 @@ def test_dynamic_tools_change_detects_add_remove_and_schema_drift():
         current_signature=None,
         prior_signature="",
     ) is False
+
+
+def test_codex_thread_restart_reason_detects_workdir_changes_for_agents_md_reload():
+    assert _codex_thread_restart_reason(_resume_ctx(prior_cwd="/tmp/project")) is None
+    assert _codex_thread_restart_reason(
+        _resume_ctx(prior_cwd="/tmp/old-project", workdir="/tmp/project")
+    ) == "workdir_changed"
+    assert _codex_thread_restart_reason(_resume_ctx(prior_cwd=None)) == "unknown_prior_cwd"
+
+
+def test_codex_resume_gate_requires_same_workdir_and_same_dynamic_tools():
+    same = _resume_ctx(prior_cwd="/tmp/project")
+    changed = _resume_ctx(prior_cwd="/tmp/old-project", workdir="/tmp/project")
+
+    assert _should_resume_codex_thread(same, dynamic_tools_changed=False) is True
+    assert _should_resume_codex_thread(same, dynamic_tools_changed=True) is False
+    assert _should_resume_codex_thread(changed, dynamic_tools_changed=False) is False
 
 
 def test_bridge_guidance_names_exact_callable_dynamic_tools():

@@ -42,7 +42,7 @@ POLICY_TARGET = {
     "private_state": "Bot memory, credentials, auth, and authored skills stay private unless explicitly published/shared.",
     "execution": "Exec, harnesses, files, search, widgets, and context admission must honor the resolved WorkSurface.",
     "secrets": "Execution receives only explicit per-bot, per-Project/runtime, or per-integration secret bindings.",
-    "operator_power": "Legacy cross_workspace_access becomes an explicit operator capability with policy and audit.",
+    "operator_power": "Cross-channel WorkSurface access is participant-based and emits durable audit events.",
 }
 
 WORKSURFACE_CONSUMERS = {
@@ -136,18 +136,41 @@ def audit_worksurface_isolation(repo_root: Path | None = None) -> list[WorkSurfa
         ))
 
     file_ops_source = _read(root, "app/tools/local/file_ops.py")
-    bots_source = _read(root, "app/agent/bots.py")
-    if "cross_workspace_access" in file_ops_source or "cross_workspace_access" in bots_source:
+    channel_workspace_source = _read(root, "app/tools/local/channel_workspace.py")
+    conversation_history_source = _read(root, "app/tools/local/conversation_history.py")
+    runtime_sources = {
+        "app/tools/local/file_ops.py": file_ops_source,
+        "app/tools/local/channel_workspace.py": channel_workspace_source,
+        "app/tools/local/conversation_history.py": conversation_history_source,
+    }
+    runtime_bypass = [
+        rel
+        for rel, source in runtime_sources.items()
+        if ".cross_workspace_access" in source
+    ]
+    if runtime_bypass:
         findings.append(WorkSurfaceIsolationFinding(
             id="legacy_cross_workspace_access_flag",
             severity="high",
             status="warning",
-            title="Legacy cross_workspace_access bypasses the WorkSurface vocabulary",
-            evidence="app/tools/local/file_ops.py and app/agent/bots.py still expose cross_workspace_access for sibling-channel workspace resolution.",
+            title="Legacy cross_workspace_access bypasses channel participation",
+            evidence="Runtime WorkSurface consumers still read cross_workspace_access: " + ", ".join(runtime_bypass),
             recommendation=(
-                "Migrate this into an explicit operator/orchestrator capability that names which WorkSurface "
-                "boundaries may be crossed and emits durable audit events when used."
+                "Remove broad runtime authorization and route channel WorkSurface access through "
+                "app.services.worksurface_access."
             ),
+        ))
+    else:
+        findings.append(WorkSurfaceIsolationFinding(
+            id="legacy_cross_workspace_access_flag",
+            severity="info",
+            status="pass",
+            title="Channel WorkSurface access is participant-based",
+            evidence=(
+                "File, search, and conversation-history tools authorize through "
+                "app.services.worksurface_access and emit worksurface_boundary trace events."
+            ),
+            recommendation="Keep cross-channel WorkSurface access behind channel ownership or ChannelBotMember participation.",
         ))
 
     harness_project_source = _read(root, "app/services/agent_harnesses/project.py")

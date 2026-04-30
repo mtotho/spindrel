@@ -24,7 +24,7 @@ def test_policy_target_names_the_decided_isolation_contract():
     assert "Project-bound channels intentionally share" in POLICY_TARGET["project_sharing"]
     assert "Bot memory" in POLICY_TARGET["private_state"]
     assert "explicit" in POLICY_TARGET["secrets"]
-    assert "operator" in POLICY_TARGET["operator_power"]
+    assert "participant" in POLICY_TARGET["operator_power"]
 
 
 def test_static_audit_records_worksurface_policy_coverage():
@@ -44,13 +44,13 @@ def test_static_audit_clears_unscoped_shared_workspace_secret_injection():
     assert "binding-driven" in finding.recommendation
 
 
-def test_static_audit_flags_vestigial_operator_escape_hatches():
+def test_static_audit_flags_remaining_operator_escape_hatches():
     findings = _finding_by_id()
 
     cross_workspace = findings["legacy_cross_workspace_access_flag"]
-    assert cross_workspace.status == "warning"
-    assert cross_workspace.severity == "high"
-    assert "operator/orchestrator" in cross_workspace.recommendation
+    assert cross_workspace.status == "pass"
+    assert cross_workspace.severity == "info"
+    assert "ChannelBotMember" in cross_workspace.recommendation
 
     harness = findings["harness_workdir_absolute_escape"]
     assert harness.status == "warning"
@@ -78,4 +78,4 @@ def test_security_audit_surfaces_worksurface_static_findings():
     assert check.details is not None
     findings = {finding["id"]: finding for finding in check.details["findings"]}
     assert findings["shared_workspace_unscoped_secret_injection"]["status"] == "pass"
-    assert findings["legacy_cross_workspace_access_flag"]["status"] == "warning"
+    assert findings["legacy_cross_workspace_access_flag"]["status"] == "pass"
