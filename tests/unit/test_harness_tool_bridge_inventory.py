@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -466,3 +467,52 @@ async def test_bridge_mutating_tool_requires_harness_approval_before_dispatch(mo
     assert approvals
     assert approvals[0]["tool_name"] == "file"
     assert approvals[0]["ctx"].permission_mode == "default"
+
+
+@pytest.mark.asyncio
+async def test_bridge_dispatch_skips_second_policy_prompt_after_harness_approval(monkeypatch):
+    bot = BotConfig(id="harness-bot", name="Harness Bot", model="test-model", system_prompt="")
+    dispatch = AsyncMock(return_value=SimpleNamespace(
+        needs_approval=False,
+        approval_id=None,
+        result_for_llm="ok",
+        result="ok",
+        tool_event={"type": "tool_result", "tool": "list_sub_sessions"},
+    ))
+
+    @contextlib.asynccontextmanager
+    async def _db():
+        yield _Db()
+
+    async def _allow_approval(**_kwargs):
+        return AllowDeny.allow_()
+
+    async def _no_skills(*_args, **_kwargs):
+        return []
+
+    ctx = TurnContext(
+        spindrel_session_id=uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        bot_id="harness-bot",
+        turn_id=uuid.uuid4(),
+        workdir="/tmp",
+        harness_session_id=None,
+        permission_mode="bypassPermissions",
+        db_session_factory=_db,
+        session_plan_mode="chat",
+    )
+
+    monkeypatch.setattr(harness_tools, "get_bot", lambda _bot_id: bot)
+    monkeypatch.setattr(harness_tools, "request_harness_approval", _allow_approval)
+    monkeypatch.setattr(harness_tools, "resolved_skill_ids_for", _no_skills)
+    monkeypatch.setattr(harness_tools, "dispatch_tool_call", dispatch)
+
+    result = await harness_tools.execute_harness_spindrel_tool_result(
+        ctx,
+        tool_name="list_sub_sessions",
+        arguments={"limit": 3},
+        allowed_tool_names={"list_sub_sessions"},
+    )
+
+    assert result.text == "ok"
+    assert dispatch.await_args.kwargs["skip_policy"] is True

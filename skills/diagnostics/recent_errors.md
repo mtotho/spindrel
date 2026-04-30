@@ -10,6 +10,9 @@ category: operations
 The live, cross-source error sweep. One tool. Use when the daily summary
 hasn't caught up yet or the user is reporting a current problem.
 
+If the user wants the findings tracked or closed, continue with
+[Health Triage](health_triage.md). This skill only identifies current findings.
+
 ## When to fetch this skill
 
 - The user reports a problem **right now** ("the bot just crashed", "I just
@@ -73,6 +76,7 @@ this tool.
 | Finding identifies a service + signature, but you need surrounding lines | [Raw Logs](raw_logs.md) with that service + grep token |
 | Many findings, none look load-bearing | Widen `since` to `24h` or check [Health Summary](health_summary.md) for the daily rollup view |
 | Finding is in `agent-server` and looks like a tool error | [Traces](traces.md) — the tool call has structured data the log line doesn't |
+| Finding needs durable review or resolution | [Health Triage](health_triage.md) — promote it into Attention and resolve only with evidence |
 
 ## Boundaries
 
@@ -80,5 +84,6 @@ this tool.
   `docker logs` foothold. If a sibling service you care about isn't in the
   list, surface that gap as a Loose End — don't try to work around it.
 - This is a **read-only summary**. It does not restart, rotate, or remediate.
+  Use [Health Triage](health_triage.md) for the approval/Attention path.
 - The `sample` field is one line of context per finding. For the surrounding
   log lines, fall through to [Raw Logs](raw_logs.md) with a grep token.

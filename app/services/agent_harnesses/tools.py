@@ -583,6 +583,7 @@ async def execute_harness_spindrel_tool_result(
         summarize_max_tokens=summarize.max_tokens,
         summarize_exclude=set(summarize.exclude),
         compaction=False,
+        skip_policy=True,
         allowed_tool_names=set(allowed_tool_names),
     )
     if result.needs_approval and result.approval_id:

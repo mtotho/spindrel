@@ -178,6 +178,33 @@
       ]
     },
     {
+      "id": "spindrel-live-health-triage",
+      "path": ".agents/skills/spindrel-live-health-triage",
+      "description": "Repo-dev workflow for coding agents to inspect live Spindrel health, promote recent errors into Attention, resolve clear benign or recovered findings, and turn likely code bugs into repo work.",
+      "triggers": [
+        "daily health",
+        "live health",
+        "recent errors",
+        "triage errors",
+        "mark errors resolved",
+        "Attention health",
+        "dogfood health",
+        "latest server errors",
+        "likely code bug"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/api.md",
+        "docs/guides/heartbeats.md",
+        "docs/guides/development-process.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_system_health_summary.py tests/unit/test_workspace_attention.py -q",
+        "PYTHONPATH=. pytest tests/unit/test_repo_agent_skills.py -q",
+        "git diff --check"
+      ]
+    },
+    {
       "id": "spindrel-visual-feedback-loop",
       "path": ".agents/skills/spindrel-visual-feedback-loop",
       "description": "Browser screenshot workflow for UI visual feedback and documentation artifacts.",

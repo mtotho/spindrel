@@ -5,6 +5,16 @@ It is separate from external harness planning in Claude Code or Codex: the Spind
 session owns the plan artifact, approval state, execution progress, and adherence
 review.
 
+Feature placement follows the agentic-readiness rubric:
+
+- the plan-mode procedure belongs in the runtime skill
+  `planning/native_session`, because smaller models mostly need ordering,
+  caveats, and examples for existing tools
+- the plan tools and session API stay responsible for runtime state, approval,
+  atomic progress recording, and enforcement
+- plan cards and review surfaces should focus the human on the current decision,
+  blocker, or next action
+
 Use the canonical behavior spec for exact contracts:
 
 - [Session Plan Mode](../planning/session-plan-mode.md)

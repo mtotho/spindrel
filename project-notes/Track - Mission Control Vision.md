@@ -622,6 +622,16 @@ the system can already inspect" is a shared capability manifest:
   current active review/unreviewed set. It uses the existing bulk acknowledge
   endpoint, clears the selection on success, and keeps new occurrences eligible
   to resurface later.
+- Added the on-demand daily-health dogfood path. `/api/v1/system-health/recent-errors`
+  exposes live deduped log findings with matching Attention id/status, and
+  `/api/v1/system-health/recent-errors/promote` turns selected current
+  `error`/`critical` findings into reusable system Attention Items. Attention
+  resolve now accepts optional `resolution` and `note` evidence so agents can
+  close clearly benign, duplicate, external, stale, or recovered findings
+  without losing audit context. Runtime agents get
+  `skills/diagnostics/health_triage.md`; repo-dev agents get the separate
+  `.agents/skills/spindrel-live-health-triage` workflow for live-instance
+  inspection and code-bug conversion.
 
 ## Key Invariants
 

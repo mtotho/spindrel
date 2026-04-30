@@ -43,6 +43,7 @@ Always start at the highest tier that could plausibly answer the question.
 | "What broke overnight?" / acting on a daily rollup | [Health Summary](health_summary.md) | L1 |
 | Confirming bots / channels / integrations exist before blaming them | [Health Summary](health_summary.md) | L1 |
 | "What's been failing in the last few hours?" — live deduped sweep | [Recent Errors](recent_errors.md) | L2 |
+| Promote, review, or close live error findings through Attention | [Health Triage](health_triage.md) | L2.5 |
 | "The bot didn't do X in this channel" — debug one turn | [Traces](traces.md) | L3 |
 | "Ranker / discovery / retrieval is off lately" — audit across turns | [Traces](traces.md) | L4 |
 | "I need the raw stderr around event X" — last resort | [Raw Logs](raw_logs.md) | L5 |
@@ -59,13 +60,15 @@ shape-of-the-system call and almost always rules out half the search space.
 - "Schedule a daily digest in #ops" → Reports.
 - "Is anything wrong right now?" → Health Summary, then Recent Errors if the
   summary is stale.
+- "Close the recovered daily-health errors" → Health Triage after Recent Errors
+  confirms the current state.
 - "Tool X returned an error" → Traces + `get_tool_info` to confirm the contract.
 
 ## Boundaries
 
-These tools are **read-only**. They do not restart containers, rotate logs,
-re-run failed turns, or mutate state. Remediation is a separate decision the
-bot should escalate via the configured notification target. Per-channel scoping
-matters: `list_session_traces` and `get_last_heartbeat` are bound to the current
-channel — to diagnose a bot's behavior in a different channel, use
-`get_trace` list mode with `bot_id`.
+Most diagnostic tools are **read-only**. [Health Triage](health_triage.md) is
+the exception: it may promote findings into Attention and resolve Attention
+items when evidence is clear. It still does not restart containers, rotate logs,
+or re-run failed turns. Per-channel scoping matters: `list_session_traces` and
+`get_last_heartbeat` are bound to the current channel — to diagnose a bot's
+behavior in a different channel, use `get_trace` list mode with `bot_id`.

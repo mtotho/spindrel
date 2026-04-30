@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
+from app.routers.api_v1_workspace_attention import resolve_attention as resolve_attention_route
 from app.services.workspace_attention import (
     _is_operator_triage_sweep_candidate,
     _normalize_triage_suggested_action,
@@ -201,6 +202,61 @@ async def test_place_attention_item_dedupes_active_items(db_session):
     assert second.id == first.id
     assert second.message == "updated"
     assert second.occurrence_count == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_attention_item_preserves_optional_resolution_metadata(db_session):
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:recent-server-errors",
+        channel_id=None,
+        target_kind="system",
+        target_id="server-health",
+        title="Server error",
+        severity="error",
+        dedupe_key="server-error",
+        evidence={"kind": "recent_server_error"},
+    )
+
+    resolved = await resolve_attention_item(
+        db_session,
+        item.id,
+        resolved_by="api_key:ops",
+        resolution="already_recovered",
+        note="No matching errors in the latest sweep.",
+    )
+
+    assert resolved.status == "resolved"
+    assert resolved.evidence["kind"] == "recent_server_error"
+    assert resolved.evidence["resolution"]["resolution"] == "already_recovered"
+    assert resolved.evidence["resolution"]["note"] == "No matching errors in the latest sweep."
+    assert resolved.evidence["resolution"]["resolved_by"] == "api_key:ops"
+
+
+@pytest.mark.asyncio
+async def test_resolve_attention_route_keeps_empty_body_compatibility(db_session):
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:recent-server-errors",
+        channel_id=None,
+        target_kind="system",
+        target_id="server-health",
+        title="Server error",
+        severity="error",
+        dedupe_key="server-error-empty-body",
+    )
+
+    payload = await resolve_attention_route(
+        item.id,
+        body=None,
+        auth=ApiKeyAuth(key_id=uuid.uuid4(), scopes=["channels:write"], name="ops-key"),
+        db=db_session,
+    )
+
+    assert payload["item"]["status"] == "resolved"
+    assert payload["item"]["evidence"] == {}
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,8 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
 1. **Enable the integration that owns the runtime.** Each harness ships as part of an integration, not as a baked-in dep. For Claude Code: open `/admin/integrations`, find Claude Code, click Enable. The integration's `requirements.txt` (which pins `claude-agent-sdk`) installs on enable; the SDK bundles the `claude` CLI alongside it. For Codex: enable the Codex integration, then make sure the host/container can execute `codex app-server` via `${CODEX_BIN:-codex}`. **No harness SDK or CLI lives in the base Docker image** — nothing related to a harness ships with Spindrel itself unless you enable/install it yourself.
 
+    ![Claude Code SDK integration install surface](../images/claude-code-sdk.png)
+
 2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. For Claude, click **Run `claude login`** if needed. For Codex, install the binary first, then run `codex login` once in the same host/container environment that Spindrel will spawn. The auth-status card distinguishes "binary missing" from "not logged in" so setup failures are obvious before the first turn.
 
     Under the hood the CLI writes credentials to `$CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`). The Claude Agent SDK that the integration installed inherits these credentials — no API key needed. See [Admin Terminal](admin-terminal.md) for the terminal mechanics.

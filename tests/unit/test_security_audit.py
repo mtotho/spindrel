@@ -449,12 +449,13 @@ class TestWorkSurfaceIsolationStatic:
 
         assert c.id == "worksurface_isolation_static"
         assert c.category == "agentic_boundaries"
-        assert c.status == Status.warning
-        assert c.severity == Severity.warning
+        assert c.status == Status.passed
+        assert c.severity == Severity.info
         assert c.details is not None
         findings = {f["id"]: f for f in c.details["findings"]}
         assert findings["shared_workspace_unscoped_secret_injection"]["status"] == "pass"
         assert findings["legacy_cross_workspace_access_flag"]["status"] == "pass"
+        assert findings["widget_workspace_scope_needs_worksurface_review"]["status"] == "pass"
 
 
 class TestInboundCallbackSecurity:

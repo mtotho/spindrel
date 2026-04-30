@@ -153,7 +153,8 @@ def stage_project_workspace(
     setup = client.get_project_setup(blueprint_project_id)
     if not any(run.get("status") == "succeeded" for run in (setup.get("runs") or [])):
         client.run_project_setup(blueprint_project_id)
-    client.create_project_instance(blueprint_project_id)
+    if not client.list_project_instances(blueprint_project_id):
+        client.create_project_instance(blueprint_project_id)
 
     channel = client.ensure_channel(
         client_id=PROJECT_CHANNEL_CLIENT_ID,

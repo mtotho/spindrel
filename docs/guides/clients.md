@@ -182,6 +182,14 @@ WHISPER_LANGUAGE=en
 
 The web microphone path defaults to `VOICE_INPUT_MODE=transcribe`: record in the browser, upload the encoded audio with the chat request, transcribe on the server, then send the transcript through the normal chat turn. With `STT_PROVIDER=local`, audio stays local. With `STT_PROVIDER=openai`, audio is sent to the configured OpenAI API or OpenAI-compatible provider for transcription only; the resulting text still goes through the normal chat model.
 
+![Web composer voice recording overlay](../images/chat-voice-recording.png)
+
+The browser screenshot loop keeps the microphone affordance, recording state,
+and encoded audio payload covered as UI artifacts:
+[recording overlay](../images/chat-voice-recording.png),
+[submitted payload](../images/chat-voice-payload.png), and a
+[real e2e channel capture](../images/chat-voice-real-e2e.png).
+
 `VOICE_INPUT_MODE=native` is the opt-in mode for sending the audio through to the currently selected chat model/provider instead of transcribing first. If that provider/model does not support native audio, the turn surfaces the provider/backend error; switch back to `transcribe` or choose an audio-capable chat model.
 
 ### Settings Priority

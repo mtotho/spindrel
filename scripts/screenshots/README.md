@@ -225,6 +225,17 @@ channel and writes these documentation artifacts:
 | `chat-attachments-sent-receipts.png` | `/channels/:attachments` | 1440×900 | optimistic image + data receipts |
 | `chat-attachments-terminal-sent-receipts.png` | `/channels/:attachments` | 1440×900 | terminal-mode optimistic receipts |
 
+## Voice input checks
+
+The `voice-input` bundle stages an isolated `screenshot:voice-input` channel
+and uses browser media shims plus a fake chat submit so recording UI and payload
+shape can be captured without starting a model turn.
+
+| File | Route | Viewport | Wait |
+|------|-------|----------|------|
+| `chat-voice-recording.png` | `/channels/:voice_input` | 1440×900 | recording overlay ready |
+| `chat-voice-payload.png` | `/channels/:voice_input` | 1440×900 | encoded audio payload captured |
+
 ## Key invariants
 
 - **Never hit `/opt/thoth-server/`** — `config.load()` refuses URLs that don't

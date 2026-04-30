@@ -57,6 +57,11 @@ def test_static_audit_flags_remaining_operator_escape_hatches():
     assert harness.severity == "info"
     assert "WorkSurface cwd" in harness.recommendation
 
+    widget_workspace = findings["widget_workspace_scope_needs_worksurface_review"]
+    assert widget_workspace.status == "pass"
+    assert widget_workspace.severity == "info"
+    assert "shared widget library" in widget_workspace.recommendation
+
 
 def test_static_audit_summary_counts_findings():
     findings = audit_worksurface_isolation()
@@ -64,7 +69,6 @@ def test_static_audit_summary_counts_findings():
 
     assert summary["pass"] >= 3
     assert summary["fail"] == 0
-    assert summary["warning"] >= 1
     assert summary["critical"] == 0
 
 
@@ -73,9 +77,10 @@ def test_security_audit_surfaces_worksurface_static_findings():
 
     assert check.id == "worksurface_isolation_static"
     assert check.category == "agentic_boundaries"
-    assert check.status == Status.warning
-    assert check.severity == Severity.warning
+    assert check.status == Status.passed
+    assert check.severity == Severity.info
     assert check.details is not None
     findings = {finding["id"]: finding for finding in check.details["findings"]}
     assert findings["shared_workspace_unscoped_secret_injection"]["status"] == "pass"
     assert findings["legacy_cross_workspace_access_flag"]["status"] == "pass"
+    assert findings["widget_workspace_scope_needs_worksurface_review"]["status"] == "pass"

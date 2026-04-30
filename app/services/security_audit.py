@@ -579,6 +579,7 @@ def _check_worksurface_isolation_static() -> SecurityCheck:
             message="WorkSurface isolation static audit has no active findings",
             details={
                 "summary": summary,
+                "findings": [finding.payload() for finding in findings],
                 "policy": POLICY_TARGET,
             },
         )

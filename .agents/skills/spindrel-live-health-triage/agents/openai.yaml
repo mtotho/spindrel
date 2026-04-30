@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spindrel Live Health Triage"
+  short_description: "Repo-dev live-health workflow for recent errors, Attention promotion, and code-bug triage"
+  default_prompt: "Use $spindrel-live-health-triage to inspect the live Spindrel recent-errors API, promote actionable findings into Attention, resolve only clear benign/recovered duplicates with notes, and report likely code bugs for repo work."

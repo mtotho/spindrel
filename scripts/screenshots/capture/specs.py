@@ -2834,7 +2834,18 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             continuation_index: 1,
             feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
           }],
-          review: run.review ? { ...run.review, status: "ready_for_review", blocker: null, actions: { ...(run.review.actions || {}), can_request_changes: true } } : {
+          review: run.review ? {
+            ...run.review,
+            status: "ready_for_review",
+            blocker: null,
+            reviewed: false,
+            reviewed_at: null,
+            actions: {
+              ...(run.review.actions || {}),
+              can_mark_reviewed: true,
+              can_request_changes: true
+            }
+          } : {
             status: "ready_for_review",
             blocker: null,
             reviewed: false,
@@ -3077,7 +3088,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& !!document.querySelector('[data-testid=\"project-workspace-basics\"]') "
             "&& !!document.querySelector('[data-testid=\"project-runtime-env-readiness\"]') "
             "&& document.body.innerText.includes('Screenshot Service Blueprint') "
-            "&& document.body.innerText.toLowerCase().includes('runtime env available')"
+            "&& (document.body.innerText.toLowerCase().includes('runtime env available') "
+            "|| document.body.innerText.toLowerCase().includes('runtime keys are ready'))"
         ),
         output="project-workspace-settings-blueprint.png",
         color_scheme="dark",
@@ -3097,7 +3109,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN') "
             "&& normalized.includes('repo declarations') "
             "&& normalized.includes('env defaults') "
-            "&& normalized.includes('runtime env available') "
+            "&& (normalized.includes('runtime env available') || normalized.includes('runtime keys are ready')) "
             "&& text.includes('PROJECT_KIND') "
             "&& !text.includes('screenshot-token'), "
             "detail: 'Project settings did not expose runtime env readiness without leaking secret values' };"

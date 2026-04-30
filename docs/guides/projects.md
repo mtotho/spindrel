@@ -102,6 +102,10 @@ receipt records the implementation summary, changed files, tests, screenshots,
 branch or review handoff, and task/session linkage so a later session can pick
 up from durable Project state instead of searching chat history.
 
+Supplemental smoke artifacts cover the coding-run cockpit and its channel-side
+handoff: [Runs tab smoke](../images/project-coding-run-smoke-runs.png) and
+[channel smoke](../images/project-coding-run-smoke-channel.png).
+
 Reviewers can request changes from an existing coding run. The continuation
 endpoint creates a linked follow-up task that keeps the same Project, channel,
 repo, branch, and PR handoff while adding reviewer feedback, parent/root task

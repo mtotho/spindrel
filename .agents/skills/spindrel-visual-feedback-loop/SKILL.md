@@ -104,6 +104,28 @@ pin state. Capture uses a narrow browser shim for the assessment/receipt/
 capability endpoints when the shared e2e API lags the UI branch; capture must
 not create or mutate widgets.
 
+## Voice Input Loop
+
+Use this target when changing the web composer microphone flow or chat audio
+payload behavior.
+
+```bash
+python -m scripts.screenshots stage --only voice-input
+python -m scripts.screenshots capture --only voice-input
+python -m scripts.screenshots check
+```
+
+Expected documentation artifacts:
+
+```text
+docs/images/chat-voice-recording.png
+docs/images/chat-voice-payload.png
+```
+
+Inspect the recording overlay and the sent-payload capture. The scenario uses
+browser media shims and a fake chat submit; it should not start a real model
+turn.
+
 ## Dashboard Pin Config Editor Loop
 
 Use this target when changing the dashboard pin editor, widget config schema

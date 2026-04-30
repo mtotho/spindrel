@@ -63,17 +63,24 @@ Execution surfaces receive secrets only through explicit bindings:
 
 The global Secret Values vault is not an ambient environment for every subprocess. Redaction is defense-in-depth only; it does not make broad secret injection safe.
 
-## Current Findings
+## Widget Libraries
 
-The static audit at `app.services.worksurface_isolation_audit` intentionally reports these known gaps until they are remediated:
+`widget://workspace` is an intentionally shared widget-library scope, not a
+channel or Project WorkSurface. It resolves only under the shared workspace's
+`.widget_library/<bundle>/...` root, requires a shared workspace context, and
+remains bundle-confined by the widget path resolver.
 
-- `widget://workspace` is shared-workspace scoped and still needs a policy decision: shared library or WorkSurface-published asset
+Use `widget://bot` for bot-private widget bundles and `widget://core` for
+server-shipped read-only widgets. If Project-local widget publishing becomes
+necessary, add a separate Project/WorkSurface-scoped widget URI instead of
+overloading `widget://workspace`.
 
 Remediated findings:
 
 - shared workspace subprocess execution no longer injects every Secret Value by default; it only uses `current_allowed_secrets` plus explicit Project runtime `extra_env`
 - legacy `cross_workspace_access` no longer authorizes sibling-channel WorkSurface access; channel files, channel search, history reads, and channel listing now use primary/member participation
 - channel-bound native harnesses use the resolved channel, Project, or Project-instance WorkSurface cwd before `harness_workdir`; `harness_workdir` is only a no-channel launch fallback
+- `widget://workspace` is codified as an explicit shared widget library, with `shared_root` required and traversal confined to one bundle
 
 ## External Baseline
 

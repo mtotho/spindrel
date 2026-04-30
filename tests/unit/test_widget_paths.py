@@ -17,6 +17,7 @@ from app.services.widget_paths import (
     is_widget_uri,
     resolve_widget_uri,
     scope_root,
+    widget_scope_policy,
 )
 
 
@@ -57,6 +58,19 @@ class TestScopeRoot:
         assert scope_root(
             "workspace", ws_root=str(tmp_path), shared_root=None,
         ) is None
+
+
+class TestWidgetScopePolicy:
+    def test_workspace_is_explicit_shared_library_scope(self):
+        policy = widget_scope_policy("workspace")
+
+        assert policy.root_kind == "shared_workspace_library"
+        assert policy.requires_shared_root is True
+        assert policy.sharing_model == "workspace_shared_library"
+        assert policy.read_only is False
+
+    def test_core_is_read_only(self):
+        assert widget_scope_policy("core").read_only is True
 
 
 class TestResolveCore:

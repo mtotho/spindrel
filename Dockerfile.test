@@ -10,7 +10,9 @@ COPY integrations/ integrations/
 COPY packages/ packages/
 COPY spindrel/ spindrel/
 COPY tests/ tests/
+COPY .agents/ .agents/
 COPY skills/ skills/
 COPY migrations/ migrations/
 COPY docs/ docs/
+COPY CLAUDE.md ./
 COPY alembic.ini ./

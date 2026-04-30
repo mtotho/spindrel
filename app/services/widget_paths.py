@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 # Core (in-repo) library dir.  Lives alongside the widget-related tool
 # modules under ``app/tools/local/widgets/``.
@@ -39,6 +41,44 @@ WIDGET_URI_RE = re.compile(
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 SCOPES = ("core", "bot", "workspace")
+
+
+@dataclass(frozen=True)
+class WidgetScopePolicy:
+    scope: Literal["core", "bot", "workspace"]
+    root_kind: Literal["repo_core_library", "bot_private_library", "shared_workspace_library"]
+    read_only: bool
+    requires_shared_root: bool
+    sharing_model: Literal["server_shipped", "bot_private", "workspace_shared_library"]
+
+
+def widget_scope_policy(scope: str) -> WidgetScopePolicy:
+    """Return the explicit security policy for a widget URI scope."""
+    if scope == "core":
+        return WidgetScopePolicy(
+            scope="core",
+            root_kind="repo_core_library",
+            read_only=True,
+            requires_shared_root=False,
+            sharing_model="server_shipped",
+        )
+    if scope == "bot":
+        return WidgetScopePolicy(
+            scope="bot",
+            root_kind="bot_private_library",
+            read_only=False,
+            requires_shared_root=False,
+            sharing_model="bot_private",
+        )
+    if scope == "workspace":
+        return WidgetScopePolicy(
+            scope="workspace",
+            root_kind="shared_workspace_library",
+            read_only=False,
+            requires_shared_root=True,
+            sharing_model="workspace_shared_library",
+        )
+    raise ValueError(f"Unknown widget:// scope: {scope}")
 
 
 def is_widget_uri(path: str) -> bool:
@@ -86,6 +126,7 @@ def resolve_widget_uri(
         raise ValueError(f"Invalid widget:// URI: {uri}")
 
     scope = m.group(1)
+    policy = widget_scope_policy(scope)
     name = m.group(2)
     rest = m.group(3) or ""
 
@@ -119,4 +160,4 @@ def resolve_widget_uri(
     if not (target_real == bundle_real or target_real.startswith(bundle_real + os.sep)):
         raise ValueError(f"widget:// path escapes bundle: {uri}")
 
-    return target_real, scope, name, scope == "core"
+    return target_real, scope, name, policy.read_only

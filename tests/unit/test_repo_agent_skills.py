@@ -8,6 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / ".agents" / "manifest.json"
+DIAGNOSTICS_SKILL_DIR = ROOT / "skills" / "diagnostics"
 NEW_SKILL_IDS = {
     "spindrel-backend-operator",
     "spindrel-ui-operator",
@@ -18,6 +19,7 @@ NEW_SKILL_IDS = {
 }
 EXPECTED_SKILL_IDS = NEW_SKILL_IDS | {"spindrel-visual-feedback-loop"}
 AGENTIC_READINESS_ID = "agentic-readiness"
+LIVE_HEALTH_TRIAGE_ID = "spindrel-live-health-triage"
 
 
 def _load_manifest() -> dict:
@@ -43,7 +45,7 @@ def test_repo_agent_manifest_indexes_each_skill_folder() -> None:
     manifest = _load_manifest()
     skills = {entry["id"]: entry for entry in manifest["skills"]}
 
-    assert (EXPECTED_SKILL_IDS | {AGENTIC_READINESS_ID}).issubset(skills)
+    assert (EXPECTED_SKILL_IDS | {AGENTIC_READINESS_ID, LIVE_HEALTH_TRIAGE_ID}).issubset(skills)
 
     for skill_id, entry in skills.items():
         skill_dir = ROOT / entry["path"]
@@ -144,3 +146,40 @@ def test_agentic_readiness_references_and_metadata_exist() -> None:
     assert metadata["interface"]["display_name"] == "Agentic Readiness"
     assert "repo-dev" in metadata["interface"]["short_description"]
     assert "runtime agents" in metadata["interface"]["short_description"]
+
+
+def test_live_health_triage_skill_preserves_boundaries_and_resolution_rules() -> None:
+    manifest = _load_manifest()
+    skills = {entry["id"]: entry for entry in manifest["skills"]}
+    entry = skills[LIVE_HEALTH_TRIAGE_ID]
+    skill_dir = ROOT / entry["path"]
+    skill_text = (skill_dir / "SKILL.md").read_text()
+    skill_lower = skill_text.lower()
+
+    assert entry["path"] == ".agents/skills/spindrel-live-health-triage"
+    assert "docs/guides/heartbeats.md" in entry["canonical_guides"]
+    assert "repo-dev skill" in skill_lower
+    assert "not a spindrel runtime skill" in skill_lower
+    assert "must not be imported into app skill tables" in skill_lower
+    assert "/api/v1/system-health/recent-errors" in skill_text
+    assert "/api/v1/workspace/attention/{id}/resolve" in skill_text
+    assert "never resolve `likely_code_bug`" in skill_lower
+
+    metadata = yaml.safe_load((skill_dir / "agents" / "openai.yaml").read_text())
+    assert metadata["interface"]["display_name"] == "Spindrel Live Health Triage"
+    assert "repo-dev" in metadata["interface"]["short_description"].lower()
+
+
+def test_runtime_health_triage_skill_is_indexed_and_runtime_scoped() -> None:
+    skill_text = (DIAGNOSTICS_SKILL_DIR / "health_triage.md").read_text()
+    index_text = (DIAGNOSTICS_SKILL_DIR / "index.md").read_text()
+    recent_text = (DIAGNOSTICS_SKILL_DIR / "recent_errors.md").read_text()
+
+    assert "Health Triage" in index_text
+    assert "health_triage.md" in index_text
+    assert "Health Triage" in recent_text
+    assert "Spindrel runtime skill" in skill_text
+    assert "does not assume access to the Git repo" in skill_text
+    assert "/api/v1/system-health/recent-errors/promote" in skill_text
+    assert "/api/v1/workspace/attention/{id}/resolve" in skill_text
+    assert "Unknown is not benign" in skill_text

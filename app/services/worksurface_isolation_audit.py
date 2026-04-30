@@ -204,7 +204,27 @@ def audit_worksurface_isolation(repo_root: Path | None = None) -> list[WorkSurfa
         ))
 
     widget_paths_source = _read(root, "app/services/widget_paths.py")
-    if "widget://workspace" in widget_paths_source and "shared_root" in widget_paths_source:
+    if (
+        "widget://workspace" in widget_paths_source
+        and "shared_root" in widget_paths_source
+        and "workspace_shared_library" in widget_paths_source
+        and "requires_shared_root=True" in widget_paths_source
+    ):
+        findings.append(WorkSurfaceIsolationFinding(
+            id="widget_workspace_scope_needs_worksurface_review",
+            severity="info",
+            status="pass",
+            title="Widget workspace scope is an explicit shared library",
+            evidence=(
+                "app/services/widget_paths.py marks widget://workspace as a shared_workspace_library "
+                "that requires shared_root and remains bundle-confined."
+            ),
+            recommendation=(
+                "Keep widget://workspace as an intentional shared widget library. Add a separate "
+                "Project/WorkSurface-published widget scope if Project-local widget assets are needed."
+            ),
+        ))
+    elif "widget://workspace" in widget_paths_source and "shared_root" in widget_paths_source:
         findings.append(WorkSurfaceIsolationFinding(
             id="widget_workspace_scope_needs_worksurface_review",
             severity="medium",

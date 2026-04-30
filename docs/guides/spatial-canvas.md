@@ -66,6 +66,8 @@ the **Activity** toggle. When Activity is enabled, member halos collapse into
 the cluster marker; when Activity is off, the anchor still comes from recent
 usage, but no glow is shown.
 
+Additional channel-detail artifact: [spatial channel card](../images/spatial-channel-2.png).
+
 **Double-click a channel tile to dive in.** A ~300ms zoom-and-translate animation runs to completion, then the route changes to `/channels/:id`. The canvas never embeds the channel page — diving is always a route change.
 
 ## Widget tiles
@@ -144,6 +146,8 @@ a task satellite to open the automation detail page. Items due soon get a
 restrained semantic ring instead of a colored side stripe.
 
 ## Starboard
+
+![Starboard hub with canvas stations](../images/starboard-hub.png)
 
 The **Starboard** panel is the right-side canvas command surface. It is a
 docked full-height surface with a header station switcher so future map

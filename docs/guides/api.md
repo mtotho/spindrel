@@ -206,6 +206,24 @@ Integration readiness is read-only in v1. The `integrations` section summarizes 
 }
 ```
 
+### System Health Triage
+
+Daily health summaries remain available at `/api/v1/system-health/summaries/*`.
+For on-demand triage, use:
+
+- `GET /api/v1/system-health/recent-errors?since=24h&services=&limit=50&include_attention=true`
+- `POST /api/v1/system-health/recent-errors/promote`
+- `POST /api/v1/workspace/attention/{id}/resolve`
+
+`recent-errors` returns the same deduped `LogFinding` shape as
+`get_recent_server_errors` and can annotate each finding with matching
+Attention item id/status. `promote` creates or reuses system-authored
+Attention items for selected findings; by default it promotes `error` and
+`critical` findings. `resolve` still accepts an empty body, but may also store
+`resolution` and `note` in Attention evidence for audit-friendly health triage.
+Runtime agents should use `skills/diagnostics/health_triage.md`; repo-dev
+agents should use `.agents/skills/spindrel-live-health-triage`.
+
 ## Chat API
 
 ### Blocking Request

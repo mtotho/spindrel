@@ -47,6 +47,8 @@ The wizard generates `.env` and a `provider-seed.yaml` file. On first server boo
 
 Open `http://localhost:8000`. On the first visit, Spindrel redirects to `/setup` so you can create the local admin account. After you log in, the **Orchestrator** bot greets you in the Home channel and walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
 
+![Quickstart completion screen](images/quickstart-outro.png)
+
 > **Tip:** You can add more LLM providers later via **Admin UI > Providers**. The wizard just configures the first one.
 
 ## Manual Setup

@@ -234,6 +234,12 @@ This injection is the main reason plan mode should be treated as a runtime contr
 
 The current planning contract is derived from `build_plan_mode_system_context()` and should remain aligned with the implementation.
 
+Runtime procedure guidance lives in the product skill
+`planning/native_session`. Per the agentic-readiness placement rubric, use that
+skill for ordering, caveats, recovery patterns, and small-model guidance; keep
+tool/API changes limited to runtime state, approval, atomic progress recording,
+or enforcement.
+
 ### When mode is `planning` and no plan exists yet
 
 The injected rules are currently:

@@ -51,10 +51,14 @@ The split-button's secondary menu also exposes **Developer tools**, which jumps 
 
 Every channel gets an implicit widget dashboard under slug `channel:<uuid>`, created on first read or first pin — no setup required. The dashboard is cascade-deleted when the channel is.
 
+![Channel dashboard edit layout with pinned widgets](../images/channel-widget-dashboard-edit-layout-1.png)
+
 **Two views onto the same pins:**
 
 - **Full dashboard** at `/widgets/channel/:channelId` — the editing surface where you place pins into channel-layout zones.
 - **Live chat layout** on the channel page — the same pins rendered back into the channel chrome around the conversation.
+
+![Home Assistant widget rendered in channel chat](../images/channel-widget-home-assistant-chat-1.png)
 
 ### Channel layout zones
 
@@ -111,6 +115,10 @@ Switch from `EditDashboardDrawer`. Rescaling is atomic and integer-safe (std↔f
 ## Panel mode
 
 Some dashboards want one large "main panel" and a strip of supporting widgets instead of an all-grid wall. Panel mode does that.
+
+Expanded pin framing is covered by desktop and mobile artifacts:
+[desktop framed pin](../images/widget-pin-fullscreen.png) and
+[mobile framed pin](../images/widget-pin-fullscreen-mobile.png).
 
 ### What it is
 

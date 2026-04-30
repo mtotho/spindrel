@@ -48,14 +48,14 @@ External frame checked 2026-04-30:
 - Hardened inbound integration callbacks for the first audit-deepening slice. GitHub now remains the reference HMAC + durable delivery-id path, BlueBubbles accepts bearer-token auth before deprecated query tokens and records durable `data.guid` replay keys, Frigate records durable `after.id` replay keys, and the admin security audit now reports integration callback auth/replay contracts from manifest metadata.
 - Added local-machine/browser-control audit signals. The admin security audit now pins expected machine-control tool gates, reports active/expired/legacy/overlong machine leases, and warns on reusable browser-live pairing tokens or active paired browser sessions.
 - Hardened widget DB action dispatch. Widget SQLite connections now install an authorizer that denies file-boundary operations (`ATTACH`, `DETACH`, extension loading, and VACUUM output), browser-dispatched `db_query` uses the same guard, and the admin security audit reports drift through `widget_db_sql_authorizer`.
+- Completed WorkSurface remediation phase 3 for `widget://workspace`. The widget path resolver now exposes explicit scope policy, treats workspace widgets as a shared widget library requiring `shared_root`, and the WorkSurface static audit reports that seam as pass while retaining detailed findings.
 
 ## Live queue
 
-1. **WorkSurface remediation phase 3.** Constrain `harness_workdir` and `widget://workspace` behind WorkSurface/operator policy decisions.
-2. **Stale operator config cleanup.** Clear any persisted `cross_workspace_access` flags after confirming no deployment still depends on the old broad model; the flag is now metadata only and reported as cleanup debt.
-3. **Security audit deepening.** Continue read-only checks for bot-authored skill/widget writable roots and deployment-tier exposure; inbound callback auth/replay contracts, local-machine/browser-control, and widget DB file-boundary protection now have initial audit signals.
-4. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
-5. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
+1. **Stale operator config cleanup.** Clear any persisted `cross_workspace_access` flags after confirming no deployment still depends on the old broad model; the flag is now metadata only and reported as cleanup debt.
+2. **Security audit deepening.** Continue read-only checks for bot-authored skill/widget writable roots and deployment-tier exposure; inbound callback auth/replay contracts, local-machine/browser-control, and widget DB file-boundary protection now have initial audit signals.
+3. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
+4. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
 
 ## Watch list
 
@@ -80,3 +80,4 @@ External frame checked 2026-04-30:
 - Inbound callback security syntax passed with redirected pycache; replay drift tests passed (`16 passed`); focused BlueBubbles webhook security slice passed (`7 passed`); focused Frigate event-id/token/replay slice passed (`3 passed`); focused inbound callback audit tests passed (`2 passed`). The DB-backed `RunSecurityAudit` orchestrator still hits the known local fixture hang.
 - Local-machine/browser-control audit syntax passed with redirected pycache; focused machine/browser/inbound/work-surface security slice passed: `timeout 20 pytest tests/unit/test_security_audit.py -q -k "MachineControl or BrowserLive or InboundCallbackSecurity or WorkSurfaceIsolationStatic" --tb=short` -> `12 passed, 51 deselected`.
 - Widget DB action hardening syntax passed with redirected pycache; focused SQL authorizer tests passed (`1 passed, 26 deselected`; `3 passed, 11 deselected`); widget DB audit checks passed (`4 passed, 61 deselected`); full widget action authorization passed (`14 passed`). Full `test_widget_db.py` still hits the existing local Python 3.14 SQLite/to_thread hang and should be run in the supported Python 3.12/Docker test runtime.
+- WorkSurface/widget workspace scope syntax passed with redirected pycache; focused widget path + WorkSurface audit/security wrapper slice passed (`5 passed, 90 deselected`).

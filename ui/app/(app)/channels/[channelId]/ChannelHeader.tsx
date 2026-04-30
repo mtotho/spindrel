@@ -1172,10 +1172,19 @@ function HarnessStatusPill({
       (rect?.bottom ?? viewport.top + 48) + margin,
     );
     if (viewport.width <= 600) {
+      const mobileViewportWidth = Math.max(
+        0,
+        Math.min(
+          window.innerWidth || viewport.width,
+          document.documentElement?.clientWidth || viewport.width,
+          viewport.width,
+        ),
+      );
       setPanelStyle({
-        left: viewport.left + margin,
+        left: margin,
         top,
-        width: Math.max(160, viewport.width - margin * 2),
+        width: Math.max(160, mobileViewportWidth - margin * 2),
+        maxWidth: `calc(100vw - ${margin * 2}px)`,
         maxHeight: Math.max(160, viewport.height - (top - viewport.top) - margin),
         zIndex: 50002,
       });
@@ -1217,8 +1226,10 @@ function HarnessStatusPill({
     ? {
         position: "fixed" as const,
         left: 8,
-        right: 8,
+        right: "auto",
         top: 56,
+        width: "calc(100vw - 16px)",
+        maxWidth: "calc(100vw - 16px)",
         maxHeight: "calc(100dvh - 72px)",
         fontFamily: "system-ui, sans-serif",
       }

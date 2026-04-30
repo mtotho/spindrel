@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import Bot, Channel
+from app.db.models import Bot, Channel, Session
 from app.services import agent_capabilities
 from app.services.execution_receipts import create_execution_receipt, list_execution_receipts
 from app.tools.registry import _tools as local_tools
@@ -197,6 +197,74 @@ def test_agent_readiness_operator_skill_documents_runtime_boundaries():
         "preflight_agent_repair",
         "request_agent_repair",
         "Do not import repo-local `.agents` skills into runtime skills",
+    ):
+        assert required in text
+
+
+def test_skill_opportunities_recommend_native_planning_runtime_skill():
+    manifest = {
+        "skills": {"bot_enrolled": [], "channel_enrolled": []},
+        "widgets": {"readiness": "ready", "missing_skills": []},
+        "integrations": {"summary": {}},
+        "coding_run": {"readiness": "needs_project"},
+        "project": {"attached": False},
+        "runtime_context": {"recommendation": "continue"},
+        "doctor": {"findings": [], "pending_repair_requests": []},
+        "planning": {"active": True, "mode": "executing"},
+    }
+
+    payload = agent_capabilities._skill_opportunity_payload(manifest)
+
+    assert payload["creation_candidates"] == []
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+    planning = by_feature["native_session_planning"]
+    assert planning["first_action"] == 'get_skill("planning/native_session")'
+    assert planning["coverage_status"] == "covered"
+    assert planning["suggested_owner"] == "existing_runtime_skill"
+    assert planning["missing_skill_ids"] == ["planning/native_session"]
+
+
+def test_planning_payload_exposes_active_plan_mode_without_new_api_state():
+    session = Session(
+        id=uuid.uuid4(),
+        client_id="planning-skill-test",
+        bot_id="agent",
+        channel_id=uuid.uuid4(),
+        metadata_={
+            "plan_mode": "executing",
+            "plan_runtime": {
+                "current_focus": {"label": "Create marker"},
+                "latest_outcome": {"outcome": "progress"},
+                "latest_semantic_review": {"verdict": "supported"},
+                "latest_tool_feedback": {"tool_name": "publish_plan"},
+            },
+        },
+    )
+
+    payload = agent_capabilities._planning_payload(session)
+
+    assert payload["active"] is True
+    assert payload["mode"] == "executing"
+    assert payload["recommended_skills"] == ["planning/native_session"]
+    assert payload["current_focus"] == {"label": "Create marker"}
+    assert "publish_plan" in payload["required_tools"]
+
+
+def test_native_planning_skill_documents_runtime_boundaries():
+    text = (
+        Path(__file__).resolve().parents[2]
+        / "skills"
+        / "planning"
+        / "native_session.md"
+    ).read_text()
+
+    for required in (
+        "ask_plan_questions",
+        "publish_plan",
+        "record_plan_progress",
+        "request_plan_replan",
+        "Do not use repo-local `.agents` skill text as runtime guidance",
+        "update this skill first",
     ):
         assert required in text
 

@@ -108,6 +108,7 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "history_and_memory/session_history": "Session history",
     "agent_readiness": "Agent Readiness",
     "agent_readiness/operator": "Agent Readiness operator",
+    "planning/native_session": "Native session planning",
 }
 
 RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
@@ -178,6 +179,15 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
         ],
         "why_skill_shaped": "Agent Readiness repair review is a repeated approval-gated workflow over manifest findings, preflight, requests, and receipts.",
         "small_model_reason": "Smaller models need a short procedure to avoid mutating stale repair requests or skipping preflight.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "native_session_planning": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "planning/native_session",
+        ],
+        "why_skill_shaped": "Native planning is an ordered workflow over existing planning tools, approval state, execution outcomes, and semantic review.",
+        "small_model_reason": "Smaller models need the plan-mode procedure so they ask questions, publish artifacts, record outcomes, and request replans in the right order.",
         "suggested_owner": "existing_runtime_skill",
     },
 }
@@ -1678,6 +1688,43 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _planning_payload(session: Session | None) -> dict[str, Any]:
+    from app.services import session_plan_mode as spm
+
+    mode = spm.PLAN_MODE_CHAT
+    runtime: dict[str, Any] = {}
+    if session is not None:
+        mode = spm.get_session_plan_mode(session)
+        raw_runtime = (session.metadata_ or {}).get(spm.PLAN_RUNTIME_METADATA_KEY)
+        if isinstance(raw_runtime, dict):
+            runtime = raw_runtime
+
+    required_tools = [
+        "ask_plan_questions",
+        "publish_plan",
+        "record_plan_progress",
+        "request_plan_replan",
+    ]
+    active = mode in {
+        spm.PLAN_MODE_PLANNING,
+        spm.PLAN_MODE_EXECUTING,
+        spm.PLAN_MODE_BLOCKED,
+        spm.PLAN_MODE_DONE,
+    }
+    return {
+        "active": active,
+        "mode": mode,
+        "recommended_skills": ["planning/native_session"],
+        "required_tools": required_tools,
+        "available_tools": [name for name in required_tools if name in _local_tools],
+        "missing_tools": [name for name in required_tools if name not in _local_tools],
+        "current_focus": runtime.get("current_focus"),
+        "latest_outcome": runtime.get("latest_outcome"),
+        "latest_semantic_review": runtime.get("latest_semantic_review"),
+        "latest_tool_feedback": runtime.get("latest_tool_feedback"),
+    }
+
+
 def _enrolled_skill_ids(manifest: dict[str, Any]) -> set[str]:
     rows = (manifest.get("skills", {}).get("bot_enrolled") or []) + (
         manifest.get("skills", {}).get("channel_enrolled") or []
@@ -1851,6 +1898,17 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
             enrolled=enrolled,
         ))
 
+    planning = manifest.get("planning") or {}
+    if planning.get("active"):
+        recommendations.append(_skill_recommendation(
+            feature_id="native_session_planning",
+            feature_label="Native session planning",
+            skill_ids=["planning/native_session"],
+            reason="Native plan mode is an ordered workflow over existing tools; load the procedure before publishing, executing, or replanning.",
+            when_to_load="When the session is in Planning, Executing, Blocked, or Done plan mode.",
+            enrolled=enrolled,
+        ))
+
     return {
         "recommended_now": recommendations[:8],
         "creation_candidates": candidates[:6],
@@ -1897,6 +1955,7 @@ async def build_agent_capability_manifest(
         "tools": await _tool_payload(db, bot, include_schemas=include_schemas, max_tools=max_tools),
         "skills": await _skill_payload(db, bot, channel),
         "project": await _project_payload(db, channel),
+        "planning": _planning_payload(session),
         "harness": {
             "runtime": bot.harness_runtime if bot else None,
             "workdir": bot.harness_workdir if bot else None,

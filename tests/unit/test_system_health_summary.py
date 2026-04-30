@@ -6,6 +6,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.routers.api_v1_system_health import (
+    RECENT_ERRORS_SOURCE_ID,
+    RECENT_ERRORS_TARGET_ID,
+    PromoteRecentErrorsRequest,
+    get_recent_errors,
+    promote_recent_errors,
+)
 from app.db.models import (
     SystemHealthSummary,
     ToolCall,
@@ -19,6 +26,7 @@ from app.services.system_health_summary import (
     generate_daily_summary,
     latest_summary,
 )
+from app.services.workspace_attention import place_attention_item
 
 
 def _now_fixed() -> datetime:
@@ -153,3 +161,69 @@ async def test_latest_summary_returns_most_recent(db_session):
     most_recent = await latest_summary(db_session)
     assert most_recent is not None
     assert most_recent.id == new_summary.id
+
+
+@pytest.mark.asyncio
+async def test_recent_errors_api_includes_matching_attention_state(db_session):
+    finding = _make_finding(service="agent-server", count=2, severity="error", title="Boom")
+    item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id=RECENT_ERRORS_SOURCE_ID,
+        channel_id=None,
+        target_kind="system",
+        target_id=RECENT_ERRORS_TARGET_ID,
+        title="Boom",
+        severity="error",
+        dedupe_key=finding.dedupe_key,
+    )
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[finding]),
+    ):
+        payload = await get_recent_errors(
+            since="2h",
+            services=["agent-server"],
+            limit=10,
+            include_attention=True,
+            auth=None,
+            db=db_session,
+        )
+
+    assert payload["since"] == "2h"
+    assert payload["total"] == 1
+    assert payload["findings"][0]["dedupe_key"] == finding.dedupe_key
+    assert payload["findings"][0]["attention"]["id"] == str(item.id)
+    assert payload["findings"][0]["attention"]["status"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_recent_errors_promote_defaults_to_error_and_critical(db_session):
+    warning = _make_finding(service="agent-server", count=1, severity="warning", title="Warn")
+    error = _make_finding(service="agent-server", count=3, severity="error", title="Err")
+    critical = _make_finding(service="postgres", count=1, severity="critical", title="Crit")
+    warning.dedupe_key = "log-agent-server-sig-warning"
+    critical.dedupe_key = "log-postgres-sig-critical"
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[warning, error, critical]),
+    ):
+        payload = await promote_recent_errors(
+            PromoteRecentErrorsRequest(since="24h"),
+            auth=None,
+            db=db_session,
+        )
+
+    promoted_keys = {
+        item["attention"]["dedupe_key"]
+        for item in payload["promoted"]
+    }
+    assert payload["selected"] == 2
+    assert warning.dedupe_key not in promoted_keys
+    assert promoted_keys == {error.dedupe_key, critical.dedupe_key}
+    assert all(
+        item["attention"]["evidence"]["kind"] == "recent_server_error"
+        for item in payload["promoted"]
+    )

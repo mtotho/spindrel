@@ -215,6 +215,14 @@ HTML widgets own more of their own lifecycle:
 
 They are not tool-bound by default, even if they happen to call tools or APIs internally.
 
+### Widget library scopes
+
+Standalone widget bundles can live in three virtual library scopes:
+
+- `widget://core/...` is server-shipped and read-only to bots.
+- `widget://bot/...` is the current bot's private widget library.
+- `widget://workspace/...` is an intentionally shared workspace widget library. It requires a shared workspace context and is not Project-local; use a future Project/WorkSurface scope if Project-local widget publishing is needed.
+
 ### Runtime flavor: `html` (default) and `react`
 
 HTML widgets ship in two runtime flavors that share the same iframe sandbox, theme tokens, widget-auth mint, and `window.spindrel.api` SDK. Pick by setting `runtime` in any of three places — the envelope-level value wins; falls back to the body's frontmatter; defaults to `html`.

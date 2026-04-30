@@ -31,6 +31,14 @@ A channel is where a user talks to a bot. Each channel has:
 
 Channels are lightweight. Create one per project, topic, or workflow. The bot's base configuration comes from its YAML definition, but the channel can layer on top.
 
+The current chat surface keeps the transcript primary while exposing secondary
+work surfaces through side panels, the OmniPanel, and mobile home navigation:
+[side panels](../images/channel-chat-screen-side-panels-1.png),
+[OmniPanel jump](../images/channel-chat-screen-omni-panel-jump-1.png),
+[OmniPanel files](../images/channel-chat-screen-omni-panel-files-1.png), and
+[mobile home](../images/mobile-home.png). Rich chat output can also render
+specialized artifacts such as [Marp slides](../images/chat-marp.png).
+
 ---
 
 ## Templates

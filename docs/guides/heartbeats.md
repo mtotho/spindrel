@@ -208,6 +208,15 @@ avoid duplicating warnings and can resolve stale ones. System-authored
 structured-failure beacons remain admin-only and are not injected into bot
 context in v1.
 
+Daily health is no longer the only way to inspect persisted server errors.
+Agents and operators can call
+`GET /api/v1/system-health/recent-errors?include_attention=true` for the latest
+deduped findings, then `POST /api/v1/system-health/recent-errors/promote` to
+turn selected current errors into Attention Items. Clear benign, duplicate,
+external, stale, or recovered findings can be resolved through
+`POST /api/v1/workspace/attention/{id}/resolve` with a `resolution` and `note`;
+likely code bugs should stay open for repo work.
+
 If an Attention Item is assigned with `mode="next_heartbeat"`, the heartbeat
 preamble also receives an `attention assignments` block for that bot and
 channel. The block includes item ids, severity, target, message, next steps,

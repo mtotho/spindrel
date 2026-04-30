@@ -37,6 +37,11 @@ class AttentionStatusRequest(BaseModel):
     message_id: uuid.UUID | None = None
 
 
+class AttentionResolveRequest(BaseModel):
+    resolution: str | None = None
+    note: str | None = None
+
+
 class AttentionCreateRequest(BaseModel):
     channel_id: uuid.UUID | None = None
     target_kind: str = "channel"
@@ -270,11 +275,18 @@ async def responded_attention(
 @router.post("/{item_id}/resolve")
 async def resolve_attention(
     item_id: uuid.UUID,
+    body: AttentionResolveRequest | None = None,
     auth=Depends(require_scopes("channels:write")),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        item = await resolve_attention_item(db, item_id, resolved_by=actor_label(auth))
+        item = await resolve_attention_item(
+            db,
+            item_id,
+            resolved_by=actor_label(auth),
+            resolution=body.resolution if body else None,
+            note=body.note if body else None,
+        )
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e
     except ValidationError as e:

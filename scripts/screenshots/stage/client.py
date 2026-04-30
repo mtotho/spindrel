@@ -371,6 +371,16 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def list_project_instances(self, project_id: str) -> list[dict[str, Any]]:
+        if self._dry_run:
+            logger.info("DRY-RUN GET /projects/%s/instances", project_id)
+            return [{"id": "dry-run-instance", "status": "ready", "dry_run": True}]
+        r = self._http.get(f"/api/v1/projects/{project_id}/instances")
+        if r.status_code >= 400:
+            logger.error("GET /projects/%s/instances -> %s body=%s", project_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     def create_project_run_receipt(self, project_id: str, payload: dict[str, Any]) -> dict:
         if self._dry_run:
             logger.info("DRY-RUN POST /projects/%s/run-receipts keys=%s", project_id, sorted(payload))

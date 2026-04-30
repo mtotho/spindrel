@@ -613,14 +613,14 @@ async def file(
     # widget:// core scope is read-only to bots; block write ops before
     # _resolve_path executes anything IO-side. widget://bot and widget://workspace
     # are writable under the standard workspace / shared-workspace boundaries.
-    from app.services.widget_paths import WIDGET_URI_RE
+    from app.services.widget_paths import WIDGET_URI_RE, widget_scope_policy
     _WRITE_OPS_WIDGET = {
         "create", "overwrite", "append", "edit",
         "json_patch", "restore", "delete", "mkdir", "move",
         "archive_older_than", "replace_section",
     }
     _widget_match = WIDGET_URI_RE.match(path.strip())
-    if _widget_match and _widget_match.group(1) == "core" and operation in _WRITE_OPS_WIDGET:
+    if _widget_match and widget_scope_policy(_widget_match.group(1)).read_only and operation in _WRITE_OPS_WIDGET:
         return _error(
             "widget://core/... is read-only — the core library ships with "
             "the server. Author new widgets under widget://bot/<name>/... "

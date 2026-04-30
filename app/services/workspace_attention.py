@@ -49,6 +49,16 @@ VISIBLE_STATUSES = ("open", "responded")
 VALID_SEVERITIES = {"info", "warning", "error", "critical"}
 VALID_TARGET_KINDS = {"channel", "bot", "widget", "system"}
 VALID_ASSIGNMENT_MODES = {"next_heartbeat", "run_now"}
+VALID_RESOLUTIONS = {
+    "fixed",
+    "benign",
+    "duplicate",
+    "not_reproducible",
+    "external",
+    "stale",
+    "already_recovered",
+    "other",
+}
 STRUCTURED_ERROR_DETECTOR_ID = "system:structured-errors"
 OPERATOR_TRIAGE_BOT_ID = "orchestrator"
 OPERATOR_TRIAGE_TOOL_NAME = "report_attention_triage_batch"
@@ -396,11 +406,31 @@ async def resolve_attention_item(
     *,
     resolved_by: str | None = None,
     source_bot_id: str | None = None,
+    resolution: str | None = None,
+    note: str | None = None,
 ) -> WorkspaceAttentionItem:
     item = await get_attention_item(db, item_id)
     if source_bot_id and not (item.source_type == "bot" and item.source_id == source_bot_id):
         raise ValidationError("Bots can only resolve attention items they created.")
     now = _now()
+    resolution_value = (resolution or "").strip().lower() or None
+    if resolution_value and resolution_value not in VALID_RESOLUTIONS:
+        raise ValidationError(f"resolution must be one of {sorted(VALID_RESOLUTIONS)}")
+    note_value = (note or "").strip()[:2000] or None
+    if resolution_value or note_value:
+        evidence = dict(item.evidence or {})
+        history = list(evidence.get("resolution_history") or [])
+        resolution_record = {
+            "resolution": resolution_value or "other",
+            "note": note_value,
+            "resolved_by": resolved_by or source_bot_id or item.resolved_by,
+            "resolved_at": now.isoformat(),
+        }
+        evidence["resolution"] = resolution_record
+        history.append(resolution_record)
+        evidence["resolution_history"] = history[-10:]
+        item.evidence = evidence
+        flag_modified(item, "evidence")
     item.status = "resolved"
     item.resolved_at = now
     item.resolved_by = resolved_by or source_bot_id or item.resolved_by

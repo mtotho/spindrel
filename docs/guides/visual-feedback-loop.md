@@ -187,6 +187,28 @@ widget activity receipts including authoring evidence, the compact settings
 summary, and the Agent readiness widget-authoring row with the HTML full-check
 badge.
 
+## Voice Input Run
+
+Use this bundle when changing the web composer microphone flow or the
+browser-recorded audio payload sent to chat:
+
+```bash
+python -m scripts.screenshots stage --only voice-input
+python -m scripts.screenshots capture --only voice-input
+python -m scripts.screenshots check
+```
+
+Expected artifacts:
+
+```text
+chat-voice-recording.png
+chat-voice-payload.png
+```
+
+The staging step creates a reusable `screenshot:voice-input` channel. Capture
+uses browser media shims and a fake chat submit so the recording overlay and
+encoded `audio_data` payload are deterministic.
+
 ## Dashboard Pin Config Editor Run
 
 Use this bundle when changing the dashboard pin editor, widget config schema
