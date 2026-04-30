@@ -264,6 +264,20 @@ Current trigger reasons:
 - `live_history_ratio`
 - fallback `total_utilization`
 
+### Agent-facing runtime snapshot
+
+The agent capability manifest exposes a compact `runtime_context` section sourced from the same budget path as the context-budget API. It normalizes the latest channel/session budget into:
+
+- `tokens_used`
+- `tokens_remaining`
+- `total_tokens`
+- `percent_full`
+- `source`
+- `context_profile`
+- `recommendation`
+
+The recommendation is deliberately coarse: `continue` under 75% full, `summarize` from 75% through 89%, `handoff` at 90% or higher, and `unknown` when no channel/session budget has been recorded. Bots can read just this slice with `get_agent_context_snapshot()`; `run_agent_doctor()` flags `context_should_summarize` or `context_should_handoff` only when the recommendation requires action.
+
 ### How the knobs interact in practice
 
 This is the simplest mental model:

@@ -273,6 +273,9 @@ interface ResizeHandleProps {
   /** Cell width + row height in pixels; used to convert pointer delta to
    *  cell delta. */
   cellPx: { w: number; h: number };
+  /** Parent transform scale. Pointer deltas arrive in viewport pixels, so
+   *  zoomed canvases divide through this before converting to grid cells. */
+  scale?: number;
   /** Min/max column span (rail/dock clamp to 1). */
   clampW: { min: number; max: number };
   /** Min row height (header clamps to 1). */
@@ -291,6 +294,7 @@ export function ResizeHandles({
   edges,
   initial,
   cellPx,
+  scale = 1,
   clampW,
   clampH,
   showRest = false,
@@ -339,8 +343,9 @@ export function ResizeHandles({
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const s = startRef.current;
       if (!s) return;
-      const dxCells = Math.round((e.clientX - s.pointerX) / cellPx.w);
-      const dyCells = Math.round((e.clientY - s.pointerY) / cellPx.h);
+      const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+      const dxCells = Math.round(((e.clientX - s.pointerX) / safeScale) / cellPx.w);
+      const dyCells = Math.round(((e.clientY - s.pointerY) / safeScale) / cellPx.h);
       let nextX = s.tx;
       const nextY = s.ty;
       let nextW = s.w;
@@ -374,7 +379,7 @@ export function ResizeHandles({
       currentRef.current = nextBox;
       onResizing?.(nextBox);
     },
-    [cellPx.w, cellPx.h, clampW.min, clampW.max, clampH.min, clampH.max, onResizing],
+    [cellPx.w, cellPx.h, scale, clampW.min, clampW.max, clampH.min, clampH.max, onResizing],
   );
 
   const endResize = useCallback(

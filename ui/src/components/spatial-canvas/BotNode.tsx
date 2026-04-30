@@ -135,7 +135,7 @@ export function BotTile({
   const markerScale = compact ? Math.max(1, 34 / ((reduced ? 84 : 112) * Math.max(zoom, MIN_SCALE))) : 1;
   const labelScale = compact ? Math.max(1, 14 / (14 * Math.max(zoom, MIN_SCALE))) : 1;
   const outerSize = reduced ? 84 : 112;
-  const innerSize = reduced ? 58 : 82;
+  const innerSize = reduced ? 54 : 76;
   const emojiSize = reduced ? 28 : 38;
   const labelTop = reduced ? 108 : 132;
   return (
@@ -144,14 +144,18 @@ export function BotTile({
       title={`${name} (${botId})`}
     >
       <div
-        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)] ${statusRingClass(workState)}`}
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/[0.045]"
         style={{ width: outerSize, height: outerSize, scale: markerScale }}
-      />
+      >
+        <span className="absolute inset-[14%] rounded-full border border-accent/18" />
+        <span className="absolute inset-[6%] rounded-full border-t border-r border-accent/40" />
+      </div>
       <div
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border/70 bg-surface flex items-center justify-center"
+        className={`absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-surface-border/70 bg-surface-raised ${statusRingClass(workState)}`}
         style={{ width: innerSize, height: innerSize, fontSize: emojiSize, scale: markerScale }}
       >
         <span aria-hidden>{avatar}</span>
+        <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent/75 ring-2 ring-surface-raised" />
       </div>
       <div
         className="absolute left-1/2 max-w-[230px] text-center"
@@ -161,7 +165,7 @@ export function BotTile({
           transformOrigin: "top center",
         }}
       >
-        <div className={`truncate rounded-md bg-surface-raised/90 px-2.5 py-1 font-semibold leading-tight text-text shadow-sm ${compact ? "text-[14px]" : "text-[16px]"}`}>
+        <div className={`truncate rounded-md bg-surface-raised/82 px-2.5 py-1 font-semibold leading-tight text-text ring-1 ring-surface-border/35 backdrop-blur ${compact ? "text-[14px]" : "text-[16px]"}`}>
           {name}
         </div>
         {!compact && (

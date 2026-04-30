@@ -337,6 +337,12 @@ the map keeps a quiet signal without forcing the card to stay open.
 - No legacy framing. `HomeGrid` retirement is net-new-direction, not "deprecated" — new code paths are unconditional.
 - Mobile is unchanged through Phase 4. The canvas is desktop-only until P11.
 
+## 2026-04-29 — Visual shape polish pass
+
+The latest visual-only pass keeps the Canvas + Deck direction but reduces chrome noise on the world itself. Alert beacons are compact anchored badges instead of detached red rings, selected objects get a softer spotlight, bots now read as small radar/drone actors instead of generic red-ring avatars, channel clusters are calmer and less card-like, and widget tiles use lighter outlines. The Action Compass was tightened into a more horizontal map guide, while Starboard's inspector sections were flattened so local detail reads as object evidence rather than nested panels.
+
+This pass deliberately did not change the Attention/Operator flow or backend contracts. It only changes visual hierarchy and hit-cue shape so later workflow changes have a calmer canvas to sit on.
+
 ## Acceptance criteria (Phase 1 gate)
 
 A Phase 1 ship requires all five to pass — by manual verification at minimum, with regression tests where feasible.

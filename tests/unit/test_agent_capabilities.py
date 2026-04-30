@@ -2,6 +2,8 @@ import inspect
 import uuid
 from types import SimpleNamespace
 
+import pytest
+
 from app.services import agent_capabilities
 
 
@@ -27,6 +29,165 @@ def test_tool_profiles_group_agent_first_surfaces():
     assert agent_capabilities._profile_for_tool("emit_html_widget") == "widgets"
     assert agent_capabilities._profile_for_tool("record_plan_progress") == "planning"
     assert agent_capabilities._profile_for_tool("get_recent_server_errors") == "diagnostics"
+
+
+def test_runtime_context_budget_normalization_and_thresholds():
+    base = {
+        "consumed_tokens": 74_000,
+        "total_tokens": 100_000,
+        "source": "api",
+        "context_profile": "chat",
+    }
+
+    snapshot = agent_capabilities._runtime_context_from_budget(
+        base,
+        channel_id="channel-1",
+        session_id="session-1",
+    )
+    assert snapshot["available"] is True
+    assert snapshot["recommendation"] == "continue"
+    assert snapshot["budget"] == {
+        "tokens_used": 74_000,
+        "tokens_remaining": 26_000,
+        "total_tokens": 100_000,
+        "percent_full": 74.0,
+        "source": "api",
+        "context_profile": "chat",
+    }
+
+    summarize = agent_capabilities._runtime_context_from_budget(
+        {**base, "consumed_tokens": 75_000},
+        channel_id="channel-1",
+        session_id="session-1",
+    )
+    handoff = agent_capabilities._runtime_context_from_budget(
+        {**base, "consumed_tokens": 90_000},
+        channel_id="channel-1",
+        session_id="session-1",
+    )
+
+    assert summarize["recommendation"] == "summarize"
+    assert handoff["recommendation"] == "handoff"
+
+
+def test_runtime_context_without_budget_data_is_unknown():
+    snapshot = agent_capabilities._runtime_context_from_budget(
+        {"source": "none"},
+        channel_id="channel-1",
+        session_id=None,
+    )
+
+    assert snapshot["available"] is False
+    assert snapshot["recommendation"] == "unknown"
+    assert snapshot["budget"]["tokens_used"] is None
+    assert snapshot["reason"] == "No context budget has been recorded yet."
+
+
+@pytest.mark.asyncio
+async def test_manifest_includes_runtime_context(monkeypatch):
+    bot = SimpleNamespace(
+        id="agent",
+        name="Agent",
+        harness_runtime=None,
+        harness_workdir=None,
+    )
+
+    async def fake_resolve_context(*args, **kwargs):
+        return bot, None, None
+
+    async def fake_scopes_for_bot(*args, **kwargs):
+        return ["tools:read"]
+
+    async def fake_tool_payload(*args, **kwargs):
+        return {"catalog_count": 1, "working_set_count": 1, "recommended_core": []}
+
+    async def fake_skill_payload(*args, **kwargs):
+        return {"bot_enrolled": [], "channel_enrolled": [], "working_set_count": 0}
+
+    async def fake_project_payload(*args, **kwargs):
+        return {"attached": False}
+
+    async def fake_integration_payload(*args, **kwargs):
+        return {"summary": {}, "global": [], "channel": None}
+
+    async def fake_runtime_context_payload(*args, **kwargs):
+        return {
+            "available": True,
+            "recommendation": "continue",
+            "budget": {"percent_full": 12.5},
+        }
+
+    async def fake_work_state_payload(*args, **kwargs):
+        return {
+            "available": True,
+            "summary": {
+                "assigned_mission_count": 0,
+                "assigned_attention_count": 0,
+                "has_current_work": False,
+                "recommended_next_action": "idle",
+            },
+            "missions": [],
+            "attention": [],
+        }
+
+    monkeypatch.setattr(agent_capabilities, "_resolve_context", fake_resolve_context)
+    monkeypatch.setattr(agent_capabilities, "_scopes_for_bot", fake_scopes_for_bot)
+    monkeypatch.setattr(agent_capabilities, "_tool_payload", fake_tool_payload)
+    monkeypatch.setattr(agent_capabilities, "_skill_payload", fake_skill_payload)
+    monkeypatch.setattr(agent_capabilities, "_project_payload", fake_project_payload)
+    monkeypatch.setattr(agent_capabilities, "_integration_payload", fake_integration_payload)
+    monkeypatch.setattr(agent_capabilities, "runtime_context_payload", fake_runtime_context_payload)
+    monkeypatch.setattr(agent_capabilities, "work_state_payload", fake_work_state_payload)
+
+    manifest = await agent_capabilities.build_agent_capability_manifest(SimpleNamespace(), bot_id="agent")
+
+    assert manifest["runtime_context"]["recommendation"] == "continue"
+    assert manifest["work_state"]["summary"]["recommended_next_action"] == "idle"
+    assert "context_should_summarize" not in {
+        finding["code"] for finding in manifest["doctor"]["findings"]
+    }
+
+
+def test_doctor_flags_runtime_context_pressure():
+    manifest = {
+        "context": {"bot_id": "agent"},
+        "api": {"scopes": ["tools:read"]},
+        "tools": {"catalog_count": 4, "working_set_count": 1},
+        "project": {"attached": False},
+        "harness": {"runtime": None, "workdir": None},
+        "runtime_context": {
+            "recommendation": "handoff",
+            "budget": {"percent_full": 91.2},
+        },
+    }
+
+    findings = agent_capabilities._doctor_findings(manifest)
+    handoff = next(item for item in findings if item["code"] == "context_should_handoff")
+
+    assert handoff["severity"] == "error"
+    assert "91.2% full" in handoff["message"]
+
+
+def test_agent_context_snapshot_tool_registered_with_return_schema():
+    from app.tools.local import agent_capabilities as _tool_module  # noqa: F401
+    from app.tools.registry import _tools
+
+    entry = _tools["get_agent_context_snapshot"]
+
+    assert entry["safety_tier"] == "readonly"
+    assert entry["requires_bot_context"] is True
+    assert entry["returns"]["properties"]["runtime_context"]["type"] == "object"
+
+
+def test_agent_work_snapshot_tool_registered_with_return_schema():
+    from app.tools.local import agent_capabilities as _tool_module  # noqa: F401
+    from app.tools.registry import _tools
+
+    entry = _tools["get_agent_work_snapshot"]
+
+    assert entry["safety_tier"] == "readonly"
+    assert entry["requires_bot_context"] is True
+    assert entry["returns"]["properties"]["work_state"]["type"] == "object"
 
 
 def test_doctor_flags_missing_api_scopes_and_harness_workdir():

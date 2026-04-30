@@ -48,3 +48,18 @@ async def test_create_channel_session_reports_missing_deploy_route():
         await client.create_channel_session("channel-1")
 
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_create_channel_session_reports_stale_channel_id():
+    client = E2EClient(E2EConfig(mode="external", host="example.test", port=80, api_key="key"))
+    await client._client.aclose()
+    client._client = httpx.AsyncClient(
+        base_url=client.config.base_url,
+        transport=httpx.MockTransport(lambda _request: httpx.Response(404, json={"detail": "Channel not found"})),
+    )
+
+    with pytest.raises(RuntimeError, match="channel 'channel-1' was not found"):
+        await client.create_channel_session("channel-1")
+
+    await client.close()

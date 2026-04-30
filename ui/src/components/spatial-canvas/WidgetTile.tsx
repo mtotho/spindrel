@@ -144,7 +144,7 @@ export const WidgetTile = memo(WidgetTileInner, (prev, next) => {
 function WidgetGlyph({ size, workState }: { size: number; workState?: WorkspaceMapObjectState | null }) {
   return (
     <div
-      className={`bg-accent/15 border-2 border-accent shadow-md flex items-center justify-center text-accent ${statusRingClass(workState)}`}
+      className={`flex items-center justify-center border border-accent/70 bg-accent/[0.12] text-accent ${statusRingClass(workState)}`}
       style={{
         width: size,
         height: size,
@@ -395,8 +395,8 @@ function CardView({
       className={`group relative w-full h-full text-text flex flex-col overflow-hidden ${
         isFramelessNative
           ? "pointer-events-none"
-          : `cursor-pointer rounded-xl border bg-surface-raised shadow-lg ${
-              activated ? "border-accent" : "border-surface-border"
+          : `cursor-pointer rounded-lg border bg-surface-raised ${
+              activated ? "border-accent/75" : "border-surface-border/70"
             }`
       }`}
     >
@@ -442,7 +442,7 @@ function CardView({
           e.stopPropagation();
           onSelect?.();
         }}
-        className="flex flex-row items-center gap-1.5 px-3 py-2 border-b border-surface-border bg-surface-raised flex-shrink-0"
+        className="flex flex-row items-center gap-1.5 px-3 py-2 bg-surface-raised/90 flex-shrink-0"
       >
         <Box size={11} className="text-text-dim" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
@@ -451,10 +451,10 @@ function CardView({
         <span className="text-sm font-semibold leading-tight truncate ml-1">
           {title}
         </span>
-        <ObjectStatusPill state={workState} compact iconOnly />
         <span className="text-[10px] text-text-dim font-mono truncate ml-auto">
           {tool}
         </span>
+        <ObjectStatusPill state={workState} compact iconOnly />
         <button
           type="button"
           aria-label="Remove from canvas"

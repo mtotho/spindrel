@@ -6,7 +6,7 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, MutableRefObject } from "react";
-import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2, ShieldCheck } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid, Maximize2, ShieldCheck, Move } from "lucide-react";
 import { Link, useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
@@ -146,6 +146,9 @@ interface PinnedToolWidgetProps {
    *  When omitted, the widget falls back to its own internal useSortable
    *  (used by the channel-scope OmniPanel rail in runtime chat). */
   externalDrag?: ExternalDragBinding;
+  /** Freeform dashboard canvas: expose a larger always-on move target so
+   *  narrow widgets and iframe-heavy widgets are easy to reposition. */
+  canvasDragHandle?: boolean;
 }
 
 export interface PinnedToolWidgetControls {
@@ -171,6 +174,7 @@ export function PinnedToolWidget({
   bodyOnly = false,
   controlsRef,
   externalDrag,
+  canvasDragHandle = false,
   layout,
 }: PinnedToolWidgetProps) {
   const isDashboard = scope.kind === "dashboard";
@@ -755,6 +759,7 @@ export function PinnedToolWidget({
 
   const rootAttrs = externalDrag?.attributes ?? (isDashboard ? {} : fbAttrs);
   const handleListeners = externalDrag?.listeners ?? (isDashboard ? undefined : fbListeners);
+  const showCanvasDragHandle = canvasDragHandle && isDashboard && editMode && !!handleListeners;
 
   // Dashboard cards and header-rail tiles live inside host-constrained slots
   // — fill height so the body scrolls/clips within the tile instead of
@@ -928,6 +933,16 @@ export function PinnedToolWidget({
         style={sortableStyle}
         {...rootAttrs}
       >
+      {showCanvasDragHandle && (
+        <div
+          className="widget-drag-handle absolute left-1 top-1 z-30 inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-md border border-surface-border/50 bg-surface-raised/90 text-text-muted opacity-85 shadow-sm backdrop-blur transition-colors hover:bg-surface-overlay hover:text-text active:cursor-grabbing"
+          aria-label="Move widget"
+          title="Move widget"
+          {...(handleListeners ?? {})}
+        >
+          <Move size={14} />
+        </div>
+      )}
       {/* Header — suppressed entirely when the widget is titleless in edit
           mode; chrome surfaces as a floating overlay below so the tile's
           footprint matches preview exactly. */}

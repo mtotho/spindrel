@@ -88,10 +88,26 @@ async def test_client_falls_back_to_legacy_websocket(monkeypatch: pytest.MonkeyP
         api_key="secret",
     )) as client:
         result = await client.call("system.info")
+        connection = client.connection_summary()
 
     assert attempts == [
         "ws://truenas.local/api/current",
         "ws://truenas.local/websocket",
+    ]
+    assert connection["protocol"] == "legacy"
+    assert connection["attempted_endpoints"] == [
+        {
+            "endpoint": "ws://truenas.local/api/current",
+            "protocol": "jsonrpc",
+            "status": "failed",
+            "error": "Failed to connect to TrueNAS at ws://truenas.local/api/current",
+            "exception_type": "TrueNASConnectionError",
+        },
+        {
+            "endpoint": "ws://truenas.local/websocket",
+            "protocol": "legacy",
+            "status": "connected",
+        },
     ]
     assert result == {"hostname": "nas"}
     assert legacy_ws.sent == [

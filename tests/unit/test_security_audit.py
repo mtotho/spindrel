@@ -17,6 +17,8 @@ from app.services.security_audit import (
     _check_approval_timeout,
     _check_audit_logging,
     _check_bots_with_exec_tools,
+    _check_bots_with_cross_workspace_access,
+    _check_bots_with_high_risk_api_scopes,
     _check_default_policy_action,
     _check_docker_sandbox,
     _check_encryption_key,
@@ -31,6 +33,7 @@ from app.services.security_audit import (
     _check_tier_gating,
     _check_tool_tier_distribution,
     _check_tools_missing_tier,
+    _check_widget_action_api_allowlist,
     _compute_score,
     _compute_summary,
     run_security_audit,
@@ -132,12 +135,21 @@ async def db(engine):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_bot(bot_id="test-bot", local_tools=None, host_exec_enabled=False):
+def _make_bot(
+    bot_id="test-bot",
+    local_tools=None,
+    host_exec_enabled=False,
+    cross_workspace_access=False,
+    api_permissions=None,
+):
     """Create a minimal mock BotConfig."""
     mock = MagicMock()
     mock.id = bot_id
+    mock.name = bot_id
     mock.local_tools = local_tools or []
     mock.host_exec.enabled = host_exec_enabled
+    mock.cross_workspace_access = cross_workspace_access
+    mock.api_permissions = api_permissions or []
     return mock
 
 
@@ -333,6 +345,57 @@ class TestBotsWithExecTools:
         assert set(c.details["bots"][0]["tools"]) == {"exec_cmd", "deploy"}
 
 
+class TestBotsWithCrossWorkspaceAccess:
+    def test_none_enabled(self):
+        with patch("app.services.security_audit.list_bots", return_value=[_make_bot()]):
+            c = _check_bots_with_cross_workspace_access()
+        assert c.status == Status.passed
+
+    def test_enabled_bot_is_reported(self):
+        bot = _make_bot("orchestrator", cross_workspace_access=True)
+        with patch("app.services.security_audit.list_bots", return_value=[bot]):
+            c = _check_bots_with_cross_workspace_access()
+        assert c.status == Status.fail
+        assert c.severity == Severity.warning
+        assert c.details["bots"][0]["bot_id"] == "orchestrator"
+
+
+class TestBotsWithHighRiskApiScopes:
+    def test_no_high_risk_scopes(self):
+        bot = _make_bot(api_permissions=["chat", "channels:read"])
+        with patch("app.services.security_audit.list_bots", return_value=[bot]):
+            c = _check_bots_with_high_risk_api_scopes()
+        assert c.status == Status.passed
+
+    def test_write_scopes_are_warning(self):
+        bot = _make_bot("worker", api_permissions=["chat", "tools:execute", "workspaces.files:write"])
+        with patch("app.services.security_audit.list_bots", return_value=[bot]):
+            c = _check_bots_with_high_risk_api_scopes()
+        assert c.status == Status.fail
+        assert c.severity == Severity.warning
+        assert c.details["bots"][0]["scopes"] == ["tools:execute", "workspaces.files:write"]
+
+    def test_admin_scope_is_critical(self):
+        bot = _make_bot("operator", api_permissions=["admin"])
+        with patch("app.services.security_audit.list_bots", return_value=[bot]):
+            c = _check_bots_with_high_risk_api_scopes()
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+
+
+class TestWidgetActionApiAllowlist:
+    def test_current_allowlist_is_narrow(self):
+        c = _check_widget_action_api_allowlist()
+        assert c.status == Status.passed
+        assert c.details["prefixes"]
+
+    def test_broad_prefix_fails(self, monkeypatch):
+        monkeypatch.setattr("app.services.widget_action_dispatch._API_ALLOWLIST", ["/api/v1/admin"])
+        c = _check_widget_action_api_allowlist()
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+
+
 # ---------------------------------------------------------------------------
 # DB checks
 # ---------------------------------------------------------------------------
@@ -526,7 +589,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_18_checks(self, db, monkeypatch):
+    async def test_returns_21_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -545,7 +608,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 18
+        assert len(result.checks) == 21
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary

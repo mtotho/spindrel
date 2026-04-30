@@ -30,7 +30,7 @@ import { CreateDashboardSheet } from "./CreateDashboardSheet";
 import { EditDashboardDrawer } from "./EditDashboardDrawer";
 import { ChannelDashboardBreadcrumb } from "./ChannelDashboardBreadcrumb";
 import { EditModeGridGuides } from "./EditModeGridGuides";
-import { ChannelDashboardMultiCanvas } from "./ChannelDashboardMultiCanvas";
+import { ChannelDashboardFreeformCanvas } from "./ChannelDashboardFreeformCanvas";
 import { KioskExitChip } from "./KioskExitChip";
 import { WidgetUsefulnessToolbarButton } from "./WidgetUsefulnessReview";
 import {
@@ -263,6 +263,7 @@ export default function WidgetsDashboardPage() {
   /** Last-added pin id — drives scroll-into-view + accent flash on the matching
    *  grid tile, cleared after ~1.4s. Set via `highlightPin` from Add sheet. */
   const [highlightPinId, setHighlightPinId] = useState<string | null>(null);
+  const [pendingNewPinId, setPendingNewPinId] = useState<string | null>(null);
   // Track viewport width for mobile-only behavior — drag/resize on touch is
   // unusable, so the grid is read-only below the `sm` breakpoint even when
   // edit mode is toggled on (e.g. user hopped from desktop to phone).
@@ -308,25 +309,34 @@ export default function WidgetsDashboardPage() {
   // commits are separately gated to `lg` (see render + onLayoutChange) so that
   // dragging at a narrower breakpoint doesn't corrupt the canonical layout.
   const layoutEditable = editMode && !isMobile;
+  const useChannelFreeformCanvas = pins.length > 0 && !inPanelMode && isChannelScoped && !!channelScopedId && !isMobile;
 
   const highlightPin = useCallback((pinId: string) => {
     setHighlightPinId(pinId);
+    if (useChannelFreeformCanvas) {
+      window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1400);
+      return;
+    }
     // Scroll next frame so the new tile is in the DOM before we query for it.
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-pin-id="${pinId}"]`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     });
     window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1400);
-  }, []);
+  }, [useChannelFreeformCanvas]);
 
   const focusPin = useCallback((pinId: string) => {
     setHighlightPinId(pinId);
+    if (useChannelFreeformCanvas) {
+      window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1600);
+      return;
+    }
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-pin-id="${pinId}"]`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     });
     window.setTimeout(() => setHighlightPinId((cur) => (cur === pinId ? null : cur)), 1600);
-  }, []);
+  }, [useChannelFreeformCanvas]);
 
   /** ChatSession dock — channel mode on channel-scoped widget dashboards.
    *  Mirrors the channel's main chat (same session, same store slot, same SSE).
@@ -510,6 +520,7 @@ export default function WidgetsDashboardPage() {
   }, [patchBuilderSearch]);
 
   const handleBuilderPinCreated = useCallback((pinId: string) => {
+    setPendingNewPinId(pinId);
     highlightPin(pinId);
     setSearchParams((prev) => applyBuilderPinSuccessParams(prev), { replace: true });
   }, [highlightPin, setSearchParams]);
@@ -674,8 +685,8 @@ export default function WidgetsDashboardPage() {
           "relative flex-1 p-2 sm:p-4 md:p-3 "
           // Panel mode should keep overflow on the dashboard surface so
           // tall rail columns page-scroll with the rest of the view.
-          + "overflow-auto "
-          + (layoutEditable && !inPanelMode ? "pb-[40vh]" : "")
+          + (useChannelFreeformCanvas ? "overflow-hidden " : "overflow-auto ")
+          + (layoutEditable && !inPanelMode && !useChannelFreeformCanvas ? "pb-[40vh]" : "")
         }
       >
         {layoutError && (
@@ -724,8 +735,8 @@ export default function WidgetsDashboardPage() {
             onEditPin={openEditPinDrawer}
           />
         )}
-        {!isLoading && !error && pins.length > 0 && !inPanelMode && isChannelScoped && channelScopedId && !isMobile && (
-          <ChannelDashboardMultiCanvas
+        {!isLoading && !error && useChannelFreeformCanvas && channelScopedId && (
+          <ChannelDashboardFreeformCanvas
             pins={pins}
             preset={preset}
             chrome={chrome}
@@ -734,6 +745,13 @@ export default function WidgetsDashboardPage() {
             onEnvelopeUpdate={handleEnvelopeUpdate}
             onEditPin={openEditPinDrawer}
             channelId={channelScopedId}
+            dashboardSlug={slug}
+            gridConfig={currentDashboard?.grid_config ?? null}
+            highlightPinId={highlightPinId}
+            pendingNewPinId={pendingNewPinId}
+            onPendingNewPinHandled={(pinId) => {
+              setPendingNewPinId((current) => (current === pinId ? null : current));
+            }}
           />
         )}
         {!isLoading && !error && pins.length > 0 && !inPanelMode && (isMobile || !isChannelScoped) && (

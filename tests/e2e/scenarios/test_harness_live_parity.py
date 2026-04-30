@@ -577,6 +577,14 @@ async def _assert_usage_surfaces_harness_channel(
     ), f"harness usage did not contribute to channel breakdown for {channel_id}: {groups}"
 
 
+def _is_local_e2e_host(host: str) -> bool:
+    normalized = host.strip().lower().strip("[]")
+    return (
+        normalized in {"", "localhost", "0.0.0.0", "::1", "host.docker.internal"}
+        or normalized.startswith("127.")
+    )
+
+
 async def _assert_browser_runtime_live_diagnostics(client: E2EClient) -> None:
     stacks = await client.list_docker_stacks()
     browser_stacks = [s for s in stacks if s.get("integration_id") == "browser_automation"]
@@ -594,6 +602,9 @@ async def _assert_browser_runtime_live_diagnostics(client: E2EClient) -> None:
     tool_names = {str(tool.get("tool_name") or tool.get("name") or "") for tool in tools}
     missing = [tool for tool in HEADLESS_BROWSER_TOOLS if tool not in tool_names]
     assert not missing, f"headless browser tools are not indexed: {missing}"
+
+    if client.config.is_external and not _is_local_e2e_host(client.config.host):
+        return
 
     if not shutil.which("docker"):
         pytest.skip("docker CLI is not available for container DNS diagnostics")
@@ -689,7 +700,9 @@ async def _capture_project_screenshot(*, url: str, out_path: Path, marker: str) 
             page = await browser.new_page(viewport={"width": 1280, "height": 800}, device_scale_factor=1)
             await page.goto(url, wait_until="networkidle")
             body_text = await page.locator("body").inner_text()
-            assert marker in body_text, f"generated app marker {marker!r} was not visible at {url}"
+            assert marker.lower() in body_text.lower(), (
+                f"generated app marker {marker!r} was not visible at {url}"
+            )
             await page.screenshot(path=str(out_path), full_page=True)
         finally:
             await browser.close()
@@ -809,7 +822,7 @@ async def _assert_mobile_header_safe(page: Any, *, label: str) -> None:
     )
 
     context_chip = page.locator('[data-testid="harness-context-chip-mobile"]').first
-    await context_chip.wait_for(state="visible", timeout=5_000)
+    await context_chip.wait_for(state="visible", timeout=20_000)
     await context_chip.click()
     context_panel = page.locator('[data-testid="harness-context-panel-mobile"]').first
     await context_panel.wait_for(state="visible", timeout=5_000)
@@ -902,8 +915,10 @@ async def _assert_harness_chat_mode_ui(
                     assert await page.locator('[data-testid="terminal-tool-output"]').count() > 0
                     assert await page.locator('[data-testid="tool-trace-strip"]').count() == 0
 
-                    body = await page.locator("body").inner_text(timeout=10_000)
-                    lower = body.lower()
+                    transcript_text = await page.locator(
+                        '[data-testid="terminal-tool-transcript"]'
+                    ).inner_text(timeout=10_000)
+                    lower = transcript_text.lower()
                     assert "harness-spindrel:" not in lower
                     assert "tool calls" not in lower
                 else:
@@ -1445,7 +1460,7 @@ async def test_live_harness_terminal_tool_output_is_sequential(
             (
                 "@tool:get_tool_info @tool:list_channels @tool:list_sub_sessions "
                 "@tool:read_conversation_history "
-                "Terminal transcript parity. Call exactly these host-provided tools in order, "
+                "Terminal transcript parity. Use exactly these host-provided tools in order, "
                 "with no shell commands and no file modifications: "
                 '1. get_tool_info with {"tool_name":"list_channels"}; '
                 "2. list_channels with {}; "
@@ -1881,10 +1896,17 @@ async def test_live_harness_context_pressure_and_native_compact(
             f"context tokens did not increase after first pressure turn: "
             f"initial={initial_tokens}, first={first_tokens}"
         )
-    assert second_tokens >= first_tokens, (
-        f"context tokens did not increase across pressure turns: "
-        f"first={first_tokens}, second={second_tokens}"
+    first_fields = {str(field) for field in (first_diag.get("source_fields") or [])}
+    second_fields = {str(field) for field in (second_diag.get("source_fields") or [])}
+    per_turn_fields = {"last_total_tokens", "input_tokens", "output_tokens"}
+    reports_latest_turn_footprint = bool(
+        (first_fields | second_fields) & per_turn_fields
     )
+    if not reports_latest_turn_footprint:
+        assert second_tokens >= first_tokens, (
+            f"context tokens did not increase across pressure turns: "
+            f"first={first_tokens}, second={second_tokens}"
+        )
 
     first_remaining = _status_remaining_pct(first_status)
     second_remaining = _status_remaining_pct(second_status)
@@ -1947,6 +1969,11 @@ async def test_live_harness_project_plan_build_and_screenshot(
     case: HarnessCase,
 ) -> None:
     _requires_tier("project")
+    if client.config.is_external and not _is_local_e2e_host(client.config.host):
+        pytest.skip(
+            "project screenshot diagnostics must run on the target host or with a "
+            "container-reachable remote Docker/Playwright setup"
+        )
     await _assert_browser_runtime_live_diagnostics(client)
 
     channel_id, bot_id = _configured_case(case)

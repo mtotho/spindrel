@@ -54,9 +54,9 @@ export function mapCueRank(state?: WorkspaceMapObjectState | null): number {
 
 export function statusRingClass(state?: WorkspaceMapObjectState | null): string {
   const tone = mapStateTone(state);
-  if (tone === "danger") return "ring-2 ring-danger/80";
-  if (tone === "warning") return "ring-2 ring-warning/70";
-  if (tone === "accent") return "ring-2 ring-accent/45";
+  if (tone === "danger") return "ring-1 ring-danger/45 shadow-[0_0_0_6px_rgb(var(--color-danger)/0.045)]";
+  if (tone === "warning") return "ring-1 ring-warning/45 shadow-[0_0_0_6px_rgb(var(--color-warning)/0.045)]";
+  if (tone === "accent") return "ring-1 ring-accent/35 shadow-[0_0_0_5px_rgb(var(--color-accent)/0.04)]";
   return "";
 }
 
@@ -85,15 +85,15 @@ export function ObjectStatusPill({
             : Radio;
   const cls =
     tone === "danger"
-      ? "bg-danger/10 text-danger"
+      ? "bg-danger/[0.08] text-danger"
       : tone === "warning"
-        ? "bg-warning/10 text-warning"
+        ? "bg-warning/[0.08] text-warning"
         : tone === "accent"
-          ? "bg-accent/10 text-accent"
-          : "bg-surface-overlay text-text-muted";
+          ? "bg-accent/[0.08] text-accent"
+          : "bg-surface-overlay/70 text-text-muted";
   return (
     <span
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${cls}`}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${cls}`}
       title={label}
     >
       <Icon size={compact ? 9 : 10} className="shrink-0" />

@@ -34,6 +34,8 @@ from app.tools.registry import _tools as _local_tools
 CORE_AGENT_TOOLS = (
     "list_agent_capabilities",
     "run_agent_doctor",
+    "get_agent_context_snapshot",
+    "get_agent_work_snapshot",
     "get_tool_info",
     "get_skill",
     "list_api_endpoints",
@@ -331,6 +333,136 @@ async def _project_payload(db: AsyncSession, channel: Channel | None) -> dict[st
     return payload
 
 
+def _int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _runtime_context_recommendation(percent_full: float | None) -> str:
+    if percent_full is None:
+        return "unknown"
+    if percent_full >= 90:
+        return "handoff"
+    if percent_full >= 75:
+        return "summarize"
+    return "continue"
+
+
+def _runtime_context_from_budget(
+    budget: dict[str, Any] | None,
+    *,
+    channel_id: str | None,
+    session_id: str | None,
+    unavailable_reason: str | None = None,
+) -> dict[str, Any]:
+    budget = budget or {}
+    tokens_used = _int_or_none(budget.get("consumed_tokens"))
+    total_tokens = _int_or_none(budget.get("total_tokens"))
+    utilization = _float_or_none(budget.get("utilization"))
+    if utilization is None and total_tokens and tokens_used is not None and total_tokens > 0:
+        utilization = tokens_used / total_tokens
+    percent_full = round(utilization * 100, 1) if utilization is not None else None
+    tokens_remaining = None
+    if tokens_used is not None and total_tokens is not None:
+        tokens_remaining = max(0, total_tokens - tokens_used)
+
+    source = str(budget.get("source") or "none")
+    available = source != "none" and any(
+        value is not None
+        for value in (tokens_used, total_tokens, percent_full)
+    )
+    reason = unavailable_reason
+    if reason is None and not available:
+        reason = "No context budget has been recorded yet."
+
+    recommendation = _runtime_context_recommendation(percent_full if available else None)
+    return {
+        "available": available,
+        "channel_id": channel_id,
+        "session_id": session_id,
+        "recommendation": recommendation,
+        "reason": reason,
+        "budget": {
+            "tokens_used": tokens_used,
+            "tokens_remaining": tokens_remaining,
+            "total_tokens": total_tokens,
+            "percent_full": percent_full,
+            "source": source,
+            "context_profile": budget.get("context_profile"),
+        },
+        "details": {
+            "context_origin": budget.get("context_origin"),
+            "current_prompt_tokens": _int_or_none(budget.get("current_prompt_tokens")),
+            "cached_prompt_tokens": _int_or_none(budget.get("cached_prompt_tokens")),
+            "completion_tokens": _int_or_none(budget.get("completion_tokens")),
+            "live_history_turns": _int_or_none(budget.get("live_history_turns")),
+            "mandatory_static_injections": list(budget.get("mandatory_static_injections") or []),
+            "optional_static_injections": list(budget.get("optional_static_injections") or []),
+        },
+    }
+
+
+async def runtime_context_payload(
+    db: AsyncSession,
+    channel: Channel | None,
+    *,
+    session_id: str | uuid.UUID | None = None,
+) -> dict[str, Any]:
+    resolved_session_id = str(session_id) if session_id is not None else None
+    if channel is None:
+        return _runtime_context_from_budget(
+            None,
+            channel_id=None,
+            session_id=resolved_session_id,
+            unavailable_reason="No channel context available.",
+        )
+
+    from app.services.context_breakdown import fetch_latest_context_budget
+
+    budget = await fetch_latest_context_budget(
+        channel.id,
+        db,
+        session_id=resolved_session_id,
+    )
+    return _runtime_context_from_budget(
+        budget,
+        channel_id=str(channel.id),
+        session_id=resolved_session_id,
+    )
+
+
+async def work_state_payload(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+    max_items: int = 10,
+) -> dict[str, Any]:
+    from app.services.agent_work_snapshot import build_agent_work_snapshot
+
+    return await build_agent_work_snapshot(
+        db,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        max_items=max_items,
+    )
+
+
 def _integration_href(integration_id: str) -> str:
     return f"/admin/integrations/{integration_id}"
 
@@ -572,6 +704,25 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
             "code": "widget_authoring_tools_missing",
             "message": "Some widget authoring tools are missing from the local registry.",
             "next_action": "Restart/reload local tools and verify the widget authoring modules import cleanly.",
+        })
+    runtime_context = manifest.get("runtime_context") or {}
+    recommendation = runtime_context.get("recommendation")
+    budget = runtime_context.get("budget") or {}
+    percent_full = budget.get("percent_full")
+    percent_text = f"{percent_full}% full" if percent_full is not None else "near its limit"
+    if recommendation == "summarize":
+        findings.append({
+            "severity": "warning",
+            "code": "context_should_summarize",
+            "message": f"Runtime context is {percent_text}; summarize or compact before starting a broad task.",
+            "next_action": "Create a concise state summary or trigger compaction before taking on more scope.",
+        })
+    elif recommendation == "handoff":
+        findings.append({
+            "severity": "error",
+            "code": "context_should_handoff",
+            "message": f"Runtime context is {percent_text}; hand off or compact before continuing substantial work.",
+            "next_action": "Produce a handoff summary or compact the session before more tool-heavy work.",
         })
     integrations = manifest.get("integrations") or {}
     for entry in integrations.get("global") or []:
@@ -946,6 +1097,17 @@ async def build_agent_capability_manifest(
     manifest["coding_run"] = _coding_run_payload(manifest)
     manifest["widgets"] = _widget_payload(manifest)
     manifest["integrations"] = await _integration_payload(db, channel)
+    manifest["runtime_context"] = await runtime_context_payload(
+        db,
+        channel,
+        session_id=manifest["context"].get("session_id"),
+    )
+    manifest["work_state"] = await work_state_payload(
+        db,
+        bot_id=manifest["context"].get("bot_id"),
+        channel_id=manifest["context"].get("channel_id"),
+        session_id=manifest["context"].get("session_id"),
+    )
     manifest["doctor"] = {
         "status": "ok",
         "findings": _doctor_findings(manifest),

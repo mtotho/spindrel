@@ -64,11 +64,15 @@ Current behavior:
 - per-turn tool retrieval ranks tools against the current user message
 - `get_tool_info(tool_name="...")` loads the full schema for an available/discovered tool
 - once loaded, that schema is callable in the current loop
-- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, Project context, harness state, widget authoring surface, integration readiness, readiness findings, and any staged repair actions
+- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, Project context, runtime context budget, assigned Mission Control work, harness state, widget authoring surface, integration readiness, readiness findings, and any staged repair actions
 
 Pinned tools are the strongest availability signal. They are the tools that must be available every turn.
 
 `get_tool_info` is the fallback when the model knows or suspects the right tool but needs the full schema before calling it.
+
+`get_agent_context_snapshot()` is the compact runtime-budget read. It returns the current channel/session budget, source, context profile, percentage full, and recommendation (`continue`, `summarize`, `handoff`, or `unknown`) without requiring the agent to fetch the full manifest.
+
+`get_agent_work_snapshot()` is the compact assigned-work read. It returns active missions assigned to the current bot, Attention Items assigned to investigate, recent mission updates, and a recommended next action (`idle`, `advance_mission`, or `review_attention`) without requiring the agent to scrape Mission Control UI/API output.
 
 `run_agent_doctor()` is the compact readiness check. It is for "why can't I do this myself?" moments: missing API grants, empty working sets, Project runtime readiness gaps, harness workdir problems, and integration setup/activation/binding gaps. Doctor findings may include staged repair actions, but mutations still require an explicit user/tool call through the existing bot/config API; Project secrets, integration secrets, dependency installs, process starts, and runtime values stay manual.
 

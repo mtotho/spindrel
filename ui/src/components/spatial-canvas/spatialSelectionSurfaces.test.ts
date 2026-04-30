@@ -52,8 +52,9 @@ test("attention signal keeps the ring visual-only and makes only the badge click
   const source = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
   assert.match(source, /pointer-events-none absolute left-1\/2 top-1\/2/);
   assert.match(source, /aria-hidden/);
-  assert.match(source, /pointer-events-auto absolute -right-1 -top-1/);
+  assert.match(source, /pointer-events-auto relative flex h-6 min-w-6/);
   assert.match(source, /<AlertTriangle size=\{12\}/);
+  assert.doesNotMatch(source, /border-t-2 border-r-2/);
 });
 
 test("Map Brief jump frames targets left of an open Starboard panel", () => {
@@ -88,7 +89,8 @@ test("selected objects get a world anchor and suppress competing hover cards", (
   assert.match(source, /showLabel: true/);
   assert.match(source, /data-spatial-selected-anchor-label/);
   assert.match(source, /SelectedObjectAnchor/);
-  assert.match(source, /ring-1 ring-accent\/38 ring-offset-2/);
+  assert.match(source, /ring-1 ring-accent\/30/);
+  assert.match(source, /shadow-\[0_0_36px_rgb\(var\(--color-accent\)\/0\.10\)\]/);
   assert.match(source, /!starboardOpen \|\| !selectedSpatialObject/);
   assert.match(source, /!channelClusterMode/);
   assert.match(source, /interactiveZoom >= 0\.65/);
@@ -148,7 +150,7 @@ test("spatial glanceability uses shared cue markers and compass without side str
   assert.match(cueSource, /data-spatial-action-compass-user-minimized/);
   assert.match(cueSource, /topActionCompassItems/);
   assert.match(cueSource, /Next actions/);
-  assert.match(cueSource, /Review the queue or inspect one target/);
+  assert.match(cueSource, /Best targets from the map/);
   assert.match(cueSource, /Review all/);
   assert.match(cueSource, /attentionDeckHref\(\{ mode: "review" \}\)/);
   assert.match(cueSource, /Minimize next actions/);

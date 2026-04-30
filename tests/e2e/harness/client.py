@@ -515,6 +515,16 @@ class E2EClient:
         """POST /api/v1/channels/{channel_id}/sessions and return the new session id."""
         resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions")
         if resp.status_code == 404:
+            try:
+                detail = resp.json().get("detail")
+            except Exception:
+                detail = resp.text
+            if str(detail).lower() == "channel not found":
+                raise RuntimeError(
+                    f"harness parity channel {channel_id!r} was not found on the "
+                    "target server; update HARNESS_PARITY_*_CHANNEL_ID or the "
+                    "runner defaults before running harness parity"
+                )
             raise RuntimeError(
                 "deployed server is missing /api/v1/channels/{channel_id}/sessions; "
                 "redeploy the build that includes channel-session APIs before running "

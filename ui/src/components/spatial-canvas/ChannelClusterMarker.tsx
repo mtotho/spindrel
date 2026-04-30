@@ -33,7 +33,7 @@ export function ChannelClusterMarker({
   const winner = cluster.winner;
   const hiddenCount = cluster.hiddenMembers.length;
   const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom);
-  const markerScale = Math.max(1, 34 / (84 * effectiveScale));
+  const markerScale = Math.max(1, 34 / (76 * effectiveScale));
   const labelScale = Math.max(1, 14 / (16 * effectiveScale));
   const ratio = maxClusterTokens > 0 ? cluster.totalTokens / maxClusterTokens : 0;
   const glow = showActivityGlow && cluster.totalTokens > 0
@@ -53,7 +53,7 @@ export function ChannelClusterMarker({
       data-tile-kind="channel-cluster"
       title={`Zoom to ${cluster.members.length} nearby channels`}
       className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col items-center justify-center gap-3 border-0 bg-transparent p-0 text-text"
-      style={{ width: 270, minHeight: 170 }}
+      style={{ width: 260, minHeight: 156 }}
       onPointerDownCapture={focusPrimaryCluster}
       onMouseDownCapture={focusPrimaryCluster}
       onPointerDown={focusPrimaryCluster}
@@ -63,7 +63,7 @@ export function ChannelClusterMarker({
       onDoubleClick={focusPrimaryCluster}
     >
       <div
-        className="relative flex h-[104px] w-[104px] items-center justify-center"
+        className="relative flex h-[98px] w-[98px] items-center justify-center"
         style={{
           transform: `scale(${markerScale})`,
           transformOrigin: "center center",
@@ -71,7 +71,7 @@ export function ChannelClusterMarker({
       >
         {glow > 0 && (
           <div
-            className="absolute inset-[-34px] rounded-full blur-xl"
+            className="absolute inset-[-28px] rounded-full blur-xl"
             style={{
               background: dotColor(winner.channel.id),
               opacity: glow,
@@ -79,9 +79,12 @@ export function ChannelClusterMarker({
           />
         )}
         <div
-          className="relative h-[84px] w-[84px] rounded-full shadow-md ring-2 ring-text/15"
+          className="relative h-[76px] w-[76px] rounded-full ring-1 ring-text/14"
           style={{ background: dotColor(winner.channel.id) }}
-        />
+        >
+          <span className="absolute inset-[18%] rounded-full bg-surface/10" />
+          <span className="absolute inset-[-12px] rounded-full border border-text/8" />
+        </div>
         {cluster.hiddenMembers.slice(0, 4).map((member, index) => {
           const angle = -65 + index * 42;
           const r = 58;
@@ -90,7 +93,7 @@ export function ChannelClusterMarker({
           return (
             <span
               key={member.node.id}
-              className="absolute h-5 w-5 rounded-full border-2 border-surface shadow-sm"
+              className="absolute h-4 w-4 rounded-full border border-surface/80"
               style={{
                 transform: `translate(${x}px, ${y}px)`,
                 background: dotColor(member.channel.id),
@@ -98,7 +101,7 @@ export function ChannelClusterMarker({
             />
           );
         })}
-        <span className="absolute -right-2 -top-1 rounded-full border border-surface-border bg-surface-raised px-2 py-0.5 text-xs font-semibold text-text shadow-sm">
+        <span className="absolute -right-1 top-0 rounded-full bg-surface-raised/90 px-1.5 py-0.5 text-[11px] font-semibold text-text-muted ring-1 ring-surface-border/60">
           +{hiddenCount}
         </span>
         {Array.from({ length: widgetSatelliteCount }).map((_, index) => {
@@ -109,7 +112,7 @@ export function ChannelClusterMarker({
           return (
             <span
               key={`widget-${index}`}
-              className="absolute h-4 w-4 rotate-45 rounded-[4px] border border-accent/70 bg-accent/15 shadow-sm"
+              className="absolute h-3.5 w-3.5 rotate-45 rounded-[4px] border border-accent/55 bg-accent/[0.10]"
               style={{
                 transform: `translate(${x}px, ${y}px) rotate(45deg)`,
                 opacity: widgetOpacity,
@@ -119,7 +122,7 @@ export function ChannelClusterMarker({
         })}
         {widgetCount > 5 && (
           <span
-            className="absolute -bottom-7 left-1/2 -translate-x-1/2 rounded-full border border-surface-border bg-surface-raised px-2 py-0.5 text-[10px] font-semibold text-text shadow-sm"
+            className="absolute -bottom-7 left-1/2 -translate-x-1/2 rounded-full bg-surface-raised/90 px-2 py-0.5 text-[10px] font-semibold text-text-muted ring-1 ring-surface-border/60"
             style={{ opacity: widgetOpacity }}
           >
             +{widgetCount - 5} widgets

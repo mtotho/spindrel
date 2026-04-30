@@ -497,6 +497,18 @@ the system can already inspect" is a shared capability manifest:
   Spindrel servers. This is for outside/dev agents and external integrators;
   in-app runtime agents still use the capability manifest and runtime
   tools/skills.
+- Runtime agents now have a compact context-pressure surface:
+  `runtime_context` on the capability manifest plus `get_agent_context_snapshot`.
+  It normalizes the latest channel/session budget into tokens used/remaining,
+  percent full, source, profile, and `continue` / `summarize` / `handoff` /
+  `unknown`; Doctor only raises context findings when summarize or handoff is
+  actually needed.
+- Runtime agents now have a compact assigned-work surface:
+  `work_state` on the capability manifest plus `get_agent_work_snapshot`.
+  It lists active Mission assignments and assigned Attention Items for the
+  current bot with recent updates and `idle` / `advance_mission` /
+  `review_attention`, while existing mission/attention tools remain the only
+  write path.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

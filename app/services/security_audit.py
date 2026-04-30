@@ -21,6 +21,21 @@ from app.tools.registry import get_all_tool_tiers
 
 logger = logging.getLogger(__name__)
 
+HIGH_RISK_BOT_API_SCOPES = {
+    "*",
+    "admin",
+    "api_keys:write",
+    "integrations:write",
+    "mcp_servers:write",
+    "operations:write",
+    "providers:write",
+    "secrets:write",
+    "settings:write",
+    "tools:execute",
+    "users:write",
+    "workspaces.files:write",
+}
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -271,6 +286,119 @@ def _check_bots_with_exec_tools() -> SecurityCheck:
     )
 
 
+def _check_bots_with_cross_workspace_access() -> SecurityCheck:
+    bots = [
+        {"bot_id": b.id, "name": getattr(b, "name", b.id)}
+        for b in list_bots()
+        if getattr(b, "cross_workspace_access", False)
+    ]
+    if not bots:
+        return SecurityCheck(
+            id="bots_with_cross_workspace_access",
+            category="agentic_boundaries",
+            severity=Severity.warning,
+            status=Status.passed,
+            message="No bots have cross-workspace channel access enabled",
+        )
+    return SecurityCheck(
+        id="bots_with_cross_workspace_access",
+        category="agentic_boundaries",
+        severity=Severity.warning,
+        status=Status.fail,
+        message=f"{len(bots)} bot(s) can access sibling channel workspaces",
+        recommendation=(
+            "Review whether each bot needs cross_workspace_access. Treat it as a "
+            "workspace-wide trust boundary and audit cross-channel file reads/writes."
+        ),
+        details={"count": len(bots), "bots": bots[:20]},
+    )
+
+
+def _check_bots_with_high_risk_api_scopes() -> SecurityCheck:
+    findings = []
+    critical = False
+    for bot in list_bots():
+        scopes = set(getattr(bot, "api_permissions", []) or [])
+        risky = sorted(scopes & HIGH_RISK_BOT_API_SCOPES)
+        if not risky:
+            continue
+        if "admin" in risky or "*" in risky:
+            critical = True
+        findings.append(
+            {
+                "bot_id": bot.id,
+                "name": getattr(bot, "name", bot.id),
+                "scopes": risky,
+            }
+        )
+
+    if not findings:
+        return SecurityCheck(
+            id="bots_with_high_risk_api_scopes",
+            category="agentic_boundaries",
+            severity=Severity.warning,
+            status=Status.passed,
+            message="No bots have high-risk API scopes",
+        )
+    severity = Severity.critical if critical else Severity.warning
+    return SecurityCheck(
+        id="bots_with_high_risk_api_scopes",
+        category="agentic_boundaries",
+        severity=severity,
+        status=Status.fail,
+        message=f"{len(findings)} bot(s) have high-risk API scopes",
+        recommendation=(
+            "Use least-privilege bot API keys. Avoid admin, wildcard, direct tool "
+            "execution, secret, provider, settings, and broad file-write scopes unless "
+            "the bot is intentionally operator-equivalent."
+        ),
+        details={"count": len(findings), "bots": findings[:20]},
+    )
+
+
+def _check_widget_action_api_allowlist() -> SecurityCheck:
+    try:
+        from app.services.widget_action_dispatch import _API_ALLOWLIST
+    except Exception as exc:
+        return SecurityCheck(
+            id="widget_action_api_allowlist",
+            category="widget_actions",
+            severity=Severity.warning,
+            status=Status.fail,
+            message="Could not inspect widget action API allowlist",
+            recommendation="Fix widget action dispatch imports so the API proxy boundary is inspectable.",
+            details={"error": str(exc)},
+        )
+
+    broad = [
+        prefix for prefix in _API_ALLOWLIST
+        if prefix in {"/", "/api", "/api/v1", "/api/v1/admin"}
+    ]
+    non_api = [prefix for prefix in _API_ALLOWLIST if not prefix.startswith("/api/v1/")]
+    if broad or non_api:
+        return SecurityCheck(
+            id="widget_action_api_allowlist",
+            category="widget_actions",
+            severity=Severity.critical,
+            status=Status.fail,
+            message="Widget action API allowlist contains broad or non-API prefixes",
+            recommendation="Keep widget action API dispatch pinned to narrow endpoint prefixes.",
+            details={
+                "prefixes": list(_API_ALLOWLIST),
+                "broad_prefixes": broad,
+                "non_api_prefixes": non_api,
+            },
+        )
+    return SecurityCheck(
+        id="widget_action_api_allowlist",
+        category="widget_actions",
+        severity=Severity.warning,
+        status=Status.passed,
+        message=f"Widget action API dispatch is limited to {len(_API_ALLOWLIST)} narrow prefix(es)",
+        details={"prefixes": list(_API_ALLOWLIST)},
+    )
+
+
 # ---------------------------------------------------------------------------
 # DB-dependent checks
 # ---------------------------------------------------------------------------
@@ -471,10 +599,13 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_host_exec())
     checks.append(_check_audit_logging())
 
-    # Tool registry checks
+    # Tool registry and agentic boundary checks
     checks.append(_check_tools_missing_tier())
     checks.append(_check_tool_tier_distribution())
     checks.append(_check_bots_with_exec_tools())
+    checks.append(_check_bots_with_cross_workspace_access())
+    checks.append(_check_bots_with_high_risk_api_scopes())
+    checks.append(_check_widget_action_api_allowlist())
 
     # DB-dependent checks
     checks.append(await _check_exec_tools_without_rules(db))

@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from integrations.truenas.client import TrueNASApiError
+from integrations.truenas.client import TrueNASApiError, TrueNASConnectionError
 from integrations.truenas.tools import truenas as tools
 
 
@@ -38,6 +38,22 @@ def parse(raw: str) -> dict[str, Any]:
     return payload
 
 
+class FailingTrueNASClient:
+    async def __aenter__(self) -> "FailingTrueNASClient":
+        raise TrueNASConnectionError(
+            "Failed to connect to TrueNAS at ws://truenas.local/api/current",
+            attempts=[{
+                "endpoint": "ws://truenas.local/api/current",
+                "protocol": "jsonrpc",
+                "status": "failed",
+                "error": "redirected to /ui/",
+            }],
+        )
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_health_snapshot_returns_partial_sections(monkeypatch: pytest.MonkeyPatch) -> None:
     client = FakeTrueNASClient({
@@ -59,6 +75,39 @@ async def test_health_snapshot_returns_partial_sections(monkeypatch: pytest.Monk
     assert payload["disk_temperatures"][1]["status"] == "warning"
     assert payload["tiles"][0]["label"] == "Pools"
     assert ("alert.list", []) in client.calls
+
+
+@pytest.mark.asyncio
+async def test_widget_backed_tools_return_visible_connection_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tools, "truenas_client_from_settings", lambda: FailingTrueNASClient())
+
+    payload = parse(await tools.truenas_health_snapshot())
+
+    assert payload["status"] == "unavailable"
+    assert "error" not in payload
+    assert payload["message"].startswith("Failed to connect to TrueNAS")
+    assert payload["errors"]["connection"] == payload["message"]
+    assert payload["diagnostics"]["attempted_endpoints"][0]["endpoint"] == "ws://truenas.local/api/current"
+    assert payload["tiles"][0]["label"] == "Connection"
+
+
+@pytest.mark.asyncio
+async def test_test_connection_exposes_connection_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = FakeTrueNASClient({"system.info": {"hostname": "nas", "version": "25.04.2"}})
+    client.url = "ws://truenas.local/websocket"
+    client.protocol = "legacy"
+    client.connection_attempts = [{"endpoint": client.url, "protocol": "legacy", "status": "connected"}]
+    install_fake_client(monkeypatch, client)
+
+    payload = parse(await tools.truenas_test_connection())
+
+    assert payload["status"] == "ok"
+    assert payload["message"] == "Connected to nas."
+    assert payload["connection"] == {
+        "endpoint": "ws://truenas.local/websocket",
+        "protocol": "legacy",
+        "attempted_endpoints": [{"endpoint": "ws://truenas.local/websocket", "protocol": "legacy", "status": "connected"}],
+    }
 
 
 @pytest.mark.asyncio

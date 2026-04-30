@@ -69,6 +69,11 @@ export interface Dashboard {
     layout_mode?: "grid" | "panel";
     borderless?: boolean;
     hover_scrollbars?: boolean;
+    hide_titles?: boolean;
+    canvas_mode?: string;
+    canvas_origin_x?: number;
+    canvas_origin_y?: number;
+    [key: string]: unknown;
   } | null;
   last_viewed_at: string | null;
   created_at: string | null;
@@ -79,10 +84,12 @@ export interface DashboardPatch {
   name?: string;
   icon?: string | null;
   grid_config?: {
-    layout_type: string;
-    preset: string;
+    layout_type?: string;
+    preset?: string;
     borderless?: boolean;
     hover_scrollbars?: boolean;
+    hide_titles?: boolean;
+    [key: string]: unknown;
   } | null;
 }
 
@@ -96,7 +103,7 @@ interface DashboardsState {
     slug: string;
     name: string;
     icon?: string | null;
-    grid_config?: { layout_type: string; preset: string } | null;
+    grid_config?: { layout_type?: string; preset?: string; [key: string]: unknown } | null;
   }) => Promise<Dashboard>;
   update: (slug: string, patch: DashboardPatch) => Promise<Dashboard>;
   remove: (slug: string) => Promise<void>;

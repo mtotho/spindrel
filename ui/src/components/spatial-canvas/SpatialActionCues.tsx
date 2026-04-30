@@ -102,10 +102,10 @@ function cueIcon(intent: WorkspaceMapCueIntent): ComponentType<LucideProps> {
 
 function cueToneClass(item: SpatialActionCueObject): string {
   const tone = mapStateTone(item.workState);
-  if (tone === "danger") return "text-danger ring-danger/55 bg-danger/[0.075]";
-  if (tone === "warning") return "text-warning ring-warning/50 bg-warning/[0.075]";
-  if (tone === "accent") return "text-accent ring-accent/45 bg-accent/[0.07]";
-  return "text-text-muted ring-surface-border bg-surface-raised/80";
+  if (tone === "danger") return "text-danger ring-danger/35 bg-surface-raised/95";
+  if (tone === "warning") return "text-warning ring-warning/35 bg-surface-raised/95";
+  if (tone === "accent") return "text-accent ring-accent/30 bg-surface-raised/95";
+  return "text-text-muted ring-surface-border/70 bg-surface-raised/90";
 }
 
 function cueLabel(item: SpatialActionCueObject): string {
@@ -191,8 +191,8 @@ export function SpatialActionCueLayer({
             >
               <div
                 aria-hidden="true"
-                className={`absolute flex h-5 w-5 items-center justify-center rounded-full ring-1 backdrop-blur-sm ${toneClass} ${
-                  highlighted ? "ring-2 ring-accent/35" : ""
+                className={`absolute flex h-5 min-w-5 items-center justify-center rounded-full px-1 ring-1 backdrop-blur-sm transition-transform duration-150 ${toneClass} ${
+                  highlighted ? "scale-110 ring-accent/45" : ""
                 }`}
                 style={{ transform: `translate(${badgeX}px, ${badgeY}px)` }}
               >
@@ -247,14 +247,14 @@ export function ActionCompass({
         data-testid="spatial-action-compass"
         data-spatial-action-compass-collapsed="true"
         data-spatial-action-compass-user-minimized={userMinimized ? "true" : "false"}
-        className="absolute left-4 top-4 z-[2] flex flex-col items-center gap-1 rounded-md bg-surface-raised/90 p-1.5 text-text ring-1 ring-surface-border/70"
+        className="absolute left-4 top-4 z-[2] flex items-center gap-1 rounded-md bg-surface-raised/90 p-1 text-text ring-1 ring-surface-border/70"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           title={userMinimized ? `Show next actions: ${total}` : `Next actions: ${total}`}
           aria-label={userMinimized ? `Show next actions: ${total}` : `Next actions: ${total}`}
-          className="flex h-10 w-10 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+          className="flex h-9 items-center gap-2 rounded-md px-2 text-text-muted hover:bg-surface-overlay/60 hover:text-text"
           onPointerEnter={() => onHighlight(topItem.id)}
           onPointerLeave={() => onHighlight(null)}
           onFocus={() => onHighlight(topItem.id)}
@@ -268,6 +268,7 @@ export function ActionCompass({
           }}
         >
           <ListChecks size={17} />
+          <span className="rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted">{total}</span>
         </button>
         <a
           href={reviewAllHref}
@@ -290,30 +291,30 @@ export function ActionCompass({
         >
           <Icon size={13} />
         </button>
-        <span className="rounded-full bg-surface-overlay/65 px-1.5 py-0.5 text-[10px] font-medium text-text-muted">{total}</span>
       </div>
     );
   }
   return (
     <div
       data-testid="spatial-action-compass"
-      className="absolute left-4 top-4 z-[2] w-[320px] rounded-md bg-surface-raised/90 p-2 text-sm text-text ring-1 ring-surface-border/70"
+      className="absolute left-4 top-4 z-[2] w-[304px] rounded-md bg-surface-raised/90 p-2 text-sm text-text ring-1 ring-surface-border/70"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="flex items-start justify-between gap-3 px-1 pb-1.5">
+      <div className="flex items-start justify-between gap-3 px-1 pb-2">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">
             Next actions
           </div>
           <div className="mt-0.5 text-xs text-text-muted">
-            Review the queue or inspect one target.
+            Best targets from the map.
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <span className="rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim">{total}</span>
           <a
             href={reviewAllHref}
             title="Review all next actions"
-            className="flex h-7 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2 text-xs font-medium text-accent hover:bg-accent/[0.12]"
+            className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-accent hover:bg-accent/[0.08]"
           >
             <ExternalLink size={12} />
             Review all
@@ -327,7 +328,6 @@ export function ActionCompass({
           >
             <Minimize2 size={13} />
           </button>
-          <span className="rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim">{total}</span>
         </div>
       </div>
       <div className="space-y-1">
@@ -345,11 +345,13 @@ export function ActionCompass({
               data-spatial-action-compass-id={item.id}
               data-spatial-action-compass-intent={intent}
               data-spatial-action-compass-selected={selected ? "true" : "false"}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100 ${
+              className={`flex w-full items-center gap-2 rounded-md text-left transition-colors duration-100 ${
                 selected || highlighted
                   ? "bg-accent/[0.08] ring-1 ring-accent/15"
-                  : "hover:bg-surface-overlay/60 focus-visible:bg-surface-overlay/60"
-              }`}
+                  : index === 0
+                    ? "bg-surface-overlay/35 hover:bg-surface-overlay/60 focus-visible:bg-surface-overlay/60"
+                    : "hover:bg-surface-overlay/50 focus-visible:bg-surface-overlay/50"
+              } ${index === 0 ? "px-2.5 py-2" : "px-2 py-1.5"}`}
               onPointerEnter={() => onHighlight(item.id)}
               onPointerLeave={() => onHighlight(null)}
               onFocus={() => onHighlight(item.id)}

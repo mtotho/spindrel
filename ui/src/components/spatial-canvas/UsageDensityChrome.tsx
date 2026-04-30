@@ -205,7 +205,7 @@ export function UsageDensityChrome({
                       navigate={navigate}
                     />
                   )}
-                  <div className="mb-3">
+                  <div className="mb-3 px-1">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-dim">{selectedObject ? "Related Objects" : "Map Objects"}</div>
                       <span className="rounded-full bg-surface-overlay px-2 py-0.5 text-xs text-text-muted">{visibleObjects.length}</span>
@@ -411,7 +411,7 @@ function SelectedObjectInspector({
       data-testid="map-brief-selected-object"
       data-starboard-object-id={item.id}
       data-brief-tone={tone}
-      className={`mb-4 rounded-md px-3 py-3 ring-1 ${toneClass}`}
+      className={`mb-4 rounded-md px-3 py-3 ${toneClass}`}
     >
       <div className="flex items-start gap-2.5">
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${kindTone(item.kind)}`}>
@@ -448,7 +448,7 @@ function SelectedObjectInspector({
       {target && targetAttentionItems.length > 0 && (
         <div
           data-testid="map-brief-attention-actions"
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-raised/45 px-2.5 py-2"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-overlay/25 px-2.5 py-2"
         >
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-medium text-text">
@@ -466,7 +466,7 @@ function SelectedObjectInspector({
         </div>
       )}
       {(brief || usefulActions.length > 0) && (
-        <div className="mt-2.5 grid gap-1.5">
+        <div className="mt-3 grid gap-2.5">
           {brief && (
             <>
               {!!brief.sourceLines.length && (
@@ -534,10 +534,10 @@ function SelectedObjectInspector({
 }
 
 function selectedInspectorToneClass(tone: "danger" | "warning" | "active" | "muted"): string {
-  if (tone === "danger") return "bg-danger/[0.025] ring-danger/20";
-  if (tone === "warning") return "bg-warning/[0.025] ring-warning/20";
-  if (tone === "active") return "bg-accent/[0.025] ring-accent/20";
-  return "bg-surface-overlay/25 ring-surface-border/50";
+  if (tone === "danger") return "bg-surface-overlay/20";
+  if (tone === "warning") return "bg-surface-overlay/20";
+  if (tone === "active") return "bg-surface-overlay/18";
+  return "bg-surface-overlay/16";
 }
 
 function SelectedObjectMetaChips({ brief }: { brief: ReturnType<typeof buildSpatialObjectBrief> }) {
@@ -615,13 +615,17 @@ function findActiveAttentionItemsForObject(item: StarboardObjectItem, items: Wor
 
 function InspectorSection({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
-    <div className="rounded-md bg-surface-raised/35 px-2.5 py-2">
-      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-dim">
+    <section className="grid grid-cols-[18px_minmax(0,1fr)] gap-2 py-1">
+      <div className="pt-0.5 text-text-dim" aria-hidden>
         {icon}
-        {title}
       </div>
-      <div className="grid gap-1 text-xs">{children}</div>
-    </div>
+      <div className="min-w-0">
+        <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-dim">
+          {title}
+        </div>
+        <div className="grid gap-1 text-xs">{children}</div>
+      </div>
+    </section>
   );
 }
 
@@ -664,7 +668,7 @@ function SignalLine({
         data-testid="map-brief-signal-action"
         data-signal-kind={signal.kind}
         className={`min-w-0 rounded px-2 py-1 text-left transition-colors hover:bg-surface-overlay/50 focus-visible:bg-surface-overlay/50 ${
-          highlighted ? "bg-danger/10" : ""
+          highlighted ? "bg-surface-overlay/60" : ""
         }`}
         onClick={action.onSelect}
       >
@@ -673,7 +677,7 @@ function SignalLine({
     );
   }
   return (
-    <div className={`min-w-0 rounded ${highlighted ? "bg-danger/10 px-2 py-1" : ""}`}>
+    <div className={`min-w-0 rounded ${highlighted ? "bg-surface-overlay/60 px-2 py-1" : ""}`}>
       {content}
     </div>
   );

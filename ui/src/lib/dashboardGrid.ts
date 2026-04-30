@@ -23,6 +23,10 @@ export interface GridConfig {
   borderless?: boolean;
   hover_scrollbars?: boolean;
   hide_titles?: boolean;
+  canvas_mode?: string;
+  canvas_origin_x?: number;
+  canvas_origin_y?: number;
+  [key: string]: unknown;
 }
 
 export interface DashboardChrome {

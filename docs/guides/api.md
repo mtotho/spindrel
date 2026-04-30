@@ -153,7 +153,11 @@ curl -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8000/api/v1/agent-capabilities?bot_id=default&include_schemas=true"
 ```
 
-The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `run_agent_doctor` returns only the readiness findings.
+The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, runtime context budget, assigned Mission Control work, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `get_agent_context_snapshot` returns the compact runtime budget/recommendation view, `get_agent_work_snapshot` returns only assigned missions/Attention Items, and `run_agent_doctor` returns only the readiness findings.
+
+The `runtime_context` section normalizes the latest context budget into `tokens_used`, `tokens_remaining`, `total_tokens`, `percent_full`, `source`, `context_profile`, and a recommendation of `continue`, `summarize`, `handoff`, or `unknown`. Doctor findings flag `context_should_summarize` at 75-89% full and `context_should_handoff` at 90% or higher.
+
+The `work_state` section is read-only. It lists active Mission assignments and assigned Attention Items for the current bot, plus a compact `recommended_next_action` of `idle`, `advance_mission`, or `review_attention`. Mutations still go through the existing mission/attention tools and APIs.
 
 Integration readiness is read-only in v1. The `integrations` section summarizes workspace-level setup health and current-channel activation/binding state; doctor actions route humans to existing Integration or Channel settings instead of enabling integrations, installing dependencies, starting processes, or writing secrets automatically.
 

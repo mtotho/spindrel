@@ -178,6 +178,7 @@ class SessionPlanUpdateRequest(BaseModel):
     acceptance_criteria: Optional[list[str]] = None
     test_plan: Optional[list[str]] = None
     risks: Optional[list[str]] = None
+    steps: Optional[list[dict[str, Any]]] = None
     outcome: Optional[str] = None
 
 
@@ -530,6 +531,7 @@ async def patch_session_plan(
         acceptance_criteria=body.acceptance_criteria,
         test_plan=body.test_plan,
         risks=body.risks,
+        steps=body.steps,
         outcome=body.outcome,
     )
     await db.commit()

@@ -826,11 +826,11 @@ function SelectedObjectAnchor({
       }}
     >
       <div
-        className="rounded-md bg-accent/[0.018] ring-1 ring-accent/38 ring-offset-2 ring-offset-surface"
+        className="rounded-lg bg-accent/[0.018] ring-1 ring-accent/30 shadow-[0_0_36px_rgb(var(--color-accent)/0.10)]"
         style={{ width, height }}
       />
       {showLabel && (
-        <div data-spatial-selected-anchor-label="true" className="absolute left-1/2 top-full mt-1 max-w-[220px] -translate-x-1/2 truncate rounded-md bg-surface-raised/90 px-2 py-1 text-xs font-medium text-text ring-1 ring-surface-border backdrop-blur">
+        <div data-spatial-selected-anchor-label="true" className="absolute left-1/2 top-full mt-1 max-w-[220px] -translate-x-1/2 truncate rounded-md bg-surface-raised/90 px-2 py-1 text-xs font-medium text-text ring-1 ring-surface-border/70 backdrop-blur">
           {label}
         </div>
       )}

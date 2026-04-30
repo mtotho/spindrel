@@ -105,6 +105,77 @@ export interface AgentIntegrationReadiness {
   } | null;
 }
 
+export interface AgentRuntimeContext {
+  available?: boolean;
+  channel_id?: string | null;
+  session_id?: string | null;
+  recommendation?: "continue" | "summarize" | "handoff" | "unknown" | string;
+  reason?: string | null;
+  budget?: {
+    tokens_used?: number | null;
+    tokens_remaining?: number | null;
+    total_tokens?: number | null;
+    percent_full?: number | null;
+    source?: string | null;
+    context_profile?: string | null;
+  };
+  details?: Record<string, unknown>;
+}
+
+export interface AgentWorkState {
+  available?: boolean;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  session_id?: string | null;
+  reason?: string | null;
+  summary?: {
+    assigned_mission_count?: number;
+    assigned_attention_count?: number;
+    has_current_work?: boolean;
+    recommended_next_action?: "idle" | "advance_mission" | "review_attention" | string;
+  };
+  missions?: Array<{
+    id: string;
+    title: string;
+    status: string;
+    scope: string;
+    channel_id?: string | null;
+    channel_name?: string | null;
+    assignment_id: string;
+    role: string;
+    target_channel_id?: string | null;
+    target_channel_name?: string | null;
+    next_run_at?: string | null;
+    last_update_at?: string | null;
+    last_task_id?: string | null;
+    last_correlation_id?: string | null;
+    latest_update?: {
+      kind?: string;
+      summary?: string;
+      next_actions?: string[];
+      created_at?: string | null;
+    } | null;
+  }>;
+  attention?: Array<{
+    id: string;
+    title: string;
+    severity: string;
+    status: string;
+    assignment_status?: string | null;
+    assignment_mode?: string | null;
+    channel_id?: string | null;
+    channel_name?: string | null;
+    target_kind: string;
+    target_id: string;
+    assignment_instructions?: string | null;
+    next_steps?: string[];
+    latest_correlation_id?: string | null;
+    assigned_at?: string | null;
+    assignment_task_id?: string | null;
+    last_seen_at?: string | null;
+  }>;
+}
+
 export interface AgentCapabilityManifest {
   schema_version: string;
   context: {
@@ -148,6 +219,8 @@ export interface AgentCapabilityManifest {
     workdir?: string | null;
     bridge_status?: string | null;
   };
+  runtime_context?: AgentRuntimeContext;
+  work_state?: AgentWorkState;
   widgets: {
     authoring_tools?: string[];
     required_authoring_tools?: string[];

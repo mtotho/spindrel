@@ -731,11 +731,61 @@ def _runtime_latest_semantic_review(runtime: dict[str, Any], session: Session) -
     return review if isinstance(review, dict) else None
 
 
+def _runtime_latest_outcome(runtime: dict[str, Any], session: Session) -> dict[str, Any] | None:
+    outcome = runtime.get("latest_outcome")
+    if isinstance(outcome, dict):
+        return outcome
+    adherence = _normalize_adherence((session.metadata_ or {}).get(PLAN_ADHERENCE_METADATA_KEY))
+    outcome = adherence.get("latest_outcome")
+    return outcome if isinstance(outcome, dict) else None
+
+
+def _semantic_review_applies_to_latest_outcome(
+    review: dict[str, Any] | None,
+    outcome: dict[str, Any] | None,
+) -> bool:
+    if not isinstance(review, dict):
+        return False
+    if not isinstance(outcome, dict):
+        return True
+    review_correlation = str(review.get("correlation_id") or "").strip()
+    outcome_correlation = str(outcome.get("correlation_id") or "").strip()
+    if review_correlation and outcome_correlation:
+        return review_correlation == outcome_correlation
+    review_turn = str(review.get("turn_id") or "").strip()
+    outcome_turn = str(outcome.get("turn_id") or "").strip()
+    if review_turn and outcome_turn:
+        return review_turn == outcome_turn
+    return True
+
+
+def _semantic_review_applies_to_current_accepted_revision(
+    review: dict[str, Any] | None,
+    session: Session,
+) -> bool:
+    if not isinstance(review, dict):
+        return False
+    accepted_revision = _accepted_plan_revision(session)
+    review_revision = review.get("accepted_revision") or review.get("plan_revision")
+    try:
+        review_revision_int = int(review_revision) if review_revision is not None else 0
+    except (TypeError, ValueError):
+        review_revision_int = 0
+    if accepted_revision <= 0 or review_revision_int <= 0:
+        return True
+    return review_revision_int == accepted_revision
+
+
 def _runtime_semantic_blocks_mutation(runtime: dict[str, Any], session: Session) -> bool:
     review = _runtime_latest_semantic_review(runtime, session)
-    if _semantic_status_from_review(review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN:
+    if (
+        _semantic_status_from_review(review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN
+        and _semantic_review_applies_to_current_accepted_revision(review, session)
+    ):
         return True
-    return str((review or {}).get("verdict") or "").strip() == PLAN_SEMANTIC_REVIEW_UNSUPPORTED
+    if str((review or {}).get("verdict") or "").strip() != PLAN_SEMANTIC_REVIEW_UNSUPPORTED:
+        return False
+    return _semantic_review_applies_to_latest_outcome(review, _runtime_latest_outcome(runtime, session))
 
 
 def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None) -> dict[str, Any]:
@@ -979,6 +1029,33 @@ def _clear_pending_turn_outcome(runtime: dict[str, Any], *, turn_id: str | None,
         runtime.pop("pending_turn_outcome", None)
 
 
+def _restart_plan_step_for_recovery(
+    session: Session,
+    plan: SessionPlan,
+    *,
+    step_id: str,
+    note: str | None,
+) -> SessionPlan:
+    target = next((step for step in plan.steps if step.id == step_id), None)
+    if target is None:
+        return plan
+    for step in plan.steps:
+        if step.id != target.id and step.status == STEP_STATUS_IN_PROGRESS:
+            step.status = STEP_STATUS_PENDING
+    target.status = STEP_STATUS_IN_PROGRESS
+    if note and note.strip():
+        target.note = note.strip()
+        plan.outcome = note.strip()
+    plan.status = PLAN_STATUS_EXECUTING
+    return save_session_plan(
+        session,
+        plan,
+        mode=PLAN_MODE_EXECUTING,
+        accepted_revision=_accepted_plan_revision(session),
+        reason="recover_unsupported_step",
+    )
+
+
 def record_plan_progress_outcome(
     session: Session,
     *,
@@ -1038,9 +1115,33 @@ def record_plan_progress_outcome(
 
     now = _utc_now_iso()
     meta = _session_plan_meta(session)
-    adherence = _normalize_adherence(meta.get(PLAN_ADHERENCE_METADATA_KEY))
     runtime_raw = meta.get(PLAN_RUNTIME_METADATA_KEY)
     runtime = copy.deepcopy(runtime_raw if isinstance(runtime_raw, dict) else {})
+    latest_review = _runtime_latest_semantic_review(runtime, session)
+    if (
+        outcome in {
+            PLAN_PROGRESS_OUTCOME_PROGRESS,
+            PLAN_PROGRESS_OUTCOME_VERIFICATION,
+            PLAN_PROGRESS_OUTCOME_NO_PROGRESS,
+        }
+        and resolved_step_id
+        and str((latest_review or {}).get("verdict") or "").strip() == PLAN_SEMANTIC_REVIEW_UNSUPPORTED
+        and _semantic_review_applies_to_latest_outcome(
+            latest_review,
+            _runtime_latest_outcome(runtime, session),
+        )
+    ):
+        plan = _restart_plan_step_for_recovery(
+            session,
+            plan,
+            step_id=resolved_step_id,
+            note=status_note or summary_text,
+        )
+        meta = _session_plan_meta(session)
+        runtime_raw = meta.get(PLAN_RUNTIME_METADATA_KEY)
+        runtime = copy.deepcopy(runtime_raw if isinstance(runtime_raw, dict) else {})
+
+    adherence = _normalize_adherence(meta.get(PLAN_ADHERENCE_METADATA_KEY))
     pending = runtime.get("pending_turn_outcome")
     record_turn_id = turn_id
     record_correlation_id = correlation_id
@@ -1673,6 +1774,7 @@ def update_session_plan(
     acceptance_criteria: list[str] | None = None,
     test_plan: list[str] | None = None,
     risks: list[str] | None = None,
+    steps: list[dict[str, Any]] | None = None,
     outcome: str | None = None,
 ) -> SessionPlan:
     plan = load_session_plan(session, required=True)
@@ -1701,6 +1803,8 @@ def update_session_plan(
         plan.test_plan = [item.strip() for item in test_plan if item.strip()]
     if risks is not None:
         plan.risks = [item.strip() for item in risks if item.strip()]
+    if steps is not None:
+        plan.steps = _coerce_plan_steps(plan.title, steps)
     if outcome is not None:
         plan.outcome = outcome.strip() or plan.outcome
     plan.revision += 1
@@ -2064,6 +2168,15 @@ def approve_session_plan(session: Session) -> SessionPlan:
     plan.status = PLAN_STATUS_EXECUTING
     if plan.outcome.strip().lower() == "pending execution.":
         plan.outcome = "Execution started."
+    meta = _session_plan_meta(session)
+    runtime = copy.deepcopy(meta.get(PLAN_RUNTIME_METADATA_KEY) if isinstance(meta.get(PLAN_RUNTIME_METADATA_KEY), dict) else {})
+    if runtime.get("replan"):
+        runtime.pop("replan", None)
+        runtime["last_updated_at"] = _utc_now_iso()
+        runtime["last_update_reason"] = "approve_replan"
+        meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+        session.metadata_ = meta
+        flag_modified(session, "metadata_")
     return save_session_plan(
         session,
         plan,
@@ -2624,9 +2737,18 @@ def plan_mode_tool_denial_reason(
         if runtime.get("pending_turn_outcome"):
             return "The previous execution turn is missing a plan outcome. Use record_plan_progress before running more mutating tools."
         latest_review = _runtime_latest_semantic_review(runtime, session)
-        if _semantic_status_from_review(latest_review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN:
+        if (
+            _semantic_status_from_review(latest_review) == PLAN_SEMANTIC_STATUS_NEEDS_REPLAN
+            and _semantic_review_applies_to_current_accepted_revision(latest_review, session)
+        ):
             return "The latest plan adherence review says the accepted plan needs replanning. Use request_plan_replan before running more mutating tools."
-        if str((latest_review or {}).get("verdict") or "").strip() == PLAN_SEMANTIC_REVIEW_UNSUPPORTED:
+        if (
+            str((latest_review or {}).get("verdict") or "").strip() == PLAN_SEMANTIC_REVIEW_UNSUPPORTED
+            and _semantic_review_applies_to_latest_outcome(
+                latest_review,
+                _runtime_latest_outcome(runtime, session),
+            )
+        ):
             return "The latest plan adherence review says the recorded step is unsupported. Repeat the step or record corrected progress before running more mutating tools."
         return "Plan execution guard blocked this mutating tool because the accepted revision/current step contract is not valid."
     if mode == PLAN_MODE_BLOCKED:

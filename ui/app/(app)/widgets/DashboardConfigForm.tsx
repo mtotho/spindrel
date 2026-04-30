@@ -168,10 +168,20 @@ export function DashboardConfigForm({
     setError(null);
     try {
       const chromeDefault = !borderless && hoverScrollbars && !hideTitles;
+      const preservedConfig =
+        dashboard.grid_config && typeof dashboard.grid_config === "object"
+          ? { ...(dashboard.grid_config as Record<string, unknown>) }
+          : {};
+      delete preservedConfig.layout_type;
+      delete preservedConfig.preset;
+      delete preservedConfig.borderless;
+      delete preservedConfig.hover_scrollbars;
+      delete preservedConfig.hide_titles;
       const gridConfig =
-        presetId === "standard" && chromeDefault
+        presetId === "standard" && chromeDefault && Object.keys(preservedConfig).length === 0
           ? null
           : {
+              ...preservedConfig,
               layout_type: "grid",
               preset: presetId,
               ...(borderless ? { borderless: true } : {}),

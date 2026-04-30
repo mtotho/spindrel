@@ -842,6 +842,66 @@ def test_request_replan_preserves_accepted_revision_and_returns_to_planning(monk
     assert any("Replan required" in item for item in plan.open_questions)
 
 
+def test_replan_draft_step_update_clears_blocked_step_and_approval_unblocks_mutation(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Replan Recovery",
+        summary="Exercise blocked replan recovery.",
+        scope="Accepted revision recovery only.",
+        acceptance_criteria=["A revised plan can be approved after replacing blocked steps."],
+        **_professional_fields(),
+        steps=[
+            {"id": "audit", "label": "Audit the stale implementation path"},
+            {"id": "ship", "label": "Ship the recovered implementation path"},
+        ],
+    )
+    spm.approve_session_plan(session)
+    spm.request_plan_replan(
+        session,
+        reason="The audit step exposed a stale implementation path.",
+        affected_step_ids=["audit"],
+        evidence="runtime trace",
+        revision=1,
+    )
+
+    with pytest.raises(DomainError) as exc:
+        spm.approve_session_plan(session)
+    assert "blocked" in str(exc.value)
+
+    revised = spm.update_session_plan(
+        session,
+        revision=2,
+        summary="Recover by replacing the blocked checklist with a revised route.",
+        scope="Only the revised recovery route is in scope; the stale audit path is excluded.",
+        key_changes=["Replace the blocked audit step with a revised recovery step."],
+        interfaces=["No public API changes; plan runtime state only."],
+        assumptions_and_defaults=["Use the revised checklist as the new execution contract."],
+        test_plan=["Approve the revised plan and assert mutation is allowed."],
+        acceptance_criteria=["The revised plan has no blocked step before approval."],
+        open_questions=[],
+        steps=[
+            {"id": "recover", "label": "Execute the revised recovery route"},
+            {"id": "verify", "label": "Verify the revised recovery route"},
+        ],
+    )
+    assert revised.revision == 3
+    assert all(step.status != spm.STEP_STATUS_BLOCKED for step in revised.steps)
+
+    approved = spm.approve_session_plan(session)
+    runtime = spm.build_plan_runtime_capsule(session, approved)
+    assert approved.revision == 3
+    assert session.metadata_["plan_accepted_revision"] == 3
+    assert runtime.get("replan") is None
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+
+
 def test_plan_context_only_mentions_subagents_when_enabled(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
@@ -1118,3 +1178,148 @@ def test_unsupported_semantic_review_blocks_next_mutation_but_allows_progress(mo
     )
     assert reason is not None
     assert "unsupported" in reason
+
+
+def test_new_progress_outcome_supersedes_unsupported_review_and_restarts_step(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Semantic Unsupported Recovery",
+        summary="Recover from an unsupported completion review.",
+        scope="Execution guard behavior only.",
+        acceptance_criteria=["A corrected progress record restarts the unsupported step."],
+        **_professional_fields(),
+        steps=[
+            {"id": "ship", "label": "Ship the planned behavior"},
+            {"id": "verify", "label": "Verify the planned behavior"},
+        ],
+    )
+    spm.approve_session_plan(session)
+    first_correlation = str(uuid.uuid4())
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
+        summary="Claimed the planned behavior shipped.",
+        step_id="ship",
+        evidence="wrong artifact",
+        turn_id="turn-1",
+        correlation_id=first_correlation,
+    )
+    spm.record_plan_semantic_review(
+        session,
+        {
+            "correlation_id": first_correlation,
+            "step_id": "ship",
+            "outcome": "step_done",
+            "verdict": spm.PLAN_SEMANTIC_REVIEW_UNSUPPORTED,
+            "semantic_status": spm.PLAN_SEMANTIC_STATUS_WARNING,
+            "confidence": 0.93,
+            "reason": "Execution evidence did not support the recorded completion.",
+            "recommended_action": "repeat_step",
+        },
+    )
+    assert not spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+
+    second_correlation = str(uuid.uuid4())
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_PROGRESS,
+        summary="Retrying the unsupported step with corrected evidence.",
+        step_id="ship",
+        evidence="corrected retry started",
+        turn_id="turn-2",
+        correlation_id=second_correlation,
+    )
+
+    plan = spm.load_session_plan(session, required=True)
+    steps = {step.id: step for step in plan.steps}
+    assert steps["ship"].status == spm.STEP_STATUS_IN_PROGRESS
+    assert steps["verify"].status == spm.STEP_STATUS_PENDING
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    state = spm.get_session_plan_state(session)
+    assert state["runtime"]["latest_outcome"]["correlation_id"] == second_correlation
+    assert state["runtime"]["latest_semantic_review"]["correlation_id"] == first_correlation
+
+
+def test_needs_replan_review_stays_blocking_until_revised_plan_is_approved(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Semantic Replan Recovery",
+        summary="Recover from a needs-replan review.",
+        scope="Execution guard behavior only.",
+        acceptance_criteria=["Needs-replan blocks until revised approval."],
+        **_professional_fields(),
+        steps=[{"id": "ship", "label": "Ship the planned behavior"}],
+    )
+    spm.approve_session_plan(session)
+    spm.record_plan_semantic_review(
+        session,
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "accepted_revision": 1,
+            "step_id": "ship",
+            "outcome": "step_done",
+            "verdict": spm.PLAN_SEMANTIC_REVIEW_NEEDS_REPLAN,
+            "semantic_status": spm.PLAN_SEMANTIC_STATUS_NEEDS_REPLAN,
+            "confidence": 0.97,
+            "reason": "Execution evidence showed the accepted plan is stale.",
+            "recommended_action": "request_replan",
+        },
+    )
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_PROGRESS,
+        summary="Attempted bookkeeping cannot clear stale-plan review.",
+        step_id="ship",
+        evidence="status note",
+        turn_id="turn-2",
+        correlation_id=str(uuid.uuid4()),
+    )
+    assert not spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+
+    spm.request_plan_replan(
+        session,
+        reason="Accepted revision is stale.",
+        affected_step_ids=["ship"],
+        evidence="semantic review",
+        revision=1,
+    )
+    spm.update_session_plan(
+        session,
+        revision=2,
+        summary="Revised plan after needs-replan review.",
+        scope="Only revised execution is in scope; stale revision 1 is excluded.",
+        key_changes=["Replace stale execution with revised execution."],
+        interfaces=["No public API changes; plan runtime state only."],
+        assumptions_and_defaults=["Use revised approval as the new execution contract."],
+        test_plan=["Approve revised plan and assert mutation unblocks."],
+        acceptance_criteria=["Revised approval supersedes stale semantic review."],
+        open_questions=[],
+        steps=[{"id": "ship-revised", "label": "Ship the revised planned behavior"}],
+    )
+    spm.approve_session_plan(session)
+
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        safety_tier="mutating",
+    )

@@ -129,23 +129,18 @@ export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) 
     <div
       className="pointer-events-none absolute left-1/2 top-1/2 z-[50]"
       style={{
-        transform: `translate(18px, -34px) scale(${inv})`,
+        transform: `translate(22px, -38px) scale(${inv})`,
         transformOrigin: "center center",
       }}
     >
-      <div
-        className={`relative flex h-10 w-10 items-center justify-center rounded-full ${signalClass(primary)}`}
+      <span
         aria-hidden
-      >
-        <span
-          className={`absolute h-7 w-7 rounded-full border-t-2 border-r-2 border-current opacity-75 ${urgent ? "attention-signal-pulse" : ""}`}
-        />
-        <span className="absolute h-1.5 w-1.5 translate-x-2 -translate-y-2 rounded-full bg-current" />
-      </div>
+        className={`absolute -inset-2 rounded-full opacity-60 blur-sm ${urgent ? "attention-signal-pulse" : ""} ${signalClass(primary)}`}
+      />
       <button
         type="button"
         data-testid="spatial-attention-badge"
-        className={`pointer-events-auto absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-surface-raised bg-surface-raised ${signalClass(primary)} shadow-[0_6px_16px_rgb(0_0_0/0.28)] hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
+        className={`pointer-events-auto relative flex h-6 min-w-6 items-center justify-center rounded-full bg-surface-raised/95 px-1 text-[10px] font-semibold ring-1 ring-current/35 backdrop-blur ${signalClass(primary)} hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
         title={label}
         aria-label={label}
         onPointerDown={(event) => event.stopPropagation()}
@@ -155,6 +150,7 @@ export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) 
         }}
       >
         <AlertTriangle size={12} aria-hidden />
+        {count > 1 && <span className="ml-0.5 leading-none">{count}</span>}
       </button>
     </div>
   );

@@ -16,7 +16,7 @@ from app.tools.registry import register
         "description": (
             "Return the machine-readable manifest for what this agent can do now: "
             "API scopes/endpoints, tool working set, skill working set, Project "
-            "context, harness status, widget authoring tools, and readiness findings. "
+            "context, runtime context budget, assigned work, harness status, widget authoring tools, and readiness findings. "
             "Use this before broad configuration, API, Project, widget, or harness work."
         ),
         "parameters": {
@@ -48,6 +48,8 @@ from app.tools.registry import register
         "tools": {"type": "object"},
         "skills": {"type": "object"},
         "project": {"type": "object"},
+        "runtime_context": {"type": "object"},
+        "work_state": {"type": "object"},
         "coding_run": {"type": "object"},
         "harness": {"type": "object"},
         "widgets": {"type": "object"},
@@ -80,12 +82,115 @@ async def list_agent_capabilities(
 @register({
     "type": "function",
     "function": {
+        "name": "get_agent_context_snapshot",
+        "description": (
+            "Return the current agent runtime context budget and recommendation only. "
+            "Use this before long-running, tool-heavy, summarization, or handoff decisions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+}, safety_tier="readonly", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "context": {"type": "object"},
+        "runtime_context": {"type": "object"},
+        "error": {"type": "string"},
+    },
+    "required": ["context", "runtime_context"],
+})
+async def get_agent_context_snapshot() -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+    async with async_session() as db:
+        manifest = await build_agent_capability_manifest(
+            db,
+            bot_id=bot_id,
+            channel_id=current_channel_id.get(),
+            session_id=current_session_id.get(),
+            include_schemas=False,
+            include_endpoints=False,
+            max_tools=20,
+        )
+    return json.dumps(
+        {
+            "context": manifest["context"],
+            "runtime_context": manifest["runtime_context"],
+        },
+        ensure_ascii=False,
+    )
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_agent_work_snapshot",
+        "description": (
+            "Return this agent's assigned Mission Control work: active missions, assigned Attention Items, "
+            "recent updates, and the next recommended work action."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "max_items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Maximum missions and Attention Items to return. Defaults 10.",
+                },
+            },
+        },
+    },
+}, safety_tier="readonly", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "context": {"type": "object"},
+        "work_state": {"type": "object"},
+        "error": {"type": "string"},
+    },
+    "required": ["context", "work_state"],
+})
+async def get_agent_work_snapshot(max_items: int = 10) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+    channel_id = current_channel_id.get()
+    session_id = current_session_id.get()
+    async with async_session() as db:
+        from app.services.agent_work_snapshot import build_agent_work_snapshot
+
+        work_state = await build_agent_work_snapshot(
+            db,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            session_id=session_id,
+            max_items=max(1, min(int(max_items or 10), 50)),
+        )
+    return json.dumps(
+        {
+            "context": {
+                "bot_id": bot_id,
+                "channel_id": str(channel_id) if channel_id else None,
+                "session_id": str(session_id) if session_id else None,
+            },
+            "work_state": work_state,
+        },
+        ensure_ascii=False,
+    )
+
+
+@register({
+    "type": "function",
+    "function": {
         "name": "run_agent_doctor",
         "description": (
             "Run a read-only readiness check over this agent's capability manifest. "
             "Returns concrete findings and suggested next actions for missing API "
             "grants, Project readiness, harness workdir gaps, widget-authoring "
-            "tool registration gaps, and empty working sets."
+            "tool registration gaps, runtime context pressure, and empty working sets."
         ),
         "parameters": {
             "type": "object",
