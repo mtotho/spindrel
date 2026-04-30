@@ -16,12 +16,15 @@ from app.services.project_instances import create_project_instance, list_project
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunContinue,
+    ProjectCodingRunReviewCreate,
     cleanup_project_coding_run_instance,
     continue_project_coding_run,
     create_project_coding_run,
+    create_project_coding_run_review_session,
     get_project_coding_run,
     list_project_coding_runs,
     mark_project_coding_run_reviewed,
+    mark_project_coding_runs_reviewed,
     refresh_project_coding_run_status,
 )
 from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
@@ -241,6 +244,18 @@ class ProjectCodingRunWrite(BaseModel):
 
 class ProjectCodingRunContinueWrite(BaseModel):
     feedback: str = ""
+
+
+class ProjectCodingRunsReviewedWrite(BaseModel):
+    task_ids: list[uuid.UUID] = Field(default_factory=list)
+    note: str = ""
+
+
+class ProjectCodingRunReviewSessionWrite(BaseModel):
+    channel_id: uuid.UUID
+    task_ids: list[uuid.UUID] = Field(default_factory=list)
+    prompt: str = ""
+    merge_method: str = "squash"
 
 
 class ProjectCodingRunTaskOut(BaseModel):
@@ -894,6 +909,68 @@ async def create_project_coding_run_endpoint(
         if row["id"] == str(task.id):
             return row
     raise HTTPException(status_code=500, detail="Project coding run was created but could not be loaded")
+
+
+@router.post("/{project_id}/coding-runs/reviewed", response_model=list[ProjectCodingRunOut])
+async def mark_project_coding_runs_reviewed_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectCodingRunsReviewedWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await mark_project_coding_runs_reviewed(db, project, body.task_ids, note=body.note)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/review-sessions", response_model=ProjectCodingRunTaskOut, status_code=201)
+async def create_project_coding_run_review_session_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectCodingRunReviewSessionWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await create_project_coding_run_review_session(
+            db,
+            project,
+            ProjectCodingRunReviewCreate(
+                channel_id=body.channel_id,
+                task_ids=body.task_ids,
+                prompt=body.prompt,
+                merge_method=body.merge_method,
+            ),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+    return ProjectCodingRunTaskOut(**{
+        "id": task.id,
+        "status": task.status,
+        "title": task.title,
+        "bot_id": task.bot_id,
+        "channel_id": task.channel_id,
+        "session_id": task.session_id,
+        "project_instance_id": task.project_instance_id,
+        "correlation_id": task.correlation_id,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "scheduled_at": task.scheduled_at.isoformat() if task.scheduled_at else None,
+        "run_at": task.run_at.isoformat() if task.run_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "error": task.error,
+    })
 
 
 @router.post("/{project_id}/coding-runs/{task_id}/refresh", response_model=ProjectCodingRunOut)

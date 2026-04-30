@@ -1,21 +1,24 @@
 import type { StepType } from "@/src/api/hooks/useTasks";
 import { SelectDropdown } from "../../SelectDropdown";
-import { STEP_TYPES, isKnownStepType, stepMeta } from "../TaskStepEditorModel";
+import { isKnownStepType, stepMeta, visibleStepTypes } from "../TaskStepEditorModel";
 
 export const ON_FAILURE_OPTIONS = [
   { value: "abort", label: "Stop on fail" },
   { value: "continue", label: "Continue on fail" },
 ];
 
-export function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: StepType) => void }) {
+export function StepTypeSelector({ value, onChange, includeMachineSteps = false }: { value: StepType; onChange: (v: StepType) => void; includeMachineSteps?: boolean }) {
   const meta = stepMeta(value);
   const Icon = meta.icon;
+  const options = visibleStepTypes(includeMachineSteps).some((stepType) => stepType.value === value)
+    ? visibleStepTypes(includeMachineSteps)
+    : [...visibleStepTypes(includeMachineSteps), meta];
 
   return (
     <div className="shrink-0">
       <SelectDropdown
         value={value}
-        options={STEP_TYPES.map((stepType) => {
+        options={options.map((stepType) => {
           const StepIcon = stepType.icon;
           return {
             value: stepType.value,

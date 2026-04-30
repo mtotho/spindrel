@@ -2,20 +2,30 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import uuid
 
 from app.agent.context import current_correlation_id, current_session_id, current_turn_id
 from app.db.engine import async_session
-from app.db.models import Session
+from app.db.models import Session, ToolCall
 from app.services.session_plan_mode import (
     build_session_plan_response,
     load_session_plan,
     publish_session_plan_event,
     record_plan_progress_outcome,
 )
+from app.services.tool_error_contract import build_tool_error
 from app.tools.registry import register
+from sqlalchemy import select
 
 PLAN_CONTENT_TYPE = "application/vnd.spindrel.plan+json"
 logger = logging.getLogger(__name__)
+
+_VERIFICATION_CLAIM_RE = re.compile(
+    r"\b(verified|verify|verification|readback|read\s+back|contains\s+the\s+exact|exact\s+content)\b",
+    re.IGNORECASE,
+)
+_READBACK_OPERATIONS = {"read", "cat", "show"}
 
 _SCHEMA = {
     "type": "function",
@@ -43,6 +53,59 @@ _SCHEMA = {
         },
     },
 }
+
+
+def _claims_step_verification(*, outcome: str, summary: str, status_note: str | None) -> bool:
+    if outcome != "step_done":
+        return False
+    text = " ".join(part for part in (summary, status_note or "") if part)
+    return bool(_VERIFICATION_CLAIM_RE.search(text))
+
+
+def _path_matches_evidence(arguments: dict, evidence: str | None) -> bool:
+    if not evidence:
+        return True
+    evidence_text = str(evidence).strip()
+    if not evidence_text:
+        return True
+    paths = [
+        str(arguments.get(key) or "").strip()
+        for key in ("path", "target_path", "source_path")
+    ]
+    return any(path and (path == evidence_text or path.endswith(evidence_text)) for path in paths)
+
+
+def _tool_call_is_readback(tool: ToolCall, *, evidence: str | None) -> bool:
+    if tool.status != "done" or tool.error:
+        return False
+    arguments = tool.arguments if isinstance(tool.arguments, dict) else {}
+    operation = str(arguments.get("operation") or arguments.get("action") or "").strip().lower()
+    if tool.tool_name == "file":
+        return operation in _READBACK_OPERATIONS and _path_matches_evidence(arguments, evidence)
+    if re.search(r"(read|verify|check|inspect|test)", tool.tool_name, flags=re.IGNORECASE):
+        return _path_matches_evidence(arguments, evidence)
+    return False
+
+
+async def _turn_has_successful_readback(
+    db,
+    *,
+    session_id: uuid.UUID,
+    correlation_id: uuid.UUID | None,
+    evidence: str | None,
+) -> bool:
+    if correlation_id is None:
+        return False
+    result = await db.execute(
+        select(ToolCall)
+        .where(
+            ToolCall.session_id == session_id,
+            ToolCall.correlation_id == correlation_id,
+            ToolCall.tool_name != "record_plan_progress",
+        )
+        .order_by(ToolCall.created_at.asc())
+    )
+    return any(_tool_call_is_readback(tool, evidence=evidence) for tool in result.scalars().all())
 
 
 @register(
@@ -80,6 +143,30 @@ async def record_plan_progress(
         session = await db.get(Session, session_id)
         if session is None:
             raise RuntimeError("Session not found.")
+        if _claims_step_verification(outcome=outcome, summary=summary, status_note=status_note):
+            has_readback = await _turn_has_successful_readback(
+                db,
+                session_id=session_id,
+                correlation_id=correlation_id,
+                evidence=evidence,
+            )
+            if not has_readback:
+                return json.dumps(
+                    build_tool_error(
+                        message=(
+                            "step_done claims verification/readback succeeded, but this turn has no successful "
+                            "read or verification tool result for the evidence path."
+                        ),
+                        error_code="plan_progress_verification_missing",
+                        error_kind="validation",
+                        retryable=False,
+                        fallback=(
+                            "Use the requested read/check tool for the evidence path, confirm the result, "
+                            "then retry record_plan_progress with step_done."
+                        ),
+                        tool_name="record_plan_progress",
+                    )
+                )
         outcome_record = record_plan_progress_outcome(
             session,
             outcome=outcome,

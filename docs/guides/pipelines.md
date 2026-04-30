@@ -2,7 +2,7 @@
 
 ![Pipeline definitions in the Tasks admin](../images/pipeline-library.png)
 
-Pipelines are the automation primitive. A pipeline is a Task with a `steps` array — an ordered list of step definitions that execute sequentially. Each step picks the cheapest engine for its job: a shell command, an SSH machine command, a direct tool call, an LLM turn, a human approval gate, or a loop over a list.
+Pipelines are the automation primitive. A pipeline is a Task with a `steps` array — an ordered list of step definitions that execute sequentially. Each step picks the cheapest engine for its job: a shell command, a machine-provider command, a direct tool call, an LLM turn, a human approval gate, or a loop over a list.
 
 Design principle: use `exec`, `machine_inspect`, `machine_exec`, and `tool` steps for deterministic work (they don't burn LLM tokens); use `agent` steps only where judgment is required; use `user_prompt` / `foreach` where you'd otherwise reach for bespoke plumbing.
 
@@ -64,8 +64,8 @@ transcript session.
 | Type | What it does | LLM cost |
 |------|-------------|----------|
 | `exec` | Shell command in the workspace | No |
-| `machine_inspect` | Readonly command on the task-granted SSH target | No |
-| `machine_exec` | Shell command on the task-granted SSH target | No |
+| `machine_inspect` | Readonly command on the task-granted machine target | No |
+| `machine_exec` | Shell command on the task-granted machine target | No |
 | `tool` | Direct tool invocation with fixed args | No |
 | `agent` | Spawns a child task — full LLM loop with tools and skills | Yes |
 | `user_prompt` | Pauses pipeline; resumes when a human resolves a widget | No |
@@ -84,7 +84,7 @@ transcript session.
 
 Prior-step results are auto-exported as env vars: `$STEP_CHECK_RESULT`, `$STEP_CHECK_STATUS`, plus top-level JSON keys for structured results (`$STEP_CHECK_llm`, etc.).
 
-### `machine_inspect` / `machine_exec` — SSH Machine Command
+### `machine_inspect` / `machine_exec` — Machine Provider Command
 
 ```yaml
 - id: remote_status
@@ -97,7 +97,7 @@ Prior-step results are auto-exported as env vars: `$STEP_CHECK_RESULT`, `$STEP_C
   working_directory: /srv/app
 ```
 
-These steps require the task definition to have a `machine_target_grant` for an enrolled SSH target. `machine_inspect` uses the same inspect-command allowlist as `machine_inspect_command`; `machine_exec` allows shell execution. Both perform a fresh SSH probe before running and use fresh non-interactive OpenSSH commands, not a persistent PTY.
+These steps require the task definition to have a `machine_target_grant` for an enrolled target from a provider that advertises `machine_control.task_automation`. `machine_inspect` uses the same inspect-command allowlist as `machine_inspect_command`; `machine_exec` allows shell execution. Both perform a fresh provider probe before running. For SSH, that means fresh non-interactive OpenSSH commands, not a persistent PTY.
 
 Prompt tasks and `agent` steps can also use the normal `machine_*` tools when the task grant allows LLM machine tools. The runner materializes a short session lease for the resolved channel session before the agent loop starts.
 

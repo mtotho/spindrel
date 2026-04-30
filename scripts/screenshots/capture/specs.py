@@ -3191,10 +3191,19 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         color_scheme="dark",
         full_page=True,
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const boxes = [...document.querySelectorAll('[data-testid=\"project-workspace-runs\"] input[type=\"checkbox\"]')];"
+            "if (boxes[1] && !boxes[1].checked) boxes[1].click();"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Project request') "
             "&& text.includes('Coding Runs') "
+            "&& text.includes('1 selected') "
+            "&& text.includes('Review session prompt') "
+            "&& text.includes('Start review') "
+            "&& text.includes('Mark reviewed') "
             "&& text.includes('Prepare the Project workspace screenshot receipt') "
             "&& text.includes('Review:') "
             "&& text.includes('Evidence:') "

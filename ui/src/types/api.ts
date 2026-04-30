@@ -1548,6 +1548,14 @@ export interface ProjectCodingRun {
     blocker?: string | null;
     reviewed?: boolean;
     reviewed_at?: string | null;
+    reviewed_by?: string | null;
+    review_task_id?: string | null;
+    review_session_id?: string | null;
+    review_summary?: string | null;
+    review_details?: Record<string, any>;
+    merge_method?: "squash" | "merge" | "rebase" | string | null;
+    merged_at?: string | null;
+    merge_commit_sha?: string | null;
     handoff_url?: string | null;
     pr?: {
       url?: string | null;

@@ -32,6 +32,9 @@ is stale; mutation stays blocked until a revised plan is published and approved.
 For small-model drift, native loop recovery is allowed to convert explicit
 question-card prose into `ask_plan_questions` and retry correctable
 `publish_plan` validation/readiness failures once.
+Completion claims are also guarded: if a `step_done` outcome says verification
+or readback succeeded, the turn must include the matching read/check tool result
+before `record_plan_progress` accepts it.
 
 The UI should direct attention to the current decision or next action first. Full
 plan detail stays available below the focus area without turning the transcript

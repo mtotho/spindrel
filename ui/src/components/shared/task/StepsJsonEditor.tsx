@@ -93,7 +93,7 @@ function highlightJson(text: string): string {
 // Validation
 // ---------------------------------------------------------------------------
 
-const ALLOWED_STEP_TYPES = ["exec", "tool", "agent", "user_prompt", "foreach"] as const;
+const ALLOWED_STEP_TYPES = ["exec", "tool", "agent", "user_prompt", "foreach", "machine_inspect", "machine_exec"] as const;
 
 function validateStepArray(
   arr: any,

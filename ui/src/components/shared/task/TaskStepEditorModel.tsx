@@ -38,7 +38,7 @@ export const STEP_TYPES: StepTypeMeta[] = [
   },
   {
     value: "machine_inspect",
-    label: "SSH inspect",
+    label: "Machine inspect",
     icon: Server,
     color: "text-accent",
     bgBadge: "bg-accent/10 text-accent",
@@ -46,7 +46,7 @@ export const STEP_TYPES: StepTypeMeta[] = [
   },
   {
     value: "machine_exec",
-    label: "SSH exec",
+    label: "Machine exec",
     icon: Server,
     color: "text-warning-muted",
     bgBadge: "bg-warning/10 text-warning-muted",
@@ -95,6 +95,14 @@ export function stepMeta(type: string): StepTypeMeta {
 
 export function isKnownStepType(type: string): type is StepType {
   return STEP_TYPES.some((s) => s.value === type);
+}
+
+export function isMachineStepType(type: string): boolean {
+  return type === "machine_inspect" || type === "machine_exec";
+}
+
+export function visibleStepTypes(includeMachine: boolean): StepTypeMeta[] {
+  return STEP_TYPES.filter((stepType) => includeMachine || !isMachineStepType(stepType.value));
 }
 
 export function nextStepId(): string {

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import type { StepType } from "@/src/api/hooks/useTasks";
-import { STEP_TYPES } from "../TaskStepEditorModel";
+import { visibleStepTypes } from "../TaskStepEditorModel";
 
-export function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
+export function AddStepButton({ onAdd, includeMachineSteps = false }: { onAdd: (type: StepType) => void; includeMachineSteps?: boolean }) {
   const [open, setOpen] = useState(false);
+  const stepTypes = visibleStepTypes(includeMachineSteps);
 
   if (!open) {
     return (
@@ -20,7 +21,7 @@ export function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
 
   return (
     <div className="flex flex-row items-center gap-1.5">
-      {STEP_TYPES.map((t) => {
+      {stepTypes.map((t) => {
         const TIcon = t.icon;
         return (
           <button

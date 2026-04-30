@@ -571,7 +571,7 @@ async def _run_machine_step(
     *,
     mode: str,
 ) -> tuple[str, str | None, str | None]:
-    """Run a command on the task-granted SSH target."""
+    """Run a command on the task-granted machine target."""
     from app.db.engine import async_session
     from app.services.machine_control import get_provider, validate_inspect_command
     from app.services.machine_task_grants import (
@@ -599,7 +599,7 @@ async def _run_machine_step(
             fresh_task = await db.get(Task, task.id)
             active = await get_active_task_machine_grant(db, fresh_task)
             if active is None:
-                return ("failed", None, "Task does not have an active SSH machine grant.")
+                return ("failed", None, "Task does not have an active machine grant.")
             require_grant_capability(active, capability)
             if mode == "machine_inspect":
                 validate_inspect_command(command)

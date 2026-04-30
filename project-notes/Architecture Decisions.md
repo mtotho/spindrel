@@ -426,6 +426,27 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Any persistent machine-control affordance in the channel workspace should use the native widget system rather than bespoke header controls.
 - `core/machine_control_native` is convenience UI only and must not export pinned-widget context into the prompt.
 
+### Scheduled machine automation is provider-advertised, not SSH-hardcoded
+**Decided 2026-04-30.** Scheduled task access to machine targets is a machine-control provider capability advertised by the integration manifest, not a special SSH option in task UI or task APIs.
+
+**What changed.**
+- Machine providers may opt in with `machine_control.task_automation` in `integration.yaml`.
+- Core exposes `GET /api/v1/admin/tasks/machine-automation-options`, derived from enabled/configured/loadable providers with enrolled targets.
+- Task grants still store `(provider_id, target_id)`, but validation now checks the provider-advertised task automation block and capability list.
+- The task editor uses the options endpoint to decide whether to show machine target grants and machine step types.
+- `ssh` is the first provider to advertise task automation; `local_companion` remains hidden until it explicitly opts in.
+
+**Why.**
+- A hard-coded `"ssh"` branch in scheduled automations leaks integration/provider details into core task UX.
+- The existing machine-control provider contract already owns target identity, readiness probes, and execution semantics; scheduled automation should reuse that contract instead of inventing an integration-specific adapter.
+- Dynamic provider advertisement keeps future machine providers additive: manifests expose readiness to the task editor, while core keeps the grant/lease/policy model consistent.
+
+**Load-bearing invariants.**
+- Scheduled machine options must be hidden unless a provider is enabled, configured, opted in for task automation, loadable, and has enrolled targets.
+- Core task UI and task APIs must not hard-code provider ids or provider labels for machine automation.
+- Deterministic `machine_inspect` / `machine_exec` steps run only through an active task grant and provider execution contract.
+- LLM machine tools remain denied for task origin unless the task resolves an active grant and `allow_agent_tools` permits tool use.
+
 ### Machine-control provider profiles are core-owned abstractions; SSH uses them first with no ambient fallback
 **Decided 2026-04-24.** Reusable machine credentials/trust belong to the machine-control subsystem as provider-scoped profiles, not to ad hoc provider-global settings or a cross-integration credential vault.
 

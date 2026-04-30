@@ -9,9 +9,9 @@
  */
 import { useCallback } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
-import type { StepDef, StepState, StepType } from "@/src/api/hooks/useTasks";
+import { useTaskMachineAutomationOptions, type StepDef, type StepState, type StepType } from "@/src/api/hooks/useTasks";
 import { useTools } from "@/src/api/hooks/useTools";
-import { STEP_TYPES, emptyStep, stepMeta } from "./task/TaskStepEditorModel";
+import { emptyStep, isMachineStepType, stepMeta, visibleStepTypes } from "./task/TaskStepEditorModel";
 import { StepCard } from "./task/step-editor/StepCard";
 import { AddStepButton } from "./task/step-editor/AddStepButton";
 
@@ -24,7 +24,10 @@ export interface TaskStepEditorProps {
 
 export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskStepEditorProps) {
   const { data: allTools } = useTools();
+  const { data: machineAutomation } = useTaskMachineAutomationOptions();
   const tools = allTools ?? [];
+  const includeMachineSteps = Boolean(machineAutomation?.providers?.length) || steps.some((step) => isMachineStepType(step.type));
+  const stepTypes = visibleStepTypes(includeMachineSteps);
 
   const updateStep = useCallback((index: number, updated: StepDef) => {
     const next = [...steps];
@@ -55,7 +58,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
           <div className="text-sm font-medium text-text-muted">Build your pipeline</div>
           <div className="text-xs text-text-dim">Add steps to create a multi-step automation</div>
           <div className="flex flex-row items-center gap-1.5 mt-2">
-            {STEP_TYPES.map((t) => {
+            {stepTypes.map((t) => {
               const TIcon = t.icon;
               return (
                 <button
@@ -118,6 +121,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
                     onChange={(updated) => updateStep(i, updated)}
                     onDelete={() => deleteStep(i)}
                     onMove={(dir) => moveStep(i, dir)}
+                    includeMachineSteps={includeMachineSteps}
                   />
                 </div>
               );
@@ -129,7 +133,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
       {/* Add step button */}
       {!readOnly && steps.length > 0 && (
         <div className="mt-3 pl-3 sm:pl-5">
-          <AddStepButton onAdd={addStep} />
+          <AddStepButton onAdd={addStep} includeMachineSteps={includeMachineSteps} />
         </div>
       )}
 

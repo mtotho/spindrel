@@ -392,13 +392,28 @@ the runtime `widgets/spatial_stewardship` skill plus the scene/preview/owned
 widget tools to an existing channel heartbeat, preserving channel context
 instead of creating a separate widget-factory task. Spatial widget mutation
 tools now require recent scene inspection in the current channel/bot context and
-record a reason field.
+record a reason field. Follow-up tightened this from "inspect before mutate" to
+"inspect, preview the exact intended operation, then mutate": pin/move/resize/
+remove tools now reject calls unless the same bot/channel recently previewed the
+matching action, target/widget, and material parameters such as move steps,
+resize dimensions, pin coordinates, size, and label.
 
 Verification: Python compile passed for touched backend files; focused unit
-slice passed (`16 passed`); UI `tsc --noEmit --pretty false` passed. The
-DB-backed spatial scene integration tests were selected but skipped under the
-local integration profile (`2 skipped, 37 deselected`), so a pure unit
-regression covers overlap/duplicate/clipping scoring locally.
+slice passed (`16 passed`); UI `tsc --noEmit --pretty false` passed. Follow-up
+verification added an e2e scenario that creates a spatial steward bot and
+asserts `inspect_spatial_widget_scene -> preview_spatial_widget_changes ->
+pin_spatial_widget` ordering for an exact pin request; collect-only passes, but
+the live e2e run is currently blocked locally by missing `E2E_LLM_BASE_URL`.
+The DB-backed spatial scene integration tests were selected but skipped under
+the local integration profile (`2 skipped, 37 deselected`), so pure unit
+regressions cover overlap/duplicate/clipping scoring and exact-preview guard
+semantics locally.
+
+Visual feedback follow-up: `spatial-checks` staging succeeded and browser
+capture passed 10/12 against `localhost:5173`; the two Mission Control Review
+captures timed out on the `attention-command-deck-what-now` selector. The
+successfully refreshed Map Brief and canvas view-controls artifacts were
+inspected and looked coherent; docs image reference check still passed `91/91`.
 
 ## Acceptance criteria (Phase 1 gate)
 

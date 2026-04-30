@@ -778,6 +778,9 @@ Interruption and recovery are first-class execution paths:
 - revised replan drafts may replace the checklist, but approval still rejects blocked/vague/invalid steps
 - if the user asks for readback or verification before `record_plan_progress`,
   the execution turn should perform that check before recording `step_done`
+- `record_plan_progress` rejects `step_done` claims that say verification or
+  readback succeeded when the same turn has no successful read/check tool result
+  for the evidence path
 
 That means the practical v1 system is:
 

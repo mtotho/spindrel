@@ -6,6 +6,7 @@ import type {
   ProjectBlueprint,
   ProjectBlueprintWrite,
   ProjectCodingRun,
+  ProjectCodingRunTask,
   ProjectFromBlueprintWrite,
   ProjectInstance,
   ProjectRunReceipt,
@@ -129,6 +130,36 @@ export function useRefreshProjectCodingRun(projectId: string | undefined) {
 
 export function useMarkProjectCodingRunReviewed(projectId: string | undefined) {
   return useProjectCodingRunAction(projectId, "reviewed");
+}
+
+export function useMarkProjectCodingRunsReviewed(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { task_ids: string[]; note?: string }) =>
+      apiFetch<ProjectCodingRun[]>(`/api/v1/projects/${projectId}/coding-runs/reviewed`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+    },
+  });
+}
+
+export function useCreateProjectCodingRunReviewSession(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { channel_id: string; task_ids: string[]; prompt?: string; merge_method?: "squash" | "merge" | "rebase" }) =>
+      apiFetch<ProjectCodingRunTask>(`/api/v1/projects/${projectId}/coding-runs/review-sessions`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+    },
+  });
 }
 
 export function useCleanupProjectCodingRun(projectId: string | undefined) {

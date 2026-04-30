@@ -669,6 +669,16 @@ class ClaudeCodeRuntime:
                     text=True,
                     timeout=20,
                 )
+            except subprocess.TimeoutExpired:
+                return _native_terminal_handoff(
+                    command_id=command_id,
+                    args=args,
+                    suggested_command=" ".join(cli_command),
+                    detail=(
+                        "Claude Code did not finish this native command within the chat timeout. "
+                        "Open a terminal to run it interactively."
+                    ),
+                )
             except Exception as exc:
                 return HarnessRuntimeCommandResult(
                     command_id=command_id,

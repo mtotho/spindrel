@@ -145,6 +145,13 @@ def _normal_action(action: str | None) -> HandoffAction:
     return value
 
 
+def _normal_merge_method(method: str | None) -> str:
+    value = (method or "squash").strip().lower()
+    if value not in {"squash", "merge", "rebase"}:
+        raise ValueError("merge_method must be one of squash, merge, rebase")
+    return value
+
+
 def _extract_pr_url(stdout: str) -> str | None:
     text = (stdout or "").strip()
     if not text:
@@ -695,4 +702,170 @@ async def prepare_project_run_handoff(
             "branch": resolved_branch,
             "base_branch": resolved_base,
         },
+    }
+
+
+async def merge_project_run_handoff(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID | str | None = None,
+    task_id: uuid.UUID | str | None = None,
+    review_task_id: uuid.UUID | str | None = None,
+    review_session_id: uuid.UUID | str | None = None,
+    bot_id: str | None = None,
+    channel_id: uuid.UUID | str | None = None,
+    session_id: uuid.UUID | str | None = None,
+    correlation_id: uuid.UUID | str | None = None,
+    branch: str | None = None,
+    repo_path: str | None = None,
+    merge_method: str = "squash",
+    remote: str = "origin",
+    command_runner: CommandRunner | None = None,
+) -> dict[str, Any]:
+    """Merge the configured Project coding-run PR and record handoff.merge."""
+    method = _normal_merge_method(merge_method)
+    task_uuid = _coerce_uuid(task_id)
+    task = await db.get(Task, task_uuid) if task_uuid else None
+    run_config = _task_project_run_config(task)
+    channel_uuid = _coerce_uuid(channel_id) or (task.channel_id if task is not None else None)
+    project_uuid = _coerce_uuid(project_id) or _coerce_uuid(run_config.get("project_id"))
+    resolved_bot_id = bot_id or (task.bot_id if task is not None else None)
+    resolved_session_id = session_id or (str(task.session_id) if task is not None and task.session_id else None)
+    resolved_correlation_id = correlation_id or (str(task.correlation_id) if task is not None and task.correlation_id else None)
+    resolved_branch = (branch or run_config.get("branch") or "").strip()
+    resolved_repo_path = repo_path or _repo_path_from_config(run_config)
+    commands: list[dict[str, Any]] = []
+    receipts: list[dict[str, Any]] = []
+
+    if not resolved_bot_id:
+        raise ValueError("bot_id is required")
+    if not project_uuid:
+        raise ValueError("project_id is required")
+    if not resolved_branch:
+        raise ValueError("branch is required")
+
+    channel = await db.get(Channel, channel_uuid) if channel_uuid else None
+    if channel is not None:
+        project_uuid = project_uuid or channel.project_id
+
+    bot = get_bot(resolved_bot_id)
+    surface = await resolve_channel_work_surface_by_id(db, channel_uuid, bot) if channel_uuid else None
+    if surface is None:
+        project = await db.get(Project, project_uuid)
+        if project is None:
+            raise ValueError("Project not found")
+        surface = work_surface_from_project_directory(project_directory_from_project(project))
+
+    cwd = _resolve_repo_cwd(surface.root_host_path, resolved_repo_path)
+    runtime = await load_project_runtime_environment_for_id(db, project_uuid)
+    env = os.environ.copy()
+    if runtime is not None:
+        env.update({str(key): str(value) for key, value in runtime.env.items()})
+    runner = command_runner or _default_command_runner
+
+    repo_root_result = await _run(runner, commands, cwd, ("git", "rev-parse", "--show-toplevel"), env)
+    if not repo_root_result.ok:
+        blocker = _clip(repo_root_result.stderr or repo_root_result.stdout or "Not a git repository.", limit=500)
+        receipts.append(await _record_progress(
+            db,
+            action_type="handoff.merge",
+            status="blocked",
+            summary="Project run merge blocked: repository state could not be inspected.",
+            project_id=project_uuid,
+            branch=resolved_branch,
+            base_branch=run_config.get("base_branch"),
+            repo_path=resolved_repo_path,
+            result={"blocker": blocker, "commands": commands, "review_task_id": str(review_task_id) if review_task_id else None},
+            bot_id=resolved_bot_id,
+            channel_id=channel_uuid,
+            session_id=resolved_session_id,
+            task_id=task_uuid,
+            correlation_id=resolved_correlation_id,
+        ))
+        return {"ok": False, "status": "blocked", "blocker": blocker, "commands": commands, "receipts": receipts}
+
+    cwd = os.path.realpath(repo_root_result.stdout.strip() or cwd)
+    pr_result = await _run(
+        runner,
+        commands,
+        cwd,
+        ("gh", "pr", "view", resolved_branch, "--json", "url,state,isDraft,mergeStateStatus,headRefName,baseRefName"),
+        env,
+    )
+    pr_payload = _safe_json_object(pr_result.stdout) if pr_result.ok else {}
+    pr_url = pr_payload.get("url")
+    merge_target = str(pr_url or resolved_branch)
+    merge_args = ("gh", "pr", "merge", merge_target, f"--{method}", "--delete-branch")
+    merge_result = await _run(runner, commands, cwd, merge_args, env, timeout=180)
+    if not merge_result.ok:
+        blocker = _clip(merge_result.stderr or merge_result.stdout or "gh pr merge failed", limit=500)
+        receipts.append(await _record_progress(
+            db,
+            action_type="handoff.merge",
+            status="blocked",
+            summary="Project run PR merge blocked.",
+            project_id=project_uuid,
+            branch=resolved_branch,
+            base_branch=run_config.get("base_branch"),
+            repo_path=resolved_repo_path,
+            result={
+                "blocker": blocker,
+                "merge_method": method,
+                "pr_url": pr_url,
+                "pr_status": pr_payload,
+                "commands": commands,
+                "review_task_id": str(review_task_id) if review_task_id else None,
+                "review_session_id": str(review_session_id) if review_session_id else None,
+            },
+            bot_id=resolved_bot_id,
+            channel_id=channel_uuid,
+            session_id=resolved_session_id,
+            task_id=task_uuid,
+            correlation_id=resolved_correlation_id,
+        ))
+        return {"ok": False, "status": "blocked", "blocker": blocker, "pr_url": pr_url, "commands": commands, "receipts": receipts}
+
+    merged_view = await _run(
+        runner,
+        commands,
+        cwd,
+        ("gh", "pr", "view", merge_target, "--json", "url,state,mergedAt,mergeCommit"),
+        env,
+    )
+    merged_payload = _safe_json_object(merged_view.stdout) if merged_view.ok else {}
+    merge_commit = merged_payload.get("mergeCommit") if isinstance(merged_payload.get("mergeCommit"), dict) else {}
+    receipts.append(await _record_progress(
+        db,
+        action_type="handoff.merge",
+        status="succeeded",
+        summary=f"Project run PR merged with {method}.",
+        project_id=project_uuid,
+        branch=resolved_branch,
+        base_branch=run_config.get("base_branch"),
+        repo_path=resolved_repo_path,
+        result={
+            "merge_method": method,
+            "pr_url": pr_url or merged_payload.get("url"),
+            "merged_at": merged_payload.get("mergedAt"),
+            "merge_commit_sha": merge_commit.get("oid") or merge_commit.get("sha"),
+            "commands": commands,
+            "review_task_id": str(review_task_id) if review_task_id else None,
+            "review_session_id": str(review_session_id) if review_session_id else None,
+        },
+        bot_id=resolved_bot_id,
+        channel_id=channel_uuid,
+        session_id=resolved_session_id,
+        task_id=task_uuid,
+        correlation_id=resolved_correlation_id,
+    ))
+    return {
+        "ok": True,
+        "status": "succeeded",
+        "branch": resolved_branch,
+        "pr_url": pr_url or merged_payload.get("url"),
+        "merge_method": method,
+        "merged_at": merged_payload.get("mergedAt"),
+        "merge_commit_sha": merge_commit.get("oid") or merge_commit.get("sha"),
+        "commands": commands,
+        "receipts": receipts,
     }

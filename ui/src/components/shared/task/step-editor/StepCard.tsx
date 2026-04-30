@@ -14,7 +14,7 @@ import { UserPromptFields } from "./UserPromptFields";
 import { ForeachFields } from "./ForeachFields";
 import { scaffoldArgsFromSchema } from "./toolSchemaHelpers";
 
-export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove, compact }: {
+export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove, compact, includeMachineSteps }: {
   step: StepDef;
   stepIndex: number;
   steps: StepDef[];
@@ -25,6 +25,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
   onDelete: () => void;
   onMove: (dir: -1 | 1) => void;
   compact?: boolean;
+  includeMachineSteps?: boolean;
 }) {
   const [conditionOpen, setConditionOpen] = useState(!!step.when);
   const meta = stepMeta(step.type);
@@ -70,7 +71,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
             {meta.label}
           </span>
         ) : (
-          <StepTypeSelector value={step.type} onChange={(v) => update({ type: v })} />
+          <StepTypeSelector value={step.type} onChange={(v) => update({ type: v })} includeMachineSteps={includeMachineSteps} />
         )}
 
         {/* Label */}
@@ -168,7 +169,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
               value={step.command ?? step.prompt ?? ""}
               onChange={(e) => update({ command: e.target.value, prompt: undefined })}
               readOnly={readOnly}
-              placeholder={step.type === "machine_inspect" ? "Readonly SSH command..." : "SSH shell command..."}
+              placeholder={step.type === "machine_inspect" ? "Readonly machine command..." : "Machine shell command..."}
               rows={2}
               className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent/40 w-full"
             />

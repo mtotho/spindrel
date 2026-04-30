@@ -7,6 +7,7 @@
 import { useState, useRef } from "react";
 import { ChevronRight, Code2, LayoutList } from "lucide-react";
 import type { StepDef } from "@/src/api/hooks/useTasks";
+import { useTaskMachineAutomationOptions } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
 import { PromptTemplateLink } from "../PromptTemplateLink";
 import { WorkspaceFilePrompt } from "../WorkspaceFilePrompt";
@@ -22,7 +23,6 @@ import { ChannelPicker } from "../ChannelPicker";
 import { SessionTargetPicker } from "../SessionTargetPicker";
 import { ChipPicker, ToolMultiPicker } from "./ChipPicker";
 import type { TaskFormState } from "./useTaskFormState";
-import { useAdminMachines } from "@/src/api/hooks/useMachineTargets";
 
 // ---------------------------------------------------------------------------
 // Content Fields — Title, Prompt/Steps toggle, prompt or pipeline editor
@@ -220,26 +220,37 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     historyRecentCount, setHistoryRecentCount,
     machineTargetGrant, setMachineTargetGrant,
   } = form;
-  const { data: machines } = useAdminMachines();
-  const sshTargets = (machines?.providers ?? [])
-    .filter((provider) => provider.provider_id === "ssh")
-    .flatMap((provider) => provider.targets ?? []);
+  const { data: machineAutomation } = useTaskMachineAutomationOptions();
+  const machineProviders = machineAutomation?.providers ?? [];
+  const showMachineGrant = machineProviders.some((provider) => (provider.targets ?? []).length > 0) || !!machineTargetGrant;
   const machineTargetOptions = [
     { label: "None", value: "" },
-    ...sshTargets.map((target) => ({
-      label: `${target.label || target.target_id}${target.ready ? "" : " (not ready)"}`,
-      value: target.target_id,
-    })),
+    ...machineProviders.flatMap((provider) =>
+      (provider.targets ?? []).map((target) => ({
+        label: `${provider.provider_label || provider.label}: ${target.label || target.target_id}${target.ready ? "" : " (not ready)"}`,
+        value: JSON.stringify([provider.provider_id, target.target_id]),
+      })),
+    ),
   ];
   if (
     machineTargetGrant?.target_id
-    && !machineTargetOptions.some((option) => option.value === machineTargetGrant.target_id)
+    && !machineTargetOptions.some((option) => {
+      try {
+        const [providerId, targetId] = JSON.parse(option.value);
+        return providerId === machineTargetGrant.provider_id && targetId === machineTargetGrant.target_id;
+      } catch {
+        return false;
+      }
+    })
   ) {
     machineTargetOptions.push({
-      label: machineTargetGrant.target_label || machineTargetGrant.target_id,
-      value: machineTargetGrant.target_id,
+      label: `${machineTargetGrant.provider_label || machineTargetGrant.provider_id}: ${machineTargetGrant.target_label || machineTargetGrant.target_id}`,
+      value: JSON.stringify([machineTargetGrant.provider_id, machineTargetGrant.target_id]),
     });
   }
+  const selectedMachineTargetValue = machineTargetGrant
+    ? JSON.stringify([machineTargetGrant.provider_id, machineTargetGrant.target_id])
+    : "";
 
   return (
     <div className="flex flex-col gap-5">
@@ -271,32 +282,44 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
         />
       </FormRow>
 
-      <FormRow label="SSH machine" description="Grant scheduled runs access to one enrolled SSH target.">
-        <SelectInput
-          value={machineTargetGrant?.target_id ?? ""}
-          onChange={(targetId) => {
-            if (!targetId) {
-              setMachineTargetGrant(null);
-              return;
-            }
-            setMachineTargetGrant({
-              provider_id: "ssh",
-              target_id: targetId,
-              capabilities: ["inspect", "exec"],
-              allow_agent_tools: machineTargetGrant?.allow_agent_tools ?? true,
-            });
-          }}
-          options={machineTargetOptions}
-        />
-      </FormRow>
+      {showMachineGrant && (
+        <FormRow label="Machine target" description="Grant scheduled runs access to one enrolled machine target.">
+          <SelectInput
+            value={selectedMachineTargetValue}
+            onChange={(encodedTarget) => {
+              if (!encodedTarget) {
+                setMachineTargetGrant(null);
+                return;
+              }
+              let providerId = "";
+              let targetId = "";
+              try {
+                [providerId, targetId] = JSON.parse(encodedTarget);
+              } catch {
+                setMachineTargetGrant(null);
+                return;
+              }
+              const provider = machineProviders.find((item) => item.provider_id === providerId);
+              const capabilities = provider?.capabilities?.length ? provider.capabilities : ["inspect", "exec"];
+              setMachineTargetGrant({
+                provider_id: providerId,
+                target_id: targetId,
+                capabilities,
+                allow_agent_tools: machineTargetGrant?.allow_agent_tools ?? true,
+              });
+            }}
+            options={machineTargetOptions}
+          />
+        </FormRow>
+      )}
 
-      {machineTargetGrant && (
+      {showMachineGrant && machineTargetGrant && (
         <div className="flex flex-col gap-2">
           <Toggle
             value={machineTargetGrant.allow_agent_tools ?? true}
             onChange={(allow) => setMachineTargetGrant({ ...machineTargetGrant, allow_agent_tools: allow })}
             label="Allow LLM machine tools"
-            description="Deterministic SSH pipeline steps keep using the grant either way."
+            description="Deterministic machine pipeline steps keep using the grant either way."
           />
         </div>
       )}

@@ -75,7 +75,7 @@ export type ProjectInstancePolicy =
   | { mode: "fresh" };
 
 export interface MachineTargetGrant {
-  provider_id: "ssh";
+  provider_id: string;
   target_id: string;
   grant_id?: string | null;
   grant_source_task_id?: string | null;
@@ -86,6 +86,35 @@ export interface MachineTargetGrant {
   created_at?: string | null;
   provider_label?: string | null;
   target_label?: string | null;
+}
+
+export interface MachineAutomationTargetOption {
+  provider_id: string;
+  provider_label?: string | null;
+  target_id: string;
+  label: string;
+  hostname?: string | null;
+  ready: boolean;
+  status_label?: string | null;
+  reason?: string | null;
+}
+
+export interface MachineAutomationProviderOption {
+  provider_id: string;
+  provider_label: string;
+  driver: string;
+  label: string;
+  target_label: string;
+  description?: string | null;
+  capabilities: string[];
+  targets: MachineAutomationTargetOption[];
+  target_count: number;
+  ready_target_count: number;
+}
+
+export interface MachineAutomationOptions {
+  providers: MachineAutomationProviderOption[];
+  step_types: Array<{ type: "machine_inspect" | "machine_exec"; label: string; capability: "inspect" | "exec" }>;
 }
 
 export interface TaskDetail {
@@ -238,6 +267,15 @@ export function useTriggerEvents() {
     queryKey: ["admin-trigger-events"],
     queryFn: () => apiFetch<{ sources: TriggerEventSource[] }>("/api/v1/admin/tasks/trigger-events"),
     staleTime: 5 * 60_000,
+  });
+}
+
+export function useTaskMachineAutomationOptions() {
+  return useQuery({
+    queryKey: ["admin-task-machine-automation-options"],
+    queryFn: () => apiFetch<MachineAutomationOptions>("/api/v1/admin/tasks/machine-automation-options"),
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
   });
 }
 

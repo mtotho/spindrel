@@ -14,7 +14,6 @@ from app.agent.context import current_session_id, current_task_id
 from app.db.engine import async_session
 from app.db.models import MachineTargetLease, Session, Task, TaskMachineGrant
 
-SSH_PROVIDER_ID = "ssh"
 DEFAULT_TASK_LEASE_TTL_SECONDS = 900
 DEFAULT_TASK_GRANT_CAPABILITIES = ("inspect", "exec")
 
@@ -29,10 +28,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def normalize_capabilities(values: list[str] | tuple[str, ...] | None) -> list[str]:
+def normalize_capabilities(
+    values: list[str] | tuple[str, ...] | None,
+    *,
+    allowed_capabilities: list[str] | tuple[str, ...] | None = None,
+) -> list[str]:
+    allowed = tuple(allowed_capabilities or DEFAULT_TASK_GRANT_CAPABILITIES)
     caps = [str(value).strip() for value in (values or DEFAULT_TASK_GRANT_CAPABILITIES)]
-    caps = [value for value in caps if value in DEFAULT_TASK_GRANT_CAPABILITIES]
-    return sorted(set(caps)) or list(DEFAULT_TASK_GRANT_CAPABILITIES)
+    caps = [value for value in caps if value in allowed]
+    return sorted(set(caps)) or list(allowed)
 
 
 def _expires_at(value: str | datetime | None) -> datetime | None:
@@ -55,16 +59,20 @@ def is_grant_active(grant: TaskMachineGrant | None, *, now: datetime | None = No
     return True
 
 
-async def _validate_ssh_target(provider_id: str, target_id: str) -> dict[str, Any]:
-    if provider_id != SSH_PROVIDER_ID:
-        raise ValueError("Scheduled machine grants only support SSH targets in this build.")
-    from app.services.machine_control import get_provider
+async def _validate_task_machine_target(provider_id: str, target_id: str) -> tuple[dict[str, Any], list[str]]:
+    from app.services.machine_control import (
+        get_provider,
+        get_provider_task_automation_capabilities,
+        provider_supports_task_machine_automation,
+    )
 
+    if not provider_supports_task_machine_automation(provider_id):
+        raise ValueError("Machine provider does not support scheduled task automation.")
     provider = get_provider(provider_id)
     target = provider.get_target(target_id)
     if target is None:
-        raise ValueError("Unknown SSH machine target.")
-    return target
+        raise ValueError("Unknown machine target.")
+    return target, get_provider_task_automation_capabilities(provider_id)
 
 
 async def upsert_task_machine_grant(
@@ -78,7 +86,7 @@ async def upsert_task_machine_grant(
     allow_agent_tools: bool = True,
     expires_at: str | datetime | None = None,
 ) -> TaskMachineGrant:
-    await _validate_ssh_target(provider_id, target_id)
+    _target, allowed_capabilities = await _validate_task_machine_target(provider_id, target_id)
     now = utc_now()
     grant = (
         await db.execute(
@@ -92,7 +100,7 @@ async def upsert_task_machine_grant(
     grant.target_id = target_id
     grant.grant_id = str(uuid.uuid4())
     grant.granted_by_user_id = granted_by_user_id
-    grant.capabilities = normalize_capabilities(capabilities)
+    grant.capabilities = normalize_capabilities(capabilities, allowed_capabilities=allowed_capabilities)
     grant.allow_agent_tools = bool(allow_agent_tools)
     grant.expires_at = _expires_at(expires_at)
     grant.revoked_at = None
@@ -183,21 +191,27 @@ async def task_machine_grant_payload(
 
 
 async def probe_granted_target(db: AsyncSession, active: ActiveTaskGrant) -> dict[str, Any]:
-    from app.services.machine_control import get_provider
+    from app.services.machine_control import get_provider, provider_supports_task_machine_automation
 
     grant = active.grant
+    if not provider_supports_task_machine_automation(grant.provider_id):
+        raise ValueError("Machine provider does not support scheduled task automation.")
     provider = get_provider(grant.provider_id)
     target = provider.get_target(grant.target_id)
     if target is None:
-        raise ValueError("The granted SSH machine target no longer exists.")
+        raise ValueError("The granted machine target no longer exists.")
     probed = await provider.probe_target(db, target_id=grant.target_id)
     if not bool(probed.get("ready")):
-        reason = probed.get("reason") or "The granted SSH machine target is not currently ready."
+        reason = probed.get("reason") or "The granted machine target is not currently ready."
         raise ValueError(str(reason))
     return probed
 
 
 def require_grant_capability(active: ActiveTaskGrant, capability: str) -> None:
+    from app.services.machine_control import provider_supports_task_machine_automation
+
+    if not provider_supports_task_machine_automation(active.grant.provider_id, capability=capability):
+        raise PermissionError(f"Machine provider does not support scheduled '{capability}' automation.")
     if capability not in set(active.grant.capabilities or []):
         raise PermissionError(f"Task machine grant does not include '{capability}' capability.")
 
@@ -280,7 +294,7 @@ async def ensure_task_machine_lease(
         await db.flush()
     except IntegrityError as exc:
         await db.rollback()
-        raise RuntimeError("The granted SSH machine target is already leased by another session.") from exc
+        raise RuntimeError("The granted machine target is already leased by another session.") from exc
     return _lease_payload(lease)
 
 

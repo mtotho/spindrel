@@ -53,6 +53,9 @@ def test_list_run_presets_can_filter_by_surface():
     assert [preset.id for preset in list_run_presets("project_coding_run")] == [
         "project_coding_run"
     ]
+    assert [preset.id for preset in list_run_presets("project_coding_run_review")] == [
+        "project_coding_run_review"
+    ]
     assert list_run_presets("missing_surface") == []
 
 
@@ -75,6 +78,22 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
     assert "spindrel-visual-feedback-loop" in defaults["skills"]
     assert "prepare_project_run_handoff" in defaults["prompt"]
     assert "publish_project_run_receipt" in defaults["prompt"]
+
+
+def test_project_coding_run_review_defaults_to_selected_run_finalizer():
+    preset = get_run_preset("project_coding_run_review")
+
+    assert preset is not None
+    payload = serialize_run_preset(preset)
+    defaults = payload["task_defaults"]
+
+    assert payload["surface"] == "project_coding_run_review"
+    assert defaults["session_target"] == {"mode": "new_each_run"}
+    assert defaults["project_instance"] == {"mode": "shared"}
+    assert "finalize_project_coding_run_review" in defaults["tools"]
+    assert "prepare_project_run_handoff" in defaults["tools"]
+    assert "spindrel-visual-feedback-loop" in defaults["skills"]
+    assert "Only accepted finalizations mark Project coding runs reviewed" in defaults["prompt"]
 
 
 def test_unknown_run_preset_returns_none():

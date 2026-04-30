@@ -2,7 +2,7 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-29 (channel quick automations visual feedback)
+updated: 2026-04-30 (provider-advertised machine task steps)
 ---
 # Track — Automations (Task Pipelines)
 
@@ -566,9 +566,10 @@ Modified:
 
 **Verification still owed**: browser smoke on the e2e instance — launch Analyze Discovery (BotPicker modal appears), watch the anchor show pulsing amber on the review step, click Approve/Reject inline in chat, verify foreach fires only for approved items. Plan has a 6-step smoke checklist.
 
-## Addendum — SSH Machine Steps For Scheduled Tasks
+## Addendum — Machine Steps For Scheduled Tasks
 
-- Added task-level SSH machine grants for user-authored task definitions. The admin task form can select one enrolled SSH target and choose whether agent/LLM machine tools may use the grant.
-- Added deterministic pipeline step types `machine_inspect` and `machine_exec`. They render normal pipeline templates, validate the task grant, probe the SSH target, then run a fresh non-interactive SSH command. `machine_inspect` keeps the existing inspect-command allowlist.
+- Added task-level machine grants for user-authored task definitions. The admin task form consumes `/api/v1/admin/tasks/machine-automation-options`, so machine target selection and machine step authoring only appear when an enabled/configured machine provider advertises `machine_control.task_automation` and has enrolled targets.
+- Added deterministic pipeline step types `machine_inspect` and `machine_exec`. They render normal pipeline templates, validate the task grant, probe the provider target, then run a fresh provider command. `machine_inspect` keeps the existing inspect-command allowlist.
+- SSH is the first provider to opt in through its integration manifest; the UI and task APIs do not hard-code SSH labels or provider ids.
 - Agent steps spawned from a granted pipeline inherit access through parent-task grant resolution; task-origin agent runs materialize a short session lease before the agent loop starts.
 - Follow-up: add richer launch-time warnings for pipelines that contain machine steps but no `machine_target_grant`.

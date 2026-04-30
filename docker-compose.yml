@@ -7,6 +7,7 @@ services:
     env_file: .env
     environment:
       - FASTEMBED_CACHE_DIR=/app/.fastembed-cache
+      - DATABASE_URL=postgresql+asyncpg://agent:agent@postgres:5432/agentdb
       - WORKSPACE_LOCAL_DIR=/workspace-data
       - HOME_LOCAL_DIR=/app/home
       - SPINDREL_INSTANCE_ID=local

@@ -208,6 +208,30 @@ def test_claude_native_management_command_defaults_to_safe_list_forms():
 
 
 @pytest.mark.asyncio
+async def test_claude_native_management_timeout_returns_terminal_handoff(monkeypatch):
+    pytest.importorskip("claude_agent_sdk")
+    import subprocess
+
+    from integrations.claude_code import harness as claude_harness
+    from integrations.claude_code.harness import ClaudeCodeRuntime
+
+    def _timeout_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["claude", "doctor"], timeout=20)
+
+    monkeypatch.setattr(claude_harness.subprocess, "run", _timeout_run)
+
+    result = await ClaudeCodeRuntime().execute_native_command(
+        command_id="doctor",
+        args=(),
+        ctx=None,
+    )
+
+    assert result.status == "terminal_handoff"
+    assert result.payload["suggested_command"] == "claude doctor"
+    assert "within the chat timeout" in result.detail
+
+
+@pytest.mark.asyncio
 async def test_codex_native_mutating_args_return_canonical_terminal_command():
     from integrations.codex.harness import CodexRuntime
 

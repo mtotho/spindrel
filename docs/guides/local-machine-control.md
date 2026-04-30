@@ -21,7 +21,7 @@ The feature exists to preserve that trust boundary rather than blur it with ordi
 
 ## Current design in one sentence
 
-Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, or grants one scheduled task definition a durable SSH target grant. Core requires a fresh ready check before the selected provider executes work on that target.
+Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, or grants one scheduled task definition a durable machine target grant advertised by a provider automation adapter. Core requires a fresh ready check before the selected provider executes work on that target.
 
 ## Core mental model
 
@@ -35,7 +35,7 @@ Machine control is a core subsystem with pluggable providers. A live signed-in a
 | `connection` | The provider's current live transport handle for drivers that keep one, such as `local_companion` |
 | `handle_id` | Provider-specific runtime handle such as a companion connection id or `ssh://user@host:port` |
 | `lease` | A session-scoped grant allowing one session to control one target temporarily |
-| `task machine grant` | A durable task-definition grant for one SSH target, used by scheduled pipelines and task-origin agent tools |
+| `task machine grant` | A durable task-definition grant for one provider-advertised machine target, used by scheduled pipelines and task-origin agent tools |
 | `execution_policy` | A runtime guard layered on top of normal tool policy |
 
 Important distinctions:
@@ -44,7 +44,7 @@ Important distinctions:
 - readiness is the execution gate; some providers compute it from a live connection, others from a fresh probe
 - a connection is only one possible transport detail, not the cross-provider contract
 - a lease is the user's explicit permission for one session to use that target
-- a task machine grant is explicit permission for scheduled automation to use one SSH target
+- a task machine grant is explicit permission for scheduled automation to use one provider-advertised machine target
 
 Spindrel never routes by recency. The target is always explicit.
 
@@ -100,7 +100,7 @@ Scheduled automation has a separate entry path:
 scheduled task or pipeline
     │
     ├── deterministic step: machine_inspect / machine_exec
-    │       └── validates task_machine_grants row and probes SSH target
+    │       └── validates task_machine_grants row and probes machine target
     │
     └── agent step / prompt task
             └── materializes a short session lease from the task grant
@@ -143,6 +143,8 @@ Each provider implements a machine-control contract that exposes:
 
 This keeps core UI and APIs provider-agnostic while still letting providers add metadata.
 
+Providers that are safe for unattended scheduled task runs opt in through the manifest block `machine_control.task_automation`. Core reads that block to build task-editor grant options and to validate task grants. Implementing `machine_control.py` alone is not enough to make a provider available to scheduled automation.
+
 ### 3. Session lease state
 
 The active session lease lives in:
@@ -171,7 +173,7 @@ Load-bearing invariants:
 - one session may lease one target
 - one target may be leased by one session
 - leases are always explicit and session-scoped
-- scheduled task grants are definition-scoped and SSH-only in v1
+- scheduled task grants are definition-scoped and limited to providers that advertise `machine_control.task_automation`
 - a task grant may create a short session lease for an agent run, but it does not create a persistent SSH PTY/session
 
 ### 4. Execution policies
@@ -311,11 +313,11 @@ SSH profiles live in app-managed provider settings, not ephemeral container file
 3. If the target is ready, the session API stores a lease in `machine_target_leases`.
 4. Conflict checks ensure no other session already owns that target.
 
-### Grant a scheduled SSH task
+### Grant a scheduled machine task
 
-1. Admin creates or edits a task definition and selects one SSH target in the task execution settings.
-2. The API stores a `task_machine_grants` row with provider `ssh`, target id, capabilities, and whether LLM machine tools are allowed.
-3. Pipeline `machine_inspect` / `machine_exec` steps validate that row and probe the target immediately before running a fresh non-interactive OpenSSH command.
+1. Admin creates or edits a task definition and selects one provider-advertised machine target in the task execution settings.
+2. The API stores a `task_machine_grants` row with provider id, target id, capabilities, and whether LLM machine tools are allowed.
+3. Pipeline `machine_inspect` / `machine_exec` steps validate that row and probe the target immediately before running the provider command.
 4. Prompt tasks and pipeline `agent` steps with machine tools create a short `machine_target_leases` row for the task's resolved session before the agent loop starts.
 
 ### Execute a machine tool
@@ -404,7 +406,7 @@ These origins do not get to use machine-control tools just because they can call
 - bot-key `/api/v1/internal/tools/exec`
 - other non-interactive surfaces without a live user context
 
-They must go through an explicit task machine grant. In the current build this grant is SSH-only and task-definition scoped; no other machine provider is grantable to scheduled automation yet.
+They must go through an explicit task machine grant. In the current build only providers that advertise `machine_control.task_automation` are grantable to scheduled automation; SSH is the first shipped provider with that adapter.
 
 ### Provider-side guardrails still matter
 
@@ -441,14 +443,14 @@ For `ssh`, the provider still enforces:
 - `local_companion` bridge state is still in-memory; multi-worker deployments need shared coordination before companion transport becomes horizontally safe.
 - Both shipped providers are shell-first.
 - `browser_live` has not yet been moved onto this same lease model.
-- SSH is non-interactive and key-only in this build. No password auth, TOFU, port forwarding, or persistent SSH session manager yet. Scheduled task "SSH sessions" are stable target/profile references executed through fresh OpenSSH commands, not reusable remote PTYs.
+- SSH is non-interactive and key-only in this build. No password auth, TOFU, port forwarding, or persistent SSH session manager yet. Scheduled task machine grants are stable provider target/profile references executed through provider commands, not reusable remote PTYs.
 
 ## Planned next steps
 
 - Unify other machine-adjacent control surfaces such as `browser_live` onto the same live-user lease model where appropriate.
 - Broaden companion packaging beyond the current Linux/systemd user-service installer.
 - Add macOS and Windows service installers if Local Companion grows beyond the current Linux/systemd-first shape.
-- Expand scheduled task grants beyond SSH and add richer grant audit metadata after the provider/lease contract stays stable.
+- Add richer grant audit metadata after the provider/lease contract stays stable.
 - Add shared coordination for live provider state where needed for multi-worker deployments.
 
 ## Source map

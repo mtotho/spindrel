@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, MessageSquarePlus, Play, RefreshCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   useCleanupProjectCodingRun,
   useContinueProjectCodingRun,
   useCreateProjectCodingRun,
+  useCreateProjectCodingRunReviewSession,
+  useMarkProjectCodingRunsReviewed,
   useMarkProjectCodingRunReviewed,
   useProjectCodingRuns,
   useRefreshProjectCodingRun,
@@ -134,6 +136,8 @@ function reviewLine(run: ProjectCodingRun) {
   const pieces = [
     review.pr?.state ? `PR ${String(review.pr.state).toLowerCase()}` : review.handoff_url ? "PR linked" : null,
     review.pr?.checks_status ? `checks ${review.pr.checks_status}` : null,
+    review.merged_at ? `merged ${formatRunTime(review.merged_at)}` : null,
+    review.review_task_id ? `review task ${String(review.review_task_id).slice(0, 8)}` : null,
     review.instance?.status ? `workspace ${review.instance.status}` : null,
   ].filter(Boolean);
   if (review.blocker) return `Blocker: ${review.blocker}`;
@@ -229,11 +233,16 @@ export function ProjectRunsSection({
   const { data: runs = [] } = useProjectCodingRuns(project.id);
   const createRun = useCreateProjectCodingRun(project.id);
   const continueRun = useContinueProjectCodingRun(project.id);
+  const markReviewedBatch = useMarkProjectCodingRunsReviewed(project.id);
+  const createReviewSession = useCreateProjectCodingRunReviewSession(project.id);
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
   const [changeRunId, setChangeRunId] = useState<string | null>(null);
   const [changeFeedback, setChangeFeedback] = useState("");
+  const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
+  const [reviewPrompt, setReviewPrompt] = useState("Review the selected PRs. Merge only accepted work to development, then mark those runs reviewed with links and blockers.");
+  const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const visibleReceipts = useMemo(() => collapseProjectRunReceiptsForReview(receipts), [receipts]);
 
   useEffect(() => {
@@ -245,6 +254,20 @@ export function ProjectRunsSection({
   const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
   const createdRun = runs.find((run) => run.id === createdRunId);
   const changeRun = runs.find((run) => run.id === changeRunId);
+  const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
+  const selectedTaskIds = selectedRuns.map((run) => run.task.id);
+  const batchBusy = markReviewedBatch.isPending || createReviewSession.isPending;
+  const toggleRun = (runId: string) => {
+    setSelectedRunIds((current) => (
+      current.includes(runId)
+        ? current.filter((id) => id !== runId)
+        : [...current, runId]
+    ));
+  };
+  const clearMissingSelection = () => {
+    const liveIds = new Set(runs.map((run) => run.id));
+    setSelectedRunIds((current) => current.filter((id) => liveIds.has(id)));
+  };
   const startRun = () => {
     if (!selectedChannel || createRun.isPending) return;
     createRun.mutate(
@@ -269,6 +292,33 @@ export function ProjectRunsSection({
       },
     );
   };
+  const markSelectedReviewed = () => {
+    if (selectedTaskIds.length === 0 || batchBusy) return;
+    markReviewedBatch.mutate(
+      { task_ids: selectedTaskIds, note: "Batch marked reviewed from Project Runs." },
+      { onSuccess: () => setSelectedRunIds([]) },
+    );
+  };
+  const launchReviewSession = () => {
+    if (!selectedChannel || selectedTaskIds.length === 0 || batchBusy) return;
+    createReviewSession.mutate(
+      {
+        channel_id: selectedChannel.id,
+        task_ids: selectedTaskIds,
+        prompt: reviewPrompt.trim(),
+        merge_method: "squash",
+      },
+      {
+        onSuccess: (task) => {
+          setReviewTaskId(task.id);
+        },
+      },
+    );
+  };
+
+  useEffect(() => {
+    clearMissingSelection();
+  }, [runs]);
 
   return (
     <div data-testid="project-workspace-runs" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
@@ -340,6 +390,54 @@ export function ProjectRunsSection({
       </Section>
 
       <Section title="Coding Runs" description="Review state, branch/PR handoff, evidence, and workspace cleanup for API-launched Project work.">
+        {runs.length > 0 && (
+          <div className="mb-3 grid gap-3 rounded-md bg-surface-raised/30 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="flex min-w-0 flex-col gap-2">
+              <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-text">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input-border bg-input"
+                  checked={selectedRunIds.length > 0 && selectedRunIds.length === runs.length}
+                  ref={(input) => {
+                    if (input) input.indeterminate = selectedRunIds.length > 0 && selectedRunIds.length < runs.length;
+                  }}
+                  onChange={(event) => setSelectedRunIds(event.target.checked ? runs.map((run) => run.id) : [])}
+                />
+                {selectedRunIds.length === 0 ? "Select coding runs" : `${selectedRunIds.length} selected`}
+              </label>
+              <PromptEditor
+                value={reviewPrompt}
+                onChange={setReviewPrompt}
+                label="Review session prompt"
+                rows={3}
+                fieldType="task_prompt"
+                generateContext={`Project: ${project.name}. Selected runs: ${selectedRunIds.length}`}
+              />
+              {reviewTaskId && (
+                <span className="text-[12px] text-text-muted">
+                  Review session started: <Link className="font-mono text-accent" to={`/admin/tasks/${reviewTaskId}`}>{reviewTaskId.slice(0, 8)}</Link>
+                </span>
+              )}
+            </div>
+            <div className="flex items-start justify-end gap-1">
+              <ActionButton
+                label="Mark reviewed"
+                icon={<Check size={13} />}
+                size="small"
+                variant="secondary"
+                disabled={selectedTaskIds.length === 0 || batchBusy}
+                onPress={markSelectedReviewed}
+              />
+              <ActionButton
+                label={createReviewSession.isPending ? "Starting" : "Start review"}
+                icon={<GitMerge size={13} />}
+                size="small"
+                disabled={!selectedChannel || selectedTaskIds.length === 0 || batchBusy}
+                onPress={launchReviewSession}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           {runs.length === 0 ? (
             <EmptyState message="No Project coding runs have been started yet." />
@@ -347,7 +445,18 @@ export function ProjectRunsSection({
             runs.map((run) => (
               <div key={run.id} className="flex flex-col gap-2">
                 <SettingsControlRow
-                  leading={<GitBranch size={14} />}
+                  leading={
+                    <span className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-input-border bg-input"
+                        checked={selectedRunIds.includes(run.id)}
+                        onChange={() => toggleRun(run.id)}
+                        aria-label={`Select ${run.request || run.task.title || "Project coding run"}`}
+                      />
+                      <GitBranch size={14} />
+                    </span>
+                  }
                   title={run.request || run.task.title || "Project coding run"}
                   description={
                     <span className="flex min-w-0 flex-col gap-0.5">

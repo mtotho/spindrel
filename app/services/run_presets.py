@@ -47,6 +47,18 @@ Expected workflow:
 7. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
 
 
+PROJECT_CODING_RUN_REVIEW_PROMPT = """Review the selected Project coding runs and finalize only accepted work.
+
+Use the Project root as the working directory. Inspect each selected run's task, receipt, PR, tests, screenshots, and reviewer-visible evidence before making a decision. If the operator asked you to merge accepted PRs, merge only the runs you accept.
+
+Finalization rules:
+1. Call finalize_project_coding_run_review once per selected run you have reviewed.
+2. Use outcome="accepted" only when the PR/work is ready for the operator's requested merge policy.
+3. Use merge=true only when the operator explicitly asked this review session to merge accepted work.
+4. Use outcome="rejected" or outcome="blocked" for runs that need changes, have missing evidence, failing checks, or cannot be merged.
+5. Only accepted finalizations mark Project coding runs reviewed. Rejected and blocked finalizations leave them available for follow-up work."""
+
+
 @dataclass(frozen=True)
 class RunPresetTaskDefaults:
     title: str
@@ -161,6 +173,45 @@ PROJECT_CODING_RUN = RunPreset(
 )
 
 
+PROJECT_CODING_RUN_REVIEW = RunPreset(
+    id="project_coding_run_review",
+    title="Project Coding Run Review",
+    description=(
+        "Creates a Project-scoped review task for selected coding runs. The agent can inspect PRs, "
+        "merge accepted work when asked, and write durable reviewed provenance."
+    ),
+    surface="project_coding_run_review",
+    task_defaults=RunPresetTaskDefaults(
+        title="Project Coding Run Review",
+        prompt=PROJECT_CODING_RUN_REVIEW_PROMPT,
+        scheduled_at=None,
+        recurrence=None,
+        task_type="agent",
+        trigger_config={"type": "manual"},
+        skills=(
+            "spindrel-visual-feedback-loop",
+            "impeccable",
+        ),
+        tools=(
+            "file",
+            "exec_command",
+            "run_e2e_tests",
+            "prepare_project_run_handoff",
+            "finalize_project_coding_run_review",
+        ),
+        post_final_to_channel=True,
+        history_mode="recent",
+        history_recent_count=20,
+        skip_tool_approval=True,
+        session_target={"mode": "new_each_run"},
+        project_instance={"mode": "shared"},
+        allow_issue_reporting=True,
+        harness_effort="high",
+        max_run_seconds=7200,
+    ),
+)
+
+
 SPATIAL_WIDGET_STEWARD_HEARTBEAT = RunPreset(
     id="spatial_widget_steward_heartbeat",
     title="Spatial Widget Steward",
@@ -209,6 +260,7 @@ SPATIAL_WIDGET_STEWARD_HEARTBEAT = RunPreset(
 RUN_PRESETS: tuple[RunPreset, ...] = (
     WIDGET_IMPROVEMENT_HEALTHCHECK,
     PROJECT_CODING_RUN,
+    PROJECT_CODING_RUN_REVIEW,
     SPATIAL_WIDGET_STEWARD_HEARTBEAT,
 )
 

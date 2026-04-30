@@ -29,6 +29,14 @@ machine_control:
   provider_id: ssh
   label: SSH
   driver: ssh
+  task_automation:
+    enabled: true
+    label: SSH Machine
+    target_label: SSH machine target
+    description: Run scheduled task steps against enrolled SSH targets with fresh non-interactive OpenSSH commands.
+    capabilities:
+      - inspect
+      - exec
   profile_fields:
     - key: private_key
       type: string

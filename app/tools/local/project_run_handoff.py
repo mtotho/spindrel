@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 from app.agent.context import (
@@ -30,6 +31,20 @@ _RETURNS = {
         "blockers": {"type": "array", "items": {"type": "string"}},
         "receipts": {"type": "array", "items": {"type": "object"}},
         "commands": {"type": "array", "items": {"type": "object"}},
+        "error": {"type": "string"},
+    },
+    "required": ["ok"],
+}
+
+
+_FINALIZE_RETURNS = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "status": {"type": "string"},
+        "run_task_id": {"type": "string"},
+        "merge": {"type": "object"},
+        "run": {"type": "object"},
         "error": {"type": "string"},
     },
     "required": ["ok"],
@@ -106,6 +121,80 @@ async def prepare_project_run_handoff(
                 body=body,
                 draft=draft,
                 remote=remote or "origin",
+            )
+    except Exception as exc:
+        return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "finalize_project_coding_run_review",
+        "description": (
+            "Finalize one selected Project coding run from a Project coding-run review session. "
+            "Accepted outcomes mark the run reviewed; rejected or blocked outcomes record review details "
+            "without marking it reviewed. Use merge=true only when the operator asked this review session to merge accepted PRs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_task_id": {"type": "string", "description": "The selected Project coding-run task UUID being finalized."},
+                "outcome": {"type": "string", "enum": ["accepted", "rejected", "blocked"], "description": "Review decision for this run."},
+                "summary": {"type": "string", "description": "Concise reviewer summary."},
+                "details": {"type": "object", "description": "Evidence, issues, links, and decision details."},
+                "merge": {"type": "boolean", "description": "Merge the accepted run's PR now. Only set true when explicitly requested."},
+                "merge_method": {"type": "string", "enum": ["squash", "merge", "rebase"], "description": "GitHub merge method. Defaults to squash."},
+            },
+            "required": ["run_task_id", "outcome", "summary"],
+        },
+    },
+}, safety_tier="exec_capable", requires_bot_context=True, requires_channel_context=True, returns=_FINALIZE_RETURNS)
+async def finalize_project_coding_run_review(
+    run_task_id: str,
+    outcome: str = "accepted",
+    summary: str = "",
+    details: dict[str, Any] | None = None,
+    merge: bool = False,
+    merge_method: str = "squash",
+) -> str:
+    bot_id = current_bot_id.get()
+    channel_id = current_channel_id.get()
+    review_task_id = current_task_id.get()
+    if not bot_id:
+        return json.dumps({"ok": False, "error": "No bot context available."}, ensure_ascii=False)
+    if not channel_id:
+        return json.dumps({"ok": False, "error": "No channel context available."}, ensure_ascii=False)
+    if not review_task_id:
+        return json.dumps({"ok": False, "error": "No review task context available."}, ensure_ascii=False)
+
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel, Project
+        from app.services.project_coding_runs import (
+            ProjectCodingRunReviewFinalize,
+            finalize_project_coding_run_review as finalize_review,
+        )
+
+        async with async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            if channel is None or channel.project_id is None:
+                return json.dumps({"ok": False, "error": "Current channel is not Project-bound."}, ensure_ascii=False)
+            project = await db.get(Project, channel.project_id)
+            if project is None:
+                return json.dumps({"ok": False, "error": "Project not found."}, ensure_ascii=False)
+            payload: dict[str, Any] = await finalize_review(
+                db,
+                project,
+                ProjectCodingRunReviewFinalize(
+                    review_task_id=review_task_id,
+                    run_task_id=uuid.UUID(str(run_task_id)),
+                    outcome=outcome,
+                    summary=summary,
+                    details=details or {},
+                    merge=merge,
+                    merge_method=merge_method,
+                ),
             )
     except Exception as exc:
         return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)

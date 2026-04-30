@@ -18,7 +18,7 @@ import type { ModelGroup } from "@/src/types/api";
 
 const SCHEMA_TEXT = `# Pipeline Steps — Authoring Reference
 
-A pipeline is a Task with a \`steps\` array — an ordered list of step definitions that execute sequentially. Each step can be a shell command (\`exec\`), a direct tool call (\`tool\`), or an LLM conversation (\`agent\`).
+A pipeline is a Task with a \`steps\` array — an ordered list of step definitions that execute sequentially. Each step can be a shell command (\`exec\`), a machine command (\`machine_inspect\` / \`machine_exec\`), a direct tool call (\`tool\`), or an LLM conversation (\`agent\`).
 
 Key principle: use exec and tool steps for deterministic work (free, no LLM tokens). Use agent steps for judgment and reasoning.
 
@@ -27,7 +27,7 @@ Key principle: use exec and tool steps for deterministic work (free, no LLM toke
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | id | string | yes | — | Unique identifier. Used in templates and conditions |
-| type | "exec" | "tool" | "agent" | "user_prompt" | "foreach" | yes | — | Determines execution engine |
+| type | "exec" | "machine_inspect" | "machine_exec" | "tool" | "agent" | "user_prompt" | "foreach" | yes | — | Determines execution engine |
 | label | string | no | — | Human-readable name shown in UI |
 | on_failure | "abort" | "continue" | no | "abort" | abort = stop pipeline. continue = proceed |
 | when | object | no | — | Conditional execution. False → "skipped" |
@@ -45,6 +45,12 @@ Env vars from prior steps:
 
 Auto-extracted JSON keys: if step 1 returns {"llm": "gpt-4o", "count": 30}:
   $STEP_1_llm = gpt-4o, $STEP_1_count = 30 (alongside $STEP_1_RESULT)
+
+### machine_inspect / machine_exec — Task-Granted Machine Command
+No LLM. Requires a Machine target grant on the task definition.
+
+Fields: command (string), working_directory (string, optional for machine_exec)
+machine_inspect uses the readonly inspect command allowlist. machine_exec allows shell execution.
 
 ### tool — Direct Tool Call
 No LLM. Calls a registered tool with arguments.

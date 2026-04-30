@@ -114,7 +114,7 @@ class TaskDetailOut(BaseModel):
 
 
 class MachineTargetGrantIn(BaseModel):
-    provider_id: str = "ssh"
+    provider_id: str
     target_id: str
     capabilities: Optional[list[str]] = None
     allow_agent_tools: bool = True
@@ -560,6 +560,15 @@ async def admin_list_trigger_events(
             })
 
     return {"sources": sources}
+
+
+@router.get("/tasks/machine-automation-options")
+async def admin_task_machine_automation_options(
+    _auth=Depends(require_scopes("tasks:read")),
+):
+    from app.services.machine_control import build_machine_task_automation_options
+
+    return build_machine_task_automation_options()
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetailOut)

@@ -205,7 +205,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       };
       const machineTargetGrantPayload = machineTargetGrant
         ? {
-            provider_id: "ssh" as const,
+            provider_id: machineTargetGrant.provider_id,
             target_id: machineTargetGrant.target_id,
             capabilities: machineTargetGrant.capabilities?.length ? machineTargetGrant.capabilities : ["inspect", "exec"],
             allow_agent_tools: machineTargetGrant.allow_agent_tools ?? true,
