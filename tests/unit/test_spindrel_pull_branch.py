@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +32,13 @@ def test_spindrel_cli_pull_defaults_to_latest_release_tag(monkeypatch):
 
     monkeypatch.setattr(cli, "run", fake_run)
     monkeypatch.setattr(cli, "dc", lambda *args, **kwargs: SimpleNamespace(returncode=0))
+    monkeypatch.setattr(cli, "_build_metadata_env", lambda *args, **kwargs: {
+        "SPINDREL_BUILD_SHA": "abc123",
+        "SPINDREL_BUILD_REF": "v9.9.9",
+        "SPINDREL_BUILD_TIME": "2026-04-30T00:00:00Z",
+        "SPINDREL_BUILD_SOURCE": "test",
+        "SPINDREL_DEPLOY_ID": "deploy-1",
+    })
     monkeypatch.setattr(cli, "_latest_release_tag", lambda repo: "v9.9.9")
     monkeypatch.setattr(cli, "_build_integration_uis", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_rebuild_ui", lambda *args, **kwargs: None)
@@ -42,6 +50,7 @@ def test_spindrel_cli_pull_defaults_to_latest_release_tag(monkeypatch):
     assert commands == [
         "git -C /opt/thoth-server fetch origin --tags --prune",
         "git -C /opt/thoth-server checkout --detach refs/tags/v9.9.9",
+        "SPINDREL_BUILD_SHA=abc123 SPINDREL_BUILD_REF=v9.9.9 SPINDREL_BUILD_TIME=2026-04-30T00:00:00Z SPINDREL_BUILD_SOURCE=test SPINDREL_DEPLOY_ID=deploy-1 docker compose -f /opt/thoth-server/docker-compose.yml build",
         "git -C /opt/thoth-server fetch origin --tags --prune",
         "git -C /opt/thoth-server checkout --detach refs/tags/v9.9.9",
     ]
@@ -58,6 +67,13 @@ def test_spindrel_cli_pull_can_target_development(monkeypatch):
 
     monkeypatch.setattr(cli, "run", fake_run)
     monkeypatch.setattr(cli, "dc", lambda *args, **kwargs: SimpleNamespace(returncode=0))
+    monkeypatch.setattr(cli, "_build_metadata_env", lambda *args, **kwargs: {
+        "SPINDREL_BUILD_SHA": "abc123",
+        "SPINDREL_BUILD_REF": "development",
+        "SPINDREL_BUILD_TIME": "2026-04-30T00:00:00Z",
+        "SPINDREL_BUILD_SOURCE": "test",
+        "SPINDREL_DEPLOY_ID": "deploy-1",
+    })
 
     cli.docker_pull("/opt/thoth-server", SimpleNamespace(development=True))
 
@@ -65,7 +81,8 @@ def test_spindrel_cli_pull_can_target_development(monkeypatch):
         "git -C /opt/thoth-server fetch origin development && "
         "(git -C /opt/thoth-server switch development || "
         "git -C /opt/thoth-server switch -c development --track origin/development) && "
-        "git -C /opt/thoth-server pull --rebase origin development"
+        "git -C /opt/thoth-server pull --rebase origin development",
+        "SPINDREL_BUILD_SHA=abc123 SPINDREL_BUILD_REF=development SPINDREL_BUILD_TIME=2026-04-30T00:00:00Z SPINDREL_BUILD_SOURCE=test SPINDREL_DEPLOY_ID=deploy-1 docker compose -f /opt/thoth-server/docker-compose.yml build",
     ]
 
 
@@ -93,13 +110,14 @@ async def test_local_git_pull_tool_defaults_to_stable_tag(monkeypatch):
 
     monkeypatch.setattr(git_pull_tool.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    await git_pull_tool.git_pull()
+    result = await git_pull_tool.git_pull()
 
-    assert calls == [
+    assert calls[:3] == [
         ("git", "-C", calls[0][2], "fetch", "origin", "--tags", "--prune"),
         ("git", "-C", calls[0][2], "tag", "--sort=-v:refname"),
         ("git", "-C", calls[0][2], "checkout", "--detach", "refs/tags/v9.9.9"),
     ]
+    assert json.loads(result)["build"]["source"] == "git_pull-stable"
 
 
 @pytest.mark.asyncio
@@ -120,10 +138,11 @@ async def test_local_git_pull_tool_can_pull_development(monkeypatch):
 
     monkeypatch.setattr(git_pull_tool.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
-    await git_pull_tool.git_pull(channel="development")
+    result = await git_pull_tool.git_pull(channel="development")
 
-    assert calls == [
+    assert calls[:3] == [
         ("git", "-C", calls[0][2], "fetch", "origin", "development"),
         ("git", "-C", calls[0][2], "switch", "development"),
         ("git", "-C", calls[0][2], "pull", "--rebase", "origin", "development"),
     ]
+    assert json.loads(result)["build"]["source"] == "git_pull-development"

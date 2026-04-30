@@ -108,6 +108,33 @@ systemctl daemon-reload
 
 UNITS=()
 
+build_metadata_env() {
+    local repo="$1"
+    local source="$2"
+    local sha ref built_at short_sha deploy_id
+
+    sha="$(git -C "$repo" rev-parse --verify HEAD 2>/dev/null || true)"
+    ref="$(git -C "$repo" branch --show-current 2>/dev/null || true)"
+    if [ -z "$ref" ]; then
+        ref="$(git -C "$repo" describe --tags --exact-match 2>/dev/null || true)"
+    fi
+    if [ -z "$ref" ]; then
+        ref="$(git -C "$repo" rev-parse --short HEAD 2>/dev/null || true)"
+    fi
+    built_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    short_sha="${sha:0:12}"
+    if [ -z "$short_sha" ]; then
+        short_sha="unknown"
+    fi
+    deploy_id="${built_at//[-:]/}-${short_sha}"
+
+    export SPINDREL_BUILD_SHA="$sha"
+    export SPINDREL_BUILD_REF="$ref"
+    export SPINDREL_BUILD_TIME="$built_at"
+    export SPINDREL_BUILD_SOURCE="$source"
+    export SPINDREL_DEPLOY_ID="$deploy_id"
+}
+
 # ── Main service ─────────────────────────────────────────────────────────────
 install_unit "$REPO_DIR/systemd/spindrel.service" "spindrel.service"
 UNITS+=("spindrel.service")
@@ -122,7 +149,14 @@ done
 
 # ── Build Docker images (before starting services) ──────────────────────────
 echo "Building Docker images..."
-sudo -u "$SVC_USER" /usr/bin/docker compose -f "$REPO_DIR/docker-compose.yml" build
+build_metadata_env "$REPO_DIR" "install-service"
+sudo -u "$SVC_USER" env \
+    SPINDREL_BUILD_SHA="$SPINDREL_BUILD_SHA" \
+    SPINDREL_BUILD_REF="$SPINDREL_BUILD_REF" \
+    SPINDREL_BUILD_TIME="$SPINDREL_BUILD_TIME" \
+    SPINDREL_BUILD_SOURCE="$SPINDREL_BUILD_SOURCE" \
+    SPINDREL_DEPLOY_ID="$SPINDREL_DEPLOY_ID" \
+    /usr/bin/docker compose -f "$REPO_DIR/docker-compose.yml" build
 
 # ── Reload + enable + start ──────────────────────────────────────────────────
 systemctl daemon-reload

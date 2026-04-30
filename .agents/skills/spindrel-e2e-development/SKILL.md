@@ -33,9 +33,15 @@ Prepare a local e2e env:
 
 ```bash
 python scripts/agent_e2e_dev.py write-env
+python scripts/agent_e2e_dev.py prepare
 python scripts/agent_e2e_dev.py doctor
 python scripts/agent_e2e_dev.py commands
 ```
+
+If `doctor` reports `subscription bootstrap: connected`, do not ask the user to
+repeat browser/device-code OAuth. Normal `prepare` preserves the local e2e DB
+and recreates only the Spindrel app container. The explicit DB reset command is
+`python scripts/agent_e2e_dev.py wipe-db --yes`.
 
 Mount native harness auth into the local e2e container:
 

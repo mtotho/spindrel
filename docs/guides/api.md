@@ -223,6 +223,11 @@ best-effort container id, build commit/ref/time/source/deploy id when the
 deployment supplied them, and stable feature flags. Use it to confirm which
 build a live agent is talking to; keep `/health` for unauthenticated
 liveness/readiness checks.
+`spindrel pull`, `spindrel rebuild`, `scripts/install-service.sh`, and the e2e
+image builders stamp Docker builds with this metadata automatically. Custom
+deploy scripts can pass the same fields through `SPINDREL_BUILD_SHA`,
+`SPINDREL_BUILD_REF`, `SPINDREL_BUILD_TIME`, `SPINDREL_BUILD_SOURCE`, and
+`SPINDREL_DEPLOY_ID`.
 
 `recent-errors` returns the same deduped `LogFinding` shape as
 `get_recent_server_errors` and can annotate each finding with matching

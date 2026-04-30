@@ -123,7 +123,34 @@ ok "docker-compose.override.yml written (ports: $SERVER_PORT/$UI_PORT/$PG_PORT)"
 
 # ── Build and start ──────────────────────────────────────────────────────
 
+build_metadata_env() {
+    local source="$1"
+    local sha ref built_at short_sha deploy_id
+
+    sha="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+    ref="$(git branch --show-current 2>/dev/null || true)"
+    if [ -z "$ref" ]; then
+        ref="$(git describe --tags --exact-match 2>/dev/null || true)"
+    fi
+    if [ -z "$ref" ]; then
+        ref="$(git rev-parse --short HEAD 2>/dev/null || true)"
+    fi
+    built_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    short_sha="${sha:0:12}"
+    if [ -z "$short_sha" ]; then
+        short_sha="unknown"
+    fi
+    deploy_id="e2e-${short_sha}"
+
+    export SPINDREL_BUILD_SHA="$sha"
+    export SPINDREL_BUILD_REF="$ref"
+    export SPINDREL_BUILD_TIME="$built_at"
+    export SPINDREL_BUILD_SOURCE="$source"
+    export SPINDREL_DEPLOY_ID="$deploy_id"
+}
+
 info "Building Docker images..."
+build_metadata_env "setup-e2e-instance"
 docker compose build
 
 info "Starting services..."
@@ -163,5 +190,5 @@ echo "  Run E2E tests:"
 echo "    E2E_MODE=external E2E_HOST=localhost E2E_PORT=${SERVER_PORT} E2E_API_KEY=\$API_KEY pytest tests/e2e/ -v"
 echo ""
 echo "  Update instance:"
-echo "    cd $INSTALL_DIR && git pull && docker compose up -d --build"
+echo "    cd $INSTALL_DIR && git pull && SPINDREL_BUILD_SHA=\$(git rev-parse HEAD) SPINDREL_BUILD_REF=\$(git branch --show-current) SPINDREL_BUILD_TIME=\$(date -u '+%Y-%m-%dT%H:%M:%SZ') SPINDREL_BUILD_SOURCE=setup-e2e-instance SPINDREL_DEPLOY_ID=e2e-\$(git rev-parse --short HEAD) docker compose up -d --build"
 echo ""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import httpx
@@ -16,11 +17,39 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-COMPOSE_PROJECT = "spindrel-e2e"
+COMPOSE_PROJECT = "spindrel-local-e2e"
+
+
+def _git_value(repo, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _build_arg_pairs(repo, *, source: str) -> list[str]:
+    sha = _git_value(repo, "rev-parse", "--verify", "HEAD")
+    ref = _git_value(repo, "branch", "--show-current")
+    if not ref:
+        ref = _git_value(repo, "describe", "--tags", "--exact-match")
+    if not ref:
+        ref = _git_value(repo, "rev-parse", "--short", "HEAD")
+    built_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return [
+        "SPINDREL_BUILD_SHA=" + sha,
+        "SPINDREL_BUILD_REF=" + ref,
+        "SPINDREL_BUILD_TIME=" + built_at,
+        "SPINDREL_BUILD_SOURCE=" + source,
+        "SPINDREL_DEPLOY_ID=e2e-" + (sha[:12] if sha else "unknown"),
+    ]
 
 
 class E2EEnvironment:
-    """Manages the E2E Docker Compose stack (postgres + searxng + agent-server)."""
+    """Manages the E2E Docker Compose stack (postgres + searxng + Spindrel)."""
 
     def __init__(self, config: E2EConfig) -> None:
         self.config = config
@@ -67,11 +96,17 @@ class E2EEnvironment:
             )
 
         logger.info("Building image %s ...", self.config.image_name)
+        build_arg_flags = [
+            flag
+            for pair in _build_arg_pairs(self.config.project_root, source="e2e-harness")
+            for flag in ("--build-arg", pair)
+        ]
         result = subprocess.run(
             [
                 "docker", "build",
                 "-t", self.config.image_name,
                 "--build-arg", "BUILD_DASHBOARDS=false",
+                *build_arg_flags,
                 str(self.config.project_root),
             ],
             capture_output=True,
@@ -119,7 +154,10 @@ class E2EEnvironment:
     def _compose_down(self) -> None:
         """Stop and remove the compose stack."""
         env = self._compose_env()
-        cmd = self._compose_cmd("down", "-v", "--remove-orphans")
+        args = ["down", "--remove-orphans"]
+        if self.config.wipe_db_on_teardown:
+            args.insert(1, "-v")
+        cmd = self._compose_cmd(*args)
         logger.info("Tearing down E2E stack")
         subprocess.run(
             cmd,
@@ -200,7 +238,7 @@ class E2EEnvironment:
             )
         except Exception:
             # Dump logs on failure for debugging
-            logs = self.get_logs("agent-server", tail=50)
+            logs = self.get_logs("spindrel", tail=50)
             logger.error("Server failed to become healthy. Logs:\n%s", logs)
             raise
 
@@ -209,7 +247,7 @@ class E2EEnvironment:
 
     # -- Diagnostics --
 
-    def get_logs(self, service: str = "agent-server", tail: int = 100) -> str:
+    def get_logs(self, service: str = "spindrel", tail: int = 100) -> str:
         """Return recent container logs for debugging."""
         if self.config.is_external:
             return (

@@ -66,7 +66,15 @@ class TestGitPull:
         fetch_proc = _make_proc(returncode=0, stdout=b"")
         tag_proc = _make_proc(returncode=0, stdout=b"v9.9.9\nv1.0.0\n")
         checkout_proc = _make_proc(returncode=0, stdout=b"HEAD is now at release")
-        create_subprocess = AsyncMock(side_effect=[fetch_proc, tag_proc, checkout_proc])
+        sha_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        ref_proc = _make_proc(returncode=0, stdout=b"release\n")
+        create_subprocess = AsyncMock(side_effect=[
+            fetch_proc,
+            tag_proc,
+            checkout_proc,
+            sha_proc,
+            ref_proc,
+        ])
 
         with patch("asyncio.create_subprocess_exec", create_subprocess):
             resp = await client.post("/api/v1/admin/operations/pull", headers=AUTH_HEADERS)
@@ -74,6 +82,8 @@ class TestGitPull:
         assert resp.status_code == 200
         body = resp.json()
         assert body["exit_code"] == 0
+        assert body["build"]["commit_sha"] == "abc123"
+        assert body["build"]["ref"] == "release"
         assert "HEAD is now at release" in body["stdout"]
         assert create_subprocess.call_args_list[0].args[:6] == (
             "git",
@@ -89,13 +99,22 @@ class TestGitPull:
         fetch_proc = _make_proc(returncode=0)
         switch_proc = _make_proc(returncode=0)
         pull_proc = _make_proc(returncode=0, stdout=b"Already up to date.")
-        create_subprocess = AsyncMock(side_effect=[fetch_proc, switch_proc, pull_proc])
+        sha_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        ref_proc = _make_proc(returncode=0, stdout=b"development\n")
+        create_subprocess = AsyncMock(side_effect=[
+            fetch_proc,
+            switch_proc,
+            pull_proc,
+            sha_proc,
+            ref_proc,
+        ])
 
         with patch("asyncio.create_subprocess_exec", create_subprocess):
             resp = await client.post("/api/v1/admin/operations/pull?channel=development", headers=AUTH_HEADERS)
 
         assert resp.status_code == 200
         assert resp.json()["exit_code"] == 0
+        assert resp.json()["build"]["source"] == "admin-operations-development"
         assert create_subprocess.call_args_list[0].args[-3:] == ("fetch", "origin", "development")
         assert create_subprocess.call_args_list[1].args[-2:] == ("switch", "development")
         assert create_subprocess.call_args_list[2].args[-4:] == (
@@ -145,8 +164,17 @@ class TestRestartServer:
         fetch_proc = _make_proc(returncode=0)
         tag_proc = _make_proc(returncode=0, stdout=b"v9.9.9\n")
         checkout_proc = _make_proc(returncode=0, stdout=b"HEAD is now at release")
+        sha_proc = _make_proc(returncode=0, stdout=b"abc123\n")
+        ref_proc = _make_proc(returncode=0, stdout=b"release\n")
         restart_proc = _make_proc(returncode=0)
-        create_subprocess = AsyncMock(side_effect=[fetch_proc, tag_proc, checkout_proc, restart_proc])
+        create_subprocess = AsyncMock(side_effect=[
+            fetch_proc,
+            tag_proc,
+            checkout_proc,
+            sha_proc,
+            ref_proc,
+            restart_proc,
+        ])
 
         with patch("asyncio.create_subprocess_exec", create_subprocess):
             resp = await client.post(

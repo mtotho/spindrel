@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 
@@ -36,6 +37,17 @@ DEVELOPMENT_CHANNEL = "development"
         "stdout": {"type": "string"},
         "stderr": {"type": "string"},
         "exit_code": {"type": "integer"},
+        "build": {
+            "type": "object",
+            "description": "Best-effort source metadata after a successful pull.",
+            "properties": {
+                "commit_sha": {"type": "string"},
+                "ref": {"type": "string"},
+                "built_at": {"type": "string"},
+                "source": {"type": "string"},
+                "deploy_id": {"type": "string"},
+            },
+        },
     },
     "required": ["stdout", "stderr", "exit_code"],
 })
@@ -60,12 +72,57 @@ async def _run_git(repo_root: str, *args: str) -> dict[str, object]:
     }
 
 
+async def _git_value(repo_root: str, *args: str) -> str:
+    result = await _run_git(repo_root, *args)
+    if result["exit_code"] != 0:
+        return ""
+    return str(result["stdout"]).strip()
+
+
+async def _build_metadata(repo_root: str, source: str) -> dict[str, str]:
+    sha = await _git_value(repo_root, "rev-parse", "--verify", "HEAD")
+    ref = await _git_value(repo_root, "branch", "--show-current")
+    if not ref:
+        ref = await _git_value(repo_root, "describe", "--tags", "--exact-match")
+    if not ref:
+        ref = await _git_value(repo_root, "rev-parse", "--short", "HEAD")
+    built_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    short_sha = sha[:12] if sha else "unknown"
+    deploy_id = f"{built_at.replace('-', '').replace(':', '')}-{short_sha}"
+    return {
+        "commit_sha": sha,
+        "ref": ref,
+        "built_at": built_at,
+        "source": source,
+        "deploy_id": deploy_id,
+    }
+
+
+async def _attach_build_metadata(
+    repo_root: str,
+    result: dict[str, object],
+    *,
+    source: str,
+) -> dict[str, object]:
+    if result.get("exit_code") == 0:
+        result["build"] = await _build_metadata(repo_root, source)
+    return result
+
+
 async def _update_repo(repo_root: str, channel: str) -> dict[str, object]:
     if channel == DEVELOPMENT_CHANNEL:
-        return await _update_development(repo_root)
+        return await _attach_build_metadata(
+            repo_root,
+            await _update_development(repo_root),
+            source="git_pull-development",
+        )
     if channel != STABLE_CHANNEL:
         return {"stdout": "", "stderr": f"unsupported channel: {channel}", "exit_code": 2}
-    return await _update_stable(repo_root)
+    return await _attach_build_metadata(
+        repo_root,
+        await _update_stable(repo_root),
+        source="git_pull-stable",
+    )
 
 
 async def _update_stable(repo_root: str) -> dict[str, object]:

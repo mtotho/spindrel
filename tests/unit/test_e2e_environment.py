@@ -9,6 +9,13 @@ def test_searxng_healthcheck_uses_binary_present_in_upstream_image() -> None:
     assert '["CMD", "curl", "-sf", "http://localhost:8080/"]' not in compose_text
 
 
+def test_local_e2e_postgres_uses_named_volume_not_tmpfs() -> None:
+    compose_text = E2EConfig().compose_file.read_text()
+
+    assert "postgres-data:/var/lib/postgresql/data" in compose_text
+    assert "tmpfs:" not in compose_text
+
+
 def test_compose_cmd_includes_overrides_before_project_name(tmp_path) -> None:
     override = tmp_path / "compose.override.yml"
     override.write_text("services: {}\n")
@@ -46,3 +53,44 @@ def test_external_e2e_get_logs_does_not_shell_to_compose() -> None:
 
     assert "External E2E mode" in logs
     assert "http://example.test:8000" in logs
+
+
+def test_compose_down_preserves_db_volume_by_default(monkeypatch) -> None:
+    config = E2EConfig()
+    env = E2EEnvironment(config)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr("tests.e2e.harness.environment.subprocess.run", fake_run)
+
+    env._compose_down()
+
+    assert calls[0][-2:] == ["down", "--remove-orphans"]
+    assert "-v" not in calls[0]
+
+
+def test_compose_down_wipes_db_only_when_explicit(monkeypatch) -> None:
+    config = E2EConfig(wipe_db_on_teardown=True)
+    env = E2EEnvironment(config)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Result()
+
+    monkeypatch.setattr("tests.e2e.harness.environment.subprocess.run", fake_run)
+
+    env._compose_down()
+
+    assert calls[0][-3:] == ["down", "-v", "--remove-orphans"]

@@ -1,4 +1,4 @@
-"""E2E HTTP client for interacting with the agent-server."""
+"""E2E HTTP client for interacting with Spindrel."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def _runtime_surface_error(action: str, resp: httpx.Response) -> RuntimeError:
 
 
 class E2EClient:
-    """Async HTTP client for E2E testing against a running agent-server."""
+    """Async HTTP client for E2E testing against a running Spindrel server."""
 
     def __init__(self, config: E2EConfig) -> None:
         self.config = config

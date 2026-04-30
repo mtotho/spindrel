@@ -1,4 +1,4 @@
-# Agent E2E Development
+# Spindrel E2E Development
 
 This guide is the operating contract for agents developing Spindrel features
 that need real e2e tests, browser screenshots, provider auth, or Project
@@ -38,15 +38,26 @@ python scripts/agent_e2e_dev.py doctor
 python scripts/agent_e2e_dev.py commands
 ```
 
-Then run the printed command, usually:
+Then have the helper build current source, recreate the local Spindrel e2e
+stack, and wait for health:
 
 ```bash
-set -a && source .env.agent-e2e && set +a
-E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k "test_health" -v
+python scripts/agent_e2e_dev.py prepare
+python scripts/agent_e2e_dev.py doctor
 ```
 
-The default local stack is ephemeral: Postgres is tmpfs, the server runs on
-`localhost:18000`, and the API key defaults to `e2e-test-key-12345`.
+The default local stack is durable across normal Docker restarts: Postgres uses
+a named Docker volume, the server runs on `localhost:18000`, and the API key
+defaults to `e2e-test-key-12345`. `prepare` recreates only the Spindrel app
+container, so local provider/OAuth state survives normal rebuilds and restarts.
+Future agents should run `doctor` first; if it reports
+`subscription bootstrap: connected`, do not restart the browser OAuth flow.
+
+Only wipe local e2e state when that is the explicit goal:
+
+```bash
+python scripts/agent_e2e_dev.py wipe-db --yes
+```
 
 ## Provider/Auth Paths
 
@@ -57,8 +68,6 @@ For ChatGPT/OpenAI subscription testing:
 
 ```bash
 python scripts/agent_e2e_dev.py write-env --provider subscription
-set -a && source .env.agent-e2e && set +a
-E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k "test_health" -v
 
 python scripts/agent_e2e_dev.py bootstrap-subscription \
   --api-url http://localhost:18000 \
@@ -69,7 +78,11 @@ python scripts/agent_e2e_dev.py bootstrap-subscription \
 Subscription mode writes a local fallback placeholder so the compose stack can
 boot before OAuth exists. `bootstrap-subscription` then creates or reuses an
 `openai-subscription` provider, runs the device-code OAuth flow, and patches
-e2e bots to use that provider/model.
+e2e bots to use that provider/model. By default it also rebuilds and recreates
+the local Spindrel e2e app container before touching the API, so it does not
+silently talk to a stale container on `:18000`. If the subscription provider is
+already connected, the command skips the browser/device-code flow and only
+repairs the e2e bot provider bindings.
 
 For native Codex/Claude harness auth in a local e2e container:
 

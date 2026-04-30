@@ -70,7 +70,7 @@ def load() -> Config:
         login_email=_optional("SPINDREL_LOGIN_EMAIL"),
         login_password=_optional("SPINDREL_LOGIN_PASSWORD"),
         ssh_alias=_optional("SSH_ALIAS", "spindrel-bot"),
-        ssh_container=_optional("SSH_CONTAINER", "spindrel-e2e-agent-server-1"),
+        ssh_container=_optional("SSH_CONTAINER", "spindrel-local-e2e-spindrel-1"),
         docs_images_dir=docs_dir,
         website_images_dir=website_dir,
     )

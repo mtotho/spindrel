@@ -37,6 +37,17 @@ the `recent_errors_review_state` feature flag. `/health` only proves the server
 is alive; it does not prove the image contains the health triage features you
 expect.
 
+When working from the repo checkout, compare live `build.commit_sha` to:
+
+```
+git rev-parse HEAD
+```
+
+If the live SHA is present and differs from the local SHA, report the mismatch
+before triage and treat missing/old API features as likely deploy staleness, not
+as a code regression. If the live SHA is `null`, say the deploy path has not
+stamped build metadata yet and fall back to OpenAPI feature checks.
+
 Call:
 
 ```

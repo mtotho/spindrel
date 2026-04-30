@@ -9,6 +9,7 @@ Install: ln -sf /path/to/scripts/spindrel /usr/local/bin/spindrel
 """
 
 import argparse
+import datetime as _dt
 import os
 import shlex
 import subprocess
@@ -88,6 +89,45 @@ def dc(repo, *args):
     return run(cmd)
 
 
+def _git_value(repo, *args):
+    result = subprocess.run(
+        ["git", "-C", repo, *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _build_metadata_env(repo, *, source):
+    sha = _git_value(repo, "rev-parse", "--verify", "HEAD")
+    ref = _git_value(repo, "branch", "--show-current")
+    if not ref:
+        ref = _git_value(repo, "describe", "--tags", "--exact-match")
+    if not ref:
+        ref = _git_value(repo, "rev-parse", "--short", "HEAD")
+    built_at = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    short_sha = sha[:12] if sha else "unknown"
+    deploy_id = f"{built_at.replace(':', '').replace('-', '')}-{short_sha}"
+    return {
+        "SPINDREL_BUILD_SHA": sha,
+        "SPINDREL_BUILD_REF": ref,
+        "SPINDREL_BUILD_TIME": built_at,
+        "SPINDREL_BUILD_SOURCE": source,
+        "SPINDREL_DEPLOY_ID": deploy_id,
+    }
+
+
+def dc_with_build_metadata(repo, source, *args):
+    env = " ".join(
+        f"{key}={shlex.quote(value)}"
+        for key, value in _build_metadata_env(repo, source=source).items()
+    )
+    cmd = f"{env} docker compose -f {repo}/docker-compose.yml {' '.join(args)}"
+    return run(cmd)
+
+
 def _latest_release_tag(repo):
     result = subprocess.run(
         ["git", "-C", repo, "tag", "--sort=-v:refname"],
@@ -161,7 +201,7 @@ def docker_pull(repo, args):
         print("Pull failed — skipping rebuild.", file=sys.stderr)
         return
     print("Rebuilding containers...")
-    dc(repo, "build")
+    dc_with_build_metadata(repo, "spindrel-cli-pull", "build")
     dc(repo, "up -d")
 
 
@@ -183,7 +223,7 @@ def docker_logs(repo, args):
 
 def docker_rebuild(repo, args):
     print("Rebuilding and restarting...")
-    dc(repo, "build")
+    dc_with_build_metadata(repo, "spindrel-cli-rebuild", "build")
     dc(repo, "up -d")
 
 

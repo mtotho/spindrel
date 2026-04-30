@@ -15,4 +15,5 @@ COPY skills/ skills/
 COPY migrations/ migrations/
 COPY docs/ docs/
 COPY CLAUDE.md ./
+COPY README.md llms.txt ./
 COPY alembic.ini ./

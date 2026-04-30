@@ -21,7 +21,7 @@ class E2EConfig:
     mode: str = "compose"
 
     # Docker image
-    image_name: str = "agent-server:e2e"
+    image_name: str = "spindrel:e2e"
     build_if_missing: bool = True
 
     # LLM provider — external endpoint (Gemini by default).
@@ -47,6 +47,7 @@ class E2EConfig:
 
     # Behavior
     keep_running: bool = False
+    wipe_db_on_teardown: bool = False
 
     # Paths
     compose_file: Path = field(default_factory=lambda: Path(__file__).parent.parent / "docker-compose.e2e.yml")
@@ -77,7 +78,7 @@ class E2EConfig:
         ]
         return cls(
             mode=os.environ.get("E2E_MODE", "compose"),
-            image_name=os.environ.get("E2E_IMAGE", "agent-server:e2e"),
+            image_name=os.environ.get("E2E_IMAGE", "spindrel:e2e"),
             build_if_missing=os.environ.get("E2E_BUILD_IF_MISSING", "1") == "1",
             llm_base_url=os.environ.get("E2E_LLM_BASE_URL", ""),
             llm_api_key=os.environ.get("E2E_LLM_API_KEY", ""),
@@ -90,5 +91,6 @@ class E2EConfig:
             request_timeout=int(os.environ.get("E2E_REQUEST_TIMEOUT", "60")),
             bot_id=os.environ.get("E2E_BOT_ID", "e2e"),
             keep_running=os.environ.get("E2E_KEEP_RUNNING", "") == "1",
+            wipe_db_on_teardown=os.environ.get("E2E_WIPE_DB_ON_TEARDOWN", "") == "1",
             compose_overrides=compose_overrides,
         )

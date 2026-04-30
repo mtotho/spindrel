@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -22,11 +24,43 @@ AUTH_OVERRIDE = SCRATCH_DIR / "compose.auth.override.yml"
 SCREENSHOT_ENV = REPO_ROOT / "scripts" / "screenshots" / ".env"
 DEFAULT_API_KEY = "e2e-test-key-12345"
 DEFAULT_PORT = 18000
+DEFAULT_IMAGE = "spindrel:e2e"
+COMPOSE_PROJECT = "spindrel-local-e2e"
+COMPOSE_FILE = REPO_ROOT / "tests" / "e2e" / "docker-compose.e2e.yml"
 SUBSCRIPTION_DUMMY_BASE_URL = "http://127.0.0.1:9/v1"
 SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.4-mini"
 
 
 PRODUCTION_PORTS = {8000}
+
+
+def _git_value(*args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), *args],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _build_arg_flags(source: str) -> list[str]:
+    sha = _git_value("rev-parse", "--verify", "HEAD")
+    ref = _git_value("branch", "--show-current")
+    if not ref:
+        ref = _git_value("describe", "--tags", "--exact-match")
+    if not ref:
+        ref = _git_value("rev-parse", "--short", "HEAD")
+    built_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    values = {
+        "SPINDREL_BUILD_SHA": sha,
+        "SPINDREL_BUILD_REF": ref,
+        "SPINDREL_BUILD_TIME": built_at,
+        "SPINDREL_BUILD_SOURCE": source,
+        "SPINDREL_DEPLOY_ID": "agent-e2e-" + (sha[:12] if sha else "unknown"),
+    }
+    return [flag for key, value in values.items() for flag in ("--build-arg", f"{key}={value}")]
 
 
 def _redact(value: str) -> str:
@@ -126,6 +160,166 @@ def _check_url(url: str, api_key: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def _is_local_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url if "://" in url else f"http://{url}")
+    return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+def _compose_overrides(env: dict[str, str]) -> list[Path]:
+    return [
+        Path(path).expanduser()
+        for path in env.get("E2E_COMPOSE_OVERRIDES", "").split(":")
+        if path.strip()
+    ]
+
+
+def _compose_cmd(overrides: list[Path], *args: str) -> list[str]:
+    cmd = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+    for override in overrides:
+        cmd.extend(["-f", str(override)])
+    cmd.extend(["-p", COMPOSE_PROJECT])
+    cmd.extend(args)
+    return cmd
+
+
+def _compose_env(env: dict[str, str], *, api_url: str, api_key: str) -> dict[str, str]:
+    parsed = urllib.parse.urlparse(api_url)
+    compose_env = dict(os.environ)
+    compose_env.update(env)
+    compose_env.setdefault("E2E_IMAGE", DEFAULT_IMAGE)
+    compose_env["E2E_PORT"] = str(parsed.port or DEFAULT_PORT)
+    compose_env["E2E_API_KEY"] = api_key
+    compose_env.setdefault("E2E_BOT_CONFIG", str(REPO_ROOT / "tests" / "e2e" / "bot.e2e.yaml"))
+    return compose_env
+
+
+def _run(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 600) -> None:
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    if result.returncode == 0:
+        return
+    output = (result.stdout + result.stderr).strip()
+    raise SystemExit(f"command failed ({result.returncode}): {' '.join(cmd)}\n{output[-4000:]}")
+
+
+def _run_best_effort(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int = 120) -> None:
+    subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+
+
+def _remove_compose_service_containers(service: str) -> None:
+    result = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            f"label=com.docker.compose.project={COMPOSE_PROJECT}",
+            "--filter",
+            f"label=com.docker.compose.service={service}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return
+    ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if ids:
+        _run_best_effort(["docker", "rm", "-f", *ids], timeout=60)
+
+
+def _prepare_stack(
+    *,
+    api_url: str,
+    api_key: str,
+    env: dict[str, str],
+    build: bool,
+    startup_timeout: int,
+) -> None:
+    if not _is_local_url(api_url):
+        raise SystemExit(
+            f"refusing to manage a non-local e2e stack for {api_url!r}; "
+            "use --skip-setup if this is an intentional external target"
+        )
+    if not shutil.which("docker"):
+        raise SystemExit("docker is required to prepare the local Spindrel e2e stack")
+
+    image = env.get("E2E_IMAGE", DEFAULT_IMAGE)
+    compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
+    overrides = _compose_overrides(env)
+
+    if build:
+        print(f"building current source image {image}")
+        _run(
+            [
+                "docker",
+                "build",
+                "-t",
+                image,
+                "--build-arg",
+                "BUILD_DASHBOARDS=false",
+                *_build_arg_flags("agent-e2e-dev"),
+                str(REPO_ROOT),
+            ],
+            timeout=900,
+        )
+
+    print(f"starting Spindrel e2e dependencies on {api_url}")
+    _run(
+        _compose_cmd(overrides, "up", "-d", "--remove-orphans", "postgres", "searxng"),
+        env=compose_env,
+        timeout=180,
+    )
+    print("recreating Spindrel e2e app container from current image")
+    _run_best_effort(_compose_cmd(overrides, "stop", "spindrel"), env=compose_env)
+    _run_best_effort(_compose_cmd(overrides, "rm", "-f", "spindrel"), env=compose_env)
+    _remove_compose_service_containers("spindrel")
+    _run(
+        _compose_cmd(overrides, "up", "-d", "--no-deps", "spindrel"),
+        env=compose_env,
+        timeout=180,
+    )
+
+    deadline = time.time() + startup_timeout
+    last_detail = ""
+    while time.time() < deadline:
+        ok, detail = _check_url(api_url, api_key)
+        if ok:
+            print(f"Spindrel e2e health ok: {detail}")
+            return
+        last_detail = detail
+        time.sleep(2)
+    raise SystemExit(f"Spindrel e2e stack did not become healthy at {api_url}: {last_detail}")
+
+
+def cmd_prepare(args: argparse.Namespace) -> int:
+    env = _merged_env()
+    api_url = (args.api_url or _base_url(env)).rstrip("/")
+    _require_non_production(api_url, allow_production=args.allow_production)
+    _prepare_stack(
+        api_url=api_url,
+        api_key=args.api_key or _api_key(env),
+        env=env,
+        build=not args.no_build,
+        startup_timeout=args.startup_timeout,
+    )
+    return 0
+
+
+def cmd_wipe_db(args: argparse.Namespace) -> int:
+    if not args.yes:
+        raise SystemExit("refusing to wipe local e2e database without --yes")
+    env = _merged_env()
+    api_url = (args.api_url or _base_url(env)).rstrip("/")
+    _require_non_production(api_url, allow_production=args.allow_production)
+    if not _is_local_url(api_url):
+        raise SystemExit(f"refusing to wipe a non-local e2e database for {api_url!r}")
+    compose_env = _compose_env(env, api_url=api_url, api_key=args.api_key or _api_key(env))
+    overrides = _compose_overrides(env)
+    print("wiping local Spindrel e2e database volume")
+    _run(_compose_cmd(overrides, "down", "-v", "--remove-orphans"), env=compose_env, timeout=180)
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     env = _merged_env()
     url = _base_url(env)
@@ -148,7 +342,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if provider == "subscription":
         print("  provider mode: subscription")
         print("  provider key: subscription oauth")
-        if env.get("E2E_LLM_BASE_URL") == SUBSCRIPTION_DUMMY_BASE_URL:
+        if ok:
+            status = _subscription_status(url, key, args.provider_id)
+            if status.get("connected"):
+                identity = status.get("email") or status.get("plan") or "connected account"
+                print(f"  subscription bootstrap: connected ({identity})")
+            elif status.get("missing"):
+                print("  subscription bootstrap: provider missing")
+            else:
+                print("  subscription bootstrap: pending or local fallback placeholder active")
+        elif env.get("E2E_LLM_BASE_URL") == SUBSCRIPTION_DUMMY_BASE_URL:
             print("  subscription bootstrap: pending or local fallback placeholder active")
     elif env.get("E2E_LLM_API_KEY"):
         print("  provider mode: openai-compatible")
@@ -181,7 +384,8 @@ def cmd_write_env(args: argparse.Namespace) -> int:
         f"E2E_LLM_BASE_URL={llm_base_url}",
         f"E2E_LLM_API_KEY={llm_api_key}",
         f"E2E_DEFAULT_MODEL={model}",
-        f"E2E_KEEP_RUNNING=1",
+        f"E2E_IMAGE={DEFAULT_IMAGE}",
+        "E2E_KEEP_RUNNING=1",
         f"SPINDREL_AGENT_E2E_PROVIDER={provider}",
     ]
     if provider == "subscription":
@@ -209,7 +413,7 @@ def cmd_write_auth_override(args: argparse.Namespace) -> int:
         raise SystemExit("no Codex or Claude auth/config directory exists to mount")
     content = "\n".join([
         "services:",
-        "  agent-server:",
+        "  spindrel:",
         "    volumes:",
         *mounts,
         "",
@@ -286,6 +490,21 @@ def _ensure_provider(api_url: str, api_key: str, provider_id: str) -> None:
     print(f"created provider {provider_id!r}")
 
 
+def _subscription_status(api_url: str, api_key: str, provider_id: str) -> dict:
+    try:
+        return _request_json(
+            "GET",
+            f"{api_url}/api/v1/admin/providers/openai-oauth/status/{provider_id}",
+            api_key=api_key,
+        )
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            return {"missing": True, "connected": False}
+        return {"error": str(exc), "connected": False}
+    except Exception as exc:
+        return {"error": str(exc), "connected": False}
+
+
 def _patch_bot_provider(api_url: str, api_key: str, bot_id: str, provider_id: str, model: str) -> None:
     _request_json(
         "PATCH",
@@ -301,6 +520,14 @@ def cmd_bootstrap_subscription(args: argparse.Namespace) -> int:
     api_url = (args.api_url or _base_url(env)).rstrip("/")
     _require_non_production(api_url, allow_production=args.allow_production)
     api_key = args.api_key or _api_key(env)
+    if not args.skip_setup:
+        _prepare_stack(
+            api_url=api_url,
+            api_key=api_key,
+            env=env,
+            build=not args.no_build,
+            startup_timeout=args.startup_timeout,
+        )
     provider_id = args.provider_id
     try:
         _ensure_provider(api_url, api_key, provider_id)
@@ -308,13 +535,17 @@ def cmd_bootstrap_subscription(args: argparse.Namespace) -> int:
         if "Invalid provider_type" in str(exc) and "openai-subscription" not in str(exc):
             raise SystemExit(
                 "The running Spindrel server does not support provider_type='openai-subscription'. "
-                "Rebuild the local e2e image from current source, then restart the e2e stack:\n"
-                "  docker build -t agent-server:e2e --build-arg BUILD_DASHBOARDS=false .\n"
-                "  set -a && source .env.agent-e2e && set +a && "
-                "E2E_COMPOSE_OVERRIDES=\"$PWD/scratch/agent-e2e/compose.auth.override.yml\" "
-                "E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_health\" -v"
+                "Run this command again without --skip-setup so it rebuilds and recreates "
+                "the local Spindrel e2e stack from current source."
             ) from exc
         raise
+    status = _subscription_status(api_url, api_key, provider_id)
+    if status.get("connected"):
+        identity = status.get("email") or status.get("plan") or "connected account"
+        print(f"subscription provider {provider_id!r} already connected ({identity})")
+        for bot_id in args.bot:
+            _patch_bot_provider(api_url, api_key, bot_id, provider_id, args.model)
+        return 0
     start = _request_json(
         "POST",
         f"{api_url}/api/v1/admin/providers/openai-oauth/start/{provider_id}",
@@ -353,7 +584,7 @@ def cmd_commands(args: argparse.Namespace) -> int:
     env = _merged_env()
     subscription = env.get("SPINDREL_AGENT_E2E_PROVIDER") == "subscription"
     print("fresh local e2e:")
-    print("  docker build -t agent-server:e2e --build-arg BUILD_DASHBOARDS=false .")
+    print("  python scripts/agent_e2e_dev.py prepare")
     print(f"  {prefix}{overrides}E2E_KEEP_RUNNING=1 pytest tests/e2e/ -k \"test_health\" -v")
     if subscription:
         print("subscription handoff:")
@@ -372,7 +603,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
+    prepare = sub.add_parser("prepare")
+    prepare.add_argument("--api-url", default="")
+    prepare.add_argument("--api-key", default="")
+    prepare.add_argument("--no-build", action="store_true")
+    prepare.add_argument("--startup-timeout", type=int, default=180)
+    prepare.add_argument("--allow-production", action="store_true")
+    prepare.set_defaults(func=cmd_prepare)
+
+    wipe_db = sub.add_parser("wipe-db")
+    wipe_db.add_argument("--api-url", default="")
+    wipe_db.add_argument("--api-key", default="")
+    wipe_db.add_argument("--yes", action="store_true")
+    wipe_db.add_argument("--allow-production", action="store_true")
+    wipe_db.set_defaults(func=cmd_wipe_db)
+
     doctor = sub.add_parser("doctor")
+    doctor.add_argument("--provider-id", default="chatgpt-subscription")
     doctor.add_argument("--allow-production", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
 
@@ -417,6 +664,9 @@ def build_parser() -> argparse.ArgumentParser:
     oauth.add_argument("--provider-id", default="chatgpt-subscription")
     oauth.add_argument("--model", default="gpt-5.4-mini")
     oauth.add_argument("--bot", action="append", default=["e2e", "e2e-tools"])
+    oauth.add_argument("--skip-setup", action="store_true")
+    oauth.add_argument("--no-build", action="store_true")
+    oauth.add_argument("--startup-timeout", type=int, default=180)
     oauth.add_argument("--allow-production", action="store_true")
     oauth.set_defaults(func=cmd_bootstrap_subscription)
 
