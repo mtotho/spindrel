@@ -566,6 +566,44 @@ def test_execution_evidence_updates_adherence_and_runtime(monkeypatch, tmp_path)
     assert runtime["latest_evidence"]["summary"] == "16 passed"
 
 
+def test_exit_resume_records_and_clears_plan_suspension(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Suspend Resume",
+        summary="Make plan suspension explicit.",
+        scope="Runtime capsule state.",
+        acceptance_criteria=["Suspension is visible until resume."],
+        **_professional_fields(),
+        steps=[{"id": "implement", "label": "Implement the guarded change"}],
+    )
+    spm.approve_session_plan(session)
+
+    spm.exit_session_plan_mode(session)
+
+    suspended = spm.get_session_plan_state(session)
+    runtime = suspended["runtime"]
+    assert suspended["mode"] == spm.PLAN_MODE_CHAT
+    assert suspended["has_plan"] is True
+    assert runtime["mode"] == spm.PLAN_MODE_CHAT
+    assert runtime["suspended_from_mode"] == spm.PLAN_MODE_EXECUTING
+    assert runtime["suspended_plan_status"] == spm.PLAN_STATUS_EXECUTING
+    assert runtime["suspended_at"]
+    assert runtime["next_action"] == "chat"
+
+    spm.resume_session_plan_mode(session)
+
+    resumed = spm.get_session_plan_state(session)
+    runtime = resumed["runtime"]
+    assert resumed["mode"] == spm.PLAN_MODE_EXECUTING
+    assert runtime["mode"] == spm.PLAN_MODE_EXECUTING
+    assert runtime["current_step_id"] == "implement"
+    assert "suspended_from_mode" not in runtime
+    assert "suspended_plan_status" not in runtime
+    assert "suspended_at" not in runtime
+
+
 def test_execution_evidence_accepts_structured_tool_summary(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

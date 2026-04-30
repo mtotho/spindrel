@@ -209,8 +209,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => {
-            if (reviewHref) navigate(reviewHref, { state: canvasBackState });
-            else selectNode("channel", node, true);
+            selectNode("channel", node, true);
           },
           onDoubleClick: () =>
             diveToChannel(node.channel_id!, {
@@ -255,8 +254,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => {
-            if (reviewHref) navigate(reviewHref, { state: canvasBackState });
-            else selectNode("widget", node, true);
+            selectNode("widget", node, true);
           },
           onDoubleClick: () => navigate(widgetPinHref(node.pin!.id), { state: canvasBackState }),
           actions: [
@@ -291,8 +289,7 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           worldH: node.world_h,
           distance: distanceFromFocus(worldX, worldY),
           onSelect: () => {
-            if (reviewHref) navigate(reviewHref, { state: canvasBackState });
-            else selectNode("bot", node, true);
+            selectNode("bot", node, true);
           },
           actions: [
             jumpAction(worldX, worldY),

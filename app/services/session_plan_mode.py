@@ -28,6 +28,11 @@ PLAN_STATUS_METADATA_KEY = "plan_status"
 PLAN_RUNTIME_METADATA_KEY = "plan_runtime"
 PLAN_PLANNING_STATE_METADATA_KEY = "planning_state"
 PLAN_ADHERENCE_METADATA_KEY = "plan_adherence"
+_PLAN_RUNTIME_SUSPENSION_KEYS = frozenset({
+    "suspended_at",
+    "suspended_from_mode",
+    "suspended_plan_status",
+})
 
 PLAN_MODE_CHAT = "chat"
 PLAN_MODE_PLANNING = "planning"
@@ -833,6 +838,10 @@ def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None
         "last_updated_at": existing.get("last_updated_at"),
         "last_update_reason": existing.get("last_update_reason"),
     }
+    if mode == PLAN_MODE_CHAT and plan is not None:
+        for key in _PLAN_RUNTIME_SUSPENSION_KEYS:
+            if existing.get(key):
+                runtime[key] = existing[key]
     return runtime
 
 
@@ -1248,6 +1257,38 @@ def sync_plan_runtime_capsule(
     session.metadata_ = meta
     flag_modified(session, "metadata_")
     return runtime
+
+
+def _set_plan_runtime_suspension(
+    session: Session,
+    *,
+    from_mode: str,
+    plan_status: str | None,
+) -> None:
+    meta = _session_plan_meta(session)
+    runtime = copy.deepcopy(meta.get(PLAN_RUNTIME_METADATA_KEY) if isinstance(meta.get(PLAN_RUNTIME_METADATA_KEY), dict) else {})
+    runtime["suspended_at"] = runtime.get("last_updated_at") or _utc_now_iso()
+    runtime["suspended_from_mode"] = from_mode
+    runtime["suspended_plan_status"] = plan_status
+    runtime["last_update_reason"] = "exit_plan_mode"
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+
+
+def _clear_plan_runtime_suspension(session: Session) -> None:
+    meta = _session_plan_meta(session)
+    runtime = copy.deepcopy(meta.get(PLAN_RUNTIME_METADATA_KEY) if isinstance(meta.get(PLAN_RUNTIME_METADATA_KEY), dict) else {})
+    changed = False
+    for key in _PLAN_RUNTIME_SUSPENSION_KEYS:
+        if key in runtime:
+            runtime.pop(key, None)
+            changed = True
+    if not changed:
+        return
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
 
 
 def _plan_channel_id(session: Session) -> uuid.UUID | None:
@@ -2187,6 +2228,7 @@ def approve_session_plan(session: Session) -> SessionPlan:
 
 
 def exit_session_plan_mode(session: Session) -> None:
+    previous_mode = get_session_plan_mode(session)
     if load_session_plan(session, required=False) is None:
         write_session_plan_metadata(session, mode=PLAN_MODE_CHAT)
         sync_plan_runtime_capsule(session, None, reason="exit_plan_mode")
@@ -2195,11 +2237,18 @@ def exit_session_plan_mode(session: Session) -> None:
     assert plan is not None
     write_session_plan_metadata(session, mode=PLAN_MODE_CHAT, plan_status=plan.status)
     sync_plan_runtime_capsule(session, plan, reason="exit_plan_mode")
+    if previous_mode != PLAN_MODE_CHAT:
+        _set_plan_runtime_suspension(
+            session,
+            from_mode=previous_mode,
+            plan_status=plan.status,
+        )
 
 
 def resume_session_plan_mode(session: Session) -> SessionPlan:
     plan = load_session_plan(session, required=True)
     assert plan is not None
+    _clear_plan_runtime_suspension(session)
     mode = PLAN_MODE_PLANNING
     if plan.status == PLAN_STATUS_EXECUTING:
         mode = PLAN_MODE_EXECUTING

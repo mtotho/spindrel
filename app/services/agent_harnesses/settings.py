@@ -4,6 +4,10 @@ Stored under ``Session.metadata_['harness_settings']`` as a plain dict::
 
     {
         "model": "claude-sonnet-...",        # optional
+        "mode_models": {                     # optional, v2 compatibility
+            "default": "claude-sonnet-...",
+            "plan": "claude-opus-..."
+        },
         "effort": "medium",                   # optional
         "runtime_settings": {...}             # optional, opaque per-runtime
     }
@@ -40,6 +44,7 @@ class HarnessSettings:
     model: str | None = None
     effort: str | None = None
     runtime_settings: dict[str, Any] = field(default_factory=dict)
+    mode_models: dict[str, str] = field(default_factory=dict)
 
 
 def _sanitize_model(value: str) -> str:
@@ -53,6 +58,38 @@ def _sanitize_model(value: str) -> str:
     return trimmed
 
 
+def _sanitize_mode_models(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    clean: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            continue
+        normalized_key = key.strip()
+        normalized_value = value.strip()
+        if normalized_key and normalized_value:
+            clean[normalized_key] = normalized_value
+    return clean
+
+
+def _settings_mode_key(session: Session) -> str:
+    """Map the current session runtime mode to a harness-settings bucket.
+
+    Native Codex/Claude planning has different model expectations than normal
+    execution. Keep the persisted setting separate while preserving the old
+    top-level ``model`` field as the default/chat bucket for compatibility.
+    """
+    try:
+        from app.services.session_plan_mode import (
+            PLAN_MODE_PLANNING,
+            get_session_plan_mode,
+        )
+
+        return "plan" if get_session_plan_mode(session) == PLAN_MODE_PLANNING else "default"
+    except Exception:
+        return "default"
+
+
 async def load_session_settings(
     db: AsyncSession, session_id: uuid.UUID
 ) -> HarnessSettings:
@@ -61,10 +98,18 @@ async def load_session_settings(
     if session is None:
         return HarnessSettings()
     raw = (session.metadata_ or {}).get(HARNESS_SETTINGS_KEY) or {}
+    mode_models = _sanitize_mode_models(raw.get("mode_models"))
+    mode_key = _settings_mode_key(session)
+    model = mode_models.get(mode_key)
+    if model is None and mode_key == "default":
+        legacy_model = raw.get("model")
+        if isinstance(legacy_model, str) and legacy_model.strip():
+            model = legacy_model.strip()
     return HarnessSettings(
-        model=raw.get("model"),
+        model=model,
         effort=raw.get("effort"),
         runtime_settings=dict(raw.get("runtime_settings") or {}),
+        mode_models=mode_models,
     )
 
 
@@ -85,15 +130,26 @@ async def patch_session_settings(
 
     meta = dict(session.metadata_ or {})
     current = dict(meta.get(HARNESS_SETTINGS_KEY) or {})
+    mode_key = _settings_mode_key(session)
+    mode_models = _sanitize_mode_models(current.get("mode_models"))
 
     if "model" in patch:
         value = patch["model"]
         if value is None:
-            current.pop("model", None)
+            mode_models.pop(mode_key, None)
+            if mode_key == "default":
+                current.pop("model", None)
         else:
             if not isinstance(value, str):
                 raise ValueError("model must be a string or null")
-            current["model"] = _sanitize_model(value)
+            clean_model = _sanitize_model(value)
+            mode_models[mode_key] = clean_model
+            if mode_key == "default":
+                current["model"] = clean_model
+    if mode_models:
+        current["mode_models"] = mode_models
+    else:
+        current.pop("mode_models", None)
 
     if "effort" in patch:
         value = patch["effort"]

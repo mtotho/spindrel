@@ -78,6 +78,9 @@ export interface PlanRuntimeCapsule {
     created_at?: string;
   } | null;
   compaction_watermark_message_id?: string | null;
+  suspended_at?: string | null;
+  suspended_from_mode?: "planning" | "executing" | "blocked" | "done" | string | null;
+  suspended_plan_status?: "draft" | "approved" | "executing" | "blocked" | "done" | string | null;
   last_updated_at?: string | null;
   last_update_reason?: string | null;
 }

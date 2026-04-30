@@ -425,6 +425,35 @@ async def test_live_spindrel_plan_mode_start_exit(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_spindrel_plan_exit_resume_preserves_execution_state(client: E2EClient) -> None:
+    _requires_tier("approve")
+    channel_id, session_id, bot_id = await _fresh_session(client, "exit_resume")
+    approved = await _ensure_approved_plan(client, channel_id, session_id, bot_id)
+    assert approved["mode"] == "executing"
+
+    await client.exit_session_plan_mode(session_id)
+
+    suspended = await client.get_session_plan_state(session_id)
+    runtime = _plan_runtime(suspended)
+    assert suspended["mode"] == "chat"
+    assert suspended["has_plan"] is True
+    assert runtime.get("mode") == "chat"
+    assert runtime.get("suspended_from_mode") == "executing"
+    assert runtime.get("suspended_plan_status") == "executing"
+    assert runtime.get("suspended_at")
+
+    resumed = await client.resume_session_plan_mode(session_id)
+    runtime = _plan_runtime(resumed)
+    assert resumed["mode"] == "executing"
+    assert runtime.get("mode") == "executing"
+    assert runtime.get("current_step_id") == "step-1"
+    assert "suspended_at" not in runtime
+    assert "suspended_from_mode" not in runtime
+    assert "suspended_plan_status" not in runtime
+    _record_session("exit_resume", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
 async def test_live_spindrel_plan_questions_widget(client: E2EClient) -> None:
     _requires_tier("questions")
     channel_id, session_id, bot_id = await _fresh_session(client, "question")

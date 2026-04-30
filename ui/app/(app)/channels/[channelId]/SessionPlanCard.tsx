@@ -298,6 +298,15 @@ function derivePlanFocus({
     };
   }
 
+  if (plan.mode === "chat" && runtime?.suspended_at) {
+    return {
+      label: "Plan suspended",
+      text: "Resume plan mode before continuing tracked execution.",
+      tone: "neutral",
+      detail: runtime.suspended_from_mode ? `paused from ${cleanReason(runtime.suspended_from_mode)}` : undefined,
+    };
+  }
+
   const openQuestion = latestPlanningText(planningState?.open_questions);
   if (plan.mode === "planning" && openQuestion) {
     return {
@@ -353,6 +362,7 @@ export function SessionPlanCard({
   chatMode = "default",
   onApprove,
   onExit,
+  onResume,
   onStepStatus,
   onReplan,
   onReviewLatestOutcome,
@@ -367,6 +377,7 @@ export function SessionPlanCard({
   chatMode?: PlanCardChatMode;
   onApprove: () => void;
   onExit: () => void;
+  onResume?: () => void;
   onStepStatus: (stepId: string, status: "pending" | "in_progress" | "done" | "blocked") => void;
   onReplan?: () => void;
   onReviewLatestOutcome?: (correlationId?: string) => void;
@@ -394,6 +405,7 @@ export function SessionPlanCard({
   const latestSemanticReview = adherence?.latest_semantic_review ?? runtime?.latest_semantic_review;
   const latestOutcomeNeedsReview = !!latestOutcome?.correlation_id
     && latestSemanticReview?.correlation_id !== latestOutcome.correlation_id;
+  const suspended = plan.mode === "chat" && !!runtime?.suspended_at;
   const modeMeta = MODE_META[plan.mode] ?? MODE_META.chat;
   const ModeIcon = modeMeta.Icon;
   const planningStateItems = [
@@ -427,6 +439,7 @@ export function SessionPlanCard({
     runtime?.adherence_status ? `adherence ${runtime.adherence_status}` : null,
     pendingOutcome?.reason ? `pending ${pendingOutcome.reason}` : null,
     runtime?.replan?.reason ? `replan ${runtime.replan.reason}` : null,
+    runtime?.suspended_from_mode ? `suspended from ${runtime.suspended_from_mode}` : null,
   ].filter((bit): bit is string => !!bit);
   const planFocus = derivePlanFocus({ plan, blockingIssues, runtime, planningState, pendingOutcome });
   const focusClass = terminal
@@ -524,14 +537,25 @@ export function SessionPlanCard({
             Review Last Outcome
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={onExit}
-          disabled={busy}
-          className={actionClass("neutral", terminal, !!busy)}
-        >
-          Exit Plan Mode
-        </button>
+        {suspended && onResume ? (
+          <button
+            type="button"
+            onClick={onResume}
+            disabled={busy}
+            className={actionClass("accent", terminal, !!busy)}
+          >
+            Resume Plan Mode
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onExit}
+            disabled={busy}
+            className={actionClass("neutral", terminal, !!busy)}
+          >
+            Exit Plan Mode
+          </button>
+        )}
       </div>
 
       {(historical || staleMessage) ? (

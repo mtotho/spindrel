@@ -53,7 +53,7 @@ async def test_get_harness_settings_returns_defaults_when_unset(client, db_sessi
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body == {"model": None, "effort": None, "runtime_settings": {}}
+    assert body == {"model": None, "effort": None, "runtime_settings": {}, "mode_models": {}}
 
 
 async def test_post_sets_then_clears_model(client, db_session):

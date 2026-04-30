@@ -78,10 +78,11 @@ function progressLabel(actionType?: string) {
   return "Progress";
 }
 
-function statusMark(status?: string) {
+function statusMark(status?: string, summary?: string) {
   if (status === "succeeded" || status === "completed") return "ready";
   if (status === "blocked" || status === "failed") return status;
   if (status === "needs_review") return "review";
+  if (status === "unknown" && String(summary || "").toLowerCase().includes("ready")) return "ready";
   return status || "reported";
 }
 
@@ -91,7 +92,7 @@ function handoffProgressSummary(run: ProjectCodingRun) {
     .slice(0, 3);
   if (items.length === 0) return null;
   return items
-    .map((item) => `${progressLabel(String(item.source?.action_type || ""))}: ${statusMark(String(item.status || ""))}`)
+    .map((item) => `${progressLabel(String(item.source?.action_type || ""))}: ${statusMark(String(item.status || ""), String(item.summary || ""))}`)
     .join(" · ");
 }
 

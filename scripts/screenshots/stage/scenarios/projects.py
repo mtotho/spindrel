@@ -191,6 +191,8 @@ def stage_project_workspace(
             request=CODING_RUN_REQUEST,
         )
     task_id = (coding_run.get("task") or {}).get("id")
+    session_id = (coding_run.get("task") or {}).get("session_id")
+    correlation_id = (coding_run.get("task") or {}).get("correlation_id")
     if task_id:
         client.create_execution_receipt({
             "scope": "project_coding_run",
@@ -211,7 +213,9 @@ def stage_project_workspace(
             },
             "bot_id": PROJECT_BOT_ID,
             "channel_id": channel_id,
+            "session_id": session_id,
             "task_id": task_id,
+            "correlation_id": correlation_id,
             "idempotency_key": "screenshot:project-coding-run:handoff.prepare_branch",
         })
         client.create_execution_receipt({
@@ -231,7 +235,9 @@ def stage_project_workspace(
             },
             "bot_id": PROJECT_BOT_ID,
             "channel_id": channel_id,
+            "session_id": session_id,
             "task_id": task_id,
+            "correlation_id": correlation_id,
             "idempotency_key": "screenshot:project-coding-run:handoff.open_pr",
         })
     client.create_project_run_receipt(

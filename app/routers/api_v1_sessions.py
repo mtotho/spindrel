@@ -1032,6 +1032,7 @@ class HarnessSettingsOut(BaseModel):
     model: str | None = None
     effort: str | None = None
     runtime_settings: dict[str, Any] = {}
+    mode_models: dict[str, str] = {}
 
 
 class HarnessSettingsPatch(BaseModel):
@@ -1068,6 +1069,7 @@ async def get_harness_settings(
         model=settings.model,
         effort=settings.effort,
         runtime_settings=dict(settings.runtime_settings),
+        mode_models=dict(settings.mode_models),
     )
 
 
@@ -1414,6 +1416,7 @@ async def set_harness_settings(
         model=settings.model,
         effort=settings.effort,
         runtime_settings=dict(settings.runtime_settings),
+        mode_models=dict(settings.mode_models),
     )
 
 

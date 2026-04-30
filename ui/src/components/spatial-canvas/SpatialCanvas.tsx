@@ -304,10 +304,15 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
   }, []);
 
   const openStarboardAttention = useCallback((item?: WorkspaceAttentionItem | null) => {
-    if (item) setSelectedAttentionId(item.id);
-    navigate(attentionDeckHref({ itemId: item?.id ?? null }), { state: canvasBackState });
+    if (item) {
+      setSelectedAttentionId(item.id);
+      openStarboard();
+      closeAttentionHub();
+      return;
+    }
+    navigate(attentionDeckHref({ itemId: null }), { state: canvasBackState });
     closeAttentionHub();
-  }, [canvasBackState, closeAttentionHub, navigate]);
+  }, [canvasBackState, closeAttentionHub, navigate, openStarboard]);
   const openStarboardLaunch = useCallback(() => {
     setCanvasLibraryOpen(true);
   }, []);

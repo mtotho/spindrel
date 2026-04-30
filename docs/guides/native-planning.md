@@ -22,6 +22,8 @@ Use the visual feedback guide for the live screenshot capture workflow:
 5. During execution, record every turn outcome with `record_plan_progress`.
 6. Request a replan when the accepted revision is stale.
 7. Review adherence so claimed completion is checked against actual turn evidence.
+8. Exiting plan mode suspends the active plan visibly; resuming clears the
+   suspension and restores the execution state from the accepted revision.
 
 Recovery is part of the contract. An unsupported completion review means the
 latest claim is not trusted; the agent must record corrected progress or repeat

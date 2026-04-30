@@ -1051,7 +1051,7 @@ _ASSERT_MAP_BRIEF_SELECTION_JS = (
     "if (!brief) throw new Error('Starboard object inspector did not render');"
     "if (!selected || !/#quality-assurance/.test(selected.textContent || '')) throw new Error('QA channel is not selected in Map Brief');"
     "if (!document.querySelector('[data-testid=\"map-brief-attention-actions\"]')) throw new Error('selected brief does not expose inline attention actions');"
-    "if (!/Acknowledge target/.test(selected.textContent || '')) throw new Error('selected brief cannot acknowledge the active target');"
+    "if (!/(Review finding|Review item|Review signal)/.test(selected.textContent || '')) throw new Error('selected brief does not expose the review action');"
     "if (!/(Investigate|Next up|Recently changed|Quiet nearby|Nearby quiet)/.test(brief.textContent || '')) throw new Error('Map Brief object list is not grouped by actionable cue');"
     "if (!anchor) throw new Error('selected spatial anchor did not render');"
     "if (!document.querySelector('[data-testid=\"spatial-action-cue-marker\"]')) throw new Error('spatial action cue marker did not render');"
@@ -1143,6 +1143,200 @@ _JUMP_TO_SELECTED_AND_WAIT_SCHEDULE_SATELLITES_JS = (
     "   await new Promise(r => setTimeout(r, 100));"
     " }"
 )
+
+_ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  const now = "2026-04-29T14:14:00Z";
+  const baseItem = (id, title, message, status, evidence, severity = "critical", target = "Gardening With Sprout") => ({
+    id,
+    source_type: evidence?.report_issue ? "bot" : "system",
+    source_id: evidence?.report_issue ? "Sprout" : "system",
+    channel_id: "00000000-0000-0000-0000-0000000000aa",
+    channel_name: target,
+    target_kind: "channel",
+    target_id: "00000000-0000-0000-0000-0000000000aa",
+    target_node_id: "channel:qa",
+    dedupe_key: `screenshot:${id}`,
+    severity,
+    title,
+    message,
+    next_steps: [],
+    requires_response: true,
+    status,
+    occurrence_count: title === "view_spatial_canvas failed" ? 7 : 1,
+    evidence: evidence || {},
+    latest_correlation_id: null,
+    response_message_id: null,
+    assigned_bot_id: null,
+    assignment_mode: null,
+    assignment_status: evidence?.operator_triage?.state === "running" ? "running" : null,
+    assignment_instructions: null,
+    assigned_by: null,
+    assigned_at: null,
+    assignment_task_id: evidence?.operator_triage?.task_id || null,
+    assignment_report: evidence?.operator_triage?.summary || null,
+    assignment_reported_by: evidence?.operator_triage?.reported_by || null,
+    assignment_reported_at: evidence?.operator_triage?.reported_at || null,
+    first_seen_at: "2026-04-29T12:01:00Z",
+    last_seen_at: now,
+    responded_at: status === "responded" ? now : null,
+    resolved_at: null
+  });
+  const reviewOne = baseItem("00000000-0000-0000-0000-000000000101", "view_spatial_canvas failed", "Invalid focus_token.", "responded", {
+    kind: "tool_call",
+    classification: "platform_contract",
+    error_kind: "internal",
+    operator_triage: {
+      state: "ready_for_review",
+      classification: "likely_spindrel_code_issue",
+      confidence: "high",
+      summary: "Repeated heartbeat failures hit view_spatial_canvas with invalid focus_token across seven occurrences.",
+      suggested_action: "Open a code fix to review focus-token lifecycle and add a safe fallback when tokens expire.",
+      route: "code_fix",
+      review_required: true,
+      reported_by: "operator",
+      reported_at: now
+    }
+  });
+  const reviewTwo = baseItem("00000000-0000-0000-0000-000000000102", "pin_spatial_widget failed", "Bot has no API permissions for interactive widgets.", "responded", {
+    kind: "tool_call",
+    classification: "permission_contract",
+    operator_triage: {
+      state: "ready_for_review",
+      classification: "user_decision",
+      confidence: "high",
+      summary: "Sprout tried to pin an interactive widget, but the bot lacks API permissions.",
+      suggested_action: "Decide whether this bot should receive scoped widget permissions.",
+      route: "owner_follow_up",
+      review_required: true,
+      reported_by: "operator",
+      reported_at: now
+    }
+  });
+  const inboxOne = baseItem("00000000-0000-0000-0000-000000000201", "search_memory failed", "Decimal is not JSON serializable.", "open", {
+    kind: "tool_call",
+    classification: "platform_contract",
+    error_kind: "internal"
+  }, "error", "Codex - E2E");
+  const inboxTwo = baseItem("00000000-0000-0000-0000-000000000202", "Heartbeat failed", "Recovered: stuck running for 1203s.", "open", {
+    kind: "heartbeat",
+    classification: "retryable_contract"
+  }, "warning");
+  const runningOne = baseItem("00000000-0000-0000-0000-000000000301", "radarr_releases failed", "Operator is classifying repeated HTTP 500s.", "responded", {
+    kind: "tool_call",
+    operator_triage: {
+      state: "running",
+      task_id: "00000000-0000-0000-0000-000000000501",
+      session_id: "00000000-0000-0000-0000-000000000601",
+      parent_channel_id: "00000000-0000-0000-0000-000000000701",
+      operator_bot_id: "operator",
+      reported_by: "operator"
+    }
+  }, "critical", "jellyfin-support");
+  const clearedOne = baseItem("00000000-0000-0000-0000-000000000401", "get_tool_info failed", "Duplicate setup probe; no human action needed.", "acknowledged", {
+    kind: "tool_call",
+    operator_triage: {
+      state: "processed",
+      classification: "duplicate_or_noise",
+      confidence: "high",
+      summary: "Duplicate setup probe already covered by the primary finding.",
+      suggested_action: "No action needed.",
+      route: "can_ignore",
+      review_required: false,
+      reported_by: "operator",
+      reported_at: now
+    }
+  }, "warning", "Baking With Crumb");
+  const clearedTwo = baseItem("00000000-0000-0000-0000-000000000402", "Trace error", "Expected transient trace while staging the screenshot scenario.", "acknowledged", {
+    kind: "trace",
+    operator_triage: {
+      state: "processed",
+      classification: "expected_test_noise",
+      confidence: "medium",
+      summary: "Expected transient trace from the screenshot fixture.",
+      suggested_action: "No action needed.",
+      route: "can_ignore",
+      review_required: false,
+      reported_by: "operator",
+      reported_at: now
+    }
+  }, "info", "Evening check-in");
+  const items = [reviewOne, reviewTwo, inboxOne, inboxTwo, runningOne, clearedOne, clearedTwo];
+  const runs = [{
+    task_id: "00000000-0000-0000-0000-000000000501",
+    session_id: null,
+    parent_channel_id: null,
+    bot_id: "operator",
+    status: "complete",
+    task_status: "completed",
+    item_count: items.length,
+    counts: { total: items.length, running: 1, processed: 2, ready_for_review: 2, failed: 0, unreported: 2 },
+    items,
+    model_override: null,
+    model_provider_id_override: null,
+    effective_model: "gpt-5.4",
+    created_at: now,
+    completed_at: now,
+    error: null
+  }];
+  const brief = {
+    generated_at: now,
+    summary: { blockers: 0, fix_packs: 1, decisions: 1, quiet: 2, running: 1, cleared: 2, total: items.length },
+    next_action: {
+      kind: "open_item",
+      title: "Review the spatial canvas finding",
+      description: "Operator grouped repeated focus-token failures into one code-fix decision.",
+      action_label: "Open finding",
+      item_id: reviewOne.id,
+      fix_pack_id: null
+    },
+    blockers: [],
+    fix_packs: [{
+      id: "fix-spatial-focus-token",
+      title: "Fix focus-token recovery",
+      summary: "Repeated map reads are failing after stale focus tokens.",
+      count: 1,
+      severity: "critical",
+      target_summary: "Gardening With Sprout",
+      item_ids: [reviewOne.id],
+      prompt: "Fix stale focus-token handling in the spatial canvas flow.",
+      action_label: "Open evidence",
+      action: { type: "open_item", item_id: reviewOne.id }
+    }],
+    decisions: [{
+      id: "decision-widget-permissions",
+      kind: "decision",
+      title: "Widget permission decision",
+      summary: "Sprout needs explicit scoped API permission before it can pin interactive widgets.",
+      severity: "warning",
+      target_label: "Gardening With Sprout",
+      item_ids: [reviewTwo.id],
+      action_label: "Make decision",
+      action: { type: "open_item", item_id: reviewTwo.id }
+    }],
+    quiet_digest: { count: 2, groups: [{ label: "Duplicate setup probes", count: 2 }] },
+    running: [runningOne],
+    cleared: [clearedOne, clearedTwo]
+  };
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (url.pathname === "/api/v1/workspace/attention/triage-runs") {
+        return new Response(JSON.stringify({ runs }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/workspace/attention/brief") {
+        return new Response(JSON.stringify(brief), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/workspace/attention") {
+        return new Response(JSON.stringify({ items }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+"""
 
 
 SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
@@ -1381,10 +1575,14 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ),
         output="spatial-check-attention-review-deck.png",
         color_scheme="dark",
+        extra_init_scripts=[_ATTENTION_REVIEW_DECK_ENDPOINT_INIT],
         assert_js=(
             "const text = document.body.innerText;"
+            "const lower = text.toLowerCase();"
             "if (!text.includes('Findings') || !text.includes('Unreviewed') || !text.includes('Sweeps') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
             "if (!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('what-now lane missing');"
+            "if (!text.includes('view_spatial_canvas failed') || !text.includes('pin_spatial_widget failed')) throw new Error('review deck did not render seeded operator findings');"
+            "if (!lower.includes('operator finding') || !lower.includes('open a code fix')) throw new Error('selected finding detail missing useful action language');"
             "if (text.includes('Reviewing now')) throw new Error('stale reviewing-now copy is visible');"
             "if (text.includes('Open in Attention') || text.includes('Open deck')) throw new Error('legacy attention launcher copy is visible');"
             "if (text.includes('Raw signal') || text.includes('raw signal') || text.includes('Next best click')) throw new Error('legacy review language is visible');"
@@ -1401,9 +1599,13 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
         ),
         output="spatial-check-attention-run-log.png",
         color_scheme="dark",
+        extra_init_scripts=[_ATTENTION_REVIEW_DECK_ENDPOINT_INIT],
         assert_js=(
             "const text = document.body.innerText;"
-            "if (!text.includes('Operator sweeps')) throw new Error('sweep history workspace missing');"
+            "const lower = text.toLowerCase();"
+            "if (!lower.includes('operator sweeps')) throw new Error('sweep history workspace missing');"
+            "if (!lower.includes('operator sweep') || !lower.includes('ready for review') || !lower.includes('cleared by operator')) throw new Error('run receipt did not render seeded review/cleared groups');"
+            "if (lower.includes('no operator sweeps yet') || lower.includes('start a sweep to create a receipt')) throw new Error('run log rendered empty state with seeded run data');"
             "if (text.includes('Transcript') && !text.includes('Transcript evidence')) throw new Error('transcript disclosure does not use evidence copy');"
         ),
     ),
@@ -2793,7 +2995,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-blueprint-section\"]') "
             "&& !!document.querySelector('[data-testid=\"project-runtime-env-readiness\"]') "
-            "&& document.body.innerText.includes('Screenshot Service Blueprint')"
+            "&& document.body.innerText.includes('Screenshot Service Blueprint') "
+            "&& document.body.innerText.toLowerCase().includes('runtime env available')"
         ),
         output="project-workspace-settings-blueprint.png",
         color_scheme="dark",
@@ -2801,7 +3004,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         pre_capture_js=(
             "const runtime = document.querySelector('[data-testid=\"project-runtime-env-readiness\"]');"
             "if (runtime) runtime.scrollIntoView({ block: 'center' });"
-            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "await new Promise((resolve) => setTimeout(resolve, 250));"
         ),
         assert_js=(
             "const text = document.body.innerText;"

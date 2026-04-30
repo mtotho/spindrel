@@ -59,6 +59,7 @@ export function PlanResultRenderer({
       chatMode={chatMode}
       onApprove={() => sessionPlan.approvePlan.mutate()}
       onExit={() => sessionPlan.exitPlan.mutate()}
+      onResume={() => sessionPlan.resumePlan.mutate()}
       onStepStatus={(stepId, status) => {
         const note = status === "blocked" ? (window.prompt("Why is this step blocked?") ?? "") : undefined;
         sessionPlan.updateStepStatus.mutate({ stepId, status, note });

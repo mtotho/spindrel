@@ -755,8 +755,12 @@ export default function ChatScreen() {
   const headerHarnessSessionId = channelHeaderChromeMode !== "canvas"
     ? (headerPaneSessionId ?? routeSessionId ?? null)
     : null;
+  const headerHarnessSettingsMode = headerHarnessSessionId === currentPlanSessionId
+    ? sessionPlan.mode
+    : null;
   const { data: harnessSettings } = useSessionHarnessSettings(
     bot?.harness_runtime ? headerHarnessSessionId : null,
+    headerHarnessSettingsMode,
   );
   const { data: sessionApprovalMode } = useSessionApprovalMode(
     bot?.harness_runtime ? headerHarnessSessionId : null,
@@ -889,12 +893,12 @@ export default function ChatScreen() {
       ? sessionApprovalMode?.mode ?? "bypassPermissions"
       : null,
     onHarnessModelChange: (model: string | null) => {
-      const sid = headerPaneSessionId;
+      const sid = headerHarnessSessionId;
       if (!sid) return;
       setHarnessSettings.mutate({ sessionId: sid, patch: { model } });
     },
     onHarnessEffortChange: (effort: string | null) => {
-      const sid = headerPaneSessionId;
+      const sid = headerHarnessSessionId;
       if (!sid) return;
       setHarnessSettings.mutate({ sessionId: sid, patch: { effort } });
     },

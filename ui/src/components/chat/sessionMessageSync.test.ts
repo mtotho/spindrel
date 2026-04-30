@@ -93,3 +93,25 @@ test("synthetic widget rows are dropped once the fetched DB row is equally rich"
     ["db-1"],
   );
 });
+
+test("synthetic assistant row survives when persisted row has same tools but less streamed content", () => {
+  const synthetic: Message = {
+    ...makeSyntheticWidgetMessage(),
+    content: "Succeeded on retry. Extra streamed detail that has not landed yet.",
+    metadata: {
+      ...makeSyntheticWidgetMessage().metadata,
+      thinking: "Reasoning summary streamed before final persist.",
+    },
+  };
+  const dbRow: Message = {
+    ...synthetic,
+    id: "db-1",
+    content: "Succeeded on retry.",
+    metadata: {
+      assistant_turn_body: synthetic.metadata?.assistant_turn_body,
+      tool_results: synthetic.metadata?.tool_results,
+    },
+  };
+
+  assert.equal(shouldKeepSyntheticAssistantMessage(synthetic, [dbRow]), true);
+});

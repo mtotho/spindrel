@@ -42,9 +42,9 @@ export default function HubAttentionPage() {
   }, [requestedItemId]);
 
   useEffect(() => {
-    if (requestedItemId || selectedId || !filteredItems.length) return;
+    if (requestedMode === "runs" || requestedItemId || selectedId || !filteredItems.length) return;
     setSelectedId(filteredItems[0].id);
-  }, [filteredItems, requestedItemId, selectedId]);
+  }, [filteredItems, requestedItemId, requestedMode, selectedId]);
 
   const selectItem = (item: WorkspaceAttentionItem | null) => {
     setSelectedId(item?.id ?? null);

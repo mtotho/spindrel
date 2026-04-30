@@ -286,21 +286,12 @@ export function useChannelEvents(
       // Resume from the last seq we saw if reconnecting.
       const sinceParam = lastSeqRef.current != null ? `?since=${lastSeqRef.current}` : "";
 
-      // First connect (no `since`) — clean up stale turns left over from a
-      // previous mount (e.g. user navigated away mid-turn and came back).
-      // Without this, the orphaned turn blocks the DB→store sync effect and
-      // can produce duplicate messages. Same logic as `replay_lapsed`.
+      // First connect (no `since`) — ask for a fresh state snapshot instead
+      // of materializing any local in-flight turn. The turn may still be
+      // streaming on another route, and finishing it here drops live text /
+      // tool rows before SSE or /state can catch up.
       if (lastSeqRef.current == null && channelId) {
-        const store = useChatStore.getState();
-        const storeKey = dispatchChannelIdRef.current ?? channelId;
-        const ch = store.getChannel(storeKey);
-        const staleTurnIds = Object.keys(ch.turns);
-        if (staleTurnIds.length > 0) {
-          for (const turnId of staleTurnIds) {
-            store.finishTurn(storeKey, turnId);
-          }
-          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-        }
+        queryClient.invalidateQueries({ queryKey: ["channel-state", channelId] });
       }
 
       fetch(`${serverUrl}/api/v1/${subscribePathRef.current}/${channelId}/events${sinceParam}`, {
@@ -814,23 +805,6 @@ export function useChannelEvents(
       clearAllObserverTimeouts();
       if (retryTimer) clearTimeout(retryTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
-      // Clean up any in-flight turns for this channel so they don't linger
-      // as stale state in the store (e.g. user navigates away mid-turn).
-      // Without SSE, we can't receive TURN_ENDED, so finishTurn now and
-      // let the query refetch canonical rows on next mount.
-      if (channelId) {
-        const store = useChatStore.getState();
-        const storeKey = dispatchChannelIdRef.current ?? channelId;
-        const ch = store.getChannel(storeKey);
-        const turnIds = Object.keys(ch.turns);
-        if (turnIds.length > 0) {
-          for (const turnId of turnIds) {
-            store.finishTurn(storeKey, turnId);
-          }
-          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-        }
-      }
     };
   }, [channelId, queryClient, flushDeltas]);
 }

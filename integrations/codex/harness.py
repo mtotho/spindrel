@@ -144,6 +144,13 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         fallback_behavior="terminal",
     ),
     HarnessRuntimeCommandSpec(
+        id="agents",
+        label="agents",
+        description="List or inspect Codex native agent/subagent threads when supported.",
+        aliases=("agent",),
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
         id="review",
         label="review",
         description="Open the Codex native review flow.",
@@ -755,6 +762,16 @@ def _resolve_codex_native_app_server_call(
         if first in {"get", "show"} and len(cleaned) >= 2:
             return schema.METHOD_THREAD_READ, {"threadId": cleaned[1]}
         if first in {"responses", "response"} and len(cleaned) >= 2:
+            return schema.METHOD_THREAD_TURNS_LIST, {"threadId": cleaned[1]}
+        return None, {}
+    if command_id == "agents":
+        if not cleaned or first in {"list", "history"}:
+            return schema.METHOD_THREAD_LIST, {}
+        if first == "search" and len(cleaned) >= 2:
+            return schema.METHOD_THREAD_LIST, {"query": " ".join(cleaned[1:])}
+        if first in {"get", "show", "read"} and len(cleaned) >= 2:
+            return schema.METHOD_THREAD_READ, {"threadId": cleaned[1]}
+        if first in {"turns", "responses", "response"} and len(cleaned) >= 2:
             return schema.METHOD_THREAD_TURNS_LIST, {"threadId": cleaned[1]}
         return None, {}
     if command_id == "cloud":

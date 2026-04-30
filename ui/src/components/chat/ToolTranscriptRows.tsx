@@ -139,7 +139,7 @@ export function DefaultToolRows({
     isError: entry.isError,
   }));
 
-  if (!hasApproval && !groupExpanded && entries.length >= TRACE_STRIP_THRESHOLD) {
+  if (!isTerminalMode && !hasApproval && !groupExpanded && entries.length >= TRACE_STRIP_THRESHOLD) {
     return <ToolTraceStrip ticks={ticks} onExpand={() => setGroupExpanded(true)} t={t} chatMode={chatMode} />;
   }
 

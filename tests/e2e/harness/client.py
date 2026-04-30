@@ -757,6 +757,11 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def resume_session_plan_mode(self, session_id: str) -> dict:
+        resp = await self._client.post(f"/sessions/{session_id}/plan/resume", json={})
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_session_plan_state(self, session_id: str) -> dict:
         resp = await self._client.get(f"/sessions/{session_id}/plan-state")
         resp.raise_for_status()

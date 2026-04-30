@@ -51,12 +51,14 @@ test("cluster overview suppresses the focus lens hint", () => {
 test("attention signal keeps the ring visual-only and makes only the badge clickable", () => {
   const source = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
   const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
+  const canvasSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvas.tsx"), "utf8");
   assert.match(source, /pointer-events-none absolute left-1\/2 top-1\/2/);
   assert.match(source, /aria-hidden/);
   assert.match(source, /!interactive \?/);
   assert.match(source, /relative flex h-6 min-w-6/);
   assert.doesNotMatch(worldSource, /interactive=\{false\}/);
   assert.match(worldSource, /openStarboardAttention\(item\)/);
+  assert.match(canvasSource, /if \(item\) \{\s*setSelectedAttentionId\(item\.id\);\s*openStarboard\(\);/);
   assert.match(source, /<AlertTriangle size=\{12\}/);
   assert.doesNotMatch(source, /border-t-2 border-r-2/);
 });
@@ -72,11 +74,14 @@ test("Map Brief jump frames targets left of an open Starboard panel", () => {
 test("Map Brief object rows reveal targets with animated camera movement", () => {
   const navigationSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialNavigation.tsx"), "utf8");
   const chromeSource = readFileSync(resolve(SPATIAL_DIR, "UsageDensityChrome.tsx"), "utf8");
+  const modelSource = readFileSync(resolve(SPATIAL_DIR, "useSpatialStarboardModels.tsx"), "utf8");
   assert.match(navigationSource, /const OBJECT_REVEAL_MS = 460/);
   assert.match(navigationSource, /flyToStarboardObject[\s\S]*animateCameraTo\(\{ x: targetX, y: targetY, scale: targetScale \}, OBJECT_REVEAL_MS\)/);
   assert.match(navigationSource, /flyToWorldPoint[\s\S]*animateCameraTo\(\{ x: targetX, y: targetY, scale: targetScale \}, OBJECT_REVEAL_MS\)/);
   assert.match(chromeSource, /const handleObjectClick = \(item: StarboardObjectItem\) => \{\s*item\.onSelect\(\);\s*\};/);
   assert.doesNotMatch(chromeSource, /objectClickTimerRef/);
+  assert.match(modelSource, /label: "Review signal"/);
+  assert.doesNotMatch(modelSource, /onSelect: \(\) => \{\s*if \(reviewHref\) navigate/);
 });
 
 test("cluster focus can recover viewport metrics before flying bounds", () => {
@@ -291,6 +296,8 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
   assert.match(hubPageSource, /requestedMode/);
   assert.match(hubPageSource, /requestedRunId/);
   assert.match(hubPageSource, /onRunSelect/);
+  assert.match(hubPageSource, /requestedMode === "runs"/);
+  assert.doesNotMatch(hubPageSource, /if \(requestedItemId \|\| selectedId \|\| !filteredItems\.length\) return;/);
   assert.match(hubPageSource, /requestedTargetKind/);
   assert.match(commandCenterSource, /Navigate/);
   assert.match(commandCenterSource, /attentionDeckHref/);

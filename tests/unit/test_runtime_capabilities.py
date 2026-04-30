@@ -101,10 +101,10 @@ def test_codex_capabilities_shape():
     assert {cmd.id for cmd in caps.native_commands} >= {
         "config", "mcp-status", "plugins", "skills", "features", "marketplace",
         "status", "diff", "undo", "branch", "resume", "review", "cloud",
-        "prompts", "approvals", "editor", "init",
+        "agents", "prompts", "approvals", "editor", "init",
     }
     aliases = {alias for cmd in caps.native_commands for alias in cmd.aliases}
-    assert {"mcp", "plugin", "feature", "marketplaces"} <= aliases
+    assert {"mcp", "plugin", "feature", "marketplaces", "agent"} <= aliases
     by_id = {cmd.id: cmd for cmd in caps.native_commands}
     assert by_id["plugins"].mutability == "argument_sensitive"
     assert by_id["plugins"].readonly is False

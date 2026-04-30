@@ -22,10 +22,11 @@ interface BotLike {
 export function useHarnessComposerProps(
   bot: BotLike | undefined | null,
   sessionId: string | null | undefined,
+  modeKey?: string | null,
 ) {
   const runtime = bot?.harness_runtime ?? null;
   const { data: caps } = useRuntimeCapabilities(runtime);
-  const { data: settings } = useSessionHarnessSettings(sessionId ?? null);
+  const { data: settings } = useSessionHarnessSettings(sessionId ?? null, modeKey);
   const setHarnessSettings = useSetSessionHarnessSettings();
 
   return useMemo(() => {

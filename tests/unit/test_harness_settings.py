@@ -18,6 +18,7 @@ from app.services.agent_harnesses.settings import (
     load_session_settings,
     patch_session_settings,
 )
+from app.services import session_plan_mode as spm
 from tests.factories import build_bot, build_channel
 
 pytestmark = pytest.mark.asyncio
@@ -59,6 +60,7 @@ async def test_patch_sets_model(session_row, db_session):
     )
     assert out.model == "claude-sonnet-4-6"
     assert out.effort is None
+    assert out.mode_models == {"default": "claude-sonnet-4-6"}
     # Re-read via load to make sure the metadata persisted.
     fresh = await load_session_settings(db_session, session_row.id)
     assert fresh.model == "claude-sonnet-4-6"
@@ -94,6 +96,7 @@ async def test_null_clears_field(session_row, db_session):
         db_session, session_row.id, patch={"model": None}
     )
     assert cleared.model is None
+    assert cleared.mode_models == {}
 
 
 async def test_missing_key_leaves_field_unchanged(session_row, db_session):
@@ -106,6 +109,60 @@ async def test_missing_key_leaves_field_unchanged(session_row, db_session):
     )
     assert out.model == "claude-sonnet"
     assert out.effort == "medium"
+
+
+async def test_plan_mode_model_is_stored_separately_from_default(session_row, db_session):
+    await patch_session_settings(
+        db_session, session_row.id, patch={"model": "gpt-5.3-codex"}
+    )
+    await db_session.refresh(session_row)
+    spm.write_session_plan_metadata(session_row, mode=spm.PLAN_MODE_PLANNING)
+    await db_session.commit()
+
+    planning = await patch_session_settings(
+        db_session, session_row.id, patch={"model": "gpt-5.5"}
+    )
+
+    assert planning.model == "gpt-5.5"
+    assert planning.mode_models == {
+        "default": "gpt-5.3-codex",
+        "plan": "gpt-5.5",
+    }
+    await db_session.refresh(session_row)
+    meta = session_row.metadata_[HARNESS_SETTINGS_KEY]
+    assert meta["model"] == "gpt-5.3-codex"
+    assert meta["mode_models"]["plan"] == "gpt-5.5"
+
+    spm.write_session_plan_metadata(session_row, mode=spm.PLAN_MODE_CHAT)
+    await db_session.commit()
+    default_settings = await load_session_settings(db_session, session_row.id)
+    assert default_settings.model == "gpt-5.3-codex"
+
+    spm.write_session_plan_metadata(session_row, mode=spm.PLAN_MODE_PLANNING)
+    await db_session.commit()
+    plan_settings = await load_session_settings(db_session, session_row.id)
+    assert plan_settings.model == "gpt-5.5"
+
+
+async def test_clearing_plan_model_preserves_default_model(session_row, db_session):
+    await patch_session_settings(
+        db_session, session_row.id, patch={"model": "gpt-5.3-codex"}
+    )
+    await db_session.refresh(session_row)
+    spm.write_session_plan_metadata(session_row, mode=spm.PLAN_MODE_PLANNING)
+    await db_session.commit()
+    await patch_session_settings(
+        db_session, session_row.id, patch={"model": "gpt-5.5"}
+    )
+
+    cleared = await patch_session_settings(
+        db_session, session_row.id, patch={"model": None}
+    )
+
+    assert cleared.model is None
+    assert cleared.mode_models == {"default": "gpt-5.3-codex"}
+    await db_session.refresh(session_row)
+    assert session_row.metadata_[HARNESS_SETTINGS_KEY]["model"] == "gpt-5.3-codex"
 
 
 async def test_clearing_all_fields_removes_metadata_key(session_row, db_session):

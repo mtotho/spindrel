@@ -358,6 +358,24 @@ The latest visual-only pass keeps the Canvas + Deck direction but reduces chrome
 
 This pass deliberately did not change the Attention/Operator flow or backend contracts. It only changes visual hierarchy and hit-cue shape so later workflow changes have a calmer canvas to sit on.
 
+## 2026-04-30 — Spatial screenshot verification
+
+The e2e `spatial-checks` bundle is back to a clean docs refresh. Follow-up
+fixed the object-inspector path so Starboard rows select/inspect objects while
+explicit review actions enter Mission Control Review, fixed canvas attention
+badge clicks to open the local Starboard inspector instead of a blank/deep
+review route, and prevented `/hub/attention?mode=runs` from auto-selecting the
+first finding out from under the run-log view. The screenshot fixture now seeds
+deterministic Mission Control Review data so docs captures show a populated
+decision deck and sweep receipt instead of empty/live-noise state.
+
+Verification on 2026-04-30: `spatial-checks` stage succeeded, browser capture
+passed `12/12`, `python -m scripts.screenshots check` passed with `91/91` docs
+references, UI `tsc --noEmit` passed, `spatialSelectionSurfaces.test.ts` passed
+`17/17`, and screenshot pure units passed `37/37`. Reviewed the refreshed
+Map Brief, attention badge, review deck, run-log, view controls, cluster, and
+density images before accepting them as documentation artifacts.
+
 ## Acceptance criteria (Phase 1 gate)
 
 A Phase 1 ship requires all five to pass — by manual verification at minimum, with regression tests where feasible.

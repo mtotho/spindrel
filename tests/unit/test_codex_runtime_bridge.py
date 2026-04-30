@@ -372,6 +372,18 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_THREAD_LIST,
         {"query": "fixture"},
     )
+    assert _resolve_codex_native_app_server_call("agents", ()) == (
+        schema.METHOD_THREAD_LIST,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("agents", ("show", "thread-1")) == (
+        schema.METHOD_THREAD_READ,
+        {"threadId": "thread-1"},
+    )
+    assert _resolve_codex_native_app_server_call("agents", ("turns", "thread-1")) == (
+        schema.METHOD_THREAD_TURNS_LIST,
+        {"threadId": "thread-1"},
+    )
     assert _resolve_codex_native_app_server_call("cloud", ()) == (
         schema.METHOD_ACCOUNT_RATE_LIMITS_READ,
         {},

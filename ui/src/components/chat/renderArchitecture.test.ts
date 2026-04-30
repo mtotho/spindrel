@@ -159,9 +159,26 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
   assert.match(codePreviewRenderer, /gridTemplateColumns:\s*"4ch minmax\(0, 1fr\)"/);
   assert.match(readChatFile("renderers/DiffRenderer.tsx"), /rgba\(34, 197, 94, 0\.18\)/);
   assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
-  assert.match(toolTranscriptRows, /if \(!hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
+  assert.match(toolTranscriptRows, /if \(!isTerminalMode && !hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
   assert.match(toolTranscriptRows, /<ToolTraceStrip ticks=\{ticks\}[\s\S]*chatMode=\{chatMode\}/);
   assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
+});
+
+test("channel SSE remount preserves active turns instead of materializing partial streams", () => {
+  const channelEvents = readFileSync(
+    resolve(process.cwd(), "src/api/hooks/useChannelEvents.ts"),
+    "utf8",
+  );
+  const firstConnectInvalidation = channelEvents.indexOf('queryClient.invalidateQueries({ queryKey: ["channel-state", channelId] });');
+  const firstConnectBlock = channelEvents.slice(
+    channelEvents.indexOf("// First connect"),
+    channelEvents.indexOf("fetch(`${serverUrl}"),
+  );
+  const cleanupBlock = channelEvents.slice(channelEvents.lastIndexOf("return () => {"));
+
+  assert.notEqual(firstConnectInvalidation, -1);
+  assert.doesNotMatch(firstConnectBlock, /store\.finishTurn\(storeKey, turnId\)/);
+  assert.doesNotMatch(cleanupBlock, /store\.finishTurn\(storeKey, turnId\)/);
 });
 
 test("style slash command updates live channel cache instead of refresh-only invalidation", () => {

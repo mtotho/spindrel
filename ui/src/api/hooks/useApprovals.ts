@@ -180,6 +180,7 @@ export interface HarnessSettings {
   model: string | null;
   effort: string | null;
   runtime_settings: Record<string, unknown>;
+  mode_models?: Record<string, string>;
 }
 
 export interface HarnessSettingsPatch {
@@ -191,9 +192,10 @@ export interface HarnessSettingsPatch {
 
 export function useSessionHarnessSettings(
   sessionId: string | null | undefined,
+  modeKey?: string | null,
 ) {
   return useQuery({
-    queryKey: ["session-harness-settings", sessionId],
+    queryKey: ["session-harness-settings", sessionId, modeKey ?? null],
     queryFn: () =>
       apiFetch<HarnessSettings>(
         `/api/v1/sessions/${sessionId}/harness-settings`,
@@ -221,6 +223,8 @@ export function useSetSessionHarnessSettings() {
       ),
     onSuccess: (data, variables) => {
       qc.setQueryData(["session-harness-settings", variables.sessionId], data);
+      qc.invalidateQueries({ queryKey: ["session-harness-settings", variables.sessionId] });
+      qc.invalidateQueries({ queryKey: ["session-harness-status", variables.sessionId] });
     },
   });
 }
