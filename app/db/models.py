@@ -1298,6 +1298,11 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
     )
+    run_receipts: Mapped[list["ProjectRunReceipt"]] = relationship(
+        "ProjectRunReceipt",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "root_path", name="uq_projects_workspace_root_path"),
@@ -1454,6 +1459,59 @@ class ProjectInstance(Base):
         CheckConstraint("owner_kind is null or owner_kind in ('task', 'session', 'manual')", name="ck_project_instances_owner_kind"),
         Index("ix_project_instances_project_created", "project_id", created_at.desc()),
         Index("ix_project_instances_status_expires", "status", "expires_at"),
+    )
+
+
+class ProjectRunReceipt(Base):
+    __tablename__ = "project_run_receipts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_instances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'reported'"))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    handoff_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    handoff_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    branch: Mapped[str | None] = mapped_column(Text, nullable=True)
+    base_branch: Mapped[str | None] = mapped_column(Text, nullable=True)
+    commit_sha: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_files: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    tests: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    screenshots: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    project: Mapped["Project"] = relationship("Project", back_populates="run_receipts")
+    project_instance: Mapped[Optional["ProjectInstance"]] = relationship("ProjectInstance")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+
+    __table_args__ = (
+        CheckConstraint("status in ('reported', 'completed', 'blocked', 'failed', 'needs_review')", name="ck_project_run_receipts_status"),
+        Index("ix_project_run_receipts_project_created", "project_id", created_at.desc()),
+        Index("ix_project_run_receipts_instance_created", "project_instance_id", created_at.desc()),
     )
 
 

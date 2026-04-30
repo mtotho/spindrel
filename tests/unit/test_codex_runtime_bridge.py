@@ -269,6 +269,20 @@ def test_codex_native_command_method_constants_are_current():
     assert schema.METHOD_SKILLS_CONFIG_WRITE == "skills/config/write"
     assert schema.METHOD_EXPERIMENTAL_FEATURE_LIST == "experimentalFeature/list"
     assert schema.METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET == "experimentalFeature/enablement/set"
+    assert schema.METHOD_CONVERSATION_LIST == "conversation/list"
+    assert schema.METHOD_CONVERSATION_SEARCH == "conversation/search"
+    assert schema.METHOD_CONVERSATION_GET == "conversation/get"
+    assert schema.METHOD_CONVERSATION_RESPONSES_LIST == "conversation/responses/list"
+    assert schema.METHOD_COMMAND_EXECUTE == "command/execute"
+    assert schema.METHOD_COMMAND_STATUS == "command/status"
+    assert schema.METHOD_COMMAND_INPUT == "command/input"
+    assert schema.METHOD_COMMAND_KILL == "command/kill"
+    assert schema.METHOD_COMMAND_LIST == "command/list"
+    assert schema.METHOD_FS_LIST_CHANGED_FILES == "fs/listChangedFiles"
+    assert schema.METHOD_CONFIG_REQUIREMENTS_LIST == "configRequirements/list"
+    assert schema.METHOD_CONFIG_REQUIREMENTS_OPEN == "configRequirements/open"
+    assert schema.METHOD_USER_LIMITS == "user/limits"
+    assert schema.METHOD_USER_LIMITS_SUBSCRIPTION == "user/limits/subscription"
 
 
 def test_summarize_native_command_result_counts_common_list_fields():
@@ -300,6 +314,31 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_CONFIG_VALUE_WRITE,
         {"keyPath": "model", "value": "gpt-5.4", "mergeStrategy": "upsert"},
     )
+    assert _resolve_codex_native_app_server_call("status", ()) == (
+        schema.METHOD_ACCOUNT_READ,
+        {"refreshToken": False},
+    )
+    assert _resolve_codex_native_app_server_call("diff", ()) == (
+        schema.METHOD_FS_LIST_CHANGED_FILES,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ()) == (
+        schema.METHOD_CONVERSATION_LIST,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("resume", ("search", "fixture")) == (
+        schema.METHOD_CONVERSATION_SEARCH,
+        {"query": "fixture"},
+    )
+    assert _resolve_codex_native_app_server_call("cloud", ()) == (
+        schema.METHOD_USER_LIMITS,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("approvals", ()) == (
+        schema.METHOD_CONFIG_REQUIREMENTS_LIST,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("review", ()) == (None, {})
 
 
 def test_codex_native_skills_list_is_scoped_to_harness_workdir():
@@ -308,6 +347,14 @@ def test_codex_native_skills_list_is_scoped_to_harness_workdir():
     params = _codex_native_app_server_params_for_context(schema.METHOD_SKILLS_LIST, {}, ctx)
 
     assert params == {"cwds": ["/tmp/project"]}
+
+
+def test_codex_native_diff_is_scoped_to_harness_workdir():
+    ctx = _turn_ctx()
+
+    params = _codex_native_app_server_params_for_context(schema.METHOD_FS_LIST_CHANGED_FILES, {}, ctx)
+
+    assert params == {"cwd": "/tmp/project"}
 
 
 def test_codex_native_command_classifies_mutating_args():

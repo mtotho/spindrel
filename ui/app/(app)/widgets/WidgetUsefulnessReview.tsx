@@ -9,7 +9,7 @@ import type {
   WidgetUsefulnessSeverity,
   WidgetUsefulnessStatus,
 } from "@/src/types/api";
-import { useChannelWidgetAgencyReceipts, useChannelWidgetUsefulness } from "@/src/api/hooks/useWidgetUsefulness";
+import { useApplyWidgetUsefulnessProposal, useChannelWidgetAgencyReceipts, useChannelWidgetUsefulness } from "@/src/api/hooks/useWidgetUsefulness";
 import { Spinner } from "@/src/components/shared/Spinner";
 
 function statusTone(status?: WidgetUsefulnessStatus | null): {
@@ -83,7 +83,7 @@ function evidenceChips(rec: WidgetUsefulnessRecommendation) {
 }
 
 function topFinding(assessment?: WidgetUsefulnessAssessment | null) {
-  return assessment?.recommendations?.[0] ?? null;
+  return assessment?.recommendations?.find((rec) => rec.proposal_id && rec.apply) ?? null;
 }
 
 function actionLabel(action: string): string {
@@ -194,6 +194,7 @@ export function WidgetUsefulnessToolbarButton({
   onEditPin,
   onEditLayout,
   onOpenSettings,
+  onApplied,
 }: {
   channelId: string;
   checkingHealth?: boolean;
@@ -202,13 +203,14 @@ export function WidgetUsefulnessToolbarButton({
   onEditPin?: (pinId: string) => void;
   onEditLayout?: () => void;
   onOpenSettings?: () => void;
+  onApplied?: () => void;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const query = useChannelWidgetUsefulness(channelId);
   const assessment = query.data;
   const tone = statusTone(assessment?.status);
-  const findingCount = assessment?.recommendations.length ?? 0;
-  const label = findingCount > 0 ? `${findingCount} widget proposals` : "Widget proposals";
+  const findingCount = assessment?.recommendations.filter((rec) => rec.proposal_id && rec.apply).length ?? 0;
+  const label = findingCount > 0 ? `${findingCount} widget fixes` : "Widget fixes";
 
   return (
     <>
@@ -220,8 +222,8 @@ export function WidgetUsefulnessToolbarButton({
           (findingCount > 0 ? "text-warning-muted hover:text-warning-muted" : "text-text-muted hover:text-text")
         }
         data-testid="widget-usefulness-review-trigger"
-        aria-label="Open dashboard widget proposals"
-        title={assessment?.summary ?? "Open dashboard widget proposals"}
+        aria-label="Open dashboard widget fixes"
+        title={assessment?.summary ?? "Open dashboard widget fixes"}
       >
         {query.isLoading ? <Spinner /> : tone.icon}
         <span className="hidden lg:inline">{label}</span>
@@ -240,6 +242,7 @@ export function WidgetUsefulnessToolbarButton({
           onEditPin={onEditPin}
           onEditLayout={onEditLayout}
           onOpenSettings={onOpenSettings}
+          onApplied={onApplied}
         />
       )}
     </>
@@ -282,7 +285,7 @@ export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: stri
           <Pill>{assessment.chat_visible_pin_count} chat-visible</Pill>
           <Pill>layout:{assessment.layout_mode}</Pill>
           <Pill>{assessment.widget_agency_mode === "propose_and_fix" ? "propose + fix" : "propose"}</Pill>
-          {assessment.recommendations.length > 0 && <Pill className="bg-warning/10 text-warning-muted">{assessment.recommendations.length} widget proposals</Pill>}
+          {assessment.recommendations.length > 0 && <Pill className="bg-warning/10 text-warning-muted">{assessment.recommendations.length} one-click fixes</Pill>}
         </div>
       )}
       {latestReceipt && (
@@ -318,6 +321,7 @@ function WidgetUsefulnessDrawer({
   onEditPin,
   onEditLayout,
   onOpenSettings,
+  onApplied,
 }: {
   channelId: string;
   assessment: WidgetUsefulnessAssessment | null;
@@ -331,23 +335,35 @@ function WidgetUsefulnessDrawer({
   onEditPin?: (pinId: string) => void;
   onEditLayout?: () => void;
   onOpenSettings?: () => void;
+  onApplied?: () => void;
 }) {
   const receiptsQuery = useChannelWidgetAgencyReceipts(channelId, 8);
+  const applyMutation = useApplyWidgetUsefulnessProposal(channelId);
   if (typeof document === "undefined") return null;
-  const recommendations = assessment?.recommendations ?? [];
+  const recommendations = (assessment?.recommendations ?? []).filter((rec) => rec.proposal_id && rec.apply);
   const tone = statusTone(assessment?.status);
   const errorMessage = error instanceof Error ? error.message : error ? "Failed to load widget usefulness." : null;
+  const applyError = applyMutation.error instanceof Error ? applyMutation.error.message : null;
+  const applyProposal = (rec: WidgetUsefulnessRecommendation) => {
+    if (!rec.proposal_id) return;
+    applyMutation.mutate(rec.proposal_id, {
+      onSuccess: () => {
+        onApplied?.();
+        onRefresh();
+      },
+    });
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-[10000] flex justify-end" data-testid="widget-usefulness-review-drawer">
-      <button type="button" aria-label="Close widget proposals" className="absolute inset-0 bg-black/35" onClick={onClose} />
+      <button type="button" aria-label="Close widget fixes" className="absolute inset-0 bg-black/35" onClick={onClose} />
       <div className="relative flex h-full w-full max-w-[760px] flex-col border-l border-surface-border bg-surface shadow-2xl">
         <div className="flex min-h-[68px] items-start justify-between gap-3 border-b border-surface-border px-5 py-4">
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Widget proposals</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Widget fixes</div>
             <h2 className="mt-1 truncate text-[16px] font-semibold text-text">{assessment?.channel_name ?? "Channel dashboard"}</h2>
             <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-text-dim">
-              Usefulness, visibility, prompt context, health signals, and recent bot authoring evidence.
+              One-click widget fixes only. Advisory findings stay out of this list until they can be applied directly.
             </p>
           </div>
           <button
@@ -381,6 +397,7 @@ function WidgetUsefulnessDrawer({
                 {assessment?.summary ?? "Loading widget usefulness assessment..."}
               </p>
               {errorMessage && <p className="text-[12px] text-danger">{errorMessage}</p>}
+              {applyError && <p className="text-[12px] text-danger">{applyError}</p>}
             </div>
 
             <BotWidgetChangeList
@@ -390,7 +407,7 @@ function WidgetUsefulnessDrawer({
 
             {!isLoading && !errorMessage && recommendations.length === 0 && (
               <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/30 px-4 py-8 text-center text-[13px] text-text-dim">
-                No actionable widget proposals.
+                No one-click widget fixes available.
               </div>
             )}
 
@@ -406,19 +423,30 @@ function WidgetUsefulnessDrawer({
                       <Pill className={severityClass(rec.severity)}>{rec.severity}</Pill>
                       <Pill>{surfaceIcon(rec.surface)} {rec.surface}</Pill>
                       <Pill>{rec.type.replace(/_/g, " ")}</Pill>
-                      {rec.requires_policy_decision && <Pill className="bg-warning/10 text-warning-muted">policy decision</Pill>}
                     </div>
                     <div className="mt-2 text-[13px] font-semibold text-text">{rec.label ?? "Dashboard"}</div>
                   </div>
                 </div>
                 <p className="text-[12px] leading-relaxed text-text-muted">{rec.reason}</p>
-                <p className="text-[12px] leading-relaxed text-text-dim">{rec.suggested_next_action}</p>
+                <p className="text-[12px] leading-relaxed text-text-muted">{rec.apply?.description ?? rec.suggested_next_action}</p>
+                {rec.apply?.impact && <p className="text-[12px] leading-relaxed text-text-dim">{rec.apply.impact}</p>}
                 {evidenceChips(rec).length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {evidenceChips(rec).map((chip) => <Pill key={chip}>{chip}</Pill>)}
                   </div>
                 )}
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {rec.apply && (
+                    <button
+                      type="button"
+                      onClick={() => applyProposal(rec)}
+                      disabled={applyMutation.isPending}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    >
+                      {applyMutation.isPending ? <Spinner /> : <CheckCircle2 size={12} />}
+                      {rec.apply.label || "Apply fix"}
+                    </button>
+                  )}
                   {rec.pin_id && onFocusPin && (
                     <button type="button" onClick={() => { onFocusPin(rec.pin_id!); onClose(); }} className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text">
                       <Eye size={12} />
@@ -450,7 +478,7 @@ function WidgetUsefulnessDrawer({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border px-5 py-3">
           <p className="max-w-[48ch] text-[11px] leading-relaxed text-text-dim">
-            In Propose mode, bots publish widget proposals only. In Propose + fix mode, approved bot tasks can apply safe dashboard changes. Authoring receipts record widget checks, files, and runtime evidence.
+            This list only shows fixes with a direct apply action. Widget checks and bot edits are tracked in the activity receipts above.
           </p>
           <div className="flex items-center gap-1.5">
             {onCheckHealth && (

@@ -43,6 +43,7 @@ plan-mode E2E channel. They are docs artifacts and regression targets.
 | Professional plan contract | [default](../images/spindrel-plan-quality-contract-default-dark.png) | | [terminal](../images/spindrel-plan-quality-contract-terminal-dark.png) |
 | Long-plan readability | [default](../images/spindrel-plan-stress-readability-default-dark.png) | [mobile](../images/spindrel-plan-stress-readability-mobile-dark.png) | [terminal](../images/spindrel-plan-stress-readability-terminal-dark.png) |
 | Adherence review | [default](../images/spindrel-plan-adherence-review-default-dark.png) | | [terminal](../images/spindrel-plan-adherence-review-terminal-dark.png) |
+| Automatic adherence receipt | [default](../images/spindrel-plan-adherence-auto-default-dark.png) | | [terminal](../images/spindrel-plan-adherence-auto-terminal-dark.png) |
 
 ## Verification
 

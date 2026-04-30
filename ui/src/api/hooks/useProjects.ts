@@ -7,6 +7,7 @@ import type {
   ProjectBlueprintWrite,
   ProjectFromBlueprintWrite,
   ProjectInstance,
+  ProjectRunReceipt,
   ProjectRuntimeEnv,
   ProjectSetup,
   ProjectSetupRun,
@@ -56,6 +57,14 @@ export function useProjectInstances(projectId: string | undefined) {
   return useQuery({
     queryKey: ["projects", projectId, "instances"],
     queryFn: () => apiFetch<ProjectInstance[]>(`/api/v1/projects/${projectId}/instances`),
+    enabled: !!projectId,
+  });
+}
+
+export function useProjectRunReceipts(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "run-receipts"],
+    queryFn: () => apiFetch<ProjectRunReceipt[]>(`/api/v1/projects/${projectId}/run-receipts`),
     enabled: !!projectId,
   });
 }

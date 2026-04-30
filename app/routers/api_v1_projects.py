@@ -10,9 +10,10 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
+from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
 from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
+from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
 from app.services.projects import (
@@ -181,6 +182,45 @@ class ProjectInstanceWrite(BaseModel):
     metadata_: dict | None = None
 
 
+class ProjectRunReceiptOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    project_instance_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    bot_id: str | None = None
+    status: str
+    summary: str
+    handoff_type: str | None = None
+    handoff_url: str | None = None
+    branch: str | None = None
+    base_branch: str | None = None
+    commit_sha: str | None = None
+    changed_files: list = Field(default_factory=list)
+    tests: list = Field(default_factory=list)
+    screenshots: list = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ProjectRunReceiptWrite(BaseModel):
+    project_instance_id: uuid.UUID | None = None
+    task_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    bot_id: str | None = None
+    status: str = "reported"
+    summary: str
+    handoff_type: str | None = None
+    handoff_url: str | None = None
+    branch: str | None = None
+    base_branch: str | None = None
+    commit_sha: str | None = None
+    changed_files: list = Field(default_factory=list)
+    tests: list = Field(default_factory=list)
+    screenshots: list = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
 class ProjectFromBlueprintWrite(BaseModel):
     blueprint_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
@@ -289,6 +329,10 @@ def _instance_out(instance: ProjectInstance) -> ProjectInstanceOut:
     out = ProjectInstanceOut.model_validate(instance)
     out.resolved = project_directory_payload(project_directory_from_instance(instance))
     return out
+
+
+def _run_receipt_out(receipt: ProjectRunReceipt) -> ProjectRunReceiptOut:
+    return ProjectRunReceiptOut(**serialize_project_run_receipt(receipt))
 
 
 def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWrite) -> None:
@@ -697,6 +741,57 @@ async def create_fresh_project_instance(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _instance_out(instance)
+
+
+@router.get("/{project_id}/run-receipts", response_model=list[ProjectRunReceiptOut])
+async def get_project_run_receipts(
+    project_id: uuid.UUID,
+    limit: int = 25,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    if await db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        receipts = await list_project_run_receipts(db, project_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [_run_receipt_out(receipt) for receipt in receipts]
+
+
+@router.post("/{project_id}/run-receipts", response_model=ProjectRunReceiptOut, status_code=201)
+async def create_project_run_receipt_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectRunReceiptWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    try:
+        receipt = await create_project_run_receipt(
+            db,
+            project_id=project_id,
+            project_instance_id=body.project_instance_id,
+            task_id=body.task_id,
+            session_id=body.session_id,
+            bot_id=body.bot_id,
+            status=body.status,
+            summary=body.summary,
+            handoff_type=body.handoff_type,
+            handoff_url=body.handoff_url,
+            branch=body.branch,
+            base_branch=body.base_branch,
+            commit_sha=body.commit_sha,
+            changed_files=body.changed_files,
+            tests=body.tests,
+            screenshots=body.screenshots,
+            metadata=body.metadata,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "project not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+    return _run_receipt_out(receipt)
 
 
 @router.post("/{project_id}/setup/runs", response_model=ProjectSetupRunOut, status_code=201)

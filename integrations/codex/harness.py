@@ -110,6 +110,78 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         mutability="argument_sensitive",
         aliases=("marketplaces",),
     ),
+    HarnessRuntimeCommandSpec(
+        id="status",
+        label="status",
+        description="Show Codex native account/status details.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="diff",
+        label="diff",
+        description="Show Codex-visible workspace changes when the app-server supports it.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="undo",
+        label="undo",
+        description="Open the Codex native undo flow.",
+        readonly=False,
+        mutability="mutating",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="branch",
+        label="branch",
+        description="Open the Codex native branch flow.",
+        readonly=False,
+        mutability="mutating",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="resume",
+        label="resume",
+        description="List or search Codex native conversation history when supported.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="review",
+        label="review",
+        description="Open the Codex native review flow.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="cloud",
+        label="cloud",
+        description="Show Codex cloud and quota status when supported.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="prompts",
+        label="prompts",
+        description="Open the Codex native prompts surface.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="approvals",
+        label="approvals",
+        description="Show Codex configuration requirements or open the native approvals flow.",
+        readonly=False,
+        mutability="argument_sensitive",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="editor",
+        label="editor",
+        description="Open the Codex native editor flow.",
+        fallback_behavior="terminal",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="init",
+        label="init",
+        description="Open the Codex native project initialization flow.",
+        readonly=False,
+        mutability="mutating",
+        fallback_behavior="terminal",
+    ),
 )
 
 
@@ -437,6 +509,11 @@ class CodexRuntime:
             async with CodexAppServer.spawn(extra_env=dict(ctx.env)) as client:
                 await client.initialize()
                 params = _codex_native_app_server_params_for_context(method, params, ctx)
+                call_debug = {
+                    "method": method,
+                    "cwd": ctx.workdir,
+                    "suggested_command": _codex_native_terminal_command(command_id, args),
+                }
                 result = await client.request(method, params, timeout=20.0)
         except CodexBinaryNotFound as exc:
             return HarnessRuntimeCommandResult(
@@ -452,13 +529,21 @@ class CodexRuntime:
                 title="Codex native command failed",
                 detail=str(exc),
                 status="error",
+                payload={
+                    "method": method,
+                    "cwd": getattr(ctx, "workdir", None),
+                    "suggested_command": _codex_native_terminal_command(command_id, args),
+                    "error": str(exc),
+                },
             )
+        payload = result if isinstance(result, dict) else {"result": result}
+        payload = {**payload, "_spindrel": call_debug}
         return HarnessRuntimeCommandResult(
             command_id=command_id,
             title=f"Codex {command_id}",
             detail=_summarize_native_command_result(command_id, result),
             status="ok",
-            payload=result if isinstance(result, dict) else {"result": result},
+            payload=payload,
         )
 
     def auth_status(self) -> AuthStatus:
@@ -502,6 +587,10 @@ def _codex_native_command_is_mutating(command_id: str, args: tuple[str, ...]) ->
         return first in {"enable", "disable", "on", "off", "set"}
     if command_id == "config":
         return first in {"set", "write", "upsert", "replace"}
+    if command_id in {"undo", "branch", "init"}:
+        return True
+    if command_id == "approvals":
+        return first not in {"", "list", "status", "show"}
     return False
 
 
@@ -512,8 +601,12 @@ def _codex_native_app_server_params_for_context(
 ) -> dict[str, Any]:
     """Add harness context to app-server calls that would otherwise use process cwd."""
 
+    if ctx is None:
+        return params
     if method == schema.METHOD_SKILLS_LIST and not params.get("cwds"):
         return {**params, "cwds": [ctx.workdir]}
+    if method == schema.METHOD_FS_LIST_CHANGED_FILES and not params.get("cwd"):
+        return {**params, "cwd": ctx.workdir}
     return params
 
 
@@ -593,6 +686,38 @@ def _resolve_codex_native_app_server_call(
             return schema.METHOD_EXPERIMENTAL_FEATURE_ENABLEMENT_SET, {
                 "enablement": {cleaned[1]: cleaned[2].lower() in {"1", "true", "yes", "on", "enable", "enabled"}},
             }
+        return None, {}
+    if command_id == "status":
+        if not cleaned:
+            return schema.METHOD_ACCOUNT_READ, {"refreshToken": False}
+        return None, {}
+    if command_id == "diff":
+        if not cleaned:
+            return schema.METHOD_FS_LIST_CHANGED_FILES, {}
+        return None, {}
+    if command_id == "resume":
+        if not cleaned or first in {"list", "history"}:
+            return schema.METHOD_CONVERSATION_LIST, {}
+        if first == "search" and len(cleaned) >= 2:
+            return schema.METHOD_CONVERSATION_SEARCH, {"query": " ".join(cleaned[1:])}
+        if first in {"get", "show"} and len(cleaned) >= 2:
+            return schema.METHOD_CONVERSATION_GET, {"conversationId": cleaned[1]}
+        if first in {"responses", "response"} and len(cleaned) >= 2:
+            return schema.METHOD_CONVERSATION_RESPONSES_LIST, {"conversationId": cleaned[1]}
+        return None, {}
+    if command_id == "cloud":
+        if not cleaned or first in {"limits", "status"}:
+            return schema.METHOD_USER_LIMITS, {}
+        if first in {"subscription", "sub"}:
+            return schema.METHOD_USER_LIMITS_SUBSCRIPTION, {}
+        return None, {}
+    if command_id == "approvals":
+        if not cleaned or first in {"list", "status", "show"}:
+            return schema.METHOD_CONFIG_REQUIREMENTS_LIST, {}
+        if first == "open":
+            return None, {}
+        return None, {}
+    if command_id in {"undo", "branch", "review", "prompts", "editor", "init"}:
         return None, {}
     return None
 

@@ -391,14 +391,14 @@ def _build_specs(
         route = f"{browser_url}/channels/{channel_id}/session/{adherence_auto_session_id}"
         wait = (
             "document.querySelector('[data-plan-focus]') !== null "
-            "&& document.body.innerText.toLowerCase().includes('native spindrel adherence review') "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel auto adherence review') "
             "&& document.body.innerText.toLowerCase().includes('supported')"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-adherence-auto-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Adherence Review", "supported"),
+            contains=("Native Spindrel Auto Adherence Review", "supported"),
             scroll_plan_text="Supported outcome",
             channel_id=channel_id,
             chat_mode="default",
@@ -407,7 +407,7 @@ def _build_specs(
             name="spindrel-plan-adherence-auto-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Adherence Review", "supported"),
+            contains=("Native Spindrel Auto Adherence Review", "supported"),
             scroll_plan_text="Supported outcome",
             channel_id=channel_id,
             chat_mode="terminal",

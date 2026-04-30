@@ -61,6 +61,10 @@ class WorkSurface:
         }
 
 
+def is_project_like_surface(surface: WorkSurface | None) -> bool:
+    return surface is not None and surface.kind in {"project", "project_instance"}
+
+
 @dataclass(frozen=True)
 class ProjectBlueprintMaterialization:
     folders_created: list[str]

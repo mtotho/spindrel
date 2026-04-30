@@ -17,6 +17,8 @@ _SCHEMA = {
         "description": (
             "Assess whether a channel dashboard's widgets are useful, healthy, "
             "visible in the intended surfaces, and exporting helpful context. "
+            "The recommendations array contains one-click applyable fixes; "
+            "advisory-only signals are returned separately as findings. "
             "Start here for recurring widget improvement reviews; use "
             "check_dashboard_widgets/check_widget only when this assessment "
             "points to health or runtime evidence that needs deeper inspection."
@@ -49,6 +51,7 @@ _RETURNS = {
         "project": {"type": ["object", "null"]},
         "context_export": {"type": "object"},
         "recommendations": {"type": "array"},
+        "findings": {"type": "array"},
     },
     "additionalProperties": True,
 }

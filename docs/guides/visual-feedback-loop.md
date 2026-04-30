@@ -297,6 +297,8 @@ spindrel-plan-stress-readability-mobile-dark.png
 spindrel-plan-stress-readability-terminal-dark.png
 spindrel-plan-adherence-review-default-dark.png
 spindrel-plan-adherence-review-terminal-dark.png
+spindrel-plan-adherence-auto-default-dark.png
+spindrel-plan-adherence-auto-terminal-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same

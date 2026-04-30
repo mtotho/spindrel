@@ -210,6 +210,12 @@ deck. Starboard actions were relabeled to `Open Review`, `Review signal`, and
 Map Brief -> full deck when needed. Cluster focus, selected anchors, and shallow
 Starboard copy are now pinned by the spatial surface tests.
 
+Same-day Action Compass follow-up: the canvas `Next actions` card now treats the
+full Mission Control Review queue as the primary bulk path. Rows remain
+object-local inspection shortcuts, while `Review all` opens the review deck for
+the whole queue. Users can minimize the compass into a sticky compact marker so
+the map keeps a quiet signal without forcing the card to stay open.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

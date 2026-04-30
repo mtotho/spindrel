@@ -1956,11 +1956,11 @@ async def _append_prompt_and_user_message(
     if channel_id is not None and ch_row is not None and getattr(ch_row, "project_id", None):
         try:
             from app.db.engine import async_session
-            from app.services.projects import resolve_channel_work_surface
+            from app.services.projects import is_project_like_surface, resolve_channel_work_surface
 
             async with async_session() as db:
                 surface = await resolve_channel_work_surface(db, ch_row, bot, include_prompt=True)
-            if surface is not None and surface.kind == "project" and surface.prompt:
+            if is_project_like_surface(surface) and surface.prompt:
                 messages.append({"role": "system", "content": surface.prompt})
                 inject_chars["project_prompt"] = len(surface.prompt)
                 budget_consume("project_prompt", surface.prompt)

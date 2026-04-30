@@ -266,6 +266,7 @@ class CodexAppServer:
     async def _read_loop(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
         reader = self._proc.stdout
+        close_error: Exception | None = None
         try:
             while True:
                 line = await _read_jsonrpc_line(reader)
@@ -279,10 +280,16 @@ class CodexAppServer:
                 self._dispatch(payload)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            close_error = exc
             logger.exception("codex app-server reader crashed")
         finally:
-            self._mark_stream_closed(RuntimeError("codex app-server stream closed"))
+            if close_error is not None:
+                self._mark_stream_closed(
+                    RuntimeError(f"codex app-server stream closed: {close_error}")
+                )
+            else:
+                self._mark_stream_closed(RuntimeError("codex app-server stream closed"))
 
     def _mark_stream_closed(self, exc: Exception) -> None:
         if self._closed:

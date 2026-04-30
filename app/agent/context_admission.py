@@ -374,7 +374,7 @@ async def inject_channel_workspace(
 
     try:
         from app.db.engine import async_session
-        from app.services.projects import resolve_channel_work_surface
+        from app.services.projects import is_project_like_surface, resolve_channel_work_surface
 
         try:
             async with async_session() as db:
@@ -387,13 +387,14 @@ async def inject_channel_workspace(
             )
             surface = None
 
-        if surface is not None and surface.kind == "project":
+        if is_project_like_surface(surface):
             cw_root = surface.root_host_path
             cw_abs = surface.display_path
             index_root = surface.index_root_host_path
             channel_index_prefix = surface.index_prefix
+            surface_label = "Fresh Project instance" if surface.kind == "project_instance" else "Project workspace"
             helper_prefix = (
-                f"Project workspace — {surface.project_name or surface.index_prefix}\n"
+                f"{surface_label} — {surface.project_name or surface.index_prefix}\n"
                 "This channel is attached to the Project root below; treat it as the default working surface for code, files, search, and exec.\n"
             )
         else:

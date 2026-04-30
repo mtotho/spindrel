@@ -270,13 +270,15 @@ export default function WidgetPinPage() {
               <span>{dashboardLabel}</span>
               <span>Pin {shortId(pin.id)}</span>
               <span>{pin.tool_name}</span>
-              <span
-                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${healthTone(health?.status)}`}
-                title={health?.summary ?? "Health not checked"}
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                {health?.status ?? "unchecked"}
-              </span>
+              {health && health.status !== "unknown" && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${healthTone(health.status)}`}
+                  title={health.summary}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  {health.status}
+                </span>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {pin.source_channel_id && (

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import uuid
 
-from app.services.widget_usefulness import assess_widget_usefulness_from_data
+import pytest
+
+from app.db.models import Channel
+from app.services.dashboard_pins import create_pin, list_pins
+from app.services.widget_usefulness import (
+    apply_channel_widget_usefulness_proposal,
+    assess_channel_widget_usefulness,
+    assess_widget_usefulness_from_data,
+)
 
 
 def _pin(
@@ -66,10 +74,11 @@ def test_empty_dashboard_recommends_project_starter_widgets() -> None:
         },
     )
 
-    assert result["status"] == "needs_attention"
+    assert result["status"] == "healthy"
     assert result["project_scope_available"] is True
-    assert result["recommendations"][0]["type"] == "missing_coverage"
-    assert "Project-bound channel" in result["recommendations"][0]["reason"]
+    assert result["recommendations"] == []
+    assert result["findings"][0]["type"] == "missing_coverage"
+    assert "Project-bound channel" in result["findings"][0]["reason"]
 
 
 def test_health_findings_are_high_priority() -> None:
@@ -79,11 +88,11 @@ def test_health_findings_are_high_priority() -> None:
         widget_health={"pin-1": {"status": "failing", "summary": "Browser error"}},
     )
 
-    first = result["recommendations"][0]
+    first = result["findings"][0]
     assert first["type"] == "health"
     assert first["severity"] == "high"
     assert first["pin_id"] == "pin-1"
-    assert result["status"] == "action_required"
+    assert result["status"] == "healthy"
 
 
 def test_duplicate_pins_are_reported_once() -> None:
@@ -96,8 +105,11 @@ def test_duplicate_pins_are_reported_once() -> None:
 
     duplicate_recs = [item for item in result["recommendations"] if item["type"] == "duplicate"]
     assert len(duplicate_recs) == 1
-    assert duplicate_recs[0]["requires_policy_decision"] is True
+    assert duplicate_recs[0]["requires_policy_decision"] is False
     assert duplicate_recs[0]["evidence"]["pin_ids"] == ["a", "b"]
+    assert duplicate_recs[0]["apply"]["action"] == "remove_duplicate_pins"
+    assert duplicate_recs[0]["apply"]["keep_pin_id"] == "a"
+    assert duplicate_recs[0]["apply"]["remove_pin_ids"] == ["b"]
 
 
 def test_hidden_chat_zone_is_reported_for_layout_mode() -> None:
@@ -109,6 +121,8 @@ def test_hidden_chat_zone_is_reported_for_layout_mode() -> None:
     assert visibility["surface"] == "chat"
     assert visibility["evidence"]["layout_mode"] == "rail-chat"
     assert visibility["evidence"]["zone"] == "dock"
+    assert visibility["apply"]["action"] == "move_pin_to_visible_zone"
+    assert visibility["apply"]["to_zone"] == "rail"
     assert result["widget_agency_mode"] == "propose"
 
 
@@ -132,7 +146,7 @@ def test_context_export_gap_is_reported_when_nothing_reaches_prompt() -> None:
         context_snapshot={"exported_count": 0, "skipped_count": 1, "rows": []},
     )
 
-    context = next(item for item in result["recommendations"] if item["type"] == "context")
+    context = next(item for item in result["findings"] if item["type"] == "context")
     assert context["severity"] == "medium"
     assert context["evidence"]["export_enabled_count"] == 1
 
@@ -150,7 +164,7 @@ def test_actionable_widget_without_hint_is_reported() -> None:
         context_snapshot={"exported_count": 1, "skipped_count": 0, "rows": []},
     )
 
-    actionability = next(item for item in result["recommendations"] if item["type"] == "actionability")
+    actionability = next(item for item in result["findings"] if item["type"] == "actionability")
     assert actionability["severity"] == "low"
     assert actionability["evidence"]["action_ids"] == ["add", "toggle"]
 
@@ -169,5 +183,49 @@ def test_no_findings_returns_no_actionable_widget_proposals() -> None:
     )
 
     assert result["status"] == "healthy"
-    assert result["summary"] == "No actionable widget proposals."
+    assert result["summary"] == "No one-click widget fixes available."
     assert result["recommendations"] == []
+
+
+@pytest.mark.asyncio
+async def test_apply_duplicate_widget_proposal_removes_duplicate_pin(db_session) -> None:
+    channel_id = uuid.uuid4()
+    dashboard_key = f"channel:{channel_id}"
+    db_session.add(Channel(id=channel_id, name="Useful Channel", bot_id="bot-1"))
+    await db_session.commit()
+
+    keep = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="demo_tool",
+        envelope={"display_label": "Weather"},
+        dashboard_key=dashboard_key,
+        display_label="Weather",
+        widget_config={"city": "Detroit"},
+    )
+    remove = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="demo_tool",
+        envelope={"display_label": "Weather"},
+        dashboard_key=dashboard_key,
+        display_label="Weather",
+        widget_config={"city": "Detroit"},
+    )
+
+    assessment = await assess_channel_widget_usefulness(db_session, channel_id)
+    proposal = next(item for item in assessment["recommendations"] if item["type"] == "duplicate")
+
+    result = await apply_channel_widget_usefulness_proposal(
+        db_session,
+        channel_id,
+        proposal_id=proposal["proposal_id"],
+    )
+
+    pins = await list_pins(db_session, dashboard_key=dashboard_key)
+    pin_ids = {pin.id for pin in pins}
+    assert result["ok"] is True
+    assert result["action"] == "remove_duplicate_pins"
+    assert keep.id in pin_ids
+    assert remove.id not in pin_ids
+    assert result["receipt"]["action"] == "apply_remove_duplicate_pins"

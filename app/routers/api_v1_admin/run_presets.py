@@ -29,6 +29,11 @@ class RunPresetTaskDefaultsOut(BaseModel):
     history_mode: str
     history_recent_count: int
     skip_tool_approval: bool
+    session_target: dict[str, Any] | None = None
+    project_instance: dict[str, Any] | None = None
+    allow_issue_reporting: bool | None = None
+    harness_effort: str | None = None
+    max_run_seconds: int | None = None
 
 
 class RunPresetOut(BaseModel):

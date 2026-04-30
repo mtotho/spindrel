@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { WidgetAgencyReceiptList, WidgetUsefulnessAssessment } from "@/src/types/api";
 
@@ -23,5 +23,24 @@ export function useChannelWidgetAgencyReceipts(channelId?: string | null, limit 
       ),
     enabled: !!channelId,
     staleTime: 30_000,
+  });
+}
+
+export function useApplyWidgetUsefulnessProposal(channelId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (proposalId: string) =>
+      apiFetch<{ ok: boolean; summary: string }>(
+        `/api/v1/admin/channels/${encodeURIComponent(channelId!)}/widget-usefulness/apply`,
+        {
+          method: "POST",
+          body: JSON.stringify({ proposal_id: proposalId }),
+        },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["channel-widget-usefulness", channelId] });
+      void qc.invalidateQueries({ queryKey: ["channel-widget-agency-receipts", channelId] });
+      void qc.invalidateQueries({ queryKey: ["widget-dashboard"] });
+    },
   });
 }

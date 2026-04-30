@@ -102,7 +102,10 @@ HARNESSES = (
         channel_env="HARNESS_PARITY_CODEX_CHANNEL_ID",
         bot_env="HARNESS_PARITY_CODEX_BOT_ID",
         default_bot_id="codex-bot",
-        native_commands=("config", "mcp-status", "plugins", "skills", "features"),
+        native_commands=(
+            "config", "mcp-status", "plugins", "skills", "features",
+            "status", "diff", "resume", "cloud", "approvals",
+        ),
         direct_native_commands=(
             ("plugins", "plugins"),
             ("skills", "skills"),

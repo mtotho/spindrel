@@ -377,12 +377,12 @@ async def reindex_channel(
     try:
         from app.db.engine import async_session
         from app.db.models import Channel
-        from app.services.projects import resolve_channel_work_surface
+        from app.services.projects import is_project_like_surface, resolve_channel_work_surface
 
         async with async_session() as db:
             channel = await db.get(Channel, channel_id)
             surface = await resolve_channel_work_surface(db, channel, bot) if channel is not None else None
-        if surface is not None and surface.kind == "project":
+        if is_project_like_surface(surface):
             base_prefix = surface.index_prefix
             base_root = surface.index_root_host_path
     except Exception:

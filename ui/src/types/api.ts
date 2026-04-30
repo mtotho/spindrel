@@ -711,6 +711,7 @@ export type WidgetUsefulnessSeverity = "info" | "low" | "medium" | "high" | stri
 export type WidgetUsefulnessSurface = "dashboard" | "chat" | "project" | string;
 
 export interface WidgetUsefulnessRecommendation {
+  proposal_id?: string;
   type: string;
   severity: WidgetUsefulnessSeverity;
   surface: WidgetUsefulnessSurface;
@@ -720,6 +721,14 @@ export interface WidgetUsefulnessRecommendation {
   evidence: Record<string, unknown>;
   suggested_next_action: string;
   requires_policy_decision: boolean;
+  apply?: {
+    id: string;
+    action: string;
+    label: string;
+    description: string;
+    impact?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface WidgetUsefulnessAssessment {
@@ -736,6 +745,7 @@ export interface WidgetUsefulnessAssessment {
   project: Record<string, unknown> | null;
   context_export: Record<string, unknown>;
   recommendations: WidgetUsefulnessRecommendation[];
+  findings?: WidgetUsefulnessRecommendation[];
 }
 
 export interface WidgetAgencyReceipt {
@@ -1474,6 +1484,27 @@ export interface ProjectInstance {
     path: string;
     host_path: string;
   } | null;
+}
+
+export interface ProjectRunReceipt {
+  id: string;
+  project_id: string;
+  project_instance_id?: string | null;
+  task_id?: string | null;
+  session_id?: string | null;
+  bot_id?: string | null;
+  status: "reported" | "completed" | "blocked" | "failed" | "needs_review" | string;
+  summary: string;
+  handoff_type?: string | null;
+  handoff_url?: string | null;
+  branch?: string | null;
+  base_branch?: string | null;
+  commit_sha?: string | null;
+  changed_files?: string[];
+  tests?: Array<Record<string, any> | string>;
+  screenshots?: Array<Record<string, any> | string>;
+  metadata?: Record<string, any>;
+  created_at: string;
 }
 
 export interface SessionProjectInstance {

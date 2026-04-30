@@ -13,7 +13,7 @@ Six tools cover the full surface:
 
 | Tool | Purpose |
 |---|---|
-| `assess_widget_usefulness` | Structured usefulness proposals with health signals, duplicates, visibility, context export, Project-bound context, and `widget_agency_mode` |
+| `assess_widget_usefulness` | Structured one-click usefulness fixes plus advisory findings for health signals, duplicates, visibility, context export, Project-bound context, and `widget_agency_mode` |
 | `describe_dashboard` | Read raw pin JSON + rendered ASCII preview |
 | `pin_widget` | Pin a library widget (builtin / integration / channel) at a zone + slot |
 | `move_pins` | Batch-update one or more pins' zone + `{x, y, w, h}` |
@@ -58,9 +58,9 @@ Only touch non-channel dashboards when the user explicitly references them ("pin
 
 Most layout requests follow the same four-step dance:
 
-1. **See** — for improvement proposals, call `assess_widget_usefulness` first and read `widget_agency_mode`. For layout changes, call `describe_dashboard` first. Don't propose changes against a dashboard you haven't inspected; pins may already exist in that zone, the preset may surprise you, panel mode may be active.
+1. **See** — for improvement work, call `assess_widget_usefulness` first and read `widget_agency_mode`. For layout changes, call `describe_dashboard` first. Don't suggest changes against a dashboard you haven't inspected; pins may already exist in that zone, the preset may surprise you, panel mode may be active.
 2. **Propose** — reply with the ASCII preview you'd like to end at, prefixed with "here's what I'm thinking". Quote the legend so pin IDs are visible.
-3. **Policy** — if `widget_agency_mode` is `propose`, stop at proposals. If it is `propose_and_fix`, you may apply safe fixes and report what changed.
+3. **Policy** — if `widget_agency_mode` is `propose`, stop at suggested fixes. If it is `propose_and_fix`, you may apply safe fixes and report what changed.
 4. **Execute** — chain `pin_widget` / `move_pins` / `unpin_widget` calls only under `propose_and_fix`. Render the post-execution ASCII preview to confirm the result.
 
 ## Chat view vs full dashboard view

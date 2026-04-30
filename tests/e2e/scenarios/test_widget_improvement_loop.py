@@ -262,15 +262,15 @@ async def test_widget_improvement_task_propose_mode_does_not_mutate(client: E2EC
             prompt_suffix=(
                 "E2E verification constraints:\n"
                 f"- First call assess_widget_usefulness with channel_id {channel_id!r}.\n"
-                "- Do not call any mutating dashboard tool. In propose mode, return proposals only.\n"
-                "- Include the exact phrase 'widget proposals' in the final answer."
+                "- Do not call any mutating dashboard tool. In propose mode, return fix suggestions only.\n"
+                "- Include the exact phrase 'widget fixes' in the final answer."
             ),
             task_ids=task_ids,
         )
 
         assert finished["status"] == "complete", finished
         result_text = str(finished.get("result") or "").lower()
-        assert "widget proposals" in result_text or "proposal" in result_text
+        assert "widget fixes" in result_text or "fix" in result_text
         messages = await client.get_session_messages(session_id, limit=50)
         assert "assess_widget_usefulness" in _messages_blob(messages)
         assert _pin_ids(await client.list_dashboard_pins(dashboard_key)) == before_ids
@@ -371,7 +371,7 @@ async def test_widget_improvement_chat_request_returns_proposals_without_mutatio
         result = await client.chat_stream(
             (
                 f"Call assess_widget_usefulness for channel_id {channel_id} and return concise "
-                "widget proposals for duplicate or low-usefulness widgets. Do not mutate widgets."
+                "widget fixes for duplicate or low-usefulness widgets. Do not mutate widgets."
             ),
             bot_id=bot_id,
             channel_id=channel_id,

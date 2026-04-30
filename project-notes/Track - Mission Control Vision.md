@@ -479,6 +479,12 @@ the system can already inspect" is a shared capability manifest:
   gaps navigate to the owning settings surface. No separate mutation endpoint
   was added; the UI reuses the existing bot update path and refreshes the
   manifest after apply.
+- Integration Doctor v1 extends the same manifest with read-only integration
+  readiness. It composes the existing integration catalog, channel activation
+  options, and channel bindings to show enabled/setup/dependency/process gaps,
+  placeholder activation bindings, and missing channel activation config. Its
+  proposed actions are route-only; enabling integrations, installing deps,
+  starting processes, and writing secrets stay explicit admin work.
 - Repo-dev AX is a separate surface: `.agents/manifest.json` indexes
   repository-local skills for development agents working on Spindrel source.
   These skills cover backend, UI, integrations, widgets, harnesses, docs, and

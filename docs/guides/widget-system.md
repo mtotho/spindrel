@@ -289,14 +289,15 @@ Both flavors share the same authoring loop. There is no JSX server-side typechec
 | `publish_widget_authoring_receipt` | End of a bot widget authoring run | Records durable in-context evidence for created, updated, debugged, checked, or improved widgets: library ref, touched files, health summary, check phases, screenshot data URL when small enough, affected pins, and next actions. It does not edit files, pins, or dashboards. |
 | `check_widget` | Draft or pinned health check | For drafts, wraps `preview_widget` and static lint checks. For pins, persists a latest health summary (`healthy`, `warning`, `failing`, `unknown`) from static validation, runtime debug events, and an opportunistic Playwright smoke check when `BASE_URL` + browser runtime are available. |
 | `check_dashboard_widgets` | Dashboard-wide health check | Runs `check_widget` across dashboard pins and stores latest summaries so `describe_dashboard`, dashboard UI badges, and bot follow-up turns have the same health read model. |
-| `assess_widget_usefulness` | Dashboard usefulness proposals | Channel dashboard assessment for health signals, duplicates, hidden chat surfaces, context-export gaps, actionability hints, Project-bound starter coverage, and the channel's widget agency mode. |
+| `assess_widget_usefulness` | Dashboard usefulness fixes | Channel dashboard assessment for one-click duplicate/visibility fixes plus separate advisory findings for health signals, context-export gaps, actionability hints, Project-bound starter coverage, and the channel's widget agency mode. |
 | `inspect_widget_pin` | Post-pin runtime trace | Reads the in-memory debug ring (cap 50, newest-first) for a pinned widget: every `callTool` request+response (real envelope shape — no guessing the JSON path), every `loadAttachment` result, every uncaught JS error / unhandled promise rejection / `console.*` call / `spindrel.log.*` entry. For `runtime: react`, Babel compile errors are mirrored to `spindrel.log.error` so they show up here with the same shape as a runtime JS error. |
 
-The channel dashboard UI surfaces the same usefulness assessment as compact
-widget proposal affordances and a drawer. Channel Settings -> Dashboard shows a
-compact summary plus the Bot widget agency setting: `propose` means bots can
-only publish widget proposals, while `propose_and_fix` lets scheduled or
-chat-triggered bot work apply safe dashboard fixes. Bot-applied dashboard
+The channel dashboard UI surfaces only one-click usefulness fixes as compact
+affordances and a drawer. Advisory-only findings stay out of that fix list until
+they can be applied directly. Channel Settings -> Dashboard shows a compact
+summary plus the Bot widget agency setting: `propose` means bots can only
+suggest fixes, while `propose_and_fix` lets scheduled or chat-triggered bot work
+apply safe dashboard fixes. Bot-applied dashboard
 changes are recorded as bot widget change receipts with the action, affected
 pins, compact before/after state, and the tool-supplied reason. Bot authoring
 runs can also publish widget authoring receipts so checks, touched files,

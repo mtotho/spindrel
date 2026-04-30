@@ -214,11 +214,11 @@ async def _exec_sync(
             ch_id = current_channel_id.get()
             if ch_id is not None:
                 from app.db.engine import async_session
-                from app.services.projects import resolve_channel_work_surface_by_id
+                from app.services.projects import is_project_like_surface, resolve_channel_work_surface_by_id
 
                 async with async_session() as db:
                     surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
-                if surface is not None and surface.kind == "project":
+                if is_project_like_surface(surface):
                     working_directory = surface.root_host_path
         except Exception:
             logger.debug("Could not resolve project cwd for delegate_to_exec", exc_info=True)
@@ -322,14 +322,14 @@ async def _exec_deferred(
         try:
             from app.agent.bots import get_bot
             from app.db.engine import async_session
-            from app.services.projects import resolve_channel_work_surface_by_id
+            from app.services.projects import is_project_like_surface, resolve_channel_work_surface_by_id
 
             bot = get_bot(bot_id)
             ch_id = current_channel_id.get()
             if ch_id is not None:
                 async with async_session() as db:
                     surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
-                if surface is not None and surface.kind == "project":
+                if is_project_like_surface(surface):
                     exec_cfg["working_directory"] = surface.root_host_path
         except Exception:
             logger.debug("Could not resolve project cwd for deferred delegate_to_exec", exc_info=True)

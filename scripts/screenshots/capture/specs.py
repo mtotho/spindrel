@@ -2137,13 +2137,13 @@ CHANNEL_QUICK_AUTOMATION_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
-# Channel widget-usefulness proposals — validates the human-facing usefulness
-# proposal surface on channel dashboards and channel settings.
+# Channel widget-usefulness fixes — validates the human-facing usefulness
+# fix surface on channel dashboards and channel settings.
 # ---------------------------------------------------------------------------
 
 _WIDGET_USEFULNESS_READY = (
     "!!document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]') "
-    "&& /proposal/i.test(document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]')?.textContent || '')"
+    "&& /fix/i.test(document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]')?.textContent || '')"
 )
 
 _OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
@@ -2155,18 +2155,18 @@ _OPEN_WIDGET_USEFULNESS_DRAWER_JS = (
     "  }"
     "  throw new Error(`timed out waiting for ${label}`);"
     "};"
-    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]'), 'proposal trigger');"
+    "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]'), 'widget fix trigger');"
     "const button = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
-    "if (!button) throw new Error('proposal button missing');"
+    "if (!button) throw new Error('widget fix button missing');"
     "button.click();"
     "await waitFor(() => document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]'), 'review drawer');"
 )
 
 _ASSERT_WIDGET_USEFULNESS_STRIP_JS = (
     "const trigger = document.querySelector('[data-testid=\"widget-usefulness-review-trigger\"]');"
-    "if (!trigger) throw new Error('proposal trigger missing');"
+    "if (!trigger) throw new Error('widget fix trigger missing');"
     "const text = document.body.innerText || trigger.textContent || '';"
-    "if (!/3 widget proposals|widget proposals/i.test(text)) throw new Error('widget proposal trigger count missing');"
+    "if (!/2 widget fixes|widget fixes/i.test(text)) throw new Error('widget fix trigger count missing');"
     "if (document.querySelector('[data-testid=\"widget-usefulness-review-strip\"]')) throw new Error('persistent review strip should not render');"
 )
 
@@ -2174,10 +2174,10 @@ _ASSERT_WIDGET_USEFULNESS_DRAWER_JS = (
     "const drawer = document.querySelector('[data-testid=\"widget-usefulness-review-drawer\"]');"
     "if (!drawer) throw new Error('review drawer missing');"
     "const text = drawer.textContent || '';"
-    "if (!/Widget proposals/.test(text)) throw new Error('drawer title missing');"
+    "if (!/Widget fixes/.test(text)) throw new Error('drawer title missing');"
     "if (!/Recent bot widget activity|widget authoring/i.test(text)) throw new Error('bot widget activity receipts missing');"
-    "if (!/policy decision|Focus pin|Edit layout/.test(text)) throw new Error('actionable proposal controls missing');"
-    "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('proposals missing');"
+    "if (!/Remove 1 duplicate|Move to rail|Focus pin|Edit layout/.test(text)) throw new Error('one-click fix controls missing');"
+    "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('widget fixes missing');"
 )
 
 _WIDGET_USEFULNESS_ENDPOINT_INIT = """
@@ -2188,7 +2188,7 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
     channel_name: "Widget usefulness review",
     dashboard_key: "channel:screenshot-channel",
     status: "needs_attention",
-    summary: "3 widget usefulness proposal(s): 2 pinned widgets appear to overlap in purpose.",
+    summary: "2 one-click widget fix(es): 2 pinned widgets appear to overlap in purpose.",
     pin_count: 3,
     chat_visible_pin_count: 0,
     layout_mode: "rail-chat",
@@ -2204,9 +2204,19 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
         pin_id: "screenshot-pin-notes",
         label: "Usefulness notes",
         reason: "2 pinned widgets appear to overlap in purpose.",
-        suggested_next_action: "Review these pins and consolidate, rename, or resize them if they serve the same job.",
-        requires_policy_decision: true,
-        evidence: { pin_ids: ["screenshot-pin-notes", "screenshot-pin-notes-copy"], labels: ["Usefulness notes", "Usefulness notes copy"] }
+        suggested_next_action: "Keep Usefulness notes and remove duplicate pins: Usefulness notes copy.",
+        requires_policy_decision: false,
+        proposal_id: "remove_duplicate_pins:screenshot-pin-notes-screenshot-pin-notes-copy",
+        apply: {
+          id: "remove_duplicate_pins:screenshot-pin-notes-screenshot-pin-notes-copy",
+          action: "remove_duplicate_pins",
+          label: "Remove 1 duplicate",
+          description: "Keep Usefulness notes and remove duplicate pins: Usefulness notes copy.",
+          impact: "Removes duplicate dashboard pins only; widget bundle/source files are left untouched.",
+          keep_pin_id: "screenshot-pin-notes",
+          remove_pin_ids: ["screenshot-pin-notes-copy"]
+        },
+        evidence: { pin_ids: ["screenshot-pin-notes", "screenshot-pin-notes-copy"], labels: ["Usefulness notes", "Usefulness notes copy"], keep_pin_id: "screenshot-pin-notes", remove_pin_ids: ["screenshot-pin-notes-copy"] }
       },
       {
         type: "visibility",
@@ -2215,8 +2225,19 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
         pin_id: "screenshot-pin-dock",
         label: "Usefulness dock panel",
         reason: "Pin is in the dock zone, but channel layout mode 'rail-chat' hides that zone in chat.",
-        suggested_next_action: "Move the pin to a visible zone or change the channel presentation mode if this widget should be visible while chatting.",
-        requires_policy_decision: true,
+        suggested_next_action: "Move Usefulness dock panel from dock to rail so it appears in chat.",
+        requires_policy_decision: false,
+        proposal_id: "move_pin_to_visible_zone:screenshot-pin-dock-rail",
+        apply: {
+          id: "move_pin_to_visible_zone:screenshot-pin-dock-rail",
+          action: "move_pin_to_visible_zone",
+          label: "Move to rail",
+          description: "Move Usefulness dock panel from dock to rail so it appears in chat.",
+          impact: "Changes this pin's dashboard zone and keeps its existing size where possible.",
+          pin_id: "screenshot-pin-dock",
+          from_zone: "dock",
+          to_zone: "rail"
+        },
         evidence: { layout_mode: "rail-chat", zone: "dock", visible_zones: ["rail"] }
       },
       {
@@ -2230,7 +2251,8 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
         requires_policy_decision: true,
         evidence: { export_enabled_count: 0, exported_count: 0 }
       }
-    ]
+    ],
+    findings: []
   };
   const receipts = {
     receipts: [
@@ -2429,7 +2451,7 @@ CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
             "if (!summary) throw new Error('settings summary missing');"
             "const text = document.body.innerText || summary.textContent || '';"
             "if (!/Widget usefulness/.test(text)) throw new Error('settings usefulness title missing');"
-            "if (!/pins|widget proposals|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
+            "if (!/pins|one-click fixes|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
             "if (!/widget authoring|Checked the project status widget/.test(text)) throw new Error('settings receipt summary missing');"
         ),
     ),

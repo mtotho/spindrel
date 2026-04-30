@@ -40,7 +40,7 @@ def test_widget_improvement_healthcheck_defaults_to_normal_channel_task_payload(
     ]
     assert "Call assess_widget_usefulness" in defaults["prompt"]
     assert "propose_and_fix" in defaults["prompt"]
-    assert "No actionable widget proposals." in defaults["prompt"]
+    assert "No actionable widget fixes." in defaults["prompt"]
 
 
 def test_list_run_presets_can_filter_by_surface():

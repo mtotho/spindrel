@@ -14,6 +14,11 @@ export interface RunPresetTaskDefaults {
   history_mode: "none" | "recent" | "full";
   history_recent_count: number;
   skip_tool_approval: boolean;
+  session_target?: Record<string, any> | null;
+  project_instance?: Record<string, any> | null;
+  allow_issue_reporting?: boolean | null;
+  harness_effort?: string | null;
+  max_run_seconds?: number | null;
 }
 
 export interface RunPreset {

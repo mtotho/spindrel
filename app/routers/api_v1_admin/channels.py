@@ -442,6 +442,10 @@ class WidgetAgencyReceiptListOut(BaseModel):
     receipts: list[WidgetAgencyReceiptOut]
 
 
+class WidgetUsefulnessApplyRequest(BaseModel):
+    proposal_id: str
+
+
 class ChannelSettingsUpdate(BaseModel):
     """Writable channel settings."""
     name: Optional[str] = None
@@ -674,6 +678,25 @@ async def admin_channel_widget_usefulness(
         return await assess_channel_widget_usefulness(db, channel_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Channel not found")
+
+
+@router.post("/channels/{channel_id}/widget-usefulness/apply")
+async def admin_channel_widget_usefulness_apply(
+    channel_id: uuid.UUID,
+    body: WidgetUsefulnessApplyRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("channels:write")),
+):
+    from app.services.widget_usefulness import apply_channel_widget_usefulness_proposal
+
+    try:
+        return await apply_channel_widget_usefulness_proposal(
+            db,
+            channel_id,
+            proposal_id=body.proposal_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get(

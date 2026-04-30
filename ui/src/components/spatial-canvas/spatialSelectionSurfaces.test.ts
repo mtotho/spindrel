@@ -145,9 +145,14 @@ test("spatial glanceability uses shared cue markers and compass without side str
   assert.doesNotMatch(cueSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*item\.onSelect\(\);/);
   assert.match(cueSource, /data-testid="spatial-action-compass"/);
   assert.match(cueSource, /data-spatial-action-compass-collapsed/);
+  assert.match(cueSource, /data-spatial-action-compass-user-minimized/);
   assert.match(cueSource, /topActionCompassItems/);
   assert.match(cueSource, /Next actions/);
-  assert.match(cueSource, /Best review targets from live map state/);
+  assert.match(cueSource, /Review the queue or inspect one target/);
+  assert.match(cueSource, /Review all/);
+  assert.match(cueSource, /attentionDeckHref\(\{ mode: "review" \}\)/);
+  assert.match(cueSource, /Minimize next actions/);
+  assert.match(cueSource, /ACTION_COMPASS_MINIMIZED_KEY/);
   assert.match(cueSource, /data-spatial-action-compass-selected/);
   assert.match(cueSource, /cueCountLabel/);
   assert.match(cueSource, /selectedItem/);

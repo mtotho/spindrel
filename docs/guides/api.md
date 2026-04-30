@@ -139,7 +139,9 @@ curl -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8000/api/v1/agent-capabilities?bot_id=default&include_schemas=true"
 ```
 
-The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, harness status, widget authoring tools, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `run_agent_doctor` returns only the readiness findings.
+The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `run_agent_doctor` returns only the readiness findings.
+
+Integration readiness is read-only in v1. The `integrations` section summarizes workspace-level setup health and current-channel activation/binding state; doctor actions route humans to existing Integration or Channel settings instead of enabling integrations, installing dependencies, starting processes, or writing secrets automatically.
 
 `call_api` accepts either a JSON string or a structured JSON body. Prefer structured bodies so agents do not have to hand-escape JSON:
 

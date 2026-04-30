@@ -552,6 +552,7 @@ export default function WidgetsDashboardPage() {
           onEditPin={openEditPinDrawer}
           onEditLayout={() => setEditMode(true)}
           onOpenSettings={() => navigate(`/channels/${channelScopedId}/settings#dashboard`)}
+          onApplied={() => { void refetchPins(); }}
         />
       )}
       {/* Kiosk button intentionally removed from the top bar. Kiosk mode is

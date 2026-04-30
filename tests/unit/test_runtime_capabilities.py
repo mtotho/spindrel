@@ -97,6 +97,8 @@ def test_codex_capabilities_shape():
     assert "runtime" in caps.slash_policy.allowed_command_ids
     assert {cmd.id for cmd in caps.native_commands} >= {
         "config", "mcp-status", "plugins", "skills", "features", "marketplace",
+        "status", "diff", "undo", "branch", "resume", "review", "cloud",
+        "prompts", "approvals", "editor", "init",
     }
     aliases = {alias for cmd in caps.native_commands for alias in cmd.aliases}
     assert {"mcp", "plugin", "feature", "marketplaces"} <= aliases
@@ -104,6 +106,9 @@ def test_codex_capabilities_shape():
     assert by_id["plugins"].mutability == "argument_sensitive"
     assert by_id["plugins"].readonly is False
     assert by_id["mcp-status"].mutability == "readonly"
+    assert by_id["diff"].interaction_kind == "structured"
+    assert by_id["review"].fallback_behavior == "terminal"
+    assert by_id["undo"].mutability == "mutating"
     assert caps.native_compaction is True
 
 
@@ -209,3 +214,5 @@ def test_codex_native_mutating_args_require_approval():
     assert not runtime.native_command_requires_approval(
         command_id="plugins", args=("read", "fixture-plugin")
     )
+    assert runtime.native_command_requires_approval(command_id="undo", args=())
+    assert runtime.native_command_requires_approval(command_id="branch", args=("feature-x",))

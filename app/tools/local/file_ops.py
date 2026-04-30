@@ -567,11 +567,11 @@ async def file(
         if ch_id is not None:
             try:
                 from app.db.engine import async_session
-                from app.services.projects import resolve_channel_work_surface_by_id
+                from app.services.projects import is_project_like_surface, resolve_channel_work_surface_by_id
 
                 async with async_session() as db:
                     surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
-                if surface is not None and surface.kind == "project":
+                if is_project_like_surface(surface):
                     effective_ws_root = surface.root_host_path
                     effective_bot = bot
             except Exception:

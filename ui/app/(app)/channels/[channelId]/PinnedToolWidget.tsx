@@ -87,7 +87,7 @@ function resolvePinnedTitle(widget: PinnedWidget): string {
 }
 
 function healthLabel(health: WidgetHealthSummary | null | undefined): string {
-  if (!health) return "Health not checked";
+  if (!health) return "Unknown";
   if (health.status === "healthy") return "Healthy";
   if (health.status === "warning") return "Warnings";
   if (health.status === "failing") return "Failing";
@@ -221,6 +221,7 @@ export function PinnedToolWidget({
   widgetConfigRef.current = widgetConfig;
   const checkHealthMutation = useCheckWidgetHealth();
   const health = checkHealthMutation.data ?? localHealth ?? null;
+  const visibleHealth = health && health.status !== "healthy" && health.status !== "unknown" ? health : null;
   const checkingHealth = checkHealthMutation.isPending;
 
   useEffect(() => {
@@ -994,16 +995,18 @@ export function PinnedToolWidget({
               <Pencil size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
             </button>
           )}
-          <span
-            className={
-              "inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium opacity-90 " +
-              healthClassName(health)
-            }
-            title={health ? `${healthLabel(health)}: ${health.summary}` : "Health not checked"}
-          >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-            <span className="truncate">{healthLabel(health)}</span>
-          </span>
+          {visibleHealth && (
+            <span
+              className={
+                "inline-flex h-6 max-w-[112px] items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium opacity-90 " +
+                healthClassName(visibleHealth)
+              }
+              title={`${healthLabel(visibleHealth)}: ${visibleHealth.summary}`}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+              <span className="truncate">{healthLabel(visibleHealth)}</span>
+            </span>
+          )}
           <Link
             to={widgetPinHref(widget.id)}
             className={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
@@ -1166,16 +1169,12 @@ export function PinnedToolWidget({
           className="absolute right-1 top-1 z-20 flex items-center gap-0.5 rounded-md border border-surface-border/40 bg-surface-raised/85 p-0.5 text-text-muted opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <span
-            className={"h-2 w-2 rounded-full " + (health?.status === "healthy"
-              ? "bg-success"
-              : health?.status === "warning"
-                ? "bg-warning"
-                : health?.status === "failing"
-                  ? "bg-danger"
-                  : "bg-text-dim")}
-            title={health ? `${healthLabel(health)}: ${health.summary}` : "Health not checked"}
-          />
+          {visibleHealth && (
+            <span
+              className={"h-2 w-2 rounded-full " + (visibleHealth.status === "warning" ? "bg-warning" : "bg-danger")}
+              title={`${healthLabel(visibleHealth)}: ${visibleHealth.summary}`}
+            />
+          )}
           <button
             type="button"
             onClick={checkHealth}

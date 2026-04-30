@@ -10,7 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Project
-from app.services.dashboard_pins import list_pins, serialize_pin
+from app.services.dashboard_pins import apply_layout_bulk, delete_pin, get_pin, list_pins, serialize_pin
+from app.services.widget_agency_receipts import (
+    build_widget_agency_state,
+    create_widget_agency_receipt,
+    serialize_widget_agency_receipt,
+)
 from app.services.widget_context import build_pinned_widget_context_snapshot
 from app.services.widget_health import latest_health_for_pins
 
@@ -121,8 +126,9 @@ def _recommendation(
     pin: dict[str, Any] | None = None,
     evidence: dict[str, Any] | None = None,
     requires_policy_decision: bool = False,
+    apply: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "type": type,
         "severity": severity,
         "surface": surface,
@@ -133,6 +139,22 @@ def _recommendation(
         "suggested_next_action": suggested_next_action,
         "requires_policy_decision": requires_policy_decision,
     }
+    if apply:
+        payload["apply"] = apply
+        payload["proposal_id"] = str(apply.get("id") or "")
+    return payload
+
+
+def _proposal_id(action: str, values: list[str]) -> str:
+    compact = "-".join(str(value).replace(":", "_") for value in values if value)
+    return f"{action}:{compact[:180]}"
+
+
+def _best_visible_zone(visible_zones: set[str]) -> str | None:
+    for zone in ("rail", "header", "dock"):
+        if zone in visible_zones:
+            return zone
+    return None
 
 
 def _overall_recommendation_status(recommendations: list[dict[str, Any]]) -> str:
@@ -170,6 +192,7 @@ def assess_widget_usefulness_from_data(
     visible_zones = _chat_visible_zones(layout_mode)
     health_by_pin = widget_health or {}
     recommendations: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
 
     if not pins:
         if project:
@@ -178,7 +201,7 @@ def assess_widget_usefulness_from_data(
         else:
             action = "Consider starter widgets for the channel's main work: notes, todo, files, or an integration-specific status widget."
             reason = "This channel has no pinned widgets yet."
-        recommendations.append(_recommendation(
+        findings.append(_recommendation(
             type="missing_coverage",
             severity="medium",
             surface="dashboard",
@@ -193,7 +216,7 @@ def assess_widget_usefulness_from_data(
         status = health.get("status") if isinstance(health, dict) else None
         if status in {"failing", "warning"}:
             severity = "high" if status == "failing" else "medium"
-            recommendations.append(_recommendation(
+            findings.append(_recommendation(
                 type="health",
                 severity=severity,
                 surface="dashboard",
@@ -217,15 +240,33 @@ def assess_widget_usefulness_from_data(
         if key in seen_duplicate_pins:
             continue
         seen_duplicate_pins.add(key)
+        keep_pin = group[0]
+        remove_pin_ids = [pin_id for pin_id in ids[1:] if pin_id]
+        keep_label = _label(keep_pin)
+        remove_labels = [_label(pin) for pin in group[1:]]
+        apply = {
+            "id": _proposal_id("remove_duplicate_pins", ids),
+            "action": "remove_duplicate_pins",
+            "label": f"Remove {len(remove_pin_ids)} duplicate" + ("s" if len(remove_pin_ids) != 1 else ""),
+            "description": f"Keep {keep_label} and remove duplicate pins: {', '.join(remove_labels[:4])}.",
+            "impact": "Removes duplicate dashboard pins only; widget bundle/source files are left untouched.",
+            "keep_pin_id": _pin_id(keep_pin),
+            "remove_pin_ids": remove_pin_ids,
+        }
         recommendations.append(_recommendation(
             type="duplicate",
             severity="medium",
             surface="dashboard",
-            pin=group[0],
+            pin=keep_pin,
             reason=f"{len(group)} pinned widgets appear to overlap in purpose.",
-            suggested_next_action="Review these pins and consolidate, rename, or resize them if they serve the same job.",
-            evidence={"pin_ids": ids, "labels": [_label(pin) for pin in group]},
-            requires_policy_decision=True,
+            suggested_next_action=apply["description"],
+            evidence={
+                "pin_ids": ids,
+                "labels": [_label(pin) for pin in group],
+                "keep_pin_id": _pin_id(keep_pin),
+                "remove_pin_ids": remove_pin_ids,
+            },
+            apply=apply,
         ))
 
     chat_visible_count = 0
@@ -237,18 +278,42 @@ def assess_widget_usefulness_from_data(
         elif zone in _CHAT_VISIBLE_ZONES:
             hidden_chat_pins.append(pin)
     for pin in hidden_chat_pins:
+        target_zone = _best_visible_zone(visible_zones)
+        if target_zone is None:
+            findings.append(_recommendation(
+                type="visibility",
+                severity="medium",
+                surface="chat",
+                pin=pin,
+                reason=f"Pin is in the { _zone(pin) } zone, but channel layout mode {layout_mode!r} hides that zone in chat.",
+                suggested_next_action="Change the channel presentation mode if this widget should be visible while chatting.",
+                evidence={"layout_mode": layout_mode, "zone": _zone(pin), "visible_zones": sorted(visible_zones)},
+                requires_policy_decision=True,
+            ))
+            continue
+        pin_id = _pin_id(pin) or ""
+        apply = {
+            "id": _proposal_id("move_pin_to_visible_zone", [pin_id, target_zone]),
+            "action": "move_pin_to_visible_zone",
+            "label": f"Move to {target_zone}",
+            "description": f"Move {_label(pin)} from {_zone(pin)} to {target_zone} so it appears in chat.",
+            "impact": "Changes this pin's dashboard zone and keeps its existing size where possible.",
+            "pin_id": pin_id,
+            "from_zone": _zone(pin),
+            "to_zone": target_zone,
+        }
         recommendations.append(_recommendation(
             type="visibility",
             severity="medium",
             surface="chat",
             pin=pin,
             reason=f"Pin is in the { _zone(pin) } zone, but channel layout mode {layout_mode!r} hides that zone in chat.",
-            suggested_next_action="Move the pin to a visible zone or change the channel presentation mode if this widget should be visible while chatting.",
+            suggested_next_action=apply["description"],
             evidence={"layout_mode": layout_mode, "zone": _zone(pin), "visible_zones": sorted(visible_zones)},
-            requires_policy_decision=True,
+            apply=apply,
         ))
     if pins and chat_visible_count == 0 and layout_mode != "dashboard-only":
-        recommendations.append(_recommendation(
+        findings.append(_recommendation(
             type="missing_coverage",
             severity="low",
             surface="chat",
@@ -266,7 +331,7 @@ def assess_widget_usefulness_from_data(
     export_enabled_count = sum(1 for pin in pins if _context_export_enabled(pin))
     if pins and exported_count == 0:
         severity = "medium" if export_enabled_count else "low"
-        recommendations.append(_recommendation(
+        findings.append(_recommendation(
             type="context",
             severity=severity,
             surface="chat",
@@ -279,7 +344,7 @@ def assess_widget_usefulness_from_data(
     for pin in pins:
         actions = _available_actions(pin)
         if actions and not pin.get("context_hint"):
-            recommendations.append(_recommendation(
+            findings.append(_recommendation(
                 type="actionability",
                 severity="low",
                 surface="chat",
@@ -297,12 +362,19 @@ def assess_widget_usefulness_from_data(
             str(item.get("label") or ""),
         )
     )
+    findings.sort(
+        key=lambda item: (
+            -_SEVERITY_RANK.get(str(item.get("severity")), 0),
+            str(item.get("type") or ""),
+            str(item.get("label") or ""),
+        )
+    )
     status = _overall_recommendation_status(recommendations)
     project_scope_available = bool(project)
     summary = (
-        "No actionable widget proposals."
+        "No one-click widget fixes available."
         if not recommendations
-        else f"{len(recommendations)} widget usefulness proposal(s): {recommendations[0]['reason']}"
+        else f"{len(recommendations)} one-click widget fix(es): {recommendations[0]['reason']}"
     )
     return {
         "channel_id": channel_id,
@@ -321,6 +393,7 @@ def assess_widget_usefulness_from_data(
             "export_enabled_count": export_enabled_count,
         },
         "recommendations": recommendations,
+        "findings": findings,
     }
 
 
@@ -370,3 +443,94 @@ async def assess_channel_widget_usefulness(
         context_snapshot=context_snapshot,
         project=project_payload,
     )
+
+
+async def apply_channel_widget_usefulness_proposal(
+    db: AsyncSession,
+    channel_id: uuid.UUID | str,
+    *,
+    proposal_id: str,
+) -> dict[str, Any]:
+    parsed_channel_id = channel_id if isinstance(channel_id, uuid.UUID) else uuid.UUID(str(channel_id))
+    channel = await db.get(Channel, parsed_channel_id)
+    if channel is None:
+        raise ValueError(f"Channel not found: {channel_id}")
+
+    dashboard_key = f"channel:{channel.id}"
+    assessment = await assess_channel_widget_usefulness(db, parsed_channel_id)
+    recommendation = next(
+        (
+            item for item in assessment.get("recommendations", [])
+            if item.get("proposal_id") == proposal_id and isinstance(item.get("apply"), dict)
+        ),
+        None,
+    )
+    if recommendation is None:
+        raise ValueError("Widget proposal is no longer available or is not applyable.")
+
+    apply = recommendation["apply"]
+    action = str(apply.get("action") or "")
+    before_rows = await list_pins(db, dashboard_key=dashboard_key)
+    before_pins = [serialize_pin(row) for row in before_rows]
+    affected_pin_ids: list[str] = []
+
+    if action == "remove_duplicate_pins":
+        remove_pin_ids = [str(pin_id) for pin_id in apply.get("remove_pin_ids") or [] if pin_id]
+        if not remove_pin_ids:
+            raise ValueError("Duplicate proposal has no pins to remove.")
+        for pin_id in remove_pin_ids:
+            await delete_pin(db, uuid.UUID(pin_id))
+        affected_pin_ids = [str(apply.get("keep_pin_id") or ""), *remove_pin_ids]
+        summary = str(apply.get("description") or f"Removed {len(remove_pin_ids)} duplicate widget pin(s).")
+    elif action == "move_pin_to_visible_zone":
+        pin_id = str(apply.get("pin_id") or "")
+        to_zone = str(apply.get("to_zone") or "")
+        if not pin_id or to_zone not in {"rail", "header", "dock", "grid"}:
+            raise ValueError("Visibility proposal has no valid pin or target zone.")
+        pin = await get_pin(db, uuid.UUID(pin_id))
+        layout = pin.grid_layout or {}
+        await apply_layout_bulk(
+            db,
+            [{
+                "id": pin.id,
+                "x": int(layout.get("x", 0) or 0),
+                "y": int(layout.get("y", 0) or 0),
+                "w": int(layout.get("w", 1) or 1),
+                "h": int(layout.get("h", 1) or 1),
+                "zone": to_zone,
+            }],
+            dashboard_key=dashboard_key,
+        )
+        affected_pin_ids = [pin_id]
+        summary = str(apply.get("description") or f"Moved widget pin to {to_zone}.")
+    else:
+        raise ValueError(f"Unsupported widget proposal action: {action}")
+
+    after_rows = await list_pins(db, dashboard_key=dashboard_key)
+    after_pins = [serialize_pin(row) for row in after_rows]
+    receipt = await create_widget_agency_receipt(
+        db,
+        channel_id=parsed_channel_id,
+        dashboard_key=dashboard_key,
+        action=f"apply_{action}",
+        summary=summary,
+        reason=str(recommendation.get("reason") or ""),
+        bot_id=None,
+        affected_pin_ids=[pin_id for pin_id in affected_pin_ids if pin_id],
+        before_state=build_widget_agency_state(pins=before_pins),
+        after_state=build_widget_agency_state(pins=after_pins),
+        metadata={
+            "kind": "widget_usefulness_apply",
+            "proposal_id": proposal_id,
+            "apply": apply,
+            "evidence": recommendation.get("evidence") or {},
+        },
+    )
+    return {
+        "ok": True,
+        "proposal_id": proposal_id,
+        "action": action,
+        "summary": summary,
+        "affected_pin_ids": [pin_id for pin_id in affected_pin_ids if pin_id],
+        "receipt": serialize_widget_agency_receipt(receipt),
+    }

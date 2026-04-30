@@ -50,7 +50,7 @@ Bot control rule:
 - Discover widgets through the shared library/catalog tools.
 - Place them with `pin_widget`.
 - Interact with pinned widgets through `invoke_widget_action`.
-- Assess whether they are useful with `assess_widget_usefulness(...)`; start there for recurring widget improvement proposals. Read `widget_agency_mode` before changing channel dashboard widgets. In `propose_and_fix` mode, pass a concise `reason` to mutating dashboard tools so the channel records a bot widget change receipt.
+- Assess whether they are useful with `assess_widget_usefulness(...)`; start there for recurring widget improvement. Treat `recommendations` as one-click fixes and `findings` as advisory-only context. Read `widget_agency_mode` before changing channel dashboard widgets. In `propose_and_fix` mode, pass a concise `reason` to mutating dashboard tools so the channel records a bot widget change receipt.
 - Check whether they work with `check_widget(pin_id=...)` or `check_dashboard_widgets(...)`; `describe_dashboard` includes the latest persisted `widget_health` summary for each checked pin.
 - When you create, update, debug, check, or improve a widget, publish durable authoring evidence with `publish_widget_authoring_receipt(...)` after the full check loop. Read `widgets/authoring_runs` for the exact sequence.
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.

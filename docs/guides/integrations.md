@@ -188,6 +188,24 @@ A parametrized test in `tests/integration/test_binding_suggestions_shape.py` loa
 - **Channel settings → Integrations tab** — per-channel rebinding.
 - **Admin → Integrations → [name]** — global test/debug.
 
+## Integration Doctor
+
+Agent readiness consumes integration state through the shared capability
+manifest. `/api/v1/agent-capabilities` includes an `integrations` section with
+two read-only views:
+
+- workspace/admin health from the existing integration catalog: lifecycle
+  status, required setting gaps, dependency gaps, process state, webhook/OAuth/
+  API-key declarations, capabilities, and rich-result support;
+- current-channel readiness from existing activation and binding rows:
+  activated integrations, bound destinations, placeholder activation bindings,
+  injected tools/includes, and missing required activation config.
+
+This is diagnose-and-route only. Doctor proposed actions for integrations open
+the existing Integration detail page or Channel settings tab. They do not
+enable integrations, install dependencies, start processes, write secrets, or
+invent a second integration setup path.
+
 ## What an integration exposes to other surfaces
 
 Some surfaces are owned by their own canonical docs. This guide points at them — it does not duplicate them.

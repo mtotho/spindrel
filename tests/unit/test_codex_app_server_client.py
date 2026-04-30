@@ -244,6 +244,22 @@ async def test_request_fails_when_stream_closes(monkeypatch) -> None:
         await client.close()
 
 
+async def test_pending_request_preserves_reader_crash_reason() -> None:
+    class _ExplodingStdout:
+        async def readline(self) -> bytes:
+            raise ValueError("Separator is found, but chunk is longer than limit")
+
+    client = CodexAppServer()
+    client._proc = type("Proc", (), {"stdout": _ExplodingStdout()})()
+    future = asyncio.get_running_loop().create_future()
+    client._pending[7] = future
+
+    await client._read_loop()
+
+    with pytest.raises(RuntimeError, match="chunk is longer than limit"):
+        await future
+
+
 async def test_notification_iterator_exits_on_stream_close(monkeypatch) -> None:
     client, fake = await _make_client(monkeypatch)
     try:

@@ -1,11 +1,33 @@
-import { AlertTriangle, ChevronRight, Clock3, History, ListChecks, Radio } from "lucide-react";
+import { AlertTriangle, ChevronRight, Clock3, ExternalLink, History, ListChecks, Minimize2, Radio } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ComponentType } from "react";
 import type { LucideProps } from "lucide-react";
 import type { WorkspaceMapCueIntent } from "../../api/types/workspaceMapState";
 import type { WorkspaceMapObjectState } from "../../api/types/workspaceMapState";
+import { attentionDeckHref } from "../../lib/hubRoutes";
 import { mapCueIntent, mapCueRank, mapStateLabel, mapStateMeta, mapStateTone } from "./SpatialObjectStatus.js";
 
 const CUE_VIEWPORT_MARGIN_WORLD = 220;
+const ACTION_COMPASS_MINIMIZED_KEY = "spatial.actionCompass.minimized";
+
+function loadActionCompassMinimized(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(ACTION_COMPASS_MINIMIZED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function storeActionCompassMinimized(value: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ACTION_COMPASS_MINIMIZED_KEY, value ? "1" : "0");
+  } catch {
+    // Ignore storage failures; the control should still work for this session.
+  }
+}
+
 export interface WorldBbox {
   minX: number;
   minY: number;
@@ -200,6 +222,7 @@ export function ActionCompass({
   onHighlight: (id: string | null) => void;
   collapsed?: boolean;
 }) {
+  const [userMinimized, setUserMinimized] = useState(loadActionCompassMinimized);
   const selectedItem = selectedObjectId
     ? objects.find((item) => item.id === selectedObjectId && shouldRenderCueMarker(item)) ?? null
     : null;
@@ -207,9 +230,15 @@ export function ActionCompass({
   const items = selectedItem
     ? [selectedItem, ...rankedItems.filter((item) => item.id !== selectedItem.id)].slice(0, 3)
     : rankedItems.slice(0, 3);
+  useEffect(() => {
+    storeActionCompassMinimized(userMinimized);
+  }, [userMinimized]);
   if (!items.length) return null;
-  if (collapsed) {
-    const total = actionCount(objects);
+
+  const total = actionCount(objects);
+  const reviewAllHref = attentionDeckHref({ mode: "review" });
+  const compact = collapsed || userMinimized;
+  if (compact) {
     const topItem = items[0];
     const intent = mapCueIntent(topItem.workState);
     const Icon = cueIcon(intent);
@@ -217,22 +246,37 @@ export function ActionCompass({
       <div
         data-testid="spatial-action-compass"
         data-spatial-action-compass-collapsed="true"
+        data-spatial-action-compass-user-minimized={userMinimized ? "true" : "false"}
         className="absolute left-4 top-4 z-[2] flex flex-col items-center gap-1 rounded-md bg-surface-raised/90 p-1.5 text-text ring-1 ring-surface-border/70"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <button
           type="button"
-          title={`Next actions: ${total}`}
-          aria-label={`Next actions: ${total}`}
+          title={userMinimized ? `Show next actions: ${total}` : `Next actions: ${total}`}
+          aria-label={userMinimized ? `Show next actions: ${total}` : `Next actions: ${total}`}
           className="flex h-10 w-10 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay/60 hover:text-text"
           onPointerEnter={() => onHighlight(topItem.id)}
           onPointerLeave={() => onHighlight(null)}
           onFocus={() => onHighlight(topItem.id)}
           onBlur={() => onHighlight(null)}
-          onClick={() => topItem.onSelect()}
+          onClick={() => {
+            if (userMinimized) {
+              setUserMinimized(false);
+              return;
+            }
+            topItem.onSelect();
+          }}
         >
           <ListChecks size={17} />
         </button>
+        <a
+          href={reviewAllHref}
+          title="Review all next actions"
+          aria-label="Review all next actions"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-accent hover:bg-accent/[0.08]"
+        >
+          <ExternalLink size={13} />
+        </a>
         <button
           type="button"
           title={`${cueLabel(topItem)}: ${topItem.label}`}
@@ -256,16 +300,35 @@ export function ActionCompass({
       className="absolute left-4 top-4 z-[2] w-[320px] rounded-md bg-surface-raised/90 p-2 text-sm text-text ring-1 ring-surface-border/70"
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <div className="flex items-end justify-between gap-3 px-1 pb-1.5">
+      <div className="flex items-start justify-between gap-3 px-1 pb-1.5">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">
             Next actions
           </div>
           <div className="mt-0.5 text-xs text-text-muted">
-            Best review targets from live map state.
+            Review the queue or inspect one target.
           </div>
         </div>
-        <span className="rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim">{items.length}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <a
+            href={reviewAllHref}
+            title="Review all next actions"
+            className="flex h-7 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2 text-xs font-medium text-accent hover:bg-accent/[0.12]"
+          >
+            <ExternalLink size={12} />
+            Review all
+          </a>
+          <button
+            type="button"
+            title="Minimize next actions"
+            aria-label="Minimize next actions"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+            onClick={() => setUserMinimized(true)}
+          >
+            <Minimize2 size={13} />
+          </button>
+          <span className="rounded-full bg-surface-overlay/60 px-2 py-0.5 text-[11px] text-text-dim">{total}</span>
+        </div>
       </div>
       <div className="space-y-1">
         {items.map((item, index) => {
