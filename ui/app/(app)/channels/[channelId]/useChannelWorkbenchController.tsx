@@ -86,14 +86,10 @@ export function useChannelWorkbenchController({
   const workspaceId = channel?.resolved_workspace_id;
   const projectPath = typeof channel?.project?.root_path === "string"
     ? channel.project.root_path.replace(/^\/+|\/+$/g, "")
-    : typeof channel?.config?.project_path === "string"
-      ? channel.config.project_path.replace(/^\/+|\/+$/g, "")
-      : "";
+    : "";
   const projectWorkspaceId = typeof channel?.project?.workspace_id === "string"
     ? channel.project.workspace_id
-    : typeof channel?.config?.project_workspace_id === "string"
-      ? channel.config.project_workspace_id
-      : undefined;
+    : undefined;
   const fileWorkspaceId = projectWorkspaceId || workspaceId;
   const fileRootPath = projectPath ? `/${projectPath}` : undefined;
   const [terminalRequest, setTerminalRequest] = useState<{ cwd: string; label: string } | null>(null);

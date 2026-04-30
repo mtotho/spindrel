@@ -363,6 +363,26 @@ class TestHasContent:
 
 
 class TestAcquireDb:
+    def test_sql_authorizer_denies_attach_and_allows_normal_writes(self, tmp_path):
+        from app.services.widget_db import install_widget_sql_authorizer
+
+        db_path = tmp_path / "main.sqlite"
+        other_path = tmp_path / "other.sqlite"
+        other_path.touch()
+
+        conn = _fresh_conn(db_path)
+        try:
+            install_widget_sql_authorizer(conn)
+            conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, text TEXT)")
+            conn.execute("INSERT INTO items(text) VALUES ('ok')")
+            with pytest.raises(sqlite3.DatabaseError):
+                conn.execute("ATTACH DATABASE ? AS other", [str(other_path)])
+            rows = conn.execute("SELECT text FROM items").fetchall()
+        finally:
+            conn.close()
+
+        assert [row["text"] for row in rows] == ["ok"]
+
     @pytest.mark.asyncio
     async def test_wal_mode_set(self, tmp_path):
         from app.services.widget_db import acquire_db

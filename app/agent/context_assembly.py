@@ -1964,8 +1964,12 @@ async def _append_prompt_and_user_message(
                 messages.append({"role": "system", "content": surface.prompt})
                 inject_chars["project_prompt"] = len(surface.prompt)
                 budget_consume("project_prompt", surface.prompt)
-        except Exception:
+        except Exception as exc:
             logger.warning("Failed to resolve project prompt for channel %s", channel_id, exc_info=True)
+            text = f"Project work surface could not be resolved for this channel: {exc}"
+            messages.append({"role": "system", "content": text})
+            inject_chars["project_work_surface_error"] = len(text)
+            budget_consume("project_work_surface_error", text)
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and ch_row is not None:

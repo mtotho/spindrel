@@ -7,6 +7,10 @@ attach to the same Project so files, terminal cwd, search, harness turns, and
 Project instructions resolve from one place while bot-private memory remains
 separate through the `memory` tool.
 
+The Project binding is the normal primitive. Channel settings no longer expose
+the old path-only configuration; attach a channel to a Project so all
+WorkSurface consumers resolve the same root.
+
 ## Project Roots
 
 ![Project file browser rooted at the shared Project](../images/project-workspace-detail.png)
@@ -23,6 +27,8 @@ browser, **Terminal** for a Project-root shell, **Setup** for Blueprint runtime
 preparation, **Runs** for agent coding-run launch and receipts, **Instances**
 for fresh workspaces created from the applied snapshot, **Settings** for
 instructions and Blueprint metadata, and **Channels** for membership.
+The Settings tab includes a compact Basics block for the root URI, attached
+channel count, setup readiness, and runtime environment readiness.
 
 ## Blueprints
 
@@ -116,5 +122,8 @@ configured e2e-testing server before adding screenshot evidence.
 
 Project-bound channels use the Project root for workspace tools and harness
 cwd. Bot memory is still owned by the memory system, not the Project root.
+If the Project binding or selected fresh instance cannot be resolved, file,
+exec, context, indexing, and harness paths fail visibly instead of falling back
+to a different workspace root.
 
 ![Memory tool transcript in a Project-bound channel](../images/project-workspace-memory-tool.png)

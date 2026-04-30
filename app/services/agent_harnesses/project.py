@@ -53,7 +53,8 @@ async def resolve_harness_paths(
     bot_workspace_dir = workspace_service.ensure_host_dir(bot.id, bot)
     channel = await db.get(Channel, channel_id) if channel_id is not None else None
     surface = await resolve_channel_work_surface(db, channel, bot) if channel is not None else None
-    if is_project_like_surface(surface):
+    if surface is not None:
+        is_project_surface = is_project_like_surface(surface)
         project_dir = ProjectDirectory(
             workspace_id=str(surface.workspace_id or ""),
             path=surface.index_prefix,
@@ -61,10 +62,16 @@ async def resolve_harness_paths(
             project_id=surface.project_id,
             project_instance_id=surface.project_instance_id,
             name=surface.project_name,
-        )
+        ) if is_project_surface else None
         return HarnessPathResolution(
             workdir=surface.root_host_path,
-            source="project_instance" if surface.kind == "project_instance" else "channel_project_dir",
+            source=(
+                "project_instance"
+                if surface.kind == "project_instance"
+                else "channel_project_dir"
+                if surface.kind == "project"
+                else "channel_work_surface"
+            ),
             bot_workspace_dir=bot_workspace_dir,
             project_dir=project_dir,
             work_surface=surface,

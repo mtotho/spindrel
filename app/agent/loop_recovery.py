@@ -148,6 +148,7 @@ def _extract_question_card_title(text: str) -> str | None:
     patterns = (
         r"(?:structured\s+)?question\s+card\s+titled\s+['\"]([^'\"]+)['\"]",
         r"(?:card|questions?)\s+titled\s+['\"]([^'\"]+)['\"]",
+        r"title\s+that\s+includes\s+['\"]([^'\"]+)['\"]",
         r"title(?:d| must be| should be)?\s+['\"]([^'\"]+)['\"]",
     )
     for pattern in patterns:
@@ -210,6 +211,26 @@ def _extract_step_ids_from_publish_error(error_text: str) -> set[str]:
     return set(re.findall(r"Step\s+['\"]([^'\"]+)['\"]\s+needs a concrete", error_text, flags=re.IGNORECASE))
 
 
+def _parse_tool_error_payload(text: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _tool_error_text(tool_message: dict[str, Any]) -> str:
+    raw = str(tool_message.get("content") or "")
+    payload = _parse_tool_error_payload(raw)
+    if payload:
+        return " ".join(
+            str(payload.get(key) or "")
+            for key in ("error", "error_code", "error_kind", "fallback")
+            if payload.get(key)
+        )
+    return raw
+
+
 def _publish_retry_subject(args: dict[str, Any]) -> str:
     for key in ("title", "summary", "scope"):
         value = str(args.get(key) or "").strip()
@@ -248,9 +269,9 @@ def _synthesize_publish_plan_retry_tool_call(
     tool_message = _latest_tool_message(messages)
     if tool_message is None:
         return None
-    error_text = str(tool_message.get("content") or "")
+    error_text = _tool_error_text(tool_message)
     if "needs a concrete" not in error_text or "action label" not in error_text:
-        return None
+        return _synthesize_publish_plan_readiness_retry_tool_call(messages=messages, tool_message=tool_message)
 
     prior_call = _latest_tool_call_for_result(messages, tool_message, "publish_plan")
     if prior_call is None:
@@ -281,6 +302,48 @@ def _synthesize_publish_plan_retry_tool_call(
 
     return {
         "id": f"synthetic_publish_plan_retry_{uuid.uuid4().hex[:12]}",
+        "type": "function",
+        "function": {
+            "name": "publish_plan",
+            "arguments": json.dumps(args),
+        },
+    }
+
+
+def _synthesize_publish_plan_readiness_retry_tool_call(
+    *,
+    messages: list[dict[str, Any]],
+    tool_message: dict[str, Any],
+) -> dict[str, Any] | None:
+    payload = _parse_tool_error_payload(str(tool_message.get("content") or ""))
+    error_text = _tool_error_text(tool_message).lower()
+    if (
+        payload.get("error_code") != "publish_plan_readiness_failed"
+        and "first drafts need answered planning context" not in error_text
+        and "ask or resolve key planning questions" not in error_text
+    ):
+        return None
+    prior_call = _latest_tool_call_for_result(messages, tool_message, "publish_plan")
+    if prior_call is None:
+        return None
+    args = _parse_tool_arguments(prior_call)
+    if args is None:
+        return None
+
+    repaired = False
+    if args.get("open_questions"):
+        args["open_questions"] = []
+        repaired = True
+    if not args.get("assumptions_and_defaults") and not args.get("assumptions"):
+        args["assumptions_and_defaults"] = [
+            "Proceed using the submitted plan-question answers and durable planning-state decisions already recorded for this session."
+        ]
+        repaired = True
+    if not repaired:
+        return None
+
+    return {
+        "id": f"synthetic_publish_plan_readiness_retry_{uuid.uuid4().hex[:12]}",
         "type": "function",
         "function": {
             "name": "publish_plan",

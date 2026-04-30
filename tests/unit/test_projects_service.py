@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.models import Project, ProjectInstance
+from app.agent.context import current_project_instance_id
 from app.services.project_instances import (
     project_directory_from_instance,
     project_instance_root_path,
@@ -14,6 +15,7 @@ from app.services.project_instances import (
 )
 from app.services.projects import (
     PROJECT_KB_PATH,
+    WorkSurfaceResolutionError,
     is_project_like_surface,
     materialize_project_blueprint,
     materialize_project_blueprint_snapshot,
@@ -231,3 +233,73 @@ async def test_channel_work_surface_exposes_channel_policy(monkeypatch, tmp_path
     assert surface.index_prefix == f"channels/{channel_id}"
     assert surface.knowledge_index_prefix == f"channels/{channel_id}/knowledge-base"
     assert surface.workspace_id == str(workspace_id)
+
+
+@pytest.mark.asyncio
+async def test_project_work_surface_fails_when_bound_project_is_missing():
+    project_id = uuid.uuid4()
+    channel = SimpleNamespace(id=uuid.uuid4(), project_id=project_id, config={}, workspace_id=None, name="Broken")
+    bot = SimpleNamespace(id="test-bot", shared_workspace_id=str(uuid.uuid4()))
+
+    class _DB:
+        async def get(self, model, value):
+            assert model is Project
+            assert value == project_id
+            return None
+
+    with pytest.raises(WorkSurfaceResolutionError, match="Project binding is broken"):
+        await resolve_channel_work_surface(_DB(), channel, bot)
+
+
+@pytest.mark.asyncio
+async def test_project_instance_surface_must_belong_to_channel_project(monkeypatch, tmp_path):
+    workspace_id = uuid.uuid4()
+    channel_project_id = uuid.uuid4()
+    other_project_id = uuid.uuid4()
+    instance_id = uuid.uuid4()
+    monkeypatch.setattr(
+        "app.services.shared_workspace.local_workspace_base",
+        lambda: str(tmp_path),
+    )
+    channel = SimpleNamespace(id=uuid.uuid4(), project_id=channel_project_id, config={}, workspace_id=None, name="Project channel")
+    bot = SimpleNamespace(id="test-bot", shared_workspace_id=str(workspace_id))
+    other_project = Project(
+        id=other_project_id,
+        workspace_id=workspace_id,
+        name="Other Project",
+        slug="other-project",
+        root_path="common/projects/other",
+    )
+    instance = ProjectInstance(
+        id=instance_id,
+        workspace_id=workspace_id,
+        project_id=other_project_id,
+        root_path="common/project-instances/other/instance",
+        status="ready",
+        source_snapshot={},
+        setup_result={},
+        metadata_={},
+    )
+
+    class _DB:
+        async def get(self, model, value):
+            if model is ProjectInstance and value == instance_id:
+                return instance
+            if model is Project and value == other_project_id:
+                return other_project
+            if model is Project and value == channel_project_id:
+                return Project(
+                    id=channel_project_id,
+                    workspace_id=workspace_id,
+                    name="Channel Project",
+                    slug="channel-project",
+                    root_path="common/projects/channel",
+                )
+            return None
+
+    token = current_project_instance_id.set(instance_id)
+    try:
+        with pytest.raises(WorkSurfaceResolutionError, match="does not belong"):
+            await resolve_channel_work_surface(_DB(), channel, bot)
+    finally:
+        current_project_instance_id.reset(token)

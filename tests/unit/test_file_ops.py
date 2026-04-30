@@ -1284,6 +1284,31 @@ class TestFileTool:
         assert (project_root / "notes.md").read_text() == "project scoped"
 
     @pytest.mark.asyncio
+    async def test_project_bound_file_op_surfaces_resolution_error(self, mock_ctx):
+        class _SessionContext:
+            async def __aenter__(self):
+                return object()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        async def _broken_surface(_db, _channel_id, _bot):
+            raise ValueError("Project binding is broken: project not found")
+
+        token = current_channel_id.set(str(uuid.uuid4()))
+        try:
+            with (
+                patch("app.db.engine.async_session", lambda: _SessionContext()),
+                patch("app.services.projects.resolve_channel_work_surface_by_id", _broken_surface),
+            ):
+                result = await file_tool(operation="create", path="notes.md", content="project scoped")
+        finally:
+            current_channel_id.reset(token)
+
+        parsed = json.loads(result)
+        assert "Project binding is broken" in parsed["error"]
+
+    @pytest.mark.asyncio
     async def test_append(self, mock_ctx):
         ws, _ = mock_ctx
         result = await file_tool(operation="append", path="hello.txt", content="more")

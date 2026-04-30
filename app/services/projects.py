@@ -61,8 +61,50 @@ class WorkSurface:
         }
 
 
+class WorkSurfaceResolutionError(ValueError):
+    """Raised when a claimed Project/instance work surface cannot be resolved."""
+
+
 def is_project_like_surface(surface: WorkSurface | None) -> bool:
     return surface is not None and surface.kind in {"project", "project_instance"}
+
+
+def _uuid_values_equal(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return left is right
+    try:
+        return uuid.UUID(str(left)) == uuid.UUID(str(right))
+    except (TypeError, ValueError):
+        return str(left) == str(right)
+
+
+def ensure_path_within_work_surface(surface: WorkSurface, host_path: str) -> str:
+    """Validate that a host path stays inside the active WorkSurface root."""
+    root = os.path.realpath(surface.root_host_path)
+    resolved = os.path.realpath(host_path)
+    if resolved != root and not resolved.startswith(root.rstrip(os.sep) + os.sep):
+        label = "Project instance" if surface.kind == "project_instance" else "Project"
+        display_path = getattr(surface, "display_path", surface.root_host_path)
+        raise WorkSurfaceResolutionError(
+            f"{label} path must stay inside the active Project work surface: {display_path}"
+        )
+    return resolved
+
+
+def resolve_work_surface_host_path(surface: WorkSurface, raw_path: str | None) -> str:
+    """Resolve an optional cwd/path under the active WorkSurface root."""
+    value = (raw_path or "").strip()
+    if not value:
+        return os.path.realpath(surface.root_host_path)
+    if value.startswith("/workspace/") or value == "/workspace":
+        if not surface.workspace_id:
+            raise WorkSurfaceResolutionError("Project WorkSurface is missing a workspace id")
+        target = shared_workspace_service.translate_path(str(surface.workspace_id), value)
+    elif os.path.isabs(value):
+        target = value
+    else:
+        target = os.path.join(surface.root_host_path, value)
+    return ensure_path_within_work_surface(surface, target)
 
 
 @dataclass(frozen=True)
@@ -436,9 +478,11 @@ async def resolve_channel_work_surface(
     *,
     include_prompt: bool = False,
 ) -> WorkSurface | None:
+    expected_project_id = getattr(channel, "project_id", None) if channel is not None else None
     instance_surface = await _resolve_context_project_instance_surface(
         db,
         channel_id=str(channel.id) if channel is not None else None,
+        expected_project_id=expected_project_id,
         include_prompt=include_prompt,
     )
     if instance_surface is not None:
@@ -448,14 +492,17 @@ async def resolve_channel_work_surface(
     project_id = getattr(channel, "project_id", None)
     if project_id:
         project = await db.get(Project, project_id)
-        if project is not None:
-            project_dir = project_directory_from_project(project)
-            prompt = _project_prompt_from_project(project) if include_prompt else None
-            return work_surface_from_project_directory(
-                project_dir,
-                prompt=prompt,
-                channel_id=str(channel.id),
+        if project is None:
+            raise WorkSurfaceResolutionError(
+                f"Project binding is broken: Project {project_id} was not found"
             )
+        project_dir = project_directory_from_project(project)
+        prompt = _project_prompt_from_project(project) if include_prompt else None
+        return work_surface_from_project_directory(
+            project_dir,
+            prompt=prompt,
+            channel_id=str(channel.id),
+        )
     project_dir = resolve_legacy_channel_project_directory(channel, bot)
     if project_dir is not None:
         return work_surface_from_project_directory(
@@ -486,6 +533,7 @@ async def _resolve_context_project_instance_surface(
     db: AsyncSession,
     *,
     channel_id: str | None,
+    expected_project_id: uuid.UUID | str | None,
     include_prompt: bool,
 ) -> WorkSurface | None:
     instance_id: uuid.UUID | None = None
@@ -513,11 +561,27 @@ async def _resolve_context_project_instance_surface(
     )
 
     instance = await db.get(ProjectInstance, instance_id)
-    if instance is None or instance.status != INSTANCE_STATUS_READY or instance.deleted_at is not None:
-        return None
+    if instance is None:
+        raise WorkSurfaceResolutionError(
+            f"Project instance binding is broken: instance {instance_id} was not found"
+        )
+    if instance.status != INSTANCE_STATUS_READY or instance.deleted_at is not None:
+        raise WorkSurfaceResolutionError(
+            f"Project instance {instance_id} is not ready for this work surface"
+        )
+    if channel_id is not None and expected_project_id is None:
+        raise WorkSurfaceResolutionError(
+            "Project instance work surfaces require a Project-bound channel"
+        )
+    if expected_project_id is not None and not _uuid_values_equal(instance.project_id, expected_project_id):
+        raise WorkSurfaceResolutionError(
+            f"Project instance {instance_id} does not belong to channel Project {expected_project_id}"
+        )
     project = await db.get(Project, instance.project_id)
     if project is None:
-        return None
+        raise WorkSurfaceResolutionError(
+            f"Project instance binding is broken: Project {instance.project_id} was not found"
+        )
     prompt = _project_prompt_from_project(project) if include_prompt else None
     return work_surface_from_project_directory(
         project_directory_from_instance(instance, project),

@@ -387,6 +387,8 @@ async def reindex_channel(
             base_root = surface.index_root_host_path
     except Exception:
         logger.debug("Could not resolve project index prefix for channel %s", channel_id, exc_info=True)
+        if channel is not None and getattr(channel, "project_id", None):
+            raise
 
     plan = _resolve_channel(
         bot,

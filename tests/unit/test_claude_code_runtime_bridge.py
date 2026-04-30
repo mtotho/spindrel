@@ -15,6 +15,7 @@ approval card carries the signal.
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
@@ -35,7 +36,12 @@ from claude_agent_sdk import (  # noqa: E402
 )
 
 from app.db.engine import async_session  # noqa: E402
-from app.services.agent_harnesses.base import TurnContext  # noqa: E402
+from app.services.agent_harnesses.base import (  # noqa: E402
+    HarnessInputAttachment,
+    HarnessInputManifest,
+    TurnContext,
+)
+from integrations.claude_code.harness import _build_claude_query_input  # noqa: E402
 from integrations.claude_code.harness import _bridge_message  # noqa: E402
 from integrations.claude_code.harness import _extract_claude_system_slash_commands  # noqa: E402
 
@@ -81,7 +87,13 @@ class _RecordingEmitter:
         }))
 
 
-def _ctx(*, mode: str = "default", session_plan_mode: str = "chat") -> TurnContext:
+def _ctx(
+    *,
+    mode: str = "default",
+    session_plan_mode: str = "chat",
+    workdir: str = "/tmp",
+    input_manifest: HarnessInputManifest | None = None,
+) -> TurnContext:
     """Build a TurnContext for bridge tests. Default mode suppresses the
     bypass-mode audit pair so existing tests stay focused on the primary
     emit path. The bypass-mode test passes ``mode='bypassPermissions'``."""
@@ -90,12 +102,20 @@ def _ctx(*, mode: str = "default", session_plan_mode: str = "chat") -> TurnConte
         channel_id=uuid.uuid4(),
         bot_id="test-bot",
         turn_id=uuid.uuid4(),
-        workdir="/tmp",
+        workdir=workdir,
         harness_session_id=None,
         permission_mode=mode,
         db_session_factory=async_session,
         session_plan_mode=session_plan_mode,
+        input_manifest=input_manifest or HarnessInputManifest(),
     )
+
+
+async def _collect_messages(stream: AsyncIterator[dict]) -> list[dict]:
+    messages: list[dict] = []
+    async for message in stream:
+        messages.append(message)
+    return messages
 
 
 def test_text_block_emits_token_and_appends_to_final_text():
@@ -132,6 +152,118 @@ def test_system_init_slash_inventory_extracts_nested_sdk_payload():
     commands = _extract_claude_system_slash_commands(payload)
 
     assert [command["name"] for command in commands] == ["skills", "project-local"]
+
+
+@pytest.mark.asyncio
+async def test_claude_query_input_keeps_plain_string_without_images():
+    query_input, runtime_items, warnings = _build_claude_query_input("Hello", _ctx())
+
+    assert query_input == "Hello"
+    assert runtime_items == ()
+    assert warnings == ()
+
+
+@pytest.mark.asyncio
+async def test_claude_query_input_maps_inline_images_to_sdk_content_blocks():
+    manifest = HarnessInputManifest(
+        attachments=(
+            HarnessInputAttachment(
+                kind="image",
+                source="inline_attachment",
+                name="screen.png",
+                mime_type="image/png",
+                content_base64="AAA",
+            ),
+        )
+    )
+
+    query_input, runtime_items, warnings = _build_claude_query_input(
+        "Look at this.",
+        _ctx(input_manifest=manifest),
+    )
+    assert not isinstance(query_input, str)
+    messages = await _collect_messages(query_input)
+
+    content = messages[0]["message"]["content"]
+    assert content[0] == {"type": "text", "text": "Look at this."}
+    assert content[1] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AAA"},
+    }
+    assert runtime_items == (
+        {
+            "type": "image",
+            "name": "screen.png",
+            "path": None,
+            "source": "inline_attachment",
+        },
+    )
+    assert warnings == ()
+    assert "AAA" not in str(manifest.metadata(runtime_items=runtime_items))
+
+
+@pytest.mark.asyncio
+async def test_claude_query_input_reads_workspace_image_inside_cwd(tmp_path):
+    image_path = tmp_path / ".uploads" / "pixel.jpg"
+    image_path.parent.mkdir()
+    image_path.write_bytes(b"jpg-bytes")
+    manifest = HarnessInputManifest(
+        attachments=(
+            HarnessInputAttachment(
+                kind="image",
+                source="channel_workspace",
+                name="pixel.jpg",
+                mime_type="image/jpeg",
+                path=str(image_path),
+                size_bytes=9,
+            ),
+        )
+    )
+
+    query_input, runtime_items, warnings = _build_claude_query_input(
+        "Describe it.",
+        _ctx(workdir=str(tmp_path), input_manifest=manifest),
+    )
+    assert not isinstance(query_input, str)
+    messages = await _collect_messages(query_input)
+
+    image_block = messages[0]["message"]["content"][1]
+    assert image_block["source"]["media_type"] == "image/jpeg"
+    assert image_block["source"]["data"] == "anBnLWJ5dGVz"
+    assert runtime_items == (
+        {
+            "type": "image",
+            "name": "pixel.jpg",
+            "path": str(image_path),
+            "source": "channel_workspace",
+        },
+    )
+    assert warnings == ()
+
+
+def test_claude_query_input_skips_workspace_image_outside_cwd(tmp_path):
+    outside = tmp_path.parent / "outside.png"
+    outside.write_bytes(b"png")
+    manifest = HarnessInputManifest(
+        attachments=(
+            HarnessInputAttachment(
+                kind="image",
+                source="channel_workspace",
+                name="outside.png",
+                mime_type="image/png",
+                path=str(outside),
+            ),
+        )
+    )
+
+    query_input, runtime_items, warnings = _build_claude_query_input(
+        "Look.",
+        _ctx(workdir=str(tmp_path), input_manifest=manifest),
+    )
+
+    assert query_input == "Look."
+    assert runtime_items == ()
+    assert "outside harness cwd" in warnings[0]
 
 
 def test_thinking_block_emits_thinking_only():

@@ -51,6 +51,57 @@ function normalizePath(path: string): string {
   return path.replace(/^\/+|\/+$/g, "");
 }
 
+function ProjectBasicsSection({
+  project,
+  channels,
+  setup,
+  runtimeEnv,
+  workspaceUri,
+}: {
+  project: Project;
+  channels?: Array<Pick<Channel, "id" | "name" | "bot_id">>;
+  setup?: ProjectSetup;
+  runtimeEnv?: ProjectRuntimeEnv;
+  workspaceUri: string;
+}) {
+  const attachedCount = channels?.length ?? project.attached_channel_count ?? 0;
+  const setupReady = setup?.plan?.ready ?? false;
+  const runtimeReady = runtimeEnv?.ready ?? false;
+  return (
+    <Section
+      title="Basics"
+      description="The minimum contract every Project-bound channel and agent run depends on."
+    >
+      <div data-testid="project-workspace-basics" className="grid gap-2 md:grid-cols-2">
+        <SettingsControlRow
+          leading={<FolderOpen size={14} />}
+          title="Work surface"
+          description={<span className="font-mono">{workspaceUri}</span>}
+          meta={<StatusBadge label="Project root" variant="info" />}
+        />
+        <SettingsControlRow
+          leading={<Users size={14} />}
+          title="Attached channels"
+          description={`${attachedCount} channel${attachedCount === 1 ? "" : "s"} use this root for files, search, exec, and harness cwd.`}
+          meta={<StatusBadge label={attachedCount > 0 ? "Ready" : "None"} variant={attachedCount > 0 ? "success" : "warning"} />}
+        />
+        <SettingsControlRow
+          leading={setupReady ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
+          title="Setup"
+          description={setupReady ? "Blueprint setup can run for this Project." : setup?.plan?.reasons?.[0] ?? "No setup plan is ready."}
+          meta={<StatusBadge label={setupReady ? "Ready" : "Needs setup"} variant={setupReady ? "success" : "warning"} />}
+        />
+        <SettingsControlRow
+          leading={runtimeReady ? <KeyRound size={14} /> : <AlertTriangle size={14} />}
+          title="Runtime env"
+          description={runtimeReady ? "Runtime keys are ready for Project terminals, exec, and harness turns." : runtimeEnv?.missing_secrets?.join(", ") || "Runtime env is not ready."}
+          meta={<StatusBadge label={runtimeReady ? "Ready" : "Needs binding"} variant={runtimeReady ? "success" : "warning"} />}
+        />
+      </div>
+    </Section>
+  );
+}
+
 function ProjectBlueprintSection({ project }: { project: Project }) {
   const { data: secrets = [] } = useSecretValues();
   const updateBindings = useUpdateProjectSecretBindings(project.id);
@@ -853,6 +904,14 @@ export default function ProjectDetail() {
         {tab === "Settings" && (
           <div className="h-full overflow-auto">
             <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
+              <ProjectBasicsSection
+                project={project}
+                channels={channels}
+                setup={setup}
+                runtimeEnv={runtimeEnv}
+                workspaceUri={workspaceUri}
+              />
+
               <Section
                 title="Instructions"
                 description="Shared turn guidance for channels attached to this Project."

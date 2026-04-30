@@ -379,12 +379,18 @@ async def inject_channel_workspace(
         try:
             async with async_session() as db:
                 surface = await resolve_channel_work_surface(db, ch_row, bot)
-        except Exception:
+        except Exception as exc:
             logger.debug(
-                "Failed to resolve channel work surface for channel %s; using legacy channel workspace",
+                "Failed to resolve channel work surface for channel %s",
                 ch_row.id,
                 exc_info=True,
             )
+            if getattr(ch_row, "project_id", None):
+                text = f"Project work surface could not be resolved for this channel: {exc}"
+                messages.append({"role": "system", "content": text})
+                inject_chars["project_work_surface_error"] = len(text)
+                budget_consume("project_work_surface_error", text)
+                return
             surface = None
 
         if is_project_like_surface(surface):

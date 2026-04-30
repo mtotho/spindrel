@@ -16,11 +16,14 @@ construction and we surface that as a turn error.
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import json
 import logging
+import mimetypes
 import os
 import subprocess
+from collections.abc import AsyncIterator
 from typing import Any, Mapping
 
 from integrations.sdk import (
@@ -131,6 +134,7 @@ _CLAUDE_KNOWN_MODELS: tuple[str, ...] = (
     "claude-haiku-4-5",
 )
 _CLAUDE_EFFORT_VALUES: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+_CLAUDE_IMAGE_INPUT_MAX_BYTES = 10 * 1024 * 1024
 _CLAUDE_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
     HarnessRuntimeCommandSpec(
         id="version",
@@ -203,7 +207,129 @@ def _credential_path() -> str:
     return os.path.join(config_dir, ".credentials.json")
 
 
+def _build_claude_query_input(
+    prompt: str,
+    ctx: TurnContext,
+) -> tuple[
+    str | AsyncIterator[dict[str, Any]],
+    tuple[Mapping[str, Any], ...],
+    tuple[str, ...],
+]:
+    """Build Claude SDK input, preserving the plain-string path when possible."""
 
+    text = _prompt_with_context_hints(prompt, ctx)
+    image_blocks, runtime_items, warnings = _claude_image_content_blocks(ctx)
+    if not image_blocks:
+        return text, tuple(runtime_items), tuple(warnings)
+
+    async def _messages() -> AsyncIterator[dict[str, Any]]:
+        yield {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text},
+                    *image_blocks,
+                ],
+            },
+        }
+
+    return _messages(), tuple(runtime_items), tuple(warnings)
+
+
+def _claude_image_content_blocks(
+    ctx: TurnContext,
+) -> tuple[list[dict[str, Any]], list[Mapping[str, Any]], list[str]]:
+    blocks: list[dict[str, Any]] = []
+    runtime_items: list[Mapping[str, Any]] = []
+    warnings: list[str] = []
+
+    workdir_real = os.path.realpath(ctx.workdir)
+    for attachment in ctx.input_manifest.attachments:
+        if attachment.kind != "image":
+            continue
+        if attachment.size_bytes is not None and attachment.size_bytes > _CLAUDE_IMAGE_INPUT_MAX_BYTES:
+            warnings.append(
+                "Skipped image attachment over "
+                f"{_CLAUDE_IMAGE_INPUT_MAX_BYTES} bytes: {_attachment_label(attachment)}"
+            )
+            continue
+
+        media_type = attachment.mime_type or "image/png"
+        encoded = attachment.content_base64
+        if not encoded and attachment.path:
+            resolved = _resolve_image_path_for_claude(attachment.path, workdir_real)
+            if resolved is None:
+                warnings.append(
+                    "Skipped image attachment outside harness cwd: "
+                    f"{_attachment_label(attachment)}"
+                )
+                continue
+            try:
+                size = os.path.getsize(resolved)
+                if size > _CLAUDE_IMAGE_INPUT_MAX_BYTES:
+                    warnings.append(
+                        "Skipped image attachment over "
+                        f"{_CLAUDE_IMAGE_INPUT_MAX_BYTES} bytes: {_attachment_label(attachment)}"
+                    )
+                    continue
+                with open(resolved, "rb") as fh:
+                    encoded = base64.b64encode(fh.read()).decode("ascii")
+                media_type = (
+                    attachment.mime_type
+                    or mimetypes.guess_type(resolved)[0]
+                    or "image/png"
+                )
+            except OSError as exc:
+                warnings.append(
+                    f"Skipped unreadable image attachment {_attachment_label(attachment)}: {exc}"
+                )
+                continue
+
+        if not encoded:
+            warnings.append(
+                "Skipped image attachment with no readable content: "
+                f"{_attachment_label(attachment)}"
+            )
+            continue
+
+        blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": encoded,
+            },
+        })
+        runtime_items.append({
+            "type": "image",
+            "name": attachment.name,
+            "path": attachment.path,
+            "source": attachment.source,
+        })
+
+    return blocks, runtime_items, warnings
+
+
+def _resolve_image_path_for_claude(path: str, workdir_real: str) -> str | None:
+    raw = path.strip()
+    if not raw:
+        return None
+    candidate = raw if os.path.isabs(raw) else os.path.join(workdir_real, raw)
+    resolved = os.path.realpath(candidate)
+    if resolved == workdir_real or resolved.startswith(workdir_real + os.sep):
+        return resolved
+    return None
+
+
+def _attachment_label(attachment: Any) -> str:
+    if getattr(attachment, "name", ""):
+        return str(attachment.name)
+    if getattr(attachment, "path", None):
+        return os.path.basename(str(attachment.path))
+    if getattr(attachment, "attachment_id", None):
+        return str(attachment.attachment_id)
+    return "unnamed image"
 
 class ClaudeCodeRuntime:
     """Drives the Claude Agent SDK against a workspace dir."""
@@ -339,8 +465,13 @@ class ClaudeCodeRuntime:
         tool_name_by_use_id: dict[str, str] = {}
         final_text_parts: list[str] = []
 
+        query_input, runtime_input_items, input_warnings = _build_claude_query_input(
+            prompt,
+            ctx,
+        )
+
         async with ClaudeSDKClient(options=opts) as client:
-            await client.query(_prompt_with_context_hints(prompt, ctx))
+            await client.query(query_input)
             async for msg in client.receive_response():
                 _bridge_message(
                     msg,
@@ -373,8 +504,13 @@ class ClaudeCodeRuntime:
             cost_usd=result_meta.get("total_cost_usd"),
             usage=result_meta.get("usage"),
             metadata={
-                "claude_native_slash_commands": result_meta.get("claude_native_slash_commands") or [],
-                "input_manifest": ctx.input_manifest.metadata(),
+                "claude_native_slash_commands": (
+                    result_meta.get("claude_native_slash_commands") or []
+                ),
+                "input_manifest": ctx.input_manifest.metadata(
+                    runtime_items=runtime_input_items,
+                    warnings=input_warnings,
+                ),
             },
         )
 

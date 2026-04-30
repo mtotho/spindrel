@@ -408,7 +408,11 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
         return WidgetActionResponse(ok=False, error="db_query/db_exec requires sql")
 
     from app.services.dashboard_pins import get_pin
-    from app.services.widget_db import acquire_db, resolve_db_path
+    from app.services.widget_db import (
+        acquire_db,
+        install_widget_sql_authorizer,
+        resolve_db_path,
+    )
 
     try:
         pin = await get_pin(db, req.dashboard_pin_id)
@@ -428,11 +432,8 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
             db_config = manifest.db
             try:
                 async with acquire_db(db_path, db_config) as conn:
-                    def _query_locked() -> list[dict]:
-                        cursor = conn.execute(sql, params)
-                        return [dict(row) for row in cursor.fetchall()]
-
-                    rows = await asyncio.to_thread(_query_locked)
+                    cursor = conn.execute(sql, params)
+                    rows = [dict(row) for row in cursor.fetchall()]
             except Exception as exc:
                 return WidgetActionResponse(ok=False, error=f"db_query failed: {exc}")
             return WidgetActionResponse(ok=True, db_result={"rows": rows})
@@ -443,13 +444,14 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
             conn.row_factory = _sqlite3.Row
             try:
                 conn.execute("PRAGMA journal_mode=WAL")
+                install_widget_sql_authorizer(conn)
                 cursor = conn.execute(sql, params)
                 return [dict(row) for row in cursor.fetchall()]
             finally:
                 conn.close()
 
         try:
-            rows = await asyncio.to_thread(_query)
+            rows = _query()
         except Exception as exc:
             return WidgetActionResponse(ok=False, error=f"db_query failed: {exc}")
         return WidgetActionResponse(ok=True, db_result={"rows": rows})
@@ -465,7 +467,7 @@ async def _dispatch_db(req: WidgetActionRequest, db: AsyncSession) -> WidgetActi
     db_config = manifest.db if manifest is not None else None
     try:
         async with acquire_db(db_path, db_config) as conn:
-            result = await asyncio.to_thread(_exec, conn)
+            result = _exec(conn)
     except Exception as exc:
         return WidgetActionResponse(ok=False, error=f"db_exec failed: {exc}")
     return WidgetActionResponse(ok=True, db_result=result)

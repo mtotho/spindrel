@@ -244,6 +244,24 @@ issues as first-class findings, removes the misleading "Reviewing now" passive
 state, switches medium-width layouts to queue + detail instead of stacked
 sections, and uses sweep-history/receipt language for Operator runs.
 
+2026-04-30 sweep-status follow-up: Mission Control Review now shows a loading
+skeleton while the Attention payload is still empty, clears stale item selection
+when switching lanes, and keeps a newly-started Operator sweep on a starting
+receipt instead of flashing an older run. Operator transcripts are now presented
+as an always-visible terminal-style feed inside the run receipt rather than a
+collapsed details box. The tool-schema failure that pushed Operator runs off
+`gpt-5.4` was traced to `call_api.body` declaring arrays without `items`; that
+schema now includes an empty `items` declaration for strict providers.
+
+Visual feedback status: the canonical `spatial-checks` screenshot bundle is
+healthy again on the dedicated e2e target `:18000`. On 2026-04-30,
+`stage --only spatial-checks` succeeded, `capture --only spatial-checks`
+refreshed all `12/12` docs artifacts, and `scripts.screenshots check` found all
+`91` docs image references. The refreshed Map Brief, Mission Control Review
+deck, run-log, and dense canvas captures were visually inspected before
+accepting the artifacts. Continue using the e2e target for docs images; do not
+capture from the live LAN server without explicit approval.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:
@@ -573,6 +591,11 @@ the system can already inspect" is a shared capability manifest:
   the bot should load before procedural work, plus `skills.creation_candidates`
   for missing runtime skill coverage. This is recommendation-only: no import
   from repo-dev `.agents`, no auto-enroll, and no full-body auto-inject.
+- The repo-dev `agentic-readiness` skill is now progressive-disclosed. Its
+  always-loaded `SKILL.md` stays focused on context classification and
+  skill/tool/API/docs placement, while detailed external AX, internal runtime
+  AX, feature-placement, and small-model guidance live in first-level
+  references. Tests pin that it remains repo-dev only and not a runtime skill.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

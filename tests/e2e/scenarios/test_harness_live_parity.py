@@ -1365,7 +1365,10 @@ async def test_live_harness_codex_native_input_manifest_skill_and_image(
     if not skill_name:
         pytest.skip("deployed Codex runtime has no skills/list entries to invoke")
 
-    pixel_png = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGUlEQVQoz2M0TjvDQApgIkn1qIZRDUNKAwB2OQGFz8rhgwAAAABJRU5ErkJggg=="
+    pixel_png = (
+        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2"
+        "AAAAGUlEQVQoz2M0TjvDQApgIkn1qIZRDUNKAwB2OQGFz8rhgwAAAABJRU5ErkJggg=="
+    )
     marker = uuid.uuid4().hex[:10]
     result = await client.chat_session_stream(
         f"${skill_name} Do not use tools. Reply exactly: codex input manifest {marker}",
@@ -1389,6 +1392,42 @@ async def test_live_harness_codex_native_input_manifest_skill_and_image(
     input_manifest = harness_meta.get("input_manifest") or {}
     item_counts = input_manifest.get("runtime_item_counts") or {}
     assert item_counts.get("skill") == 1, input_manifest
+    assert item_counts.get("image") == 1, input_manifest
+    assert "base64" not in json.dumps(input_manifest).lower()
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_native_image_input_manifest(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+
+    pixel_png = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGUlEQVQoz2M0TjvDQApgIkn1qIZRDUNKAwB2OQGFz8rhgwAAAABJRU5ErkJggg=="
+    marker = uuid.uuid4().hex[:10]
+    result = await client.chat_session_stream(
+        f"Do not use tools. Reply exactly: image input manifest {marker}",
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+        attachments=[
+            {
+                "type": "image",
+                "content": pixel_png,
+                "mime_type": "image/png",
+                "name": "pixel.png",
+            }
+        ],
+    )
+    _assert_clean_turn(result)
+
+    messages = await client.get_session_messages(session_id, limit=10)
+    harness_meta = (_message_metadata(_assistant_messages(messages)[-1]).get("harness") or {})
+    input_manifest = harness_meta.get("input_manifest") or {}
+    item_counts = input_manifest.get("runtime_item_counts") or {}
     assert item_counts.get("image") == 1, input_manifest
     assert "base64" not in json.dumps(input_manifest).lower()
 

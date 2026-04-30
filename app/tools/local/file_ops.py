@@ -592,7 +592,8 @@ async def file(
     if access_error:
         return _error(access_error)
 
-    if not os.path.isabs(path.strip()) and not path.strip().startswith("widget://"):
+    active_surface = None
+    if not path.strip().startswith("widget://"):
         ch_id = current_channel_id.get()
         if ch_id is not None:
             try:
@@ -602,10 +603,12 @@ async def file(
                 async with async_session() as db:
                     surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
                 if is_project_like_surface(surface):
+                    active_surface = surface
                     effective_ws_root = surface.root_host_path
                     effective_bot = bot
-            except Exception:
+            except Exception as exc:
                 logger.debug("Could not resolve project root for file op", exc_info=True)
+                return _error(str(exc))
 
     # widget:// core scope is read-only to bots; block write ops before
     # _resolve_path executes anything IO-side. widget://bot and widget://workspace
@@ -633,12 +636,20 @@ async def file(
 
     try:
         resolved = _resolve_path(path, effective_ws_root, effective_bot)
+        if active_surface is not None:
+            from app.services.projects import ensure_path_within_work_surface
+
+            resolved = ensure_path_within_work_surface(active_surface, resolved)
     except ValueError as e:
         return _error(str(e))
     resolved_destination = None
     if operation == "move" and destination:
         try:
             resolved_destination = _resolve_path(destination, effective_ws_root, effective_bot)
+            if active_surface is not None:
+                from app.services.projects import ensure_path_within_work_surface
+
+                resolved_destination = ensure_path_within_work_surface(active_surface, resolved_destination)
         except ValueError as e:
             return _error(str(e))
     plan_write_err = await _enforce_session_plan_write_policy(operation, resolved, resolved_destination)

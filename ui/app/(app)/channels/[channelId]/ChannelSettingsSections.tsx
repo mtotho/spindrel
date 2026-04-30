@@ -715,8 +715,8 @@ function ProjectSection({
       ...rows,
     ];
   }, [projects, selectedProject]);
-  const projectPath = (selectedProject?.root_path ?? form.project_path ?? "").replace(/^\/+/, "");
-  const effectiveWorkspaceId = selectedProject?.workspace_id ?? form.project_workspace_id ?? workspaceId ?? null;
+  const projectPath = (selectedProject?.root_path ?? "").replace(/^\/+/, "");
+  const effectiveWorkspaceId = selectedProject?.workspace_id ?? workspaceId ?? null;
   const terminalHref = effectiveWorkspaceId && projectPath
     ? `/admin/terminal?cwd=${encodeURIComponent(`workspace://${effectiveWorkspaceId}/${projectPath}`)}`
     : null;
@@ -737,18 +737,6 @@ function ProjectSection({
           />
         </FormRow>
       </div>
-      {!selectedProject && (
-        <FormRow
-          label="Legacy path"
-          description="Compatibility path for existing channels. Prefer creating a Project and selecting it above."
-        >
-          <TextInput
-            value={projectPath}
-            onChangeText={(value) => patch("project_path", (value.trim() || null) as ChannelSettings["project_path"])}
-            placeholder="common/projects/spindrel"
-          />
-        </FormRow>
-      )}
       <div data-testid="project-workspace-channel-summary" className="flex flex-col gap-2">
         {projectPath ? (
           <SettingsControlRow

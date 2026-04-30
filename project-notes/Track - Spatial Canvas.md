@@ -376,6 +376,30 @@ references, UI `tsc --noEmit` passed, `spatialSelectionSurfaces.test.ts` passed
 Map Brief, attention badge, review deck, run-log, view controls, cluster, and
 density images before accepting them as documentation artifacts.
 
+## 2026-04-30 — Runtime spatial widget stewardship
+
+Added the missing perception loop for bot-owned spatial widgets. Runtime bots
+now have a channel-centered `inspect_spatial_widget_scene` tool that exposes
+widget rectangles, screen bounds, clipping, overlap pairs, duplicate labels,
+ownership/manageability, source channel, widget origin/contract hints, and
+short content summaries. `preview_spatial_widget_changes` lets a bot dry-run
+move/resize/remove/pin candidates and compare overlap/widget-count metrics
+before mutating.
+
+The spatial heartbeat prompt and canvas context now instruct bots to inspect
+and preview before editing. The Spatial Widget Steward heartbeat profile applies
+the runtime `widgets/spatial_stewardship` skill plus the scene/preview/owned
+widget tools to an existing channel heartbeat, preserving channel context
+instead of creating a separate widget-factory task. Spatial widget mutation
+tools now require recent scene inspection in the current channel/bot context and
+record a reason field.
+
+Verification: Python compile passed for touched backend files; focused unit
+slice passed (`16 passed`); UI `tsc --noEmit --pretty false` passed. The
+DB-backed spatial scene integration tests were selected but skipped under the
+local integration profile (`2 skipped, 37 deselected`), so a pure unit
+regression covers overlap/duplicate/clipping scoring locally.
+
 ## Acceptance criteria (Phase 1 gate)
 
 A Phase 1 ship requires all five to pass — by manual verification at minimum, with regression tests where feasible.

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from app.agent.context import (
     current_bot_id,
+    current_channel_id,
     current_client_id,
     current_correlation_id,
     current_dispatch_config,
@@ -19,6 +20,24 @@ logger = logging.getLogger(__name__)
 
 EXEC_OUTPUT_DIR = "/tmp/exec-output"
 SAFE_STREAM_PREFIXES = ("/tmp/",)
+
+
+async def _resolve_project_working_directory(bot, working_directory: str | None) -> str | None:
+    ch_id = current_channel_id.get()
+    if ch_id is None:
+        return working_directory
+    from app.db.engine import async_session
+    from app.services.projects import (
+        is_project_like_surface,
+        resolve_channel_work_surface_by_id,
+        resolve_work_surface_host_path,
+    )
+
+    async with async_session() as db:
+        surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
+    if is_project_like_surface(surface):
+        return resolve_work_surface_host_path(surface, working_directory)
+    return working_directory
 
 
 def _validate_stream_to(path: str) -> str | None:
@@ -209,19 +228,11 @@ async def _exec_sync(
     sandbox_instance_id: str | None = None,
 ) -> str:
     """Execute command synchronously and return result."""
-    if not working_directory:
-        try:
-            ch_id = current_channel_id.get()
-            if ch_id is not None:
-                from app.db.engine import async_session
-                from app.services.projects import is_project_like_surface, resolve_channel_work_surface_by_id
-
-                async with async_session() as db:
-                    surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
-                if is_project_like_surface(surface):
-                    working_directory = surface.root_host_path
-        except Exception:
-            logger.debug("Could not resolve project cwd for delegate_to_exec", exc_info=True)
+    try:
+        working_directory = await _resolve_project_working_directory(bot, working_directory)
+    except Exception as exc:
+        logger.debug("Could not resolve project cwd for delegate_to_exec", exc_info=True)
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
     script = build_exec_script(command, args, working_directory, stream_to)
 
     try:
@@ -318,21 +329,15 @@ async def _exec_deferred(
     }
     if stream_to:
         exec_cfg["stream_to"] = stream_to
-    if not working_directory:
-        try:
-            from app.agent.bots import get_bot
-            from app.db.engine import async_session
-            from app.services.projects import is_project_like_surface, resolve_channel_work_surface_by_id
+    try:
+        from app.agent.bots import get_bot
 
-            bot = get_bot(bot_id)
-            ch_id = current_channel_id.get()
-            if ch_id is not None:
-                async with async_session() as db:
-                    surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
-                if is_project_like_surface(surface):
-                    exec_cfg["working_directory"] = surface.root_host_path
-        except Exception:
-            logger.debug("Could not resolve project cwd for deferred delegate_to_exec", exc_info=True)
+        resolved_working_directory = await _resolve_project_working_directory(bot=get_bot(bot_id), working_directory=working_directory)
+        if resolved_working_directory:
+            exec_cfg["working_directory"] = resolved_working_directory
+    except Exception as exc:
+        logger.debug("Could not resolve project cwd for deferred delegate_to_exec", exc_info=True)
+        return json.dumps({"error": str(exc)}, ensure_ascii=False)
     if src_corr is not None:
         exec_cfg["source_correlation_id"] = str(src_corr)
 

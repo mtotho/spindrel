@@ -221,6 +221,8 @@ async def _resolve_workspace_root(
             return os.path.realpath(surface.root_host_path), True
     except Exception:
         logger.debug("Failed to resolve project work surface for channel %s", channel.id, exc_info=True)
+        if getattr(channel, "project_id", None):
+            raise HTTPException(status_code=409, detail="Project work surface could not be resolved")
     return channel_root, False
 
 

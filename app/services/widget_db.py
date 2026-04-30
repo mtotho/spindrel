@@ -35,6 +35,48 @@ _DB_LOCKS: dict[Path, asyncio.Lock] = {}
 _DB_LOCKS_MUTEX = asyncio.Lock()
 
 
+_DENIED_SQLITE_ACTION_NAMES = {
+    "SQLITE_ATTACH",
+    "SQLITE_DETACH",
+    "SQLITE_LOAD_EXTENSION",
+    "SQLITE_VACUUM",
+}
+
+
+def _sqlite_action_codes(names: set[str]) -> set[int]:
+    return {
+        code
+        for name in names
+        if isinstance((code := getattr(sqlite3, name, None)), int)
+    }
+
+
+_DENIED_SQLITE_ACTIONS = _sqlite_action_codes(_DENIED_SQLITE_ACTION_NAMES)
+
+
+def install_widget_sql_authorizer(conn: sqlite3.Connection) -> None:
+    """Deny SQLite operations that can escape a widget's DB file boundary."""
+
+    def _authorizer(
+        action_code: int,
+        arg1: str | None,
+        arg2: str | None,
+        db_name: str | None,
+        trigger_name: str | None,
+    ) -> int:
+        del db_name, trigger_name
+        if action_code in _DENIED_SQLITE_ACTIONS:
+            return sqlite3.SQLITE_DENY
+        if action_code == sqlite3.SQLITE_PRAGMA:
+            pragma_name = (arg1 or "").lower()
+            is_write = arg2 is not None
+            if is_write and pragma_name != "user_version":
+                return sqlite3.SQLITE_DENY
+        return sqlite3.SQLITE_OK
+
+    conn.set_authorizer(_authorizer)
+
+
 async def _get_lock(path: Path) -> asyncio.Lock:
     async with _DB_LOCKS_MUTEX:
         if path not in _DB_LOCKS:
@@ -334,6 +376,7 @@ async def acquire_db(
             return conn
 
         conn: sqlite3.Connection = await asyncio.to_thread(_open)
+        install_widget_sql_authorizer(conn)
         try:
             yield conn
         finally:

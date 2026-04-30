@@ -79,7 +79,7 @@ The admin security audit is read-only and currently checks baseline config/tool-
 - Dangerous tool tiers, exec/control-plane tool exposure, stale approvals, and MCP server count
 - Bots with `cross_workspace_access`
 - Bots with high-risk API scopes such as `admin`, wildcard, `tools:execute`, secret/provider/settings/API-key writes, and broad file writes
-- Widget action API dispatch allowlist breadth
+- Widget action API dispatch allowlist breadth and widget DB SQLite file-boundary protections
 - WorkSurface isolation static findings and inbound integration callback auth/replay contracts
 - Local machine-control tool gate contracts, lease state, and browser-live pairing exposure
 

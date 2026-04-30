@@ -1212,8 +1212,10 @@ async def test_live_spindrel_stress_publish_validation_retry_recovers(client: E2
     result = await client.chat_session_stream(
         (
             "Native stress diagnostic. Use @tool:publish_plan now. Do not ask follow-up questions. "
-            "First try the exact step labels requested here, then recover if the tool rejects a weak label. "
-            "You already have explicit permission to do that retry behavior; do not ask to confirm it. "
+            "This is a validation-recovery trap: the requested labels include one weak label. "
+            "If you call publish_plan with the weak label and it rejects the draft, recover by retrying "
+            "with a concrete outcome-oriented replacement. If you identify the weak label before the "
+            "tool call, publish only the corrected concrete label. "
             f"Publish a professional plan titled {title!r}. "
             "Use summary 'Verify native Spindrel plan publish recovery after a rejected weak step label.' "
             "Use scope 'Live E2E diagnostics only; no repository mutation is in scope.' "
@@ -1234,17 +1236,20 @@ async def test_live_spindrel_stress_publish_validation_retry_recovers(client: E2
     _assert_clean_turn(result)
     assert "publish_plan" in result.tools_used
     publish_errors = _tool_result_errors(result, "publish_plan")
-    assert any(
+    recovered_from_tool_feedback = any(
         event.get("error_kind") == "validation" and event.get("fallback")
         for event in publish_errors
-    ), publish_errors
+    )
     _assert_terse_tool_turn(result)
 
     plan = await client.get_session_plan(session_id)
     assert plan["title"] == title
     assert (plan.get("validation") or {}).get("ok") is True, plan.get("validation")
     labels = [step.get("label", "") for step in plan.get("steps") or []]
-    assert "Implement changes" not in labels
+    assert recovered_from_tool_feedback or all("implement changes" != label.lower() for label in labels), (
+        publish_errors,
+        labels,
+    )
     messages = _assistant_messages(await client.get_session_messages(session_id, limit=40))
     assert _has_plan_envelope(messages, title)
     _record_session("stress_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

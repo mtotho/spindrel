@@ -12,6 +12,12 @@ Every turn/tool should resolve to exactly one `WorkSurface` before touching file
 
 Project-bound channels share Project files, search results, context admission, and default execution cwd. Fresh Project instances are the isolation mechanism when a run should not mutate shared Project state.
 
+If a channel declares a Project, resolver failures are visible errors. File
+tools, exec tools, context admission, indexing, and harness startup must not
+fall back to channel or bot workspace roots when the Project binding or active
+Project instance is broken. A fresh Project instance is valid only for a
+channel attached to the same parent Project.
+
 Bot-private state is separate from the WorkSurface:
 
 - memory files
@@ -31,6 +37,10 @@ All high-impact resource paths must go through `app.services.projects.WorkSurfac
 - widget bundle/database paths that depend on channel or Project provenance
 
 Do not add a new direct call to `workspace_service.get_workspace_root()`, `channel_workspace.get_channel_workspace_root()`, or `shared_workspace_service.get_host_root()` in a production path unless the code is deliberately handling bot-private state or implementing the WorkSurface resolver itself.
+
+For Project-like surfaces, relative execution cwd values resolve under the
+active Project or Project-instance root. Absolute paths and `/workspace/...`
+paths must be translated and then proven to stay inside that same root.
 
 ## Operator Capabilities
 
@@ -57,13 +67,13 @@ The global Secret Values vault is not an ambient environment for every subproces
 
 The static audit at `app.services.worksurface_isolation_audit` intentionally reports these known gaps until they are remediated:
 
-- `harness_workdir` can bypass a resolved WorkSurface and should be treated as operator-target config
 - `widget://workspace` is shared-workspace scoped and still needs a policy decision: shared library or WorkSurface-published asset
 
 Remediated findings:
 
 - shared workspace subprocess execution no longer injects every Secret Value by default; it only uses `current_allowed_secrets` plus explicit Project runtime `extra_env`
 - legacy `cross_workspace_access` no longer authorizes sibling-channel WorkSurface access; channel files, channel search, history reads, and channel listing now use primary/member participation
+- channel-bound native harnesses use the resolved channel, Project, or Project-instance WorkSurface cwd before `harness_workdir`; `harness_workdir` is only a no-channel launch fallback
 
 ## External Baseline
 

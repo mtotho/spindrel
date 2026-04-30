@@ -381,6 +381,28 @@ async def test_api_dispatch_rejects_endpoint_outside_allowlist():
     assert "allowlist" in (resp.error or "")
 
 
+@pytest.mark.asyncio
+async def test_db_dispatch_rejects_sqlite_attach(tmp_path):
+    pin = await _make_pin()
+    db_path = tmp_path / "widget.sqlite"
+    other_path = tmp_path / "other.sqlite"
+    other_path.touch()
+    req = WidgetActionRequest(
+        dispatch="db_query",
+        dashboard_pin_id=pin.id,
+        sql="ATTACH DATABASE ? AS other",
+        params=[str(other_path)],
+    )
+
+    with patch("app.services.dashboard_pins.get_pin", new=AsyncMock(return_value=pin)), \
+         patch.object(dispatch_mod, "_load_pin_manifest_safely", return_value=None), \
+         patch("app.services.widget_db.resolve_db_path", return_value=db_path):
+        resp = await dispatch_mod._dispatch_db(req, db=object())
+
+    assert resp.ok is False
+    assert "not authorized" in (resp.error or "").lower()
+
+
 def test_widget_actions_router_stays_thin() -> None:
     router_path = Path(__file__).resolve().parents[2] / "app" / "routers" / "api_v1_widget_actions.py"
     tree = ast.parse(router_path.read_text(encoding="utf-8"))

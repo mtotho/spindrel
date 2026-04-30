@@ -174,7 +174,23 @@ def audit_worksurface_isolation(repo_root: Path | None = None) -> list[WorkSurfa
         ))
 
     harness_project_source = _read(root, "app/services/agent_harnesses/project.py")
-    if "bot.harness_workdir" in harness_project_source:
+    if (
+        "bot.harness_workdir" in harness_project_source
+        and "if surface is not None:" in harness_project_source
+        and "channel_work_surface" in harness_project_source
+    ):
+        findings.append(WorkSurfaceIsolationFinding(
+            id="harness_workdir_absolute_escape",
+            severity="info",
+            status="pass",
+            title="Harness cwd uses the resolved WorkSurface first",
+            evidence=(
+                "app/services/agent_harnesses/project.py returns channel, Project, and Project-instance "
+                "WorkSurface cwd before considering bot.harness_workdir for no-channel launches."
+            ),
+            recommendation="Keep harness_workdir out of channel-bound turns; use WorkSurface cwd as the normal harness root.",
+        ))
+    elif "bot.harness_workdir" in harness_project_source:
         findings.append(WorkSurfaceIsolationFinding(
             id="harness_workdir_absolute_escape",
             severity="high",

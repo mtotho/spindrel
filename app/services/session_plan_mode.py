@@ -2747,6 +2747,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         if mode == PLAN_MODE_PLANNING:
             lines = [
                 "Plan mode is active. Stay in planning mode: do not execute implementation changes, do not edit non-plan files, and do not answer with long freeform proposals before the scope is clear.",
+                "If the latest user message explicitly says to use @tool:publish_plan now, says not to ask follow-up questions, and provides the professional plan fields, call publish_plan directly; do not load skills or call ask_plan_questions first.",
                 "Your first job in plan mode is to narrow scope. Explore/read available context first when possible, then ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
                 "If the user asks for a plan but the target subsystem, success signal, mutation scope, or verification expectation is missing, call ask_plan_questions instead of answering with prose or publishing a draft.",
                 "If the user explicitly asks for a structured question card, you must use ask_plan_questions.",
@@ -2808,6 +2809,9 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         lines.append(
             "Only record step_done after the current step is actually complete and any requested verification/readback has succeeded. "
             "If verification is still pending or failed, record progress, verification, blocked, or no_progress instead."
+        )
+        lines.append(
+            "When the user explicitly asks you to read back or verify an artifact before record_plan_progress, perform that read/check tool call before recording step_done."
         )
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Accepted revision: {accepted_revision}; plan status: {plan.status}")

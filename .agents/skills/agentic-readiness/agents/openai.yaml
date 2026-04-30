@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Readiness"
+  short_description: "Audit Spindrel AX across repo-dev and runtime agents"
+  default_prompt: "Use $agentic-readiness to classify this agent-first change as repo-dev AX, runtime AX, or both, then decide whether it belongs in a skill, tool/API, docs, memory, or review surface."

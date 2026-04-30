@@ -53,9 +53,9 @@ def test_static_audit_flags_remaining_operator_escape_hatches():
     assert "ChannelBotMember" in cross_workspace.recommendation
 
     harness = findings["harness_workdir_absolute_escape"]
-    assert harness.status == "warning"
-    assert harness.severity == "high"
-    assert "operator target" in harness.recommendation
+    assert harness.status == "pass"
+    assert harness.severity == "info"
+    assert "WorkSurface cwd" in harness.recommendation
 
 
 def test_static_audit_summary_counts_findings():
@@ -64,7 +64,7 @@ def test_static_audit_summary_counts_findings():
 
     assert summary["pass"] >= 3
     assert summary["fail"] == 0
-    assert summary["warning"] >= 2
+    assert summary["warning"] >= 1
     assert summary["critical"] == 0
 
 

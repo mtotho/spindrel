@@ -38,6 +38,7 @@ from app.services.security_audit import (
     _check_tool_tier_distribution,
     _check_tools_missing_tier,
     _check_widget_action_api_allowlist,
+    _check_widget_db_sql_authorizer,
     _check_worksurface_isolation_static,
     _compute_score,
     _compute_summary,
@@ -423,6 +424,24 @@ class TestWidgetActionApiAllowlist:
         assert c.severity == Severity.critical
 
 
+class TestWidgetDbSqlAuthorizer:
+    def test_current_authorizer_denies_file_boundary_operations(self):
+        c = _check_widget_db_sql_authorizer()
+        assert c.status == Status.passed
+        assert "SQLITE_ATTACH" in c.details["denied_actions"]
+        assert "SQLITE_DETACH" in c.details["denied_actions"]
+
+    def test_missing_attach_denial_fails_critical(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.widget_db._DENIED_SQLITE_ACTION_NAMES",
+            {"SQLITE_DETACH", "SQLITE_LOAD_EXTENSION", "SQLITE_VACUUM"},
+        )
+        c = _check_widget_db_sql_authorizer()
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        assert "SQLITE_ATTACH" in c.details["missing"]
+
+
 class TestWorkSurfaceIsolationStatic:
     def test_static_findings_surface_in_security_audit(self):
         c = _check_worksurface_isolation_static()
@@ -806,7 +825,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_26_checks(self, db, monkeypatch):
+    async def test_returns_27_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -825,7 +844,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 26
+        assert len(result.checks) == 27
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary
@@ -835,6 +854,7 @@ class TestRunSecurityAudit:
         assert len(ids) == len(set(ids))
         assert "worksurface_isolation_static" in ids
         assert "inbound_callback_security" in ids
+        assert "widget_db_sql_authorizer" in ids
         assert "machine_control_tool_gates" in ids
         assert "browser_live_pairing_surface" in ids
         assert "machine_control_lease_state" in ids

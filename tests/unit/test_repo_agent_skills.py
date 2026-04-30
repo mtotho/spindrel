@@ -17,6 +17,7 @@ NEW_SKILL_IDS = {
     "spindrel-docs-operator",
 }
 EXPECTED_SKILL_IDS = NEW_SKILL_IDS | {"spindrel-visual-feedback-loop"}
+AGENTIC_READINESS_ID = "agentic-readiness"
 
 
 def _load_manifest() -> dict:
@@ -42,7 +43,7 @@ def test_repo_agent_manifest_indexes_each_skill_folder() -> None:
     manifest = _load_manifest()
     skills = {entry["id"]: entry for entry in manifest["skills"]}
 
-    assert EXPECTED_SKILL_IDS.issubset(skills)
+    assert (EXPECTED_SKILL_IDS | {AGENTIC_READINESS_ID}).issubset(skills)
 
     for skill_id, entry in skills.items():
         skill_dir = ROOT / entry["path"]
@@ -102,3 +103,44 @@ def test_integration_skill_preserves_integration_boundaries() -> None:
     assert "activation" in skill_text
     assert "binding" in skill_text
     assert "no integration-specific code in `app/`" in skill_text
+
+
+def test_agentic_readiness_skill_preserves_repo_runtime_boundary() -> None:
+    manifest = _load_manifest()
+    skills = {entry["id"]: entry for entry in manifest["skills"]}
+    entry = skills[AGENTIC_READINESS_ID]
+    skill_dir = ROOT / entry["path"]
+    skill_text = (skill_dir / "SKILL.md").read_text()
+    skill_lower = skill_text.lower()
+
+    assert entry["path"] == ".agents/skills/agentic-readiness"
+    assert "skill design" in entry["triggers"]
+    assert "feature should be a skill" in entry["triggers"]
+    assert "repo-dev skill" in skill_lower
+    assert "not a spindrel runtime skill" in skill_lower
+    assert "must not be imported into app skill tables" in skill_lower
+    assert "runtime agents use runtime tools" in skill_lower
+    assert "references/feature-placement-rubric.md" in skill_text
+    assert "references/internal-agent-readiness.md" in skill_text
+    assert len(skill_text.splitlines()) < 160
+
+
+def test_agentic_readiness_references_and_metadata_exist() -> None:
+    manifest = _load_manifest()
+    skills = {entry["id"]: entry for entry in manifest["skills"]}
+    skill_dir = ROOT / skills[AGENTIC_READINESS_ID]["path"]
+
+    for reference in (
+        "feature-placement-rubric.md",
+        "external-agent-readiness.md",
+        "internal-agent-readiness.md",
+        "small-model-guidance.md",
+    ):
+        text = (skill_dir / "references" / reference).read_text()
+        assert "# " in text
+        assert "runtime skill" in text.lower() or "repo" in text.lower()
+
+    metadata = yaml.safe_load((skill_dir / "agents" / "openai.yaml").read_text())
+    assert metadata["interface"]["display_name"] == "Agentic Readiness"
+    assert "repo-dev" in metadata["interface"]["short_description"]
+    assert "runtime agents" in metadata["interface"]["short_description"]

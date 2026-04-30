@@ -83,18 +83,22 @@ async def exec_command(command: str, working_dir: str = "") -> str:
             try:
                 from app.db.engine import async_session
                 from app.services.project_runtime import load_project_runtime_environment_for_id
-                from app.services.projects import is_project_like_surface, resolve_channel_work_surface_by_id
+                from app.services.projects import (
+                    is_project_like_surface,
+                    resolve_channel_work_surface_by_id,
+                    resolve_work_surface_host_path,
+                )
 
                 async with async_session() as db:
                     surface = await resolve_channel_work_surface_by_id(db, ch_id, bot)
                     if is_project_like_surface(surface):
-                        if not working_dir:
-                            working_dir = surface.root_host_path
-                            effective_working_dir = working_dir
+                        working_dir = resolve_work_surface_host_path(surface, working_dir)
+                        effective_working_dir = working_dir
                         if surface.project_id:
                             runtime_env = await load_project_runtime_environment_for_id(db, surface.project_id)
-            except Exception:
+            except Exception as exc:
                 logger.debug("Could not resolve project runtime for exec_command", exc_info=True)
+                return json.dumps({"error": "workspace_error", "message": str(exc)}, ensure_ascii=False)
         block_err = await run_before_access(bot_id, effective_working_dir)
         if block_err:
             return json.dumps({"error": "hook_blocked", "message": block_err}, ensure_ascii=False)

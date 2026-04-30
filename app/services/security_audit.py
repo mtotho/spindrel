@@ -500,6 +500,54 @@ def _check_widget_action_api_allowlist() -> SecurityCheck:
     )
 
 
+def _check_widget_db_sql_authorizer() -> SecurityCheck:
+    expected_denials = {
+        "SQLITE_ATTACH",
+        "SQLITE_DETACH",
+        "SQLITE_LOAD_EXTENSION",
+        "SQLITE_VACUUM",
+    }
+    try:
+        from app.services.widget_db import (
+            _DENIED_SQLITE_ACTION_NAMES,
+            install_widget_sql_authorizer,
+        )
+    except Exception as exc:
+        return SecurityCheck(
+            id="widget_db_sql_authorizer",
+            category="widget_actions",
+            severity=Severity.critical,
+            status=Status.fail,
+            message="Could not inspect widget DB SQL authorizer",
+            recommendation="Fix widget DB imports so SQLite file-boundary protections are auditable.",
+            details={"error": str(exc)},
+        )
+
+    observed = set(_DENIED_SQLITE_ACTION_NAMES)
+    missing = sorted(expected_denials - observed)
+    if missing or not callable(install_widget_sql_authorizer):
+        return SecurityCheck(
+            id="widget_db_sql_authorizer",
+            category="widget_actions",
+            severity=Severity.critical,
+            status=Status.fail,
+            message="Widget DB SQL authorizer is missing required denied operations",
+            recommendation=(
+                "Widget DB connections must deny SQLite file-boundary operations "
+                "such as ATTACH/DETACH, extension loading, and VACUUM output."
+            ),
+            details={"required": sorted(expected_denials), "observed": sorted(observed), "missing": missing},
+        )
+    return SecurityCheck(
+        id="widget_db_sql_authorizer",
+        category="widget_actions",
+        severity=Severity.warning,
+        status=Status.passed,
+        message="Widget DB SQL authorizer denies SQLite file-boundary operations",
+        details={"denied_actions": sorted(observed)},
+    )
+
+
 def _check_worksurface_isolation_static() -> SecurityCheck:
     from app.services.worksurface_isolation_audit import (
         POLICY_TARGET,
@@ -987,6 +1035,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_bots_with_cross_workspace_access())
     checks.append(_check_bots_with_high_risk_api_scopes())
     checks.append(_check_widget_action_api_allowlist())
+    checks.append(_check_widget_db_sql_authorizer())
     checks.append(_check_worksurface_isolation_static())
     checks.append(_check_inbound_callback_security())
     checks.append(_check_machine_control_tool_gates())
