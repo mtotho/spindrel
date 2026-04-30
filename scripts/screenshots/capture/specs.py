@@ -1223,6 +1223,29 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
     kind: "heartbeat",
     classification: "retryable_contract"
   }, "warning");
+  const issueOne = baseItem("00000000-0000-0000-0000-000000000203", "Project Runs hides merge evidence", "When a review session launches, the run row does not frame the merge receipt clearly.", "open", {
+    issue_intake: {
+      reported_by: "codex",
+      reported_at: now,
+      category_hint: "quality",
+      project_hint: "Spindrel",
+      tags: ["project-runs", "review"],
+      observed_behavior: "Merge receipt is below the visible row.",
+      expected_behavior: "The cockpit should frame launch and merge evidence.",
+      steps: ["Open Mission Control Review", "Launch a review work pack"],
+      source: "conversation"
+    }
+  }, "warning", "Spindrel Development");
+  const issueTwo = baseItem("00000000-0000-0000-0000-000000000204", "Codex task could not run e2e screenshots", "The task reported missing e2e target access.", "open", {
+    report_issue: {
+      category: "blocked",
+      suggested_action: "Grant a task-scoped e2e target before launching.",
+      reported_by: "codex",
+      reported_at: now,
+      task_id: "00000000-0000-0000-0000-000000000901",
+      origin: "project_coding_run"
+    }
+  }, "error", "Spindrel Development");
   const runningOne = baseItem("00000000-0000-0000-0000-000000000301", "radarr_releases failed", "Operator is classifying repeated HTTP 500s.", "responded", {
     kind: "tool_call",
     operator_triage: {
@@ -1262,7 +1285,27 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
       reported_at: now
     }
   }, "info", "Evening check-in");
-  const items = [reviewOne, reviewTwo, inboxOne, inboxTwo, runningOne, clearedOne, clearedTwo];
+  const items = [reviewOne, reviewTwo, issueOne, issueTwo, inboxOne, inboxTwo, runningOne, clearedOne, clearedTwo];
+  const workPacks = [{
+    id: "00000000-0000-0000-0000-000000000801",
+    title: "Improve Project review evidence framing",
+    summary: "Conversational intake and agent blocker reports both point to the Project review cockpit needing clearer launch and merge evidence.",
+    category: "code_bug",
+    confidence: "high",
+    status: "proposed",
+    source_item_ids: [issueOne.id, issueTwo.id],
+    launch_prompt: "Fix the Project review cockpit evidence framing and verify with screenshots.",
+    triage_task_id: "00000000-0000-0000-0000-000000000501",
+    project_id: null,
+    project_name: null,
+    channel_id: null,
+    channel_name: null,
+    launched_task_id: null,
+    launched_task_status: null,
+    metadata: { target_project_hint: "Spindrel", target_channel_hint: "Spindrel Development" },
+    created_at: now,
+    updated_at: now
+  }];
   const runs = [{
     task_id: "00000000-0000-0000-0000-000000000501",
     session_id: null,
@@ -1282,7 +1325,7 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
   }];
   const brief = {
     generated_at: now,
-    summary: { blockers: 0, fix_packs: 1, decisions: 1, quiet: 2, running: 1, cleared: 2, total: items.length },
+    summary: { autofix: 0, blockers: 0, fix_packs: 1, decisions: 1, quiet: 2, running: 1, cleared: 2, total: items.length },
     next_action: {
       kind: "open_item",
       title: "Review the spatial canvas finding",
@@ -1315,6 +1358,7 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
       action_label: "Make decision",
       action: { type: "open_item", item_id: reviewTwo.id }
     }],
+    autofix_queue: [],
     quiet_digest: { count: 2, groups: [{ label: "Duplicate setup probes", count: 2 }] },
     running: [runningOne],
     cleared: [clearedOne, clearedTwo]
@@ -1328,6 +1372,15 @@ _ATTENTION_REVIEW_DECK_ENDPOINT_INIT = """
       }
       if (url.pathname === "/api/v1/workspace/attention/brief") {
         return new Response(JSON.stringify(brief), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/workspace/attention/issue-work-packs") {
+        return new Response(JSON.stringify({ work_packs: workPacks }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/projects") {
+        return new Response(JSON.stringify([{ id: "project-1", name: "Spindrel", slug: "spindrel", root_path: "common/projects/spindrel", workspace_id: "workspace-1", created_at: now, updated_at: now }]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.pathname === "/api/v1/projects/project-1/channels") {
+        return new Response(JSON.stringify([{ id: "channel-dev", name: "Spindrel Development", bot_id: "codex" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url.pathname === "/api/v1/workspace/attention") {
         return new Response(JSON.stringify({ items }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -1566,19 +1619,20 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="spatial-check-attention-review-deck",
-        route="/hub/attention?mode=review",
+        route="/hub/attention?mode=review&item=00000000-0000-0000-0000-000000000101",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')"
             " && document.body.innerText.includes('Mission Control Review')"
+            " && document.body.innerText.includes('Open a code fix')"
         ),
         output="spatial-check-attention-review-deck.png",
         color_scheme="dark",
         extra_init_scripts=[_ATTENTION_REVIEW_DECK_ENDPOINT_INIT],
         assert_js=(
             "const text = document.body.innerText;"
-            "const lower = text.toLowerCase();"
+            "const lower = `${document.body.innerText} ${document.body.textContent || ''}`.toLowerCase();"
             "if (!text.includes('Findings') || !text.includes('Unreviewed') || !text.includes('Sweeps') || !text.includes('Cleared')) throw new Error('review deck queue chips missing');"
             "if (!document.querySelector('[data-testid=\"attention-command-deck-what-now\"]')) throw new Error('what-now lane missing');"
             "if (!text.includes('view_spatial_canvas failed') || !text.includes('pin_spatial_widget failed')) throw new Error('review deck did not render seeded operator findings');"
@@ -1586,6 +1640,29 @@ SPATIAL_CHECK_SPECS: list[ScreenshotSpec] = [
             "if (text.includes('Reviewing now')) throw new Error('stale reviewing-now copy is visible');"
             "if (text.includes('Open in Attention') || text.includes('Open deck')) throw new Error('legacy attention launcher copy is visible');"
             "if (text.includes('Raw signal') || text.includes('raw signal') || text.includes('Next best click')) throw new Error('legacy review language is visible');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="spatial-check-issue-intake-work-packs",
+        route="/hub/attention?mode=issues",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"issue-intake-workspace\"]')"
+            " && document.body.innerText.includes('Improve Project review evidence framing')"
+            " && document.body.innerText.includes('Spindrel Development')"
+        ),
+        output="spatial-check-issue-intake-work-packs.png",
+        color_scheme="dark",
+        extra_init_scripts=[_ATTENTION_REVIEW_DECK_ENDPOINT_INIT],
+        assert_js=(
+            "const text = document.body.innerText;"
+            "const lower = text.toLowerCase();"
+            "if (!lower.includes('issue intake') || !text.includes('Start issue triage')) throw new Error('issue intake lane missing');"
+            "if (!text.includes('Project Runs hides merge evidence') || !text.includes('Codex task could not run e2e screenshots')) throw new Error('raw issue intake missing');"
+            "if (!text.includes('Improve Project review evidence framing')) throw new Error('work pack missing');"
+            "if (!text.includes('Spindrel Development') || !text.includes('Launch run')) throw new Error('Project launch target controls missing');"
+            "if (text.includes('No work packs yet')) throw new Error('work pack empty state rendered with seeded pack');"
         ),
     ),
     ScreenshotSpec(

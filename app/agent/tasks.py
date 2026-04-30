@@ -177,6 +177,13 @@ async def _fire_task_complete(task: Task, status: str) -> None:
         except Exception:
             logger.exception("Attention triage completion failed for task %s", task.id)
 
+    if cb.get("issue_intake_triage"):
+        try:
+            from app.services.workspace_attention import on_issue_intake_triage_task_complete
+            await on_issue_intake_triage_task_complete(task.id, status)
+        except Exception:
+            logger.exception("Issue intake triage completion failed for task %s", task.id)
+
     if cb.get("mission_id"):
         try:
             from app.services.workspace_missions import on_mission_task_complete

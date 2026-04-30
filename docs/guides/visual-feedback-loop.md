@@ -26,6 +26,7 @@ checked-in images before closing the UI pass:
 - [spatial-check-channel-schedule-satellites.png](../images/spatial-check-channel-schedule-satellites.png)
 - [spatial-check-attention-badge.png](../images/spatial-check-attention-badge.png)
 - [spatial-check-attention-review-deck.png](../images/spatial-check-attention-review-deck.png)
+- [spatial-check-issue-intake-work-packs.png](../images/spatial-check-issue-intake-work-packs.png)
 - [spatial-check-attention-run-log.png](../images/spatial-check-attention-run-log.png)
 - [spatial-check-hover-suppression.png](../images/spatial-check-hover-suppression.png)
 - [spatial-check-overview-hover-calm.png](../images/spatial-check-overview-hover-calm.png)

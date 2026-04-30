@@ -41,6 +41,7 @@ class ProjectCodingRunCreate:
     request: str = ""
     machine_target_grant: ProjectMachineTargetGrant | None = None
     granted_by_user_id: uuid.UUID | None = None
+    source_work_pack_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -326,6 +327,7 @@ def _execution_config_from_preset(
     runtime_target: dict[str, Any],
     request: str,
     machine_target_grant: ProjectMachineTargetGrant | None = None,
+    source_work_pack_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     return {
         "run_preset_id": PROJECT_CODING_RUN_PRESET_ID,
@@ -347,6 +349,7 @@ def _execution_config_from_preset(
             "repo": run_defaults.get("repo") or {},
             "runtime_target": runtime_target,
             "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
+            "source_work_pack_id": str(source_work_pack_id) if source_work_pack_id else None,
             "continuation_index": 0,
         },
     }
@@ -408,6 +411,7 @@ async def create_project_coding_run(
         runtime_target=runtime_target,
         request=body.request,
         machine_target_grant=body.machine_target_grant,
+        source_work_pack_id=body.source_work_pack_id,
     )
     ecfg["project_coding_run"]["root_task_id"] = str(task_id)
     task = Task(
@@ -880,6 +884,7 @@ async def _coding_run_row(
         "base_branch": cfg.get("base_branch"),
         "repo": cfg.get("repo") or {},
         "runtime_target": cfg.get("runtime_target") or {},
+        "source_work_pack_id": cfg.get("source_work_pack_id"),
         "parent_task_id": lineage["parent_task_id"],
         "root_task_id": lineage["root_task_id"],
         "continuation_index": lineage["continuation_index"],

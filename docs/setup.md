@@ -107,7 +107,8 @@ docker compose up -d
 ### With the Spindrel CLI
 
 ```bash
-spindrel pull    # git pull + rebuild + restart
+spindrel pull                  # latest stable release tag + rebuild + restart
+spindrel pull --development    # development branch + rebuild + restart
 ```
 
 Install the CLI if you haven't:

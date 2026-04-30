@@ -26,6 +26,8 @@ from app.db.models import (
     Channel,
     ChannelHeartbeat,
     HeartbeatRun,
+    IssueWorkPack,
+    Project,
     Session,
     Task,
     ToolCall,
@@ -63,6 +65,7 @@ STRUCTURED_ERROR_DETECTOR_ID = "system:structured-errors"
 OPERATOR_TRIAGE_BOT_ID = "orchestrator"
 OPERATOR_TRIAGE_TOOL_NAME = "report_attention_triage_batch"
 REPORT_ISSUE_TOOL_NAME = "report_issue"
+ISSUE_WORK_PACK_TOOL_NAME = "report_issue_work_packs"
 AUTO_SIGNAL_REOPEN_COOLDOWN = timedelta(hours=24)
 SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
 BOT_REPORT_CATEGORIES = {
@@ -90,6 +93,36 @@ OPERATOR_TRIAGE_ALLOWED_TOOLS = {
     "get_memory_file",
     "search_bot_memory",
     OPERATOR_TRIAGE_TOOL_NAME,
+}
+ISSUE_TRIAGE_ALLOWED_TOOLS = {
+    "read_conversation_history",
+    "search_history",
+    "search_memory",
+    "get_memory_file",
+    "list_tasks",
+    "get_trace",
+    ISSUE_WORK_PACK_TOOL_NAME,
+}
+ISSUE_INTAKE_CATEGORIES = {
+    "bug",
+    "regression",
+    "quality",
+    "feature",
+    "test_failure",
+    "config_issue",
+    "environment_issue",
+    "user_decision",
+    "other",
+}
+ISSUE_WORK_PACK_CATEGORIES = {
+    "code_bug",
+    "test_failure",
+    "config_issue",
+    "environment_issue",
+    "user_decision",
+    "not_code_work",
+    "needs_info",
+    "other",
 }
 
 
@@ -473,6 +506,68 @@ async def create_user_attention_item(
         requires_response=requires_response,
         next_steps=next_steps or [],
         dedupe_key=f"user:{uuid.uuid4()}",
+    )
+
+
+async def publish_issue_intake(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    channel_id: uuid.UUID | None,
+    title: str,
+    summary: str,
+    observed_behavior: str | None = None,
+    expected_behavior: str | None = None,
+    steps: list[str] | None = None,
+    severity: str = "warning",
+    category_hint: str = "bug",
+    project_hint: str | None = None,
+    tags: list[str] | None = None,
+    latest_correlation_id: uuid.UUID | None = None,
+) -> WorkspaceAttentionItem:
+    clean_title = (title or "").strip()
+    clean_summary = (summary or "").strip()
+    if not clean_title:
+        raise ValidationError("title is required.")
+    if not clean_summary:
+        raise ValidationError("summary is required.")
+    if severity not in VALID_SEVERITIES:
+        severity = "warning"
+    category = normalize_dedupe_key(category_hint or "bug").replace("-", "_")
+    if category not in ISSUE_INTAKE_CATEGORIES:
+        category = "other"
+    target_kind = "channel" if channel_id else "bot"
+    target_id = str(channel_id) if channel_id else bot_id
+    clean_steps = [str(step).strip() for step in (steps or []) if str(step).strip()]
+    evidence = {
+        "issue_intake": {
+            "reported_by": bot_id,
+            "reported_at": _now().isoformat(),
+            "category_hint": category,
+            "project_hint": (project_hint or "").strip() or None,
+            "tags": [str(tag).strip() for tag in (tags or []) if str(tag).strip()][:12],
+            "observed_behavior": (observed_behavior or "").strip() or None,
+            "expected_behavior": (expected_behavior or "").strip() or None,
+            "steps": clean_steps[:20],
+            "source": "conversation",
+        },
+    }
+    next_steps = ["Triage this issue into a work pack before launching implementation."]
+    return await place_attention_item(
+        db,
+        source_type="bot",
+        source_id=bot_id,
+        channel_id=channel_id,
+        target_kind=target_kind,
+        target_id=target_id,
+        title=clean_title[:500],
+        message=clean_summary[:8000],
+        severity=severity,
+        requires_response=True,
+        next_steps=next_steps,
+        dedupe_key=f"issue-intake:{uuid.uuid4()}",
+        evidence=evidence,
+        latest_correlation_id=latest_correlation_id,
     )
 
 
@@ -1051,6 +1146,194 @@ async def create_attention_triage_run(
     }
 
 
+def _is_issue_intake_candidate(item: WorkspaceAttentionItem) -> bool:
+    if item.status not in VISIBLE_STATUSES:
+        return False
+    evidence = item.evidence or {}
+    if not isinstance(evidence, dict):
+        return False
+    if not (isinstance(evidence.get("issue_intake"), dict) or isinstance(evidence.get("report_issue"), dict)):
+        return False
+    triage = evidence.get("issue_triage")
+    if isinstance(triage, dict) and triage.get("state") in {"packed", "dismissed", "needs_info"}:
+        return False
+    return True
+
+
+def _issue_triage_payload(item: WorkspaceAttentionItem, channel_name: str | None = None) -> dict[str, Any]:
+    evidence = item.evidence or {}
+    return {
+        "id": str(item.id),
+        "source_type": item.source_type,
+        "source_id": item.source_id,
+        "channel_id": str(item.channel_id) if item.channel_id else None,
+        "channel_name": channel_name,
+        "target": f"{item.target_kind}:{item.target_id}",
+        "severity": item.severity,
+        "title": item.title,
+        "message": item.message,
+        "issue_intake": evidence.get("issue_intake") if isinstance(evidence, dict) else None,
+        "agent_report": evidence.get("report_issue") if isinstance(evidence, dict) else None,
+        "occurrence_count": item.occurrence_count,
+        "last_seen_at": item.last_seen_at.isoformat() if item.last_seen_at else None,
+    }
+
+
+def _issue_intake_triage_prompt(items: list[WorkspaceAttentionItem], channel_names: dict[uuid.UUID, str]) -> str:
+    payload = [
+        _issue_triage_payload(item, channel_names.get(item.channel_id) if item.channel_id else None)
+        for item in items
+    ]
+    return (
+        "You are the workspace operator triaging raw issue intake into implementation-ready work packs.\n"
+        "Inputs may include conversational issue dumps from users and autonomous agent blocker reports.\n\n"
+        "Rules:\n"
+        "- Group related items into the smallest useful work packs.\n"
+        "- Create code work packs only when the evidence points to concrete implementation work.\n"
+        "- Put config/setup/environment/user-decision/non-code items into non-code categories instead of forcing them into Project runs.\n"
+        "- If an item is too vague, mark it needs_info and say what is missing.\n"
+        "- Use report_issue_work_packs before your final response.\n"
+        "- Do not launch Project coding runs. Humans approve launches later.\n\n"
+        "Work pack categories: code_bug, test_failure, config_issue, environment_issue, user_decision, not_code_work, needs_info, other.\n"
+        "Confidence: low, medium, high.\n\n"
+        "Raw intake:\n"
+        f"{json.dumps(payload, indent=2, default=str)}"
+    )
+
+
+async def create_issue_intake_triage_run(
+    db: AsyncSession,
+    *,
+    auth: Any,
+    actor: str | None,
+    model_override: str | None = None,
+    model_provider_id_override: str | None = None,
+) -> dict[str, Any]:
+    items = await list_attention_items(db, auth=auth, include_resolved=False)
+    active = [item for item in items if _is_issue_intake_candidate(item)]
+    if not active:
+        raise ValidationError("No raw issue intake is ready to triage.")
+    try:
+        from app.agent.bots import get_bot
+        operator_bot = get_bot(OPERATOR_TRIAGE_BOT_ID)
+    except Exception as exc:  # noqa: BLE001
+        raise ValidationError("Operator bot is unavailable.") from exc
+
+    operator_channel = await _operator_channel(db)
+    from app.services.sub_sessions import spawn_ephemeral_session
+    session = await spawn_ephemeral_session(
+        db,
+        bot_id=OPERATOR_TRIAGE_BOT_ID,
+        parent_channel_id=operator_channel.id,
+        context={
+            "page_name": "Issue intake triage",
+            "tags": ["attention", "issue-intake", "work-packs"],
+            "payload": {"item_count": len(active), "actor": actor},
+            "tool_hints": ["read_conversation_history", "search_history", ISSUE_WORK_PACK_TOOL_NAME],
+        },
+    )
+
+    channel_ids = {item.channel_id for item in active if item.channel_id}
+    channel_names: dict[uuid.UUID, str] = {}
+    if channel_ids:
+        rows = (await db.execute(select(Channel).where(Channel.id.in_(channel_ids)))).scalars().all()
+        channel_names = {row.id: row.name for row in rows}
+
+    clean_model_override = (model_override or "").strip() or None
+    clean_provider_id_override = (model_provider_id_override or "").strip() or None
+    if not clean_model_override:
+        clean_provider_id_override = None
+
+    task = Task(
+        bot_id=OPERATOR_TRIAGE_BOT_ID,
+        client_id=operator_channel.client_id,
+        session_id=session.id,
+        channel_id=operator_channel.id,
+        prompt=_issue_intake_triage_prompt(active, channel_names),
+        title=f"Issue intake triage: {len(active)} items",
+        status="pending",
+        task_type="issue_intake_triage",
+        dispatch_type="none",
+        dispatch_config={},
+        callback_config={
+            "issue_intake_triage": True,
+            "attention_item_ids": [str(item.id) for item in active],
+        },
+        execution_config={
+            "session_scoped": True,
+            "external_delivery": "none",
+            "history_mode": "none",
+            "tools": sorted(ISSUE_TRIAGE_ALLOWED_TOOLS),
+            "exclude_tools": [
+                tool_name
+                for tool_name in (operator_bot.local_tools or [])
+                if tool_name not in ISSUE_TRIAGE_ALLOWED_TOOLS
+            ],
+            "system_preamble": (
+                "You are running a read-only issue-intake triage pass. "
+                "Group, classify, and report work packs only. Do not mutate workspace state "
+                "except by calling report_issue_work_packs."
+            ),
+            "model_override": clean_model_override,
+            "model_provider_id_override": clean_provider_id_override,
+            "effective_model": clean_model_override or operator_bot.model,
+        },
+        created_at=_now(),
+    )
+    db.add(task)
+    await db.flush()
+    session.source_task_id = task.id
+    session.title = task.title
+    if isinstance(getattr(session, "metadata_", None), dict):
+        session.metadata_ = {
+            **(session.metadata_ or {}),
+            "issue_intake_triage_task_id": str(task.id),
+            "issue_intake_item_count": len(active),
+        }
+        flag_modified(session, "metadata_")
+
+    now = _now()
+    for item in active:
+        evidence = dict(item.evidence or {})
+        triage = dict(evidence.get("issue_triage") or {})
+        triage.update({
+            "state": "running",
+            "task_id": str(task.id),
+            "session_id": str(session.id),
+            "parent_channel_id": str(operator_channel.id),
+            "operator_bot_id": OPERATOR_TRIAGE_BOT_ID,
+            "started_by": actor,
+            "started_at": now.isoformat(),
+        })
+        evidence["issue_triage"] = triage
+        item.evidence = evidence
+        item.assigned_bot_id = OPERATOR_TRIAGE_BOT_ID
+        item.assignment_mode = "run_now"
+        item.assignment_status = "running"
+        item.assignment_task_id = task.id
+        item.assigned_by = actor
+        item.assigned_at = now
+        item.updated_at = now
+        flag_modified(item, "evidence")
+
+    await db.commit()
+    await db.refresh(task)
+    return {
+        "task_id": str(task.id),
+        "session_id": str(session.id),
+        "parent_channel_id": str(operator_channel.id),
+        "bot_id": OPERATOR_TRIAGE_BOT_ID,
+        "status": task.status,
+        "item_count": len(active),
+        "model_override": clean_model_override,
+        "model_provider_id_override": clean_provider_id_override,
+        "effective_model": clean_model_override or operator_bot.model,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        "error": task.error,
+    }
+
+
 def _operator_triage_from_item(item: WorkspaceAttentionItem) -> dict[str, Any]:
     triage = (item.evidence or {}).get("operator_triage")
     return triage if isinstance(triage, dict) else {}
@@ -1355,6 +1638,109 @@ async def get_attention_brief(
     return build_attention_brief_from_serialized(serialized, autofix_queue=autofix_queue)
 
 
+async def serialize_issue_work_pack(db: AsyncSession, pack: IssueWorkPack) -> dict[str, Any]:
+    project = await db.get(Project, pack.project_id) if pack.project_id else None
+    channel = await db.get(Channel, pack.channel_id) if pack.channel_id else None
+    launched_task = await db.get(Task, pack.launched_task_id) if pack.launched_task_id else None
+    return {
+        "id": str(pack.id),
+        "title": pack.title,
+        "summary": pack.summary,
+        "category": pack.category,
+        "confidence": pack.confidence,
+        "status": pack.status,
+        "source_item_ids": [str(item_id) for item_id in (pack.source_item_ids or [])],
+        "launch_prompt": pack.launch_prompt,
+        "triage_task_id": str(pack.triage_task_id) if pack.triage_task_id else None,
+        "project_id": str(pack.project_id) if pack.project_id else None,
+        "project_name": project.name if project else None,
+        "channel_id": str(pack.channel_id) if pack.channel_id else None,
+        "channel_name": channel.name if channel else None,
+        "launched_task_id": str(pack.launched_task_id) if pack.launched_task_id else None,
+        "launched_task_status": launched_task.status if launched_task else None,
+        "metadata": pack.metadata_ or {},
+        "created_at": pack.created_at.isoformat() if pack.created_at else None,
+        "updated_at": pack.updated_at.isoformat() if pack.updated_at else None,
+    }
+
+
+async def list_issue_work_packs(
+    db: AsyncSession,
+    *,
+    status: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    clauses = []
+    if status:
+        clauses.append(IssueWorkPack.status == status)
+    stmt = select(IssueWorkPack)
+    if clauses:
+        stmt = stmt.where(*clauses)
+    stmt = stmt.order_by(desc(IssueWorkPack.updated_at), desc(IssueWorkPack.created_at)).limit(max(1, min(limit, 100)))
+    packs = list((await db.execute(stmt)).scalars().all())
+    return [await serialize_issue_work_pack(db, pack) for pack in packs]
+
+
+async def get_issue_work_pack(db: AsyncSession, pack_id: uuid.UUID) -> IssueWorkPack:
+    pack = await db.get(IssueWorkPack, pack_id)
+    if pack is None:
+        raise NotFoundError("Issue work pack not found.")
+    return pack
+
+
+async def launch_issue_work_pack_project_run(
+    db: AsyncSession,
+    *,
+    pack_id: uuid.UUID,
+    project_id: uuid.UUID,
+    channel_id: uuid.UUID,
+    actor: str | None = None,
+) -> dict[str, Any]:
+    pack = await get_issue_work_pack(db, pack_id)
+    if pack.status == "dismissed":
+        raise ValidationError("Dismissed work packs cannot be launched.")
+    if pack.status == "needs_info":
+        raise ValidationError("Work packs that need more information cannot be launched.")
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise NotFoundError("Project not found.")
+    from app.services.project_coding_runs import ProjectCodingRunCreate, create_project_coding_run, get_project_coding_run
+
+    request = (
+        f"{pack.launch_prompt.strip()}\n\n"
+        f"[Issue work pack]\n"
+        f"- Work pack id: {pack.id}\n"
+        f"- Category: {pack.category}\n"
+        f"- Confidence: {pack.confidence}\n"
+        f"- Source Attention items: {', '.join(str(item_id) for item_id in (pack.source_item_ids or []))}\n"
+    )
+    task = await create_project_coding_run(
+        db,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel_id,
+            request=request,
+            source_work_pack_id=pack.id,
+        ),
+    )
+    pack.status = "launched"
+    pack.project_id = project.id
+    pack.channel_id = channel_id
+    pack.launched_task_id = task.id
+    pack.updated_at = _now()
+    metadata = dict(pack.metadata_ or {})
+    metadata["launched_by"] = actor
+    metadata["launched_at"] = pack.updated_at.isoformat()
+    pack.metadata_ = metadata
+    flag_modified(pack, "metadata_")
+    await db.commit()
+    await db.refresh(pack)
+    return {
+        "work_pack": await serialize_issue_work_pack(db, pack),
+        "run": await get_project_coding_run(db, project, task.id),
+    }
+
+
 def _attention_item_visible_to_auth(item: WorkspaceAttentionItem, auth: Any) -> bool:
     return _is_admin_auth(auth) or item.source_type in {"bot", "user"}
 
@@ -1559,6 +1945,145 @@ async def report_attention_triage_batch(
     return updated
 
 
+def _normalize_work_pack_category(value: Any) -> str:
+    category = normalize_dedupe_key(str(value or "code_bug")).replace("-", "_")
+    return category if category in ISSUE_WORK_PACK_CATEGORIES else "other"
+
+
+def _normalize_confidence(value: Any) -> str:
+    confidence = str(value or "medium").strip().lower()
+    return confidence if confidence in {"low", "medium", "high"} else "medium"
+
+
+async def report_issue_work_packs(
+    db: AsyncSession,
+    *,
+    bot_id: str,
+    triage_task_id: uuid.UUID | None,
+    packs: list[dict[str, Any]],
+    item_outcomes: list[dict[str, Any]] | None = None,
+) -> list[IssueWorkPack]:
+    if not triage_task_id:
+        raise ValidationError("Issue work-pack reporting requires a triage task context.")
+    task = await db.get(Task, triage_task_id)
+    if task is None or task.task_type != "issue_intake_triage":
+        raise ValidationError("Issue work packs can only be reported from an issue-intake triage task.")
+    if task.bot_id != bot_id:
+        raise ValidationError("Only the assigned operator can report issue work packs.")
+    if not packs:
+        raise ValidationError("At least one work pack is required.")
+
+    allowed_item_ids = {
+        str(raw_id)
+        for raw_id in ((task.callback_config or {}).get("attention_item_ids") or [])
+    }
+    now = _now()
+    created: list[IssueWorkPack] = []
+    item_pack_ids: dict[str, list[str]] = {}
+
+    for pack in packs:
+        title = str(pack.get("title") or "").strip()
+        summary = str(pack.get("summary") or "").strip()
+        launch_prompt = str(pack.get("launch_prompt") or pack.get("prompt") or "").strip()
+        if not title:
+            raise ValidationError("Each work pack needs a title.")
+        source_ids: list[str] = []
+        for raw in pack.get("source_item_ids") or pack.get("item_ids") or []:
+            try:
+                item_id = str(uuid.UUID(str(raw)))
+            except (TypeError, ValueError) as exc:
+                raise ValidationError(f"Invalid source item id: {raw!r}") from exc
+            if item_id not in allowed_item_ids:
+                raise ValidationError("Work pack references an item outside this triage run.")
+            if item_id not in source_ids:
+                source_ids.append(item_id)
+        if not source_ids:
+            raise ValidationError("Each work pack needs at least one source item id.")
+        category = _normalize_work_pack_category(pack.get("category"))
+        confidence = _normalize_confidence(pack.get("confidence"))
+        if not launch_prompt:
+            launch_prompt = (
+                f"{title}\n\n"
+                f"{summary}\n\n"
+                "Use the linked issue intake as evidence. Start with a regression test where applicable, "
+                "fix the root cause, run focused verification, and publish a Project run receipt."
+            )
+        work_pack = IssueWorkPack(
+            title=title[:500],
+            summary=summary[:8000],
+            category=category,
+            confidence=confidence,
+            status="needs_info" if category == "needs_info" else "proposed",
+            source_item_ids=source_ids,
+            launch_prompt=launch_prompt[:12000],
+            triage_task_id=task.id,
+            metadata_={
+                "rationale": str(pack.get("rationale") or "").strip()[:4000] or None,
+                "target_project_hint": str(pack.get("target_project_hint") or pack.get("project_hint") or "").strip()[:300] or None,
+                "target_channel_hint": str(pack.get("target_channel_hint") or pack.get("channel_hint") or "").strip()[:300] or None,
+                "non_code_reason": str(pack.get("non_code_reason") or "").strip()[:2000] or None,
+                "reported_by": bot_id,
+                "reported_at": now.isoformat(),
+            },
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(work_pack)
+        await db.flush()
+        created.append(work_pack)
+        for item_id in source_ids:
+            item_pack_ids.setdefault(item_id, []).append(str(work_pack.id))
+
+    outcomes_by_id: dict[str, dict[str, Any]] = {}
+    for outcome in item_outcomes or []:
+        raw_id = outcome.get("item_id") or outcome.get("id")
+        try:
+            item_id = str(uuid.UUID(str(raw_id)))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(f"Invalid outcome item id: {raw_id!r}") from exc
+        if item_id not in allowed_item_ids:
+            raise ValidationError("Item outcome references an item outside this triage run.")
+        outcomes_by_id[item_id] = outcome
+
+    for raw_id in allowed_item_ids:
+        item = await db.get(WorkspaceAttentionItem, uuid.UUID(raw_id))
+        if item is None:
+            continue
+        outcome = outcomes_by_id.get(raw_id, {})
+        pack_ids = item_pack_ids.get(raw_id, [])
+        disposition = str(outcome.get("disposition") or ("packed" if pack_ids else "dismissed")).strip().lower()
+        if disposition not in {"packed", "dismissed", "needs_info"}:
+            disposition = "packed" if pack_ids else "dismissed"
+        evidence = dict(item.evidence or {})
+        triage = dict(evidence.get("issue_triage") or {})
+        triage.update({
+            "state": disposition,
+            "task_id": str(task.id),
+            "session_id": str(task.session_id) if task.session_id else triage.get("session_id"),
+            "operator_bot_id": bot_id,
+            "work_pack_ids": pack_ids,
+            "summary": str(outcome.get("summary") or "").strip()[:4000] or triage.get("summary"),
+            "reported_by": bot_id,
+            "reported_at": now.isoformat(),
+        })
+        evidence["issue_triage"] = triage
+        item.evidence = evidence
+        item.assignment_status = "reported"
+        item.assignment_report = triage.get("summary") or ("Grouped into work pack." if pack_ids else "Dismissed during issue triage.")
+        item.assignment_reported_by = bot_id
+        item.assignment_reported_at = now
+        item.responded_at = item.responded_at or now
+        item.responded_by = f"bot:{bot_id}"
+        item.status = "responded" if disposition in {"packed", "needs_info"} else "acknowledged"
+        item.updated_at = now
+        flag_modified(item, "evidence")
+
+    await db.commit()
+    for pack in created:
+        await db.refresh(pack)
+    return created
+
+
 def _feedback_memory_line(item: WorkspaceAttentionItem, verdict: str, note: str | None, route: str | None) -> str:
     triage = (item.evidence or {}).get("operator_triage") or {}
     return (
@@ -1683,6 +2208,57 @@ async def on_attention_triage_task_complete(task_id: uuid.UUID, status: str) -> 
                 })
                 item.assignment_status = "cancelled"
             evidence["operator_triage"] = triage
+            item.evidence = evidence
+            item.assignment_report = message
+            item.assignment_reported_by = f"task:{task.id}"
+            item.assignment_reported_at = now
+            item.updated_at = now
+            flag_modified(item, "evidence")
+        await db.commit()
+
+
+async def on_issue_intake_triage_task_complete(task_id: uuid.UUID, status: str) -> None:
+    async with async_session() as db:
+        task = await db.get(Task, task_id)
+        if task is None:
+            return
+        cb = task.callback_config or {}
+        if not cb.get("issue_intake_triage"):
+            return
+        raw_ids = cb.get("attention_item_ids") or []
+        now = _now()
+        for raw_id in raw_ids:
+            try:
+                item = await db.get(WorkspaceAttentionItem, uuid.UUID(str(raw_id)))
+            except (TypeError, ValueError):
+                continue
+            if item is None:
+                continue
+            evidence = dict(item.evidence or {})
+            triage = dict(evidence.get("issue_triage") or {})
+            if triage.get("state") not in {"running", "queued"}:
+                continue
+            if status == "complete":
+                message = "Issue triage completed without structured work packs. Review manually."
+                triage.update({
+                    "state": "needs_info",
+                    "summary": message,
+                    "reported_by": f"task:{task.id}",
+                    "reported_at": now.isoformat(),
+                })
+                item.assignment_status = "reported"
+                item.status = "responded" if item.status != "resolved" else item.status
+                item.responded_at = item.responded_at or now
+                item.responded_by = f"task:{task.id}"
+            else:
+                message = task.error or f"Issue triage ended with status {status}."
+                triage.update({
+                    "state": "failed",
+                    "error": message,
+                    "reported_at": now.isoformat(),
+                })
+                item.assignment_status = "cancelled"
+            evidence["issue_triage"] = triage
             item.evidence = evidence
             item.assignment_report = message
             item.assignment_reported_by = f"task:{task.id}"

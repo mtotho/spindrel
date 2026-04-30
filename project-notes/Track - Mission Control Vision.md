@@ -177,6 +177,15 @@ absorb matching automatic signals as evidence. This preserves the current
 Mission Control Review model: bots can raise a judgment, Operator can classify
 the broader queue, and humans still make the visible decision.
 
+Issue factory follow-up: conversational bots now have a separate
+`publish_issue_intake` path for rough human bug notes. Those notes and
+autonomous `report_issue` blockers both land in Attention, then the task-backed
+issue triage run can publish durable Work Packs. Mission Control Review owns an
+Issues lane that shows raw intake, generated packs, and a Project/channel
+launch target so a human can turn triaged packs into Project coding runs.
+Conversational intake and autonomous blocker reporting remain distinct evidence
+types; Work Packs are the shared bridge into the Project factory.
+
 ### Starboard / Command Deck Pivot - 2026-04-29
 
 The Attention experiment exposed a deeper IA problem: Starboard cannot be the

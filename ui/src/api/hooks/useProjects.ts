@@ -83,7 +83,7 @@ export function useProjectCodingRuns(projectId: string | undefined) {
 export function useCreateProjectCodingRun(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; request?: string; machine_target_grant?: MachineTargetGrant | null }) =>
+    mutationFn: (data: { channel_id: string; request?: string; machine_target_grant?: MachineTargetGrant | null; source_work_pack_id?: string | null }) =>
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs`, {
         method: "POST",
         body: JSON.stringify(data),

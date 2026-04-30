@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Session, Task, ToolCall, TraceEvent
+from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, IssueWorkPack, Session, Task, ToolCall, TraceEvent
 from app.routers.api_v1_workspace_attention import resolve_attention as resolve_attention_route
 from app.services.workspace_attention import (
     _is_operator_triage_sweep_candidate,
@@ -24,10 +24,12 @@ from app.services.workspace_attention import (
     list_attention_items,
     mark_attention_responded,
     place_attention_item,
+    publish_issue_intake,
     record_attention_triage_feedback,
     report_bot_issue,
     report_attention_assignment,
     report_attention_triage_batch,
+    report_issue_work_packs,
     resolve_attention_item,
 )
 from app.services.workspace_command_center import build_command_center
@@ -168,6 +170,90 @@ def test_attention_brief_prioritizes_autofix_before_generic_fix_packs():
     assert brief["autofix_queue"] == autofix_queue
     assert brief["next_action"]["kind"] == "autofix"
     assert brief["next_action"]["receipt_id"] == "receipt-1"
+
+
+@pytest.mark.asyncio
+async def test_publish_issue_intake_creates_conversational_attention_item(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Spindrel Dev", bot_id="codex", client_id="spindrel-dev"))
+    await db_session.commit()
+
+    item = await publish_issue_intake(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        title="Runs page clips review evidence",
+        summary="The review row hides the merge receipt after launch.",
+        observed_behavior="Merge receipt is below the fold.",
+        expected_behavior="The row should scroll or frame the receipt.",
+        steps=["Open Mission Control Review", "Launch a work pack"],
+        category_hint="quality",
+        tags=["ui", "review"],
+    )
+
+    assert item.source_type == "bot"
+    assert item.source_id == "codex"
+    assert item.channel_id == channel_id
+    assert item.target_kind == "channel"
+    assert item.requires_response is True
+    assert item.evidence["issue_intake"]["source"] == "conversation"
+    assert item.evidence["issue_intake"]["category_hint"] == "quality"
+    assert item.evidence["issue_intake"]["steps"] == ["Open Mission Control Review", "Launch a work pack"]
+
+
+@pytest.mark.asyncio
+async def test_report_issue_work_packs_groups_intake_and_marks_items(db_session):
+    channel_id = uuid.uuid4()
+    db_session.add(Channel(id=channel_id, name="Spindrel Dev", bot_id="codex", client_id="spindrel-dev-packs"))
+    await db_session.commit()
+    first = await publish_issue_intake(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        title="Runs page clips review evidence",
+        summary="The review row hides the merge receipt after launch.",
+    )
+    second = await publish_issue_intake(
+        db_session,
+        bot_id="codex",
+        channel_id=channel_id,
+        title="Runs page launch button is confusing",
+        summary="The target chooser does not make the selected channel obvious.",
+    )
+    task = Task(
+        id=uuid.uuid4(),
+        bot_id="orchestrator",
+        channel_id=channel_id,
+        status="running",
+        task_type="issue_intake_triage",
+        prompt="triage",
+        callback_config={"issue_intake_triage": True, "attention_item_ids": [str(first.id), str(second.id)]},
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    packs = await report_issue_work_packs(
+        db_session,
+        bot_id="orchestrator",
+        triage_task_id=task.id,
+        packs=[{
+            "title": "Improve Project review evidence framing",
+            "summary": "The Project review cockpit should frame launch and merge evidence clearly.",
+            "category": "code_bug",
+            "confidence": "high",
+            "source_item_ids": [str(first.id), str(second.id)],
+            "launch_prompt": "Fix the Project review cockpit evidence framing.",
+        }],
+    )
+
+    assert len(packs) == 1
+    assert packs[0].status == "proposed"
+    assert packs[0].source_item_ids == [str(first.id), str(second.id)]
+    refreshed = await db_session.get(IssueWorkPack, packs[0].id)
+    assert refreshed is not None
+    refreshed_first = await db_session.get(type(first), first.id)
+    assert refreshed_first.evidence["issue_triage"]["state"] == "packed"
+    assert refreshed_first.evidence["issue_triage"]["work_pack_ids"] == [str(packs[0].id)]
 
 
 @pytest.mark.asyncio

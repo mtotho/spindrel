@@ -15,10 +15,14 @@ from app.services.workspace_attention import (
     assign_attention_item,
     actor_label,
     create_attention_triage_run,
+    create_issue_intake_triage_run,
     create_user_attention_item,
     get_attention_brief,
     get_attention_triage_run,
     get_attention_item,
+    get_issue_work_pack,
+    launch_issue_work_pack_project_run,
+    list_issue_work_packs,
     list_attention_triage_runs,
     list_attention_items,
     mark_attention_responded,
@@ -26,6 +30,7 @@ from app.services.workspace_attention import (
     resolve_attention_item,
     serialize_attention_item,
     serialize_attention_items,
+    serialize_issue_work_pack,
     unassign_attention_item,
 )
 
@@ -81,6 +86,15 @@ class AttentionTriageFeedbackRequest(BaseModel):
 
 class AttentionTriageRunsResponse(BaseModel):
     runs: list[dict]
+
+
+class IssueWorkPacksResponse(BaseModel):
+    work_packs: list[dict]
+
+
+class IssueWorkPackLaunchRequest(BaseModel):
+    project_id: uuid.UUID
+    channel_id: uuid.UUID
 
 
 @router.post("")
@@ -174,6 +188,70 @@ async def get_attention_triage_run_route(
         return await get_attention_triage_run(db, auth=auth, task_id=task_id)
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e
+
+
+@router.post("/issue-triage-runs")
+async def create_issue_triage_run_route(
+    body: AttentionTriageRunRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.scope != "all_active":
+        raise HTTPException(400, "scope must be all_active.")
+    try:
+        return await create_issue_intake_triage_run(
+            db,
+            auth=auth,
+            actor=actor_label(auth),
+            model_override=body.model_override,
+            model_provider_id_override=body.model_provider_id_override,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.get("/issue-work-packs", response_model=IssueWorkPacksResponse)
+async def list_issue_work_packs_route(
+    status: str | None = None,
+    limit: int = 50,
+    _auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    return {"work_packs": await list_issue_work_packs(db, status=status, limit=limit)}
+
+
+@router.get("/issue-work-packs/{pack_id}")
+async def get_issue_work_pack_route(
+    pack_id: uuid.UUID,
+    _auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        pack = await get_issue_work_pack(db, pack_id)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    return {"work_pack": await serialize_issue_work_pack(db, pack)}
+
+
+@router.post("/issue-work-packs/{pack_id}/launch-project-run")
+async def launch_issue_work_pack_route(
+    pack_id: uuid.UUID,
+    body: IssueWorkPackLaunchRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await launch_issue_work_pack_project_run(
+            db,
+            pack_id=pack_id,
+            project_id=body.project_id,
+            channel_id=body.channel_id,
+            actor=actor_label(auth),
+        )
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.get("")

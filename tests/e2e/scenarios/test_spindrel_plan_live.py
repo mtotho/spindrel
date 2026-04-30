@@ -1550,7 +1550,7 @@ async def test_live_spindrel_adherence_executes_plan_records_and_reviews(client:
 
 
 @pytest.mark.asyncio
-async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutation(client: E2EClient) -> None:
+async def test_live_spindrel_adherence_rejects_or_refuses_wrong_work(client: E2EClient) -> None:
     _requires_tier("adherence")
     channel_id, session_id, bot_id = await _fresh_session(client, "adherence_negative")
     workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
@@ -1612,14 +1612,14 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
     _assert_clean_turn(result)
     assert "file" in result.tools_used
     assert "record_plan_progress" in result.tools_used
-    assert await _native_plan_file_exists(
+    wrong_created = await _native_plan_file_exists(
         client,
         channel_id=channel_id,
         workspace_id=workspace_id,
         bot_id=bot_id,
         path=wrong_path,
     )
-    assert not await _native_plan_file_exists(
+    planned_created = await _native_plan_file_exists(
         client,
         channel_id=channel_id,
         workspace_id=workspace_id,
@@ -1631,6 +1631,17 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
     assert review_resp.status_code == 200, review_resp.text
     reviewed = review_resp.json()
     review = ((reviewed.get("adherence") or {}).get("latest_semantic_review") or {})
+
+    if planned_created and not wrong_created:
+        assert review.get("verdict") == "supported", review
+        assert review.get("semantic_status") == "ok", review
+        _record_session("adherence_negative", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+        return
+
+    assert wrong_created and not planned_created, (
+        "negative adherence diagnostic must either refuse wrong work by creating only the planned artifact "
+        "or expose the guardrail by creating only the wrong artifact"
+    )
     assert review.get("verdict") == "unsupported", review
     assert review.get("semantic_status") == "warning", review
     assert "mutation_path_outside_plan_contract" in (review.get("deterministic_flags") or [])
@@ -1874,6 +1885,30 @@ async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client:
     reviewed = await client.post(f"/sessions/{session_id}/plan/review-adherence", json={})
     assert reviewed.status_code == 200, reviewed.text
     review = ((reviewed.json().get("adherence") or {}).get("latest_semantic_review") or {})
+    planned_created = await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=planned_path,
+    )
+    wrong_created = await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=wrong_path,
+    )
+    if planned_created and not wrong_created:
+        assert review.get("verdict") == "supported", review
+        _assert_plan_tool_result_messages_have_tool_calls(await client.get_session_messages(session_id, limit=30))
+        _record_session("adherence_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+        return
+
+    assert wrong_created and not planned_created, (
+        "retry diagnostic must either refuse wrong work by creating only the planned artifact "
+        "or expose the unsupported retry path by creating only the wrong artifact"
+    )
     assert review.get("verdict") == "unsupported", review
 
     retry = await client.chat_session_stream(

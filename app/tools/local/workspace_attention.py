@@ -135,6 +135,89 @@ REPORT_ISSUE_SCHEMA = {
 }
 
 
+PUBLISH_ISSUE_INTAKE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "publish_issue_intake",
+        "description": (
+            "Publish a user-requested conversational issue note into Mission Control Review. "
+            "Use this only when the user asks to save/add/report an issue, or after you clarify "
+            "that they want the rough note captured for later triage."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "summary": {"type": "string"},
+                "observed_behavior": {"type": "string"},
+                "expected_behavior": {"type": "string"},
+                "steps": {"type": "array", "items": {"type": "string"}},
+                "severity": {"type": "string", "enum": ["info", "warning", "error", "critical"]},
+                "category_hint": {
+                    "type": "string",
+                    "enum": ["bug", "regression", "quality", "feature", "test_failure", "config_issue", "environment_issue", "user_decision", "other"],
+                },
+                "project_hint": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["title", "summary"],
+        },
+    },
+}
+
+
+REPORT_ISSUE_WORK_PACKS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "report_issue_work_packs",
+        "description": (
+            "Submit grouped issue work packs during an issue-intake triage run. "
+            "Use one pack per discrete implementation or follow-up unit; non-code work should be categorized accordingly."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "packs": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "summary": {"type": "string"},
+                            "category": {
+                                "type": "string",
+                                "enum": ["code_bug", "test_failure", "config_issue", "environment_issue", "user_decision", "not_code_work", "needs_info", "other"],
+                            },
+                            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                            "source_item_ids": {"type": "array", "items": {"type": "string"}},
+                            "launch_prompt": {"type": "string"},
+                            "rationale": {"type": "string"},
+                            "target_project_hint": {"type": "string"},
+                            "target_channel_hint": {"type": "string"},
+                            "non_code_reason": {"type": "string"},
+                        },
+                        "required": ["title", "summary", "category", "confidence", "source_item_ids"],
+                    },
+                },
+                "item_outcomes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "item_id": {"type": "string"},
+                            "disposition": {"type": "string", "enum": ["packed", "dismissed", "needs_info"]},
+                            "summary": {"type": "string"},
+                        },
+                        "required": ["item_id", "disposition"],
+                    },
+                },
+            },
+            "required": ["packs"],
+        },
+    },
+}
+
+
 @register(REPORT_ATTENTION_ASSIGNMENT_SCHEMA, safety_tier="mutating", requires_bot_context=True)
 async def report_attention_assignment(item_id: str, findings: str) -> str:
     bot_id = current_bot_id.get()
@@ -173,6 +256,66 @@ async def report_attention_triage_batch(outcomes: list[dict]) -> str:
         "ready_for_review": ready,
         "items": payload,
     }, default=str)
+
+
+@register(PUBLISH_ISSUE_INTAKE_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+async def publish_issue_intake(
+    title: str,
+    summary: str,
+    observed_behavior: str | None = None,
+    expected_behavior: str | None = None,
+    steps: list[str] | None = None,
+    severity: str = "warning",
+    category_hint: str = "bug",
+    project_hint: str | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."})
+    async with async_session() as db:
+        try:
+            from app.services.workspace_attention import publish_issue_intake as publish, serialize_attention_item
+            item = await publish(
+                db,
+                bot_id=bot_id,
+                channel_id=current_channel_id.get(),
+                title=title,
+                summary=summary,
+                observed_behavior=observed_behavior,
+                expected_behavior=expected_behavior,
+                steps=steps or [],
+                severity=severity,
+                category_hint=category_hint,
+                project_hint=project_hint,
+                tags=tags or [],
+                latest_correlation_id=current_correlation_id.get(),
+            )
+            payload = await serialize_attention_item(db, item)
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps({"item": payload}, default=str)
+
+
+@register(REPORT_ISSUE_WORK_PACKS_SCHEMA, safety_tier="mutating", requires_bot_context=True)
+async def report_issue_work_packs(packs: list[dict], item_outcomes: list[dict] | None = None) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."})
+    async with async_session() as db:
+        try:
+            from app.services.workspace_attention import report_issue_work_packs as report, serialize_issue_work_pack
+            rows = await report(
+                db,
+                bot_id=bot_id,
+                triage_task_id=current_task_id.get(),
+                packs=packs,
+                item_outcomes=item_outcomes or [],
+            )
+            payload = [await serialize_issue_work_pack(db, row) for row in rows]
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps({"work_packs": payload, "count": len(payload)}, default=str)
 
 
 @register(REPORT_ISSUE_SCHEMA, safety_tier="mutating", requires_bot_context=True)

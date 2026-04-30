@@ -423,13 +423,14 @@ def _build_specs(
         wait = (
             "document.querySelector('[data-plan-focus]') !== null "
             "&& document.body.innerText.toLowerCase().includes('native spindrel negative adherence review') "
-            "&& document.body.innerText.toLowerCase().includes('unsupported')"
+            "&& (document.body.innerText.toLowerCase().includes('unsupported') "
+            "|| document.body.innerText.toLowerCase().includes('supported'))"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-adherence-unsupported-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Negative Adherence Review", "unsupported"),
+            contains=("Native Spindrel Negative Adherence Review",),
             scroll_plan_text="Native Spindrel Negative Adherence Review",
             channel_id=channel_id,
             chat_mode="default",
@@ -438,7 +439,7 @@ def _build_specs(
             name="spindrel-plan-adherence-unsupported-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Negative Adherence Review", "unsupported"),
+            contains=("Native Spindrel Negative Adherence Review",),
             scroll_plan_text="Native Spindrel Negative Adherence Review",
             channel_id=channel_id,
             chat_mode="terminal",

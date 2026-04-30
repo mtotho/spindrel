@@ -1,7 +1,7 @@
 """System operations: backup, pull, restart.
 
 POST /operations/backup       — trigger backup.sh as background task
-POST /operations/pull         — git pull origin master (synchronous)
+POST /operations/pull         — update to stable release tag, or development channel
 POST /operations/restart      — pull + systemd restart (requires confirm)
 GET  /operations              — list active background operations
 GET  /operations/backup/config   — get backup settings
@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -32,6 +32,9 @@ router = APIRouter(prefix="/operations", tags=["Operations"])
 # Repo root (backup.sh lives in scripts/)
 _REPO_DIR = Path(__file__).resolve().parents[3]
 _BACKUP_SCRIPT = _REPO_DIR / "scripts" / "backup.sh"
+DEVELOPMENT_BRANCH = "development"
+STABLE_CHANNEL = "stable"
+DEVELOPMENT_CHANNEL = "development"
 
 # backup.* keys stored in server_settings
 _BACKUP_SETTING_KEYS = {
@@ -138,26 +141,16 @@ async def trigger_backup(
 
 
 # ---------------------------------------------------------------------------
-# POST /operations/pull — git pull
+# POST /operations/pull — update repo
 # ---------------------------------------------------------------------------
 
 @router.post("/pull")
 async def git_pull(
+    channel: str = Query(STABLE_CHANNEL, pattern="^(stable|development)$"),
     _auth=Depends(require_scopes("operations:write")),
 ):
-    """Run `git pull origin master` synchronously, return stdout/stderr/exit_code."""
-    proc = await asyncio.create_subprocess_exec(
-        "git", "pull", "origin", "master",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(_REPO_DIR),
-    )
-    stdout, stderr = await proc.communicate()
-    return {
-        "exit_code": proc.returncode,
-        "stdout": stdout.decode(errors="replace"),
-        "stderr": stderr.decode(errors="replace"),
-    }
+    """Update the repo synchronously, return stdout/stderr/exit_code."""
+    return await _update_repo(channel)
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +159,7 @@ async def git_pull(
 
 class RestartBody(BaseModel):
     confirm: bool = False
+    channel: str = STABLE_CHANNEL
 
 
 @router.post("/restart")
@@ -180,19 +174,7 @@ async def restart_server(
     if not body.confirm:
         raise HTTPException(400, "Pass {\"confirm\": true} to confirm restart")
 
-    # Pull first
-    proc = await asyncio.create_subprocess_exec(
-        "git", "pull", "origin", "master",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=str(_REPO_DIR),
-    )
-    stdout, stderr = await proc.communicate()
-    pull_result = {
-        "exit_code": proc.returncode,
-        "stdout": stdout.decode(errors="replace"),
-        "stderr": stderr.decode(errors="replace"),
-    }
+    pull_result = await _update_repo(body.channel)
 
     # Restart via transient systemd unit (survives our process dying)
     restart_proc = await asyncio.create_subprocess_exec(
@@ -211,6 +193,70 @@ async def restart_server(
             "stderr": r_stderr.decode(errors="replace"),
         },
     }
+
+
+async def _run_git(*args: str) -> dict[str, object]:
+    proc = await asyncio.create_subprocess_exec(
+        "git", "-C", str(_REPO_DIR), *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=str(_REPO_DIR),
+    )
+    stdout, stderr = await proc.communicate()
+    return {
+        "exit_code": proc.returncode,
+        "stdout": stdout.decode(errors="replace"),
+        "stderr": stderr.decode(errors="replace"),
+    }
+
+
+async def _update_repo(channel: str) -> dict[str, object]:
+    if channel == DEVELOPMENT_CHANNEL:
+        return await _update_development()
+    if channel != STABLE_CHANNEL:
+        return {"exit_code": 2, "stdout": "", "stderr": f"unsupported channel: {channel}"}
+    return await _update_stable()
+
+
+async def _update_stable() -> dict[str, object]:
+    fetch = await _run_git("fetch", "origin", "--tags", "--prune")
+    if fetch["exit_code"] != 0:
+        return fetch
+
+    tags = await _run_git("tag", "--sort=-v:refname")
+    if tags["exit_code"] != 0:
+        return tags
+    tag = next((line.strip() for line in str(tags["stdout"]).splitlines() if line.strip()), "")
+    if not tag:
+        return {
+            "exit_code": 1,
+            "stdout": fetch["stdout"],
+            "stderr": "No release tags found after fetching origin.",
+        }
+
+    checkout = await _run_git("checkout", "--detach", f"refs/tags/{tag}")
+    checkout["stdout"] = f"{fetch['stdout']}{checkout['stdout']}"
+    checkout["stderr"] = f"{fetch['stderr']}{checkout['stderr']}"
+    return checkout
+
+
+async def _update_development() -> dict[str, object]:
+    fetch = await _run_git("fetch", "origin", DEVELOPMENT_BRANCH)
+    if fetch["exit_code"] != 0:
+        return fetch
+
+    switch = await _run_git("switch", DEVELOPMENT_BRANCH)
+    if switch["exit_code"] != 0:
+        switch = await _run_git("switch", "-c", DEVELOPMENT_BRANCH, "--track", f"origin/{DEVELOPMENT_BRANCH}")
+    if switch["exit_code"] != 0:
+        switch["stdout"] = f"{fetch['stdout']}{switch['stdout']}"
+        switch["stderr"] = f"{fetch['stderr']}{switch['stderr']}"
+        return switch
+
+    pull = await _run_git("pull", "--rebase", "origin", DEVELOPMENT_BRANCH)
+    pull["stdout"] = f"{fetch['stdout']}{switch['stdout']}{pull['stdout']}"
+    pull["stderr"] = f"{fetch['stderr']}{switch['stderr']}{pull['stderr']}"
+    return pull
 
 
 # ---------------------------------------------------------------------------

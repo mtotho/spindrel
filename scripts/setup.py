@@ -763,7 +763,7 @@ def _install_cli() -> None:
         print("    spindrel status    — Show service status")
         print("    spindrel restart   — Restart services")
         print("    spindrel logs      — Tail logs")
-        print("    spindrel pull      — Git pull + rebuild + restart")
+        print("    spindrel pull      — Latest stable release + rebuild + restart")
         print("    spindrel --help    — All commands")
     else:
         print()

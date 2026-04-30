@@ -114,6 +114,7 @@ async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_s
                 allow_agent_tools=True,
             ),
             granted_by_user_id=user_id,
+            source_work_pack_id=uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
         ),
     )
 
@@ -132,6 +133,7 @@ async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_s
         "allow_agent_tools": True,
         "expires_at": None,
     }
+    assert run_cfg["source_work_pack_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert "Task-scoped grant: ssh/e2e-8000" in task.prompt
     assert "machine_status, machine_inspect_command, and machine_exec_command" in task.prompt
 

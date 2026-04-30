@@ -1545,6 +1545,7 @@ export interface ProjectCodingRun {
   base_branch?: string | null;
   repo?: Record<string, any>;
   runtime_target?: Record<string, any>;
+  source_work_pack_id?: string | null;
   parent_task_id?: string | null;
   root_task_id?: string | null;
   continuation_index?: number;

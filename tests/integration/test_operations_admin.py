@@ -63,15 +63,47 @@ class TestListOperations:
 
 class TestGitPull:
     async def test_when_pull_succeeds_then_exit_code_0(self, client):
-        proc = _make_proc(returncode=0, stdout=b"Already up to date.", stderr=b"")
+        fetch_proc = _make_proc(returncode=0, stdout=b"")
+        tag_proc = _make_proc(returncode=0, stdout=b"v9.9.9\nv1.0.0\n")
+        checkout_proc = _make_proc(returncode=0, stdout=b"HEAD is now at release")
+        create_subprocess = AsyncMock(side_effect=[fetch_proc, tag_proc, checkout_proc])
 
-        with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=proc)):
+        with patch("asyncio.create_subprocess_exec", create_subprocess):
             resp = await client.post("/api/v1/admin/operations/pull", headers=AUTH_HEADERS)
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["exit_code"] == 0
-        assert "Already up to date." in body["stdout"]
+        assert "HEAD is now at release" in body["stdout"]
+        assert create_subprocess.call_args_list[0].args[:6] == (
+            "git",
+            "-C",
+            str(create_subprocess.call_args_list[0].args[2]),
+            "fetch",
+            "origin",
+            "--tags",
+        )
+        assert create_subprocess.call_args_list[2].args[-2:] == ("--detach", "refs/tags/v9.9.9")
+
+    async def test_when_development_channel_then_rebases_development(self, client):
+        fetch_proc = _make_proc(returncode=0)
+        switch_proc = _make_proc(returncode=0)
+        pull_proc = _make_proc(returncode=0, stdout=b"Already up to date.")
+        create_subprocess = AsyncMock(side_effect=[fetch_proc, switch_proc, pull_proc])
+
+        with patch("asyncio.create_subprocess_exec", create_subprocess):
+            resp = await client.post("/api/v1/admin/operations/pull?channel=development", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        assert resp.json()["exit_code"] == 0
+        assert create_subprocess.call_args_list[0].args[-3:] == ("fetch", "origin", "development")
+        assert create_subprocess.call_args_list[1].args[-2:] == ("switch", "development")
+        assert create_subprocess.call_args_list[2].args[-4:] == (
+            "pull",
+            "--rebase",
+            "origin",
+            "development",
+        )
 
     async def test_when_pull_fails_then_nonzero_exit_code_returned(self, client):
         proc = _make_proc(returncode=1, stdout=b"", stderr=b"fatal: not a git repo")
@@ -110,13 +142,13 @@ class TestRestartServer:
         assert resp.status_code == 400
 
     async def test_when_confirm_true_then_two_subprocesses_called(self, client):
-        pull_proc = _make_proc(returncode=0, stdout=b"Already up to date.")
+        fetch_proc = _make_proc(returncode=0)
+        tag_proc = _make_proc(returncode=0, stdout=b"v9.9.9\n")
+        checkout_proc = _make_proc(returncode=0, stdout=b"HEAD is now at release")
         restart_proc = _make_proc(returncode=0)
+        create_subprocess = AsyncMock(side_effect=[fetch_proc, tag_proc, checkout_proc, restart_proc])
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            AsyncMock(side_effect=[pull_proc, restart_proc]),
-        ):
+        with patch("asyncio.create_subprocess_exec", create_subprocess):
             resp = await client.post(
                 "/api/v1/admin/operations/restart",
                 json={"confirm": True},
@@ -128,6 +160,7 @@ class TestRestartServer:
         assert "pull" in body
         assert "restart" in body
         assert body["pull"]["exit_code"] == 0
+        assert create_subprocess.call_args_list[2].args[-2:] == ("--detach", "refs/tags/v9.9.9")
 
 
 # ---------------------------------------------------------------------------

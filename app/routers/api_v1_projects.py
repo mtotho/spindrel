@@ -250,6 +250,7 @@ class ProjectCodingRunWrite(BaseModel):
     channel_id: uuid.UUID
     request: str = ""
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
+    source_work_pack_id: uuid.UUID | None = None
 
 
 class ProjectCodingRunContinueWrite(BaseModel):
@@ -295,6 +296,7 @@ class ProjectCodingRunOut(BaseModel):
     base_branch: str | None = None
     repo: dict = Field(default_factory=dict)
     runtime_target: dict = Field(default_factory=dict)
+    source_work_pack_id: uuid.UUID | None = None
     parent_task_id: uuid.UUID | None = None
     root_task_id: uuid.UUID | None = None
     continuation_index: int = 0
@@ -933,6 +935,7 @@ async def create_project_coding_run_endpoint(
                 request=body.request,
                 machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
                 granted_by_user_id=_auth_user_id(_auth),
+                source_work_pack_id=body.source_work_pack_id,
             ),
         )
     except ValueError as exc:

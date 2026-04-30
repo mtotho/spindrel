@@ -10,8 +10,14 @@ Install: ln -sf /path/to/scripts/spindrel /usr/local/bin/spindrel
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
+
+DEVELOPMENT_BRANCH = "development"
+STABLE_CHANNEL = "stable"
+DEVELOPMENT_CHANNEL = "development"
+
 
 def _discover_systemd_services():
     """Discover installed spindrel systemd services dynamically."""
@@ -82,6 +88,50 @@ def dc(repo, *args):
     return run(cmd)
 
 
+def _latest_release_tag(repo):
+    result = subprocess.run(
+        ["git", "-C", repo, "tag", "--sort=-v:refname"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        return ""
+    return next((line.strip() for line in result.stdout.splitlines() if line.strip()), "")
+
+
+def _pull_stable_release(repo):
+    quoted_repo = shlex.quote(repo)
+    result = run(f"git -C {quoted_repo} fetch origin --tags --prune")
+    if result.returncode != 0:
+        return result
+
+    tag = _latest_release_tag(repo)
+    if not tag:
+        print("error: No release tags found after fetching origin.", file=sys.stderr)
+        return subprocess.CompletedProcess(args="latest release tag", returncode=1)
+
+    print(f"Updating to latest release tag: {tag}")
+    return run(f"git -C {quoted_repo} checkout --detach {shlex.quote('refs/tags/' + tag)}")
+
+
+def _pull_development(repo):
+    quoted_repo = shlex.quote(repo)
+    return run(
+        f"git -C {quoted_repo} fetch origin {DEVELOPMENT_BRANCH} && "
+        f"(git -C {quoted_repo} switch {DEVELOPMENT_BRANCH} || "
+        f"git -C {quoted_repo} switch -c {DEVELOPMENT_BRANCH} --track origin/{DEVELOPMENT_BRANCH}) && "
+        f"git -C {quoted_repo} pull --rebase origin {DEVELOPMENT_BRANCH}"
+    )
+
+
+def _pull_repo(repo, args):
+    channel = DEVELOPMENT_CHANNEL if getattr(args, "development", False) else getattr(args, "channel", STABLE_CHANNEL)
+    if channel == DEVELOPMENT_CHANNEL:
+        return _pull_development(repo)
+    return _pull_stable_release(repo)
+
+
 # ── Docker mode commands ─────────────────────────────────────────────────────
 
 def docker_start(repo, args):
@@ -106,7 +156,7 @@ def docker_restart(repo, args):
 
 def docker_pull(repo, args):
     print(f"Pulling latest in {repo}...")
-    result = run(f"git -C {repo} fetch origin && git -C {repo} pull --rebase origin master")
+    result = _pull_repo(repo, args)
     if result.returncode != 0:
         print("Pull failed — skipping rebuild.", file=sys.stderr)
         return
@@ -219,7 +269,7 @@ def _build_integration_uis(repo):
 
 def systemd_pull(repo, args):
     print(f"Pulling latest in {repo}...")
-    result = run(f"git -C {repo} fetch origin && git -C {repo} pull --rebase origin master")
+    result = _pull_repo(repo, args)
     if result.returncode != 0:
         print("Pull failed — skipping restart.", file=sys.stderr)
         return
@@ -382,7 +432,18 @@ def main():
     restart_p.add_argument("service", nargs="?", default=None,
                            help="Specific service to restart (Docker mode)")
 
-    sub.add_parser("pull", help="Git pull + rebuild + restart")
+    pull_p = sub.add_parser("pull", help="Update to the latest release + rebuild + restart")
+    pull_p.add_argument(
+        "--channel",
+        choices=(STABLE_CHANNEL, DEVELOPMENT_CHANNEL),
+        default=STABLE_CHANNEL,
+        help="Update channel (default: stable release tags)",
+    )
+    pull_p.add_argument(
+        "--development",
+        action="store_true",
+        help="Shortcut for --channel development",
+    )
     sub.add_parser("pull-integrations", help="Git pull external integration repos + restart")
     sub.add_parser("rebuild", help="Rebuild containers and restart (Docker mode)")
     sub.add_parser("backup", help="Run backup")

@@ -215,6 +215,27 @@ export interface AttentionTriageRunInput {
   model_provider_id_override?: string | null;
 }
 
+export interface IssueWorkPack {
+  id: string;
+  title: string;
+  summary: string;
+  category: string;
+  confidence: "low" | "medium" | "high" | string;
+  status: "proposed" | "launched" | "dismissed" | "needs_info" | string;
+  source_item_ids: string[];
+  launch_prompt: string;
+  triage_task_id?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  launched_task_id?: string | null;
+  launched_task_status?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface AttentionTriageFeedbackInput {
   itemId: string;
   verdict: "confirmed" | "wrong" | "rerouted";
@@ -231,6 +252,7 @@ interface BulkAcknowledgeAttentionResponse {
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 export const WORKSPACE_ATTENTION_BRIEF_KEY = ["workspace-attention-brief"] as const;
 export const ATTENTION_TRIAGE_RUNS_KEY = ["workspace-attention-triage-runs"] as const;
+export const ISSUE_WORK_PACKS_KEY = ["workspace-issue-work-packs"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
   return item.status !== "resolved" && item.status !== "acknowledged";
@@ -490,6 +512,53 @@ export function useStartAttentionTriageRun() {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
+    },
+  });
+}
+
+export function useStartIssueTriageRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: AttentionTriageRunInput = {}) =>
+      apiFetch<AttentionTriageRunResponse>("/api/v1/workspace/attention/issue-triage-runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "all_active", ...body }),
+      }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
+      qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
+      qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
+    },
+  });
+}
+
+export function useIssueWorkPacks() {
+  return useQuery({
+    queryKey: ISSUE_WORK_PACKS_KEY,
+    queryFn: async () => {
+      const res = await apiFetch<{ work_packs: IssueWorkPack[] }>("/api/v1/workspace/attention/issue-work-packs");
+      return res.work_packs;
+    },
+    refetchInterval: 15_000,
+  });
+}
+
+export function useLaunchIssueWorkPackProjectRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { work_pack_id: string; project_id: string; channel_id: string }) =>
+      apiFetch<{ work_pack: IssueWorkPack; run: unknown }>(`/api/v1/workspace/attention/issue-work-packs/${body.work_pack_id}/launch-project-run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: body.project_id, channel_id: body.channel_id }),
+      }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ISSUE_WORK_PACKS_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
+      qc.invalidateQueries({ queryKey: ["projects"] });
     },
   });
 }

@@ -41,6 +41,7 @@ Expected documentation artifacts:
 - [docs/images/spatial-check-channel-schedule-satellites.png](../../../docs/images/spatial-check-channel-schedule-satellites.png)
 - [docs/images/spatial-check-attention-badge.png](../../../docs/images/spatial-check-attention-badge.png)
 - [docs/images/spatial-check-attention-review-deck.png](../../../docs/images/spatial-check-attention-review-deck.png)
+- [docs/images/spatial-check-issue-intake-work-packs.png](../../../docs/images/spatial-check-issue-intake-work-packs.png)
 - [docs/images/spatial-check-attention-run-log.png](../../../docs/images/spatial-check-attention-run-log.png)
 - [docs/images/spatial-check-hover-suppression.png](../../../docs/images/spatial-check-hover-suppression.png)
 - [docs/images/spatial-check-overview-hover-calm.png](../../../docs/images/spatial-check-overview-hover-calm.png)

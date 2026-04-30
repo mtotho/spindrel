@@ -772,6 +772,65 @@ class WorkspaceAttentionItem(Base):
     )
 
 
+class IssueWorkPack(Base):
+    """Operator-produced work package between raw Attention intake and Project runs."""
+
+    __tablename__ = "issue_work_packs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    category: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'code_bug'"))
+    confidence: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'medium'"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'proposed'"))
+    source_item_ids: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list)
+    launch_prompt: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    triage_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    launched_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    triage_task: Mapped[Optional["Task"]] = relationship("Task", foreign_keys=[triage_task_id])
+    project: Mapped[Optional["Project"]] = relationship("Project")
+    channel: Mapped[Optional["Channel"]] = relationship("Channel")
+    launched_task: Mapped[Optional["Task"]] = relationship("Task", foreign_keys=[launched_task_id])
+
+    __table_args__ = (
+        CheckConstraint("category in ('code_bug', 'test_failure', 'config_issue', 'environment_issue', 'user_decision', 'not_code_work', 'needs_info', 'other')", name="ck_issue_work_packs_category"),
+        CheckConstraint("confidence in ('low', 'medium', 'high')", name="ck_issue_work_packs_confidence"),
+        CheckConstraint("status in ('proposed', 'launched', 'dismissed', 'needs_info')", name="ck_issue_work_packs_status"),
+    Index("ix_issue_work_packs_status_created", "status", "created_at"),
+    )
+
+
 class WorkspaceMission(Base):
     """Long-running workspace work tracked independently of chat/task plumbing.
 

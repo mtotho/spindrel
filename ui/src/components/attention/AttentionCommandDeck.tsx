@@ -24,7 +24,10 @@ import {
   useAttentionTriageRuns,
   useBulkAcknowledgeAttentionItems,
   useResolveAttentionItem,
+  useIssueWorkPacks,
+  useLaunchIssueWorkPackProjectRun,
   useStartAttentionTriageRun,
+  useStartIssueTriageRun,
   useSubmitAttentionTriageFeedback,
   useWorkspaceAttentionBrief,
   WORKSPACE_ATTENTION_BRIEF_KEY,
@@ -33,11 +36,13 @@ import {
   type AttentionBriefResponse,
   type AttentionFixPack,
   type AttentionAssignmentMode,
+  type IssueWorkPack,
   type AttentionTriageRunResponse,
   type WorkspaceAttentionItem,
 } from "../../api/hooks/useWorkspaceAttention";
 import { applyAgentReadinessRepair, fetchAgentCapabilities } from "../../api/hooks/useAgentCapabilities";
 import { useBots } from "../../api/hooks/useBots";
+import { useProjectChannels, useProjects } from "../../api/hooks/useProjects";
 import { BotPicker } from "../shared/BotPicker";
 import { SessionChatView } from "../chat/SessionChatView";
 import { openTraceInspector } from "../../stores/traceInspector";
@@ -125,6 +130,22 @@ function getBotReport(item: WorkspaceAttentionItem): any | null {
   return report && typeof report === "object" ? report : null;
 }
 
+function getIssueIntake(item: WorkspaceAttentionItem): any | null {
+  const intake = item.evidence?.issue_intake;
+  return intake && typeof intake === "object" ? intake : null;
+}
+
+function getIssueTriage(item: WorkspaceAttentionItem): any | null {
+  const triage = item.evidence?.issue_triage;
+  return triage && typeof triage === "object" ? triage : null;
+}
+
+function isIssueCandidate(item: WorkspaceAttentionItem): boolean {
+  if (!getIssueIntake(item) && !getBotReport(item)) return false;
+  const state = String(getIssueTriage(item)?.state ?? "");
+  return !["packed", "dismissed", "needs_info"].includes(state);
+}
+
 function toolSignalClass(tone: "muted" | "warning" | "danger"): string {
   if (tone === "danger") return "bg-danger/10 text-danger-muted";
   if (tone === "warning") return "bg-warning/10 text-warning";
@@ -147,6 +168,7 @@ function severityClass(item: WorkspaceAttentionItem): string {
 
 function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentionItem[] {
   if (mode === "review") return buckets.review;
+  if (mode === "issues") return [];
   if (mode === "inbox") return [...buckets.untriaged, ...buckets.assigned];
   if (mode === "cleared") return [...buckets.processed, ...buckets.closed];
   return [...buckets.triage, ...buckets.review];
@@ -155,7 +177,7 @@ function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentio
 function sortDeckItems(mode: DeckMode, items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
   const sorted = sortAttention(items);
   if (mode !== "review") return sorted;
-  return sorted.sort((a, b) => Number(Boolean(getBotReport(b))) - Number(Boolean(getBotReport(a))));
+  return sorted.sort((a, b) => Number(Boolean(getBotReport(a))) - Number(Boolean(getBotReport(b))));
 }
 
 function SkeletonBlock({ className }: { className: string }) {
@@ -235,6 +257,7 @@ export function AttentionCommandDeck({
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const { data: runs = [] } = useAttentionTriageRuns({ limit: 16, refetchInterval: mode === "runs" ? 5_000 : 15_000 });
   const { data: brief } = useWorkspaceAttentionBrief({ channelId, refetchInterval: 15_000 });
+  const issueCandidates = useMemo(() => items.filter(isIssueCandidate), [items]);
   const startTriage = useStartAttentionTriageRun();
   const hasActiveRun = runs.some((run) => {
     const status = runStatusLabel(run);
@@ -245,6 +268,7 @@ export function AttentionCommandDeck({
   const counts = {
     review: buckets.review.length,
     botReports: buckets.review.filter((item) => getBotReport(item)).length,
+    issues: issueCandidates.length,
     inbox: buckets.untriaged.length + buckets.assigned.length,
     running: buckets.triage.length,
     cleared: buckets.processed.length,
@@ -270,10 +294,11 @@ export function AttentionCommandDeck({
   useEffect(() => {
     if (initialMode || selected || runModePinned) return;
     if (counts.review > 0) setModeState("review");
+    else if (counts.issues > 0) setModeState("issues");
     else if (counts.inbox > 0) setModeState("inbox");
     else if (runs.length > 0) setModeState("runs");
     else setModeState("cleared");
-  }, [initialMode, selected?.id, counts.review, counts.inbox, runs.length, runModePinned]);
+  }, [initialMode, selected?.id, counts.review, counts.issues, counts.inbox, runs.length, runModePinned]);
 
   useEffect(() => {
     if (hasActiveRun || selectedRunLoaded) setSweepStarting(false);
@@ -285,6 +310,7 @@ export function AttentionCommandDeck({
     if (state === "operator_review" || state === "bot_report") setDeckMode("review");
     else if (state === "processed" || state === "closed") setDeckMode("cleared");
     else if (state === "in_sweep") setDeckMode("runs");
+    else if (isIssueCandidate(selected)) setDeckMode("issues");
     else setDeckMode("inbox");
   }, [selected?.id]);
 
@@ -466,6 +492,16 @@ export function AttentionCommandDeck({
         onClick: () => focusReviewFinding(),
       };
     }
+    if (counts.issues > 0) {
+      return {
+        eyebrow: "Issue intake",
+        title: "Triage raw issues into work packs",
+        detail: `${counts.issues} conversational or agent-reported issue${counts.issues === 1 ? "" : "s"} can be grouped before any Project run launches.`,
+        action: "Open issues",
+        icon: <MessageSquare size={15} />,
+        onClick: () => setDeckMode("issues"),
+      };
+    }
     if (counts.inbox > 0) {
       return {
         eyebrow: "Unreviewed items",
@@ -501,7 +537,7 @@ export function AttentionCommandDeck({
             </div>
             <div className="mt-1 text-sm leading-5 text-text-muted">
               {channelId ? "Channel-filtered" : "Workspace"} review · {counts.review} findings
-              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.inbox} unreviewed · {counts.cleared} cleared
+              {counts.botReports ? ` (${counts.botReports} bot report${counts.botReports === 1 ? "" : "s"})` : ""} · {counts.issues} issue intake · {counts.inbox} unreviewed · {counts.cleared} cleared
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -585,7 +621,9 @@ export function AttentionCommandDeck({
           onSelect={onSelect}
         />
         <main ref={detailRef} tabIndex={-1} className="min-h-0 overflow-y-auto border-t border-surface-border/60 px-4 py-4 outline-none md:border-l md:border-t-0">
-          {mode === "runs" ? (
+          {mode === "issues" ? (
+            <IssueIntakeWorkspace items={issueCandidates} />
+          ) : mode === "runs" ? (
             <RunLogWorkspace pending={sweepBusy} runs={runs} selectedRunId={selectedRunId} onRunSelect={onRunSelect} />
           ) : displayItem ? (
             <DeckItemDetail item={displayItem} onReply={onReply} />
@@ -608,18 +646,19 @@ function DeckQueue({
   onSelect,
 }: {
   mode: DeckMode;
-  counts: { review: number; botReports: number; inbox: number; running: number; cleared: number; closed: number };
+  counts: { review: number; botReports: number; issues: number; inbox: number; running: number; cleared: number; closed: number };
   runCount: number;
   items: WorkspaceAttentionItem[];
   selectedId: string | null;
   onModeChange: (mode: DeckMode) => void;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
 }) {
-  const title = mode === "inbox" ? "Unreviewed" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
+  const title = mode === "issues" ? "Issue intake" : mode === "inbox" ? "Unreviewed" : mode === "review" ? "Findings" : mode === "cleared" ? "Cleared" : "Sweep history";
   return (
     <aside className="min-h-0 overflow-y-auto px-3 py-3">
       <div className="grid grid-cols-2 gap-1.5">
         <ModeButton active={mode === "review"} icon={<Sparkles size={14} />} label="Findings" count={counts.review} onClick={() => onModeChange("review")} />
+        <ModeButton active={mode === "issues"} icon={<MessageSquare size={14} />} label="Issues" count={counts.issues} onClick={() => onModeChange("issues")} />
         <ModeButton active={mode === "inbox"} icon={<Inbox size={14} />} label="Unreviewed" count={counts.inbox} onClick={() => onModeChange("inbox")} />
         <ModeButton active={mode === "runs"} icon={<Clock size={14} />} label="Sweeps" count={runCount || counts.running} onClick={() => onModeChange("runs")} />
         <ModeButton active={mode === "cleared"} icon={<Archive size={14} />} label="Cleared" count={counts.cleared + counts.closed} onClick={() => onModeChange("cleared")} />
@@ -678,6 +717,135 @@ function ModeButton({ active, icon, label, count, onClick }: { active: boolean; 
       </span>
       <span className="shrink-0 rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted">{count}</span>
     </button>
+  );
+}
+
+function IssueIntakeWorkspace({ items }: { items: WorkspaceAttentionItem[] }) {
+  const startIssueTriage = useStartIssueTriageRun();
+  const { data: workPacks = [] } = useIssueWorkPacks();
+  const { data: projects = [] } = useProjects();
+  const [selectedProjectId, setSelectedProjectId] = useState(() => localStorage.getItem("spindrel.issueFactory.projectId") || "");
+  const [selectedChannelId, setSelectedChannelId] = useState(() => localStorage.getItem("spindrel.issueFactory.channelId") || "");
+  const { data: projectChannels = [] } = useProjectChannels(selectedProjectId || undefined);
+  const launchPack = useLaunchIssueWorkPackProjectRun();
+  const proposedPacks = workPacks.filter((pack) => pack.status === "proposed" || pack.status === "needs_info");
+
+  useEffect(() => {
+    if (!projects.length) return;
+    if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return;
+    if (projects.length === 1) setSelectedProjectId(projects[0].id);
+    else setSelectedProjectId("");
+  }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (!projectChannels.length) {
+      if (selectedChannelId) setSelectedChannelId("");
+      return;
+    }
+    if (selectedChannelId && projectChannels.some((channel) => channel.id === selectedChannelId)) return;
+    if (projectChannels.length === 1) setSelectedChannelId(projectChannels[0].id);
+    else setSelectedChannelId("");
+  }, [projectChannels, selectedChannelId]);
+
+  const updateProject = (value: string) => {
+    setSelectedProjectId(value);
+    setSelectedChannelId("");
+    if (value) localStorage.setItem("spindrel.issueFactory.projectId", value);
+    else localStorage.removeItem("spindrel.issueFactory.projectId");
+  };
+
+  const updateChannel = (value: string) => {
+    setSelectedChannelId(value);
+    if (value) localStorage.setItem("spindrel.issueFactory.channelId", value);
+    else localStorage.removeItem("spindrel.issueFactory.channelId");
+  };
+
+  const launch = (pack: IssueWorkPack) => {
+    if (!selectedProjectId || !selectedChannelId || launchPack.isPending) return;
+    launchPack.mutate({ work_pack_id: pack.id, project_id: selectedProjectId, channel_id: selectedChannelId });
+  };
+
+  return (
+    <div className="space-y-5" data-testid="issue-intake-workspace">
+      <section className="rounded-md bg-surface-overlay/30 px-3 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Issue intake</div>
+            <div className="mt-1 text-sm font-medium text-text">Group raw issue notes into work packs</div>
+            <div className="mt-1 text-xs leading-5 text-text-muted">Conversational captures and autonomous blocker reports are triaged here before any Project coding run starts.</div>
+          </div>
+          <button
+            type="button"
+            disabled={!items.length || startIssueTriage.isPending}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-sm font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+            onClick={() => startIssueTriage.mutate({})}
+          >
+            {startIssueTriage.isPending ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {startIssueTriage.isPending ? "Starting triage" : "Start issue triage"}
+          </button>
+        </div>
+        {startIssueTriage.error && (
+          <div className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-muted">
+            {startIssueTriage.error instanceof Error ? startIssueTriage.error.message : "Issue triage could not start."}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Raw intake</div>
+        <div className="space-y-2">
+          {items.slice(0, 8).map((item) => (
+            <div key={item.id} className="rounded-md bg-surface-overlay/25 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 truncate text-sm font-medium text-text">{item.title}</div>
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-dim">{getIssueIntake(item) ? "conversation" : "agent report"}</div>
+              </div>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{item.message}</p>
+            </div>
+          ))}
+          {!items.length && <div className="rounded-md bg-surface-overlay/25 px-3 py-8 text-center text-sm text-text-muted">No raw issue intake is waiting.</div>}
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Work packs</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedProjectId} onChange={(event) => updateProject(event.target.value)}>
+              <option value="">Project...</option>
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+            <select className="min-h-8 rounded-md border border-input-border bg-input px-2 text-xs text-text" value={selectedChannelId} onChange={(event) => updateChannel(event.target.value)}>
+              <option value="">Run channel...</option>
+              {projectChannels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {proposedPacks.slice(0, 10).map((pack) => (
+            <div key={pack.id} className="rounded-md bg-surface-overlay/25 px-3 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-text">{pack.title}</div>
+                  <div className="mt-1 text-[11px] uppercase tracking-[0.08em] text-text-dim">{pack.category.replaceAll("_", " ")} · {pack.confidence} confidence · {pack.source_item_ids.length} sources</div>
+                  <p className="mt-2 text-xs leading-5 text-text-muted">{pack.summary}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={pack.status !== "proposed" || !selectedProjectId || !selectedChannelId || launchPack.isPending}
+                  className="inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-md bg-accent/[0.08] px-3 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+                  onClick={() => launch(pack)}
+                >
+                  {launchPack.isPending ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+                  Launch run
+                </button>
+              </div>
+            </div>
+          ))}
+          {!proposedPacks.length && <div className="rounded-md bg-surface-overlay/25 px-3 py-8 text-center text-sm text-text-muted">No work packs yet. Start issue triage to generate them.</div>}
+        </div>
+      </section>
+    </div>
   );
 }
 
