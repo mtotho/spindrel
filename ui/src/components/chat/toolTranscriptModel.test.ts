@@ -171,6 +171,55 @@ test("file tool paths stay in the shrinkable target field", () => {
   );
 });
 
+test("legacy Codex shell tool names render as useful Bash rows", () => {
+  const items = buildAssistantTurnBodyItems({
+    renderMode: "terminal",
+    assistantTurnBody: {
+      version: 1,
+      items: [{ id: "tool-shell", kind: "tool_call", toolCallId: "call-shell" }],
+    },
+    toolCalls: [
+      {
+        id: "call-shell",
+        name: "/bin/bash -lc \"cd spindrel && rg -n uploads app tests\"",
+        arguments: "{}",
+        surface: "transcript",
+        summary: {
+          kind: "action",
+          subject_type: "generic",
+          label: "/bin/bash -lc \"cd spindrel && rg -n uploads app tests\"",
+        },
+      },
+    ],
+  });
+
+  assert.equal(items[0]?.kind, "transcript");
+  if (items[0]?.kind !== "transcript") throw new Error("expected transcript item");
+  assert.equal(items[0].entries[0]?.label, "Bash");
+  assert.equal(items[0].entries[0]?.metaLabel, "(spindrel)");
+  assert.equal(items[0].entries[0]?.target, "rg -n uploads app tests");
+});
+
+test("structured Codex shell args render cwd and display command", () => {
+  const entries = buildLiveToolEntries([
+    {
+      id: "cmd1",
+      name: "Bash",
+      args: JSON.stringify({
+        command: "/bin/bash -lc 'cd spindrel && pytest -q tests/unit/test_uploads.py'",
+        cwd: "spindrel",
+        display_command: "pytest -q tests/unit/test_uploads.py",
+      }),
+      status: "running",
+    },
+  ]);
+
+  assert.equal(entries[0]?.label, "Bash");
+  assert.equal(entries[0]?.metaLabel, "(spindrel)");
+  assert.equal(entries[0]?.target, "pytest -q tests/unit/test_uploads.py");
+  assert.equal(entries[0]?.isRunning, true);
+});
+
 test("live transcript entries use tool call ids as stable unique row ids", () => {
   const entries = buildLiveToolEntries([
     {

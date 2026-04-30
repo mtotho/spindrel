@@ -66,9 +66,11 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
     assert defaults["allow_issue_reporting"] is True
     assert defaults["harness_effort"] == "high"
     assert defaults["max_run_seconds"] == 7200
+    assert "prepare_project_run_handoff" in defaults["tools"]
     assert "publish_project_run_receipt" in defaults["tools"]
     assert "run_e2e_tests" in defaults["tools"]
     assert "spindrel-visual-feedback-loop" in defaults["skills"]
+    assert "prepare_project_run_handoff" in defaults["prompt"]
     assert "publish_project_run_receipt" in defaults["prompt"]
 
 

@@ -5,12 +5,27 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import ApiKeyAuth, get_db, require_scopes
-from app.services.agent_capabilities import build_agent_capability_manifest
+from app.services.agent_capabilities import build_agent_capability_manifest, preflight_agent_repair_action
 
 router = APIRouter(prefix="/agent-capabilities", tags=["agent-capabilities"])
+
+
+class AgentRepairPreflightIn(BaseModel):
+    action_id: str = Field(..., min_length=1)
+    bot_id: str | None = None
+    channel_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+
+
+def _auth_scopes(auth: Any) -> list[str] | None:
+    if isinstance(auth, ApiKeyAuth):
+        return list(auth.scopes)
+    resolved_scopes = getattr(auth, "_resolved_scopes", None)
+    return list(resolved_scopes) if resolved_scopes is not None else None
 
 
 @router.get("")
@@ -30,14 +45,10 @@ async def get_agent_capabilities(
     callers may pass an explicit bot/channel/session context to inspect what a
     turn would inherit.
     """
-    if isinstance(auth, ApiKeyAuth):
-        scopes = list(auth.scopes)
-    else:
-        # JWT users with provisioned scoped keys should see the same filtered
-        # API surface that require_scopes() just authorized against. Admin JWTs
-        # have no resolved scope list and intentionally see the full catalog.
-        resolved_scopes = getattr(auth, "_resolved_scopes", None)
-        scopes = list(resolved_scopes) if resolved_scopes is not None else None
+    # JWT users with provisioned scoped keys should see the same filtered API
+    # surface that require_scopes() just authorized against. Admin JWTs have no
+    # resolved scope list and intentionally inspect as the current bot context.
+    scopes = _auth_scopes(auth)
     return await build_agent_capability_manifest(
         db,
         bot_id=bot_id,
@@ -47,4 +58,21 @@ async def get_agent_capabilities(
         include_schemas=include_schemas,
         include_endpoints=include_endpoints,
         max_tools=max_tools,
+    )
+
+
+@router.post("/actions/preflight")
+async def preflight_agent_capability_action(
+    payload: AgentRepairPreflightIn,
+    db: AsyncSession = Depends(get_db),
+    auth: Any = Depends(require_scopes("tools:read")),
+) -> dict[str, Any]:
+    """Dry-run a proposed Agent Readiness action before applying it."""
+    return await preflight_agent_repair_action(
+        db,
+        action_id=payload.action_id,
+        bot_id=payload.bot_id,
+        channel_id=payload.channel_id,
+        session_id=payload.session_id,
+        actor_scopes=_auth_scopes(auth),
     )

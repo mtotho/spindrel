@@ -191,6 +191,49 @@ def stage_project_workspace(
             request=CODING_RUN_REQUEST,
         )
     task_id = (coding_run.get("task") or {}).get("id")
+    if task_id:
+        client.create_execution_receipt({
+            "scope": "project_coding_run",
+            "action_type": "handoff.prepare_branch",
+            "status": "succeeded",
+            "summary": "Screenshot Project run branch ready.",
+            "actor": {"kind": "bot", "bot_id": PROJECT_BOT_ID},
+            "target": {
+                "project_id": project_id,
+                "branch": "screenshot/project-coding-run",
+                "base_branch": "development",
+                "repo_path": "spindrel",
+            },
+            "result": {
+                "current_branch": "screenshot/project-coding-run",
+                "dirty": False,
+                "repo_root": "common/projects/spindrel-screenshot/spindrel",
+            },
+            "bot_id": PROJECT_BOT_ID,
+            "channel_id": channel_id,
+            "task_id": task_id,
+            "idempotency_key": "screenshot:project-coding-run:handoff.prepare_branch",
+        })
+        client.create_execution_receipt({
+            "scope": "project_coding_run",
+            "action_type": "handoff.open_pr",
+            "status": "succeeded",
+            "summary": "Screenshot Project run draft PR ready.",
+            "actor": {"kind": "bot", "bot_id": PROJECT_BOT_ID},
+            "target": {
+                "project_id": project_id,
+                "branch": "screenshot/project-coding-run",
+                "base_branch": "development",
+                "repo_path": "spindrel",
+            },
+            "result": {
+                "pr_url": "https://example.invalid/spindrel/project-run",
+            },
+            "bot_id": PROJECT_BOT_ID,
+            "channel_id": channel_id,
+            "task_id": task_id,
+            "idempotency_key": "screenshot:project-coding-run:handoff.open_pr",
+        })
     client.create_project_run_receipt(
         project_id,
         {

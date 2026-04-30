@@ -198,6 +198,7 @@ Harness turns persist an `input_manifest` summary in assistant metadata. It reco
 | Approval modes | Supported | Per-session `bypassPermissions`, `acceptEdits`, `default`, and `plan`; ask paths render Spindrel approval cards. |
 | Runtime questions | Supported | Claude `AskUserQuestion` renders a persisted `core/harness_question` card in default and terminal chat modes. |
 | Plan mode | Supported | Spindrel plan mode remains the session source of truth. Codex sessions receive native `collaborationMode: plan` plus read-only sandbox policy while Spindrel is `planning`; Claude receives native plan permission mode. Harnesses also receive bridged Spindrel plan tools: `ask_plan_questions`/`publish_plan` while drafting and `record_plan_progress`/`request_plan_replan` while executing. Codex native plan items may be mirrored as planning evidence, but the canonical plan artifact still comes from Spindrel plan tools. |
+| Codex collaboration/subagents | Partial | Codex app-server `collabToolCall` items render as native harness activity rows and persist session/thread ids plus prompt preview. Spindrel does not spawn or schedule Codex subagents itself yet; it only renders the runtime-owned collaboration events that the app-server emits. |
 | `/compact`, `/new`, `/clear`, and `/context` | Supported | Harness `/compact` triggers native runtime compaction when supported. `/new` and `/clear` open a fresh Spindrel session without deleting the old one or changing the channel primary/default pointer. `/context` reports host-visible native state, hints, bridge health, and native compact status. |
 | Native slash commands | Supported | Type supported runtime-native management commands directly. Codex routes read paths plus supported management paths through app-server JSON-RPC: `/config`, `/config set ...`, `/plugins`, `/plugin read ...`, `/plugin uninstall ...`, `/skills`, `/skills enable|disable ...`, `/mcp`, `/mcp resource read ...`, `/features`, `/features enable|disable ...`, `/marketplace add|remove|upgrade ...`, `/status`, `/resume`, `/resume search ...`, and `/cloud`. Codex CLI-native flows that still require an interactive/TTY surface or are not exposed by the installed app-server (`/diff`, `/approvals`, `/undo`, `/branch`, `/review`, `/prompts`, `/editor`, `/init`, and unsupported argument forms) return terminal handoff with the exact command. Mutating app-server calls are harness approval-gated before execution. Claude Code exposes `/skills`, `/plugin list`, `/mcp list`, `/agents`, `/hooks`, `/status`, and `/doctor` through the installed CLI when available, returning terminal handoff for mutating or TTY-only flows. |
 | Host context hints | Supported | Channel prompts render as priority host instructions; heartbeats and workspace-files memory queue host hints for harness turns. Native compaction does not use Spindrel continuity hints. |
@@ -224,6 +225,19 @@ Harness sessions expose lightweight native state through `GET /api/v1/sessions/{
 - last turn timestamp, native compact status, estimated native context remaining when available, and last usage/cost metadata.
 
 This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary. Codex `thread/tokenUsage/updated` includes `modelContextWindow`, so Codex-backed sessions can show estimated remaining native context when that event has been observed.
+
+Codex turns also persist coarse host-side latency metadata on assistant-message
+metadata as `harness.codex_latency_ms`. The timings record app-server
+initialization, bridge attach, thread resume/start, turn start, first
+notification, first text, first tool, completion, and failure milestones when
+observed. These numbers are diagnostic only; they do not replace runtime token
+usage or server traces.
+
+Long runs of adjacent tool calls render as one compact trace strip in both
+default and terminal chat modes until expanded. This keeps Codex-native
+`commandExecution` bursts readable while preserving each individual command,
+file change, web search, image view, MCP/dynamic tool call, and collaboration
+event in the persisted transcript.
 
 `/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction, reset the native resume id, or queue a host-generated continuity summary. For Claude Code, Spindrel sends SDK `/compact`, records the native compact result as a persisted low-chrome card, and keeps the same native session id unless the runtime reports a replacement.
 

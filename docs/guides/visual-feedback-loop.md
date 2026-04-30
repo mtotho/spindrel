@@ -36,6 +36,12 @@ spatial-check-density-smoke.png
 If these files change, inspect them before finishing. Passing screenshot
 assertions proves the DOM-level contract, not that the UI feels good.
 
+Before accepting refreshed images, verify that the captured UI is actually
+showing the staged scenario data. The stage step and browser login must land in
+the same workspace/user context. If screenshots show unrelated live channels,
+empty attention lanes after staged attention was created, or route state from a
+prior run, treat the bundle as failed even if some DOM assertions pass.
+
 ## When To Add Or Update A Scenario
 
 Add a screenshot scenario when a visual behavior should not regress:
@@ -116,8 +122,8 @@ The staging step creates a reusable screenshot Project, attaches one channel to
 it, creates one attachable channel, writes a file through the channel workspace
 API, seeds a Blueprint-created Project with secret bindings, runs repo plus
 setup-command preparation for `https://github.com/mtotho/spindrel.git`, seeds
-a fresh Project instance, starts or shims one Project coding run with a linked
-receipt, and seeds a memory-tool turn. Inspect all thirteen images before closing out: the
+a fresh Project instance, starts or shims one Project coding run with linked
+branch/PR progress receipts, a review receipt, and a memory-tool turn. Inspect all thirteen images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project runtime-env readiness, fresh
 Project instances, Project coding-run cockpit/receipts, Project settings, and the

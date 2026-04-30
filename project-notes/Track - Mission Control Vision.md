@@ -546,6 +546,13 @@ the system can already inspect" is a shared capability manifest:
   manifest, records whether the original finding disappeared, stores before/
   after Doctor status and remaining finding codes, and surfaces the latest
   readiness receipt in the panel and manifest.
+- Agent Readiness repair actions now have a read-only preflight contract:
+  `POST /api/v1/agent-capabilities/actions/preflight` and the
+  `preflight_agent_repair` tool return `agent-action-preflight.v1` with
+  `ready` / `blocked` / `stale` / `noop`, missing actor scopes, current
+  finding codes, and field-level bot diffs. The UI runs preflight before
+  applying staged bot patches and stores the preflight result in the readiness
+  execution receipt.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

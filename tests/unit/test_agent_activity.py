@@ -195,6 +195,7 @@ async def test_agent_activity_normalizes_existing_evidence(db_session):
     assert by_kind["mission_update"]["next_action"] == "Review the retryable tool failure."
     assert by_kind["project_receipt"]["target"]["project_id"]
     assert by_kind["widget_receipt"]["target"]["widget_pin_ids"]
+    assert by_kind["execution_receipt"]["status"] == "succeeded"
     assert by_kind["execution_receipt"]["source"]["scope"] == "agent_readiness"
     assert by_kind["execution_receipt"]["target"]["bot_id"] == "agent"
     assert by_kind["boundary_access"]["status"] == "failed"

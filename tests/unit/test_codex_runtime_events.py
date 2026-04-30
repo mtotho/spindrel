@@ -81,10 +81,38 @@ def test_item_started_command_emits_tool_start():
         final_text_parts=parts,
         result_meta=meta,
     )
-    assert ids == {"i1": "ls"}
+    assert ids == {"i1": "Bash"}
     assert emitter.calls[0][0] == "tool_start"
-    assert emitter.calls[0][1]["tool_name"] == "ls"
+    assert emitter.calls[0][1]["tool_name"] == "Bash"
     assert emitter.calls[0][1]["tool_call_id"] == "i1"
+    assert emitter.calls[0][1]["arguments"] == {"command": "ls"}
+
+
+def test_item_started_command_extracts_cwd_and_display_command():
+    emitter, ids, parts, meta = _harness()
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "command": "/bin/bash -lc 'cd spindrel && rg -n uploads app tests'",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert ids == {"cmd1": "Bash"}
+    assert emitter.calls[0][1]["arguments"] == {
+        "command": "/bin/bash -lc 'cd spindrel && rg -n uploads app tests'",
+        "cwd": "spindrel",
+        "display_command": "rg -n uploads app tests",
+    }
 
 
 def test_item_completed_emits_tool_result_with_recovered_name():
@@ -443,6 +471,103 @@ def test_file_change_completed_emits_inline_diff_envelope_from_item():
     assert result["envelope"]["body"] == diff_body
     assert result["summary"]["kind"] == "diff"
     assert result["summary"]["path"] == "app.py"
+
+
+def test_file_change_completed_extracts_path_from_changes_list():
+    emitter, ids, parts, meta = _harness()
+    ids["fc_changes"] = "fileChange"
+    diff_body = "\n".join([
+        "--- a/app/routers/api.py",
+        "+++ b/app/routers/api.py",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+    ])
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "fc_changes",
+                    "kind": "fileChange",
+                    "changes": [{"path": "app/routers/api.py", "kind": "modify", "diff": diff_body}],
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    result = emitter.calls[0][1]
+    assert result["envelope"]["display_label"] == "app/routers/api.py"
+    assert result["summary"]["path"] == "app/routers/api.py"
+    assert result["result_summary"].startswith("Changed app/routers/api.py")
+
+
+def test_collab_tool_call_emits_subagent_summary():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={
+                "item": {
+                    "id": "agent1",
+                    "kind": "collabToolCall",
+                    "tool": "spawn_agent",
+                    "status": "inProgress",
+                    "newThreadId": "thread-child",
+                    "prompt": "Inspect the renderer.",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "agent1",
+                    "kind": "collabToolCall",
+                    "tool": "spawn_agent",
+                    "status": "completed",
+                    "newThreadId": "thread-child",
+                    "agentStatus": "completed",
+                    "prompt": "Inspect the renderer.",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emitter.calls[0] == (
+        "tool_start",
+        {
+            "tool_name": "Codex subagent",
+            "tool_call_id": "agent1",
+            "arguments": {
+                "tool": "spawn_agent",
+                "status": "inProgress",
+                "new_thread_id": "thread-child",
+                "prompt": "Inspect the renderer.",
+            },
+        },
+    )
+    result = emitter.calls[1][1]
+    assert result["tool_name"] == "Codex subagent"
+    assert result["summary"]["subject_type"] == "session"
+    assert result["summary"]["target_id"] == "thread-child"
+    assert result["summary"]["preview_text"] == "Inspect the renderer."
 
 
 def test_file_change_completed_uses_buffered_file_change_delta_diff():

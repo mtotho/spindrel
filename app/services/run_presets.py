@@ -39,11 +39,12 @@ Before changing files, inspect the workspace state and get latest from the Proje
 
 Expected workflow:
 1. Understand the bug or feature request and read the relevant code before editing.
-2. Make focused code changes.
-3. Run the smallest relevant tests first, then broaden as needed.
-4. For UI changes, run the Project's typecheck and capture screenshots against the configured e2e-testing server when available. Use run_e2e_tests(status) first to confirm the target URL.
-5. Prepare a review handoff: branch, changed files, tests, screenshots, and any blocker.
-6. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
+2. Call prepare_project_run_handoff(action="prepare_branch") before editing so the Project page records branch readiness.
+3. Make focused code changes.
+4. Run the smallest relevant tests first, then broaden as needed.
+5. For UI changes, run the Project's typecheck and capture screenshots against the configured e2e-testing server when available. Use run_e2e_tests(status) first to confirm the target URL.
+6. Prepare a review handoff: call prepare_project_run_handoff(action="open_pr") when GitHub credentials and gh are available, or record the blocker from that tool result.
+7. Call publish_project_run_receipt before finishing so the Project page has a durable review record. Receipt retries are idempotent when task, handoff, git metadata, or an explicit idempotency_key is stable."""
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,7 @@ PROJECT_CODING_RUN = RunPreset(
             "file",
             "exec_command",
             "run_e2e_tests",
+            "prepare_project_run_handoff",
             "publish_project_run_receipt",
         ),
         post_final_to_channel=True,

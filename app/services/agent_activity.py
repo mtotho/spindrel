@@ -164,6 +164,8 @@ def _mission_status(row: WorkspaceMissionUpdate) -> str:
 
 
 def _receipt_status(value: str | None) -> str:
+    if value == "succeeded":
+        return "succeeded"
     if value in {"failed", "blocked", "needs_review"}:
         return value
     if value == "completed":
@@ -601,7 +603,8 @@ async def list_agent_activity(
 
     per_source_limit = bounded
     items: list[dict[str, Any]] = []
-    if "tool_call" in selected_kinds:
+    task_trace_only = task_uuid is None or correlation_uuid is not None
+    if "tool_call" in selected_kinds and task_trace_only:
         items.extend(await _tool_call_items(
             db,
             bot_id=bot_id,
@@ -664,7 +667,7 @@ async def list_agent_activity(
             since=since,
             limit=per_source_limit,
         ))
-    if "boundary_access" in selected_kinds:
+    if "boundary_access" in selected_kinds and task_trace_only:
         items.extend(await _boundary_access_items(
             db,
             bot_id=bot_id,

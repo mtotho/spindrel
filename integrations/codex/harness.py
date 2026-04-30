@@ -270,8 +270,15 @@ class CodexRuntime:
         prompt: str,
         emit: ChannelEventEmitter,
     ) -> TurnResult:
+        started_at = time.perf_counter()
+        timings: dict[str, int] = {}
+
+        def mark(name: str) -> None:
+            timings[name] = int((time.perf_counter() - started_at) * 1000)
+
         async with CodexAppServer.spawn(extra_env=dict(ctx.env)) as client:
             await client.initialize()
+            mark("initialized_ms")
 
             params = _build_thread_start_params(ctx)
             if ctx.runtime_settings:
@@ -290,6 +297,7 @@ class CodexRuntime:
                 return [spec.name for spec in specs]
 
             exported, _ignored = await apply_tool_bridge(ctx, self, attach=_attach)
+            mark("bridge_attached_ms")
             allowed_tool_names = frozenset(exported)
             prior_dynamic_tools_signature = str(
                 ctx.harness_metadata.get("codex_dynamic_tools_signature") or ""
@@ -307,9 +315,11 @@ class CodexRuntime:
                     resume_params["model"] = ctx.model
                 resume = await client.request(schema.METHOD_THREAD_RESUME, resume_params)
                 thread_id = _extract_thread_id(resume) or ctx.harness_session_id
+                mark("thread_resumed_ms")
             else:
                 start = await client.request(schema.METHOD_THREAD_START, params)
                 thread_id = _extract_thread_id(start) or ""
+                mark("thread_started_ms")
 
             turn_params = _build_turn_start_params(
                 thread_id=thread_id,
@@ -319,6 +329,7 @@ class CodexRuntime:
             )
             turn_resp = await client.request(schema.METHOD_TURN_START, turn_params)
             turn_id = _extract_turn_id(turn_resp) or ""
+            mark("turn_started_ms")
 
             tool_name_by_id: dict[str, str] = {}
             final_text_parts: list[str] = []
@@ -326,6 +337,8 @@ class CodexRuntime:
 
             async def _consume_notifications() -> None:
                 async for note in client.notifications():
+                    if "first_notification_ms" not in timings:
+                        mark("first_notification_ms")
                     translate_notification(
                         note,
                         emit=emit,
@@ -333,7 +346,12 @@ class CodexRuntime:
                         final_text_parts=final_text_parts,
                         result_meta=result_meta,
                     )
+                    if final_text_parts and "first_text_ms" not in timings:
+                        mark("first_text_ms")
+                    if tool_name_by_id and "first_tool_ms" not in timings:
+                        mark("first_tool_ms")
                     if result_meta.get("completed") or result_meta.get("is_error"):
+                        mark("turn_completed_ms")
                         return
                 if not result_meta.get("completed") and not result_meta.get("is_error"):
                     result_meta["is_error"] = True
@@ -385,6 +403,7 @@ class CodexRuntime:
                         pass
 
             if result_meta.get("is_error"):
+                timings["failed_ms"] = int((time.perf_counter() - started_at) * 1000)
                 if turn_id:
                     try:
                         await client.request(
@@ -407,6 +426,7 @@ class CodexRuntime:
                     "codex_dynamic_tools": list(exported),
                     "codex_dynamic_tools_namespace": "spindrel",
                     "codex_thread_restart_reason": thread_restart_reason,
+                    "codex_latency_ms": timings,
                     "input_manifest": ctx.input_manifest.metadata(
                         runtime_items=tuple(turn_params.get("input") or ()),
                     ),

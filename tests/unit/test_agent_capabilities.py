@@ -4,9 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import Channel
+from app.db.models import Bot, Channel
 from app.services import agent_capabilities
 from app.services.execution_receipts import create_execution_receipt
+from app.tools.registry import _tools as local_tools
 
 
 def test_filter_endpoints_for_scopes_uses_existing_scope_rules(monkeypatch):
@@ -226,6 +227,182 @@ async def test_doctor_recent_receipts_payload_filters_agent_readiness_receipts(d
 
     assert [receipt["summary"] for receipt in receipts] == ["Verified resolved."]
     assert receipts[0]["schema_version"] == "execution-receipt.v1"
+
+
+def _preflight_manifest(action: dict, *, bot_id: str = "agent", findings: list[str] | None = None) -> dict:
+    findings = findings or [action["finding_code"]]
+    return {
+        "context": {"bot_id": bot_id},
+        "doctor": {
+            "findings": [{"code": code, "severity": "warning", "message": code} for code in findings],
+            "proposed_actions": [action],
+        },
+    }
+
+
+def _bot_patch_action(
+    *,
+    action_id: str = "agent:empty_tool_working_set:core_tools",
+    finding_code: str = "empty_tool_working_set",
+    patch: dict | None = None,
+    required_actor_scopes: list[str] | None = None,
+) -> dict:
+    return {
+        "id": action_id,
+        "finding_code": finding_code,
+        "kind": "tool_setup",
+        "title": "Add core tools",
+        "description": "Add tools.",
+        "impact": "Adds tools.",
+        "required_actor_scopes": required_actor_scopes or ["bots:write"],
+        "grants_scopes": [],
+        "apply": {
+            "type": "bot_patch",
+            "patch": patch or {"local_tools": ["list_agent_capabilities"]},
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_preflight_agent_repair_ready_for_bot_patch(db_session):
+    db_session.add(Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=[],
+        pinned_tools=[],
+    ))
+    await db_session.commit()
+
+    action = _bot_patch_action()
+    preflight = await agent_capabilities._preflight_action_from_manifest(
+        db_session,
+        _preflight_manifest(action),
+        action_id=action["id"],
+        actor_scopes=["bots:write"],
+    )
+
+    assert preflight["schema_version"] == "agent-action-preflight.v1"
+    assert preflight["status"] == "ready"
+    assert preflight["can_apply"] is True
+    assert preflight["missing_actor_scopes"] == []
+    assert preflight["action"]["apply_type"] == "bot_patch"
+    assert preflight["would_change"] == [{
+        "field": "local_tools",
+        "current": [],
+        "next": ["list_agent_capabilities"],
+        "changes": True,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_preflight_agent_repair_diffs_api_permission_patch(db_session):
+    db_session.add(Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=[],
+        pinned_tools=[],
+    ))
+    await db_session.commit()
+
+    action = _bot_patch_action(
+        action_id="agent:missing_api_scopes:workspace_bot",
+        finding_code="missing_api_scopes",
+        patch={"api_permissions": ["channels:read", "tools:read"]},
+    )
+    preflight = await agent_capabilities._preflight_action_from_manifest(
+        db_session,
+        _preflight_manifest(action),
+        action_id=action["id"],
+        actor_scopes=["admin"],
+    )
+
+    assert preflight["status"] == "ready"
+    assert preflight["would_change"] == [{
+        "field": "api_permissions",
+        "current": [],
+        "next": ["channels:read", "tools:read"],
+        "changes": True,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_preflight_agent_repair_blocks_missing_actor_scope(db_session):
+    db_session.add(Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=[],
+        pinned_tools=[],
+    ))
+    await db_session.commit()
+
+    action = _bot_patch_action(required_actor_scopes=["bots:write"])
+    preflight = await agent_capabilities._preflight_action_from_manifest(
+        db_session,
+        _preflight_manifest(action),
+        action_id=action["id"],
+        actor_scopes=["tools:read"],
+    )
+
+    assert preflight["status"] == "blocked"
+    assert preflight["can_apply"] is False
+    assert preflight["missing_actor_scopes"] == ["bots:write"]
+    assert preflight["would_change"] == []
+
+
+@pytest.mark.asyncio
+async def test_preflight_agent_repair_reports_stale_action(db_session):
+    action = _bot_patch_action()
+
+    preflight = await agent_capabilities._preflight_action_from_manifest(
+        db_session,
+        _preflight_manifest(action, findings=["empty_tool_working_set"]),
+        action_id="agent:missing_api_scopes:workspace_bot",
+        actor_scopes=["bots:write"],
+    )
+
+    assert preflight["status"] == "stale"
+    assert preflight["can_apply"] is False
+    assert preflight["action"] is None
+    assert preflight["current_findings"] == ["empty_tool_working_set"]
+
+
+@pytest.mark.asyncio
+async def test_preflight_agent_repair_noops_when_patch_matches_current_bot(db_session):
+    db_session.add(Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=["list_agent_capabilities"],
+        pinned_tools=[],
+    ))
+    await db_session.commit()
+
+    action = _bot_patch_action()
+    preflight = await agent_capabilities._preflight_action_from_manifest(
+        db_session,
+        _preflight_manifest(action),
+        action_id=action["id"],
+        actor_scopes=["admin"],
+    )
+
+    assert preflight["status"] == "noop"
+    assert preflight["can_apply"] is False
+    assert preflight["reason"] == "Patch would not change current bot configuration."
+    assert preflight["would_change"][0]["changes"] is False
+
+
+def test_preflight_agent_repair_tool_is_registered():
+    from app.tools.local import agent_capabilities as _agent_capabilities_tools  # noqa: F401
+
+    assert "preflight_agent_repair" in agent_capabilities.CORE_AGENT_TOOLS
+    assert "preflight_agent_repair" in local_tools
 
 
 def test_doctor_flags_runtime_context_pressure():

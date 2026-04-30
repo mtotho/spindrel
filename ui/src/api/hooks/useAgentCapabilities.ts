@@ -320,11 +320,55 @@ export interface ExecutionReceipt extends ExecutionReceiptWrite {
   created_at?: string | null;
 }
 
+export interface AgentRepairPreflight {
+  schema_version: "agent-action-preflight.v1" | string;
+  action_id: string;
+  status: "ready" | "blocked" | "stale" | "noop" | string;
+  can_apply: boolean;
+  reason: string;
+  action?: {
+    id?: string | null;
+    finding_code?: string | null;
+    kind?: string | null;
+    title?: string | null;
+    apply_type?: string | null;
+  } | null;
+  required_actor_scopes: string[];
+  missing_actor_scopes: string[];
+  would_change: Array<{
+    field: string;
+    current?: unknown;
+    next?: unknown;
+    changes?: boolean;
+    reason?: string;
+  }>;
+  current_findings: string[];
+  warnings: string[];
+}
+
 export function createExecutionReceipt(payload: ExecutionReceiptWrite) {
   return apiFetch<ExecutionReceipt>("/api/v1/execution-receipts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export function preflightAgentRepair(payload: {
+  action_id: string;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  session_id?: string | null;
+}) {
+  return apiFetch<AgentRepairPreflight>("/api/v1/agent-capabilities/actions/preflight", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action_id: payload.action_id,
+      bot_id: payload.bot_id ?? null,
+      channel_id: payload.channel_id ?? null,
+      session_id: payload.session_id ?? null,
+    }),
   });
 }
 

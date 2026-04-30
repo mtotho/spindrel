@@ -70,6 +70,31 @@ function activitySummary(run: ProjectCodingRun) {
     .join(", ");
 }
 
+function progressLabel(actionType?: string) {
+  if (actionType === "handoff.prepare_branch") return "Branch";
+  if (actionType === "handoff.push") return "Push";
+  if (actionType === "handoff.open_pr") return "PR";
+  if (actionType === "handoff.status") return "Status";
+  return "Progress";
+}
+
+function statusMark(status?: string) {
+  if (status === "succeeded" || status === "completed") return "ready";
+  if (status === "blocked" || status === "failed") return status;
+  if (status === "needs_review") return "review";
+  return status || "reported";
+}
+
+function handoffProgressSummary(run: ProjectCodingRun) {
+  const items = (run.activity ?? [])
+    .filter((item) => item.kind === "execution_receipt" && item.source?.scope === "project_coding_run")
+    .slice(0, 3);
+  if (items.length === 0) return null;
+  return items
+    .map((item) => `${progressLabel(String(item.source?.action_type || ""))}: ${statusMark(String(item.status || ""))}`)
+    .join(" · ");
+}
+
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
@@ -204,7 +229,7 @@ export function ProjectRunsSection({
                       {run.repo?.path ? ` · ${run.repo.path}` : ""}
                     </span>
                     <span className="truncate text-[11px] text-text-dim">
-                      Activity: {activitySummary(run)}
+                      {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}
                     </span>
                     {run.receipt && (
                       <span className="truncate text-[11px] text-text-dim">

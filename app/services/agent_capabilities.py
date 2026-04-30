@@ -35,6 +35,7 @@ from app.tools.registry import _tools as _local_tools
 CORE_AGENT_TOOLS = (
     "list_agent_capabilities",
     "run_agent_doctor",
+    "preflight_agent_repair",
     "get_agent_context_snapshot",
     "get_agent_work_snapshot",
     "get_agent_activity_log",
@@ -47,10 +48,13 @@ CORE_AGENT_TOOLS = (
     "publish_project_run_receipt",
 )
 
+AGENT_REPAIR_PREFLIGHT_VERSION = "agent-action-preflight.v1"
+
 PROJECT_CODING_RUN_TOOLS = (
     "file",
     "exec_command",
     "run_e2e_tests",
+    "prepare_project_run_handoff",
     "publish_project_run_receipt",
 )
 
@@ -884,6 +888,208 @@ def _deduped(values: list[str] | tuple[str, ...]) -> list[str]:
     return list(dict.fromkeys(value for value in values if value))
 
 
+def _action_summary(action: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not action:
+        return None
+    apply = action.get("apply") or {}
+    return {
+        "id": action.get("id"),
+        "finding_code": action.get("finding_code"),
+        "kind": action.get("kind"),
+        "title": action.get("title"),
+        "apply_type": apply.get("type"),
+    }
+
+
+def _finding_codes(manifest: dict[str, Any]) -> list[str]:
+    return [
+        str(finding.get("code"))
+        for finding in manifest.get("doctor", {}).get("findings", []) or []
+        if isinstance(finding, dict) and finding.get("code")
+    ]
+
+
+def _missing_actor_scopes(
+    actor_scopes: list[str] | None,
+    required_scopes: list[str],
+) -> list[str]:
+    if actor_scopes is None:
+        return []
+    return [scope for scope in required_scopes if not has_scope(actor_scopes, scope)]
+
+
+async def _bot_patch_changes(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    patch: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not bot_id:
+        return [{
+            "field": field,
+            "current": None,
+            "next": next_value,
+            "changes": False,
+            "reason": "No bot context is available.",
+        } for field, next_value in sorted(patch.items())]
+
+    bot = await db.get(Bot, bot_id)
+    if bot is None:
+        return [{
+            "field": field,
+            "current": None,
+            "next": next_value,
+            "changes": False,
+            "reason": f"Bot {bot_id} was not found.",
+        } for field, next_value in sorted(patch.items())]
+
+    changes: list[dict[str, Any]] = []
+    for field, next_value in sorted(patch.items()):
+        if field == "api_permissions":
+            current_value = await _scopes_for_bot(db, bot)
+            changes.append({
+                "field": field,
+                "current": sorted(current_value),
+                "next": sorted(str(scope) for scope in (next_value or [])),
+                "changes": set(current_value) != {str(scope) for scope in (next_value or [])},
+            })
+            continue
+        if field in {"local_tools", "pinned_tools"}:
+            current_list = [str(value) for value in (getattr(bot, field, None) or [])]
+            next_list = [str(value) for value in (next_value or [])]
+            changes.append({
+                "field": field,
+                "current": current_list,
+                "next": next_list,
+                "changes": current_list != next_list,
+            })
+            continue
+        current_value = getattr(bot, field, None)
+        changes.append({
+            "field": field,
+            "current": current_value,
+            "next": next_value,
+            "changes": current_value != next_value,
+        })
+    return changes
+
+
+async def _preflight_action_from_manifest(
+    db: AsyncSession,
+    manifest: dict[str, Any],
+    *,
+    action_id: str,
+    actor_scopes: list[str] | None,
+) -> dict[str, Any]:
+    actions = manifest.get("doctor", {}).get("proposed_actions", []) or []
+    action = next(
+        (candidate for candidate in actions if isinstance(candidate, dict) and candidate.get("id") == action_id),
+        None,
+    )
+    current_findings = _finding_codes(manifest)
+    base: dict[str, Any] = {
+        "schema_version": AGENT_REPAIR_PREFLIGHT_VERSION,
+        "action_id": action_id,
+        "status": "stale",
+        "can_apply": False,
+        "reason": "The proposed action is no longer available in the current readiness manifest.",
+        "action": _action_summary(action),
+        "required_actor_scopes": [],
+        "missing_actor_scopes": [],
+        "would_change": [],
+        "current_findings": current_findings,
+        "warnings": [],
+    }
+    if action is None:
+        return base
+
+    apply = action.get("apply") or {}
+    apply_type = apply.get("type")
+    required_scopes = [str(scope) for scope in (action.get("required_actor_scopes") or [])]
+    missing = _missing_actor_scopes(actor_scopes, required_scopes)
+    base.update({
+        "action": _action_summary(action),
+        "required_actor_scopes": required_scopes,
+        "missing_actor_scopes": missing,
+    })
+
+    if missing:
+        base.update({
+            "status": "blocked",
+            "reason": f"Missing required scope: {', '.join(missing)}.",
+        })
+        return base
+
+    if apply_type == "navigate":
+        base.update({
+            "status": "noop",
+            "reason": "Navigation action; no mutation to preflight.",
+        })
+        return base
+
+    if apply_type != "bot_patch":
+        base.update({
+            "status": "blocked",
+            "reason": f"Unsupported readiness action type: {apply_type or 'unknown'}.",
+        })
+        return base
+
+    patch = apply.get("patch") or {}
+    if not isinstance(patch, dict):
+        base.update({
+            "status": "blocked",
+            "reason": "Readiness action patch is not a structured object.",
+        })
+        return base
+
+    would_change = await _bot_patch_changes(
+        db,
+        bot_id=manifest.get("context", {}).get("bot_id"),
+        patch=patch,
+    )
+    base["would_change"] = would_change
+    if not any(change.get("changes") for change in would_change):
+        base.update({
+            "status": "noop",
+            "reason": "Patch would not change current bot configuration.",
+        })
+        return base
+
+    base.update({
+        "status": "ready",
+        "can_apply": True,
+        "reason": "Ready to apply.",
+    })
+    return base
+
+
+async def preflight_agent_repair_action(
+    db: AsyncSession,
+    *,
+    action_id: str,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+    actor_scopes: list[str] | None = None,
+) -> dict[str, Any]:
+    """Dry-run an Agent Readiness proposed action against the current manifest."""
+    manifest = await build_agent_capability_manifest(
+        db,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        include_schemas=False,
+        include_endpoints=False,
+        max_tools=40,
+    )
+    return await _preflight_action_from_manifest(
+        db,
+        manifest,
+        action_id=action_id,
+        actor_scopes=actor_scopes,
+    )
+
+
 def _bot_settings_href(manifest: dict[str, Any], group: str = "access") -> str | None:
     bot_id = manifest.get("context", {}).get("bot_id")
     if bot_id:
@@ -1154,14 +1360,17 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "readiness": readiness,
         "fresh_instances": "available",
         "run_receipts": "available" if "publish_project_run_receipt" in _local_tools else "missing",
+        "handoff_helper": "available" if "prepare_project_run_handoff" in _local_tools else "missing",
         "required_tools": list(PROJECT_CODING_RUN_TOOLS),
         "available_tools": available_tools,
         "missing_tools": missing_tools,
         "default_flow": [
             "start Project coding run",
             "bind fresh Project instance",
+            "prepare_project_run_handoff",
             "edit and test in Project root",
             "capture screenshots when UI changes",
+            "prepare_project_run_handoff(open_pr)",
             "publish_project_run_receipt",
         ],
     }

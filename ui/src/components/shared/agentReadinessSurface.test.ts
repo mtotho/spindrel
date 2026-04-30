@@ -31,9 +31,12 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /interface AgentStatusSnapshot/);
   assert.match(hook, /interface AgentActivityLogSummary/);
   assert.match(hook, /interface ExecutionReceiptWrite/);
+  assert.match(hook, /interface AgentRepairPreflight/);
   assert.match(hook, /createExecutionReceipt/);
+  assert.match(hook, /preflightAgentRepair/);
   assert.match(hook, /fetchAgentCapabilities/);
   assert.match(hook, /\/api\/v1\/execution-receipts/);
+  assert.match(hook, /\/api\/v1\/agent-capabilities\/actions\/preflight/);
   assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
   assert.match(hook, /recent_receipts\?: ExecutionReceipt\[\]/);
   assert.match(hook, /integrations\?: AgentIntegrationReadiness/);
@@ -63,9 +66,11 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /Suggested repairs/);
   assert.match(panel, /ProposedActionRow/);
   assert.match(panel, /createExecutionReceipt/);
+  assert.match(panel, /preflightAgentRepair/);
   assert.match(panel, /fetchAgentCapabilities/);
   assert.match(panel, /finding_resolved/);
   assert.match(panel, /remaining_findings/);
+  assert.match(panel, /preflight/);
   assert.match(panel, /Verified resolved/);
   assert.match(panel, /Applied, still needs review/);
   assert.match(panel, /agent_readiness/);
@@ -81,7 +86,11 @@ test("readiness proposed actions use existing bot update and invalidate capabili
   const botsHook = readUiFile("src/api/hooks/useBots.ts");
 
   assert.match(panel, /useUpdateBot\(botId \|\| undefined\)/);
+  assert.match(panel, /preflightAgentRepair\(\{/);
   assert.match(panel, /updateBot\.mutateAsync\(action\.apply\.patch as Partial<BotConfig>\)/);
+  assert.match(panel, /preflight\.status === "blocked" \|\| preflight\.status === "stale"/);
+  assert.match(panel, /preflight\.status === "noop"/);
+  assert.match(panel, /Preflight failed/);
   assert.match(panel, /action\.apply\.type === "bot_patch"/);
   assert.match(panel, /navigate\(href\)/);
   assert.match(botsHook, /queryKey: \["agent-capabilities"\]/);

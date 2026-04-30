@@ -139,6 +139,10 @@ export function DefaultToolRows({
     isError: entry.isError,
   }));
 
+  if (!hasApproval && !groupExpanded && entries.length >= TRACE_STRIP_THRESHOLD) {
+    return <ToolTraceStrip ticks={ticks} onExpand={() => setGroupExpanded(true)} t={t} chatMode={chatMode} />;
+  }
+
   if (isTerminalMode) {
     return (
       <TerminalToolTranscript
@@ -153,10 +157,6 @@ export function DefaultToolRows({
         decidingIds={decidingIds}
       />
     );
-  }
-
-  if (!hasApproval && !groupExpanded && entries.length >= TRACE_STRIP_THRESHOLD) {
-    return <ToolTraceStrip ticks={ticks} onExpand={() => setGroupExpanded(true)} t={t} chatMode={chatMode} />;
   }
 
   return (

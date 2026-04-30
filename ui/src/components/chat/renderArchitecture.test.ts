@@ -160,6 +160,7 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
   assert.match(readChatFile("renderers/DiffRenderer.tsx"), /rgba\(34, 197, 94, 0\.18\)/);
   assert.match(toolBadges, /const stripMode = !isTerminalMode && !hasApproval/);
   assert.match(toolTranscriptRows, /if \(!hasApproval && !groupExpanded && entries\.length >= TRACE_STRIP_THRESHOLD\)/);
+  assert.match(toolTranscriptRows, /<ToolTraceStrip ticks=\{ticks\}[\s\S]*chatMode=\{chatMode\}/);
   assert.match(toolTraceStrip, /data-testid="tool-trace-strip"/);
 });
 

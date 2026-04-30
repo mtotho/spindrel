@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Activity, AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
 
-import { createExecutionReceipt, fetchAgentCapabilities, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
+import { createExecutionReceipt, fetchAgentCapabilities, preflightAgentRepair, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type AgentRepairPreflight, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
 import { useUpdateBot } from "@/src/api/hooks/useBots";
 import { ApiError } from "@/src/api/client";
 import type { BotConfig } from "@/src/types/api";
@@ -353,6 +353,70 @@ export function AgentReadinessPanel({
     setPendingActionId(action.id);
     const beforeDoctorStatus = data?.doctor.status ?? "unknown";
     try {
+      let preflight: AgentRepairPreflight;
+      try {
+        preflight = await preflightAgentRepair({
+          action_id: action.id,
+          bot_id: botId,
+          channel_id: channelId,
+          session_id: sessionId,
+        });
+      } catch (err) {
+        setActionError(`Preflight failed: ${errorMessage(err)}`);
+        return;
+      }
+
+      if (preflight.status === "blocked" || preflight.status === "stale") {
+        setActionError(preflight.reason);
+        return;
+      }
+
+      if (preflight.status === "noop") {
+        const stillFinding = preflight.current_findings.includes(action.finding_code);
+        const receipt = await createExecutionReceipt({
+          scope: "agent_readiness",
+          action_type: action.kind || "bot_patch",
+          status: stillFinding ? "needs_review" : "succeeded",
+          summary: stillFinding
+            ? `Preflight skipped, still needs review: ${action.title}`
+            : `Preflight skipped, already resolved: ${action.title}`,
+          actor: { kind: "human_ui", surface: "agent_readiness_panel" },
+          target: {
+            bot_id: botId ?? undefined,
+            channel_id: channelId ?? undefined,
+            session_id: sessionId ?? undefined,
+            finding_code: action.finding_code,
+            action_id: action.id,
+          },
+          before_summary: action.description,
+          after_summary: preflight.reason,
+          approval_required: true,
+          approval_ref: "agent_readiness_panel",
+          result: {
+            applied: false,
+            patch: action.apply.patch,
+            preflight,
+            doctor_status_before: beforeDoctorStatus,
+            finding_resolved: !stillFinding,
+            remaining_findings: preflight.current_findings,
+          },
+          rollback_hint: "No configuration changed.",
+          bot_id: botId ?? undefined,
+          channel_id: channelId ?? undefined,
+          session_id: sessionId ?? undefined,
+          idempotency_key: `agent_readiness:${botId ?? "none"}:${action.id}:preflight`,
+          metadata: { finding_code: action.finding_code, preflight_status: preflight.status },
+        });
+        setLastReceipt(receipt);
+        void qc.invalidateQueries({ queryKey: ["agent-capabilities"] });
+        return;
+      }
+
+      if (!preflight.can_apply) {
+        setActionError(preflight.reason || "Preflight did not approve this repair.");
+        return;
+      }
+
       await updateBot.mutateAsync(action.apply.patch as Partial<BotConfig>);
       let refreshed: AgentCapabilityManifest | null = null;
       let verificationError: string | null = null;
@@ -400,6 +464,7 @@ export function AgentReadinessPanel({
           result: {
             applied: true,
             patch: action.apply.patch,
+            preflight,
             required_actor_scopes: action.required_actor_scopes ?? [],
             grants_scopes: action.grants_scopes ?? [],
             doctor_status_before: beforeDoctorStatus,

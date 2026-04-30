@@ -112,6 +112,27 @@ ITEM_COMMAND_OUTPUT_DELTA = "item/commandExecution/outputDelta"
 ITEM_FILE_CHANGE_OUTPUT_DELTA = "item/fileChange/outputDelta"
 ITEM_PLAN_DELTA = "item/plan/delta"
 
+ITEM_KIND_COMMAND_EXECUTION = "commandExecution"
+ITEM_KIND_FILE_CHANGE = "fileChange"
+ITEM_KIND_MCP_TOOL_CALL = "mcpToolCall"
+ITEM_KIND_DYNAMIC_TOOL = "dynamicTool"
+ITEM_KIND_TOOL_CALL = "toolCall"
+ITEM_KIND_COLLAB_TOOL_CALL = "collabToolCall"
+ITEM_KIND_WEB_SEARCH = "webSearch"
+ITEM_KIND_IMAGE_VIEW = "imageView"
+TOOL_ITEM_KINDS: frozenset[str] = frozenset(
+    {
+        ITEM_KIND_COMMAND_EXECUTION,
+        ITEM_KIND_FILE_CHANGE,
+        ITEM_KIND_MCP_TOOL_CALL,
+        ITEM_KIND_DYNAMIC_TOOL,
+        ITEM_KIND_TOOL_CALL,
+        ITEM_KIND_COLLAB_TOOL_CALL,
+        ITEM_KIND_WEB_SEARCH,
+        ITEM_KIND_IMAGE_VIEW,
+    }
+)
+
 NOTIFICATION_THREAD_STARTED = "thread/started"
 NOTIFICATION_PLAN_UPDATED = "turn/plan/updated"
 NOTIFICATION_DIFF_UPDATED = "turn/diff/updated"

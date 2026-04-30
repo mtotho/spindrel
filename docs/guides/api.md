@@ -158,6 +158,17 @@ curl -H "Authorization: Bearer $API_KEY" \
 
 The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, runtime context budget, assigned Mission Control work, agent status, recent agent activity, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `get_agent_context_snapshot` returns the compact runtime budget/recommendation view, `get_agent_work_snapshot` returns only assigned missions/Attention Items, `get_agent_status_snapshot` returns only current run/heartbeat status, `get_agent_activity_log` returns the normalized replay log, `publish_execution_receipt` records durable action outcomes, and `run_agent_doctor` returns only the readiness findings.
 
+Readiness repair actions support dry-run preflight before mutation:
+
+```bash
+curl -X POST -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"bot_id":"default","action_id":"default:missing_api_scopes:workspace_bot"}' \
+  "http://localhost:8000/api/v1/agent-capabilities/actions/preflight"
+```
+
+The response uses `agent-action-preflight.v1` and returns `status` (`ready`, `blocked`, `stale`, or `noop`), `can_apply`, `reason`, required/missing actor scopes, the current finding codes, and `would_change` field diffs. The bot-facing equivalent is `preflight_agent_repair(action_id=...)`. Preflight is read-only; approved repairs still go through the existing Bot update API/tool and then write an execution receipt.
+
 The `runtime_context` section normalizes the latest context budget into `tokens_used`, `tokens_remaining`, `total_tokens`, `percent_full`, `source`, `context_profile`, and a recommendation of `continue`, `summarize`, `handoff`, or `unknown`. Doctor findings flag `context_should_summarize` at 75-89% full and `context_should_handoff` at 90% or higher.
 
 The `work_state` section is read-only. It lists active Mission assignments and assigned Attention Items for the current bot, plus a compact `recommended_next_action` of `idle`, `advance_mission`, or `review_attention`. Mutations still go through the existing mission/attention tools and APIs.
@@ -166,7 +177,7 @@ The `agent_status` section is read-only. It derives `idle`, `scheduled`, `workin
 
 The `activity_log` section is read-only. It summarizes replayable activity already persisted elsewhere: tool calls, Attention Items, Mission updates, Project run receipts, widget agency receipts, and execution receipts. Use `GET /api/v1/agent-activity` or the `get_agent_activity_log` bot tool when an agent needs the actual items. Each item has a stable `kind`, normalized `actor`, `target`, `status`, `summary`, optional `next_action`, optional `trace.correlation_id`, and optional structured `error` fields.
 
-Execution receipts use `execution-receipt.v1`. They are not a second mutation path: the real change still goes through the existing Bot, Channel, Project, Widget, or Integration API/tool. The receipt records the outcome for later review with `actor`, `target`, `action_type`, `before_summary`, `after_summary`, `approval_required`, `approval_ref`, `result`, `rollback_hint`, and trace identifiers. Agent Readiness repairs write these receipts after the approved bot patch succeeds and the capability manifest is rechecked; receipt `result` includes `doctor_status_before`, `doctor_status_after`, `finding_resolved`, `remaining_findings`, and any `verification_error`. Bots can publish equivalent receipts with `publish_execution_receipt` after agent-important actions.
+Execution receipts use `execution-receipt.v1`. They are not a second mutation path: the real change still goes through the existing Bot, Channel, Project, Widget, or Integration API/tool. The receipt records the outcome for later review with `actor`, `target`, `action_type`, `before_summary`, `after_summary`, `approval_required`, `approval_ref`, `result`, `rollback_hint`, and trace identifiers. Agent Readiness repairs write these receipts after preflight and approved bot patch execution, then recheck the capability manifest; receipt `result` includes `preflight`, `doctor_status_before`, `doctor_status_after`, `finding_resolved`, `remaining_findings`, and any `verification_error`. Bots can publish equivalent receipts with `publish_execution_receipt` after agent-important actions.
 
 Integration readiness is read-only in v1. The `integrations` section summarizes workspace-level setup health and current-channel activation/binding state; doctor actions route humans to existing Integration or Channel settings instead of enabling integrations, installing dependencies, starting processes, or writing secrets automatically.
 

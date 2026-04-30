@@ -2660,13 +2660,31 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             metadata: {},
             created_at: new Date().toISOString()
           },
-          activity: [{
-            id: "screenshot-project-coding-run-activity",
-            kind: "project_receipt",
-            status: "succeeded",
-            summary: "Published screenshot handoff receipt",
-            created_at: new Date().toISOString()
-          }],
+          activity: [
+            {
+              id: "screenshot-project-coding-run-progress-branch",
+              kind: "execution_receipt",
+              status: "succeeded",
+              summary: "Screenshot Project run branch ready.",
+              source: { scope: "project_coding_run", action_type: "handoff.prepare_branch", result: { current_branch: "screenshot/project-coding-run" } },
+              created_at: new Date().toISOString()
+            },
+            {
+              id: "screenshot-project-coding-run-progress-pr",
+              kind: "execution_receipt",
+              status: "succeeded",
+              summary: "Screenshot Project run draft PR ready.",
+              source: { scope: "project_coding_run", action_type: "handoff.open_pr", result: { pr_url: "https://example.invalid/spindrel/project-run" } },
+              created_at: new Date().toISOString()
+            },
+            {
+              id: "screenshot-project-coding-run-activity",
+              kind: "project_receipt",
+              status: "succeeded",
+              summary: "Published screenshot handoff receipt",
+              created_at: new Date().toISOString()
+            }
+          ],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }];
@@ -2892,6 +2910,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "return { ok: text.includes('Project request') "
             "&& text.includes('Coding Runs') "
             "&& text.includes('Prepare the Project workspace screenshot receipt') "
+            "&& text.includes('Progress:') "
+            "&& text.includes('PR: ready') "
             "&& text.includes('Run Receipts') "
             "&& text.includes('Screenshot Project coding run receipt') "
             "&& text.includes('project-workspace-runs.png') "

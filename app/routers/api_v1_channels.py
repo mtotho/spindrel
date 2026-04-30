@@ -1728,6 +1728,7 @@ async def channel_events(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    await db.close()
 
     import asyncio
     import json

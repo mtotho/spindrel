@@ -45,19 +45,19 @@ def translate_notification(
     if method == schema.ITEM_STARTED:
         item = params.get("item") or params
         kind = str(item.get("kind") or item.get("type") or "")
-        if kind in {"commandExecution", "fileChange", "mcpToolCall", "dynamicTool", "toolCall"}:
-            tool_name = str(
-                item.get("name") or item.get("toolName") or item.get("command") or kind
-            )
+        if kind in schema.TOOL_ITEM_KINDS:
+            tool_name = _tool_name_for_item(item, kind)
             tool_id = str(item.get("id") or item.get("itemId") or "")
             if tool_id:
                 tool_name_by_id[tool_id] = tool_name
-                if kind == "commandExecution":
+                if kind == schema.ITEM_KIND_COMMAND_EXECUTION:
                     _record_codex_command_item(result_meta, tool_id, tool_name)
+                elif kind == schema.ITEM_KIND_FILE_CHANGE:
+                    _record_codex_file_change_item(result_meta, tool_id, item)
             emit.tool_start(
                 tool_name=tool_name,
                 tool_call_id=tool_id or None,
-                arguments=item.get("input") or item.get("arguments") or {},
+                arguments=_tool_arguments_for_item(item, kind),
             )
         return
 
@@ -71,24 +71,26 @@ def translate_notification(
                 if not final_text_parts:
                     final_text_parts.append(text.strip())
             return
-        if kind and kind not in {"commandExecution", "fileChange", "mcpToolCall", "dynamicTool", "toolCall"}:
+        if kind and kind not in schema.TOOL_ITEM_KINDS:
             return
         tool_id = str(item.get("id") or item.get("itemId") or "")
-        tool_name = tool_name_by_id.get(tool_id, str(item.get("name") or item.get("kind") or "tool"))
-        if kind == "commandExecution" and tool_id:
+        tool_name = tool_name_by_id.get(tool_id, _tool_name_for_item(item, kind or "tool"))
+        if kind == schema.ITEM_KIND_COMMAND_EXECUTION and tool_id:
             _record_codex_command_item(result_meta, tool_id, tool_name)
+        elif kind == schema.ITEM_KIND_FILE_CHANGE and tool_id:
+            _record_codex_file_change_item(result_meta, tool_id, item)
         result_summary = _summarize_item_result(item)
         is_error = bool(item.get("isError") or item.get("is_error") or item.get("error"))
         envelope = None
         surface = None
         summary = None
-        if kind == "fileChange":
+        if kind == schema.ITEM_KIND_FILE_CHANGE:
             diff_body = (
                 _extract_diff_body(item)
                 or _pop_codex_diff_for_item(result_meta, tool_id)
             )
             if diff_body:
-                path = _extract_file_path(item)
+                path = _extract_file_path(item) or _pop_codex_file_change_path(result_meta, tool_id)
                 label = result_summary or None
                 envelope, summary = build_diff_tool_result(
                     tool_name=tool_name,
@@ -99,7 +101,7 @@ def translate_notification(
                 )
                 surface = "rich_result"
                 result_summary = envelope["plain_body"]
-        elif kind == "commandExecution":
+        elif kind == schema.ITEM_KIND_COMMAND_EXECUTION:
             command_output = _pop_codex_command_output_for_item(result_meta, tool_id)
             if command_output:
                 envelope, summary = build_text_tool_result(
@@ -113,6 +115,15 @@ def translate_notification(
                 _mark_codex_command_result_enveloped(result_meta, tool_id)
             else:
                 _record_codex_command_without_envelope(result_meta, tool_id)
+        elif kind == schema.ITEM_KIND_COLLAB_TOOL_CALL:
+            summary = _collab_summary(item, result_summary)
+            result_summary = result_summary or summary["label"]
+        elif kind == schema.ITEM_KIND_WEB_SEARCH:
+            summary = _web_search_summary(item, result_summary)
+            result_summary = result_summary or summary["label"]
+        elif kind == schema.ITEM_KIND_IMAGE_VIEW:
+            summary = _image_view_summary(item, result_summary)
+            result_summary = result_summary or summary["label"]
         emit.tool_result(
             tool_name=tool_name,
             tool_call_id=tool_id or None,
@@ -122,7 +133,7 @@ def translate_notification(
             surface=surface,
             summary=summary,
         )
-        if kind == "commandExecution" and is_error and _looks_like_execution_surface_failure(result_summary):
+        if kind == schema.ITEM_KIND_COMMAND_EXECUTION and is_error and _looks_like_execution_surface_failure(result_summary):
             result_meta["is_error"] = True
             result_meta["error"] = (
                 "Codex native command execution surface failed: "
@@ -195,6 +206,142 @@ def translate_notification(
     logger.debug("codex: unhandled notification %s", method)
 
 
+def _tool_name_for_item(item: dict[str, Any], kind: str) -> str:
+    if kind == schema.ITEM_KIND_COMMAND_EXECUTION:
+        return "Bash"
+    if kind == schema.ITEM_KIND_FILE_CHANGE:
+        return "fileChange"
+    if kind == schema.ITEM_KIND_COLLAB_TOOL_CALL:
+        tool = item.get("tool")
+        if isinstance(tool, str) and tool.strip():
+            return "Codex subagent"
+        return "Codex collaboration"
+    if kind == schema.ITEM_KIND_WEB_SEARCH:
+        return "Web search"
+    if kind == schema.ITEM_KIND_IMAGE_VIEW:
+        return "View image"
+    return str(item.get("name") or item.get("toolName") or item.get("command") or kind)
+
+
+def _tool_arguments_for_item(item: dict[str, Any], kind: str) -> dict[str, Any]:
+    if kind == schema.ITEM_KIND_COMMAND_EXECUTION:
+        command = str(item.get("command") or item.get("name") or item.get("toolName") or "").strip()
+        args: dict[str, Any] = {}
+        if command:
+            args["command"] = command
+            cwd, display = _split_command_cwd(command)
+            if cwd:
+                args["cwd"] = cwd
+            if display and display != command:
+                args["display_command"] = display
+        for key in ("status", "exitCode", "exit_code", "durationMs", "duration_ms"):
+            if key in item:
+                args[key] = item[key]
+        return args
+    if kind == schema.ITEM_KIND_FILE_CHANGE:
+        path = _extract_file_path(item)
+        args = {}
+        if path:
+            args["path"] = path
+        changes = item.get("changes")
+        if isinstance(changes, list):
+            paths = [
+                change.get("path")
+                for change in changes
+                if isinstance(change, dict) and isinstance(change.get("path"), str)
+            ]
+            if paths:
+                args["paths"] = paths
+        return args
+    if kind == schema.ITEM_KIND_COLLAB_TOOL_CALL:
+        return _collab_arguments(item)
+    if kind == schema.ITEM_KIND_WEB_SEARCH:
+        return _non_empty_args({
+            "query": item.get("query"),
+            "action": item.get("action"),
+            "status": item.get("status"),
+        })
+    if kind == schema.ITEM_KIND_IMAGE_VIEW:
+        return _non_empty_args({"path": item.get("path")})
+    raw = item.get("input") or item.get("arguments") or {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _non_empty_args(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value not in (None, "", [], {})}
+
+
+def _split_command_cwd(command: str) -> tuple[str | None, str | None]:
+    inner = _unwrap_shell_command(command)
+    if inner.startswith("cd ") and " && " in inner:
+        cwd, rest = inner[3:].split(" && ", 1)
+        return cwd.strip().strip("'\"") or None, rest.strip() or inner
+    return None, inner or command
+
+
+def _unwrap_shell_command(command: str) -> str:
+    text = command.strip()
+    for prefix in ("/bin/bash -lc ", "bash -lc ", "/bin/sh -lc ", "sh -lc "):
+        if text.startswith(prefix):
+            rest = text[len(prefix):].strip()
+            if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in {"'", '"'}:
+                return rest[1:-1]
+            return rest
+    return text
+
+
+def _collab_arguments(item: dict[str, Any]) -> dict[str, Any]:
+    return _non_empty_args({
+        "tool": item.get("tool"),
+        "status": item.get("status"),
+        "sender_thread_id": item.get("senderThreadId"),
+        "receiver_thread_id": item.get("receiverThreadId"),
+        "new_thread_id": item.get("newThreadId"),
+        "agent_status": item.get("agentStatus"),
+        "prompt": item.get("prompt"),
+    })
+
+
+def _collab_summary(item: dict[str, Any], fallback: str) -> dict[str, Any]:
+    args = _collab_arguments(item)
+    tool = str(args.get("tool") or "collaboration").replace("_", " ")
+    status = str(args.get("agent_status") or args.get("status") or "").replace("_", " ")
+    label = f"Codex subagent {tool}".strip()
+    if status:
+        label = f"{label}: {status}"
+    prompt = args.get("prompt")
+    return {
+        "kind": "result",
+        "subject_type": "session",
+        "label": fallback or label,
+        "target_id": args.get("new_thread_id") or args.get("receiver_thread_id"),
+        "target_label": str(args.get("tool") or "subagent"),
+        **({"preview_text": str(prompt)[:240]} if isinstance(prompt, str) and prompt.strip() else {}),
+    }
+
+
+def _web_search_summary(item: dict[str, Any], fallback: str) -> dict[str, Any]:
+    query = item.get("query")
+    label = fallback or (f"Searched web: {query}" if isinstance(query, str) and query else "Searched web")
+    return {
+        "kind": "lookup",
+        "subject_type": "generic",
+        "label": label,
+        **({"preview_text": str(query)} if isinstance(query, str) and query else {}),
+    }
+
+
+def _image_view_summary(item: dict[str, Any], fallback: str) -> dict[str, Any]:
+    path = item.get("path")
+    label = fallback or (f"Viewed image {path}" if isinstance(path, str) and path else "Viewed image")
+    return {
+        "kind": "read",
+        "subject_type": "file",
+        "label": label,
+        **({"path": str(path)} if isinstance(path, str) and path else {}),
+    }
+
+
 def _extract_text_delta(params: dict[str, Any]) -> str:
     for key in ("delta", "text", "content"):
         value = params.get(key)
@@ -240,6 +387,25 @@ def _record_codex_command_item(result_meta: dict[str, Any], item_id: str, tool_n
     by_item = result_meta.setdefault("codex_command_items", {})
     if isinstance(by_item, dict):
         by_item[item_id] = tool_name
+
+
+def _record_codex_file_change_item(result_meta: dict[str, Any], item_id: str, item: dict[str, Any]) -> None:
+    path = _extract_file_path(item)
+    if not item_id or not path:
+        return
+    by_item = result_meta.setdefault("codex_file_change_paths", {})
+    if isinstance(by_item, dict):
+        by_item[item_id] = path
+
+
+def _pop_codex_file_change_path(result_meta: dict[str, Any], item_id: str) -> str | None:
+    if not item_id:
+        return None
+    by_item = result_meta.get("codex_file_change_paths")
+    if not isinstance(by_item, dict):
+        return None
+    value = by_item.pop(item_id, None)
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _mark_codex_command_result_enveloped(result_meta: dict[str, Any], item_id: str) -> None:
@@ -418,6 +584,19 @@ def _extract_file_path(item: dict[str, Any]) -> str | None:
         value = item.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
+    changes = item.get("changes")
+    if isinstance(changes, list):
+        paths: list[str] = []
+        for change in changes:
+            if not isinstance(change, dict):
+                continue
+            value = change.get("path") or change.get("filePath") or change.get("file_path")
+            if isinstance(value, str) and value.strip():
+                paths.append(value.strip())
+        if len(paths) == 1:
+            return paths[0]
+        if len(paths) > 1:
+            return f"{len(paths)} files"
     for key in ("input", "arguments"):
         value = item.get(key)
         if isinstance(value, dict):

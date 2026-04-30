@@ -384,6 +384,19 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def create_execution_receipt(self, payload: dict[str, Any]) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN POST /execution-receipts keys=%s", sorted(payload))
+            return {"id": "dry-run-execution-receipt", **payload}
+        r = self._http.post("/api/v1/execution-receipts", json=payload)
+        if r.status_code == 404:
+            logger.warning("POST /execution-receipts unavailable; capture may rely on fallback shims")
+            return {"id": "missing-execution-receipt-endpoint", **payload}
+        if r.status_code >= 400:
+            logger.error("POST /execution-receipts -> %s body=%s", r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     def list_project_coding_runs(self, project_id: str) -> list[dict[str, Any]]:
         if self._dry_run:
             logger.info("DRY-RUN GET /projects/%s/coding-runs", project_id)

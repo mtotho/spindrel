@@ -169,6 +169,60 @@ function shortToolName(name: string): string {
   return name.includes("-") ? name.slice(name.lastIndexOf("-") + 1) : name;
 }
 
+function parsedArgsObject(args: string | undefined): Record<string, unknown> | null {
+  return parseJsonObject(args);
+}
+
+function unwrapShellCommand(value: string): string {
+  const trimmed = value.trim();
+  for (const prefix of ["/bin/bash -lc ", "bash -lc ", "/bin/sh -lc ", "sh -lc "]) {
+    if (trimmed.startsWith(prefix)) {
+      let rest = trimmed.slice(prefix.length).trim();
+      if (rest.length >= 2 && ((rest.startsWith("'") && rest.endsWith("'")) || (rest.startsWith("\"") && rest.endsWith("\"")))) {
+        rest = rest.slice(1, -1);
+      }
+      return rest;
+    }
+  }
+  return trimmed;
+}
+
+function shellCommandParts(command: string): { command: string; cwd?: string; display: string } {
+  const inner = unwrapShellCommand(command);
+  if (inner.startsWith("cd ") && inner.includes(" && ")) {
+    const [cwdRaw, ...rest] = inner.slice(3).split(" && ");
+    const cwd = cwdRaw.trim().replace(/^['"]|['"]$/g, "");
+    const display = rest.join(" && ").trim();
+    return { command, cwd: cwd || undefined, display: display || inner };
+  }
+  return { command, display: inner || command };
+}
+
+function shellCallSummary(toolName: string, args?: string, summaryLabel?: string | null): {
+  label: string;
+  metaLabel: string | null;
+  target: string | null;
+  command: string;
+} | null {
+  const parsed = parsedArgsObject(args);
+  const commandFromArgs = formatValue(parsed?.command) || formatValue(parsed?.cmd);
+  const commandFromName = /^(?:\/bin\/)?(?:bash|sh)\s+-lc\s+/.test(toolName.trim()) ? toolName : null;
+  const commandFromSummary = summaryLabel && /^(?:\/bin\/)?(?:bash|sh)\s+-lc\s+/.test(summaryLabel.trim()) ? summaryLabel : null;
+  const command = commandFromArgs || commandFromName || commandFromSummary;
+  if (!command) return null;
+  const cwdFromArgs = formatValue(parsed?.cwd) || formatValue(parsed?.workdir);
+  const displayFromArgs = formatValue(parsed?.display_command) || formatValue(parsed?.displayCommand);
+  const parts = shellCommandParts(command);
+  const cwd = cwdFromArgs || parts.cwd || null;
+  const display = displayFromArgs || parts.display || command;
+  return {
+    label: "Bash",
+    metaLabel: cwd ? `(${cwd})` : null,
+    target: display,
+    command,
+  };
+}
+
 function introspectionTarget(
   name: string,
   argsList: (string | undefined)[],
@@ -546,6 +600,26 @@ function buildEntryFromSummary(
   args?: string,
   rawCall?: ToolCall,
 ): SharedToolTranscriptEntry {
+  const shell = shellCallSummary(toolName, args, summary.label);
+  if (shell) {
+    const previewText = resolvePreviewText(summary, result, shell.label);
+    return {
+      id: `${toolName}:${summary.label}`,
+      kind: "activity",
+      label: shell.label,
+      metaLabel: shell.metaLabel,
+      previewText,
+      target: shell.target,
+      args,
+      env: result,
+      summary,
+      isError: summary.kind === "error",
+      isRunning: false,
+      detailKind: result || args ? "expandable" : "none",
+      detail: extractNonJsonOutput(result),
+      tone: summary.kind === "error" ? "danger" : "default",
+    };
+  }
   const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
   const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
   const previewText = resolvePreviewText(summary, result, summary.label);
@@ -631,6 +705,25 @@ function buildPersistedEntry(
 
   if (toolSummary) {
     return buildEntryFromSummary(toolName, toolSummary, result, args, rawCall);
+  }
+
+  const shell = shellCallSummary(toolName, args);
+  if (shell) {
+    return {
+      id: `${toolName}:${shell.command}`,
+      kind: "activity",
+      label: shell.label,
+      metaLabel: shell.metaLabel,
+      previewText: normalizePreviewText(resultSummary(result), shell.label),
+      target: shell.target,
+      args,
+      env: result,
+      isError: isErrorEnvelope(result),
+      isRunning: false,
+      detailKind: result || args ? "expandable" : "none",
+      detail: extractNonJsonOutput(result),
+      tone: result?.content_type.includes("error") ? "danger" : "default",
+    };
   }
 
   const envelopeSummary = summarizeEnvelope(result);

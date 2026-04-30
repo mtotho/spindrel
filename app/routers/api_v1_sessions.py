@@ -1796,6 +1796,7 @@ async def session_events(
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    await db.close()
 
     import asyncio
     import json
