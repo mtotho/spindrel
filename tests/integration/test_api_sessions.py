@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Message, Session, Task
+from app.db.models import Channel, Message, Project, Session, SharedWorkspace, Task
 from tests.integration.conftest import AUTH_HEADERS
 
 # Chat-scope headers (ephemeral endpoint uses "chat" scope)
@@ -85,6 +85,128 @@ class TestCreateSession:
         assert r1.status_code == 201
         assert r2.status_code == 201
         assert r1.json()["session_id"] != r2.json()["session_id"]
+
+
+async def _project_session(db_session) -> tuple[SharedWorkspace, Project, Channel, Session]:
+    workspace = SharedWorkspace(name=f"Session Project Workspace {uuid.uuid4().hex[:8]}")
+    db_session.add(workspace)
+    await db_session.flush()
+    project = Project(
+        id=uuid.uuid4(),
+        workspace_id=workspace.id,
+        name="Session Project",
+        slug=f"session-project-{uuid.uuid4().hex[:8]}",
+        root_path=f"common/projects/session-{uuid.uuid4().hex[:8]}",
+        metadata_={
+            "blueprint_snapshot": {
+                "name": "Session Blueprint",
+                "slug": "session-blueprint",
+                "folders": ["src"],
+                "files": {"README.md": "# Session Project\n"},
+                "knowledge_files": {},
+                "repos": [],
+                "setup_commands": [],
+                "env": {},
+                "required_secrets": [],
+            }
+        },
+    )
+    db_session.add(project)
+    await db_session.flush()
+    channel = Channel(
+        id=uuid.uuid4(),
+        name="Session Project Channel",
+        bot_id="test-bot",
+        client_id=f"session-project-{uuid.uuid4().hex[:8]}",
+        workspace_id=workspace.id,
+        project_id=project.id,
+    )
+    db_session.add(channel)
+    await db_session.flush()
+    session = Session(
+        id=uuid.uuid4(),
+        client_id=f"session-project-session-{uuid.uuid4().hex[:8]}",
+        bot_id="test-bot",
+        channel_id=channel.id,
+        session_type="channel",
+    )
+    db_session.add(session)
+    await db_session.flush()
+    channel.active_session_id = session.id
+    await db_session.commit()
+    return workspace, project, channel, session
+
+
+class TestSessionProjectInstance:
+    async def test_get_create_clear_session_project_instance(self, client, db_session, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "app.services.shared_workspace.local_workspace_base",
+            lambda: str(tmp_path),
+        )
+        workspace, project, _channel, session = await _project_session(db_session)
+
+        initial = await client.get(
+            f"/api/v1/sessions/{session.id}/project-instance",
+            headers=AUTH_HEADERS,
+        )
+        assert initial.status_code == 200, initial.text
+        initial_body = initial.json()
+        assert initial_body["project_id"] == str(project.id)
+        assert initial_body["project_instance_id"] is None
+        assert initial_body["status"] == "shared"
+        assert initial_body["root_path"] == project.root_path
+        assert initial_body["workspace_id"] == str(workspace.id)
+
+        created = await client.post(
+            f"/api/v1/sessions/{session.id}/project-instance",
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 200, created.text
+        created_body = created.json()
+        assert created_body["project_id"] == str(project.id)
+        assert created_body["project_instance_id"]
+        assert created_body["status"] == "ready"
+        assert created_body["root_path"].startswith("common/project-instances/")
+        assert created_body["workspace_id"] == str(workspace.id)
+
+        await db_session.refresh(session)
+        assert str(session.project_instance_id) == created_body["project_instance_id"]
+
+        summary = await client.get(
+            f"/api/v1/sessions/{session.id}/summary",
+            headers=AUTH_HEADERS,
+        )
+        assert summary.status_code == 200, summary.text
+        summary_body = summary.json()
+        assert summary_body["project_instance_id"] == created_body["project_instance_id"]
+        assert summary_body["project_instance_status"] == "ready"
+        assert summary_body["project_root_path"] == created_body["root_path"]
+
+        cleared = await client.delete(
+            f"/api/v1/sessions/{session.id}/project-instance",
+            headers=AUTH_HEADERS,
+        )
+        assert cleared.status_code == 200, cleared.text
+        cleared_body = cleared.json()
+        assert cleared_body["project_instance_id"] is None
+        assert cleared_body["status"] == "shared"
+        assert cleared_body["root_path"] == project.root_path
+
+    async def test_create_session_project_instance_requires_project_bound_channel(self, client):
+        created = await client.post(
+            "/api/v1/sessions",
+            json={"bot_id": "test-bot", "client_id": f"plain-session-{uuid.uuid4().hex[:8]}"},
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        session_id = created.json()["session_id"]
+
+        response = await client.post(
+            f"/api/v1/sessions/{session_id}/project-instance",
+            headers=AUTH_HEADERS,
+        )
+
+        assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

@@ -209,6 +209,27 @@ def _plan_runtime(state: dict) -> dict:
     return runtime if isinstance(runtime, dict) else {}
 
 
+async def _wait_for_semantic_review(
+    client: E2EClient,
+    session_id: str,
+    *,
+    correlation_id: str | None = None,
+    timeout: float = 45.0,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    latest_review: dict = {}
+    while time.monotonic() < deadline:
+        state = await client.get_session_plan_state(session_id)
+        latest_review = ((state.get("adherence") or {}).get("latest_semantic_review") or {})
+        if latest_review and (
+            not correlation_id
+            or str(latest_review.get("correlation_id") or "") == str(correlation_id)
+        ):
+            return latest_review
+        await asyncio.sleep(1)
+    raise AssertionError(f"semantic adherence review did not appear: latest={latest_review!r}")
+
+
 def _assert_terse_tool_turn(result: StreamResult, *, max_chars: int = 900) -> None:
     text = result.response_text.strip()
     assert len(text) <= max_chars, text
@@ -1319,6 +1340,16 @@ async def test_live_spindrel_adherence_executes_plan_records_and_reviews(client:
     assert latest.get("outcome") == "step_done"
     assert latest.get("step_id") == "create-marker"
     assert rel_path in str(latest.get("evidence") or "")
+
+    auto_review = await _wait_for_semantic_review(
+        client,
+        session_id,
+        correlation_id=str(latest.get("correlation_id") or ""),
+    )
+    assert auto_review.get("verdict") == "supported", auto_review
+    assert auto_review.get("semantic_status") == "ok", auto_review
+    assert "step_done_supported_by_mutation" in (auto_review.get("deterministic_flags") or [])
+    _record_session("adherence_auto", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
 
     plan = await client.get_session_plan(session_id)
     steps = {step["id"]: step for step in plan.get("steps") or []}

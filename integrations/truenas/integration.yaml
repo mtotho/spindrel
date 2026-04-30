@@ -1,0 +1,365 @@
+id: truenas
+name: TrueNAS
+icon: HardDrive
+description: TrueNAS storage health, alerts, jobs, shares, snapshots, and guarded basic operations.
+version: "1.0"
+
+settings:
+  - key: TRUENAS_URL
+    type: string
+    label: "TrueNAS URL"
+    required: true
+    description: "Base URL or JSON-RPC endpoint, for example https://truenas.local"
+  - key: TRUENAS_API_KEY
+    type: string
+    label: "API key"
+    secret: true
+    required: true
+    description: "TrueNAS API key with read access; pool/service writes are only needed for guarded operation tools."
+  - key: TRUENAS_VERIFY_SSL
+    type: string
+    label: "Verify TLS certificates"
+    default: "true"
+    description: "Set false only for self-signed local TrueNAS certificates."
+  - key: TRUENAS_CONNECT_TIMEOUT_S
+    type: string
+    label: "Connect timeout seconds"
+    default: "10"
+  - key: TRUENAS_REQUEST_TIMEOUT_S
+    type: string
+    label: "Request timeout seconds"
+    default: "30"
+
+activation:
+  requires_workspace: false
+  description: "TrueNAS storage health and read-mostly operations."
+
+provides:
+  - tools
+  - skills
+
+tool_families:
+  truenas:
+    label: TrueNAS
+    tools:
+      - truenas_test_connection
+      - truenas_health_snapshot
+      - truenas_pool_status
+      - truenas_alerts
+      - truenas_jobs
+      - truenas_services
+      - truenas_disk_temperatures
+      - truenas_shares
+      - truenas_snapshots
+      - truenas_pool_options
+      - truenas_start_scrub
+      - truenas_control_service
+
+widget_presets:
+  truenas-health-overview:
+    name: NAS Health Overview
+    description: Auto-refreshing health card with pools, alerts, disk temperatures, jobs, and update status.
+    icon: Activity
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 5, h: 4}
+    tool_name: truenas_health_snapshot
+    tool_family: truenas
+    tool_dependencies: [truenas_health_snapshot]
+    binding_schema:
+      type: object
+      properties:
+        alerts_limit:
+          type: integer
+          title: Alert limit
+          default: 20
+          minimum: 1
+          maximum: 100
+        jobs_limit:
+          type: integer
+          title: Job limit
+          default: 10
+          minimum: 1
+          maximum: 100
+    binding_sources: {}
+    default_config:
+      alerts_limit: 20
+      jobs_limit: 10
+    runtime:
+      tool_args:
+        alerts_limit: "{{binding.alerts_limit}}"
+        jobs_limit: "{{binding.jobs_limit}}"
+
+  truenas-pool-card:
+    name: Pool Card
+    description: Auto-refreshing status card for one TrueNAS pool.
+    icon: Database
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: truenas_pool_status
+    tool_family: truenas
+    tool_dependencies: [truenas_pool_status, truenas_pool_options]
+    binding_schema:
+      type: object
+      required: [pool_name]
+      properties:
+        pool_name:
+          type: string
+          title: Pool
+          description: Pick a TrueNAS pool.
+          ui:
+            control: picker
+            source: truenas.pools
+    binding_sources:
+      truenas.pools:
+        tool: truenas_pool_options
+        args: {}
+        transform: "integrations.truenas.bindings:pool_options"
+    default_config: {}
+    runtime:
+      tool_args:
+        pool_name: "{{binding.pool_name}}"
+        include_scrub_schedules: true
+
+  truenas-alerts-card:
+    name: Alerts Card
+    description: Active TrueNAS alerts with severity and timestamps.
+    icon: TriangleAlert
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: truenas_alerts
+    tool_family: truenas
+    tool_dependencies: [truenas_alerts]
+    binding_schema:
+      type: object
+      properties:
+        limit:
+          type: integer
+          title: Alert limit
+          default: 25
+          minimum: 1
+          maximum: 200
+    binding_sources: {}
+    default_config:
+      limit: 25
+    runtime:
+      tool_args:
+        limit: "{{binding.limit}}"
+
+  truenas-jobs-card:
+    name: Jobs Card
+    description: Recent TrueNAS jobs, optionally filtered by state.
+    icon: ListChecks
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: truenas_jobs
+    tool_family: truenas
+    tool_dependencies: [truenas_jobs]
+    binding_schema:
+      type: object
+      properties:
+        state:
+          type: string
+          title: State filter
+          description: Optional job state such as RUNNING, FAILED, or SUCCESS.
+        limit:
+          type: integer
+          title: Job limit
+          default: 20
+          minimum: 1
+          maximum: 100
+    binding_sources: {}
+    default_config:
+      state: ""
+      limit: 20
+    runtime:
+      tool_args:
+        state: "{{binding.state}}"
+        limit: "{{binding.limit}}"
+
+tool_widgets:
+  truenas_health_snapshot:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "TrueNAS health"
+    default_config:
+      alerts_limit: 20
+      jobs_limit: 10
+    config_schema:
+      type: object
+      properties:
+        alerts_limit:
+          type: integer
+          title: Alert limit
+          default: 20
+          minimum: 1
+          maximum: 100
+        jobs_limit:
+          type: integer
+          title: Job limit
+          default: 10
+          minimum: 1
+          maximum: 100
+    state_poll:
+      tool: truenas_health_snapshot
+      args:
+        alerts_limit: "{{widget_config.alerts_limit}}"
+        jobs_limit: "{{widget_config.jobs_limit}}"
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      status_color: success
+      system: {hostname: nas, version: "25.04.2"}
+      summary: ["pools=ok", "alerts=0", "disks=ok", "jobs=2"]
+      tiles:
+        - {label: Pools, value: "2", caption: ok, status: success}
+        - {label: Alerts, value: "0", caption: ok, status: success}
+        - {label: Disks, value: "8", caption: ok, status: success}
+        - {label: Jobs, value: "2", caption: recent, status: info}
+        - {label: Version, value: "25.04.2", caption: "update status unknown", status: info}
+      alert_tiles: []
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "TrueNAS {{system.hostname | default: NAS}}"
+          level: 2
+        - type: status
+          text: "{{status}}"
+          color: "{{status_color}}"
+        - type: tiles
+          min_width: 140
+          items: "{{tiles}}"
+        - type: text
+          when: "{{errors | not_empty}}"
+          content: "Some sections could not be refreshed."
+          style: muted
+        - type: tiles
+          when: "{{alert_tiles | not_empty}}"
+          min_width: 220
+          items: "{{alert_tiles}}"
+
+  truenas_pool_status:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "{{pool_name | default: TrueNAS pools}}"
+    state_poll:
+      tool: truenas_pool_status
+      args:
+        pool_name: "{{display_label}}"
+        include_scrub_schedules: true
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      pool_name: tank
+      pool_tiles:
+        - {label: tank, value: ONLINE, caption: "4 TiB free of 12 TiB", status: success}
+      scrub_schedules:
+        - {pool_name: tank, enabled: true, threshold: 35}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "{{pool_name | default: TrueNAS pools}}"
+          level: 2
+        - type: status
+          text: "{{status}}"
+          color: "{{status | status_color}}"
+        - type: tiles
+          min_width: 180
+          items: "{{pool_tiles}}"
+        - type: properties
+          variant: metadata
+          items:
+            - label: Scrub schedules
+              value: "{{scrub_schedules | count}}"
+
+  truenas_alerts:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "TrueNAS alerts"
+    default_config:
+      limit: 25
+    config_schema:
+      type: object
+      properties:
+        limit:
+          type: integer
+          title: Alert limit
+          default: 25
+          minimum: 1
+          maximum: 200
+    state_poll:
+      tool: truenas_alerts
+      args:
+        limit: "{{widget_config.limit}}"
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      count: 0
+      alert_tiles: []
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "TrueNAS alerts"
+          level: 2
+        - type: status
+          text: "{{count}} active"
+          color: "{{status | status_color}}"
+        - type: text
+          when: "{{alert_tiles | not_empty | not}}"
+          content: "No active alerts."
+          style: muted
+        - type: tiles
+          when: "{{alert_tiles | not_empty}}"
+          min_width: 220
+          items: "{{alert_tiles}}"
+
+  truenas_jobs:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "TrueNAS jobs"
+    default_config:
+      state: ""
+      limit: 20
+    config_schema:
+      type: object
+      properties:
+        state:
+          type: string
+          title: State filter
+        limit:
+          type: integer
+          title: Job limit
+          default: 20
+          minimum: 1
+          maximum: 100
+    state_poll:
+      tool: truenas_jobs
+      args:
+        state: "{{widget_config.state}}"
+        limit: "{{widget_config.limit}}"
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      count: 2
+      job_tiles:
+        - {label: pool.scrub.run, value: SUCCESS, caption: "1234", status: success}
+        - {label: cloudsync.sync, value: RUNNING, caption: "1235", status: info}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "TrueNAS jobs"
+          level: 2
+        - type: status
+          text: "{{count}} recent"
+          color: info
+        - type: tiles
+          min_width: 220
+          items: "{{job_tiles}}"
+

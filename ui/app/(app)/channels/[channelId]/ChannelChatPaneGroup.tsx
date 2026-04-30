@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Maximize2, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
 import { ChatSession } from "@/src/components/chat/ChatSession";
+import { SessionWorkSurfaceControl } from "@/src/components/chat/SessionWorkSurfaceControl";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
+import { selectIsStreaming, useChatStore } from "@/src/stores/chat";
 import {
   buildChannelSessionChatSource,
   buildScratchChatSource,
@@ -130,6 +132,7 @@ function PaneHeader({
   const { data: sessionStats } = useSessionHeaderStats(channelId, sessionId);
   const { data: channel } = useChannel(channelId);
   const { data: paneBot } = useBot(channel?.bot_id);
+  const turnActive = useChatStore((state) => sessionId ? selectIsStreaming(state.getChannel(sessionId)) : false);
   const isHarnessBot = !!paneBot?.harness_runtime;
   const header = labelForPane(pane, catalog);
   // Spindrel-side context stats (turns until compact, prompt tokens) are
@@ -284,6 +287,16 @@ function PaneHeader({
               >
                 Set as channel primary
               </button>
+            )}
+            {sessionId && (
+              <>
+                <div className="my-1 h-px bg-surface-border/60" />
+                <SessionWorkSurfaceControl
+                  sessionId={sessionId}
+                  disabled={turnActive}
+                  presentation="menu"
+                />
+              </>
             )}
             <div className="my-1 h-px bg-surface-border/60" />
             <button

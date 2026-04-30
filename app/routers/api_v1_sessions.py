@@ -230,8 +230,12 @@ class SessionProjectInstanceOut(BaseModel):
     session_id: uuid.UUID
     project_instance_id: uuid.UUID | None = None
     project_id: uuid.UUID | None = None
+    project_name: str | None = None
+    workspace_id: uuid.UUID | None = None
     status: str | None = None
     root_path: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class SessionSummaryOut(BaseModel):
@@ -248,6 +252,10 @@ class SessionSummaryOut(BaseModel):
     section_count: int = 0
     is_current: bool = False
     session_scope: str = "session"
+    project_instance_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    project_instance_status: str | None = None
+    project_root_path: str | None = None
 
 
 class PromoteScratchSessionResponse(BaseModel):
@@ -346,6 +354,75 @@ async def _authorize_session_read(
         raise HTTPException(status_code=403, detail="sessions:read required")
 
     return channel, channel_id
+
+
+async def _authorize_session_project_instance_write(
+    db: AsyncSession,
+    session: Session,
+    auth,
+) -> tuple[Channel | None, uuid.UUID | None]:
+    """Authorize a session-scoped work-surface mutation."""
+    from app.db.models import User
+
+    channel, channel_id = await _authorize_session_read(db, session, auth)
+    auth_user = auth if isinstance(auth, User) else None
+
+    if session.session_type == "ephemeral":
+        if session.owner_user_id is not None and (auth_user is None or session.owner_user_id != auth_user.id):
+            raise HTTPException(status_code=404, detail="Session not found")
+        if not (_auth_has_scope(auth, "chat") or _auth_has_scope(auth, "sessions:write")):
+            raise HTTPException(status_code=403, detail="sessions:write required")
+        return channel, channel_id
+
+    if channel is not None:
+        if not _auth_has_scope(auth, "channels.messages:write"):
+            raise HTTPException(status_code=403, detail="channels.messages:write required")
+        from app.routers.api_v1_channels import _check_protected
+        _check_protected(channel, auth)
+        return channel, channel_id
+
+    if not _auth_has_scope(auth, "sessions:write"):
+        raise HTTPException(status_code=403, detail="sessions:write required")
+    return channel, channel_id
+
+
+async def _session_project_instance_out(
+    db: AsyncSession,
+    session: Session,
+    *,
+    channel: Channel | None = None,
+) -> SessionProjectInstanceOut:
+    channel = channel if channel is not None else await db.get(Channel, session.channel_id or session.parent_channel_id) if (session.channel_id or session.parent_channel_id) else None
+    project = await db.get(Project, channel.project_id) if channel is not None and channel.project_id is not None else None
+    if project is None:
+        return SessionProjectInstanceOut(session_id=session.id)
+
+    if session.project_instance_id is not None:
+        from app.db.models import ProjectInstance
+
+        instance = await db.get(ProjectInstance, session.project_instance_id)
+        if instance is not None:
+            return SessionProjectInstanceOut(
+                session_id=session.id,
+                project_instance_id=instance.id,
+                project_id=instance.project_id,
+                project_name=project.name,
+                workspace_id=instance.workspace_id,
+                status=instance.status,
+                root_path=instance.root_path,
+                expires_at=instance.expires_at,
+                created_at=instance.created_at,
+            )
+
+    return SessionProjectInstanceOut(
+        session_id=session.id,
+        project_id=project.id,
+        project_name=project.name,
+        workspace_id=project.workspace_id,
+        status="shared",
+        root_path=project.root_path,
+        created_at=session.created_at,
+    )
 
 
 async def _session_stats(
@@ -824,19 +901,31 @@ async def update_session(
     return SessionOutDetail(session_id=session.id, title=session.title, summary=session.summary)
 
 
+@router.get("/{session_id}/project-instance", response_model=SessionProjectInstanceOut)
+async def get_session_project_instance(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    channel, _ = await _authorize_session_read(db, session, auth)
+    return await _session_project_instance_out(db, session, channel=channel)
+
+
 @router.post("/{session_id}/project-instance", response_model=SessionProjectInstanceOut)
 async def create_session_project_instance(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("admin")),
+    auth=Depends(verify_auth_or_user),
 ):
     from app.services.project_instances import bind_fresh_project_instance_to_session
 
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    channel_id = session.channel_id or session.parent_channel_id
-    channel = await db.get(Channel, channel_id) if channel_id else None
+    channel, _ = await _authorize_session_project_instance_write(db, session, auth)
     project_id = getattr(channel, "project_id", None) if channel is not None else None
     if project_id is None:
         raise HTTPException(status_code=422, detail="Session is not attached to a Project-bound channel")
@@ -851,8 +940,12 @@ async def create_session_project_instance(
         session_id=session.id,
         project_instance_id=instance.id,
         project_id=instance.project_id,
+        project_name=project.name,
+        workspace_id=instance.workspace_id,
         status=instance.status,
         root_path=instance.root_path,
+        expires_at=instance.expires_at,
+        created_at=instance.created_at,
     )
 
 
@@ -860,14 +953,15 @@ async def create_session_project_instance(
 async def clear_session_project_instance(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("admin")),
+    auth=Depends(verify_auth_or_user),
 ):
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    channel, _ = await _authorize_session_project_instance_write(db, session, auth)
     session.project_instance_id = None
     await db.commit()
-    return SessionProjectInstanceOut(session_id=session.id)
+    return await _session_project_instance_out(db, session, channel=channel)
 
 
 class ApprovalModeOut(BaseModel):
@@ -1363,6 +1457,7 @@ async def get_session_summary(
             .order_by(Message.created_at.asc())
             .limit(1)
         )).scalar_one_or_none()
+    project_instance_payload = await _session_project_instance_out(db, session, channel=channel)
 
     return SessionSummaryOut(
         session_id=session.id,
@@ -1378,6 +1473,10 @@ async def get_session_summary(
         section_count=int(section_count or 0),
         is_current=bool(session.is_current),
         session_scope=_derive_session_scope(session, channel),
+        project_instance_id=project_instance_payload.project_instance_id,
+        project_id=project_instance_payload.project_id,
+        project_instance_status=project_instance_payload.status,
+        project_root_path=project_instance_payload.root_path,
     )
 
 

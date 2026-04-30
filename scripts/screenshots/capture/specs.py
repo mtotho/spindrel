@@ -2799,18 +2799,21 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "document.body.innerText.includes('Replace Section memory/MEMORY.md') "
+            "!!document.querySelector('[data-testid=\"session-work-surface-control\"]') "
+            "&& (document.body.innerText.includes('Replace Section memory/MEMORY.md') "
             "|| document.body.innerText.includes('Project workspace screenshot memory fact') "
-            "|| document.body.innerText.toLowerCase().includes('memory was updated')"
+            "|| document.body.innerText.toLowerCase().includes('memory was updated'))"
         ),
         output="project-workspace-memory-tool.png",
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('Replace Section memory/MEMORY.md') "
+            "return { ok: !!document.querySelector('[data-testid=\"session-work-surface-control\"]') "
+            "&& text.includes('Project') "
+            "&& (text.includes('Replace Section memory/MEMORY.md') "
             "|| text.includes('memory was updated') "
-            "|| text.includes('Project workspace screenshot memory fact'), "
-            "detail: 'Memory tool transcript was not visible' };"
+            "|| text.includes('Project workspace screenshot memory fact')), "
+            "detail: 'Memory tool transcript or session work-surface control was not visible' };"
         ),
     ),
 ]

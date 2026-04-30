@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from app.agent.context import current_correlation_id, current_session_id, current_turn_id
 from app.db.engine import async_session
@@ -14,6 +15,7 @@ from app.services.session_plan_mode import (
 from app.tools.registry import register
 
 PLAN_CONTENT_TYPE = "application/vnd.spindrel.plan+json"
+logger = logging.getLogger(__name__)
 
 _SCHEMA = {
     "type": "function",
@@ -73,6 +75,7 @@ async def record_plan_progress(
 
     turn_id = current_turn_id.get()
     correlation_id = current_correlation_id.get()
+    semantic_review: dict | None = None
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if session is None:
@@ -87,8 +90,20 @@ async def record_plan_progress(
             turn_id=str(turn_id) if turn_id else None,
             correlation_id=str(correlation_id) if correlation_id else None,
         )
+        try:
+            from app.services.plan_semantic_review import auto_review_latest_plan_outcome
+
+            semantic_review = await auto_review_latest_plan_outcome(
+                db,
+                session,
+                correlation_id=str(correlation_id) if correlation_id else None,
+            )
+        except Exception:
+            logger.exception("Automatic plan adherence review failed for session %s", session_id)
         await db.commit()
         publish_session_plan_event(session, "plan_progress")
+        if semantic_review:
+            publish_session_plan_event(session, "semantic_review")
         plan = load_session_plan(session, required=True)
         payload = build_session_plan_response(session, plan)
 
@@ -102,10 +117,13 @@ async def record_plan_progress(
         display="inline",
         display_label="Plan",
     )
+    llm_message = f"Recorded plan outcome: {outcome_record['outcome']}."
+    if semantic_review:
+        llm_message += f" Automatic adherence review: {semantic_review.get('verdict', 'reviewed')}."
     return json.dumps(
         {
             "_envelope": envelope.compact_dict(),
-            "llm": f"Recorded plan outcome: {outcome_record['outcome']}.",
+            "llm": llm_message,
             "outcome": outcome_record,
             "plan": payload,
         }

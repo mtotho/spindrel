@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { ChannelSessionCatalogItem } from "@/src/lib/channelSessionSurfaces";
+import type { SessionProjectInstance } from "@/src/types/api";
 
 export interface ScratchSessionResponse {
   session_id: string;
@@ -43,6 +44,10 @@ export interface SessionSummaryResponse {
   section_count: number;
   is_current: boolean;
   session_scope: string;
+  project_instance_id?: string | null;
+  project_id?: string | null;
+  project_instance_status?: string | null;
+  project_root_path?: string | null;
 }
 
 function scratchCurrentKey(parentChannelId: string, botId: string) {
@@ -170,6 +175,59 @@ export function useSessionSummary(
     queryFn: () => apiFetch<SessionSummaryResponse>(`/api/v1/sessions/${sessionId}/summary`),
     enabled: !!sessionId && enabled,
     staleTime: 60_000,
+  });
+}
+
+function sessionProjectInstanceKey(sessionId: string) {
+  return ["session-project-instance", sessionId] as const;
+}
+
+function invalidateSessionWorkSurface(
+  qc: ReturnType<typeof useQueryClient>,
+  sessionId: string,
+  data?: SessionProjectInstance,
+) {
+  qc.invalidateQueries({ queryKey: sessionProjectInstanceKey(sessionId) });
+  qc.invalidateQueries({ queryKey: ["session-summary", sessionId] });
+  qc.invalidateQueries({ queryKey: ["session-header-stats"] });
+  qc.invalidateQueries({ queryKey: ["session-harness-status", sessionId] });
+  if (data?.project_id) {
+    qc.invalidateQueries({ queryKey: ["projects", data.project_id, "instances"] });
+  }
+}
+
+export function useSessionProjectInstance(sessionId: string | null | undefined) {
+  return useQuery({
+    queryKey: sessionId ? sessionProjectInstanceKey(sessionId) : ["session-project-instance", "disabled"],
+    queryFn: () => apiFetch<SessionProjectInstance>(`/api/v1/sessions/${sessionId}/project-instance`),
+    enabled: !!sessionId,
+    staleTime: 30_000,
+  });
+}
+
+export function useCreateSessionProjectInstance(sessionId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SessionProjectInstance>(`/api/v1/sessions/${sessionId}/project-instance`, {
+        method: "POST",
+      }),
+    onSuccess: (data) => {
+      if (sessionId) invalidateSessionWorkSurface(qc, sessionId, data);
+    },
+  });
+}
+
+export function useClearSessionProjectInstance(sessionId: string | null | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SessionProjectInstance>(`/api/v1/sessions/${sessionId}/project-instance`, {
+        method: "DELETE",
+      }),
+    onSuccess: (data) => {
+      if (sessionId) invalidateSessionWorkSurface(qc, sessionId, data);
+    },
   });
 }
 

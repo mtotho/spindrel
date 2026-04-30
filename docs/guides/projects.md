@@ -71,7 +71,10 @@ creates and prepares the instance before invoking the agent, stores the
 `project_instance_id` on the task, and sets a run-scoped context override so
 file, exec, search, terminal, and harness tools resolve to the instance root
 without mutating the shared channel session. Sessions can also be explicitly
-bound to a fresh instance through the session Project-instance API.
+bound to a fresh instance through the session Project-instance API. Project
+session composers expose that binding as quiet work-surface text near the
+composer controls, not as channel header chrome; creating or clearing a fresh
+copy affects future turns only.
 
 ## Channels And Memory
 

@@ -20,6 +20,7 @@ from app.db.models import (
     BotSkillEnrollment,
     BotToolEnrollment,
     Channel,
+    ChannelIntegration,
     ChannelSkillEnrollment,
     Project,
     Session,
@@ -319,6 +320,193 @@ async def _project_payload(db: AsyncSession, channel: Channel | None) -> dict[st
     return payload
 
 
+def _integration_href(integration_id: str) -> str:
+    return f"/admin/integrations/{integration_id}"
+
+
+def _channel_settings_href(manifest: dict[str, Any], tab: str) -> str | None:
+    channel_id = manifest.get("context", {}).get("channel_id")
+    if not channel_id:
+        return None
+    return f"/channels/{channel_id}/settings#{tab}"
+
+
+def _dependency_gaps(entry: dict[str, Any]) -> dict[str, list[str]]:
+    return {
+        "python": [
+            dep["package"]
+            for dep in entry.get("python_dependencies", []) or []
+            if not dep.get("installed")
+        ],
+        "npm": [
+            dep["package"]
+            for dep in entry.get("npm_dependencies", []) or []
+            if not dep.get("installed")
+        ],
+        "system": [
+            dep.get("apt_package") or dep.get("binary")
+            for dep in entry.get("system_dependencies", []) or []
+            if not dep.get("installed")
+        ],
+    }
+
+
+def _has_dependency_gaps(gaps: dict[str, list[str]]) -> bool:
+    return any(gaps.get(kind) for kind in ("python", "npm", "system"))
+
+
+def _process_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    process_status = entry.get("process_status") or {}
+    return {
+        "declared": bool(entry.get("has_process")),
+        "running": process_status.get("status") == "running",
+        "exit_code": process_status.get("exit_code"),
+        "restart_count": process_status.get("restart_count"),
+    }
+
+
+def _global_integration_entry(entry: dict[str, Any], manifest: dict[str, Any] | None) -> dict[str, Any]:
+    integration_id = str(entry.get("id") or "")
+    missing_settings = [
+        env["key"]
+        for env in entry.get("env_vars", []) or []
+        if env.get("required") and not env.get("is_set")
+    ]
+    dependency_gaps = _dependency_gaps(entry)
+    manifest = manifest or {}
+    return {
+        "id": integration_id,
+        "name": entry.get("name") or integration_id,
+        "lifecycle_status": entry.get("lifecycle_status", "available"),
+        "status": entry.get("status", "not_configured"),
+        "missing_required_settings": missing_settings,
+        "dependency_gaps": dependency_gaps,
+        "process": _process_payload(entry),
+        "webhook_declared": bool(entry.get("webhook")),
+        "oauth_declared": bool(entry.get("oauth")),
+        "api_permissions_declared": bool(entry.get("api_permissions")),
+        "capabilities": list(manifest.get("capabilities") or []),
+        "rich_tool_results": bool(manifest.get("tool_result_rendering")),
+        "href": _integration_href(integration_id),
+    }
+
+
+def _value_present(value: Any) -> bool:
+    return value is not None and value != ""
+
+
+def _missing_activation_config_fields(option: dict[str, Any]) -> list[str]:
+    config = option.get("activation_config") or {}
+    missing: list[str] = []
+    for field in option.get("config_fields", []) or []:
+        if not field.get("required"):
+            continue
+        key = field.get("key")
+        if not key:
+            continue
+        if _value_present(config.get(key)) or _value_present(field.get("default")):
+            continue
+        missing.append(str(key))
+    return missing
+
+
+def _binding_entry(row: ChannelIntegration, href: str | None) -> dict[str, Any]:
+    client_id = row.client_id or ""
+    return {
+        "id": str(row.id),
+        "integration_type": row.integration_type,
+        "client_id": client_id,
+        "display_name": row.display_name,
+        "activated": bool(row.activated),
+        "stub_binding": client_id.startswith("mc-activated:"),
+        "dispatch_config_keys": sorted((row.dispatch_config or {}).keys()),
+        "href": href,
+    }
+
+
+def _channel_integration_payload(
+    *,
+    channel_id: str,
+    bindings: list[ChannelIntegration],
+    activation_options: list[dict[str, Any]],
+    binding_href: str | None,
+    activation_href: str | None,
+) -> dict[str, Any]:
+    return {
+        "channel_id": channel_id,
+        "bindings": [_binding_entry(row, binding_href) for row in bindings],
+        "activation_options": [
+            {
+                "integration_type": option["integration_type"],
+                "activated": bool(option.get("activated")),
+                "tools": list(option.get("tools") or []),
+                "includes": list(option.get("includes") or []),
+                "requires_workspace": bool(option.get("requires_workspace")),
+                "missing_config_fields": _missing_activation_config_fields(option),
+                "href": activation_href,
+            }
+            for option in activation_options
+        ],
+    }
+
+
+def _integration_summary(
+    global_entries: list[dict[str, Any]],
+    channel_payload: dict[str, Any] | None,
+) -> dict[str, int]:
+    enabled = [entry for entry in global_entries if entry.get("lifecycle_status") == "enabled"]
+    bindings = (channel_payload or {}).get("bindings") or []
+    activations = (channel_payload or {}).get("activation_options") or []
+    return {
+        "enabled_count": len(enabled),
+        "needs_setup_count": sum(1 for entry in enabled if entry.get("missing_required_settings")),
+        "dependency_gap_count": sum(1 for entry in enabled if _has_dependency_gaps(entry["dependency_gaps"])),
+        "process_gap_count": sum(
+            1
+            for entry in enabled
+            if entry.get("process", {}).get("declared")
+            and not entry.get("process", {}).get("running")
+            and not entry.get("missing_required_settings")
+        ),
+        "channel_binding_count": len(bindings),
+        "channel_activation_count": sum(1 for option in activations if option.get("activated")),
+        "channel_stub_binding_count": sum(1 for binding in bindings if binding.get("stub_binding")),
+    }
+
+
+async def _integration_payload(db: AsyncSession, channel: Channel | None) -> dict[str, Any]:
+    from app.services.channel_integrations import list_activation_options
+    from app.services.integration_catalog import discover_setup_status
+    from app.services.integration_manifests import get_all_manifests
+
+    manifests = get_all_manifests()
+    global_entries = [
+        _global_integration_entry(entry, manifests.get(str(entry.get("id") or "")))
+        for entry in discover_setup_status()
+    ]
+    channel_payload: dict[str, Any] | None = None
+    if channel is not None:
+        bindings = list((await db.execute(
+            select(ChannelIntegration)
+            .where(ChannelIntegration.channel_id == channel.id)
+            .order_by(ChannelIntegration.created_at)
+        )).scalars().all())
+        activation_options = await list_activation_options(db, channel_id=channel.id)
+        channel_payload = _channel_integration_payload(
+            channel_id=str(channel.id),
+            bindings=bindings,
+            activation_options=activation_options,
+            binding_href=f"/channels/{channel.id}/settings#channel",
+            activation_href=f"/channels/{channel.id}/settings#agent",
+        )
+
+    return {
+        "summary": _integration_summary(global_entries, channel_payload),
+        "global": global_entries,
+        "channel": channel_payload,
+    }
+
+
 def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     if not manifest["context"].get("bot_id"):
@@ -366,6 +554,56 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
             "message": "Some widget authoring tools are missing from the local registry.",
             "next_action": "Restart/reload local tools and verify the widget authoring modules import cleanly.",
         })
+    integrations = manifest.get("integrations") or {}
+    for entry in integrations.get("global") or []:
+        if entry.get("lifecycle_status") != "enabled":
+            continue
+        integration_id = entry.get("id")
+        if entry.get("missing_required_settings"):
+            findings.append({
+                "severity": "warning",
+                "code": f"integration_settings_missing:{integration_id}",
+                "message": f"{entry.get('name') or integration_id} is enabled but missing required settings.",
+                "next_action": "Open the integration settings and fill the missing required values.",
+            })
+        if _has_dependency_gaps(entry.get("dependency_gaps") or {}):
+            findings.append({
+                "severity": "warning",
+                "code": f"integration_dependencies_missing:{integration_id}",
+                "message": f"{entry.get('name') or integration_id} is missing required dependencies.",
+                "next_action": "Open the integration page and install the missing dependencies.",
+            })
+        process = entry.get("process") or {}
+        if (
+            process.get("declared")
+            and not process.get("running")
+            and not entry.get("missing_required_settings")
+        ):
+            findings.append({
+                "severity": "warning",
+                "code": f"integration_process_not_running:{integration_id}",
+                "message": f"{entry.get('name') or integration_id} has a background process that is not running.",
+                "next_action": "Open the integration page and review the process state.",
+            })
+    channel_integrations = integrations.get("channel") or {}
+    for binding in channel_integrations.get("bindings") or []:
+        if binding.get("stub_binding"):
+            integration_type = binding.get("integration_type")
+            findings.append({
+                "severity": "info",
+                "code": f"channel_integration_stub_binding:{integration_type}",
+                "message": f"{integration_type} is activated with a placeholder channel binding.",
+                "next_action": "Open channel settings and bind it to a real external channel or conversation.",
+            })
+    for option in channel_integrations.get("activation_options") or []:
+        if option.get("activated") and option.get("missing_config_fields"):
+            integration_type = option.get("integration_type")
+            findings.append({
+                "severity": "warning",
+                "code": f"channel_integration_activation_config_missing:{integration_type}",
+                "message": f"{integration_type} activation is missing required channel config.",
+                "next_action": "Open channel agent settings and fill the required activation fields.",
+            })
     return findings
 
 
@@ -396,10 +634,8 @@ def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     finding_codes = {finding.get("code") for finding in findings if isinstance(finding, dict)}
     context = manifest.get("context") or {}
     bot_id = context.get("bot_id")
-    if not bot_id:
-        return actions
 
-    if "missing_api_scopes" in finding_codes:
+    if bot_id and "missing_api_scopes" in finding_codes:
         workspace_scopes = list(SCOPE_PRESETS["workspace_bot"]["scopes"])
         actions.append({
             "id": f"{bot_id}:missing_api_scopes:workspace_bot",
@@ -416,7 +652,7 @@ def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             },
         })
 
-    if "empty_tool_working_set" in finding_codes:
+    if bot_id and "empty_tool_working_set" in finding_codes:
         core_tools = list(manifest.get("tools", {}).get("recommended_core") or [])
         if not core_tools:
             core_tools = [name for name in CORE_AGENT_TOOLS if name in _local_tools]
@@ -440,7 +676,7 @@ def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             },
         })
 
-    if "harness_without_workdir" in finding_codes:
+    if bot_id and "harness_without_workdir" in finding_codes:
         href = _bot_settings_href(manifest, "identity")
         if href:
             actions.append({
@@ -455,7 +691,7 @@ def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "apply": {"type": "navigate", "href": href},
             })
 
-    if "project_runtime_not_ready" in finding_codes:
+    if bot_id and "project_runtime_not_ready" in finding_codes:
         actions.append({
             "id": f"{bot_id}:project_runtime_not_ready:settings",
             "finding_code": "project_runtime_not_ready",
@@ -467,6 +703,89 @@ def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             "grants_scopes": [],
             "apply": {"type": "navigate", "href": _project_settings_href(manifest)},
         })
+
+    integrations = manifest.get("integrations") or {}
+    for entry in integrations.get("global") or []:
+        integration_id = entry.get("id")
+        href = entry.get("href") or (f"/admin/integrations/{integration_id}" if integration_id else None)
+        if not integration_id or not href:
+            continue
+        if f"integration_settings_missing:{integration_id}" in finding_codes:
+            actions.append({
+                "id": f"integration:{integration_id}:settings",
+                "finding_code": f"integration_settings_missing:{integration_id}",
+                "kind": "integration_setup",
+                "title": f"Open {entry.get('name') or integration_id} settings",
+                "description": "Fill required integration settings.",
+                "impact": "Navigation only. No secrets or settings are changed automatically.",
+                "required_actor_scopes": [],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": href},
+            })
+        if f"integration_dependencies_missing:{integration_id}" in finding_codes:
+            actions.append({
+                "id": f"integration:{integration_id}:dependencies",
+                "finding_code": f"integration_dependencies_missing:{integration_id}",
+                "kind": "integration_setup",
+                "title": f"Open {entry.get('name') or integration_id} dependencies",
+                "description": "Install or review missing integration dependencies.",
+                "impact": "Navigation only. Dependency installers remain explicit admin actions.",
+                "required_actor_scopes": [],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": href},
+            })
+        if f"integration_process_not_running:{integration_id}" in finding_codes:
+            actions.append({
+                "id": f"integration:{integration_id}:process",
+                "finding_code": f"integration_process_not_running:{integration_id}",
+                "kind": "integration_setup",
+                "title": f"Open {entry.get('name') or integration_id} process",
+                "description": "Review the integration background process.",
+                "impact": "Navigation only. The process is not started automatically.",
+                "required_actor_scopes": [],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": href},
+            })
+
+    binding_href = _channel_settings_href(manifest, "channel")
+    activation_href = _channel_settings_href(manifest, "agent")
+    channel_integrations = integrations.get("channel") or {}
+    for binding in channel_integrations.get("bindings") or []:
+        integration_type = binding.get("integration_type")
+        if (
+            integration_type
+            and binding_href
+            and f"channel_integration_stub_binding:{integration_type}" in finding_codes
+        ):
+            actions.append({
+                "id": f"channel-integration:{integration_type}:binding",
+                "finding_code": f"channel_integration_stub_binding:{integration_type}",
+                "kind": "integration_binding",
+                "title": f"Bind {integration_type} to a real destination",
+                "description": "Replace the activation placeholder with a real external channel or conversation.",
+                "impact": "Navigation only. Bindings are changed only from Channel settings.",
+                "required_actor_scopes": [],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": binding_href},
+            })
+    for option in channel_integrations.get("activation_options") or []:
+        integration_type = option.get("integration_type")
+        if (
+            integration_type
+            and activation_href
+            and f"channel_integration_activation_config_missing:{integration_type}" in finding_codes
+        ):
+            actions.append({
+                "id": f"channel-integration:{integration_type}:activation-config",
+                "finding_code": f"channel_integration_activation_config_missing:{integration_type}",
+                "kind": "integration_activation",
+                "title": f"Configure {integration_type} activation",
+                "description": "Fill required channel activation fields.",
+                "impact": "Navigation only. Activation config is edited from Channel settings.",
+                "required_actor_scopes": [],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": activation_href},
+            })
 
     return actions
 
@@ -576,6 +895,7 @@ async def build_agent_capability_manifest(
         },
     }
     manifest["widgets"] = _widget_payload(manifest)
+    manifest["integrations"] = await _integration_payload(db, channel)
     manifest["doctor"] = {
         "status": "ok",
         "findings": _doctor_findings(manifest),

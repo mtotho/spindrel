@@ -41,6 +41,70 @@ export interface AgentToolDetail {
   has_return_schema?: boolean;
 }
 
+export interface AgentIntegrationGlobal {
+  id: string;
+  name: string;
+  lifecycle_status: string;
+  status: string;
+  missing_required_settings?: string[];
+  dependency_gaps?: {
+    python?: string[];
+    npm?: string[];
+    system?: string[];
+  };
+  process?: {
+    declared?: boolean;
+    running?: boolean;
+    exit_code?: number | null;
+    restart_count?: number | null;
+  };
+  webhook_declared?: boolean;
+  oauth_declared?: boolean;
+  api_permissions_declared?: boolean;
+  capabilities?: string[];
+  rich_tool_results?: boolean;
+  href?: string;
+}
+
+export interface AgentIntegrationBinding {
+  id: string;
+  integration_type: string;
+  client_id: string;
+  display_name?: string | null;
+  activated?: boolean;
+  stub_binding?: boolean;
+  dispatch_config_keys?: string[];
+  href?: string | null;
+}
+
+export interface AgentIntegrationActivationOption {
+  integration_type: string;
+  activated?: boolean;
+  tools?: string[];
+  includes?: string[];
+  requires_workspace?: boolean;
+  missing_config_fields?: string[];
+  href?: string | null;
+}
+
+export interface AgentIntegrationReadiness {
+  summary?: {
+    enabled_count?: number;
+    needs_setup_count?: number;
+    dependency_gap_count?: number;
+    process_gap_count?: number;
+    channel_binding_count?: number;
+    channel_activation_count?: number;
+    channel_stub_binding_count?: number;
+  };
+  global?: AgentIntegrationGlobal[];
+  channel?: {
+    channel_id?: string;
+    bindings?: AgentIntegrationBinding[];
+    activation_options?: AgentIntegrationActivationOption[];
+  } | null;
+}
+
 export interface AgentCapabilityManifest {
   schema_version: string;
   context: {
@@ -98,6 +162,7 @@ export interface AgentCapabilityManifest {
     readiness?: string | null;
     findings?: AgentDoctorFinding[];
   };
+  integrations?: AgentIntegrationReadiness;
   doctor: {
     status: AgentReadinessStatus;
     findings: AgentDoctorFinding[];

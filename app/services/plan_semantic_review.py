@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 import uuid
 from typing import Any
@@ -45,6 +46,12 @@ _VERIFY_COMMAND_RE = re.compile(
 )
 _REPLAN_EVENT_RE = re.compile(r"replan", re.I)
 _PLAN_OUTCOME_TOOL_NAMES = {"record_plan_progress", "request_plan_replan"}
+_AUTO_REVIEW_OUTCOMES = {
+    PLAN_PROGRESS_OUTCOME_BLOCKED,
+    PLAN_PROGRESS_OUTCOME_STEP_DONE,
+    PLAN_PROGRESS_OUTCOME_VERIFICATION,
+}
+logger = logging.getLogger(__name__)
 
 _JUDGE_RUBRIC = """
 You are reviewing whether an execution turn actually supports the recorded plan outcome.
@@ -608,3 +615,49 @@ async def review_plan_adherence(
         "judge_raw": _truncate_json(judge_raw),
     }
     return record_plan_semantic_review(session, review_record, plan=plan)
+
+
+async def auto_review_latest_plan_outcome(
+    db: AsyncSession,
+    session: Session,
+    *,
+    correlation_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Review the latest terminal execution outcome when enough context exists.
+
+    Progress and no-progress are ledger states, not claims that a step was
+    completed or verified. They stay available for manual review without adding
+    noise to every execution turn.
+    """
+
+    adherence = _normalize_adherence((session.metadata_ or {}).get("plan_adherence"))
+    latest = adherence.get("latest_outcome")
+    if not isinstance(latest, dict):
+        return None
+
+    outcome = str(latest.get("outcome") or "").strip()
+    if outcome not in _AUTO_REVIEW_OUTCOMES:
+        return None
+
+    outcome_correlation = str(latest.get("correlation_id") or "").strip()
+    requested_correlation = str(correlation_id or "").strip()
+    target_correlation = requested_correlation or outcome_correlation
+    if not target_correlation:
+        return None
+    if outcome_correlation and requested_correlation and outcome_correlation != requested_correlation:
+        return None
+
+    latest_review = adherence.get("latest_semantic_review")
+    if isinstance(latest_review, dict) and str(latest_review.get("correlation_id") or "") == target_correlation:
+        return copy.deepcopy(latest_review)
+
+    try:
+        return await review_plan_adherence(db, session, correlation_id=target_correlation)
+    except (ConflictError, NotFoundError) as exc:
+        logger.info(
+            "Skipping automatic plan adherence review for session %s correlation %s: %s",
+            session.id,
+            target_correlation,
+            exc,
+        )
+        return None

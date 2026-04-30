@@ -113,6 +113,10 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
             args.adherence_review_session_id
             or artifact.get("adherence_review_session_id", "")
         ),
+        "adherence_auto_session_id": (
+            args.adherence_auto_session_id
+            or artifact.get("adherence_auto_session_id", "")
+        ),
         "adherence_negative_session_id": (
             args.adherence_negative_session_id
             or artifact.get("adherence_negative_session_id", "")
@@ -133,6 +137,7 @@ def _build_specs(
     quality_session_id: str = "",
     stress_readability_session_id: str = "",
     adherence_review_session_id: str = "",
+    adherence_auto_session_id: str = "",
     adherence_negative_session_id: str = "",
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
@@ -382,6 +387,31 @@ def _build_specs(
             channel_id=channel_id,
             chat_mode="terminal",
         ))
+    if adherence_auto_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{adherence_auto_session_id}"
+        wait = (
+            "document.querySelector('[data-plan-focus]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel adherence review') "
+            "&& document.body.innerText.toLowerCase().includes('supported')"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-adherence-auto-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Adherence Review", "supported"),
+            scroll_plan_text="Supported outcome",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-adherence-auto-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Adherence Review", "supported"),
+            scroll_plan_text="Supported outcome",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ))
     if adherence_negative_session_id:
         route = f"{browser_url}/channels/{channel_id}/session/{adherence_negative_session_id}"
         wait = (
@@ -428,6 +458,7 @@ async def _assert_sessions_exist(
     quality_session_id: str,
     stress_readability_session_id: str,
     adherence_review_session_id: str,
+    adherence_auto_session_id: str,
     adherence_negative_session_id: str,
 ) -> None:
     for session_id in (
@@ -440,6 +471,7 @@ async def _assert_sessions_exist(
         quality_session_id,
         stress_readability_session_id,
         adherence_review_session_id,
+        adherence_auto_session_id,
         adherence_negative_session_id,
     ):
         if session_id:
@@ -503,6 +535,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         quality_session_id=resolved["quality_session_id"],
         stress_readability_session_id=resolved["stress_readability_session_id"],
         adherence_review_session_id=resolved["adherence_review_session_id"],
+        adherence_auto_session_id=resolved["adherence_auto_session_id"],
         adherence_negative_session_id=resolved["adherence_negative_session_id"],
     )
     if not specs:
@@ -530,6 +563,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             quality_session_id=resolved["quality_session_id"],
             stress_readability_session_id=resolved["stress_readability_session_id"],
             adherence_review_session_id=resolved["adherence_review_session_id"],
+            adherence_auto_session_id=resolved["adherence_auto_session_id"],
             adherence_negative_session_id=resolved["adherence_negative_session_id"],
         )
 
@@ -590,6 +624,7 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quality-session-id", default=_env("SPINDREL_PLAN_QUALITY_SESSION_ID"))
     parser.add_argument("--stress-readability-session-id", default=_env("SPINDREL_PLAN_STRESS_READABILITY_SESSION_ID"))
     parser.add_argument("--adherence-review-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_REVIEW_SESSION_ID"))
+    parser.add_argument("--adherence-auto-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_AUTO_SESSION_ID"))
     parser.add_argument("--adherence-negative-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_NEGATIVE_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:

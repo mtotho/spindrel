@@ -1475,6 +1475,18 @@ export interface ProjectInstance {
   } | null;
 }
 
+export interface SessionProjectInstance {
+  session_id: string;
+  project_instance_id?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
+  workspace_id?: string | null;
+  status?: "shared" | "preparing" | "ready" | "failed" | "expired" | "deleted" | string | null;
+  root_path?: string | null;
+  expires_at?: string | null;
+  created_at?: string | null;
+}
+
 export interface ProjectSetupRun {
   id: string;
   project_id: string;

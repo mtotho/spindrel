@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, Sparkles, Wrench } from "lucide-react";
+import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, Plug, Sparkles, Wrench } from "lucide-react";
 
 import { useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding } from "@/src/api/hooks/useAgentCapabilities";
 import { useUpdateBot } from "@/src/api/hooks/useBots";
@@ -163,6 +163,41 @@ function WidgetAuthoringSummary({ manifest }: { manifest: AgentCapabilityManifes
   );
 }
 
+function IntegrationReadinessSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
+  const summary = manifest.integrations?.summary;
+  if (!summary) return null;
+
+  const setupGaps = summary.needs_setup_count ?? 0;
+  const dependencyGaps = summary.dependency_gap_count ?? 0;
+  const processGaps = summary.process_gap_count ?? 0;
+  const stubBindings = summary.channel_stub_binding_count ?? 0;
+  const issueCount = setupGaps + dependencyGaps + processGaps + stubBindings;
+  const channelBits: string[] = [];
+  if ((summary.channel_activation_count ?? 0) > 0) {
+    channelBits.push(`${summary.channel_activation_count} active`);
+  }
+  if ((summary.channel_binding_count ?? 0) > 0) {
+    channelBits.push(`${summary.channel_binding_count} bound`);
+  }
+  const description = issueCount > 0
+    ? `${issueCount} integration issue${issueCount === 1 ? "" : "s"} need routing`
+    : channelBits.length > 0
+      ? `Channel integrations: ${channelBits.join(", ")}`
+      : `${summary.enabled_count ?? 0} enabled integrations`;
+
+  return (
+    <div data-testid="agent-readiness-integrations">
+      <SettingsControlRow
+        leading={<Plug size={14} />}
+        title="Integration readiness"
+        description={description}
+        meta={<QuietPill label={issueCount > 0 ? "review" : "ready"} tone={issueCount > 0 ? "warning" : "success"} />}
+        compact
+      />
+    </div>
+  );
+}
+
 export function AgentReadinessPanel({
   botId,
   channelId,
@@ -268,6 +303,7 @@ export function AgentReadinessPanel({
       <CapabilityStats manifest={data} />
       <SurfaceSummary manifest={data} />
       <WidgetAuthoringSummary manifest={data} />
+      <IntegrationReadinessSummary manifest={data} />
       {findings.length > 0 ? (
         <div className="flex flex-col gap-1">
           {findings.slice(0, 4).map((finding) => (

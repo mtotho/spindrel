@@ -12,6 +12,7 @@ from app.services import session_plan_mode as spm
 from app.services.plan_semantic_review import (
     _deterministic_assessment,
     _step_is_execution_oriented,
+    auto_review_latest_plan_outcome,
     review_plan_adherence,
 )
 
@@ -407,6 +408,73 @@ async def test_review_plan_adherence_supports_mutating_step_done_without_mock(db
     assert "step_done_supported_by_mutation" in review["deterministic_flags"]
     assert review["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
     assert review["semantic_status"] == spm.PLAN_SEMANTIC_STATUS_OK
+
+
+@pytest.mark.asyncio
+async def test_auto_review_latest_plan_outcome_reviews_supported_step_done(db_session, monkeypatch, tmp_path):
+    session = _make_session(tmp_path, monkeypatch, step_label="Create the planned marker file")
+    correlation_id = uuid.uuid4()
+    marker_path = ".spindrel-plan-parity/adherence-auto-marker.txt"
+    db_session.add(session)
+    await db_session.flush()
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
+        summary=f"Created {marker_path}.",
+        evidence=marker_path,
+        step_id="ship",
+        turn_id="turn-1",
+        correlation_id=str(correlation_id),
+    )
+    await _record_turn(
+        db_session,
+        session,
+        correlation_id=correlation_id,
+        tool_name="file",
+        status="done",
+        arguments={"path": marker_path, "content": "native plan auto adherence marker"},
+    )
+
+    review = await auto_review_latest_plan_outcome(db_session, session, correlation_id=str(correlation_id))
+
+    assert review is not None
+    assert review["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
+    adherence = (session.metadata_ or {}).get("plan_adherence") or {}
+    latest_review = adherence.get("latest_semantic_review") or {}
+    assert latest_review["correlation_id"] == str(correlation_id)
+    runtime = spm.build_plan_runtime_capsule(session, spm.load_session_plan(session, required=True))
+    assert runtime["latest_semantic_review"]["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
+
+
+@pytest.mark.asyncio
+async def test_auto_review_latest_plan_outcome_skips_non_terminal_progress(db_session, monkeypatch, tmp_path):
+    session = _make_session(tmp_path, monkeypatch, step_label="Create the planned marker file")
+    correlation_id = uuid.uuid4()
+    db_session.add(session)
+    await db_session.flush()
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_PROGRESS,
+        summary="Started the planned marker file.",
+        evidence="Tool call completed.",
+        step_id="ship",
+        turn_id="turn-1",
+        correlation_id=str(correlation_id),
+    )
+    await _record_turn(
+        db_session,
+        session,
+        correlation_id=correlation_id,
+        tool_name="file",
+        status="done",
+        arguments={"path": ".spindrel-plan-parity/adherence-auto-marker.txt", "content": "started"},
+    )
+
+    review = await auto_review_latest_plan_outcome(db_session, session, correlation_id=str(correlation_id))
+
+    assert review is None
+    adherence = (session.metadata_ or {}).get("plan_adherence") or {}
+    assert adherence.get("latest_semantic_review") is None
 
 
 @pytest.mark.asyncio
