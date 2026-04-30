@@ -244,3 +244,4 @@ So for a non-trivial widget build, the recommended loop is:
 ## See also
 
 - [Channel Dashboards](./channel_dashboards.md) — the `describe_dashboard` / `pin_widget` / `move_pins` / `unpin_widget` / `promote_panel` / `demote_panel` tool suite for reading, proposing, and modifying dashboard layouts. `emit_html_widget` shows a widget in chat; `pin_widget` places a library widget on the dashboard.
+- [Spatial Widget Stewardship](./spatial_stewardship.md) — the runtime loop for inspecting a channel orbit, previewing spatial-widget edits, and mutating only bot-owned spatial widgets when the visible scene gets clearer.

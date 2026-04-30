@@ -110,6 +110,16 @@ randomly opens chat while the user is trying to inspect or navigate.
 
 `view_spatial_canvas` is a read-only map-view tool gated by `allow_map_view`. It accepts presets (`whole_map`, `cluster`, `dot`, `preview`, `snapshot`) plus optional camera coordinates, or a focus token returned by a prior call. The result mirrors what a human-visible viewport would expose at that zoom: surface labels, semantic tiers, cluster counts, satellite hues, connection summaries, world bounds, and screen-relative coordinates. It does not expose hidden cluster member names or widget iframe contents. Heartbeats can opt into a compact far-zoom overview with the separate **Include map overview** toggle.
 
+`inspect_spatial_widget_scene` is the bot-facing perception tool for channel
+orbit widget work. It returns channel-centered widget rectangles, screen
+bounds, overlap pairs, clipping, duplicate labels, ownership/manageability,
+source-channel links, widget origin/contract hints, and short content
+summaries. Bot-owned widget mutation tools should be used only after this scene
+inspection. `preview_spatial_widget_changes` dry-runs proposed
+move/resize/remove/pin edits and reports before/after overlap and visibility
+signals, so a bot can reason about whether the canvas will get clearer before
+it mutates owned widgets.
+
 ## Connection lines
 
 ![Channel zoomed in with widget tiles connected by faint dashed lines](../images/spatial-channel-zoomed-in-1.png)
