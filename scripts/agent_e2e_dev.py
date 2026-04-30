@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from datetime import datetime, timezone
 import json
 import os
@@ -21,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_ENV = REPO_ROOT / ".env.agent-e2e"
 SCRATCH_DIR = REPO_ROOT / "scratch" / "agent-e2e"
 AUTH_OVERRIDE = SCRATCH_DIR / "compose.auth.override.yml"
+HARNESS_PARITY_ENV = SCRATCH_DIR / "harness-parity.env"
 SCREENSHOT_ENV = REPO_ROOT / "scripts" / "screenshots" / ".env"
 DEFAULT_API_KEY = "e2e-test-key-12345"
 DEFAULT_PORT = 18000
@@ -30,6 +32,47 @@ COMPOSE_FILE = REPO_ROOT / "tests" / "e2e" / "docker-compose.e2e.yml"
 SUBSCRIPTION_DUMMY_BASE_URL = "http://127.0.0.1:9/v1"
 SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.4-mini"
 PROJECT_FACTORY_SECRET_NAME = "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN"
+HARNESS_PARITY_PROJECT_PATH = "common/projects"
+HARNESS_PARITY_DEFAULT_RUNTIMES = ("codex", "claude-code")
+HARNESS_PARITY_LOCAL_TOOLS = (
+    "get_tool_info",
+    "search_memory",
+    "get_memory_file",
+    "memory",
+    "manage_bot_skill",
+    "get_skill",
+    "get_skill_list",
+    "list_agent_capabilities",
+    "run_agent_doctor",
+    "list_channels",
+    "read_conversation_history",
+    "list_sub_sessions",
+    "read_sub_session",
+)
+HARNESS_PARITY_RUNTIME_CONFIG = {
+    "codex": {
+        "integration_id": "codex",
+        "bot_id": "harness-parity-codex",
+        "bot_name": "Harness Parity Codex",
+        "bot_model": "gpt-5.4-mini",
+        "channel_client_id": "harness-parity:codex",
+        "channel_name": "Harness Parity - Codex",
+        "channel_env": "HARNESS_PARITY_CODEX_CHANNEL_ID",
+        "bot_env": "HARNESS_PARITY_CODEX_BOT_ID",
+        "install_endpoints": ("/install-npm-deps",),
+    },
+    "claude-code": {
+        "integration_id": "claude_code",
+        "bot_id": "harness-parity-claude",
+        "bot_name": "Harness Parity Claude",
+        "bot_model": "claude-haiku-4-5",
+        "channel_client_id": "harness-parity:claude",
+        "channel_name": "Harness Parity - Claude",
+        "channel_env": "HARNESS_PARITY_CLAUDE_CHANNEL_ID",
+        "bot_env": "HARNESS_PARITY_CLAUDE_BOT_ID",
+        "install_endpoints": ("/install-deps",),
+    },
+}
 
 
 PRODUCTION_PORTS = {8000}
@@ -106,6 +149,35 @@ def _read_env_file(path: Path) -> dict[str, str]:
         key, value = line.split("=", 1)
         result[key.strip()] = value.strip().strip('"').strip("'")
     return result
+
+
+def _append_local_env_value(key: str, value: str) -> None:
+    LOCAL_ENV.parent.mkdir(parents=True, exist_ok=True)
+    prefix = "" if not LOCAL_ENV.exists() or LOCAL_ENV.read_text().endswith("\n") else "\n"
+    with LOCAL_ENV.open("a") as handle:
+        handle.write(f"{prefix}{key}={value}\n")
+    try:
+        LOCAL_ENV.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _generate_fernet_key() -> str:
+    return base64.urlsafe_b64encode(os.urandom(32)).decode("ascii")
+
+
+def _ensure_local_env_value(env: dict[str, str], key: str, value_factory) -> str:
+    if env.get(key):
+        return env[key]
+    env_values = _read_env_file(LOCAL_ENV)
+    if env_values.get(key):
+        env[key] = env_values[key]
+        return env[key]
+    value = value_factory()
+    _append_local_env_value(key, value)
+    env[key] = value
+    print(f"generated stable local {key} in {LOCAL_ENV}")
+    return value
 
 
 def _merged_env() -> dict[str, str]:
@@ -209,6 +281,8 @@ def _compose_cmd(overrides: list[Path], *args: str) -> list[str]:
 
 def _compose_env(env: dict[str, str], *, api_url: str, api_key: str) -> dict[str, str]:
     parsed = urllib.parse.urlparse(api_url)
+    _ensure_local_env_value(env, "ENCRYPTION_KEY", _generate_fernet_key)
+    _ensure_local_env_value(env, "JWT_SECRET", lambda: os.urandom(32).hex())
     compose_env = dict(os.environ)
     compose_env.update(env)
     compose_env.setdefault("E2E_IMAGE", DEFAULT_IMAGE)
@@ -314,6 +388,30 @@ def _prepare_stack(
         last_detail = detail
         time.sleep(2)
     raise SystemExit(f"Spindrel e2e stack did not become healthy at {api_url}: {last_detail}")
+
+
+def _restart_spindrel_app_container(api_url: str, api_key: str, env: dict[str, str], *, timeout: int) -> None:
+    if not _is_local_url(api_url):
+        raise SystemExit(
+            f"refusing to restart a non-local e2e app container for {api_url!r}; "
+            "rerun against a local target or restart the service manually"
+        )
+    if not shutil.which("docker"):
+        raise SystemExit("docker is required to restart the local Spindrel e2e app container")
+    compose_env = _compose_env(env, api_url=api_url, api_key=api_key)
+    overrides = _compose_overrides(env)
+    print("restarting Spindrel e2e app container so newly installed harness deps load")
+    _run(_compose_cmd(overrides, "restart", "spindrel"), env=compose_env, timeout=120)
+    deadline = time.time() + timeout
+    last_detail = ""
+    while time.time() < deadline:
+        ok, detail = _check_url(api_url, api_key)
+        if ok:
+            print(f"Spindrel e2e health ok after restart: {detail}")
+            return
+        last_detail = detail
+        time.sleep(2)
+    raise SystemExit(f"Spindrel e2e app did not become healthy after restart at {api_url}: {last_detail}")
 
 
 def cmd_prepare(args: argparse.Namespace) -> int:
@@ -443,6 +541,226 @@ def _install_system_dependency(api_url: str, api_key: str, integration_id: str, 
     print(f"ensured system package {apt_package!r} for integration {integration_id!r}")
 
 
+def _install_integration_dependencies(api_url: str, api_key: str, integration_id: str, endpoints: tuple[str, ...]) -> None:
+    for endpoint in endpoints:
+        _request_json(
+            "POST",
+            f"{api_url}/api/v1/admin/integrations/{integration_id}{endpoint}",
+            api_key=api_key,
+            timeout=300,
+        )
+        print(f"ensured integration {integration_id!r} dependencies via {endpoint}")
+
+
+def _runtime_status(api_url: str, api_key: str, runtime: str) -> dict | None:
+    harnesses = _request_json("GET", f"{api_url}/api/v1/admin/harnesses", api_key=api_key, timeout=60)
+    for item in harnesses.get("runtimes") or []:
+        if isinstance(item, dict) and item.get("name") == runtime:
+            return item
+    return None
+
+
+def _wait_for_harness_runtime(api_url: str, api_key: str, runtime: str, *, timeout: int) -> dict:
+    deadline = time.time() + timeout
+    latest: dict | None = None
+    while time.time() < deadline:
+        latest = _runtime_status(api_url, api_key, runtime)
+        if latest and latest.get("ok"):
+            print(f"harness runtime {runtime!r}: ok ({latest.get('detail') or 'ready'})")
+            return latest
+        time.sleep(3)
+    if latest is None:
+        raise SystemExit(f"harness runtime {runtime!r} is not registered on the local e2e server")
+    raise SystemExit(f"harness runtime {runtime!r} is registered but not ready: {latest.get('detail')}")
+
+
+def _get_json_or_404(method: str, url: str, *, api_key: str) -> dict | None:
+    try:
+        return _request_json(method, url, api_key=api_key)
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            return None
+        raise
+
+
+def _ensure_harness_parity_bot(
+    api_url: str,
+    api_key: str,
+    *,
+    bot_id: str,
+    name: str,
+    runtime: str,
+    model: str,
+) -> None:
+    existing = _get_json_or_404("GET", f"{api_url}/api/v1/admin/bots/{bot_id}", api_key=api_key)
+    body = {
+        "id": bot_id,
+        "name": name,
+        "model": model,
+        "system_prompt": "",
+        "harness_runtime": runtime,
+        "local_tools": list(HARNESS_PARITY_LOCAL_TOOLS),
+        "tool_retrieval": False,
+        "tool_discovery": False,
+        "persona": False,
+    }
+    if existing is None:
+        _request_json("POST", f"{api_url}/api/v1/admin/bots", api_key=api_key, body=body, timeout=60)
+        print(f"created harness parity bot {bot_id!r}")
+        return
+    patch = {key: value for key, value in body.items() if key != "id"}
+    _request_json("PATCH", f"{api_url}/api/v1/admin/bots/{bot_id}", api_key=api_key, body=patch, timeout=60)
+    print(f"updated harness parity bot {bot_id!r}")
+
+
+def _ensure_harness_parity_channel(
+    api_url: str,
+    api_key: str,
+    *,
+    client_id: str,
+    name: str,
+    bot_id: str,
+    project_path: str,
+) -> str:
+    channel = _request_json(
+        "POST",
+        f"{api_url}/api/v1/channels",
+        api_key=api_key,
+        body={
+            "client_id": client_id,
+            "bot_id": bot_id,
+            "name": name,
+            "private": False,
+            "category": "Harness Parity",
+        },
+        timeout=60,
+    )
+    channel_id = str(channel.get("id") or channel.get("channel_id") or "")
+    if not channel_id:
+        raise SystemExit(f"channel create response did not include an id: {channel}")
+    _request_json(
+        "PATCH",
+        f"{api_url}/api/v1/admin/channels/{channel_id}/settings",
+        api_key=api_key,
+        body={"bot_id": bot_id, "project_path": project_path},
+        timeout=60,
+    )
+    print(f"ensured harness parity channel {name!r}: {channel_id}")
+    return channel_id
+
+
+def _write_harness_parity_env(
+    *,
+    api_url: str,
+    api_key: str,
+    channel_ids_by_runtime: dict[str, str],
+    project_path: str,
+) -> None:
+    parsed = urllib.parse.urlparse(api_url)
+    host = parsed.hostname or "localhost"
+    port = str(parsed.port or DEFAULT_PORT)
+    lines = [
+        "# Local harness parity e2e env. Gitignored.",
+        "E2E_MODE=external",
+        f"E2E_HOST={host}",
+        f"E2E_PORT={port}",
+        f"E2E_API_KEY={api_key}",
+        "E2E_BOT_ID=e2e",
+        "E2E_KEEP_RUNNING=1",
+        "HARNESS_PARITY_LOCAL=1",
+        f"HARNESS_PARITY_PROJECT_PATH={project_path}",
+        f"HARNESS_PARITY_AGENT_CONTAINER={COMPOSE_PROJECT}-spindrel-1",
+        "HARNESS_PARITY_CAPTURE_SCREENSHOTS=auto",
+        "HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR=/tmp/spindrel-harness-local-screenshots",
+        f"SPINDREL_BROWSER_URL={api_url}",
+        f"SPINDREL_BROWSER_API_URL={api_url}",
+        "",
+    ]
+    for runtime, channel_id in channel_ids_by_runtime.items():
+        config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
+        lines.append(f"{config['channel_env']}={channel_id}")
+        lines.append(f"{config['bot_env']}={config['bot_id']}")
+    _write_text(HARNESS_PARITY_ENV, "\n".join(lines) + "\n", force=True)
+
+
+def cmd_prepare_harness_parity(args: argparse.Namespace) -> int:
+    env = _merged_env()
+    api_url = (args.api_url or _base_url(env)).rstrip("/")
+    _require_non_production(api_url, allow_production=args.allow_production)
+    api_key = args.api_key or _api_key(env)
+    runtimes = tuple(args.runtime or HARNESS_PARITY_DEFAULT_RUNTIMES)
+    unknown = sorted(set(runtimes) - set(HARNESS_PARITY_RUNTIME_CONFIG))
+    if unknown:
+        raise SystemExit(f"unsupported harness parity runtime(s): {', '.join(unknown)}")
+
+    _ensure_auth_override()
+    env = _merged_env()
+    if not args.skip_setup:
+        _prepare_stack(
+            api_url=api_url,
+            api_key=api_key,
+            env=env,
+            build=not args.no_build,
+            startup_timeout=args.startup_timeout,
+        )
+
+    for runtime in runtimes:
+        config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
+        integration_id = str(config["integration_id"])
+        _set_integration_enabled(api_url, api_key, integration_id)
+        _install_integration_dependencies(
+            api_url,
+            api_key,
+            integration_id,
+            tuple(config.get("install_endpoints") or ()),
+        )
+
+    _restart_spindrel_app_container(
+        api_url,
+        api_key,
+        env,
+        timeout=args.startup_timeout,
+    )
+
+    channel_ids: dict[str, str] = {}
+    for runtime in runtimes:
+        config = HARNESS_PARITY_RUNTIME_CONFIG[runtime]
+        _wait_for_harness_runtime(
+            api_url,
+            api_key,
+            runtime,
+            timeout=args.runtime_timeout,
+        )
+        _ensure_harness_parity_bot(
+            api_url,
+            api_key,
+            bot_id=str(config["bot_id"]),
+            name=str(config["bot_name"]),
+            runtime=runtime,
+            model=str(config["bot_model"]),
+        )
+        channel_ids[runtime] = _ensure_harness_parity_channel(
+            api_url,
+            api_key,
+            client_id=str(config["channel_client_id"]),
+            name=str(config["channel_name"]),
+            bot_id=str(config["bot_id"]),
+            project_path=args.project_path,
+        )
+
+    _write_harness_parity_env(
+        api_url=api_url,
+        api_key=api_key,
+        channel_ids_by_runtime=channel_ids,
+        project_path=args.project_path,
+    )
+    print("Local harness parity readiness: ok")
+    print(f"  target: {api_url}")
+    print(f"  env: {HARNESS_PARITY_ENV}")
+    print("  run: ./scripts/run_harness_parity_local.sh --tier core")
+    return 0
+
+
 def _seed_github_secret(api_url: str, api_key: str, *, secret_name: str) -> None:
     token = _host_command_output(["gh", "auth", "token"])
     if not token:
@@ -521,6 +839,9 @@ def cmd_write_env(args: argparse.Namespace) -> int:
         model = model or SUBSCRIPTION_DEFAULT_MODEL
     elif not model:
         model = os.environ.get("E2E_DEFAULT_MODEL", "gemini-2.5-flash-lite")
+    env_values = _read_env_file(LOCAL_ENV)
+    encryption_key = env_values.get("ENCRYPTION_KEY") or _generate_fernet_key()
+    jwt_secret = env_values.get("JWT_SECRET") or os.urandom(32).hex()
     lines = [
         "# Local Spindrel agent e2e development env. Gitignored.",
         f"E2E_MODE=compose",
@@ -533,6 +854,8 @@ def cmd_write_env(args: argparse.Namespace) -> int:
         f"E2E_IMAGE={DEFAULT_IMAGE}",
         "E2E_KEEP_RUNNING=1",
         f"SPINDREL_AGENT_E2E_PROVIDER={provider}",
+        f"ENCRYPTION_KEY={encryption_key}",
+        f"JWT_SECRET={jwt_secret}",
     ]
     if provider == "subscription":
         lines.append("SPINDREL_PROVIDER=chatgpt-subscription")
@@ -740,6 +1063,10 @@ def cmd_commands(args: argparse.Namespace) -> int:
     print("  python -m scripts.screenshots stage --only project-workspace")
     print("  python -m scripts.screenshots capture --only project-workspace")
     print("  python -m scripts.screenshots check")
+    print("local harness parity:")
+    print("  python scripts/agent_e2e_dev.py prepare-harness-parity")
+    print("  ./scripts/run_harness_parity_local.sh --tier core")
+    print("  ./scripts/run_harness_parity_local.sh --tier skills -k \"native_image_input_manifest\"")
     print("external target status from a Spindrel bot:")
     print('  run_e2e_tests(action="status")')
     print("project factory local PR smoke:")
@@ -835,6 +1162,24 @@ def build_parser() -> argparse.ArgumentParser:
     factory.add_argument("--startup-timeout", type=int, default=180)
     factory.add_argument("--allow-production", action="store_true")
     factory.set_defaults(func=cmd_prepare_project_factory_smoke)
+
+    harness = sub.add_parser("prepare-harness-parity")
+    harness.add_argument("--api-url", default="")
+    harness.add_argument("--api-key", default="")
+    harness.add_argument(
+        "--runtime",
+        action="append",
+        choices=sorted(HARNESS_PARITY_RUNTIME_CONFIG),
+        default=None,
+        help="Runtime to prepare. May be repeated. Defaults to Codex and Claude Code.",
+    )
+    harness.add_argument("--project-path", default=HARNESS_PARITY_PROJECT_PATH)
+    harness.add_argument("--skip-setup", action="store_true")
+    harness.add_argument("--no-build", action="store_true")
+    harness.add_argument("--startup-timeout", type=int, default=180)
+    harness.add_argument("--runtime-timeout", type=int, default=180)
+    harness.add_argument("--allow-production", action="store_true")
+    harness.set_defaults(func=cmd_prepare_harness_parity)
 
     commands = sub.add_parser("commands")
     commands.add_argument("--env-file", default=".env.agent-e2e")

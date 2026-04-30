@@ -181,9 +181,11 @@ docs/images/project-workspace-terminal.png
 docs/images/project-workspace-channels.png
 docs/images/project-workspace-channel-settings.png
 docs/images/project-workspace-memory-tool.png
+docs/images/project-factory-live-pr-smoke.png
+docs/images/project-factory-live-pr-smoke-receipts.png
 ```
 
-Inspect all eighteen images before closing out. The bundle checks Project admin
+Inspect all deterministic Project Workspace images before closing out. The bundle checks Project admin
 surfaces, Blueprint management, setup-command readiness/run history, Project
 Basics readiness, applied Blueprint settings, runtime-env readiness, fresh Project instances, coding-run
 branch/PR progress plus receipts, scheduled Project reviews, task-scoped execution access, selected-run review controls, review-session
@@ -194,6 +196,13 @@ encryption key changed; do that through the API instead of wiping the database.
 The memory-tool docs capture is a deterministic injected transcript so the
 artifact verifies the structured tool-result envelope without relying on a live
 model call.
+
+For the opt-in live Project Factory PR smoke, first run the local e2e command
+sequence in `docs/guides/agent-e2e-development.md`. Then use
+`scratch/agent-e2e/project-factory-live-pr-smoke.json` to navigate the local UI
+to `/admin/projects/<project_id>#Runs` and capture focused Project Runs and Run
+Receipts screenshots against `localhost:18000`. These images are intentionally
+live evidence rather than deterministic staging fixtures.
 
 ## Widget Authoring Runtime Loop
 

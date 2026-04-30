@@ -596,9 +596,17 @@ def _is_local_e2e_host(host: str) -> bool:
     )
 
 
-async def _assert_browser_runtime_live_diagnostics(client: E2EClient) -> None:
+async def _assert_browser_runtime_live_diagnostics(
+    client: E2EClient,
+    *,
+    require_shared_runtime: bool = True,
+) -> None:
     stacks = await client.list_docker_stacks()
     browser_stacks = [s for s in stacks if s.get("integration_id") == "browser_automation"]
+    if os.environ.get("HARNESS_PARITY_LOCAL") == "1" and not browser_stacks:
+        if require_shared_runtime:
+            pytest.skip("local harness parity stack does not expose browser_automation docker stacks")
+        return
     assert browser_stacks, "browser_automation docker stack is not registered"
     stack = browser_stacks[0]
     assert stack.get("status") == "running", f"browser_automation stack is not running: {stack}"
@@ -1560,7 +1568,7 @@ async def test_live_harness_terminal_tool_output_is_sequential(
     case: HarnessCase,
 ) -> None:
     _requires_tier("terminal")
-    await _assert_browser_runtime_live_diagnostics(client)
+    await _assert_browser_runtime_live_diagnostics(client, require_shared_runtime=False)
     channel_id, session_id, bot_id = await _fresh_session(client, case)
     original_config = await client.get_channel_config(channel_id)
     marker = uuid.uuid4().hex[:12]
@@ -2094,7 +2102,7 @@ async def test_live_harness_project_plan_build_and_screenshot(
             "project screenshot diagnostics must run on the target host or with a "
             "container-reachable remote Docker/Playwright setup"
         )
-    await _assert_browser_runtime_live_diagnostics(client)
+    await _assert_browser_runtime_live_diagnostics(client, require_shared_runtime=False)
 
     channel_id, bot_id = _configured_case(case)
     expected_project_path = _project_path()

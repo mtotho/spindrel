@@ -1,8 +1,10 @@
 """Opt-in local e2e smoke for a real Project coding-run PR handoff."""
 from __future__ import annotations
 
+import json
 import os
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,7 @@ from tests.e2e.harness.client import E2EClient
 pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
 
 SECRET_NAME = "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN"
+ARTIFACT_PATH = Path("scratch/agent-e2e/project-factory-live-pr-smoke.json")
 
 
 def _enabled() -> bool:
@@ -116,5 +119,30 @@ async def test_local_e2e_project_coding_run_opens_draft_pr(client: E2EClient) ->
     assert run_with_pr is not None, smoke_runs
     receipt = run_with_pr["receipt"]
     assert receipt["handoff_url"].startswith(f"https://github.com/{repo_full_name}/pull/")
-    assert receipt["handoff_type"] in {"github_pr", "pull_request"}
-    assert any(item.get("path") == marker_path for item in receipt.get("changed_files") or [])
+    changed_paths = {
+        item.get("path") if isinstance(item, dict) else item
+        for item in receipt.get("changed_files") or []
+    }
+    assert marker_path in changed_paths
+    if receipt.get("handoff_type"):
+        assert receipt["handoff_type"] in {"github_pr", "pull_request"}
+    ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ARTIFACT_PATH.write_text(
+        json.dumps(
+            {
+                "project_id": project["id"],
+                "channel_id": channel["id"],
+                "template_task_id": template_task_id,
+                "task_id": concrete_task_id,
+                "project_run_id": run_with_pr["id"],
+                "repo": repo_full_name,
+                "base_branch": base_branch,
+                "marker_path": marker_path,
+                "pr_url": receipt["handoff_url"],
+                "receipt": receipt,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )

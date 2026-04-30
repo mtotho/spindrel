@@ -618,7 +618,6 @@ class ClaudeCodeRuntime:
         args: tuple[str, ...],
         ctx: TurnContext,
     ) -> HarnessRuntimeCommandResult:
-        del ctx
         if command_id == "auth":
             status = self.auth_status()
             return HarnessRuntimeCommandResult(
@@ -688,6 +687,8 @@ class ClaudeCodeRuntime:
                     payload={"suggested_command": " ".join(cli_command)},
                 )
             detail = (proc.stdout or proc.stderr or "").strip()
+            if proc.returncode != 0 and command_id == "skills" and not args:
+                return _list_claude_skills_from_runtime_dirs(ctx)
             return HarnessRuntimeCommandResult(
                 command_id=command_id,
                 title=f"Claude Code {command_id}",
@@ -721,6 +722,47 @@ def _native_terminal_handoff(
         detail=detail,
         status="terminal_handoff",
         payload={"args": list(args), "suggested_command": suggested_command},
+    )
+
+
+def _list_claude_skills_from_runtime_dirs(ctx: TurnContext) -> HarnessRuntimeCommandResult:
+    entries: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    roots = (
+        ("user", os.path.join(os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude")), "skills")),
+        ("project", os.path.join(ctx.workdir, ".claude", "skills")),
+    )
+    for source, root in roots:
+        if not os.path.isdir(root):
+            continue
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for name in names:
+            skill_md = os.path.join(root, name, "SKILL.md")
+            if not os.path.isfile(skill_md):
+                continue
+            key = (source, name)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append({"name": name, "source": source, "path": skill_md})
+
+    if entries:
+        lines = [f"{entry['name']} ({entry['source']}) - {entry['path']}" for entry in entries]
+        detail = "\n".join(lines)
+    else:
+        detail = (
+            "No Claude Code skills found under the runtime-owned skill directories "
+            f"{roots[0][1]} or {roots[1][1]}."
+        )
+    return HarnessRuntimeCommandResult(
+        command_id="skills",
+        title="Claude Code skills",
+        detail=detail,
+        status="ok",
+        payload={"source": "runtime_dirs", "skills": entries},
     )
 
 

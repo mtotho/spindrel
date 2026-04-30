@@ -31,6 +31,8 @@ def test_write_env_redacts_nothing_but_writes_gitignored_local_env(monkeypatch, 
     assert "E2E_PORT=19000" in body
     assert "E2E_IMAGE=spindrel:e2e" in body
     assert "E2E_LLM_API_KEY=secret-key" in body
+    assert "ENCRYPTION_KEY=" in body
+    assert "JWT_SECRET=" in body
     assert env_path.stat().st_mode & 0o777 == 0o600
 
 
@@ -90,6 +92,26 @@ def test_merged_env_uses_auth_override_when_present(monkeypatch, tmp_path):
     env = agent_e2e_dev._merged_env()
 
     assert env["E2E_COMPOSE_OVERRIDES"] == str(override)
+
+
+def test_compose_env_persists_missing_local_secrets(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "_generate_fernet_key", lambda: "stable-fernet-key")
+
+    env = {"E2E_IMAGE": "spindrel:test"}
+    compose_env = agent_e2e_dev._compose_env(
+        env,
+        api_url="http://localhost:19000",
+        api_key="test-key",
+    )
+
+    assert compose_env["ENCRYPTION_KEY"] == "stable-fernet-key"
+    assert len(compose_env["JWT_SECRET"]) == 64
+    body = env_path.read_text()
+    assert "ENCRYPTION_KEY=stable-fernet-key" in body
+    assert "JWT_SECRET=" in body
+    assert env_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_write_env_subscription_mode_uses_placeholder_until_oauth(monkeypatch, tmp_path, capsys):
@@ -282,6 +304,86 @@ def test_prepare_project_factory_smoke_enables_runtime_installs_gh_and_seeds_sec
             "description": "Local e2e Project Factory smoke GitHub token seeded from host gh auth.",
         },
     ) in calls
+
+
+def test_prepare_harness_parity_sets_up_local_runtimes_channels_and_env(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    override = tmp_path / "compose.auth.override.yml"
+    harness_env = tmp_path / "harness-parity.env"
+    env_path.write_text("E2E_API_KEY=test-key\nE2E_LLM_BASE_URL=https://example.invalid/v1\n")
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "AUTH_OVERRIDE", override)
+    monkeypatch.setattr(agent_e2e_dev, "HARNESS_PARITY_ENV", harness_env)
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".claude").mkdir()
+    monkeypatch.setattr(agent_e2e_dev.Path, "home", lambda: tmp_path)
+    calls: list[tuple[str, str, dict | None]] = []
+    channel_counter = 0
+
+    def fake_request(method: str, url: str, *, api_key: str = "", body: dict | None = None, timeout: int = 20):
+        nonlocal channel_counter
+        calls.append((method, url, body))
+        if url.endswith("/api/v1/admin/harnesses"):
+            return {
+                "runtimes": [
+                    {"name": "codex", "ok": True, "detail": "Logged in"},
+                    {"name": "claude-code", "ok": True, "detail": "Logged in"},
+                ]
+            }
+        if "/api/v1/admin/bots/" in url and method == "GET":
+            raise RuntimeError(f"{method} {url} returned HTTP 404: missing")
+        if url.endswith("/api/v1/channels") and method == "POST":
+            channel_counter += 1
+            return {"id": f"channel-{channel_counter}"}
+        return {}
+
+    monkeypatch.setattr(agent_e2e_dev, "_prepare_stack", lambda **kwargs: calls.append(("PREPARE", kwargs["api_url"], None)))
+    monkeypatch.setattr(
+        agent_e2e_dev,
+        "_restart_spindrel_app_container",
+        lambda api_url, api_key, env, timeout: calls.append(("RESTART", api_url, None)),
+    )
+    monkeypatch.setattr(agent_e2e_dev, "_request_json", fake_request)
+
+    assert agent_e2e_dev.cmd_prepare_harness_parity(
+        argparse.Namespace(
+            api_url="http://localhost:18000",
+            api_key="",
+            runtime=None,
+            project_path="common/projects",
+            skip_setup=False,
+            no_build=True,
+            startup_timeout=1,
+            runtime_timeout=1,
+            allow_production=False,
+        )
+    ) == 0
+
+    assert override.exists()
+    assert ("RESTART", "http://localhost:18000", None) in calls
+    assert ("PUT", "http://localhost:18000/api/v1/admin/integrations/codex/status", {"status": "enabled"}) in calls
+    assert ("PUT", "http://localhost:18000/api/v1/admin/integrations/claude_code/status", {"status": "enabled"}) in calls
+    assert ("POST", "http://localhost:18000/api/v1/admin/integrations/codex/install-npm-deps", None) in calls
+    assert ("POST", "http://localhost:18000/api/v1/admin/integrations/claude_code/install-deps", None) in calls
+    bot_creates = [body for method, url, body in calls if method == "POST" and url.endswith("/api/v1/admin/bots")]
+    assert {body["id"] for body in bot_creates if body} == {"harness-parity-codex", "harness-parity-claude"}
+    for body in bot_creates:
+        assert "get_tool_info" in body["local_tools"]
+        assert "list_channels" in body["local_tools"]
+        assert "read_conversation_history" in body["local_tools"]
+    settings_patches = [
+        body for method, url, body in calls
+        if method == "PATCH" and "/api/v1/admin/channels/" in url and url.endswith("/settings")
+    ]
+    assert settings_patches == [
+        {"bot_id": "harness-parity-codex", "project_path": "common/projects"},
+        {"bot_id": "harness-parity-claude", "project_path": "common/projects"},
+    ]
+    body = harness_env.read_text()
+    assert "HARNESS_PARITY_LOCAL=1" in body
+    assert "HARNESS_PARITY_CODEX_CHANNEL_ID=channel-1" in body
+    assert "HARNESS_PARITY_CLAUDE_CHANNEL_ID=channel-2" in body
+    assert "HARNESS_PARITY_AGENT_CONTAINER=spindrel-local-e2e-spindrel-1" in body
 
 
 def test_doctor_reports_connected_subscription(monkeypatch, tmp_path, capsys):

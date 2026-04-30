@@ -126,6 +126,8 @@ project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
 project-workspace-memory-tool.png
+project-factory-live-pr-smoke.png
+project-factory-live-pr-smoke-receipts.png
 ```
 
 The staging step creates a reusable screenshot Project, attaches one channel to
@@ -134,7 +136,8 @@ API, seeds a Blueprint-created Project with secret bindings, runs repo plus
 setup-command preparation for `https://github.com/mtotho/spindrel.git`, seeds
 a fresh Project instance, starts or shims one Project coding run with linked
 branch/PR progress receipts, review receipt, scheduled review controls,
-selected-run review controls, and a memory-tool turn. Inspect all eighteen images before closing out: the
+selected-run review controls, and a memory-tool turn. Inspect all deterministic
+Project Workspace images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project Basics readiness,
 Project runtime-env readiness, fresh
@@ -143,6 +146,12 @@ scheduled Project reviews,
 task-scoped execution access for coding and review launches, launched
 review-session confirmation, finalized review/merge provenance, Project
 settings, and the channel transcript.
+
+The two `project-factory-live-pr-smoke*` images are live evidence rather than
+deterministic staging fixtures. Capture them after the opt-in live PR smoke in
+[Agent E2E Development](agent-e2e-development.md), using the scratch JSON
+artifact from that test to open the real local Project Runs page against
+`localhost:18000`.
 
 ## Channel Quick Automations Run
 

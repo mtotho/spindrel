@@ -52,6 +52,9 @@ defaults to `e2e-test-key-12345`. `prepare` recreates only the Spindrel app
 container, so local provider/OAuth state survives normal rebuilds and restarts.
 Future agents should run `doctor` first; if it reports
 `subscription bootstrap: connected`, do not restart the browser OAuth flow.
+`write-env` also writes stable local `ENCRYPTION_KEY` and `JWT_SECRET` values.
+Do not remove those while keeping the durable Postgres volume; encrypted
+provider/OAuth rows cannot boot under a different key.
 
 Only wipe local e2e state when that is the explicit goal:
 
@@ -93,6 +96,50 @@ export E2E_COMPOSE_OVERRIDES="$PWD/scratch/agent-e2e/compose.auth.override.yml"
 
 The override bind-mounts existing host `~/.codex` and/or `~/.claude` into the
 local e2e app container. It is local-only and gitignored.
+
+## Local Harness Parity
+
+Use this path for Codex/Claude harness parity before waiting on a deployed
+server:
+
+```bash
+python scripts/agent_e2e_dev.py doctor
+python scripts/agent_e2e_dev.py prepare-harness-parity
+./scripts/run_harness_parity_local.sh --tier core
+```
+
+`prepare-harness-parity` preserves the durable local e2e database, ensures the
+runtime auth override is mounted, enables the Codex/Claude integrations,
+installs their declared dependencies, verifies `/admin/harnesses`, and creates
+stable local harness bots/channels attached to `common/projects`. It writes the
+channel ids and runner settings to `scratch/agent-e2e/harness-parity.env`.
+The helper restarts the app container after dependency installation so newly
+installed harness packages are imported before runtime readiness is checked.
+The parity bots are seeded with the baseline Spindrel bridge tools required by
+the live scenarios, including `get_tool_info`, channel history, memory, and
+skill lookup tools.
+
+Focused local runs reuse the deployed parity scenarios:
+
+```bash
+./scripts/run_harness_parity_local.sh --tier plan -k "plan_mode_round_trip"
+./scripts/run_harness_parity_local.sh --tier skills -k "native_image_input_manifest"
+./scripts/run_harness_parity_local.sh --tier replay -k "persisted_tool_replay_survives_refetch"
+```
+
+For visual feedback, use local screenshots first:
+
+```bash
+./scripts/run_harness_parity_local.sh --tier project --screenshots feedback \
+  -k "project_plan_build_and_screenshot"
+```
+
+Use `--screenshots docs` only when intentionally refreshing checked-in harness
+fixtures under `docs/images`; that mode runs `python -m scripts.screenshots
+check` after capture. Local e2e disables Docker-stack-backed browser automation
+by default, so shared browser-runtime tool tests may skip locally unless the
+stack is explicitly enabled. Chat UI screenshots still run through the normal
+Playwright screenshot pipeline.
 
 ## Screenshots
 
@@ -139,6 +186,46 @@ launches a Project coding run, the run publishes a PR-like receipt with test and
 screenshot evidence, a review session reads fresh context, accepted
 finalization marks the selected run reviewed, and needs-info packs stay out of
 the coding-run queue.
+
+## Project Factory Live PR Smoke
+
+Use this only after the deterministic Project Factory contract test is green.
+It drives a real Codex harness agent through the local `localhost:18000` e2e
+server, clones the configured GitHub repo, commits a marker file, opens a draft
+PR, and publishes a Project run receipt. It is intentionally opt-in because it
+pushes a branch and opens a real PR.
+
+Prepare the local stack from current source, mount host Codex auth, install
+`gh`, and seed the local e2e GitHub token from `gh auth token`:
+
+```bash
+python scripts/agent_e2e_dev.py prepare-project-factory-smoke \
+  --runtime codex \
+  --github-repo mtotho/vault \
+  --base-branch master \
+  --seed-github-token-from-gh
+```
+
+Then run pytest against the already-prepared local server. Use external mode so
+pytest does not try to start a second compose stack or require fresh
+`E2E_LLM_BASE_URL` values:
+
+```bash
+PROJECT_FACTORY_LIVE_PR=1 \
+E2E_MODE=external \
+E2E_HOST=localhost \
+E2E_PORT=18000 \
+E2E_KEEP_RUNNING=1 \
+pytest tests/e2e/scenarios/test_project_factory_live_pr_smoke.py -v -s
+```
+
+The scenario writes `scratch/agent-e2e/project-factory-live-pr-smoke.json` with
+the Project id, task id, Project run id, marker path, and PR URL. Use that
+artifact to capture local UI evidence. The current docs artifacts are:
+
+![Project Factory live PR smoke run](../images/project-factory-live-pr-smoke.png)
+
+![Project Factory live PR smoke receipts](../images/project-factory-live-pr-smoke-receipts.png)
 
 After UI-affecting Project Factory changes, refresh and inspect the Project
 Workspace screenshot bundle:
