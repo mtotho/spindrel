@@ -47,6 +47,15 @@ events:
 webhook:
   path: /integrations/github/webhook
   description: "GitHub webhook receiver (push, PR, issue events)"
+  security:
+    triggers_agent: true
+    auth:
+      type: hmac_sha256
+      setting: GITHUB_WEBHOOK_SECRET
+      required: true
+    replay:
+      strategy: durable_dedupe
+      key: header:X-GitHub-Delivery
 
 activation:
   requires_workspace: false

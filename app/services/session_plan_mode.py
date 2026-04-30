@@ -2320,11 +2320,12 @@ def request_plan_replan(
 ) -> SessionPlan:
     plan = load_session_plan(session, required=True)
     assert plan is not None
-    if revision is not None and revision != plan.revision:
-        raise ConflictError(f"Revision mismatch. Expected {plan.revision}.")
     accepted_revision = _accepted_plan_revision(session)
     if accepted_revision <= 0:
         raise ConflictError("Only an accepted plan can be marked for replanning.")
+    if revision is not None and revision not in {plan.revision, plan.revision + 1}:
+        raise ConflictError(f"Revision mismatch. Expected {plan.revision}.")
+    next_revision = plan.revision + 1
 
     affected = [item.strip() for item in (affected_step_ids or []) if item and item.strip()]
     unknown = [step_id for step_id in affected if all(step.id != step_id for step in plan.steps)]
@@ -2346,7 +2347,7 @@ def request_plan_replan(
     question = f"Replan required: {reason_text}"
     if question not in plan.open_questions:
         plan.open_questions.append(question)
-    plan.revision += 1
+    plan.revision = next_revision
     plan.status = PLAN_STATUS_DRAFT
     plan.outcome = reason_text
 

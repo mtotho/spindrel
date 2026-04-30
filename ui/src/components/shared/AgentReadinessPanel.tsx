@@ -233,7 +233,9 @@ function receiptTone(status?: string): "success" | "warning" | "danger" | "neutr
 }
 
 function LastRepairSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
-  const receipt = manifest.doctor.recent_receipts?.[0];
+  const receipt = manifest.doctor.recent_receipts?.find(
+    (item) => !(item.status === "needs_review" && item.result?.requested_repair === true),
+  );
   if (!receipt) return null;
   const result = receipt.result || {};
   const resolved = result.finding_resolved === true;
@@ -251,6 +253,60 @@ function LastRepairSummary({ manifest }: { manifest: AgentCapabilityManifest }) 
         meta={<QuietPill label={receipt.status || "reported"} tone={receiptTone(receipt.status)} />}
         compact
       />
+    </div>
+  );
+}
+
+function actorLabel(actor: Record<string, unknown> | undefined): string {
+  if (!actor) return "unknown actor";
+  if (typeof actor.name === "string" && actor.name) return actor.name;
+  if (typeof actor.kind === "string" && actor.kind) return actor.kind.replaceAll("_", " ");
+  return "unknown actor";
+}
+
+function PendingRepairRequests({
+  manifest,
+  proposedActions,
+  onApply,
+  pendingActionId,
+}: {
+  manifest: AgentCapabilityManifest;
+  proposedActions: AgentCapabilityAction[];
+  onApply: (action: AgentCapabilityAction) => void;
+  pendingActionId: string | null;
+}) {
+  const requests = manifest.doctor.pending_repair_requests || [];
+  if (requests.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1" data-testid="agent-readiness-pending-requests">
+      <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+        Pending repair request
+      </div>
+      {requests.slice(0, 3).map((receipt) => {
+        const actionId = typeof receipt.target?.action_id === "string" ? receipt.target.action_id : undefined;
+        const findingCode = typeof receipt.target?.finding_code === "string" ? receipt.target.finding_code : undefined;
+        const action = proposedActions.find((candidate) => candidate.id === actionId);
+        return (
+          <SettingsControlRow
+            key={receipt.id}
+            leading={<History size={14} />}
+            title={receipt.summary || "Requested readiness repair"}
+            description={`${findingCode || "readiness"} - requested by ${actorLabel(receipt.actor)}`}
+            meta={action ? <QuietPill label="needs review" tone="warning" /> : <QuietPill label="stale" tone="neutral" />}
+            action={action ? (
+              <ActionButton
+                label={pendingActionId === action.id ? "Applying" : "Apply"}
+                size="small"
+                disabled={pendingActionId === action.id}
+                icon={<Sparkles size={12} />}
+                onPress={() => onApply(action)}
+              />
+            ) : undefined}
+            compact
+          />
+        );
+      })}
     </div>
   );
 }
@@ -536,6 +592,12 @@ export function AgentReadinessPanel({
       <SurfaceSummary manifest={data} />
       <AgentStatusSummary manifest={data} />
       <ActivityLogSummary manifest={data} />
+      <PendingRepairRequests
+        manifest={data}
+        proposedActions={proposedActions}
+        pendingActionId={pendingActionId}
+        onApply={applyAction}
+      />
       <LastRepairSummary manifest={data} />
       <WidgetAuthoringSummary manifest={data} />
       <IntegrationReadinessSummary manifest={data} />

@@ -137,6 +137,27 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `process` | Long-running subprocess (`cmd`, `required_env`, `watch_paths`). | `app/services/integration_processes.py` + `integrations.manifest_setup` | active |
 | `provides` | Module inventory — `[tools, skills, renderer, target, router, hooks, …]`. Validation only; auto-detected. | `integrations.discovery` | active |
 
+### Webhook security contract
+
+Every integration that declares `webhook:` must also declare `webhook.security` so the admin security audit can inspect inbound callback risk without importing integration code.
+
+```yaml
+webhook:
+  path: /integrations/example/webhook
+  description: Example callback receiver
+  security:
+    triggers_agent: true
+    auth:
+      type: bearer_token        # or hmac_sha256
+      setting: EXAMPLE_WEBHOOK_TOKEN
+      required: true
+    replay:
+      strategy: durable_dedupe
+      key: header:X-Example-Delivery
+```
+
+Callback routes that can inject messages or trigger agents must validate auth before parsing trusted work, require a stable replay key for agent-triggering events, and call `record_inbound_webhook_delivery` before fan-out. If the upstream platform cannot sign requests, document that as a sender-protocol limit and use bearer-token auth plus durable delivery-key dedupe as the minimum local-network contract.
+
 ## Channel binding model
 
 The `binding:` section is one of the richest extension points. Declaring it gives the integration a first-class per-channel setup experience: the admin UI renders a picker, the user chooses a Slack channel / iMessage conversation / voice satellite / whatever, and the resulting `client_id` token drives routing, scoping, and renderer lookup.

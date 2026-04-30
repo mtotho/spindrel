@@ -22,7 +22,7 @@ Add to your `.env` file or set via the Integration Settings UI:
 | `AGENT_BASE_URL` | No | Agent server URL (default: `http://localhost:8000`) |
 | `BB_DEFAULT_BOT` | No | Default bot ID for legacy config paths. Webhook channel bindings normally choose the bot. |
 | `BB_WAKE_WORDS` | No | Extra wake words (comma-separated), added on top of automatic bot name/id. See [Wake Words](#wake-words). |
-| `BB_WEBHOOK_TOKEN` | No | Shared secret for webhook auth. If set, BB must send `?token=` in the webhook URL. |
+| `BB_WEBHOOK_TOKEN` | No | Shared secret for webhook auth. Prefer `Authorization: Bearer`; legacy `?token=` URLs still work. |
 | `BB_SEND_METHOD` | No | iMessage send method: `apple-script` (default, reliable) or `private-api` (requires Private API helper). |
 | `BB_SUGGEST_CHATS` | No | Show recent chats dropdown when creating a binding (default: `true`). Set to `false` to disable. |
 | `BB_SUGGEST_COUNT` | No | Number of recent chats to show in the binding dropdown (default: `10`, max: `50`). |
@@ -54,8 +54,10 @@ The BlueBubbles integration is auto-discovered. When `BLUEBUBBLES_SERVER_URL` an
 1. Open your BlueBubbles Server UI
 2. Navigate to **Settings → API & Webhooks**
 3. Click **Add Webhook**
-4. Set the URL to: `http://{agent-server-host}:8000/integrations/bluebubbles/webhook?token={BB_WEBHOOK_TOKEN}`
-   - If `BB_WEBHOOK_TOKEN` is set, the `?token=` param is required — requests without it get 401. Omit the param if you haven't set a token (local/trusted network).
+4. Set the URL to: `http://{agent-server-host}:8000/integrations/bluebubbles/webhook`
+   - If your BlueBubbles webhook client can set headers, send `Authorization: Bearer {BB_WEBHOOK_TOKEN}`.
+   - Existing URLs with `?token={BB_WEBHOOK_TOKEN}` are still accepted as a compatibility fallback.
+   - If `BB_WEBHOOK_TOKEN` is set, requests without a valid bearer or query token get 401. Omit the token only on a local/trusted network.
 5. Subscribe to the `new-message` event (at minimum)
 6. Save
 

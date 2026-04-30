@@ -14,27 +14,34 @@ QREPLAY.1  ``integrations/github/validator.py::validate_signature``
            defense is payload-level (e.g. handler idempotency), not signature.
 
 QREPLAY.2  ``integrations/bluebubbles/router.py::webhook``
-           Static bearer token via ``?token=<BB_WEBHOOK_TOKEN>`` (no HMAC,
-           no timestamp, no nonce). Two documented replay mitigations exist:
+           Static bearer token via ``Authorization: Bearer`` with a deprecated
+           ``?token=<BB_WEBHOOK_TOKEN>`` fallback. No request HMAC, timestamp,
+           or nonce. Three documented replay mitigations exist:
            (a) ``_STALE_THRESHOLD`` = 300s staleness window keyed on the
                *self-reported* ``dateCreated`` from the payload body, and
-           (b) ``_guid_dedup`` persistent GUID dedup.
+           (b) durable ``record_inbound_webhook_delivery`` keyed on
+               ``data.guid``,
+           (c) ``_guid_dedup`` persistent GUID dedup.
            Pin: the token-only auth is replay-indistinguishable from legitimate
-           delivery — the staleness / GUID layers are what actually reject
-           replays, and they're bypassable by an attacker who controls
-           dateCreated and the guid (same static token required).
+           delivery — replay defense is now a durable message-GUID layer, not
+           cryptographic sender freshness.
 
-QREPLAY.3  ``integrations/slack/router.py`` has NO inbound webhook endpoint —
+QREPLAY.3  ``integrations/frigate/router.py::frigate_webhook``
+           Optional bearer token plus durable replay dedupe keyed on
+           ``after.id`` for new events. Missing ``after.id`` is ignored before
+           dispatch.
+
+QREPLAY.4  ``integrations/slack/router.py`` has NO inbound webhook endpoint —
            Slack uses Socket Mode via ``slack-bolt``. Pin: no ``POST`` route
            exists on the router. If a future migration switches Slack to the
            Events API (HTTP webhooks), this test flips and a fresh drift file
            should pin the signature/timestamp contract.
 
-QREPLAY.4  ``integrations/local_companion/router.py::companion_ws``
+QREPLAY.5  ``integrations/local_companion/router.py::companion_ws``
            Server nonce + HMAC challenge/response before hello metadata.
            Pin: static query-token replay is no longer the auth contract.
 
-QREPLAY.5  ``app/services/webhooks.py::sign_payload`` / ``verify_signature``
+QREPLAY.6  ``app/services/webhooks.py::sign_payload`` / ``verify_signature``
            Outbound webhook signature generator (Spindrel→third-party). HMAC
            binds timestamp + body and verification enforces a freshness window.
 """
@@ -122,33 +129,34 @@ class TestGithubWebhookSignatureReplayable:
 
 
 class TestBluebubblesReplayLayering:
-    """Pin the three replay layers: static token (auth), self-reported
-    ``dateCreated`` staleness, and persistent GUID dedup.
+    """Pin the replay layers: static token auth, self-reported ``dateCreated``
+    staleness, durable GUID dedup, and legacy in-process GUID dedup.
 
-    The static token by itself offers ZERO replay resistance. The two
-    secondary layers are what actually reject replays, and they're only
-    effective against an attacker who can't mint new (guid, dateCreated)
-    pairs — which a token holder trivially can.
+    The static token by itself offers no replay resistance. Durable delivery
+    dedupe now rejects literal and restart-surviving replays of the same
+    BlueBubbles message GUID.
     """
 
-    def test_webhook_auth_is_plain_token_no_hmac(self):
-        """Source inspection: the webhook endpoint compares a query token
-        string-equal to ``BB_WEBHOOK_TOKEN``. No HMAC, no timestamp, no
-        per-request signature. Pin via AST-free text search for the shape.
+    def test_webhook_auth_is_static_bearer_token_not_request_signature(self):
+        """Source inspection: the webhook endpoint validates a static bearer
+        token with constant-time compare. No body/timestamp request signature
+        exists, so replay resistance must come from the GUID layer.
         """
         from pathlib import Path
 
         src = (Path(__file__).resolve().parents[2]
                / "integrations/bluebubbles/router.py").read_text()
-        # Current shape: `if not token or token != expected: ... 401`
-        assert 'token != expected' in src, (
+        assert "hmac.compare_digest(token, expected)" in src, (
             "bluebubbles webhook auth shape changed — audit the new auth path "
             "and update this test."
         )
-        # Negative: no HMAC imports in the webhook module.
-        assert "hmac" not in src.split("def webhook", 1)[1][:2000], (
-            "bluebubbles webhook() now references hmac — signature-based "
-            "auth may have landed. Flip this test to pin the positive contract."
+        assert "record_inbound_webhook_delivery" in src.split("def webhook", 1)[1], (
+            "bluebubbles webhook no longer records durable inbound delivery keys."
+        )
+        webhook_block = src.split("def webhook", 1)[1].split("@router.post", 1)[0]
+        assert "request.body()" not in webhook_block and "X-" not in webhook_block, (
+            "bluebubbles webhook may now bind auth to headers/body. Audit the "
+            "sender-freshness contract and update this drift pin."
         )
 
     def test_stale_threshold_keyed_on_payload_self_report(self):
@@ -172,13 +180,11 @@ class TestBluebubblesReplayLayering:
             "self-reported or update this test to pin the new source."
         )
 
-    def test_guid_dedup_persists_but_guid_is_attacker_controlled(self):
+    def test_guid_dedup_remains_legacy_second_net(self):
         """``_guid_dedup`` is persistent (survives restart via IntegrationSetting).
         Pins:
-        - The dedup check happens BEFORE agent dispatch.
-        - An attacker with the bearer token chooses the GUID, so dedup only
-          defends against literal network-level retransmits, not crafted
-          replays.
+        - The local dedup check still recognizes repeated GUIDs.
+        - Durable DB-backed replay is now the first replay barrier.
         """
         from integrations.bluebubbles import router as bb_router
 
@@ -188,9 +194,8 @@ class TestBluebubblesReplayLayering:
         assert d.check_and_record("msg-guid-1") is False
         # Second: recognised as replay
         assert d.check_and_record("msg-guid-1") is True
-        # Attacker-chosen fresh GUID: accepted (the drift)
-        assert d.check_and_record("attacker-fresh-guid") is False
-        assert d.check_and_record("attacker-fresh-guid") is True
+        assert d.check_and_record("fresh-guid") is False
+        assert d.check_and_record("fresh-guid") is True
 
     def test_content_dedup_window_is_thirty_seconds(self):
         """``_TEXT_DEDUP_WINDOW = 30.0`` — the second, shorter net that
@@ -204,7 +209,35 @@ class TestBluebubblesReplayLayering:
 
 
 # ===========================================================================
-# QREPLAY.3 — Slack has NO webhook surface (Socket Mode)
+# QREPLAY.3 — Frigate optional token + durable replay dedupe
+# ===========================================================================
+
+
+class TestFrigateWebhookReplayLayering:
+    def test_durable_dedupe_uses_after_id(self):
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[2]
+               / "integrations/frigate/router.py").read_text()
+        webhook_block = src.split("async def frigate_webhook", 1)[1]
+
+        assert 'payload.get("after")' in webhook_block
+        assert 'surface="frigate"' in webhook_block
+        assert "record_inbound_webhook_delivery" in webhook_block
+        assert '"duplicate_delivery"' in webhook_block
+
+    def test_token_auth_remains_optional_local_network_contract(self):
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[2]
+               / "integrations/frigate/router.py").read_text()
+        assert "expected_token = _get_webhook_token()" in src
+        assert "if expected_token:" in src
+        assert "hmac.compare_digest(token, expected_token)" in src
+
+
+# ===========================================================================
+# QREPLAY.4 — Slack has NO webhook surface (Socket Mode)
 # ===========================================================================
 
 
@@ -242,7 +275,7 @@ class TestSlackHasNoInboundWebhook:
 
 
 # ===========================================================================
-# QREPLAY.4 — local_companion WS challenge response
+# QREPLAY.5 — local_companion WS challenge response
 # ===========================================================================
 
 
@@ -272,7 +305,7 @@ class TestLocalCompanionWsChallengeResponse:
 
 
 # ===========================================================================
-# QREPLAY.5 — Outbound webhook signature (Spindrel → third-party)
+# QREPLAY.6 — Outbound webhook signature (Spindrel -> third-party)
 # ===========================================================================
 
 

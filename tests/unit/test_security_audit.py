@@ -25,6 +25,7 @@ from app.services.security_audit import (
     _check_tool_policy_enabled,
     _check_exec_tools_without_rules,
     _check_host_exec,
+    _check_inbound_callback_security,
     _check_mcp_servers_count,
     _check_policy_rule_count,
     _check_rate_limiting,
@@ -411,6 +412,46 @@ class TestWorkSurfaceIsolationStatic:
         assert findings["legacy_cross_workspace_access_flag"]["status"] == "pass"
 
 
+class TestInboundCallbackSecurity:
+    def test_current_webhook_contracts_have_only_local_auth_warnings(self):
+        with patch("app.services.integration_settings.get_value", return_value=""):
+            c = _check_inbound_callback_security()
+
+        assert c.id == "inbound_callback_security"
+        assert c.category == "integration_callbacks"
+        assert c.status == Status.warning
+        assert c.severity == Severity.warning
+        callbacks = {item["integration_id"]: item for item in c.details["callbacks"]}
+        assert callbacks["github"]["replay_strategy"] == "durable_dedupe"
+        assert callbacks["github"]["findings"] == []
+        assert "optional_auth_setting_missing" in callbacks["bluebubbles"]["findings"]
+        assert "deprecated_auth_transport" in callbacks["bluebubbles"]["findings"]
+        assert "optional_auth_setting_missing" in callbacks["frigate"]["findings"]
+
+    def test_missing_replay_contract_fails(self, monkeypatch, tmp_path):
+        root = tmp_path / "weak"
+        root.mkdir()
+        (root / "integration.yaml").write_text(
+            "id: weak\n"
+            "name: Weak\n"
+            "version: '1.0'\n"
+            "webhook:\n"
+            "  path: /integrations/weak/webhook\n"
+            "  description: Weak callback\n"
+        )
+
+        monkeypatch.setattr(
+            "integrations.discovery.iter_integration_candidates",
+            lambda: [(root, "weak", False, "test")],
+        )
+
+        c = _check_inbound_callback_security()
+
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        assert c.details["failed"] == ["weak"]
+
+
 # ---------------------------------------------------------------------------
 # DB checks
 # ---------------------------------------------------------------------------
@@ -604,7 +645,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_22_checks(self, db, monkeypatch):
+    async def test_returns_23_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -623,7 +664,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 22
+        assert len(result.checks) == 23
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary
@@ -632,3 +673,4 @@ class TestRunSecurityAudit:
         ids = [c.id for c in result.checks]
         assert len(ids) == len(set(ids))
         assert "worksurface_isolation_static" in ids
+        assert "inbound_callback_security" in ids

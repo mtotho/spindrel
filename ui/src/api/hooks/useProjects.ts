@@ -93,6 +93,33 @@ export function useCreateProjectCodingRun(projectId: string | undefined) {
   });
 }
 
+function useProjectCodingRunAction(projectId: string | undefined, action: "refresh" | "reviewed" | "cleanup") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) =>
+      apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs/${taskId}/${action}`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "instances"] });
+    },
+  });
+}
+
+export function useRefreshProjectCodingRun(projectId: string | undefined) {
+  return useProjectCodingRunAction(projectId, "refresh");
+}
+
+export function useMarkProjectCodingRunReviewed(projectId: string | undefined) {
+  return useProjectCodingRunAction(projectId, "reviewed");
+}
+
+export function useCleanupProjectCodingRun(projectId: string | undefined) {
+  return useProjectCodingRunAction(projectId, "cleanup");
+}
+
 export function useCreateProjectInstance(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

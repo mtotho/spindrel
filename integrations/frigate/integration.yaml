@@ -52,6 +52,15 @@ settings:
 webhook:
   path: /integrations/frigate/webhook
   description: "Frigate event receiver (MQTT listener posts here for channel fan-out)"
+  security:
+    triggers_agent: true
+    auth:
+      type: bearer_token
+      setting: FRIGATE_WEBHOOK_TOKEN
+      required: false
+    replay:
+      strategy: durable_dedupe
+      key: body:after.id
 
 events:
   - { type: object_detected, label: Object detected, description: "New object detection event from Frigate", category: webhook }

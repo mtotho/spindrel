@@ -107,6 +107,7 @@ HARNESSES = (
             "status", "diff", "resume", "cloud", "approvals",
         ),
         direct_native_commands=(
+            ("agents", "agents"),
             ("plugins", "plugins"),
             ("skills", "skills"),
             ("mcp", "mcp-status"),
@@ -1159,6 +1160,58 @@ async def test_live_harness_core_native_slash_direct_commands(
                 isinstance(entry, dict) and entry.get("cwd") == expected_cwd
                 for entry in (cwd_entries or [])
             ), f"Codex /skills did not use harness cwd {expected_cwd!r}: {data}"
+
+
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_core_model_selection_is_plan_mode_scoped(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    channel_id, session_id, _bot_id = await _fresh_session(client, case)
+    default_model = f"e2e-default-{case.name}-{uuid.uuid4().hex[:8]}"
+    plan_model = f"e2e-plan-{case.name}-{uuid.uuid4().hex[:8]}"
+
+    default_result = await client.execute_slash_command(
+        "model",
+        session_id=session_id,
+        args=[default_model],
+    )
+    assert default_result["result_type"] == "side_effect"
+    assert default_result["payload"]["effect"] == "model"
+
+    default_settings = await client.get_session_harness_settings(session_id)
+    assert default_settings["model"] == default_model
+    assert default_settings.get("mode_models", {}).get("default") == default_model
+    assert default_settings.get("mode_models", {}).get("plan") is None
+
+    await client.start_session_plan_mode(session_id)
+    planning_before = await client.get_session_harness_settings(session_id)
+    assert planning_before["model"] is None
+    assert planning_before.get("mode_models", {}).get("default") == default_model
+
+    plan_result = await client.execute_slash_command(
+        "model",
+        session_id=session_id,
+        args=[plan_model],
+    )
+    assert plan_result["result_type"] == "side_effect"
+    assert plan_result["payload"]["effect"] == "model"
+
+    planning_settings = await client.get_session_harness_settings(session_id)
+    assert planning_settings["model"] == plan_model
+    assert planning_settings.get("mode_models", {}).get("default") == default_model
+    assert planning_settings.get("mode_models", {}).get("plan") == plan_model
+
+    await client.exit_session_plan_mode(session_id)
+    chat_settings = await client.get_session_harness_settings(session_id)
+    assert chat_settings["model"] == default_model
+    assert chat_settings.get("mode_models", {}).get("default") == default_model
+    assert chat_settings.get("mode_models", {}).get("plan") == plan_model
+
+    await client.start_session_plan_mode(session_id)
+    resumed_plan_settings = await client.get_session_harness_settings(session_id)
+    assert resumed_plan_settings["model"] == plan_model
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

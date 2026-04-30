@@ -298,7 +298,14 @@ class CodexRuntime:
                 nonlocal dynamic_tools_signature
                 if not _server_supports_dynamic_tools(client):
                     return []
-                entries = [_dynamic_tool_entry(spec) for spec in specs]
+                explicit_tool_names = set(ctx.ephemeral_tool_names or ())
+                entries = [
+                    _dynamic_tool_entry(
+                        spec,
+                        defer_loading=spec.name not in explicit_tool_names,
+                    )
+                    for spec in specs
+                ]
                 params["dynamicTools"] = entries
                 dynamic_tools_signature = _dynamic_tools_signature(entries)
                 return [spec.name for spec in specs]
@@ -930,13 +937,17 @@ def _build_thread_start_params(ctx: TurnContext) -> dict[str, Any]:
     return params
 
 
-def _dynamic_tool_entry(spec: HarnessToolSpec) -> dict[str, Any]:
+def _dynamic_tool_entry(
+    spec: HarnessToolSpec,
+    *,
+    defer_loading: bool = True,
+) -> dict[str, Any]:
     return {
         "name": spec.name,
         "namespace": "spindrel",
         "description": spec.description or spec.name,
         "inputSchema": spec.parameters or {"type": "object", "properties": {}},
-        "deferLoading": True,
+        "deferLoading": defer_loading,
     }
 
 

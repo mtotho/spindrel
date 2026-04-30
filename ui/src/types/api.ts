@@ -1536,6 +1536,43 @@ export interface ProjectCodingRun {
   task: ProjectCodingRunTask;
   receipt?: ProjectRunReceipt | null;
   activity?: Array<Record<string, any>>;
+  review?: {
+    status?: string;
+    blocker?: string | null;
+    reviewed?: boolean;
+    reviewed_at?: string | null;
+    handoff_url?: string | null;
+    pr?: {
+      url?: string | null;
+      state?: string | null;
+      draft?: boolean | null;
+      merge_state?: string | null;
+      review_decision?: string | null;
+      checks_status?: string | null;
+    };
+    steps?: Record<string, { status?: string; summary?: string | null }>;
+    evidence?: {
+      changed_files_count?: number;
+      tests_count?: number;
+      screenshots_count?: number;
+      has_tests?: boolean;
+      has_screenshots?: boolean;
+    };
+    instance?: {
+      id?: string;
+      status?: string;
+      root_path?: string;
+      owner_kind?: string | null;
+      owner_id?: string | null;
+      expires_at?: string | null;
+      deleted_at?: string | null;
+    } | null;
+    actions?: {
+      can_refresh?: boolean;
+      can_mark_reviewed?: boolean;
+      can_cleanup_instance?: boolean;
+    };
+  };
   created_at?: string | null;
   updated_at?: string | null;
 }

@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import hmac
 import time
 import uuid
+from collections.abc import Mapping
 from collections import OrderedDict
 
 import httpx
@@ -28,6 +30,7 @@ from integrations.sdk import (
     get_bot,
     get_db,
     get_integration_meta,
+    record_inbound_webhook_delivery,
     renderer_registry,
     verify_admin_auth,
     verify_auth_or_user,
@@ -48,6 +51,21 @@ _paused: bool = False
 # This is the phone number of the iMessage account running the BB server,
 # used as the sender identity for is_from_me messages.
 _owner_address: dict[str, str] = {}  # {"phone": "+1..."} or empty
+
+
+def _get_request_header(request: Request, name: str) -> str:
+    headers = getattr(request, "headers", None)
+    if not isinstance(headers, Mapping):
+        return ""
+    value = headers.get(name) or headers.get(name.lower()) or headers.get(name.title()) or ""
+    return value if isinstance(value, str) else ""
+
+
+def _get_webhook_auth_token(request: Request) -> tuple[str, str]:
+    auth_header = _get_request_header(request, "authorization")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip(), "authorization"
+    return request.query_params.get("token", ""), "query"
 
 
 async def _fetch_owner_address(server_url: str, password: str) -> str | None:
@@ -734,9 +752,10 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     BB POSTs ``{"type": "new-message", "data": {...}}`` for each incoming
     iMessage.  This replaces Socket.IO for message delivery.
 
-    Authenticated via ``?token=<BB_WEBHOOK_TOKEN>`` query param.
-    If ``BB_WEBHOOK_TOKEN`` is not configured, the endpoint is open
-    (for local/trusted networks).
+    Authenticated via ``Authorization: Bearer <BB_WEBHOOK_TOKEN>``.
+    ``?token=<BB_WEBHOOK_TOKEN>`` remains as a deprecated compatibility
+    fallback for existing BlueBubbles server URLs. If ``BB_WEBHOOK_TOKEN`` is
+    not configured, the endpoint is open for local/trusted networks.
     """
     from integrations.bluebubbles.config import settings as bb_settings
 
@@ -748,11 +767,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     expected = bb_settings.BB_WEBHOOK_TOKEN
     if expected:
-        token = request.query_params.get("token", "")
-        if not token or token != expected:
+        token, token_source = _get_webhook_auth_token(request)
+        if not token or not hmac.compare_digest(token, expected):
             logger.warning("BB webhook: auth failed (token mismatch, expected_len=%d got_len=%d)",
                            len(expected), len(token))
             raise HTTPException(status_code=401, detail="Invalid or missing token")
+        if token_source == "query":
+            logger.info("BB webhook: accepted deprecated query-token auth; prefer Authorization bearer token")
 
     # Load persisted state from DB on first webhook call.
     # This ensures circuit breaker / cooldown / GUID dedup survive server restarts.
@@ -800,11 +821,24 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     is_from_me = bool(data.get("isFromMe"))
     msg_guid = data.get("guid", "")
+    if not msg_guid:
+        logger.warning("BB webhook: new-message without message GUID")
+        return {"status": "ignored", "reason": "no_message_guid"}
+
+    first_delivery = await record_inbound_webhook_delivery(
+        db,
+        surface="bluebubbles",
+        dedupe_key=msg_guid,
+        metadata={"event": event_type},
+    )
+    if not first_delivery:
+        logger.info("BB webhook: duplicate durable GUID %s, ignoring", msg_guid)
+        return {"status": "ignored", "reason": "duplicate_delivery"}
 
     # GUID dedup — reject any message we've already processed.
     # This is persisted to disk so it survives server restarts,
     # preventing replay storms when BB retries old webhooks.
-    if msg_guid and _guid_dedup.check_and_record(msg_guid):
+    if _guid_dedup.check_and_record(msg_guid):
         logger.info("BB webhook: duplicate GUID %s, ignoring", msg_guid)
         return {"status": "ignored", "reason": "duplicate"}
 

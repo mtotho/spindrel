@@ -553,6 +553,14 @@ the system can already inspect" is a shared capability manifest:
   finding codes, and field-level bot diffs. The UI runs preflight before
   applying staged bot patches and stores the preflight result in the readiness
   execution receipt.
+- Runtime agents can now request, rather than apply, ready Agent Readiness
+  repairs. `POST /api/v1/agent-capabilities/actions/request` and
+  `request_agent_repair` create/update an idempotent `needs_review`
+  execution receipt with the review preflight and the requester's missing
+  apply scopes; the manifest exposes these under
+  `doctor.pending_repair_requests`, and the Agent Readiness panel lets humans
+  apply a still-current request through the existing preflight + bot-update
+  path.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

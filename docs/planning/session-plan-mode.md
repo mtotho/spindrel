@@ -368,6 +368,9 @@ Current backend/runtime details:
 
 - registered as a local mutating tool
 - also exposed as `POST /sessions/{session_id}/plan/replan`
+- `revision`, when supplied, may be either the current plan revision or the
+  next draft revision. The latter is accepted because agents often describe the
+  replan request in terms of the revision they are asking the system to create.
 - returns `application/vnd.spindrel.plan+json` so agent-triggered replans render on the transcript-native plan surface
 - creates a new draft revision with an open replan question
 - keeps `accepted_revision` pointed at the old approved revision until a new revision is approved

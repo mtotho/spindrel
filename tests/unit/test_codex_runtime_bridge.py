@@ -104,6 +104,17 @@ def test_thread_start_dynamic_tools_entry_uses_input_schema():
     assert "query" in entry["inputSchema"]["properties"]
 
 
+def test_explicit_dynamic_tool_entry_can_be_eager_loaded():
+    spec = HarnessToolSpec(
+        name="list_channels",
+        description="List channels",
+        parameters={"type": "object", "properties": {}},
+        schema={},
+    )
+    entry = _dynamic_tool_entry(spec, defer_loading=False)
+    assert entry["deferLoading"] is False
+
+
 def test_dynamic_tools_signature_changes_when_schema_changes():
     first = _dynamic_tools_signature([
         {

@@ -37,6 +37,7 @@ def _make_request(payload: dict | None = None):
     """Build a mock FastAPI Request."""
     req = AsyncMock()
     req.json.return_value = payload or SAMPLE_EVENT
+    req.headers = {}
     return req
 
 
@@ -135,6 +136,51 @@ class TestMatchesBindingFilter:
 
 
 class TestWebhookFanOut:
+    @pytest.mark.asyncio
+    async def test_invalid_token_rejected_when_configured(self):
+        request = _make_request()
+        request.headers = {"Authorization": "Bearer wrong"}
+        db = AsyncMock()
+
+        with patch("integrations.frigate.router._get_webhook_token", return_value="expected"):
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as exc_info:
+                await frigate_webhook(request, db)
+
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_missing_event_id_ignored_before_dispatch(self):
+        event = {
+            "type": "new",
+            "before": {},
+            "after": {
+                "camera": "front_door",
+                "label": "person",
+                "top_score": 0.85,
+            },
+        }
+        request = _make_request(event)
+        db = AsyncMock()
+
+        with patch("integrations.frigate.router.resolve_all_channels_by_client_id", new_callable=AsyncMock) as resolve:
+            result = await frigate_webhook(request, db)
+
+        assert result == {"status": "ignored", "reason": "no_event_id"}
+        resolve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_event_id_ignored_before_dispatch(self):
+        request = _make_request()
+        db = AsyncMock()
+
+        with patch("integrations.frigate.router.record_inbound_webhook_delivery", new_callable=AsyncMock, return_value=False), \
+             patch("integrations.frigate.router.resolve_all_channels_by_client_id", new_callable=AsyncMock) as resolve:
+            result = await frigate_webhook(request, db)
+
+        assert result == {"status": "ignored", "reason": "duplicate_delivery"}
+        resolve.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_fanout_to_two_channels(self):
         """Same event dispatches to 2 channels with no filters."""

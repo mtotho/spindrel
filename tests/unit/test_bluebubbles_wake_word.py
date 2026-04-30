@@ -388,6 +388,7 @@ def _webhook_request(payload: dict) -> AsyncMock:
     """Build a mock Request with valid auth token and the given JSON payload."""
     request = AsyncMock()
     request.json.return_value = payload
+    request.headers = {}
     request.query_params = {"token": _WEBHOOK_TOKEN}
     return request
 
@@ -398,7 +399,8 @@ class TestWebhookEndpoint:
     @pytest.fixture(autouse=True)
     def _bypass_guid_dedup(self):
         """All webhook tests bypass GUID dedup by default."""
-        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup, \
+             patch("integrations.bluebubbles.router.record_inbound_webhook_delivery", new_callable=AsyncMock, return_value=True):
             mock_dedup.check_and_record.return_value = False
             mock_dedup.save_to_db = AsyncMock()
             yield mock_dedup
@@ -419,6 +421,7 @@ class TestWebhookEndpoint:
 
         request = AsyncMock()
         request.json.return_value = _bb_webhook_payload()
+        request.headers = {}
         request.query_params = {}
         db = AsyncMock()
 
@@ -435,6 +438,7 @@ class TestWebhookEndpoint:
 
         request = AsyncMock()
         request.json.return_value = _bb_webhook_payload()
+        request.headers = {}
         request.query_params = {"token": "wrong-token"}
         db = AsyncMock()
 
@@ -444,12 +448,30 @@ class TestWebhookEndpoint:
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
+    async def test_bearer_token_accepted(self):
+        """Authorization bearer token is the preferred webhook auth path."""
+        from integrations.bluebubbles.router import webhook
+
+        request = AsyncMock()
+        request.json.return_value = _bb_webhook_payload(text="")
+        request.headers = {"authorization": f"Bearer {_WEBHOOK_TOKEN}"}
+        request.query_params = {}
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            result = await webhook(request, db)
+
+        assert result["status"] == "ignored"
+        assert result["reason"] == "empty_text"
+
+    @pytest.mark.asyncio
     async def test_no_token_configured_allows_all(self):
         """When BB_WEBHOOK_TOKEN is empty, requests are allowed without token."""
         from integrations.bluebubbles.router import webhook
 
         request = AsyncMock()
         request.json.return_value = _bb_webhook_payload(text="", event_type="new-message")
+        request.headers = {}
         request.query_params = {}
         db = AsyncMock()
 
@@ -458,6 +480,37 @@ class TestWebhookEndpoint:
             result = await webhook(request, db)
         assert result["status"] == "ignored"
         assert result["reason"] == "empty_text"
+
+    @pytest.mark.asyncio
+    async def test_missing_message_guid_ignored_before_channel_resolution(self):
+        """Agent-triggering new-message events need a durable replay key."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request(_bb_webhook_payload(msg_guid=""))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", new_callable=AsyncMock) as resolve:
+            result = await webhook(request, db)
+
+        assert result == {"status": "ignored", "reason": "no_message_guid"}
+        resolve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_durable_guid_ignored_before_injection(self):
+        """Durable webhook replay dedupe runs before message injection."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request(_bb_webhook_payload())
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
+             patch("integrations.bluebubbles.router.record_inbound_webhook_delivery", new_callable=AsyncMock, return_value=False), \
+             patch("integrations.bluebubbles.router.utils.inject_message", new_callable=AsyncMock) as inject:
+            result = await webhook(request, db)
+
+        assert result == {"status": "ignored", "reason": "duplicate_delivery"}
+        inject.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_non_new_message_event_ignored(self):

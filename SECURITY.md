@@ -80,6 +80,7 @@ The admin security audit is read-only and currently checks baseline config/tool-
 - Bots with `cross_workspace_access`
 - Bots with high-risk API scopes such as `admin`, wildcard, `tools:execute`, secret/provider/settings/API-key writes, and broad file writes
 - Widget action API dispatch allowlist breadth
+- WorkSurface isolation static findings and inbound integration callback auth/replay contracts
 
 ## Deployment Guidance
 

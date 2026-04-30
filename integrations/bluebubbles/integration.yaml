@@ -52,7 +52,17 @@ api_permissions: bluebubbles_integration
 
 webhook:
   path: /integrations/bluebubbles/webhook
-  description: "BlueBubbles new-message webhook receiver (optional ?token=BB_WEBHOOK_TOKEN auth)"
+  description: "BlueBubbles new-message webhook receiver (optional bearer-token auth)"
+  security:
+    triggers_agent: true
+    auth:
+      type: bearer_token
+      setting: BB_WEBHOOK_TOKEN
+      required: false
+      deprecated_transports: [query_token]
+    replay:
+      strategy: durable_dedupe
+      key: body:data.guid
 
 debug_actions:
   - id: pause

@@ -1,8 +1,14 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, ExternalLink, FileText, GitBranch, Play } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, Play, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { useCreateProjectCodingRun, useProjectCodingRuns } from "@/src/api/hooks/useProjects";
+import {
+  useCleanupProjectCodingRun,
+  useCreateProjectCodingRun,
+  useMarkProjectCodingRunReviewed,
+  useProjectCodingRuns,
+  useRefreshProjectCodingRun,
+} from "@/src/api/hooks/useProjects";
 import { FormRow, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -46,8 +52,8 @@ function formatRunTime(value?: string | null) {
 }
 
 function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
-  if (status === "completed" || status === "complete" || status === "reported") return "success";
-  if (status === "pending" || status === "running" || status === "needs_review" || status === "blocked") return "warning";
+  if (status === "completed" || status === "complete" || status === "reported" || status === "ready_for_review" || status === "reviewed") return "success";
+  if (status === "pending" || status === "running" || status === "needs_review" || status === "blocked" || status === "pending_evidence") return "warning";
   if (status === "failed") return "danger";
   return "neutral";
 }
@@ -87,6 +93,18 @@ function statusMark(status?: string, summary?: string) {
 }
 
 function handoffProgressSummary(run: ProjectCodingRun) {
+  const steps = run.review?.steps;
+  if (steps) {
+    const items = [
+      ["PR", steps.pr?.status],
+      ["Branch", steps.branch?.status],
+      ["Status", steps.status?.status],
+    ]
+      .filter(([, status]) => status && status !== "missing")
+      .slice(0, 3)
+      .map(([label, status]) => `${label}: ${statusMark(String(status || ""))}`);
+    if (items.length > 0) return items.join(" · ");
+  }
   const items = (run.activity ?? [])
     .filter((item) => item.kind === "execution_receipt" && item.source?.scope === "project_coding_run")
     .slice(0, 3);
@@ -96,11 +114,76 @@ function handoffProgressSummary(run: ProjectCodingRun) {
     .join(" · ");
 }
 
+function evidenceSummary(run: ProjectCodingRun) {
+  const evidence = run.review?.evidence;
+  if (evidence) {
+    return `${evidence.tests_count ?? 0} tests · ${evidence.screenshots_count ?? 0} screenshots · ${evidence.changed_files_count ?? 0} files`;
+  }
+  if (!run.receipt) return "No evidence receipt yet";
+  return `${run.receipt.tests?.length ?? 0} tests · ${run.receipt.screenshots?.length ?? 0} screenshots · ${run.receipt.changed_files?.length ?? 0} files`;
+}
+
+function reviewStatusLabel(run: ProjectCodingRun) {
+  return run.review?.status || run.status;
+}
+
+function reviewLine(run: ProjectCodingRun) {
+  const review = run.review;
+  if (!review) return null;
+  const pieces = [
+    review.pr?.state ? `PR ${String(review.pr.state).toLowerCase()}` : review.handoff_url ? "PR linked" : null,
+    review.pr?.checks_status ? `checks ${review.pr.checks_status}` : null,
+    review.instance?.status ? `workspace ${review.instance.status}` : null,
+  ].filter(Boolean);
+  if (review.blocker) return `Blocker: ${review.blocker}`;
+  return pieces.length > 0 ? pieces.join(" · ") : null;
+}
+
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
-      {run.receipt?.handoff_url && <RowLink href={run.receipt.handoff_url}>Handoff</RowLink>}
+      {(run.review?.handoff_url || run.receipt?.handoff_url) && <RowLink href={run.review?.handoff_url || run.receipt?.handoff_url || undefined}>Handoff</RowLink>}
       <RowLink to={`/admin/tasks/${run.task.id}`}>Task</RowLink>
+    </div>
+  );
+}
+
+function RunReviewActions({ projectId, run }: { projectId: string; run: ProjectCodingRun }) {
+  const refreshRun = useRefreshProjectCodingRun(projectId);
+  const markReviewed = useMarkProjectCodingRunReviewed(projectId);
+  const cleanupRun = useCleanupProjectCodingRun(projectId);
+  const busy = refreshRun.isPending || markReviewed.isPending || cleanupRun.isPending;
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1">
+      <ActionButton
+        label="Refresh"
+        icon={<RefreshCcw size={13} />}
+        size="small"
+        variant="ghost"
+        disabled={busy || run.review?.actions?.can_refresh === false}
+        onPress={() => refreshRun.mutate(run.task.id)}
+      />
+      {run.review?.actions?.can_mark_reviewed && (
+        <ActionButton
+          label="Reviewed"
+          icon={<Check size={13} />}
+          size="small"
+          variant="secondary"
+          disabled={busy}
+          onPress={() => markReviewed.mutate(run.task.id)}
+        />
+      )}
+      {run.review?.actions?.can_cleanup_instance && (
+        <ActionButton
+          label="Clean up"
+          icon={<Trash2 size={13} />}
+          size="small"
+          variant="danger"
+          disabled={busy}
+          onPress={() => cleanupRun.mutate(run.task.id)}
+        />
+      )}
+      <RunActionLinks run={run} />
     </div>
   );
 }
@@ -211,7 +294,7 @@ export function ProjectRunsSection({
         )}
       </Section>
 
-      <Section title="Coding Runs" description="Task state, branch target, recent activity, and the latest receipt for API-launched Project work.">
+      <Section title="Coding Runs" description="Review state, branch/PR handoff, evidence, and workspace cleanup for API-launched Project work.">
         <div className="flex flex-col gap-2">
           {runs.length === 0 ? (
             <EmptyState message="No Project coding runs have been started yet." />
@@ -230,6 +313,12 @@ export function ProjectRunsSection({
                       {run.repo?.path ? ` · ${run.repo.path}` : ""}
                     </span>
                     <span className="truncate text-[11px] text-text-dim">
+                      Review: {reviewStatusLabel(run)} · Evidence: {evidenceSummary(run)}
+                    </span>
+                    {reviewLine(run) && (
+                      <span className="truncate text-[11px] text-text-dim">{reviewLine(run)}</span>
+                    )}
+                    <span className="truncate text-[11px] text-text-dim">
                       {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}
                     </span>
                     {run.receipt && (
@@ -239,8 +328,8 @@ export function ProjectRunsSection({
                     )}
                   </span>
                 }
-                meta={<StatusBadge label={run.status} variant={statusTone(run.status)} />}
-                action={<RunActionLinks run={run} />}
+                meta={<StatusBadge label={reviewStatusLabel(run)} variant={statusTone(reviewStatusLabel(run))} />}
+                action={<RunReviewActions projectId={project.id} run={run} />}
               />
             ))
           )}

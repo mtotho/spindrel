@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -406,6 +407,140 @@ def _check_worksurface_isolation_static() -> SecurityCheck:
         summarize_worksurface_isolation,
     )
 
+
+def _webhook_auth_recommendation() -> str:
+    return (
+        "Declare webhook.security auth/replay metadata; require signed or bearer-token auth "
+        "for exposed callbacks; use record_inbound_webhook_delivery for durable replay keys."
+    )
+
+
+def _check_inbound_callback_security() -> SecurityCheck:
+    try:
+        from integrations.discovery import iter_integration_candidates
+        from app.services.integration_manifests import parse_integration_yaml
+        from app.services.integration_settings import get_value as get_integration_setting
+    except Exception as exc:
+        return SecurityCheck(
+            id="inbound_callback_security",
+            category="integration_callbacks",
+            severity=Severity.warning,
+            status=Status.fail,
+            message="Could not inspect integration webhook manifests",
+            recommendation=_webhook_auth_recommendation(),
+            details={"error": str(exc)},
+        )
+
+    callbacks: list[dict[str, Any]] = []
+    missing_contracts: list[str] = []
+    warnings: list[str] = []
+
+    for candidate_dir, integration_id, _is_external, _source in iter_integration_candidates():
+        yaml_path = candidate_dir / "integration.yaml"
+        if not yaml_path.exists():
+            continue
+        try:
+            manifest = parse_integration_yaml(yaml_path)
+        except Exception as exc:
+            missing_contracts.append(integration_id)
+            callbacks.append({
+                "integration_id": integration_id,
+                "status": "fail",
+                "reason": f"manifest parse failed: {exc}",
+            })
+            continue
+
+        webhook = manifest.get("webhook")
+        if not isinstance(webhook, dict):
+            continue
+
+        security = webhook.get("security") if isinstance(webhook.get("security"), dict) else {}
+        auth = security.get("auth") if isinstance(security.get("auth"), dict) else {}
+        replay = security.get("replay") if isinstance(security.get("replay"), dict) else {}
+        callback: dict[str, Any] = {
+            "integration_id": manifest.get("id", integration_id),
+            "path": webhook.get("path"),
+            "triggers_agent": bool(security.get("triggers_agent")),
+            "auth_type": auth.get("type"),
+            "auth_required": bool(auth.get("required")),
+            "auth_setting": auth.get("setting"),
+            "replay_strategy": replay.get("strategy"),
+            "replay_key": replay.get("key"),
+            "deprecated_transports": auth.get("deprecated_transports") or [],
+            "findings": [],
+        }
+
+        if not security:
+            callback["findings"].append("missing_security_contract")
+            missing_contracts.append(callback["integration_id"])
+        if not auth.get("type"):
+            callback["findings"].append("missing_auth_contract")
+            missing_contracts.append(callback["integration_id"])
+        if replay.get("strategy") != "durable_dedupe" or not replay.get("key"):
+            callback["findings"].append("missing_durable_replay_contract")
+            missing_contracts.append(callback["integration_id"])
+
+        setting = auth.get("setting")
+        if setting:
+            configured = bool(get_integration_setting(callback["integration_id"], setting, ""))
+            callback["auth_configured"] = configured
+            if not auth.get("required") and not configured:
+                callback["findings"].append("optional_auth_setting_missing")
+                warnings.append(callback["integration_id"])
+        elif auth.get("type") not in (None, "none"):
+            callback["findings"].append("auth_setting_missing")
+            missing_contracts.append(callback["integration_id"])
+
+        if callback["deprecated_transports"]:
+            callback["findings"].append("deprecated_auth_transport")
+            warnings.append(callback["integration_id"])
+
+        callbacks.append(callback)
+
+    if not callbacks:
+        return SecurityCheck(
+            id="inbound_callback_security",
+            category="integration_callbacks",
+            severity=Severity.info,
+            status=Status.passed,
+            message="No inbound integration callbacks are declared",
+            details={"callbacks": []},
+        )
+
+    failed = sorted(set(missing_contracts))
+    warned = sorted(set(warnings) - set(failed))
+    if failed:
+        return SecurityCheck(
+            id="inbound_callback_security",
+            category="integration_callbacks",
+            severity=Severity.critical,
+            status=Status.fail,
+            message=f"{len(failed)} inbound callback integration(s) have missing auth/replay contracts",
+            recommendation=_webhook_auth_recommendation(),
+            details={"callbacks": callbacks, "failed": failed, "warnings": warned},
+        )
+    if warned:
+        return SecurityCheck(
+            id="inbound_callback_security",
+            category="integration_callbacks",
+            severity=Severity.warning,
+            status=Status.warning,
+            message=f"{len(warned)} inbound callback integration(s) have local-network/deprecated auth warnings",
+            recommendation=(
+                "Configure webhook bearer tokens before exposing callbacks beyond a trusted local network; "
+                "prefer Authorization bearer tokens over query-token URLs."
+            ),
+            details={"callbacks": callbacks, "warnings": warned},
+        )
+    return SecurityCheck(
+        id="inbound_callback_security",
+        category="integration_callbacks",
+        severity=Severity.warning,
+        status=Status.passed,
+        message=f"{len(callbacks)} inbound callback integration(s) declare auth and durable replay contracts",
+        details={"callbacks": callbacks},
+    )
+
     findings = audit_worksurface_isolation()
     summary = summarize_worksurface_isolation(findings)
     failing = [finding for finding in findings if finding.status == "fail"]
@@ -655,6 +790,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_bots_with_high_risk_api_scopes())
     checks.append(_check_widget_action_api_allowlist())
     checks.append(_check_worksurface_isolation_static())
+    checks.append(_check_inbound_callback_security())
 
     # DB-dependent checks
     checks.append(await _check_exec_tools_without_rules(db))

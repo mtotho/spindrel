@@ -9,7 +9,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import ApiKeyAuth, get_db, require_scopes
-from app.services.agent_capabilities import build_agent_capability_manifest, preflight_agent_repair_action
+from app.services.agent_capabilities import (
+    build_agent_capability_manifest,
+    preflight_agent_repair_action,
+    request_agent_repair_action,
+)
 
 router = APIRouter(prefix="/agent-capabilities", tags=["agent-capabilities"])
 
@@ -21,11 +25,25 @@ class AgentRepairPreflightIn(BaseModel):
     session_id: uuid.UUID | None = None
 
 
+class AgentRepairRequestIn(BaseModel):
+    action_id: str = Field(..., min_length=1)
+    bot_id: str | None = None
+    channel_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    rationale: str | None = None
+
+
 def _auth_scopes(auth: Any) -> list[str] | None:
     if isinstance(auth, ApiKeyAuth):
         return list(auth.scopes)
     resolved_scopes = getattr(auth, "_resolved_scopes", None)
     return list(resolved_scopes) if resolved_scopes is not None else None
+
+
+def _auth_actor(auth: Any) -> dict[str, Any]:
+    if isinstance(auth, ApiKeyAuth):
+        return {"kind": "api_key", "name": auth.name, "key_id": str(auth.key_id)}
+    return {"kind": "user_or_admin"}
 
 
 @router.get("")
@@ -75,4 +93,23 @@ async def preflight_agent_capability_action(
         channel_id=payload.channel_id,
         session_id=payload.session_id,
         actor_scopes=_auth_scopes(auth),
+    )
+
+
+@router.post("/actions/request")
+async def request_agent_capability_action(
+    payload: AgentRepairRequestIn,
+    db: AsyncSession = Depends(get_db),
+    auth: Any = Depends(require_scopes("tools:execute")),
+) -> dict[str, Any]:
+    """Queue an Agent Readiness action for human review without applying it."""
+    return await request_agent_repair_action(
+        db,
+        action_id=payload.action_id,
+        bot_id=payload.bot_id,
+        channel_id=payload.channel_id,
+        session_id=payload.session_id,
+        requester_scopes=_auth_scopes(auth),
+        actor=_auth_actor(auth),
+        rationale=payload.rationale,
     )

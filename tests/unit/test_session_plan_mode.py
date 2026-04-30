@@ -915,6 +915,34 @@ def test_request_replan_preserves_accepted_revision_and_returns_to_planning(monk
     assert any("Replan required" in item for item in plan.open_questions)
 
 
+def test_request_replan_accepts_next_draft_revision_hint(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Replan Revision Hint",
+        summary="Accept common next-draft revision hints.",
+        scope="Accepted revision handling.",
+        acceptance_criteria=["Next draft revision hint returns to planning."],
+        **_professional_fields(),
+        steps=[{"id": "audit", "label": "Audit the accepted plan"}],
+    )
+    spm.approve_session_plan(session)
+
+    plan = spm.request_plan_replan(
+        session,
+        reason="The accepted plan is stale.",
+        affected_step_ids=["audit"],
+        revision=2,
+    )
+
+    assert plan.revision == 2
+    assert plan.status == spm.PLAN_STATUS_DRAFT
+    assert session.metadata_["plan_mode"] == spm.PLAN_MODE_PLANNING
+    assert session.metadata_["plan_accepted_revision"] == 1
+    assert session.metadata_["plan_runtime"]["replan"]["from_revision"] == 1
+
+
 def test_replan_draft_step_update_clears_blocked_step_and_approval_unblocks_mutation(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

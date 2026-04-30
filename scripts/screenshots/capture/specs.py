@@ -2811,10 +2811,48 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
       const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
       if (match) {
         const response = await originalFetch(input, init);
-        if (response.ok) return response;
+        const enrichRun = (run, projectId) => ({
+          ...run,
+          review: run.review || {
+            status: "ready_for_review",
+            blocker: null,
+            reviewed: false,
+            reviewed_at: null,
+            handoff_url: run.receipt?.handoff_url || "https://example.invalid/spindrel/project-run",
+            pr: { url: run.receipt?.handoff_url || "https://example.invalid/spindrel/project-run", state: "OPEN", draft: true, checks_status: "passed" },
+            steps: {
+              branch: { status: "succeeded", summary: "Screenshot Project run branch ready." },
+              push: { status: "missing", summary: null },
+              pr: { status: "succeeded", summary: "Screenshot Project run draft PR ready." },
+              status: { status: "succeeded", summary: "Project run repository state inspected." },
+              cleanup: { status: "missing", summary: null }
+            },
+            evidence: {
+              changed_files_count: run.receipt?.changed_files?.length || 2,
+              tests_count: run.receipt?.tests?.length || 2,
+              screenshots_count: run.receipt?.screenshots?.length || 1,
+              has_tests: true,
+              has_screenshots: true
+            },
+            instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
+            actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true }
+          }
+        });
+        if (response.ok) {
+          try {
+            const rows = await response.clone().json();
+            if (Array.isArray(rows)) {
+              return new Response(JSON.stringify(rows.map((run) => enrichRun(run, match[1]))), {
+                status: response.status,
+                headers: { "Content-Type": "application/json" }
+              });
+            }
+          } catch {}
+          return response;
+        }
         if (response.status !== 404) return response;
         const projectId = match[1];
-        const body = [{
+        const body = [enrichRun({
           id: "screenshot-project-coding-run",
           project_id: projectId,
           status: "completed",
@@ -2889,7 +2927,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           ],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        }];
+        }, projectId)];
         return new Response(JSON.stringify(body), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -3113,8 +3151,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "return { ok: text.includes('Project request') "
             "&& text.includes('Coding Runs') "
             "&& text.includes('Prepare the Project workspace screenshot receipt') "
+            "&& text.includes('Review:') "
+            "&& text.includes('Evidence:') "
             "&& text.includes('Progress:') "
             "&& text.includes('PR: ready') "
+            "&& text.includes('Refresh') "
             "&& text.includes('Run Receipts') "
             "&& text.includes('Screenshot Project coding run receipt') "
             "&& text.includes('project-workspace-runs.png') "

@@ -6,7 +6,7 @@ import pytest
 
 from app.db.models import Bot, Channel
 from app.services import agent_capabilities
-from app.services.execution_receipts import create_execution_receipt
+from app.services.execution_receipts import create_execution_receipt, list_execution_receipts
 from app.tools.registry import _tools as local_tools
 
 
@@ -156,6 +156,9 @@ async def test_manifest_includes_runtime_context(monkeypatch):
     async def fake_doctor_recent_receipts_payload(*args, **kwargs):
         return [{"scope": "agent_readiness", "summary": "Verified resolved."}]
 
+    async def fake_doctor_pending_repair_requests_payload(*args, **kwargs):
+        return [{"scope": "agent_readiness", "status": "needs_review", "summary": "Requested repair."}]
+
     monkeypatch.setattr(agent_capabilities, "_resolve_context", fake_resolve_context)
     monkeypatch.setattr(agent_capabilities, "_scopes_for_bot", fake_scopes_for_bot)
     monkeypatch.setattr(agent_capabilities, "_tool_payload", fake_tool_payload)
@@ -167,6 +170,7 @@ async def test_manifest_includes_runtime_context(monkeypatch):
     monkeypatch.setattr(agent_capabilities, "activity_log_payload", fake_activity_log_payload)
     monkeypatch.setattr(agent_capabilities, "agent_status_payload", fake_agent_status_payload)
     monkeypatch.setattr(agent_capabilities, "doctor_recent_receipts_payload", fake_doctor_recent_receipts_payload)
+    monkeypatch.setattr(agent_capabilities, "doctor_pending_repair_requests_payload", fake_doctor_pending_repair_requests_payload)
 
     manifest = await agent_capabilities.build_agent_capability_manifest(SimpleNamespace(), bot_id="agent")
 
@@ -177,6 +181,7 @@ async def test_manifest_includes_runtime_context(monkeypatch):
     assert manifest["tool_error_contract"]["version"] == "tool-error.v1"
     assert "validation" in manifest["tool_error_contract"]["benign_review_kinds"]
     assert manifest["doctor"]["recent_receipts"][0]["summary"] == "Verified resolved."
+    assert manifest["doctor"]["pending_repair_requests"][0]["summary"] == "Requested repair."
     assert "context_should_summarize" not in {
         finding["code"] for finding in manifest["doctor"]["findings"]
     }
@@ -229,6 +234,42 @@ async def test_doctor_recent_receipts_payload_filters_agent_readiness_receipts(d
     assert receipts[0]["schema_version"] == "execution-receipt.v1"
 
 
+@pytest.mark.asyncio
+async def test_doctor_pending_repair_requests_payload_filters_requested_needs_review(db_session):
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="tool_setup",
+        status="needs_review",
+        summary="Requested repair.",
+        bot_id="agent",
+        result={"requested_repair": True},
+    )
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="tool_setup",
+        status="succeeded",
+        summary="Already applied.",
+        bot_id="agent",
+        result={"requested_repair": True},
+    )
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="tool_setup",
+        status="needs_review",
+        summary="Manual review.",
+        bot_id="agent",
+        result={"requested_repair": False},
+    )
+
+    receipts = await agent_capabilities.doctor_pending_repair_requests_payload(db_session, bot_id="agent")
+
+    assert [receipt["summary"] for receipt in receipts] == ["Requested repair."]
+    assert receipts[0]["status"] == "needs_review"
+
+
 def _preflight_manifest(action: dict, *, bot_id: str = "agent", findings: list[str] | None = None) -> dict:
     findings = findings or [action["finding_code"]]
     return {
@@ -261,6 +302,10 @@ def _bot_patch_action(
             "patch": patch or {"local_tools": ["list_agent_capabilities"]},
         },
     }
+
+
+async def _fake_request_manifest(db, *, action: dict, bot_id: str = "agent") -> dict:
+    return _preflight_manifest(action, bot_id=bot_id)
 
 
 @pytest.mark.asyncio
@@ -398,11 +443,154 @@ async def test_preflight_agent_repair_noops_when_patch_matches_current_bot(db_se
     assert preflight["would_change"][0]["changes"] is False
 
 
-def test_preflight_agent_repair_tool_is_registered():
+@pytest.mark.asyncio
+async def test_request_agent_repair_queues_review_without_mutating_bot(monkeypatch, db_session):
+    bot = Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=[],
+        pinned_tools=[],
+    )
+    db_session.add(bot)
+    await db_session.commit()
+    action = _bot_patch_action()
+
+    async def fake_manifest(*args, **kwargs):
+        return await _fake_request_manifest(db_session, action=action)
+
+    monkeypatch.setattr(agent_capabilities, "build_agent_capability_manifest", fake_manifest)
+
+    request = await agent_capabilities.request_agent_repair_action(
+        db_session,
+        action_id=action["id"],
+        bot_id="agent",
+        requester_scopes=["tools:execute"],
+        actor={"kind": "bot", "bot_id": "agent"},
+        rationale="I need the core tools.",
+    )
+    await db_session.refresh(bot)
+
+    assert request["schema_version"] == "agent-repair-request.v1"
+    assert request["ok"] is True
+    assert request["status"] == "queued"
+    assert request["created"] is True
+    assert request["updated"] is False
+    assert request["requester_missing_actor_scopes"] == ["bots:write"]
+    assert request["receipt"]["status"] == "needs_review"
+    assert request["receipt"]["result"]["requested_repair"] is True
+    assert request["receipt"]["result"]["rationale"] == "I need the core tools."
+    assert bot.local_tools == []
+
+
+@pytest.mark.asyncio
+async def test_request_agent_repair_idempotently_updates_same_receipt(monkeypatch, db_session):
+    db_session.add(Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=[],
+        pinned_tools=[],
+    ))
+    await db_session.commit()
+    action = _bot_patch_action()
+
+    async def fake_manifest(*args, **kwargs):
+        return await _fake_request_manifest(db_session, action=action)
+
+    monkeypatch.setattr(agent_capabilities, "build_agent_capability_manifest", fake_manifest)
+
+    first = await agent_capabilities.request_agent_repair_action(
+        db_session,
+        action_id=action["id"],
+        bot_id="agent",
+        requester_scopes=["tools:execute"],
+        actor={"kind": "bot", "bot_id": "agent"},
+        rationale="first",
+    )
+    second = await agent_capabilities.request_agent_repair_action(
+        db_session,
+        action_id=action["id"],
+        bot_id="agent",
+        requester_scopes=["tools:execute"],
+        actor={"kind": "bot", "bot_id": "agent"},
+        rationale="second",
+    )
+
+    rows = await list_execution_receipts(db_session, scope="agent_readiness", bot_id="agent")
+
+    assert first["receipt_id"] == second["receipt_id"]
+    assert second["created"] is False
+    assert second["updated"] is True
+    assert second["receipt"]["result"]["rationale"] == "second"
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_request_agent_repair_does_not_queue_noop(monkeypatch, db_session):
+    db_session.add(Bot(
+        id="agent",
+        name="Agent",
+        model="test/model",
+        system_prompt="",
+        local_tools=["list_agent_capabilities"],
+        pinned_tools=[],
+    ))
+    await db_session.commit()
+    action = _bot_patch_action()
+
+    async def fake_manifest(*args, **kwargs):
+        return await _fake_request_manifest(db_session, action=action)
+
+    monkeypatch.setattr(agent_capabilities, "build_agent_capability_manifest", fake_manifest)
+
+    request = await agent_capabilities.request_agent_repair_action(
+        db_session,
+        action_id=action["id"],
+        bot_id="agent",
+        requester_scopes=["bots:write", "tools:execute"],
+        actor={"kind": "bot", "bot_id": "agent"},
+    )
+    rows = await list_execution_receipts(db_session, scope="agent_readiness", bot_id="agent")
+
+    assert request["ok"] is False
+    assert request["status"] == "noop"
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_request_agent_repair_does_not_queue_stale_action(monkeypatch, db_session):
+    action = _bot_patch_action()
+
+    async def fake_manifest(*args, **kwargs):
+        return _preflight_manifest(action, findings=["empty_tool_working_set"])
+
+    monkeypatch.setattr(agent_capabilities, "build_agent_capability_manifest", fake_manifest)
+
+    request = await agent_capabilities.request_agent_repair_action(
+        db_session,
+        action_id="agent:missing_api_scopes:workspace_bot",
+        bot_id="agent",
+        requester_scopes=["bots:write", "tools:execute"],
+        actor={"kind": "bot", "bot_id": "agent"},
+    )
+    rows = await list_execution_receipts(db_session, scope="agent_readiness", bot_id="agent")
+
+    assert request["ok"] is False
+    assert request["status"] == "stale"
+    assert rows == []
+
+
+def test_preflight_and_request_agent_repair_tools_are_registered():
     from app.tools.local import agent_capabilities as _agent_capabilities_tools  # noqa: F401
 
     assert "preflight_agent_repair" in agent_capabilities.CORE_AGENT_TOOLS
+    assert "request_agent_repair" in agent_capabilities.CORE_AGENT_TOOLS
     assert "preflight_agent_repair" in local_tools
+    assert "request_agent_repair" in local_tools
+    assert local_tools["request_agent_repair"]["safety_tier"] == "mutating"
 
 
 def test_doctor_flags_runtime_context_pressure():

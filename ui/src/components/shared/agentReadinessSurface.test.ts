@@ -32,13 +32,17 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /interface AgentActivityLogSummary/);
   assert.match(hook, /interface ExecutionReceiptWrite/);
   assert.match(hook, /interface AgentRepairPreflight/);
+  assert.match(hook, /interface AgentRepairRequest/);
   assert.match(hook, /createExecutionReceipt/);
   assert.match(hook, /preflightAgentRepair/);
+  assert.match(hook, /requestAgentRepair/);
   assert.match(hook, /fetchAgentCapabilities/);
   assert.match(hook, /\/api\/v1\/execution-receipts/);
   assert.match(hook, /\/api\/v1\/agent-capabilities\/actions\/preflight/);
+  assert.match(hook, /\/api\/v1\/agent-capabilities\/actions\/request/);
   assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
   assert.match(hook, /recent_receipts\?: ExecutionReceipt\[\]/);
+  assert.match(hook, /pending_repair_requests\?: ExecutionReceipt\[\]/);
   assert.match(hook, /integrations\?: AgentIntegrationReadiness/);
   assert.match(hook, /agent_status\?: AgentStatusSnapshot/);
   assert.match(hook, /activity_log\?: AgentActivityLogSummary/);
@@ -78,6 +82,13 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /LastRepairSummary/);
   assert.match(panel, /agent-readiness-last-repair/);
   assert.match(panel, /Last repair/);
+  assert.match(panel, /PendingRepairRequests/);
+  assert.match(panel, /agent-readiness-pending-requests/);
+  assert.match(panel, /Pending repair request/);
+  assert.match(panel, /manifest\.doctor\.pending_repair_requests/);
+  assert.match(panel, /candidate\.id === actionId/);
+  assert.match(panel, /<QuietPill label="stale"/);
+  assert.match(panel, /onPress=\{\(\) => onApply\(action\)\}/);
   assert.match(panel, /Ready to act with current API grants, tools, skills, and runtime context/);
 });
 

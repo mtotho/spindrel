@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import uuid
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -33,6 +35,7 @@ DEFAULT_PROJECT_INSTANCE_TTL_SECONDS = 7 * 24 * 60 * 60
 INSTANCE_STATUS_PREPARING = "preparing"
 INSTANCE_STATUS_READY = "ready"
 INSTANCE_STATUS_FAILED = "failed"
+INSTANCE_STATUS_DELETED = "deleted"
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,60 @@ async def list_project_instances(
         .order_by(ProjectInstance.created_at.desc())
         .limit(limit)
     )).scalars().all())
+
+
+async def cleanup_project_instance(
+    db: AsyncSession,
+    instance: ProjectInstance,
+    *,
+    remove_files: bool = True,
+) -> ProjectInstance:
+    """Mark a Project instance deleted and optionally remove its scoped root."""
+    if instance.status == INSTANCE_STATUS_DELETED:
+        return instance
+
+    project = await db.get(Project, instance.project_id)
+    if project is None:
+        raise ValueError("Project instance has no parent Project")
+
+    removed_path: str | None = None
+    if remove_files:
+        project_dir = project_directory_from_instance(instance, project)
+        target = Path(project_dir.host_path).resolve()
+        # Instance cleanup is only allowed for roots under the dedicated prefix.
+        if not normalize_instance_root_path(instance.root_path):
+            raise ValueError("Project instance root is not cleanup-safe")
+        root = target
+        for parent in target.parents:
+            if parent.name == "shared":
+                root = parent
+                break
+        if root == target or root not in target.parents:
+            raise ValueError("Project instance root is not inside a shared workspace")
+        shutil.rmtree(target, ignore_errors=True)
+        removed_path = str(target)
+
+    metadata = dict(instance.metadata_ or {})
+    metadata["cleanup"] = {
+        "removed_files": bool(remove_files),
+        "removed_path": removed_path,
+        "deleted_at": _utcnow().isoformat(),
+    }
+    instance.metadata_ = metadata
+    instance.status = INSTANCE_STATUS_DELETED
+    instance.deleted_at = _utcnow()
+    instance.updated_at = _utcnow()
+    await db.commit()
+    await db.refresh(instance)
+    return instance
+
+
+def normalize_instance_root_path(root_path: str | None) -> bool:
+    try:
+        normalized = str(root_path or "").strip().replace("\\", "/")
+        return normalized.startswith(f"{INSTANCE_ROOT_PREFIX}/") and ".." not in normalized.split("/")
+    except Exception:
+        return False
 
 
 async def load_project_bindings(db: AsyncSession, project_id: uuid.UUID) -> list[ProjectSecretBinding]:

@@ -428,7 +428,13 @@ async def test_live_spindrel_plan_mode_start_exit(client: E2EClient) -> None:
 async def test_live_spindrel_plan_exit_resume_preserves_execution_state(client: E2EClient) -> None:
     _requires_tier("approve")
     channel_id, session_id, bot_id = await _fresh_session(client, "exit_resume")
-    approved = await _ensure_approved_plan(client, channel_id, session_id, bot_id)
+    approved = await _create_approved_execution_plan(
+        client,
+        session_id,
+        title="Native Plan Exit Resume Fixture",
+        channel_id=channel_id,
+        bot_id=bot_id,
+    )
     assert approved["mode"] == "executing"
 
     await client.exit_session_plan_mode(session_id)

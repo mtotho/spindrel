@@ -19,6 +19,7 @@ from integrations.sdk import (
     ensure_active_session,
     get_db,
     get_setting,
+    record_inbound_webhook_delivery,
     resolve_all_channels_by_client_id,
 )
 
@@ -157,6 +158,20 @@ async def frigate_webhook(
     event = parse_event(payload)
     if event is None:
         return {"status": "ignored"}
+
+    event_id = ((payload.get("after") or {}).get("id") or "").strip()
+    if not event_id:
+        logger.warning("Frigate webhook: new event missing after.id")
+        return {"status": "ignored", "reason": "no_event_id"}
+
+    first_delivery = await record_inbound_webhook_delivery(
+        db,
+        surface="frigate",
+        dedupe_key=event_id,
+        metadata={"camera": event.camera, "label": event.label},
+    )
+    if not first_delivery:
+        return {"status": "ignored", "reason": "duplicate_delivery"}
 
     # Fan-out to all channels bound to this client_id
     pairs = await resolve_all_channels_by_client_id(db, CLIENT_ID)

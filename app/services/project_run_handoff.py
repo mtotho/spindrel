@@ -161,6 +161,14 @@ def _extract_pr_url(stdout: str) -> str | None:
     return None
 
 
+def _safe_json_object(stdout: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
 async def _record_progress(
     db: AsyncSession,
     *,
@@ -346,6 +354,40 @@ async def prepare_project_run_handoff(
         "remote_url": remote_url,
     }
     if normalized_action == "status":
+        pr_status: dict[str, Any] | None = None
+        if resolved_branch:
+            pr_result = await _run(
+                runner,
+                commands,
+                cwd,
+                (
+                    "gh",
+                    "pr",
+                    "view",
+                    resolved_branch,
+                    "--json",
+                    "url,state,isDraft,mergeStateStatus,reviewDecision,headRefName,baseRefName,statusCheckRollup",
+                ),
+                env,
+            )
+            if pr_result.ok:
+                pr_payload = _safe_json_object(pr_result.stdout)
+                pr_status = {
+                    "available": True,
+                    "url": pr_payload.get("url"),
+                    "state": pr_payload.get("state"),
+                    "draft": pr_payload.get("isDraft"),
+                    "merge_state": pr_payload.get("mergeStateStatus"),
+                    "review_decision": pr_payload.get("reviewDecision"),
+                    "head_ref": pr_payload.get("headRefName"),
+                    "base_ref": pr_payload.get("baseRefName"),
+                    "checks": pr_payload.get("statusCheckRollup") or [],
+                }
+            else:
+                pr_status = {
+                    "available": False,
+                    "blocker": _clip(pr_result.stderr or pr_result.stdout or "gh pr view failed", limit=500),
+                }
         receipts.append(await _record_progress(
             db,
             action_type="handoff.status",
@@ -355,7 +397,7 @@ async def prepare_project_run_handoff(
             branch=resolved_branch or current_branch,
             base_branch=resolved_base,
             repo_path=resolved_repo_path,
-            result={**base_payload, "commands": commands},
+            result={**base_payload, "pr_status": pr_status, "commands": commands},
             bot_id=resolved_bot_id,
             channel_id=channel_uuid,
             session_id=resolved_session_id,
@@ -372,6 +414,7 @@ async def prepare_project_run_handoff(
             "repo_root": repo_root,
             "dirty": dirty,
             "remote_url": remote_url,
+            "pr_status": pr_status,
             "commands": commands,
             "receipts": receipts,
         }

@@ -32,7 +32,13 @@ _SCHEMA = {
                     "items": {"type": "string"},
                 },
                 "evidence": {"type": "string"},
-                "revision": {"type": "integer"},
+                "revision": {
+                    "type": "integer",
+                    "description": (
+                        "The current plan revision being replanned. If you think in terms of the "
+                        "next draft revision, passing current revision + 1 is also accepted."
+                    ),
+                },
             },
             "required": ["reason"],
         },

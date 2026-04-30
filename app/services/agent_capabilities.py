@@ -36,6 +36,7 @@ CORE_AGENT_TOOLS = (
     "list_agent_capabilities",
     "run_agent_doctor",
     "preflight_agent_repair",
+    "request_agent_repair",
     "get_agent_context_snapshot",
     "get_agent_work_snapshot",
     "get_agent_activity_log",
@@ -49,6 +50,7 @@ CORE_AGENT_TOOLS = (
 )
 
 AGENT_REPAIR_PREFLIGHT_VERSION = "agent-action-preflight.v1"
+AGENT_REPAIR_REQUEST_VERSION = "agent-repair-request.v1"
 
 PROJECT_CODING_RUN_TOOLS = (
     "file",
@@ -529,6 +531,41 @@ async def doctor_recent_receipts_payload(
         limit=limit,
     )
     return [serialize_execution_receipt(row) for row in rows]
+
+
+async def doctor_pending_repair_requests_payload(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    if not bot_id:
+        return []
+
+    from app.services.execution_receipts import list_execution_receipts, serialize_execution_receipt
+
+    rows = await list_execution_receipts(
+        db,
+        scope="agent_readiness",
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        limit=50,
+    )
+    pending: list[dict[str, Any]] = []
+    for row in rows:
+        receipt = serialize_execution_receipt(row)
+        if receipt.get("status") != "needs_review":
+            continue
+        result = receipt.get("result") or {}
+        if result.get("requested_repair") is not True:
+            continue
+        pending.append(receipt)
+        if len(pending) >= max(1, min(int(limit or 5), 20)):
+            break
+    return pending
 
 
 def _integration_href(integration_id: str) -> str:
@@ -1090,6 +1127,108 @@ async def preflight_agent_repair_action(
     )
 
 
+async def request_agent_repair_action(
+    db: AsyncSession,
+    *,
+    action_id: str,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+    requester_scopes: list[str] | None = None,
+    actor: dict[str, Any] | None = None,
+    rationale: str | None = None,
+) -> dict[str, Any]:
+    """Queue an Agent Readiness repair request without mutating configuration."""
+    manifest = await build_agent_capability_manifest(
+        db,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        include_schemas=False,
+        include_endpoints=False,
+        max_tools=40,
+    )
+    actions = manifest.get("doctor", {}).get("proposed_actions", []) or []
+    action = next(
+        (candidate for candidate in actions if isinstance(candidate, dict) and candidate.get("id") == action_id),
+        None,
+    )
+    review_preflight = await _preflight_action_from_manifest(
+        db,
+        manifest,
+        action_id=action_id,
+        actor_scopes=None,
+    )
+    required_scopes = [
+        str(scope)
+        for scope in ((action or {}).get("required_actor_scopes") or review_preflight.get("required_actor_scopes") or [])
+    ]
+    requester_missing = _missing_actor_scopes(requester_scopes, required_scopes)
+    base: dict[str, Any] = {
+        "schema_version": AGENT_REPAIR_REQUEST_VERSION,
+        "ok": False,
+        "status": review_preflight.get("status", "stale"),
+        "reason": review_preflight.get("reason") or "Repair request is not queueable.",
+        "preflight": review_preflight,
+        "requester_missing_actor_scopes": requester_missing,
+    }
+    if review_preflight.get("status") != "ready" or action is None:
+        return base
+
+    context = manifest.get("context") or {}
+    resolved_bot_id = context.get("bot_id") or bot_id
+    resolved_channel_id = context.get("channel_id") or channel_id
+    resolved_session_id = context.get("session_id") or session_id
+    finding_code = action.get("finding_code")
+    from app.services.execution_receipts import create_execution_receipt, serialize_execution_receipt
+
+    receipt = await create_execution_receipt(
+        db,
+        scope="agent_readiness",
+        action_type=str(action.get("kind") or "bot_patch"),
+        status="needs_review",
+        summary=f"Requested readiness repair: {action.get('title') or action_id}",
+        actor=actor or {"kind": "unknown"},
+        target={
+            "bot_id": resolved_bot_id,
+            "channel_id": str(resolved_channel_id) if resolved_channel_id else None,
+            "session_id": str(resolved_session_id) if resolved_session_id else None,
+            "action_id": action_id,
+            "finding_code": finding_code,
+        },
+        before_summary=action.get("description"),
+        after_summary=action.get("impact") or "Awaiting human review.",
+        approval_required=True,
+        approval_ref="agent_readiness_request",
+        result={
+            "requested_repair": True,
+            "action_id": action_id,
+            "finding_code": finding_code,
+            "rationale": rationale,
+            "review_preflight": review_preflight,
+            "requester_missing_actor_scopes": requester_missing,
+        },
+        rollback_hint="No configuration changed; reject by leaving the request unapplied or applying a different repair.",
+        bot_id=str(resolved_bot_id) if resolved_bot_id else None,
+        channel_id=resolved_channel_id,
+        session_id=resolved_session_id,
+        idempotency_key=f"agent_readiness:{resolved_bot_id or 'none'}:{action_id}",
+        metadata={"finding_code": finding_code, "request_status": "queued"},
+    )
+    created = bool(getattr(receipt, "_spindrel_created", False))
+    serialized = serialize_execution_receipt(receipt)
+    return {
+        **base,
+        "ok": True,
+        "status": "queued",
+        "reason": "Queued for human review.",
+        "receipt": serialized,
+        "receipt_id": serialized["id"],
+        "created": created,
+        "updated": not created,
+    }
+
+
 def _bot_settings_href(manifest: dict[str, Any], group: str = "access") -> str | None:
     bot_id = manifest.get("context", {}).get("bot_id")
     if bot_id:
@@ -1453,6 +1592,12 @@ async def build_agent_capability_manifest(
         "findings": _doctor_findings(manifest),
         "proposed_actions": [],
         "recent_receipts": await doctor_recent_receipts_payload(
+            db,
+            bot_id=manifest["context"].get("bot_id"),
+            channel_id=manifest["context"].get("channel_id"),
+            session_id=manifest["context"].get("session_id"),
+        ),
+        "pending_repair_requests": await doctor_pending_repair_requests_payload(
             db,
             bot_id=manifest["context"].get("bot_id"),
             channel_id=manifest["context"].get("channel_id"),

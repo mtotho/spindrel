@@ -1196,8 +1196,16 @@ function HarnessStatusPill({
     ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
     : "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border";
   const mergedPanelStyle = compact
-    ? { fontFamily: "system-ui, sans-serif" }
+    ? {
+        position: "fixed" as const,
+        left: 8,
+        right: 8,
+        top: 56,
+        maxHeight: "calc(100dvh - 72px)",
+        fontFamily: "system-ui, sans-serif",
+      }
     : {
+        position: "fixed" as const,
         fontFamily: "system-ui, sans-serif",
         ...(typeof panelStyle.width === "number" ? { right: "auto" } : {}),
         ...panelStyle,

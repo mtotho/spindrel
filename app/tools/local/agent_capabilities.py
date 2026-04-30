@@ -6,7 +6,12 @@ import json
 from app.agent.context import current_bot_id, current_channel_id, current_session_id
 from app.db.engine import async_session
 from app.db.models import Bot
-from app.services.agent_capabilities import build_agent_capability_manifest, preflight_agent_repair_action, _scopes_for_bot
+from app.services.agent_capabilities import (
+    build_agent_capability_manifest,
+    preflight_agent_repair_action,
+    request_agent_repair_action,
+    _scopes_for_bot,
+)
 from app.tools.registry import register
 
 
@@ -437,6 +442,87 @@ async def preflight_agent_repair(action_id: str) -> str:
                 "session_id": str(session_id) if session_id else None,
             },
             "preflight": preflight,
+        },
+        ensure_ascii=False,
+    )
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "request_agent_repair",
+        "description": (
+            "Queue one Agent Readiness proposed action for human review without changing configuration. "
+            "Use this when run_agent_doctor/list_agent_capabilities reports a repair the bot cannot apply itself."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action_id": {
+                    "type": "string",
+                    "description": "The proposed action id from the Agent Readiness doctor output.",
+                },
+                "rationale": {
+                    "type": "string",
+                    "description": "Optional short reason to show reviewers.",
+                },
+            },
+            "required": ["action_id"],
+        },
+    },
+}, safety_tier="mutating", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "context": {"type": "object"},
+        "request": {
+            "type": "object",
+            "properties": {
+                "schema_version": {"type": "string"},
+                "ok": {"type": "boolean"},
+                "status": {"type": "string"},
+                "reason": {"type": "string"},
+                "receipt": {"type": "object"},
+                "receipt_id": {"type": "string"},
+                "preflight": {"type": "object"},
+                "requester_missing_actor_scopes": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "error": {"type": "string"},
+    },
+    "required": ["context", "request"],
+})
+async def request_agent_repair(action_id: str, rationale: str | None = None) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+    channel_id = current_channel_id.get()
+    session_id = current_session_id.get()
+    async with async_session() as db:
+        bot = await db.get(Bot, bot_id)
+        requester_scopes = await _scopes_for_bot(db, bot)
+        request = await request_agent_repair_action(
+            db,
+            action_id=action_id,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            session_id=session_id,
+            requester_scopes=requester_scopes,
+            actor={
+                "kind": "bot",
+                "bot_id": bot_id,
+                "channel_id": str(channel_id) if channel_id else None,
+                "session_id": str(session_id) if session_id else None,
+            },
+            rationale=rationale,
+        )
+    return json.dumps(
+        {
+            "context": {
+                "bot_id": bot_id,
+                "channel_id": str(channel_id) if channel_id else None,
+                "session_id": str(session_id) if session_id else None,
+            },
+            "request": request,
         },
         ensure_ascii=False,
     )

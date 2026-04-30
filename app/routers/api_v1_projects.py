@@ -13,7 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
 from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
-from app.services.project_coding_runs import ProjectCodingRunCreate, create_project_coding_run, list_project_coding_runs
+from app.services.project_coding_runs import (
+    ProjectCodingRunCreate,
+    cleanup_project_coding_run_instance,
+    create_project_coding_run,
+    list_project_coding_runs,
+    mark_project_coding_run_reviewed,
+    refresh_project_coding_run_status,
+)
 from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
@@ -257,6 +264,7 @@ class ProjectCodingRunOut(BaseModel):
     task: ProjectCodingRunTaskOut
     receipt: ProjectRunReceiptOut | None = None
     activity: list[dict] = Field(default_factory=list)
+    review: dict = Field(default_factory=dict)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -872,6 +880,63 @@ async def create_project_coding_run_endpoint(
         if row["id"] == str(task.id):
             return row
     raise HTTPException(status_code=500, detail="Project coding run was created but could not be loaded")
+
+
+@router.post("/{project_id}/coding-runs/{task_id}/refresh", response_model=ProjectCodingRunOut)
+async def refresh_project_coding_run_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await refresh_project_coding_run_status(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/{task_id}/reviewed", response_model=ProjectCodingRunOut)
+async def mark_project_coding_run_reviewed_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await mark_project_coding_run_reviewed(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/{task_id}/cleanup", response_model=ProjectCodingRunOut)
+async def cleanup_project_coding_run_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await cleanup_project_coding_run_instance(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
 
 
 @router.post("/{project_id}/setup/runs", response_model=ProjectSetupRunOut, status_code=201)

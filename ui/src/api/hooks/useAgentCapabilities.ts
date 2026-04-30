@@ -346,6 +346,19 @@ export interface AgentRepairPreflight {
   warnings: string[];
 }
 
+export interface AgentRepairRequest {
+  schema_version: "agent-repair-request.v1" | string;
+  ok: boolean;
+  status: "queued" | "ready" | "blocked" | "stale" | "noop" | string;
+  reason: string;
+  receipt?: ExecutionReceipt;
+  receipt_id?: string;
+  created?: boolean;
+  updated?: boolean;
+  preflight: AgentRepairPreflight;
+  requester_missing_actor_scopes: string[];
+}
+
 export function createExecutionReceipt(payload: ExecutionReceiptWrite) {
   return apiFetch<ExecutionReceipt>("/api/v1/execution-receipts", {
     method: "POST",
@@ -368,6 +381,26 @@ export function preflightAgentRepair(payload: {
       bot_id: payload.bot_id ?? null,
       channel_id: payload.channel_id ?? null,
       session_id: payload.session_id ?? null,
+    }),
+  });
+}
+
+export function requestAgentRepair(payload: {
+  action_id: string;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  session_id?: string | null;
+  rationale?: string | null;
+}) {
+  return apiFetch<AgentRepairRequest>("/api/v1/agent-capabilities/actions/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action_id: payload.action_id,
+      bot_id: payload.bot_id ?? null,
+      channel_id: payload.channel_id ?? null,
+      session_id: payload.session_id ?? null,
+      rationale: payload.rationale ?? null,
     }),
   });
 }
@@ -440,6 +473,7 @@ export interface AgentCapabilityManifest {
     findings: AgentDoctorFinding[];
     proposed_actions?: AgentCapabilityAction[];
     recent_receipts?: ExecutionReceipt[];
+    pending_repair_requests?: ExecutionReceipt[];
   };
 }
 

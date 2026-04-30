@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from app.db.models import Channel, SecretValue, SharedWorkspace, Task
+from app.db.models import Channel, ProjectInstance, SecretValue, SharedWorkspace, Task
 from app.services.encryption import encrypt
 from tests.integration.conftest import AUTH_HEADERS
 
@@ -219,6 +219,8 @@ class TestProjectsApi:
         assert launched_body["repo"]["path"] == "spindrel"
         assert launched_body["runtime_target"]["configured_keys"] == ["SPINDREL_E2E_URL"]
         assert launched_body["runtime_target"]["missing_secrets"] == ["GITHUB_TOKEN"]
+        assert launched_body["review"]["status"] == "pending"
+        assert launched_body["review"]["actions"]["can_refresh"] is True
 
         task = await db_session.get(Task, uuid.UUID(launched_body["task"]["id"]))
         assert task is not None
@@ -255,6 +257,42 @@ class TestProjectsApi:
         assert rows[0]["status"] == "needs_review"
         assert rows[0]["receipt"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
         assert rows[0]["receipt"]["screenshots"][0]["path"] == "docs/images/project-workspace-runs.png"
+        assert rows[0]["review"]["status"] == "ready_for_review"
+        assert rows[0]["review"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
+        assert rows[0]["review"]["evidence"]["tests_count"] == 1
+
+        reviewed = await client.post(
+            f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}/reviewed",
+            headers=AUTH_HEADERS,
+        )
+        assert reviewed.status_code == 200
+        assert reviewed.json()["review"]["status"] == "reviewed"
+
+        instance = ProjectInstance(
+            id=uuid.uuid4(),
+            workspace_id=workspace.id,
+            project_id=uuid.UUID(project_id),
+            root_path=f"common/project-instances/coding-run/{uuid.uuid4().hex[:12]}",
+            status="ready",
+            source="blueprint_snapshot",
+            source_snapshot={},
+            setup_result={},
+            owner_kind="task",
+            owner_id=task.id,
+        )
+        db_session.add(instance)
+        task.project_instance_id = instance.id
+        await db_session.commit()
+
+        cleaned = await client.post(
+            f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}/cleanup",
+            headers=AUTH_HEADERS,
+        )
+        assert cleaned.status_code == 200
+        cleaned_review = cleaned.json()["review"]
+        assert cleaned_review["instance"]["status"] == "deleted"
+        assert cleaned_review["steps"]["cleanup"]["status"] == "succeeded"
+        assert cleaned_review["actions"]["can_cleanup_instance"] is False
 
     async def test_create_project_from_blueprint_materializes_files_and_secret_slots(self, client, db_session, monkeypatch, tmp_path):
         monkeypatch.setattr(
