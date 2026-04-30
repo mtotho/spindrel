@@ -1177,7 +1177,11 @@ def _make_fix_pack(pack_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def build_attention_brief_from_serialized(items: list[dict[str, Any]]) -> dict[str, Any]:
+def build_attention_brief_from_serialized(
+    items: list[dict[str, Any]],
+    *,
+    autofix_queue: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Build a read-only operator brief from serialized Attention items."""
     blockers: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
@@ -1185,6 +1189,7 @@ def build_attention_brief_from_serialized(items: list[dict[str, Any]]) -> dict[s
     running: list[dict[str, Any]] = []
     cleared: list[dict[str, Any]] = []
     fix_pack_groups: dict[str, list[dict[str, Any]]] = {}
+    autofix_queue = autofix_queue or []
 
     for item in items:
         category = _brief_category(item)
@@ -1214,6 +1219,17 @@ def build_attention_brief_from_serialized(items: list[dict[str, Any]]) -> dict[s
             "description": first["summary"],
             "action_label": first["action_label"],
             "item_id": first["id"],
+        }
+    elif autofix_queue:
+        first_request = autofix_queue[0]
+        next_action = {
+            "kind": "autofix",
+            "title": "Review the first agent repair",
+            "description": first_request.get("summary") or "A queued readiness repair is waiting for approval.",
+            "action_label": "Review autofix",
+            "item_id": None,
+            "receipt_id": first_request.get("receipt_id"),
+            "action_id": first_request.get("action_id"),
         }
     elif fix_packs:
         first_pack = fix_packs[0]
@@ -1258,6 +1274,7 @@ def build_attention_brief_from_serialized(items: list[dict[str, Any]]) -> dict[s
     return {
         "generated_at": _now().isoformat(),
         "summary": {
+            "autofix": len(autofix_queue),
             "blockers": len(blockers),
             "fix_packs": len(fix_packs),
             "decisions": len(decisions),
@@ -1270,6 +1287,7 @@ def build_attention_brief_from_serialized(items: list[dict[str, Any]]) -> dict[s
         "blockers": blockers[:6],
         "fix_packs": fix_packs[:8],
         "decisions": decisions[:8],
+        "autofix_queue": autofix_queue[:10],
         "quiet_digest": {
             "count": len(quiet),
             "groups": [
@@ -1290,7 +1308,14 @@ async def get_attention_brief(
 ) -> dict[str, Any]:
     items = await list_attention_items(db, auth=auth, channel_id=channel_id, include_resolved=False)
     serialized = await serialize_attention_items(db, items)
-    return build_attention_brief_from_serialized(serialized)
+    from app.services.agent_capabilities import agent_readiness_autofix_queue_payload
+
+    autofix_queue = await agent_readiness_autofix_queue_payload(
+        db,
+        channel_id=channel_id,
+        limit=10,
+    )
+    return build_attention_brief_from_serialized(serialized, autofix_queue=autofix_queue)
 
 
 def _attention_item_visible_to_auth(item: WorkspaceAttentionItem, auth: Any) -> bool:

@@ -36,12 +36,21 @@ class RunPresetTaskDefaultsOut(BaseModel):
     max_run_seconds: int | None = None
 
 
+class RunPresetHeartbeatDefaultsOut(BaseModel):
+    append_spatial_prompt: bool
+    append_spatial_map_overview: bool
+    include_pinned_widgets: bool
+    execution_config: dict[str, Any]
+    spatial_policy: dict[str, Any]
+
+
 class RunPresetOut(BaseModel):
     id: str
     title: str
     description: str
     surface: str
-    task_defaults: RunPresetTaskDefaultsOut
+    task_defaults: RunPresetTaskDefaultsOut | None = None
+    heartbeat_defaults: RunPresetHeartbeatDefaultsOut | None = None
 
 
 class RunPresetListOut(BaseModel):

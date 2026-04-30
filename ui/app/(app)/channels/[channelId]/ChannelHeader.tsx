@@ -1359,6 +1359,29 @@ function HarnessStatusPill({
   const taggedSkills = Array.isArray(bridge.tagged_skill_ids)
     ? bridge.tagged_skill_ids.map(String)
     : [];
+  const inspector = (data.run_inspector ?? {}) as Record<string, unknown>;
+  const inspectorLatency = (inspector.latency_ms ?? {}) as Record<string, unknown>;
+  const latencyRows = Object.entries(inspectorLatency)
+    .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const inspectorInput = (inspector.input_manifest ?? {}) as Record<string, unknown>;
+  const inspectorBridge = (inspector.bridge ?? {}) as Record<string, unknown>;
+  const nativeInventory = (inspector.native_inventory ?? {}) as Record<string, unknown>;
+  const nativeSlashCount =
+    typeof nativeInventory.claude_slash_command_count === "number"
+      ? nativeInventory.claude_slash_command_count
+      : null;
+  const codexDynamicTools = Array.isArray(nativeInventory.codex_dynamic_tools)
+    ? nativeInventory.codex_dynamic_tools.map(String)
+    : [];
+  const runtimeItemCounts = (inspectorInput.runtime_item_counts ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const runtimeItemSummary = Object.entries(runtimeItemCounts)
+    .filter(([, value]) => typeof value === "number")
+    .map(([key, value]) => `${key}:${value}`)
+    .join(", ");
   const hintRows = Array.isArray(data.hints) ? data.hints : [];
   const computedHintRows = Array.isArray(data.next_turn_computed_hints)
     ? data.next_turn_computed_hints
@@ -1543,6 +1566,67 @@ function HarnessStatusPill({
                 {ignoredClientTools.join(", ")}
               </div>
             )}
+          </div>
+          <div className="mt-3 border-t border-surface-border pt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+              Run inspector
+            </div>
+            <div className="grid gap-1">
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Runtime</span>{" "}
+                {String(inspector.runtime || data.runtime || "unknown")}
+                {inspector.session_plan_mode
+                  ? ` · plan:${String(inspector.session_plan_mode)}`
+                  : ""}
+                {inspector.permission_mode
+                  ? ` · approval:${String(inspector.permission_mode)}`
+                  : ""}
+              </div>
+              <div>
+                <span className="text-text-dim">Inputs</span>{" "}
+                {Number(inspectorInput.attachment_count || 0)} attachment
+                {Number(inspectorInput.attachment_count || 0) === 1 ? "" : "s"}
+                {" · "}
+                {Number(inspectorInput.tagged_skill_count || 0)} tagged skill
+                {Number(inspectorInput.tagged_skill_count || 0) === 1 ? "" : "s"}
+                {runtimeItemSummary ? ` · ${runtimeItemSummary}` : ""}
+              </div>
+              <div>
+                <span className="text-text-dim">Bridge seen</span>{" "}
+                {String(inspectorBridge.status || bridge.status || "unknown")} ·{" "}
+                {Number(inspectorBridge.exported_tool_count || exportedTools.length)} exported
+                {Number(inspectorBridge.inventory_error_count || 0) > 0
+                  ? ` · ${Number(inspectorBridge.inventory_error_count)} error(s)`
+                  : ""}
+              </div>
+              {(nativeSlashCount !== null || codexDynamicTools.length > 0) && (
+                <div className="min-w-0 break-words">
+                  <span className="text-text-dim">Native inventory</span>{" "}
+                  {nativeSlashCount !== null
+                    ? `${nativeSlashCount} Claude slash command${nativeSlashCount === 1 ? "" : "s"}`
+                    : ""}
+                  {codexDynamicTools.length > 0
+                    ? `${nativeSlashCount !== null ? " · " : ""}${codexDynamicTools.length} Codex dynamic tool${codexDynamicTools.length === 1 ? "" : "s"}`
+                    : ""}
+                </div>
+              )}
+              {latencyRows.length > 0 && (
+                <div className="min-w-0 break-words">
+                  <span className="text-text-dim">Latency</span>{" "}
+                  <span className="font-mono text-[10px] break-all">
+                    {latencyRows
+                      .slice(0, 6)
+                      .map(([key, value]) => `${key}:${String(value)}ms`)
+                      .join(", ")}
+                  </span>
+                </div>
+              )}
+              {(Boolean(inspector.error) || Boolean(inspector.interrupted)) && (
+                <div className="min-w-0 break-words text-warning-muted">
+                  {inspector.interrupted ? "Interrupted" : String(inspector.error)}
+                </div>
+              )}
+            </div>
           </div>
           <div className="mt-3 border-t border-surface-border pt-2">
             <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">

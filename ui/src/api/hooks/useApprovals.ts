@@ -256,6 +256,7 @@ export interface HarnessStatus {
   project_dir: Record<string, unknown> | null;
   bridge_status: Record<string, unknown>;
   input_manifest: Record<string, unknown> | null;
+  run_inspector: Record<string, unknown>;
   context_note: string;
 }
 

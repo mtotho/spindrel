@@ -96,6 +96,13 @@ receipt records the implementation summary, changed files, tests, screenshots,
 branch or review handoff, and task/session linkage so a later session can pick
 up from durable Project state instead of searching chat history.
 
+Reviewers can request changes from an existing coding run. The continuation
+endpoint creates a linked follow-up task that keeps the same Project, channel,
+repo, branch, and PR handoff while adding reviewer feedback, parent/root task
+lineage, and prior evidence context to the new task prompt. Follow-up agents
+should update the same branch/PR, rerun relevant tests or screenshots, and
+publish a new Project run receipt.
+
 Receipts are idempotent by task, handoff URL, git handoff metadata, or an
 explicit `idempotency_key`. Retrying `publish_project_run_receipt` updates the
 same review record instead of creating a stack of duplicate receipts. The

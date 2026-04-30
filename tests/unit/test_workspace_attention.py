@@ -127,11 +127,46 @@ def test_attention_brief_groups_fix_packs_and_owner_decisions():
 
     assert brief["summary"]["fix_packs"] == 1
     assert brief["summary"]["decisions"] == 1
+    assert brief["summary"]["autofix"] == 0
     assert brief["summary"]["quiet"] == 1
     assert brief["next_action"]["kind"] == "decision"
     assert brief["fix_packs"][0]["count"] == 2
     assert brief["fix_packs"][0]["item_ids"] == ["item-code-1", "item-code-2"]
     assert "Start with a regression test" in brief["fix_packs"][0]["prompt"]
+
+
+def test_attention_brief_prioritizes_autofix_before_generic_fix_packs():
+    items = [
+        {
+            "id": "item-code",
+            "title": "call_api failed",
+            "message": "Missing request schema.",
+            "severity": "critical",
+            "target_kind": "channel",
+            "target_id": "channel-a",
+            "occurrence_count": 3,
+            "evidence": {
+                "operator_triage": {
+                    "state": "ready_for_review",
+                    "classification": "likely_spindrel_code_issue",
+                    "route": "developer_channel",
+                    "summary": "The API contract needs a code fix.",
+                },
+            },
+        },
+    ]
+    autofix_queue = [{
+        "receipt_id": "receipt-1",
+        "action_id": "enable_core_agent_tools",
+        "summary": "Requested readiness repair: enable core tools",
+    }]
+
+    brief = build_attention_brief_from_serialized(items, autofix_queue=autofix_queue)
+
+    assert brief["summary"]["autofix"] == 1
+    assert brief["autofix_queue"] == autofix_queue
+    assert brief["next_action"]["kind"] == "autofix"
+    assert brief["next_action"]["receipt_id"] == "receipt-1"
 
 
 @pytest.mark.asyncio

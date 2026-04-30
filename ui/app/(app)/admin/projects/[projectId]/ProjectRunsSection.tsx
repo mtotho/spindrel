@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, Play, RefreshCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, MessageSquarePlus, Play, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   useCleanupProjectCodingRun,
+  useContinueProjectCodingRun,
   useCreateProjectCodingRun,
   useMarkProjectCodingRunReviewed,
   useProjectCodingRuns,
@@ -139,6 +140,16 @@ function reviewLine(run: ProjectCodingRun) {
   return pieces.length > 0 ? pieces.join(" · ") : null;
 }
 
+function lineageLine(run: ProjectCodingRun) {
+  const parts = [];
+  if ((run.continuation_index ?? 0) > 0) parts.push(`Follow-up ${run.continuation_index}`);
+  if ((run.continuation_count ?? 0) > 0) parts.push(`${run.continuation_count} follow-up${run.continuation_count === 1 ? "" : "s"}`);
+  if (run.latest_continuation?.review_status || run.latest_continuation?.status) {
+    parts.push(`latest ${run.latest_continuation.review_status || run.latest_continuation.status}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
@@ -148,7 +159,15 @@ function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   );
 }
 
-function RunReviewActions({ projectId, run }: { projectId: string; run: ProjectCodingRun }) {
+function RunReviewActions({
+  projectId,
+  run,
+  onRequestChanges,
+}: {
+  projectId: string;
+  run: ProjectCodingRun;
+  onRequestChanges: () => void;
+}) {
   const refreshRun = useRefreshProjectCodingRun(projectId);
   const markReviewed = useMarkProjectCodingRunReviewed(projectId);
   const cleanupRun = useCleanupProjectCodingRun(projectId);
@@ -171,6 +190,16 @@ function RunReviewActions({ projectId, run }: { projectId: string; run: ProjectC
           variant="secondary"
           disabled={busy}
           onPress={() => markReviewed.mutate(run.task.id)}
+        />
+      )}
+      {run.review?.actions?.can_request_changes && (
+        <ActionButton
+          label="Request changes"
+          icon={<MessageSquarePlus size={13} />}
+          size="small"
+          variant="secondary"
+          disabled={busy}
+          onPress={onRequestChanges}
         />
       )}
       {run.review?.actions?.can_cleanup_instance && (
@@ -199,9 +228,12 @@ export function ProjectRunsSection({
 }) {
   const { data: runs = [] } = useProjectCodingRuns(project.id);
   const createRun = useCreateProjectCodingRun(project.id);
+  const continueRun = useContinueProjectCodingRun(project.id);
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
+  const [changeRunId, setChangeRunId] = useState<string | null>(null);
+  const [changeFeedback, setChangeFeedback] = useState("");
   const visibleReceipts = useMemo(() => collapseProjectRunReceiptsForReview(receipts), [receipts]);
 
   useEffect(() => {
@@ -212,6 +244,7 @@ export function ProjectRunsSection({
 
   const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
   const createdRun = runs.find((run) => run.id === createdRunId);
+  const changeRun = runs.find((run) => run.id === changeRunId);
   const startRun = () => {
     if (!selectedChannel || createRun.isPending) return;
     createRun.mutate(
@@ -220,6 +253,18 @@ export function ProjectRunsSection({
         onSuccess: (run) => {
           setCreatedRunId(run.id);
           setRequest("");
+        },
+      },
+    );
+  };
+  const submitChanges = () => {
+    if (!changeRun || continueRun.isPending) return;
+    continueRun.mutate(
+      { taskId: changeRun.task.id, feedback: changeFeedback.trim() },
+      {
+        onSuccess: () => {
+          setChangeRunId(null);
+          setChangeFeedback("");
         },
       },
     );
@@ -300,37 +345,77 @@ export function ProjectRunsSection({
             <EmptyState message="No Project coding runs have been started yet." />
           ) : (
             runs.map((run) => (
-              <SettingsControlRow
-                key={run.id}
-                leading={<GitBranch size={14} />}
-                title={run.request || run.task.title || "Project coding run"}
-                description={
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate font-mono text-[11px] text-text-dim">{run.branch ?? "No branch recorded"}</span>
-                    <span>
-                      {formatRunTime(run.updated_at ?? run.created_at)}
-                      {run.base_branch ? ` · base ${run.base_branch}` : ""}
-                      {run.repo?.path ? ` · ${run.repo.path}` : ""}
-                    </span>
-                    <span className="truncate text-[11px] text-text-dim">
-                      Review: {reviewStatusLabel(run)} · Evidence: {evidenceSummary(run)}
-                    </span>
-                    {reviewLine(run) && (
-                      <span className="truncate text-[11px] text-text-dim">{reviewLine(run)}</span>
-                    )}
-                    <span className="truncate text-[11px] text-text-dim">
-                      {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}
-                    </span>
-                    {run.receipt && (
-                      <span className="truncate text-[11px] text-text-dim">
-                        Receipt: {run.receipt.summary}
+              <div key={run.id} className="flex flex-col gap-2">
+                <SettingsControlRow
+                  leading={<GitBranch size={14} />}
+                  title={run.request || run.task.title || "Project coding run"}
+                  description={
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-mono text-[11px] text-text-dim">{run.branch ?? "No branch recorded"}</span>
+                      <span>
+                        {formatRunTime(run.updated_at ?? run.created_at)}
+                        {run.base_branch ? ` · base ${run.base_branch}` : ""}
+                        {run.repo?.path ? ` · ${run.repo.path}` : ""}
                       </span>
-                    )}
-                  </span>
-                }
-                meta={<StatusBadge label={reviewStatusLabel(run)} variant={statusTone(reviewStatusLabel(run))} />}
-                action={<RunReviewActions projectId={project.id} run={run} />}
-              />
+                      <span className="truncate text-[11px] text-text-dim">
+                        Review: {reviewStatusLabel(run)} · Evidence: {evidenceSummary(run)}
+                      </span>
+                      {lineageLine(run) && (
+                        <span className="truncate text-[11px] text-text-dim">Continuation: {lineageLine(run)}</span>
+                      )}
+                      {reviewLine(run) && (
+                        <span className="truncate text-[11px] text-text-dim">{reviewLine(run)}</span>
+                      )}
+                      <span className="truncate text-[11px] text-text-dim">
+                        {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}
+                      </span>
+                      {run.receipt && (
+                        <span className="truncate text-[11px] text-text-dim">
+                          Receipt: {run.receipt.summary}
+                        </span>
+                      )}
+                    </span>
+                  }
+                  meta={<StatusBadge label={reviewStatusLabel(run)} variant={statusTone(reviewStatusLabel(run))} />}
+                  action={<RunReviewActions projectId={project.id} run={run} onRequestChanges={() => {
+                    setChangeRunId(run.id);
+                    setChangeFeedback(run.continuation_feedback || "");
+                  }} />}
+                />
+                {changeRunId === run.id && (
+                  <div className="rounded-md bg-surface-raised/40 px-3 py-3">
+                    <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+                      Reviewer feedback
+                    </label>
+                    <textarea
+                      value={changeFeedback}
+                      onChange={(event) => setChangeFeedback(event.target.value)}
+                      rows={3}
+                      className="min-h-[84px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+                      placeholder="Describe the changes needed on this PR..."
+                    />
+                    <div className="mt-2 flex items-center justify-end gap-1">
+                      <ActionButton
+                        label="Cancel"
+                        size="small"
+                        variant="ghost"
+                        disabled={continueRun.isPending}
+                        onPress={() => {
+                          setChangeRunId(null);
+                          setChangeFeedback("");
+                        }}
+                      />
+                      <ActionButton
+                        label={continueRun.isPending ? "Starting" : "Start follow-up"}
+                        icon={<MessageSquarePlus size={13} />}
+                        size="small"
+                        disabled={continueRun.isPending}
+                        onPress={submitChanges}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             ))
           )}
         </div>

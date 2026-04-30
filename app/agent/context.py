@@ -144,6 +144,9 @@ current_spatial_move_steps_used: ContextVar[int] = ContextVar(
 current_spatial_tug_steps_used: ContextVar[int] = ContextVar(
     "current_spatial_tug_steps_used", default=0
 )
+current_spatial_widget_scene_seen: ContextVar[dict | None] = ContextVar(
+    "current_spatial_widget_scene_seen", default=None
+)
 
 
 def set_agent_context(
@@ -184,6 +187,7 @@ def set_agent_context(
     current_channel_model_tier_overrides.set(None)
     current_spatial_move_steps_used.set(0)
     current_spatial_tug_steps_used.set(0)
+    current_spatial_widget_scene_seen.set(None)
     if session_depth is not None:
         current_session_depth.set(session_depth)
     if root_session_id is not None:
@@ -232,6 +236,7 @@ class AgentContextSnapshot:
     turn_responded_bots: set | None
     run_origin: str | None
     effort_override: str | None
+    spatial_widget_scene_seen: dict | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -264,6 +269,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         turn_responded_bots=current_turn_responded_bots.get(),
         run_origin=current_run_origin.get(),
         effort_override=current_effort_override.get(),
+        spatial_widget_scene_seen=current_spatial_widget_scene_seen.get(),
     )
 
 
@@ -296,3 +302,4 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_turn_responded_bots.set(snap.turn_responded_bots)
     current_run_origin.set(snap.run_origin)
     current_effort_override.set(snap.effort_override)
+    current_spatial_widget_scene_seen.set(snap.spatial_widget_scene_seen)

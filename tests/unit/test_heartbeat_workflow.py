@@ -94,6 +94,7 @@ class TestFireHeartbeatDelegatesToWorkflow:
             skip_tool_approval=True,
             execution_config={
                 "tools": ["sonarr_calendar", "qbit_torrents"],
+                "skills": ["widgets/spatial_stewardship"],
                 "session_target": {"mode": "existing", "session_id": str(uuid.uuid4())},
             },
             model="gpt-test",
@@ -115,6 +116,7 @@ class TestFireHeartbeatDelegatesToWorkflow:
         cfg = _heartbeat_task_execution_config(hb, prepared)
 
         assert cfg["tools"] == ["sonarr_calendar", "qbit_torrents"]
+        assert cfg["skills"] == ["widgets/spatial_stewardship"]
         assert cfg["session_target"]["mode"] == "existing"
         assert cfg["skip_tool_approval"] is True
         assert cfg["system_preamble"] == "heartbeat preamble"

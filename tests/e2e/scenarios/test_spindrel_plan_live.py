@@ -139,6 +139,16 @@ def _assert_clean_turn(result: StreamResult) -> None:
     assert result.response_text.strip() or result.tools_used, "turn ended without assistant text or tool use"
 
 
+def _tool_result_errors(result: StreamResult, tool_name: str) -> list[dict]:
+    return [
+        event.data
+        for event in result.tool_events
+        if event.type == "tool_result"
+        and (event.data.get("tool") == tool_name or event.data.get("name") == tool_name)
+        and event.data.get("error")
+    ]
+
+
 def _assistant_messages(messages: list[dict]) -> list[dict]:
     return [message for message in messages if message.get("role") == "assistant"]
 
@@ -1223,6 +1233,11 @@ async def test_live_spindrel_stress_publish_validation_retry_recovers(client: E2
     )
     _assert_clean_turn(result)
     assert "publish_plan" in result.tools_used
+    publish_errors = _tool_result_errors(result, "publish_plan")
+    assert any(
+        event.get("error_kind") == "validation" and event.get("fallback")
+        for event in publish_errors
+    ), publish_errors
     _assert_terse_tool_turn(result)
 
     plan = await client.get_session_plan(session_id)

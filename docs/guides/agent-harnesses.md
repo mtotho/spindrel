@@ -226,6 +226,8 @@ Harness sessions expose lightweight native state through `GET /api/v1/sessions/{
 
 This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary. Codex `thread/tokenUsage/updated` includes `modelContextWindow`, so Codex-backed sessions can show estimated remaining native context when that event has been observed.
 
+The same status payload includes a compact run inspector for the last persisted harness turn: runtime, native session/thread id, effective cwd, selected model/effort, approval and plan modes, redacted input-manifest counts, bridge inventory counts, runtime-native inventory counts, error/interruption state, and any runtime latency milestones Spindrel has observed. The ctx popover renders these fields so operators can tell whether slowness is runtime startup, first notification, first text/tool latency, bridge inventory, or replay/rendering.
+
 Codex turns also persist coarse host-side latency metadata on assistant-message
 metadata as `harness.codex_latency_ms`. The timings record app-server
 initialization, bridge attach, thread resume/start, turn start, first

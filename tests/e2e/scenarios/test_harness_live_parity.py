@@ -133,11 +133,18 @@ HARNESSES = (
         channel_env="HARNESS_PARITY_CLAUDE_CHANNEL_ID",
         bot_env="HARNESS_PARITY_CLAUDE_BOT_ID",
         default_bot_id="claude-code-bot",
-        native_commands=("version", "auth"),
+        native_commands=(
+            "version", "auth", "skills", "plugins", "mcp",
+            "agents", "hooks", "status", "doctor",
+        ),
         direct_native_commands=(
             ("skills", "skills"),
             ("plugin", "plugins"),
             ("mcp", "mcp"),
+            ("agents", "agents"),
+            ("hooks", "hooks"),
+            ("status", "status"),
+            ("doctor", "doctor"),
         ),
         native_terminal_handoff_commands=(
             ("plugin", ("install", "spindrel-fixture-nonexistent"), "claude plugin install spindrel-fixture-nonexistent"),
@@ -1097,6 +1104,11 @@ async def test_live_harness_core_parity_controls_trace_and_context(
         assert status["runtime"] == case.runtime
         assert status["harness_session_id"], "native harness session id was not persisted"
         assert status["usage"], "harness status did not expose latest runtime usage"
+        inspector = status.get("run_inspector") or {}
+        assert inspector.get("runtime") == case.runtime
+        assert inspector.get("native_session_id") == status["harness_session_id"]
+        assert inspector.get("cwd") == status.get("effective_cwd")
+        assert isinstance((inspector.get("input_manifest") or {}), dict)
         _assert_bridge_baseline(status)
         if model:
             assert status["model"] == model
@@ -1148,7 +1160,10 @@ async def test_live_harness_core_native_slash_direct_commands(
         expected_status = "ok"
         if case.name == "codex" and runtime_command in {"diff", "approvals"}:
             expected_status = "terminal_handoff"
-        assert result["payload"]["status"] == expected_status
+        if case.name == "claude" and runtime_command in {"agents", "hooks", "status", "doctor"}:
+            assert result["payload"]["status"] in {"ok", "terminal_handoff"}
+        else:
+            assert result["payload"]["status"] == expected_status
         assert result["payload"].get("detail") or result.get("fallback_text")
         if case.name == "codex" and runtime_command == "skills":
             status = await client.get_session_harness_status(session_id)

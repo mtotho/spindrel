@@ -178,6 +178,45 @@ def test_command_completed_uses_buffered_command_output_envelope():
     assert result["result_summary"] == "hello world"
 
 
+def test_command_output_delta_accepts_nested_stderr_like_output_shape():
+    emitter, ids, parts, meta = _harness()
+    ids["cmd-stderr"] = "bash -lc warn"
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMMAND_OUTPUT_DELTA,
+            params={"itemId": "cmd-stderr", "output": {"text": "warning on stderr\n"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "cmd-stderr",
+                    "kind": "commandExecution",
+                    "isError": True,
+                    "summary": "exited 2",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    result = emitter.calls[0][1]
+    assert result["is_error"] is True
+    assert result["surface"] == "rich_result"
+    assert result["envelope"]["body"] == "warning on stderr"
+    assert result["summary"]["preview_text"] == "exited 2"
+
+
 def test_command_namespace_failure_marks_turn_as_execution_surface_error():
     emitter, ids, parts, meta = _harness()
     ids["cmd1"] = "bash -lc pwd"
@@ -568,6 +607,50 @@ def test_collab_tool_call_emits_subagent_summary():
     assert result["summary"]["subject_type"] == "session"
     assert result["summary"]["target_id"] == "thread-child"
     assert result["summary"]["preview_text"] == "Inspect the renderer."
+
+
+def test_web_search_and_image_view_emit_structured_summaries():
+    emitter, ids, parts, meta = _harness()
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_STARTED,
+            params={"item": {"id": "web1", "kind": "webSearch", "query": "Codex app-server"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "web1", "kind": "webSearch", "query": "Codex app-server"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={"item": {"id": "img1", "kind": "imageView", "path": "docs/screen.png"}},
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    web_result = emitter.calls[1][1]
+    image_result = emitter.calls[2][1]
+    assert web_result["tool_name"] == "Web search"
+    assert web_result["summary"]["kind"] == "lookup"
+    assert web_result["summary"]["preview_text"] == "Codex app-server"
+    assert image_result["tool_name"] == "View image"
+    assert image_result["summary"]["kind"] == "read"
+    assert image_result["summary"]["path"] == "docs/screen.png"
 
 
 def test_file_change_completed_uses_buffered_file_change_delta_diff():

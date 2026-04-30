@@ -1132,7 +1132,73 @@ class HarnessStatusOut(BaseModel):
     project_dir: dict[str, Any] | None = None
     bridge_status: dict[str, Any] = Field(default_factory=dict)
     input_manifest: dict[str, Any] | None = None
+    run_inspector: dict[str, Any] = Field(default_factory=dict)
     context_note: str
+
+
+def _build_harness_run_inspector(
+    *,
+    runtime: str | None,
+    harness_meta: dict[str, Any],
+    settings: Any,
+    permission_mode: str | None,
+    session_plan_mode: str | None,
+    last_turn_at: str | None,
+    workdir: str | None,
+    workdir_source: str | None,
+    bridge_status: dict[str, Any],
+) -> dict[str, Any]:
+    """Condense the last persisted harness turn into operator-debug fields."""
+    input_manifest = harness_meta.get("input_manifest")
+    manifest_summary: dict[str, Any] = {}
+    if isinstance(input_manifest, dict):
+        attachments = input_manifest.get("attachments")
+        runtime_items = input_manifest.get("runtime_items")
+        workspace_uploads = input_manifest.get("workspace_uploads")
+        tagged_skills = input_manifest.get("tagged_skill_ids")
+        manifest_summary = {
+            "attachment_count": len(attachments) if isinstance(attachments, list) else 0,
+            "workspace_upload_count": len(workspace_uploads) if isinstance(workspace_uploads, list) else 0,
+            "tagged_skill_count": len(tagged_skills) if isinstance(tagged_skills, list) else 0,
+            "runtime_item_count": len(runtime_items) if isinstance(runtime_items, list) else 0,
+            "runtime_item_counts": input_manifest.get("runtime_item_counts") or {},
+            "warnings": input_manifest.get("warnings") or [],
+        }
+
+    exported_tools = bridge_status.get("exported_tools")
+    inventory_errors = bridge_status.get("inventory_errors")
+    missing_baseline = bridge_status.get("missing_baseline_tools")
+    native_slash = harness_meta.get("claude_native_slash_commands")
+    latency = harness_meta.get("codex_latency_ms") or harness_meta.get("claude_latency_ms")
+    dynamic_tools = harness_meta.get("codex_dynamic_tools")
+
+    return {
+        "runtime": runtime,
+        "native_session_id": harness_meta.get("session_id"),
+        "last_turn_at": last_turn_at,
+        "cwd": workdir,
+        "cwd_source": workdir_source,
+        "model": getattr(settings, "model", None),
+        "effort": getattr(settings, "effort", None),
+        "permission_mode": permission_mode,
+        "session_plan_mode": session_plan_mode,
+        "latency_ms": latency if isinstance(latency, dict) else {},
+        "input_manifest": manifest_summary,
+        "bridge": {
+            "status": bridge_status.get("status"),
+            "exported_tool_count": len(exported_tools) if isinstance(exported_tools, list) else 0,
+            "inventory_error_count": len(inventory_errors) if isinstance(inventory_errors, list) else 0,
+            "missing_baseline_tools": missing_baseline if isinstance(missing_baseline, list) else [],
+        },
+        "native_inventory": {
+            "claude_slash_command_count": len(native_slash) if isinstance(native_slash, list) else 0,
+            "claude_slash_commands": native_slash if isinstance(native_slash, list) else [],
+            "codex_dynamic_tools": dynamic_tools if isinstance(dynamic_tools, list) else [],
+            "codex_thread_restart_reason": harness_meta.get("codex_thread_restart_reason"),
+        },
+        "error": harness_meta.get("error"),
+        "interrupted": bool(harness_meta.get("interrupted")),
+    }
 
 
 class HarnessQuestionAnswerIn(BaseModel):
@@ -1271,6 +1337,17 @@ async def get_harness_status(
                 "reason": "native compact completed without usable usage telemetry",
                 "raw_usage": compact_usage if isinstance(compact_usage, dict) else None,
             }
+    run_inspector = _build_harness_run_inspector(
+        runtime=runtime_name,
+        harness_meta=harness_meta or {},
+        settings=settings,
+        permission_mode=mode,
+        session_plan_mode=session_plan_mode,
+        last_turn_at=last_turn_at.isoformat() if last_turn_at else None,
+        workdir=(harness_meta or {}).get("effective_cwd") or harness_paths.workdir,
+        workdir_source=(harness_meta or {}).get("effective_cwd_source") or harness_paths.source,
+        bridge_status=bridge_status,
+    )
     return HarnessStatusOut(
         runtime=runtime_name,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
@@ -1300,6 +1377,7 @@ async def get_harness_status(
         project_dir=(harness_meta or {}).get("project_dir") or project_directory_payload(harness_paths.project_dir),
         bridge_status=bridge_status,
         input_manifest=(harness_meta or {}).get("input_manifest") if harness_meta else None,
+        run_inspector=run_inspector,
         context_note=(
             "Native harness context is provider-managed; Spindrel tracks resume id, "
             "native compaction events, and pending host hints for this session."

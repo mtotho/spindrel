@@ -86,6 +86,16 @@ class TestListApiEndpoints:
 
 
 class TestCallApi:
+    def test_tool_schema_supports_array_body_for_strict_providers(self):
+        """call_api body accepts arrays, so the array branch must declare items."""
+        import app.tools.local.api_access  # noqa: F401
+        from app.tools.registry import get_local_tool_schemas
+
+        [schema] = get_local_tool_schemas(["call_api"])
+        body_schema = schema["function"]["parameters"]["properties"]["body"]
+
+        assert body_schema["type"] == ["object", "array", "string", "null"]
+        assert body_schema["items"] == {}
 
     @pytest.mark.asyncio
     async def test_invalid_path_rejected(self):

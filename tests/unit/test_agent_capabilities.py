@@ -86,6 +86,80 @@ def test_runtime_context_without_budget_data_is_unknown():
     assert snapshot["reason"] == "No context budget has been recorded yet."
 
 
+def test_skill_opportunities_recommend_existing_widget_and_integration_skills():
+    manifest = {
+        "skills": {
+            "bot_enrolled": [{"id": "widgets"}],
+            "channel_enrolled": [],
+        },
+        "widgets": {
+            "readiness": "needs_skills",
+            "missing_skills": ["widgets/html"],
+        },
+        "integrations": {
+            "summary": {
+                "needs_setup_count": 1,
+                "dependency_gap_count": 0,
+                "process_gap_count": 0,
+                "channel_stub_binding_count": 1,
+            },
+        },
+        "coding_run": {"readiness": "needs_project"},
+        "project": {"attached": False},
+        "runtime_context": {"recommendation": "continue"},
+        "doctor": {"findings": [], "pending_repair_requests": []},
+    }
+
+    payload = agent_capabilities._skill_opportunity_payload(manifest)
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+
+    assert by_feature["widget_authoring"]["first_action"] == 'get_skill("widgets")'
+    assert by_feature["widget_authoring"]["missing_skill_ids"] == [
+        "widgets/html",
+        "widgets/channel_dashboards",
+        "widgets/authoring_runs",
+    ]
+    assert by_feature["widget_authoring"]["model_support"] == "recommended_for_small_models"
+    assert by_feature["integration_readiness"]["skill_ids"] == [
+        "configurator/integration",
+        "orchestrator/integration_builder",
+        "diagnostics",
+    ]
+
+
+def test_skill_opportunities_create_agent_readiness_candidate_without_runtime_import():
+    manifest = {
+        "skills": {"bot_enrolled": [], "channel_enrolled": []},
+        "widgets": {"readiness": "ready", "missing_skills": []},
+        "integrations": {"summary": {}},
+        "coding_run": {"readiness": "needs_project"},
+        "project": {"attached": False},
+        "runtime_context": {"recommendation": "handoff"},
+        "doctor": {
+            "findings": [{"code": "missing_api_scopes"}],
+            "pending_repair_requests": [{"summary": "Requested readiness repair."}],
+        },
+    }
+
+    payload = agent_capabilities._skill_opportunity_payload(manifest)
+
+    assert payload["creation_candidates"] == [{
+        "feature_id": "agent_readiness_operator",
+        "feature_label": "Agent Readiness operator",
+        "reason": "Readiness repair review is a repeated approval-gated workflow that should have a short runtime skill for non-frontier models.",
+        "suggested_skill_id": "agent_readiness/operator",
+        "first_outline": [
+            "Read the capability manifest and top Doctor findings.",
+            "Prefer existing skills before adding tools or APIs.",
+            "Use preflight/request/apply receipt paths for repairs.",
+            "Route stale requests to Bot readiness instead of mutating config.",
+        ],
+        "model_support": "recommended_for_small_models",
+    }]
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+    assert by_feature["context_pressure"]["first_action"] == 'get_skill("context_mastery")'
+
+
 @pytest.mark.asyncio
 async def test_manifest_includes_runtime_context(monkeypatch):
     bot = SimpleNamespace(
@@ -268,6 +342,75 @@ async def test_doctor_pending_repair_requests_payload_filters_requested_needs_re
 
     assert [receipt["summary"] for receipt in receipts] == ["Requested repair."]
     assert receipts[0]["status"] == "needs_review"
+
+
+@pytest.mark.asyncio
+async def test_agent_readiness_autofix_queue_serializes_pending_requests(db_session):
+    channel_id = uuid.uuid4()
+    other_channel_id = uuid.uuid4()
+    db_session.add_all([
+        Channel(id=channel_id, name="Readiness", bot_id="agent", client_id=f"autofix-{uuid.uuid4().hex[:8]}"),
+        Channel(id=other_channel_id, name="Other", bot_id="agent", client_id=f"autofix-{uuid.uuid4().hex[:8]}"),
+    ])
+    await db_session.commit()
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="bot_patch",
+        status="needs_review",
+        summary="Requested readiness repair: enable tools",
+        actor={"kind": "bot_tool", "name": "Sprout"},
+        target={
+            "bot_id": "agent",
+            "channel_id": str(channel_id),
+            "action_id": "enable_core_agent_tools",
+            "finding_code": "missing_core_agent_tools",
+        },
+        result={
+            "requested_repair": True,
+            "rationale": "Tool calls are blocked.",
+            "requester_missing_actor_scopes": ["bots:write"],
+        },
+        bot_id="agent",
+        channel_id=channel_id,
+    )
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="bot_patch",
+        status="needs_review",
+        summary="Other channel request.",
+        result={"requested_repair": True},
+        bot_id="agent",
+        channel_id=other_channel_id,
+    )
+    await create_execution_receipt(
+        db_session,
+        scope="agent_readiness",
+        action_type="bot_patch",
+        status="succeeded",
+        summary="Already applied.",
+        result={"requested_repair": True},
+        bot_id="agent",
+        channel_id=channel_id,
+    )
+
+    queue = await agent_capabilities.agent_readiness_autofix_queue_payload(
+        db_session,
+        channel_id=channel_id,
+    )
+
+    assert len(queue) == 1
+    item = queue[0]
+    assert item["summary"] == "Requested readiness repair: enable tools"
+    assert item["bot_id"] == "agent"
+    assert item["channel_id"] == str(channel_id)
+    assert item["action_id"] == "enable_core_agent_tools"
+    assert item["finding_code"] == "missing_core_agent_tools"
+    assert item["requested_by"] == "Sprout"
+    assert item["rationale"] == "Tool calls are blocked."
+    assert item["requester_missing_actor_scopes"] == ["bots:write"]
+    assert item["receipt"]["status"] == "needs_review"
 
 
 def _preflight_manifest(action: dict, *, bot_id: str = "agent", findings: list[str] | None = None) -> dict:

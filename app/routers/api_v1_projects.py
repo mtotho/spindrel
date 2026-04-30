@@ -15,8 +15,11 @@ from app.dependencies import get_db, require_scopes
 from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
+    ProjectCodingRunContinue,
     cleanup_project_coding_run_instance,
+    continue_project_coding_run,
     create_project_coding_run,
+    get_project_coding_run,
     list_project_coding_runs,
     mark_project_coding_run_reviewed,
     refresh_project_coding_run_status,
@@ -236,6 +239,10 @@ class ProjectCodingRunWrite(BaseModel):
     request: str = ""
 
 
+class ProjectCodingRunContinueWrite(BaseModel):
+    feedback: str = ""
+
+
 class ProjectCodingRunTaskOut(BaseModel):
     id: uuid.UUID
     status: str
@@ -261,6 +268,13 @@ class ProjectCodingRunOut(BaseModel):
     base_branch: str | None = None
     repo: dict = Field(default_factory=dict)
     runtime_target: dict = Field(default_factory=dict)
+    parent_task_id: uuid.UUID | None = None
+    root_task_id: uuid.UUID | None = None
+    continuation_index: int = 0
+    continuation_feedback: str | None = None
+    continuation_count: int = 0
+    latest_continuation: dict | None = None
+    continuations: list[dict] = Field(default_factory=list)
     task: ProjectCodingRunTaskOut
     receipt: ProjectRunReceiptOut | None = None
     activity: list[dict] = Field(default_factory=list)
@@ -894,6 +908,32 @@ async def refresh_project_coding_run_endpoint(
         raise HTTPException(status_code=404, detail="project not found")
     try:
         return await refresh_project_coding_run_status(db, project, task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding run not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/{task_id}/continue", response_model=ProjectCodingRunOut, status_code=201)
+async def continue_project_coding_run_endpoint(
+    project_id: uuid.UUID,
+    task_id: uuid.UUID,
+    body: ProjectCodingRunContinueWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await continue_project_coding_run(
+            db,
+            project,
+            task_id,
+            ProjectCodingRunContinue(feedback=body.feedback),
+        )
+        return await get_project_coding_run(db, project, task.id)
     except ValueError as exc:
         message = str(exc)
         if message == "coding run not found":

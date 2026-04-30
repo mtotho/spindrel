@@ -93,6 +93,21 @@ export function useCreateProjectCodingRun(projectId: string | undefined) {
   });
 }
 
+export function useContinueProjectCodingRun(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { taskId: string; feedback: string }) =>
+      apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs/${data.taskId}/continue`, {
+        method: "POST",
+        body: JSON.stringify({ feedback: data.feedback }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+    },
+  });
+}
+
 function useProjectCodingRunAction(projectId: string | undefined, action: "refresh" | "reviewed" | "cleanup") {
   const qc = useQueryClient();
   return useMutation({

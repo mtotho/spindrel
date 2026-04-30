@@ -58,6 +58,11 @@ async def _record_plan_tool_evidence(
     tool_kind: str,
     status: str,
     error: str | None,
+    error_kind: str | None,
+    error_code: str | None,
+    retryable: bool | None,
+    retry_after_seconds: int | None,
+    fallback: str | None,
     tool_call_id: str | None,
     record_id: uuid.UUID | None,
     arguments: dict[str, Any],
@@ -68,7 +73,11 @@ async def _record_plan_tool_evidence(
     if session_id is None:
         return
     try:
-        from app.services.session_plan_mode import publish_session_plan_event, record_plan_execution_evidence
+        from app.services.session_plan_mode import (
+            publish_session_plan_event,
+            record_plan_execution_evidence,
+            record_plan_tool_feedback,
+        )
 
         async with async_session() as db:
             session = await db.get(Session, session_id)
@@ -87,9 +96,30 @@ async def _record_plan_tool_evidence(
                 turn_id=turn_id,
                 correlation_id=correlation_id,
             )
+            reason = "tool_evidence"
+            if changed is None:
+                changed = record_plan_tool_feedback(
+                    session,
+                    tool_name=tool_name,
+                    tool_kind=tool_kind,
+                    status=status,
+                    error=error,
+                    error_kind=error_kind,
+                    error_code=error_code,
+                    retryable=retryable,
+                    retry_after_seconds=retry_after_seconds,
+                    fallback=fallback,
+                    tool_call_id=tool_call_id,
+                    record_id=str(record_id) if record_id else None,
+                    arguments=arguments,
+                    result_summary=result_summary,
+                    turn_id=turn_id,
+                    correlation_id=correlation_id,
+                )
+                reason = "tool_feedback"
             if changed is not None:
                 await db.commit()
-                publish_session_plan_event(session, "tool_evidence")
+                publish_session_plan_event(session, reason)
     except Exception:
         logger.warning("Failed to record plan execution evidence for %s", tool_name, exc_info=True)
 
@@ -1607,6 +1637,11 @@ async def dispatch_tool_call(
         tool_kind=_tc_type,
         status="error" if _tc_error else "done",
         error=_tc_error,
+        error_kind=_tc_error_kind,
+        error_code=_tc_error_code,
+        retryable=_tc_retryable,
+        retry_after_seconds=_tc_retry_after_seconds,
+        fallback=_tc_fallback,
         tool_call_id=tool_call_id,
         record_id=_tc_record_id,
         arguments=_tc_args_pre,

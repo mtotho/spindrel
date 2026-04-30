@@ -375,6 +375,20 @@ def _normalize_heartbeat_execution_config(value: Any) -> dict | None:
                 seen.add(key)
                 deduped.append(key)
         out["tools"] = deduped[:64]
+    skills = value.get("skills")
+    if skills is not None:
+        if not isinstance(skills, list):
+            raise HTTPException(status_code=400, detail="execution_config.skills must be a list")
+        deduped_skills: list[str] = []
+        seen_skills: set[str] = set()
+        for item in skills:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            key = item.strip()
+            if key not in seen_skills:
+                seen_skills.add(key)
+                deduped_skills.append(key)
+        out["skills"] = deduped_skills[:64]
     if value.get("history_mode") in ("none", "recent", "full"):
         out["history_mode"] = value["history_mode"]
     if "history_recent_count" in value:
@@ -1445,6 +1459,28 @@ async def admin_channel_heartbeat_update(
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
         heartbeat.execution_config = normalized_execution_config
+        tools = set((normalized_execution_config or {}).get("tools") or [])
+        if tools.intersection({"inspect_spatial_widget_scene", "preview_spatial_widget_changes", "pin_spatial_widget"}):
+            from app.services.workspace_spatial import (
+                DEFAULT_SPATIAL_POLICY,
+                SPATIAL_POLICY_KEY,
+                normalize_spatial_policy,
+            )
+
+            cfg = dict(channel.config or {})
+            policies = dict(cfg.get(SPATIAL_POLICY_KEY) or {})
+            current = policies.get(channel.bot_id)
+            policies[channel.bot_id] = normalize_spatial_policy({
+                **DEFAULT_SPATIAL_POLICY,
+                **(current if isinstance(current, dict) else {}),
+                "enabled": True,
+                "allow_map_view": True,
+                "allow_nearby_inspect": True,
+                "allow_spatial_widget_management": True,
+            })
+            cfg[SPATIAL_POLICY_KEY] = policies
+            channel.config = cfg
+            flag_modified(channel, "config")
     if "runner_mode" in updates:
         heartbeat.runner_mode = updates["runner_mode"]
     if "harness_effort" in updates:

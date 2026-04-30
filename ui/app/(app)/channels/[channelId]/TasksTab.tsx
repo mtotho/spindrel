@@ -63,7 +63,7 @@ function scheduledAtForPicker(value: string | null | undefined): string {
 }
 
 function draftFromPreset(preset: RunPreset): QuickAutomationDraft {
-  const defaults = preset.task_defaults;
+  const defaults = preset.task_defaults!;
   return {
     title: defaults.title,
     prompt: defaults.prompt,
@@ -80,6 +80,7 @@ function buildPresetTaskPayload(
   botId: string,
 ): TaskCreatePayload {
   const defaults = preset.task_defaults;
+  if (!defaults) throw new Error("Task preset is missing task defaults.");
   return {
     bot_id: botId,
     channel_id: channelId,
@@ -165,7 +166,7 @@ function QuickAutomations({
                   </span>
                   <span className="truncate text-[13px] font-semibold text-text">{preset.title}</span>
                 </div>
-                <QuietPill label={preset.task_defaults.recurrence === "+1w" ? "weekly" : "preset"} />
+                <QuietPill label={preset.task_defaults?.recurrence === "+1w" ? "weekly" : "preset"} />
               </div>
               <p className="line-clamp-2 text-[12px] leading-relaxed text-text-dim">
                 {preset.description}
@@ -201,7 +202,7 @@ function PresetReviewDrawer({
 }) {
   if (typeof document === "undefined") return null;
 
-  const defaults = preset.task_defaults;
+  const defaults = preset.task_defaults!;
   const disabled = isCreating || !botId || !draft.prompt.trim();
   const errorMessage = error instanceof Error ? error.message : error ? "Failed to create task." : null;
 
@@ -340,7 +341,10 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
     queryFn: () => apiFetch<{ tasks: TaskItem[] }>(`/api/v1/admin/channels/${channelId}/tasks`),
   });
   const allTasks = data?.tasks ?? [];
-  const presets = presetData?.presets ?? [];
+  const presets = useMemo(
+    () => (presetData?.presets ?? []).filter((preset) => !!preset.task_defaults),
+    [presetData?.presets],
+  );
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 

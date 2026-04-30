@@ -487,8 +487,8 @@ the system can already inspect" is a shared capability manifest:
   starting processes, and writing secrets stay explicit admin work.
 - Repo-dev AX is a separate surface: `.agents/manifest.json` indexes
   repository-local skills for development agents working on Spindrel source.
-  These skills cover backend, UI, integrations, widgets, harnesses, docs, and
-  the existing visual feedback loop.
+  These skills cover backend, UI, integrations, widgets, harnesses, docs,
+  agentic readiness, and the existing visual feedback loop.
 - The repo-dev skills are not Spindrel runtime skills. Channel bots do not see
   `.agents/skills` unless a future, explicit runtime bridge supplies that
   content through a real app-owned contract.
@@ -561,6 +561,18 @@ the system can already inspect" is a shared capability manifest:
   `doctor.pending_repair_requests`, and the Agent Readiness panel lets humans
   apply a still-current request through the existing preflight + bot-update
   path.
+- Mission Control Review now consumes the same pending readiness repair
+  receipts as an Autofix queue in the attention brief. `GET
+  /api/v1/workspace/attention/brief` returns `summary.autofix` and
+  `autofix_queue`, prioritizes the first queued repair after explicit owner
+  decisions, and applies still-current requests through the shared preflight +
+  Bot update + manifest verification + execution receipt path. Stale requests
+  route back to Bot readiness instead of mutating config.
+- Agent Readiness now has skill-opportunity signals for runtime agents and
+  humans. The manifest publishes `skills.recommended_now` for existing skills
+  the bot should load before procedural work, plus `skills.creation_candidates`
+  for missing runtime skill coverage. This is recommendation-only: no import
+  from repo-dev `.agents`, no auto-enroll, and no full-body auto-inject.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

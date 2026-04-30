@@ -19,7 +19,9 @@ export default function HubAttentionPage() {
   const requestedTargetId = searchParams.get("target_id");
   const requestedRunId = searchParams.get("run");
   const requestedMode = readDeckMode(searchParams.get("mode")) ?? (requestedRunId ? "runs" : null);
-  const { data: items = [] } = useWorkspaceAttention(requestedChannelId || undefined);
+  const attentionQuery = useWorkspaceAttention(requestedChannelId || undefined);
+  const { data: items = [] } = attentionQuery;
+  const attentionLoading = attentionQuery.isLoading || (attentionQuery.isFetching && !attentionQuery.data);
   const { data: channels = [] } = useChannels();
   const markAttentionResponded = useMarkAttentionResponded();
   const requestedItemId = searchParams.get("item");
@@ -55,10 +57,11 @@ export default function HubAttentionPage() {
   };
 
   const selectMode = (mode: AttentionDeckMode) => {
+    setSelectedId(null);
     const next = new URLSearchParams(searchParams);
     next.set("mode", mode);
-    if (mode === "runs") next.delete("item");
-    else next.delete("run");
+    next.delete("item");
+    if (mode !== "runs") next.delete("run");
     setSearchParams(next, { replace: true });
   };
 
@@ -101,6 +104,7 @@ export default function HubAttentionPage() {
       <main className="min-h-0 flex-1 px-2 pb-2 md:px-4 md:pb-4">
         <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden rounded-md bg-surface-raised/55">
           <AttentionCommandDeck
+            loading={attentionLoading}
             items={filteredItems}
             selectedId={selectedId}
             onSelect={selectItem}

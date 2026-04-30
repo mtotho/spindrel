@@ -1533,6 +1533,13 @@ export interface ProjectCodingRun {
   base_branch?: string | null;
   repo?: Record<string, any>;
   runtime_target?: Record<string, any>;
+  parent_task_id?: string | null;
+  root_task_id?: string | null;
+  continuation_index?: number;
+  continuation_feedback?: string | null;
+  continuation_count?: number;
+  latest_continuation?: Record<string, any> | null;
+  continuations?: Array<Record<string, any>>;
   task: ProjectCodingRunTask;
   receipt?: ProjectRunReceipt | null;
   activity?: Array<Record<string, any>>;
@@ -1571,6 +1578,7 @@ export interface ProjectCodingRun {
       can_refresh?: boolean;
       can_mark_reviewed?: boolean;
       can_cleanup_instance?: boolean;
+      can_request_changes?: boolean;
     };
   };
   created_at?: string | null;

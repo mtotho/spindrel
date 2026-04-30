@@ -55,6 +55,15 @@ test("workspace attention brief has a stable cache key", () => {
   assert.deepEqual(WORKSPACE_ATTENTION_BRIEF_KEY, ["workspace-attention-brief"]);
 });
 
+test("workspace attention brief exposes agent readiness autofix queue types", async () => {
+  const source = await import("node:fs").then(({ readFileSync }) => readFileSync(new URL("./useWorkspaceAttention.ts", import.meta.url), "utf8"));
+
+  assert.match(source, /interface AgentReadinessAutofixItem/);
+  assert.match(source, /autofix: number/);
+  assert.match(source, /autofix_queue: AgentReadinessAutofixItem\[\]/);
+  assert.match(source, /receipt: ExecutionReceipt/);
+});
+
 test("getToolErrorReviewSignal labels retryable tool-call evidence", () => {
   const signal = getToolErrorReviewSignal(item({
     evidence: {

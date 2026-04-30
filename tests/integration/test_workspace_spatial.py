@@ -33,7 +33,10 @@ from app.services.dashboards import (
 from app.services.workspace_spatial import (
     DEFAULT_SPATIAL_POLICY,
     build_canvas_neighborhood,
+    build_spatial_widget_scene,
     move_bot_node,
+    pin_widget_to_canvas,
+    preview_spatial_widget_changes,
     update_channel_bot_spatial_policy,
 )
 from app.services.spatial_map_view import build_spatial_map_view
@@ -556,6 +559,119 @@ class TestPinWidgetToCanvas:
 
 
 class TestWorkspaceMapState:
+    async def test_spatial_widget_scene_reports_overlaps_and_manageability(self, client, db_session):
+        ch = await _create_channel(client, name="Garden")
+        channel_id = uuid.UUID(ch["id"])
+        await update_channel_bot_spatial_policy(
+            db_session,
+            channel_id,
+            "test-bot",
+            {
+                **DEFAULT_SPATIAL_POLICY,
+                "enabled": True,
+                "allow_map_view": True,
+                "allow_nearby_inspect": True,
+                "allow_spatial_widget_management": True,
+            },
+        )
+        await pin_widget_to_canvas(
+            db_session,
+            source_kind="adhoc",
+            tool_name="note",
+            envelope=_envelope("Notes"),
+            source_channel_id=channel_id,
+            source_bot_id="test-bot",
+            display_label="Notes",
+            world_x=100,
+            world_y=100,
+            world_w=300,
+            world_h=200,
+        )
+        await pin_widget_to_canvas(
+            db_session,
+            source_kind="adhoc",
+            tool_name="todo",
+            envelope=_envelope("Notes"),
+            source_channel_id=channel_id,
+            source_bot_id="test-bot",
+            display_label="Notes",
+            world_x=180,
+            world_y=150,
+            world_w=300,
+            world_h=200,
+        )
+
+        scene = await build_spatial_widget_scene(
+            db_session,
+            channel_id=channel_id,
+            bot_id="test-bot",
+        )
+
+        assert scene["score"]["widget_count"] >= 2
+        assert scene["score"]["overlap_count"] >= 1
+        assert scene["score"]["duplicate_label_groups"] == [{"label": "notes", "count": 2}]
+        widgets = [item for item in scene["items"] if item["kind"] == "widget"]
+        assert all(item["manageable"] for item in widgets if item["label"] == "Notes")
+        assert widgets[0]["content_summary"] == "ok"
+
+    async def test_spatial_widget_preview_scores_cleanup_without_mutating(self, client, db_session):
+        ch = await _create_channel(client, name="Garden")
+        channel_id = uuid.UUID(ch["id"])
+        await update_channel_bot_spatial_policy(
+            db_session,
+            channel_id,
+            "test-bot",
+            {
+                **DEFAULT_SPATIAL_POLICY,
+                "enabled": True,
+                "allow_map_view": True,
+                "allow_spatial_widget_management": True,
+            },
+        )
+        await pin_widget_to_canvas(
+            db_session,
+            source_kind="adhoc",
+            tool_name="note",
+            envelope=_envelope("Notes"),
+            source_channel_id=channel_id,
+            source_bot_id="test-bot",
+            display_label="Notes",
+            world_x=100,
+            world_y=100,
+            world_w=300,
+            world_h=200,
+        )
+        _unused_pin, node2 = await pin_widget_to_canvas(
+            db_session,
+            source_kind="adhoc",
+            tool_name="todo",
+            envelope=_envelope("Todo"),
+            source_channel_id=channel_id,
+            source_bot_id="test-bot",
+            display_label="Todo",
+            world_x=180,
+            world_y=150,
+            world_w=300,
+            world_h=200,
+        )
+
+        preview = await preview_spatial_widget_changes(
+            db_session,
+            channel_id=channel_id,
+            bot_id="test-bot",
+            operations=[
+                {"action": "move", "target_node_id": str(node2.id), "world_x": 560, "world_y": 100},
+            ],
+        )
+
+        assert preview["before"]["overlap_count"] >= 1
+        assert preview["after"]["overlap_count"] == 0
+        assert preview["improvement"]["overlap_delta"] >= 1
+        stored = await db_session.get(WorkspaceSpatialNode, node2.id)
+        assert stored.world_x == node2.world_x
+        assert stored.world_y == node2.world_y
+        assert preview["applied"] == [{"action": "move", "target_node_id": str(node2.id)}]
+
     async def test_map_state_uses_existing_room_actor_and_warning_primitives(self, client, db_session):
         ch = await _create_channel(client, name="Ops")
         channel_id = uuid.UUID(ch["id"])

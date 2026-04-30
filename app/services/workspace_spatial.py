@@ -344,6 +344,25 @@ def _rect_edge_clearance(
     return math.hypot(dx, dy)
 
 
+def _rect_overlap_area(a: dict[str, float], b: dict[str, float]) -> float:
+    x_overlap = max(0.0, min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]))
+    y_overlap = max(0.0, min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]))
+    return x_overlap * y_overlap
+
+
+def _rect_edge_gap(a: dict[str, float], b: dict[str, float]) -> float:
+    dx = max(b["x"] - (a["x"] + a["w"]), a["x"] - (b["x"] + b["w"]), 0.0)
+    dy = max(b["y"] - (a["y"] + a["h"]), a["y"] - (b["y"] + b["h"]), 0.0)
+    return math.hypot(dx, dy)
+
+
+def _clip_fraction(rect: dict[str, float], viewport: dict[str, float]) -> float:
+    area = max(1.0, rect["w"] * rect["h"])
+    visible_w = max(0.0, min(rect["x"] + rect["w"], viewport["w"]) - max(rect["x"], 0.0))
+    visible_h = max(0.0, min(rect["y"] + rect["h"], viewport["h"]) - max(rect["y"], 0.0))
+    return round(1.0 - (visible_w * visible_h / area), 4)
+
+
 def _default_min_clearance_world_units() -> float:
     return float(
         DEFAULT_SPATIAL_POLICY["minimum_clearance_steps"]
@@ -1111,6 +1130,378 @@ async def build_canvas_neighborhood(
     }
 
 
+def _pin_content_summary(pin: WidgetDashboardPin | None) -> str | None:
+    if pin is None:
+        return None
+    envelope = pin.envelope if isinstance(pin.envelope, dict) else {}
+    for key in ("plain_body", "text", "summary"):
+        value = envelope.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:280]
+    body = envelope.get("body")
+    if isinstance(body, str) and body.strip():
+        return body.strip().replace("\n", " ")[:280]
+    if isinstance(body, dict):
+        try:
+            return str(body)[:280]
+        except Exception:
+            return None
+    return None
+
+
+def _pin_contract_summary(pin: WidgetDashboardPin | None) -> dict[str, Any]:
+    if pin is None:
+        return {}
+    origin = pin.widget_origin if isinstance(pin.widget_origin, dict) else {}
+    presentation = pin.widget_presentation if isinstance(pin.widget_presentation, dict) else {}
+    envelope = pin.envelope if isinstance(pin.envelope, dict) else {}
+    return {
+        "definition_kind": origin.get("definition_kind"),
+        "instantiation_kind": origin.get("instantiation_kind") or envelope.get("source_instantiation_kind"),
+        "widget_ref": origin.get("widget_ref"),
+        "source_library_ref": origin.get("source_library_ref"),
+        "source_path": origin.get("source_path"),
+        "presentation_family": presentation.get("presentation_family"),
+        "content_type": envelope.get("content_type"),
+    }
+
+
+def _scene_camera(
+    channel_node: WorkspaceSpatialNode,
+    *,
+    viewport_w: int,
+    viewport_h: int,
+    scale: float,
+) -> dict[str, float]:
+    cx, cy = _node_center(channel_node)
+    return {
+        "x": viewport_w / 2 - cx * scale,
+        "y": viewport_h / 2 - cy * scale,
+        "scale": scale,
+    }
+
+
+def _screen_rect(
+    node: WorkspaceSpatialNode,
+    camera: dict[str, float],
+) -> dict[str, float]:
+    scale = camera["scale"]
+    return {
+        "x": round(camera["x"] + node.world_x * scale, 1),
+        "y": round(camera["y"] + node.world_y * scale, 1),
+        "w": round(node.world_w * scale, 1),
+        "h": round(node.world_h * scale, 1),
+    }
+
+
+def _node_world_rect(node: WorkspaceSpatialNode) -> dict[str, float]:
+    return {
+        "x": float(node.world_x),
+        "y": float(node.world_y),
+        "w": float(node.world_w),
+        "h": float(node.world_h),
+    }
+
+
+def _score_widget_scene(items: list[dict[str, Any]], *, min_gap: float) -> dict[str, Any]:
+    widgets = [item for item in items if item["kind"] == "widget"]
+    overlap_pairs: list[dict[str, Any]] = []
+    too_close_pairs: list[dict[str, Any]] = []
+    for idx, a in enumerate(widgets):
+        for b in widgets[idx + 1:]:
+            area = _rect_overlap_area(a["world_bounds"], b["world_bounds"])
+            if area > 0:
+                overlap_pairs.append({
+                    "a_node_id": a["node_id"],
+                    "b_node_id": b["node_id"],
+                    "a_label": a["label"],
+                    "b_label": b["label"],
+                    "overlap_area": round(area, 1),
+                })
+                continue
+            gap = _rect_edge_gap(a["world_bounds"], b["world_bounds"])
+            if gap < min_gap:
+                too_close_pairs.append({
+                    "a_node_id": a["node_id"],
+                    "b_node_id": b["node_id"],
+                    "a_label": a["label"],
+                    "b_label": b["label"],
+                    "edge_gap": round(gap, 1),
+                })
+    label_counts: dict[str, int] = {}
+    for item in widgets:
+        key = str(item["label"] or "").strip().lower()
+        if key:
+            label_counts[key] = label_counts.get(key, 0) + 1
+    duplicate_labels = [
+        {"label": label, "count": count}
+        for label, count in sorted(label_counts.items())
+        if count > 1
+    ]
+    clipped = [
+        {
+            "node_id": item["node_id"],
+            "label": item["label"],
+            "clipped_fraction": item["visibility"]["clipped_fraction"],
+        }
+        for item in widgets
+        if item["visibility"]["clipped_fraction"] > 0.08
+    ]
+    tiny = [
+        {"node_id": item["node_id"], "label": item["label"], "world_bounds": item["world_bounds"]}
+        for item in widgets
+        if item["world_bounds"]["w"] < 160 or item["world_bounds"]["h"] < 100
+    ]
+    warnings: list[str] = []
+    if overlap_pairs:
+        warnings.append(f"{len(overlap_pairs)} widget overlap pair(s)")
+    if duplicate_labels:
+        warnings.append(f"{len(duplicate_labels)} duplicate widget label group(s)")
+    if clipped:
+        warnings.append(f"{len(clipped)} clipped/offscreen widget(s)")
+    if tiny:
+        warnings.append(f"{len(tiny)} tiny widget(s)")
+    return {
+        "widget_count": len(widgets),
+        "overlap_count": len(overlap_pairs),
+        "total_overlap_area": round(sum(float(pair["overlap_area"]) for pair in overlap_pairs), 1),
+        "too_close_count": len(too_close_pairs),
+        "clipped_count": len(clipped),
+        "tiny_count": len(tiny),
+        "duplicate_label_groups": duplicate_labels,
+        "overlap_pairs": overlap_pairs[:20],
+        "too_close_pairs": too_close_pairs[:20],
+        "clipped_widgets": clipped[:20],
+        "tiny_widgets": tiny[:20],
+        "warnings": warnings,
+    }
+
+
+async def build_spatial_widget_scene(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    viewport_w: int = 1400,
+    viewport_h: int = 900,
+    scale: float = 0.72,
+) -> dict[str, Any]:
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    if not policy["enabled"] or not policy["allow_map_view"]:
+        raise ValidationError("Spatial map view is not enabled for this bot in this channel.")
+    channel_node = await _ensure_channel_node(db, channel_id)
+    if channel_node is None:
+        raise NotFoundError(f"Channel node not found: {channel_id}")
+    viewport_w = max(320, min(int(viewport_w or 1400), 4000))
+    viewport_h = max(240, min(int(viewport_h or 900), 2400))
+    scale = max(0.12, min(float(scale or 0.72), 2.5))
+    camera = _scene_camera(channel_node, viewport_w=viewport_w, viewport_h=viewport_h, scale=scale)
+    viewport = {"w": float(viewport_w), "h": float(viewport_h)}
+    nodes, pin_map = await _nodes_with_pins(db)
+    min_gap = float(policy["minimum_clearance_steps"] * policy["step_world_units"])
+    relevant_radius = math.hypot(viewport_w / scale, viewport_h / scale) / 2 + 600
+
+    items: list[dict[str, Any]] = []
+    for node in nodes:
+        if node.landmark_kind:
+            continue
+        pin = pin_map.get(node.widget_pin_id) if node.widget_pin_id else None
+        kind = _node_kind(node)
+        channel_distance = round(_distance(channel_node, node), 1)
+        if (
+            node.channel_id != channel_id
+            and node.bot_id != bot_id
+            and not (pin is not None and pin.source_channel_id == channel_id)
+            and channel_distance > relevant_radius
+        ):
+            continue
+        screen = _screen_rect(node, camera)
+        clipped_fraction = _clip_fraction(screen, viewport)
+        item: dict[str, Any] = {
+            "node_id": str(node.id),
+            "kind": kind,
+            "label": _node_label(node, pin),
+            "world_bounds": _node_world_rect(node),
+            "screen_bounds": screen,
+            "channel_distance": channel_distance,
+            "visibility": {
+                "clipped_fraction": clipped_fraction,
+                "fully_visible": clipped_fraction == 0,
+            },
+            "channel_id": str(node.channel_id) if node.channel_id else None,
+            "bot_id": node.bot_id,
+            "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
+            "manageable": bool(policy["allow_spatial_widget_management"] and pin is not None and pin.source_bot_id == bot_id),
+        }
+        if pin is not None:
+            item.update({
+                "source_channel_id": str(pin.source_channel_id) if pin.source_channel_id else None,
+                "source_bot_id": pin.source_bot_id,
+                "tool_name": pin.tool_name,
+                "display_label": pin.display_label,
+                "widget_origin": pin.widget_origin or {},
+                "widget_contract": _pin_contract_summary(pin),
+                "content_summary": _pin_content_summary(pin),
+                "dashboard_projection": (
+                    "channel" if pin.source_channel_id == channel_id else
+                    "workspace" if pin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY else
+                    None
+                ),
+            })
+        items.append(item)
+
+    items.sort(key=lambda item: (item["channel_distance"], item["kind"], item["label"]))
+    score = _score_widget_scene(items, min_gap=min_gap)
+    channel = await db.get(Channel, channel_id)
+    return {
+        "policy": {
+            "allow_map_view": bool(policy["allow_map_view"]),
+            "allow_nearby_inspect": bool(policy["allow_nearby_inspect"]),
+            "allow_spatial_widget_management": bool(policy["allow_spatial_widget_management"]),
+            "minimum_clearance": min_gap,
+        },
+        "channel": {
+            "id": str(channel_id),
+            "name": channel.name if channel else str(channel_id),
+            "node_id": str(channel_node.id),
+            "world_bounds": _node_world_rect(channel_node),
+        },
+        "viewport": {"w": viewport_w, "h": viewport_h},
+        "camera": {k: round(v, 3) for k, v in camera.items()},
+        "items": items[:80],
+        "score": score,
+        "llm": (
+            f"Scene has {score['widget_count']} widget(s), "
+            f"{score['overlap_count']} overlap pair(s), "
+            f"{score['clipped_count']} clipped widget(s)."
+        ),
+    }
+
+
+def _simulated_item_from_node(node: WorkspaceSpatialNode, pin: WidgetDashboardPin | None, *, bot_id: str) -> dict[str, Any]:
+    return {
+        "node_id": str(node.id),
+        "kind": _node_kind(node),
+        "label": _node_label(node, pin),
+        "world_bounds": _node_world_rect(node),
+        "visibility": {"clipped_fraction": 0.0},
+        "manageable": pin is not None and pin.source_bot_id == bot_id,
+    }
+
+
+async def preview_spatial_widget_changes(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    operations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    if not policy["enabled"] or not policy["allow_map_view"]:
+        raise ValidationError("Spatial map view is not enabled for this bot in this channel.")
+    nodes, pin_map = await _nodes_with_pins(db)
+    by_id = {str(node.id): node for node in nodes}
+    simulated: dict[str, dict[str, Any]] = {
+        str(node.id): _simulated_item_from_node(node, pin_map.get(node.widget_pin_id), bot_id=bot_id)
+        for node in nodes
+        if node.widget_pin_id is not None
+        and (pin_map.get(node.widget_pin_id) is not None)
+        and pin_map[node.widget_pin_id].source_channel_id == channel_id
+    }
+    rejected: list[dict[str, Any]] = []
+    applied: list[dict[str, Any]] = []
+    step = float(policy["step_world_units"])
+    for raw in operations[:24]:
+        if not isinstance(raw, dict):
+            rejected.append({"operation": raw, "error": "operation must be an object"})
+            continue
+        action = str(raw.get("action") or "").strip()
+        target = str(raw.get("target_node_id") or "").strip()
+        if action not in {"move", "resize", "remove", "pin"}:
+            rejected.append({"operation": raw, "error": "action must be move, resize, remove, or pin"})
+            continue
+        if action == "pin":
+            x = raw.get("world_x")
+            y = raw.get("world_y")
+            if x is None or y is None:
+                rejected.append({"operation": raw, "error": "pin preview requires world_x and world_y"})
+                continue
+            temp_id = f"preview:{len(applied) + 1}"
+            simulated[temp_id] = {
+                "node_id": temp_id,
+                "kind": "widget",
+                "label": raw.get("display_label") or raw.get("widget") or "new widget",
+                "world_bounds": {
+                    "x": float(x),
+                    "y": float(y),
+                    "w": float(raw.get("world_w") or _DEFAULT_WIDGET_W),
+                    "h": float(raw.get("world_h") or _DEFAULT_WIDGET_H),
+                },
+                "visibility": {"clipped_fraction": 0.0},
+                "manageable": True,
+            }
+            applied.append({"action": action, "target_node_id": temp_id})
+            continue
+        node = by_id.get(target)
+        pin = pin_map.get(node.widget_pin_id) if node and node.widget_pin_id else None
+        if node is None or pin is None:
+            rejected.append({"operation": raw, "error": "target_node_id is not a spatial widget"})
+            continue
+        if pin.source_bot_id != bot_id:
+            rejected.append({"operation": raw, "error": "target is not owned by this bot"})
+            continue
+        if action == "remove":
+            simulated.pop(target, None)
+        elif action == "move":
+            item = simulated.get(target)
+            if item:
+                bounds = dict(item["world_bounds"])
+                if "world_x" in raw:
+                    bounds["x"] = float(raw["world_x"])
+                else:
+                    bounds["x"] += int(raw.get("dx_steps") or 0) * step
+                if "world_y" in raw:
+                    bounds["y"] = float(raw["world_y"])
+                else:
+                    bounds["y"] += int(raw.get("dy_steps") or 0) * step
+                item["world_bounds"] = bounds
+        elif action == "resize":
+            item = simulated.get(target)
+            if item:
+                bounds = dict(item["world_bounds"])
+                if "world_w" in raw:
+                    bounds["w"] = max(80.0, float(raw["world_w"]))
+                if "world_h" in raw:
+                    bounds["h"] = max(60.0, float(raw["world_h"]))
+                item["world_bounds"] = bounds
+        applied.append({"action": action, "target_node_id": target})
+
+    min_gap = float(policy["minimum_clearance_steps"] * policy["step_world_units"])
+    before = _score_widget_scene(list({
+        str(node.id): _simulated_item_from_node(node, pin_map.get(node.widget_pin_id), bot_id=bot_id)
+        for node in nodes
+        if node.widget_pin_id is not None
+        and (pin_map.get(node.widget_pin_id) is not None)
+        and pin_map[node.widget_pin_id].source_channel_id == channel_id
+    }.values()), min_gap=min_gap)
+    after = _score_widget_scene(list(simulated.values()), min_gap=min_gap)
+    return {
+        "applied": applied,
+        "rejected": rejected,
+        "before": before,
+        "after": after,
+        "improvement": {
+            "overlap_delta": before["overlap_count"] - after["overlap_count"],
+            "total_overlap_area_delta": round(before["total_overlap_area"] - after["total_overlap_area"], 1),
+            "widget_count_delta": after["widget_count"] - before["widget_count"],
+        },
+        "llm": (
+            f"Preview overlap pairs {before['overlap_count']} -> {after['overlap_count']}; "
+            f"widgets {before['widget_count']} -> {after['widget_count']}."
+        ),
+    }
+
+
 async def _attention_hot_alerts(
     db: AsyncSession,
     *,
@@ -1156,7 +1547,11 @@ async def build_canvas_neighborhood_block(
     if policy["allow_map_view"]:
         lines.append("You may use view_spatial_canvas for read-only whole-map viewport summaries and focus targets.")
     if policy["allow_spatial_widget_management"]:
-        lines.append("You may use pin_spatial_widget plus move/resize/remove spatial-widget tools for widgets you own.")
+        lines.append(
+            "Before changing spatial widgets, call inspect_spatial_widget_scene; "
+            "use preview_spatial_widget_changes to check whether candidate edits improve visibility. "
+            "You may then use pin_spatial_widget plus move/resize/remove spatial-widget tools for widgets you own."
+        )
     if policy.get("allow_attention_beacons"):
         lines.append("You may use place_attention_beacon for human-visible warnings and resolve_attention_beacon for your own resolved beacons.")
     lines.append(

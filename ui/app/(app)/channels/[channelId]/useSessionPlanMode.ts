@@ -67,6 +67,7 @@ export interface PlanRuntimeCapsule {
   adherence_status?: "ok" | "warning" | "blocked" | "unknown" | "planning" | null;
   semantic_status?: "ok" | "warning" | "needs_replan" | "unknown" | null;
   latest_evidence?: PlanExecutionEvidence | null;
+  latest_tool_feedback?: PlanToolFeedback | null;
   latest_outcome?: PlanProgressOutcome | null;
   latest_semantic_review?: PlanSemanticReview | null;
   pending_turn_outcome?: PendingTurnOutcome | null;
@@ -83,6 +84,26 @@ export interface PlanRuntimeCapsule {
   suspended_plan_status?: "draft" | "approved" | "executing" | "blocked" | "done" | string | null;
   last_updated_at?: string | null;
   last_update_reason?: string | null;
+}
+
+export interface PlanToolFeedback {
+  created_at?: string;
+  plan_revision?: number | null;
+  turn_id?: string | null;
+  correlation_id?: string | null;
+  tool_name?: string;
+  tool_kind?: string;
+  status?: string;
+  error?: string | null;
+  error_kind?: string | null;
+  error_code?: string | null;
+  retryable?: boolean | null;
+  retry_after_seconds?: number | null;
+  fallback?: string | null;
+  tool_call_id?: string | null;
+  record_id?: string | null;
+  arguments?: Record<string, unknown>;
+  summary?: string;
 }
 
 export interface PendingTurnOutcome {

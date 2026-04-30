@@ -1,4 +1,4 @@
-"""Security self-assessment: 18 checks across config, tool registry, and DB state.
+"""Security self-assessment across config, tool registry, and DB state.
 
 Read-only diagnostic — no mutations, no new tables.
 """
@@ -15,10 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import list_bots
 from app.config import settings
-from app.db.models import MCPServer, ToolApproval, ToolPolicyRule
+from app.db.models import MCPServer, MachineTargetLease, Session, ToolApproval, ToolPolicyRule
 from app.services.encryption import is_encryption_enabled
 from app.tools.mcp import get_configured_server_count
-from app.tools.registry import get_all_tool_tiers
+from app.tools.registry import get_all_tool_tiers, get_tool_execution_policy, get_tool_safety_tier
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,12 @@ HIGH_RISK_BOT_API_SCOPES = {
     "tools:execute",
     "users:write",
     "workspaces.files:write",
+}
+
+MACHINE_CONTROL_TOOL_CONTRACTS = {
+    "machine_status": {"safety_tier": "readonly", "execution_policy": "interactive_user"},
+    "machine_inspect_command": {"safety_tier": "readonly", "execution_policy": "live_target_lease"},
+    "machine_exec_command": {"safety_tier": "exec_capable", "execution_policy": "live_target_lease"},
 }
 
 
@@ -262,6 +268,100 @@ def _check_tool_tier_distribution() -> SecurityCheck:
         status=Status.passed,
         message=f"{len(tiers)} tools registered across {len(distribution)} tier(s)",
         details={"total": len(tiers), "by_tier": distribution},
+    )
+
+
+def _check_machine_control_tool_gates() -> SecurityCheck:
+    mismatches = []
+    observed = {}
+    for tool_name, expected in MACHINE_CONTROL_TOOL_CONTRACTS.items():
+        actual = {
+            "safety_tier": get_tool_safety_tier(tool_name),
+            "execution_policy": get_tool_execution_policy(tool_name),
+        }
+        observed[tool_name] = actual
+        if actual != expected:
+            mismatches.append({
+                "tool": tool_name,
+                "expected": expected,
+                "actual": actual,
+            })
+
+    if mismatches:
+        return SecurityCheck(
+            id="machine_control_tool_gates",
+            category="machine_control",
+            severity=Severity.critical,
+            status=Status.fail,
+            message=f"{len(mismatches)} machine-control tool gate contract(s) drifted",
+            recommendation=(
+                "Keep machine_status behind interactive_user and command tools behind live_target_lease; "
+                "machine_exec_command must remain exec_capable."
+            ),
+            details={"mismatches": mismatches, "observed": observed},
+        )
+    return SecurityCheck(
+        id="machine_control_tool_gates",
+        category="machine_control",
+        severity=Severity.warning,
+        status=Status.passed,
+        message="Machine-control tools require the expected user/lease execution gates",
+        details={"observed": observed},
+    )
+
+
+def _check_browser_live_pairing_surface() -> SecurityCheck:
+    try:
+        from app.services.integration_settings import get_status, get_value
+        from integrations.browser_live.bridge import bridge
+    except Exception as exc:
+        return SecurityCheck(
+            id="browser_live_pairing_surface",
+            category="machine_control",
+            severity=Severity.warning,
+            status=Status.fail,
+            message="Could not inspect browser_live pairing surface",
+            recommendation="Fix browser_live imports/settings so the pairing boundary is auditable.",
+            details={"error": str(exc)},
+        )
+
+    token_configured = bool(get_value("browser_live", "BROWSER_LIVE_PAIRING_TOKEN", ""))
+    status = get_status("browser_live")
+    connections = bridge.list_connections()
+    details = {
+        "integration_status": status,
+        "token_configured": token_configured,
+        "connection_count": len(connections),
+        "connections": connections[:10],
+    }
+
+    if connections:
+        return SecurityCheck(
+            id="browser_live_pairing_surface",
+            category="machine_control",
+            severity=Severity.warning,
+            status=Status.warning,
+            message=f"{len(connections)} browser_live connection(s) are currently paired",
+            recommendation="Treat paired browsers as operator-equivalent logged-in sessions; rotate the pairing token when a browser should no longer reconnect.",
+            details=details,
+        )
+    if token_configured:
+        return SecurityCheck(
+            id="browser_live_pairing_surface",
+            category="machine_control",
+            severity=Severity.warning,
+            status=Status.warning,
+            message="browser_live has a reusable pairing token configured",
+            recommendation="Rotate the pairing token after setup or before exposing the server beyond a trusted local network.",
+            details=details,
+        )
+    return SecurityCheck(
+        id="browser_live_pairing_surface",
+        category="machine_control",
+        severity=Severity.warning,
+        status=Status.passed,
+        message="browser_live has no active pairings and no reusable pairing token configured",
+        details=details,
     )
 
 
@@ -735,6 +835,104 @@ async def _check_mcp_servers_count(db: AsyncSession) -> SecurityCheck:
     )
 
 
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _legacy_machine_lease(session: Session) -> dict[str, Any] | None:
+    raw = (session.metadata_ or {}).get("machine_target_lease")
+    return raw if isinstance(raw, dict) else None
+
+
+async def _check_machine_control_lease_state(db: AsyncSession) -> SecurityCheck:
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(select(MachineTargetLease))).scalars().all()
+
+    active = []
+    expired = []
+    overlong = []
+    for row in rows:
+        granted_at = _aware(row.granted_at)
+        expires_at = _aware(row.expires_at)
+        ttl_seconds = int((expires_at - granted_at).total_seconds())
+        payload = {
+            "lease_id": row.lease_id,
+            "session_id": str(row.session_id),
+            "user_id": str(row.user_id),
+            "provider_id": row.provider_id,
+            "target_id": row.target_id,
+            "granted_at": granted_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "ttl_seconds": ttl_seconds,
+        }
+        if expires_at <= now:
+            expired.append(payload)
+        else:
+            active.append(payload)
+        if ttl_seconds > 3600:
+            overlong.append(payload)
+
+    sessions = (await db.execute(select(Session))).scalars().all()
+    legacy = []
+    for session in sessions:
+        lease = _legacy_machine_lease(session)
+        if lease is not None:
+            legacy.append({
+                "session_id": str(session.id),
+                "provider_id": lease.get("provider_id"),
+                "target_id": lease.get("target_id"),
+                "expires_at": lease.get("expires_at"),
+            })
+
+    details = {
+        "active_count": len(active),
+        "expired_count": len(expired),
+        "overlong_count": len(overlong),
+        "legacy_metadata_count": len(legacy),
+        "active": active[:20],
+        "expired": expired[:20],
+        "overlong": overlong[:20],
+        "legacy_metadata": legacy[:20],
+        "max_ttl_seconds": 3600,
+    }
+
+    if overlong:
+        return SecurityCheck(
+            id="machine_control_lease_state",
+            category="machine_control",
+            severity=Severity.critical,
+            status=Status.fail,
+            message=f"{len(overlong)} machine-control lease(s) exceed the max TTL",
+            recommendation="Revoke overlong leases and keep session leases capped to MAX_LEASE_TTL_SECONDS.",
+            details=details,
+        )
+    if active or expired or legacy:
+        parts = []
+        if active:
+            parts.append(f"{len(active)} active")
+        if expired:
+            parts.append(f"{len(expired)} expired")
+        if legacy:
+            parts.append(f"{len(legacy)} legacy metadata")
+        return SecurityCheck(
+            id="machine_control_lease_state",
+            category="machine_control",
+            severity=Severity.warning,
+            status=Status.warning,
+            message="Machine-control leases present: " + ", ".join(parts),
+            recommendation="Review active leases before handing a session to another operator; expired or legacy metadata leases should be cleared.",
+            details=details,
+        )
+    return SecurityCheck(
+        id="machine_control_lease_state",
+        category="machine_control",
+        severity=Severity.warning,
+        status=Status.passed,
+        message="No active, expired, overlong, or legacy machine-control leases found",
+        details=details,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -791,6 +989,8 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_widget_action_api_allowlist())
     checks.append(_check_worksurface_isolation_static())
     checks.append(_check_inbound_callback_security())
+    checks.append(_check_machine_control_tool_gates())
+    checks.append(_check_browser_live_pairing_surface())
 
     # DB-dependent checks
     checks.append(await _check_exec_tools_without_rules(db))
@@ -798,6 +998,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(await _check_stale_approvals(db))
     checks.append(await _check_policy_rule_count(db))
     checks.append(await _check_mcp_servers_count(db))
+    checks.append(await _check_machine_control_lease_state(db))
 
     summary = _compute_summary(checks)
     score = _compute_score(checks)

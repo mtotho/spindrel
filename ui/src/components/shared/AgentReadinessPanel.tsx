@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Activity, AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
+import { Activity, AlertCircle, BookOpen, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Lightbulb, Plug, Sparkles, Wrench } from "lucide-react";
 
-import { createExecutionReceipt, fetchAgentCapabilities, preflightAgentRepair, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type AgentRepairPreflight, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
-import { useUpdateBot } from "@/src/api/hooks/useBots";
+import { applyAgentReadinessRepair, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type AgentSkillCreationCandidate, type AgentSkillRecommendation, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
+import { WORKSPACE_ATTENTION_BRIEF_KEY, WORKSPACE_ATTENTION_KEY } from "@/src/api/hooks/useWorkspaceAttention";
 import { ApiError } from "@/src/api/client";
-import type { BotConfig } from "@/src/types/api";
 import { ActionButton, EmptyState, InfoBanner, QuietPill, SettingsControlRow, SettingsStatGrid, StatusBadge } from "./SettingsControls";
 import { Spinner } from "./Spinner";
 
@@ -225,6 +224,61 @@ function ActivityLogSummary({ manifest }: { manifest: AgentCapabilityManifest })
   );
 }
 
+function SkillRecommendationRow({ recommendation }: { recommendation: AgentSkillRecommendation }) {
+  const missing = recommendation.missing_skill_ids?.length ?? 0;
+  return (
+    <SettingsControlRow
+      leading={<BookOpen size={14} />}
+      title={recommendation.feature_label}
+      description={`${recommendation.first_action || "get_skill"} - ${recommendation.reason}`}
+      meta={<QuietPill label={missing > 0 ? `${missing} not enrolled` : "ready"} tone={missing > 0 ? "warning" : "info"} />}
+      compact
+    />
+  );
+}
+
+function SkillCreationCandidateRow({ candidate }: { candidate: AgentSkillCreationCandidate }) {
+  return (
+    <SettingsControlRow
+      leading={<Lightbulb size={14} />}
+      title={candidate.feature_label}
+      description={`${candidate.suggested_skill_id} - ${candidate.reason}`}
+      meta={<QuietPill label="candidate" tone="neutral" />}
+      compact
+    />
+  );
+}
+
+function SkillOpportunitySummary({ manifest }: { manifest: AgentCapabilityManifest }) {
+  const recommendations = manifest.skills.recommended_now || [];
+  const candidates = manifest.skills.creation_candidates || [];
+  if (!recommendations.length && !candidates.length) return null;
+  return (
+    <div className="flex flex-col gap-2" data-testid="agent-readiness-skill-opportunities">
+      {recommendations.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+            Recommended skills now
+          </div>
+          {recommendations.slice(0, 3).map((recommendation) => (
+            <SkillRecommendationRow key={recommendation.feature_id} recommendation={recommendation} />
+          ))}
+        </div>
+      )}
+      {candidates.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+            Missing skill coverage
+          </div>
+          {candidates.slice(0, 2).map((candidate) => (
+            <SkillCreationCandidateRow key={candidate.feature_id} candidate={candidate} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function receiptTone(status?: string): "success" | "warning" | "danger" | "neutral" {
   if (status === "succeeded") return "success";
   if (status === "failed" || status === "blocked") return "danger";
@@ -366,7 +420,6 @@ export function AgentReadinessPanel({
 }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const updateBot = useUpdateBot(botId || undefined);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastReceipt, setLastReceipt] = useState<ExecutionReceipt | null>(null);
@@ -407,140 +460,29 @@ export function AgentReadinessPanel({
     setActionError(null);
     setLastReceipt(null);
     setPendingActionId(action.id);
-    const beforeDoctorStatus = data?.doctor.status ?? "unknown";
     try {
-      let preflight: AgentRepairPreflight;
-      try {
-        preflight = await preflightAgentRepair({
-          action_id: action.id,
-          bot_id: botId,
-          channel_id: channelId,
-          session_id: sessionId,
-        });
-      } catch (err) {
-        setActionError(`Preflight failed: ${errorMessage(err)}`);
+      const result = await applyAgentReadinessRepair({
+        action,
+        botId,
+        channelId,
+        sessionId,
+        maxTools,
+        actor: { kind: "human_ui", surface: "agent_readiness_panel" },
+        approvalRef: "agent_readiness_panel",
+        beforeDoctorStatus: data?.doctor.status ?? "unknown",
+      });
+      if (result.status === "blocked" || result.status === "stale") {
+        setActionError(result.preflight.reason);
         return;
       }
-
-      if (preflight.status === "blocked" || preflight.status === "stale") {
-        setActionError(preflight.reason);
-        return;
-      }
-
-      if (preflight.status === "noop") {
-        const stillFinding = preflight.current_findings.includes(action.finding_code);
-        const receipt = await createExecutionReceipt({
-          scope: "agent_readiness",
-          action_type: action.kind || "bot_patch",
-          status: stillFinding ? "needs_review" : "succeeded",
-          summary: stillFinding
-            ? `Preflight skipped, still needs review: ${action.title}`
-            : `Preflight skipped, already resolved: ${action.title}`,
-          actor: { kind: "human_ui", surface: "agent_readiness_panel" },
-          target: {
-            bot_id: botId ?? undefined,
-            channel_id: channelId ?? undefined,
-            session_id: sessionId ?? undefined,
-            finding_code: action.finding_code,
-            action_id: action.id,
-          },
-          before_summary: action.description,
-          after_summary: preflight.reason,
-          approval_required: true,
-          approval_ref: "agent_readiness_panel",
-          result: {
-            applied: false,
-            patch: action.apply.patch,
-            preflight,
-            doctor_status_before: beforeDoctorStatus,
-            finding_resolved: !stillFinding,
-            remaining_findings: preflight.current_findings,
-          },
-          rollback_hint: "No configuration changed.",
-          bot_id: botId ?? undefined,
-          channel_id: channelId ?? undefined,
-          session_id: sessionId ?? undefined,
-          idempotency_key: `agent_readiness:${botId ?? "none"}:${action.id}:preflight`,
-          metadata: { finding_code: action.finding_code, preflight_status: preflight.status },
-        });
-        setLastReceipt(receipt);
-        void qc.invalidateQueries({ queryKey: ["agent-capabilities"] });
-        return;
-      }
-
-      if (!preflight.can_apply) {
-        setActionError(preflight.reason || "Preflight did not approve this repair.");
-        return;
-      }
-
-      await updateBot.mutateAsync(action.apply.patch as Partial<BotConfig>);
-      let refreshed: AgentCapabilityManifest | null = null;
-      let verificationError: string | null = null;
-      try {
-        refreshed = await fetchAgentCapabilities({
-          botId,
-          channelId,
-          sessionId,
-          includeEndpoints: false,
-          includeSchemas: false,
-          maxTools,
-        });
-      } catch (err) {
-        verificationError = errorMessage(err);
-      }
-      const remainingFindings = refreshed?.doctor.findings ?? [];
-      const remainingCodes = remainingFindings.map((finding) => finding.code);
-      const findingResolved = Boolean(refreshed && !remainingCodes.includes(action.finding_code));
-      const receiptStatus = findingResolved ? "succeeded" : "needs_review";
-      const receiptSummary = verificationError
-        ? `Applied readiness repair, verification failed: ${action.title}`
-        : findingResolved
-          ? `Verified resolved: ${action.title}`
-          : `Applied, still needs review: ${action.title}`;
-      try {
-        const receipt = await createExecutionReceipt({
-          scope: "agent_readiness",
-          action_type: action.kind || "bot_patch",
-          status: receiptStatus,
-          summary: receiptSummary,
-          actor: { kind: "human_ui", surface: "agent_readiness_panel" },
-          target: {
-            bot_id: botId ?? undefined,
-            channel_id: channelId ?? undefined,
-            session_id: sessionId ?? undefined,
-            finding_code: action.finding_code,
-            action_id: action.id,
-          },
-          before_summary: action.description,
-          after_summary: findingResolved
-            ? "The original readiness finding no longer appears after refetching the capability manifest."
-            : action.impact,
-          approval_required: true,
-          approval_ref: "agent_readiness_panel",
-          result: {
-            applied: true,
-            patch: action.apply.patch,
-            preflight,
-            required_actor_scopes: action.required_actor_scopes ?? [],
-            grants_scopes: action.grants_scopes ?? [],
-            doctor_status_before: beforeDoctorStatus,
-            doctor_status_after: refreshed?.doctor.status ?? null,
-            finding_resolved: findingResolved,
-            remaining_findings: remainingCodes,
-            verification_error: verificationError,
-          },
-          rollback_hint: "Open Bot settings and remove the added API scopes or tool enrollments if this repair was not intended.",
-          bot_id: botId ?? undefined,
-          channel_id: channelId ?? undefined,
-          session_id: sessionId ?? undefined,
-          idempotency_key: `agent_readiness:${botId ?? "none"}:${action.id}`,
-          metadata: { finding_code: action.finding_code },
-        });
-        setLastReceipt(receipt);
-      } catch (err) {
-        setActionError(`Repair applied, but the execution receipt was not recorded: ${errorMessage(err)}`);
-      }
+      if (result.receipt) setLastReceipt(result.receipt);
       void qc.invalidateQueries({ queryKey: ["agent-capabilities"] });
+      void qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
+      void qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      void qc.invalidateQueries({ queryKey: ["bots", botId] });
+      void qc.invalidateQueries({ queryKey: ["bot-editor", botId] });
+      void qc.invalidateQueries({ queryKey: ["bots"] });
+      void qc.invalidateQueries({ queryKey: ["admin-bots"] });
     } catch (err) {
       setActionError(errorMessage(err));
     } finally {
@@ -592,6 +534,7 @@ export function AgentReadinessPanel({
       <SurfaceSummary manifest={data} />
       <AgentStatusSummary manifest={data} />
       <ActivityLogSummary manifest={data} />
+      <SkillOpportunitySummary manifest={data} />
       <PendingRepairRequests
         manifest={data}
         proposedActions={proposedActions}

@@ -254,12 +254,42 @@ class TestProjectsApi:
         assert listed.status_code == 200
         rows = listed.json()
         assert [row["id"] for row in rows] == [launched_body["id"]]
-        assert rows[0]["status"] == "needs_review"
-        assert rows[0]["receipt"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
-        assert rows[0]["receipt"]["screenshots"][0]["path"] == "docs/images/project-workspace-runs.png"
-        assert rows[0]["review"]["status"] == "ready_for_review"
-        assert rows[0]["review"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
-        assert rows[0]["review"]["evidence"]["tests_count"] == 1
+        original_row = rows[0]
+        assert original_row["status"] == "needs_review"
+        assert original_row["root_task_id"] == launched_body["task"]["id"]
+        assert original_row["continuation_index"] == 0
+        assert original_row["receipt"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
+        assert original_row["receipt"]["screenshots"][0]["path"] == "docs/images/project-workspace-runs.png"
+        assert original_row["review"]["status"] == "ready_for_review"
+        assert original_row["review"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
+        assert original_row["review"]["evidence"]["tests_count"] == 1
+
+        continuation = await client.post(
+            f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}/continue",
+            json={"feedback": "Tighten the Runs copy and recapture the screenshot."},
+            headers=AUTH_HEADERS,
+        )
+        assert continuation.status_code == 201
+        continuation_body = continuation.json()
+        assert continuation_body["parent_task_id"] == launched_body["task"]["id"]
+        assert continuation_body["root_task_id"] == launched_body["task"]["id"]
+        assert continuation_body["continuation_index"] == 1
+        assert continuation_body["branch"] == launched_body["branch"]
+        assert continuation_body["base_branch"] == "development"
+        assert continuation_body["continuation_feedback"] == "Tighten the Runs copy and recapture the screenshot."
+        followup_task = await db_session.get(Task, uuid.UUID(continuation_body["task"]["id"]))
+        assert followup_task is not None
+        assert "Review continuation context" in followup_task.prompt
+        assert "Existing handoff/PR: https://github.com/mtotho/spindrel/pull/123" in followup_task.prompt
+        assert "Tighten the Runs copy" in followup_task.prompt
+        assert followup_task.execution_config["project_coding_run"]["prior_evidence"]["tests_count"] == 1
+
+        listed_with_continuation = await client.get(f"/api/v1/projects/{project_id}/coding-runs", headers=AUTH_HEADERS)
+        assert listed_with_continuation.status_code == 200
+        rows_by_id = {row["id"]: row for row in listed_with_continuation.json()}
+        assert rows_by_id[launched_body["id"]]["continuation_count"] == 1
+        assert rows_by_id[launched_body["id"]]["latest_continuation"]["id"] == continuation_body["id"]
+        assert rows_by_id[continuation_body["id"]]["parent_task_id"] == launched_body["task"]["id"]
 
         reviewed = await client.post(
             f"/api/v1/projects/{project_id}/coding-runs/{launched_body['task']['id']}/reviewed",

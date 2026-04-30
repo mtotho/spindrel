@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "../client";
+import { ApiError, apiFetch } from "../client";
+import type { BotConfig } from "../../types/api";
 
 export type AgentReadinessStatus = "ok" | "needs_attention" | "error" | string;
 export type AgentFindingSeverity = "info" | "warning" | "error" | string;
@@ -285,6 +286,27 @@ export interface AgentToolErrorContract {
   backward_compatibility?: string;
 }
 
+export interface AgentSkillRecommendation {
+  feature_id: string;
+  feature_label: string;
+  skill_ids: string[];
+  missing_skill_ids?: string[];
+  reason: string;
+  when_to_load: string;
+  first_action?: string | null;
+  model_support?: "recommended_for_small_models" | string;
+  labels?: Record<string, string>;
+}
+
+export interface AgentSkillCreationCandidate {
+  feature_id: string;
+  feature_label: string;
+  reason: string;
+  suggested_skill_id: string;
+  first_outline?: string[];
+  model_support?: "recommended_for_small_models" | string;
+}
+
 export interface ExecutionReceiptWrite {
   scope?: string;
   action_type: string;
@@ -359,6 +381,12 @@ export interface AgentRepairRequest {
   requester_missing_actor_scopes: string[];
 }
 
+function agentRepairErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.detail ?? error.message;
+  if (error instanceof Error) return error.message;
+  return "Agent readiness repair failed.";
+}
+
 export function createExecutionReceipt(payload: ExecutionReceiptWrite) {
   return apiFetch<ExecutionReceipt>("/api/v1/execution-receipts", {
     method: "POST",
@@ -405,6 +433,183 @@ export function requestAgentRepair(payload: {
   });
 }
 
+export interface ApplyAgentReadinessRepairInput {
+  action: AgentCapabilityAction;
+  botId?: string | null;
+  channelId?: string | null;
+  sessionId?: string | null;
+  maxTools?: number;
+  actor?: Record<string, unknown>;
+  approvalRef?: string;
+  beforeDoctorStatus?: string | null;
+}
+
+export interface ApplyAgentReadinessRepairResult {
+  status: "succeeded" | "needs_review" | "blocked" | "stale";
+  receipt?: ExecutionReceipt;
+  preflight: AgentRepairPreflight;
+  refreshed?: AgentCapabilityManifest | null;
+  findingResolved?: boolean;
+  verificationError?: string | null;
+}
+
+export async function updateBotConfig(botId: string, data: Partial<BotConfig>) {
+  return apiFetch<BotConfig>(`/api/v1/admin/bots/${botId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function applyAgentReadinessRepair({
+  action,
+  botId,
+  channelId,
+  sessionId,
+  maxTools = 40,
+  actor = { kind: "human_ui", surface: "agent_readiness_panel" },
+  approvalRef = "agent_readiness_panel",
+  beforeDoctorStatus = "unknown",
+}: ApplyAgentReadinessRepairInput): Promise<ApplyAgentReadinessRepairResult> {
+  if (action.apply.type !== "bot_patch") {
+    throw new Error("Only bot patch readiness repairs can be applied.");
+  }
+  if (!botId) {
+    throw new Error("A bot id is required to apply this readiness repair.");
+  }
+
+  const preflight = await preflightAgentRepair({
+    action_id: action.id,
+    bot_id: botId,
+    channel_id: channelId,
+    session_id: sessionId,
+  });
+
+  if (preflight.status === "blocked" || preflight.status === "stale") {
+    return { status: preflight.status, preflight };
+  }
+
+  if (preflight.status === "noop") {
+    const stillFinding = preflight.current_findings.includes(action.finding_code);
+    const receipt = await createExecutionReceipt({
+      scope: "agent_readiness",
+      action_type: action.kind || "bot_patch",
+      status: stillFinding ? "needs_review" : "succeeded",
+      summary: stillFinding
+        ? `Preflight skipped, still needs review: ${action.title}`
+        : `Preflight skipped, already resolved: ${action.title}`,
+      actor,
+      target: {
+        bot_id: botId,
+        channel_id: channelId ?? undefined,
+        session_id: sessionId ?? undefined,
+        finding_code: action.finding_code,
+        action_id: action.id,
+      },
+      before_summary: action.description,
+      after_summary: preflight.reason,
+      approval_required: true,
+      approval_ref: approvalRef,
+      result: {
+        applied: false,
+        patch: action.apply.patch,
+        preflight,
+        doctor_status_before: beforeDoctorStatus,
+        finding_resolved: !stillFinding,
+        remaining_findings: preflight.current_findings,
+      },
+      rollback_hint: "No configuration changed.",
+      bot_id: botId,
+      channel_id: channelId ?? undefined,
+      session_id: sessionId ?? undefined,
+      idempotency_key: `agent_readiness:${botId ?? "none"}:${action.id}:preflight`,
+      metadata: { finding_code: action.finding_code, preflight_status: preflight.status },
+    });
+    return {
+      status: stillFinding ? "needs_review" : "succeeded",
+      receipt,
+      preflight,
+      findingResolved: !stillFinding,
+    };
+  }
+
+  if (!preflight.can_apply) {
+    return { status: "blocked", preflight };
+  }
+
+  await updateBotConfig(botId, action.apply.patch as Partial<BotConfig>);
+  let refreshed: AgentCapabilityManifest | null = null;
+  let verificationError: string | null = null;
+  try {
+    refreshed = await fetchAgentCapabilities({
+      botId,
+      channelId,
+      sessionId,
+      includeEndpoints: false,
+      includeSchemas: false,
+      maxTools,
+    });
+  } catch (error) {
+    verificationError = agentRepairErrorMessage(error);
+  }
+
+  const remainingFindings = refreshed?.doctor.findings ?? [];
+  const remainingCodes = remainingFindings.map((finding) => finding.code);
+  const findingResolved = Boolean(refreshed && !remainingCodes.includes(action.finding_code));
+  const receiptStatus = findingResolved ? "succeeded" : "needs_review";
+  const receiptSummary = verificationError
+    ? `Applied readiness repair, verification failed: ${action.title}`
+    : findingResolved
+      ? `Verified resolved: ${action.title}`
+      : `Applied, still needs review: ${action.title}`;
+  const receipt = await createExecutionReceipt({
+    scope: "agent_readiness",
+    action_type: action.kind || "bot_patch",
+    status: receiptStatus,
+    summary: receiptSummary,
+    actor,
+    target: {
+      bot_id: botId,
+      channel_id: channelId ?? undefined,
+      session_id: sessionId ?? undefined,
+      finding_code: action.finding_code,
+      action_id: action.id,
+    },
+    before_summary: action.description,
+    after_summary: findingResolved
+      ? "The original readiness finding no longer appears after refetching the capability manifest."
+      : action.impact,
+    approval_required: true,
+    approval_ref: approvalRef,
+    result: {
+      applied: true,
+      patch: action.apply.patch,
+      preflight,
+      required_actor_scopes: action.required_actor_scopes ?? [],
+      grants_scopes: action.grants_scopes ?? [],
+      doctor_status_before: beforeDoctorStatus,
+      doctor_status_after: refreshed?.doctor.status ?? null,
+      finding_resolved: findingResolved,
+      remaining_findings: remainingCodes,
+      verification_error: verificationError,
+    },
+    rollback_hint: "Open Bot settings and remove the added API scopes or tool enrollments if this repair was not intended.",
+    bot_id: botId,
+    channel_id: channelId ?? undefined,
+    session_id: sessionId ?? undefined,
+    idempotency_key: `agent_readiness:${botId ?? "none"}:${action.id}`,
+    metadata: { finding_code: action.finding_code },
+  });
+  return {
+    status: receiptStatus,
+    receipt,
+    preflight,
+    refreshed,
+    findingResolved,
+    verificationError,
+  };
+}
+
 export interface AgentCapabilityManifest {
   schema_version: string;
   context: {
@@ -436,6 +641,8 @@ export interface AgentCapabilityManifest {
     working_set_count?: number;
     bot_enrolled?: Array<{ id: string; name?: string | null; source?: string; scope?: string }>;
     channel_enrolled?: Array<{ id: string; name?: string | null; source?: string; scope?: string }>;
+    recommended_now?: AgentSkillRecommendation[];
+    creation_candidates?: AgentSkillCreationCandidate[];
   };
   project: {
     attached?: boolean;

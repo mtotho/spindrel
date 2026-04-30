@@ -64,14 +64,16 @@ Current behavior:
 - per-turn tool retrieval ranks tools against the current user message
 - `get_tool_info(tool_name="...")` loads the full schema for an available/discovered tool
 - once loaded, that schema is callable in the current loop
-- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, Project context, runtime context budget, assigned Mission Control work, agent status, recent agent activity, harness state, widget authoring surface, integration readiness, readiness findings, and any staged repair actions
+- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, recommended skills to load now, missing skill-coverage candidates, Project context, runtime context budget, assigned Mission Control work, agent status, recent agent activity, harness state, widget authoring surface, integration readiness, readiness findings, and any staged repair actions
 - `preflight_agent_repair(action_id="...")` dry-runs a staged Agent Readiness action before any bot config mutation. It reports whether the action is `ready`, `blocked`, `stale`, or `noop`, which actor scopes are missing, and which bot fields would change.
-- `request_agent_repair(action_id="...", rationale="...")` queues a ready staged repair for human review when the bot lacks apply authority. It writes a `needs_review` execution receipt and never mutates bot config directly.
+- `request_agent_repair(action_id="...", rationale="...")` queues a ready staged repair for human review when the bot lacks apply authority. It writes a `needs_review` execution receipt, appears in Mission Control Review's Autofix queue, and never mutates bot config directly.
 - the manifest includes `tool_error_contract`, the shared shape for agent-facing failures: `error_code`, `error_kind`, `retryable`, `retry_after_seconds`, and `fallback`
 
 Pinned tools are the strongest availability signal. They are the tools that must be available every turn.
 
 `get_tool_info` is the fallback when the model knows or suspects the right tool but needs the full schema before calling it.
+
+`skills.recommended_now` points at existing runtime skills for procedural work and includes exact first actions such as `get_skill("widgets")`. `skills.creation_candidates` is only a signal that the workflow is skill-shaped but lacks runtime coverage; it does not import `.agents` repo-dev skills, enroll anything, or auto-inject skill bodies.
 
 `get_agent_context_snapshot()` is the compact runtime-budget read. It returns the current channel/session budget, source, context profile, percentage full, and recommendation (`continue`, `summarize`, `handoff`, or `unknown`) without requiring the agent to fetch the full manifest.
 
@@ -83,7 +85,7 @@ Pinned tools are the strongest availability signal. They are the tools that must
 
 `publish_execution_receipt()` is the compact outcome write. It records what changed after an approval-gated or agent-important action, including actor, target, before/after summary, approval reference, result, rollback hint, and trace identifiers. It does not perform the mutation itself; the bot should call the normal API/tool first, then publish the receipt so later agents and Mission Control Review can reconstruct the outcome. Agent Readiness repair receipts also include the post-repair Doctor check (`finding_resolved`, `remaining_findings`, and before/after Doctor status), so agents can tell whether a fix actually cleared the original finding.
 
-`run_agent_doctor()` is the compact readiness check. It is for "why can't I do this myself?" moments: missing API grants, empty working sets, Project runtime readiness gaps, harness workdir problems, and integration setup/activation/binding gaps. Doctor findings may include staged repair actions. Run `preflight_agent_repair()` before applying one of those actions. If the action is ready but the bot lacks apply scopes, call `request_agent_repair()` so a human can review it from Agent Readiness. Mutations still require an explicit user/tool call through the existing bot/config API; Project secrets, integration secrets, dependency installs, process starts, and runtime values stay manual.
+`run_agent_doctor()` is the compact readiness check. It is for "why can't I do this myself?" moments: missing API grants, empty working sets, Project runtime readiness gaps, harness workdir problems, and integration setup/activation/binding gaps. Doctor findings may include staged repair actions. Run `preflight_agent_repair()` before applying one of those actions. If the action is ready but the bot lacks apply scopes, call `request_agent_repair()` so a human can review it from Agent Readiness or the Mission Control Review Autofix queue. Mutations still require an explicit user/tool call through the existing bot/config API; Project secrets, integration secrets, dependency installs, process starts, and runtime values stay manual.
 
 Tool failures keep the legacy top-level `error` string for compatibility, but
 new dispatch-owned and API-tool failures also carry the structured contract.

@@ -37,6 +37,7 @@ from claude_agent_sdk import (  # noqa: E402
 from app.db.engine import async_session  # noqa: E402
 from app.services.agent_harnesses.base import TurnContext  # noqa: E402
 from integrations.claude_code.harness import _bridge_message  # noqa: E402
+from integrations.claude_code.harness import _extract_claude_system_slash_commands  # noqa: E402
 
 
 class _RecordingEmitter:
@@ -113,6 +114,24 @@ def test_text_block_emits_token_and_appends_to_final_text():
 
     assert emitter.calls == [("token", {"delta": "hello world"})]
     assert final_text_parts == ["hello world"]
+
+
+def test_system_init_slash_inventory_extracts_nested_sdk_payload():
+    payload = {
+        "subtype": "init",
+        "data": {
+            "runtime": {
+                "slashCommands": [
+                    {"name": "skills", "description": "List skills"},
+                    {"name": "project-local", "source": "project"},
+                ]
+            }
+        },
+    }
+
+    commands = _extract_claude_system_slash_commands(payload)
+
+    assert [command["name"] for command in commands] == ["skills", "project-local"]
 
 
 def test_thinking_block_emits_thinking_only():

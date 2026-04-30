@@ -13,6 +13,7 @@ import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { SessionTargetPicker } from "@/src/components/shared/SessionTargetPicker";
 import type { SessionTarget } from "@/src/api/hooks/useTasks";
+import { useRunPresets } from "@/src/api/hooks/useRunPresets";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { apiFetch } from "@/src/api/client";
@@ -70,6 +71,22 @@ function withIssueReportingDefault(executionConfig: any, enabled: boolean) {
     ...(executionConfig ?? {}),
     allow_issue_reporting: enabled,
   };
+}
+
+function mergeUniqueStrings(current: unknown, incoming: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const list of [current, incoming]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (typeof item !== "string" || !item.trim()) continue;
+      const key = item.trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
 }
 
 function RunNowButton({
@@ -312,6 +329,7 @@ export function HeartbeatTab({
   // Fetch workflows for the workflow selector
   const { data: workflows } = useWorkflows();
   const { data: allTools = [] } = useTools();
+  const { data: heartbeatPresetData } = useRunPresets("channel_heartbeat");
 
   useEffect(() => {
     setHbForm(null);
@@ -659,6 +677,34 @@ export function HeartbeatTab({
     : !hasAction
       ? "Add a prompt or pipeline before running heartbeat manually."
       : undefined;
+  const heartbeatProfiles = heartbeatPresetData?.presets ?? [];
+  const spatialWidgetProfile = heartbeatProfiles.find((preset) => preset.id === "spatial_widget_steward_heartbeat");
+  const spatialWidgetProfileDefaults = spatialWidgetProfile?.heartbeat_defaults;
+  const spatialWidgetProfileActive = !!spatialWidgetProfileDefaults
+    && !!hbForm.append_spatial_prompt
+    && !!hbForm.append_spatial_map_overview
+    && !!hbForm.include_pinned_widgets
+    && mergeUniqueStrings([], hbForm.execution_config?.tools).includes("inspect_spatial_widget_scene")
+    && mergeUniqueStrings([], hbForm.execution_config?.skills).includes("widgets/spatial_stewardship");
+  const applySpatialWidgetProfile = () => {
+    if (!spatialWidgetProfileDefaults) return;
+    updateHbForm((f: any) => {
+      const currentExecution = f.execution_config ?? {};
+      const nextExecution = {
+        ...currentExecution,
+        ...spatialWidgetProfileDefaults.execution_config,
+        tools: mergeUniqueStrings(currentExecution.tools, spatialWidgetProfileDefaults.execution_config?.tools),
+        skills: mergeUniqueStrings(currentExecution.skills, spatialWidgetProfileDefaults.execution_config?.skills),
+      };
+      return {
+        ...f,
+        append_spatial_prompt: spatialWidgetProfileDefaults.append_spatial_prompt,
+        append_spatial_map_overview: spatialWidgetProfileDefaults.append_spatial_map_overview,
+        include_pinned_widgets: spatialWidgetProfileDefaults.include_pinned_widgets,
+        execution_config: nextExecution,
+      };
+    });
+  };
 
   return (
     <>
@@ -859,6 +905,28 @@ export function HeartbeatTab({
             description="Canned spatial context is appended to heartbeat runs. Per-bot policy controls movement, nearby inspection, object tugging, and bot-owned spatial widgets."
           >
             <div className="flex flex-col gap-3">
+              {spatialWidgetProfile && spatialWidgetProfileDefaults && (
+                <div className="flex flex-col gap-3 rounded-md bg-surface-raised/35 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-semibold text-text">{spatialWidgetProfile.title}</span>
+                      <StatusBadge
+                        label={spatialWidgetProfileActive ? "Applied" : "Profile"}
+                        variant={spatialWidgetProfileActive ? "success" : "neutral"}
+                      />
+                    </div>
+                    <p className="mt-1 max-w-[72ch] text-[12px] leading-relaxed text-text-dim">
+                      {spatialWidgetProfile.description}
+                    </p>
+                  </div>
+                  <ActionButton
+                    label={spatialWidgetProfileActive ? "Reapply" : "Apply"}
+                    size="small"
+                    variant={spatialWidgetProfileActive ? "secondary" : "primary"}
+                    onPress={applySpatialWidgetProfile}
+                  />
+                </div>
+              )}
               <Toggle
                 value={hbForm.append_spatial_prompt ?? false}
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, append_spatial_prompt: v }))}

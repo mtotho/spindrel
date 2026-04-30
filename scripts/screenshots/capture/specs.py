@@ -2813,7 +2813,28 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
         const response = await originalFetch(input, init);
         const enrichRun = (run, projectId) => ({
           ...run,
-          review: run.review || {
+          root_task_id: run.root_task_id || run.task?.id || run.id,
+          parent_task_id: run.parent_task_id || null,
+          continuation_index: run.continuation_index || 0,
+          continuation_feedback: run.continuation_feedback || null,
+          continuation_count: run.continuation_count ?? 1,
+          latest_continuation: run.latest_continuation || {
+            id: "screenshot-project-coding-run-follow-up",
+            task_id: "screenshot-project-coding-run-follow-up-task",
+            status: "pending",
+            review_status: "pending",
+            continuation_index: 1,
+            feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
+          },
+          continuations: run.continuations || [{
+            id: "screenshot-project-coding-run-follow-up",
+            task_id: "screenshot-project-coding-run-follow-up-task",
+            status: "pending",
+            review_status: "pending",
+            continuation_index: 1,
+            feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
+          }],
+          review: run.review ? { ...run.review, status: "ready_for_review", blocker: null, actions: { ...(run.review.actions || {}), can_request_changes: true } } : {
             status: "ready_for_review",
             blocker: null,
             reviewed: false,
@@ -2835,7 +2856,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
               has_screenshots: true
             },
             instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
-            actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true }
+            actions: { can_refresh: true, can_mark_reviewed: true, can_cleanup_instance: true, can_request_changes: true }
           }
         });
         if (response.ok) {
@@ -2861,6 +2882,27 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
           base_branch: "development",
           repo: { name: "spindrel", path: "spindrel", url: "https://github.com/mtotho/spindrel.git" },
           runtime_target: { ready: true, configured_keys: ["SPINDREL_E2E_URL", "GITHUB_TOKEN"], missing_secrets: [] },
+          parent_task_id: null,
+          root_task_id: "screenshot-project-coding-run-task",
+          continuation_index: 0,
+          continuation_feedback: null,
+          continuation_count: 1,
+          latest_continuation: {
+            id: "screenshot-project-coding-run-follow-up",
+            task_id: "screenshot-project-coding-run-follow-up-task",
+            status: "pending",
+            review_status: "pending",
+            continuation_index: 1,
+            feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
+          },
+          continuations: [{
+            id: "screenshot-project-coding-run-follow-up",
+            task_id: "screenshot-project-coding-run-follow-up-task",
+            status: "pending",
+            review_status: "pending",
+            continuation_index: 1,
+            feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
+          }],
           task: {
             id: "screenshot-project-coding-run-task",
             status: "complete",
@@ -3153,6 +3195,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Prepare the Project workspace screenshot receipt') "
             "&& text.includes('Review:') "
             "&& text.includes('Evidence:') "
+            "&& text.includes('Request changes') "
+            "&& text.includes('Continuation:') "
             "&& text.includes('Progress:') "
             "&& text.includes('PR: ready') "
             "&& text.includes('Refresh') "

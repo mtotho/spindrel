@@ -32,7 +32,9 @@ is stale; mutation stays blocked until a revised plan is published and approved.
 
 The UI should direct attention to the current decision or next action first. Full
 plan detail stays available below the focus area without turning the transcript
-into a wall of text.
+into a wall of text. If `publish_plan` is rejected, the rejection is treated as
+actionable plan feedback: the card focuses `Revise plan` with the exact error
+and fallback, while the agent receives the same structured tool-error contract.
 
 ## Screenshot Gallery
 

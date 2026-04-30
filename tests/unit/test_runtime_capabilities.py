@@ -193,6 +193,20 @@ async def test_claude_native_mcp_login_returns_terminal_handoff():
     assert "MCP changes runtime-owned configuration" in result.detail
 
 
+def test_claude_native_management_command_defaults_to_safe_list_forms():
+    pytest.importorskip("claude_agent_sdk")
+    from integrations.claude_code.harness import _claude_management_command
+
+    assert _claude_management_command("skills", ()) == ["claude", "skills", "list"]
+    assert _claude_management_command("plugins", ()) == ["claude", "plugin", "list"]
+    assert _claude_management_command("plugin", ("list",)) == ["claude", "plugin", "list"]
+    assert _claude_management_command("mcp", ()) == ["claude", "mcp", "list"]
+    assert _claude_management_command("agents", ()) == ["claude", "agents", "list"]
+    assert _claude_management_command("hooks", ()) == ["claude", "hooks", "list"]
+    assert _claude_management_command("status", ()) == ["claude", "status"]
+    assert _claude_management_command("doctor", ("--json",)) == ["claude", "doctor", "--json"]
+
+
 @pytest.mark.asyncio
 async def test_codex_native_mutating_args_return_canonical_terminal_command():
     from integrations.codex.harness import CodexRuntime

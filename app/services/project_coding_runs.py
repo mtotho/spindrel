@@ -28,6 +28,11 @@ class ProjectCodingRunCreate:
     request: str = ""
 
 
+@dataclass(frozen=True)
+class ProjectCodingRunContinue:
+    feedback: str = ""
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -93,6 +98,7 @@ def _project_coding_run_prompt(
     request: str,
     defaults: dict[str, Any],
     runtime_target: dict[str, Any],
+    continuation: dict[str, Any] | None = None,
 ) -> str:
     base_branch = defaults.get("base_branch") or "the repository default branch"
     branch = defaults.get("branch")
@@ -101,6 +107,29 @@ def _project_coding_run_prompt(
     configured_keys = ", ".join(runtime_target.get("configured_keys") or []) or "none"
     missing_secrets = ", ".join(runtime_target.get("missing_secrets") or []) or "none"
     request_text = request.strip() or "Use the Project task request from the run title and Project context."
+    continuation_block = ""
+    if continuation:
+        feedback = str(continuation.get("feedback") or "").strip() or "Continue from the reviewer feedback on the existing PR."
+        parent_task_id = continuation.get("parent_task_id") or "unknown"
+        root_task_id = continuation.get("root_task_id") or parent_task_id
+        handoff_url = continuation.get("handoff_url") or "not recorded"
+        prior_evidence = continuation.get("prior_evidence") or {}
+        evidence_line = (
+            f"{prior_evidence.get('tests_count', 0)} tests, "
+            f"{prior_evidence.get('screenshots_count', 0)} screenshots, "
+            f"{prior_evidence.get('changed_files_count', 0)} files"
+        )
+        continuation_block = (
+            "\n\nReview continuation context:\n"
+            "- This is a follow-up run for an existing Project coding run, not a fresh branch.\n"
+            f"- Parent task: {parent_task_id}\n"
+            f"- Root task: {root_task_id}\n"
+            f"- Existing handoff/PR: {handoff_url}\n"
+            f"- Prior evidence: {evidence_line}\n"
+            "- Update the same work branch and existing PR. Do not create a replacement PR unless the handoff tool reports that reuse is impossible.\n"
+            "- Address the reviewer feedback, rerun relevant tests/screenshots, and publish a new Project run receipt.\n\n"
+            f"Reviewer feedback:\n{feedback}"
+        )
     return (
         f"{base_prompt}\n\n"
         "Project coding-run handoff configuration:\n"
@@ -118,6 +147,7 @@ def _project_coding_run_prompt(
         "If not, publish a blocked or needs_review receipt with the exact blocker.\n"
         "5. publish_project_run_receipt must include branch, base_branch, changed files, tests, screenshots, and handoff URL when available.\n\n"
         f"Project task request:\n{request_text}"
+        f"{continuation_block}"
     )
 
 
@@ -141,6 +171,7 @@ def _execution_config_from_preset(defaults: Any, *, project_id: uuid.UUID, run_d
             "base_branch": run_defaults.get("base_branch"),
             "repo": run_defaults.get("repo") or {},
             "runtime_target": runtime_target,
+            "continuation_index": 0,
         },
     }
 
@@ -177,6 +208,7 @@ async def create_project_coding_run(
         runtime_target=runtime_target,
         request=body.request,
     )
+    ecfg["project_coding_run"]["root_task_id"] = str(task_id)
     task = Task(
         id=task_id,
         bot_id=channel.bot_id,
@@ -185,6 +217,161 @@ async def create_project_coding_run(
         channel_id=channel.id,
         prompt=prompt,
         title=preset.task_defaults.title,
+        scheduled_at=None,
+        status="pending",
+        task_type=preset.task_defaults.task_type,
+        dispatch_type=channel.integration if channel.integration and channel.dispatch_config else "none",
+        dispatch_config=dict(channel.dispatch_config) if channel.integration and channel.dispatch_config else None,
+        execution_config=ecfg,
+        recurrence=None,
+        max_run_seconds=preset.task_defaults.max_run_seconds,
+        trigger_config=dict(preset.task_defaults.trigger_config),
+        created_at=_utcnow(),
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    return task
+
+
+def _uuid_from_config(value: Any) -> uuid.UUID | None:
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _lineage_config(task: Task, cfg: dict[str, Any]) -> dict[str, Any]:
+    parent_task_id = _uuid_from_config(cfg.get("parent_task_id"))
+    root_task_id = _uuid_from_config(cfg.get("root_task_id")) or task.id
+    try:
+        continuation_index = int(cfg.get("continuation_index") or 0)
+    except (TypeError, ValueError):
+        continuation_index = 0
+    return {
+        "parent_task_id": str(parent_task_id) if parent_task_id else None,
+        "root_task_id": str(root_task_id),
+        "continuation_index": max(0, continuation_index),
+        "continuation_feedback": str(cfg.get("continuation_feedback") or "").strip() or None,
+    }
+
+
+def _prior_evidence_context(receipt: ProjectRunReceipt | None) -> dict[str, Any]:
+    evidence = _evidence_summary(receipt)
+    if receipt is None:
+        return {**evidence, "summary": None, "handoff_url": None}
+    return {
+        **evidence,
+        "summary": receipt.summary,
+        "handoff_url": receipt.handoff_url,
+        "changed_files": list(receipt.changed_files or [])[:12],
+        "tests": list(receipt.tests or [])[:8],
+        "screenshots": list(receipt.screenshots or [])[:8],
+    }
+
+
+async def _next_continuation_index(db: AsyncSession, project: Project, root_task_id: uuid.UUID) -> int:
+    channel_ids = list((await db.execute(
+        select(Channel.id).where(Channel.project_id == project.id)
+    )).scalars().all())
+    if not channel_ids:
+        return 1
+    candidates = list((await db.execute(
+        select(Task).where(Task.channel_id.in_(channel_ids))
+    )).scalars().all())
+    max_index = 0
+    for task in candidates:
+        if not isinstance(task.execution_config, dict):
+            continue
+        cfg = task.execution_config.get("project_coding_run")
+        if not isinstance(cfg, dict):
+            continue
+        lineage = _lineage_config(task, cfg)
+        if lineage["root_task_id"] == str(root_task_id):
+            max_index = max(max_index, int(lineage["continuation_index"] or 0))
+    return max_index + 1
+
+
+async def continue_project_coding_run(
+    db: AsyncSession,
+    project: Project,
+    task_id: uuid.UUID,
+    body: ProjectCodingRunContinue,
+) -> Task:
+    parent = await _load_project_coding_task(db, project, task_id)
+    parent_cfg = _task_run_config(parent)
+    parent_lineage = _lineage_config(parent, parent_cfg)
+    root_task_id = uuid.UUID(parent_lineage["root_task_id"])
+    continuation_index = await _next_continuation_index(db, project, root_task_id)
+    receipt = (await _latest_run_receipts_by_task(db, project.id, [parent.id])).get(parent.id)
+    prior_evidence = _prior_evidence_context(receipt)
+
+    preset = get_run_preset(PROJECT_CODING_RUN_PRESET_ID)
+    if preset is None:
+        raise ValueError("Project coding-run preset is not registered")
+    channel = await db.get(Channel, parent.channel_id) if parent.channel_id else None
+    if channel is None or channel.project_id != project.id:
+        raise ValueError("coding run not found")
+
+    new_task_id = uuid.uuid4()
+    fallback_defaults = project_coding_run_defaults(
+        project,
+        request=str(parent_cfg.get("request") or project.name),
+        task_id=root_task_id,
+    )
+    run_defaults = {
+        "branch": parent_cfg.get("branch") or fallback_defaults.get("branch"),
+        "base_branch": parent_cfg.get("base_branch") or fallback_defaults.get("base_branch"),
+        "repo": parent_cfg.get("repo") or fallback_defaults.get("repo") or {},
+    }
+    runtime_target = dict(parent_cfg.get("runtime_target") or {})
+    if not runtime_target:
+        runtime = await load_project_runtime_environment(db, project)
+        runtime_target = _safe_runtime_target(runtime.safe_payload())
+    feedback = body.feedback.strip()
+    continuation_context = {
+        "feedback": feedback,
+        "parent_task_id": str(parent.id),
+        "root_task_id": str(root_task_id),
+        "handoff_url": prior_evidence.get("handoff_url"),
+        "prior_evidence": prior_evidence,
+    }
+    prompt = _project_coding_run_prompt(
+        base_prompt=preset.task_defaults.prompt,
+        project=project,
+        request=str(parent_cfg.get("request") or ""),
+        defaults=run_defaults,
+        runtime_target=runtime_target,
+        continuation=continuation_context,
+    )
+    ecfg = _execution_config_from_preset(
+        preset.task_defaults,
+        project_id=project.id,
+        run_defaults=run_defaults,
+        runtime_target=runtime_target,
+        request=str(parent_cfg.get("request") or ""),
+    )
+    parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
+    ecfg["session_target"] = dict(parent_ecfg.get("session_target") or ecfg["session_target"])
+    ecfg["project_instance"] = dict(parent_ecfg.get("project_instance") or ecfg["project_instance"])
+    ecfg["project_coding_run"].update({
+        "parent_task_id": str(parent.id),
+        "root_task_id": str(root_task_id),
+        "continuation_index": continuation_index,
+        "continuation_feedback": feedback,
+        "continued_from_handoff_url": prior_evidence.get("handoff_url"),
+        "prior_evidence": prior_evidence,
+    })
+    task = Task(
+        id=new_task_id,
+        bot_id=channel.bot_id,
+        client_id=channel.client_id,
+        session_id=channel.active_session_id,
+        channel_id=channel.id,
+        prompt=prompt,
+        title=f"{preset.task_defaults.title} follow-up {continuation_index}",
         scheduled_at=None,
         status="pending",
         task_type=preset.task_defaults.task_type,
@@ -399,6 +586,7 @@ def _review_summary(
             "can_refresh": True,
             "can_mark_reviewed": not reviewed and bool(pr_url or receipt is not None),
             "can_cleanup_instance": can_cleanup,
+            "can_request_changes": bool(pr_url or receipt is not None),
         },
     }
 
@@ -437,6 +625,7 @@ async def _coding_run_row(
     )
     instance = await db.get(ProjectInstance, task.project_instance_id) if task.project_instance_id else None
     cfg = _task_run_config(task)
+    lineage = _lineage_config(task, cfg)
     updated_at = (
         receipt.created_at.isoformat()
         if receipt is not None and receipt.created_at is not None
@@ -454,6 +643,11 @@ async def _coding_run_row(
         "base_branch": cfg.get("base_branch"),
         "repo": cfg.get("repo") or {},
         "runtime_target": cfg.get("runtime_target") or {},
+        "parent_task_id": lineage["parent_task_id"],
+        "root_task_id": lineage["root_task_id"],
+        "continuation_index": lineage["continuation_index"],
+        "continuation_feedback": lineage["continuation_feedback"],
+        "continuations": [],
         "task": _task_summary(task),
         "receipt": _receipt_summary(receipt),
         "activity": activity,
@@ -575,4 +769,29 @@ async def list_project_coding_runs(
     for task in tasks:
         receipt = receipts_by_task.get(task.id)
         rows.append(await _coding_run_row(db, project, task, receipt))
+    rows_by_id = {row["id"]: row for row in rows}
+    children_by_root: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        parent_task_id = row.get("parent_task_id")
+        if parent_task_id and parent_task_id in rows_by_id:
+            children_by_root.setdefault(str(row.get("root_task_id") or parent_task_id), []).append({
+                "id": row["id"],
+                "task_id": row["task"]["id"],
+                "status": row["status"],
+                "review_status": row.get("review", {}).get("status"),
+                "continuation_index": row.get("continuation_index") or 0,
+                "feedback": row.get("continuation_feedback"),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+            })
+    for row in rows:
+        root_id = str(row.get("root_task_id") or row["id"])
+        continuations = sorted(
+            children_by_root.get(root_id, []),
+            key=lambda child: int(child.get("continuation_index") or 0),
+        )
+        row["continuations"] = continuations
+        row["continuation_count"] = len(continuations)
+        latest = continuations[-1] if continuations else None
+        row["latest_continuation"] = latest
     return rows

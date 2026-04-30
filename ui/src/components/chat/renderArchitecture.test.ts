@@ -88,6 +88,8 @@ test("native plan replay hydrates out-of-line envelopes before rendering plan ca
   assert.match(sessionPlanCard, /data-plan-card-mode=\{chatMode\}/);
   assert.match(sessionPlanCard, /data-plan-focus/);
   assert.match(sessionPlanCard, /derivePlanFocus/);
+  assert.match(sessionPlanCard, /latest_tool_feedback/);
+  assert.match(sessionPlanCard, /Revise plan/);
   assert.match(sessionPlanCard, /Needs review/);
   assert.match(sessionPlanCard, /Unsupported outcome/);
   assert.match(sessionPlanCard, /Supported outcome/);

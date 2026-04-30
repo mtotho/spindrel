@@ -150,6 +150,34 @@
       ]
     },
     {
+      "id": "agentic-readiness",
+      "path": ".agents/skills/agentic-readiness",
+      "description": "Agentic readiness audit and design workflow for external repo-dev AX and internal Spindrel runtime AX, with skill-first guidance for deciding when features should be skills instead of tools, APIs, docs, or memory.",
+      "triggers": [
+        "agent first",
+        "agentic readiness",
+        "agent-friendly",
+        "MCP-ready",
+        "llms.txt",
+        "tool schema",
+        "skill design",
+        "feature should be a skill",
+        "context budget",
+        "agent UX"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/api.md",
+        "docs/guides/discovery-and-enrollment.md",
+        "docs/guides/development-process.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_agent_capabilities.py -q",
+        "cd ui && npx tsc --noEmit --pretty false",
+        "git diff --check"
+      ]
+    },
+    {
       "id": "spindrel-visual-feedback-loop",
       "path": ".agents/skills/spindrel-visual-feedback-loop",
       "description": "Browser screenshot workflow for UI visual feedback and documentation artifacts.",

@@ -341,12 +341,16 @@ Current backend/runtime details:
 - returns `application/vnd.spindrel.plan+json`
 - includes the structured plan payload plus an `_envelope`
 - includes validation feedback so blocking issues are visible before approval
+- correctable publish failures return the shared tool-error contract with
+  `error_kind`, `retryable`, and `fallback` instead of crashing the turn
 - warns when confirmed `planning_state` decisions are not visibly reflected in the draft
 
 Current rendering path:
 
 - rendered in-feed through `RichToolResult`
 - should be treated as the transcript-native plan surface
+- planning-mode tool feedback can take over the card focus as `Revise plan`
+  when the last `publish_plan` attempt was rejected
 - approval and progress actions belong on this surface, not elsewhere
 
 ### `request_plan_replan`
@@ -600,7 +604,11 @@ Validation is returned on:
 - `session_plan_updated` SSE payloads
 - `publish_plan` tool results
 
-The UI surfaces these issues on the transcript plan card and disables approval when blocking issues remain.
+The UI surfaces these issues on the transcript plan card and disables approval
+when blocking issues remain. Failed `publish_plan` attempts also persist compact
+planning feedback in `plan_runtime.latest_tool_feedback`, so the card can point
+at the exact rejected field and fallback instruction before a valid revision
+exists.
 
 ## Revision History And Sync
 
@@ -665,6 +673,7 @@ Current `plan_runtime` fields:
 - `blockers`
 - `replan`
 - `pending_turn_outcome`
+- `latest_tool_feedback`
 - `latest_outcome`
 - `adherence_status`
 - `latest_evidence`

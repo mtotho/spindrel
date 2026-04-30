@@ -307,6 +307,20 @@ function derivePlanFocus({
     };
   }
 
+  const latestToolFeedback = runtime?.latest_tool_feedback;
+  if (plan.mode === "planning" && latestToolFeedback?.error) {
+    return {
+      label: "Revise plan",
+      text: latestToolFeedback.error,
+      tone: "warning",
+      detail: latestToolFeedback.fallback
+        ? cleanReason(latestToolFeedback.fallback)
+        : latestToolFeedback.error_kind
+          ? cleanReason(latestToolFeedback.error_kind)
+          : latestToolFeedback.tool_name,
+    };
+  }
+
   const openQuestion = latestPlanningText(planningState?.open_questions);
   if (plan.mode === "planning" && openQuestion) {
     return {
@@ -606,6 +620,19 @@ export function SessionPlanCard({
               label="evidence"
               terminal={terminal}
               value={adherence.latest_evidence.summary ?? adherence.latest_evidence.tool_name ?? "recorded"}
+            />
+          ) : null}
+          {runtime?.latest_tool_feedback ? (
+            <DetailLine
+              label="tool"
+              terminal={terminal}
+              value={(
+                <span className={toneText(runtime.latest_tool_feedback.error ? "warning" : "neutral")}>
+                  {runtime.latest_tool_feedback.tool_name ?? "plan tool"}
+                  {runtime.latest_tool_feedback.error ? `: ${runtime.latest_tool_feedback.error}` : ""}
+                  {runtime.latest_tool_feedback.fallback ? ` (${runtime.latest_tool_feedback.fallback})` : ""}
+                </span>
+              )}
             />
           ) : null}
           {validationIssues.length > 0 ? (

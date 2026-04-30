@@ -47,6 +47,9 @@ def test_list_run_presets_can_filter_by_surface():
     assert [preset.id for preset in list_run_presets("channel_task")] == [
         "widget_improvement_healthcheck"
     ]
+    assert [preset.id for preset in list_run_presets("channel_heartbeat")] == [
+        "spatial_widget_steward_heartbeat"
+    ]
     assert [preset.id for preset in list_run_presets("project_coding_run")] == [
         "project_coding_run"
     ]
@@ -76,3 +79,22 @@ def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
 
 def test_unknown_run_preset_returns_none():
     assert get_run_preset("missing") is None
+
+
+def test_spatial_widget_steward_heartbeat_defaults_to_scene_reasoning_loop():
+    preset = get_run_preset("spatial_widget_steward_heartbeat")
+
+    assert preset is not None
+    payload = serialize_run_preset(preset)
+    defaults = payload["heartbeat_defaults"]
+
+    assert payload["surface"] == "channel_heartbeat"
+    assert defaults["append_spatial_prompt"] is True
+    assert defaults["append_spatial_map_overview"] is True
+    assert defaults["include_pinned_widgets"] is True
+    assert "widgets/spatial_stewardship" in defaults["execution_config"]["skills"]
+    assert "inspect_spatial_widget_scene" in defaults["execution_config"]["tools"]
+    assert "preview_spatial_widget_changes" in defaults["execution_config"]["tools"]
+    assert "move_spatial_widget" in defaults["execution_config"]["tools"]
+    assert defaults["spatial_policy"]["allow_map_view"] is True
+    assert defaults["spatial_policy"]["allow_spatial_widget_management"] is True

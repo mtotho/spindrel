@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { ExecutionReceipt } from "./useAgentCapabilities";
 
 export type AttentionSeverity = "info" | "warning" | "error" | "critical";
 export type AttentionStatus = "open" | "acknowledged" | "responded" | "resolved";
@@ -110,9 +111,25 @@ export interface AttentionFixPack {
   action?: AttentionBriefAction | null;
 }
 
+export interface AgentReadinessAutofixItem {
+  receipt_id: string;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  session_id?: string | null;
+  action_id?: string | null;
+  finding_code?: string | null;
+  summary: string;
+  requested_by?: string | null;
+  requested_at?: string | null;
+  rationale?: string | null;
+  requester_missing_actor_scopes?: string[];
+  receipt: ExecutionReceipt;
+}
+
 export interface AttentionBriefResponse {
   generated_at: string;
   summary: {
+    autofix: number;
     blockers: number;
     fix_packs: number;
     decisions: number;
@@ -128,10 +145,13 @@ export interface AttentionBriefResponse {
     action_label?: string | null;
     item_id?: string | null;
     fix_pack_id?: string | null;
+    receipt_id?: string | null;
+    action_id?: string | null;
   };
   blockers: AttentionBriefCard[];
   fix_packs: AttentionFixPack[];
   decisions: AttentionBriefCard[];
+  autofix_queue: AgentReadinessAutofixItem[];
   quiet_digest: {
     count: number;
     groups: Array<{ label: string; count: number }>;

@@ -33,9 +33,13 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /interface ExecutionReceiptWrite/);
   assert.match(hook, /interface AgentRepairPreflight/);
   assert.match(hook, /interface AgentRepairRequest/);
+  assert.match(hook, /interface AgentSkillRecommendation/);
+  assert.match(hook, /interface AgentSkillCreationCandidate/);
   assert.match(hook, /createExecutionReceipt/);
   assert.match(hook, /preflightAgentRepair/);
   assert.match(hook, /requestAgentRepair/);
+  assert.match(hook, /applyAgentReadinessRepair/);
+  assert.match(hook, /updateBotConfig/);
   assert.match(hook, /fetchAgentCapabilities/);
   assert.match(hook, /\/api\/v1\/execution-receipts/);
   assert.match(hook, /\/api\/v1\/agent-capabilities\/actions\/preflight/);
@@ -43,6 +47,8 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
   assert.match(hook, /recent_receipts\?: ExecutionReceipt\[\]/);
   assert.match(hook, /pending_repair_requests\?: ExecutionReceipt\[\]/);
+  assert.match(hook, /recommended_now\?: AgentSkillRecommendation\[\]/);
+  assert.match(hook, /creation_candidates\?: AgentSkillCreationCandidate\[\]/);
   assert.match(hook, /integrations\?: AgentIntegrationReadiness/);
   assert.match(hook, /agent_status\?: AgentStatusSnapshot/);
   assert.match(hook, /activity_log\?: AgentActivityLogSummary/);
@@ -56,6 +62,12 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /IntegrationReadinessSummary/);
   assert.match(panel, /AgentStatusSummary/);
   assert.match(panel, /ActivityLogSummary/);
+  assert.match(panel, /SkillOpportunitySummary/);
+  assert.match(panel, /agent-readiness-skill-opportunities/);
+  assert.match(panel, /Recommended skills now/);
+  assert.match(panel, /Missing skill coverage/);
+  assert.match(panel, /recommendation\.first_action/);
+  assert.match(panel, /candidate\.suggested_skill_id/);
   assert.match(panel, /widgets\.readiness/);
   assert.match(panel, /agent-readiness-integrations/);
   assert.match(panel, /Integration readiness/);
@@ -69,16 +81,14 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /data\.doctor\.proposed_actions/);
   assert.match(panel, /Suggested repairs/);
   assert.match(panel, /ProposedActionRow/);
-  assert.match(panel, /createExecutionReceipt/);
-  assert.match(panel, /preflightAgentRepair/);
-  assert.match(panel, /fetchAgentCapabilities/);
-  assert.match(panel, /finding_resolved/);
-  assert.match(panel, /remaining_findings/);
-  assert.match(panel, /preflight/);
-  assert.match(panel, /Verified resolved/);
-  assert.match(panel, /Applied, still needs review/);
+  assert.match(panel, /applyAgentReadinessRepair/);
+  assert.match(hook, /finding_resolved/);
+  assert.match(hook, /remaining_findings/);
+  assert.match(hook, /preflight/);
+  assert.match(hook, /Verified resolved/);
+  assert.match(hook, /Applied, still needs review/);
   assert.match(panel, /agent_readiness/);
-  assert.match(panel, /execution receipt/);
+  assert.match(hook, /execution-receipts/);
   assert.match(panel, /LastRepairSummary/);
   assert.match(panel, /agent-readiness-last-repair/);
   assert.match(panel, /Last repair/);
@@ -94,18 +104,19 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
 
 test("readiness proposed actions use existing bot update and invalidate capability queries", () => {
   const panel = readUiFile("src/components/shared/AgentReadinessPanel.tsx");
-  const botsHook = readUiFile("src/api/hooks/useBots.ts");
+  const hook = readUiFile("src/api/hooks/useAgentCapabilities.ts");
 
-  assert.match(panel, /useUpdateBot\(botId \|\| undefined\)/);
-  assert.match(panel, /preflightAgentRepair\(\{/);
-  assert.match(panel, /updateBot\.mutateAsync\(action\.apply\.patch as Partial<BotConfig>\)/);
-  assert.match(panel, /preflight\.status === "blocked" \|\| preflight\.status === "stale"/);
-  assert.match(panel, /preflight\.status === "noop"/);
-  assert.match(panel, /Preflight failed/);
+  assert.match(panel, /applyAgentReadinessRepair\(\{/);
+  assert.match(hook, /preflightAgentRepair\(\{/);
+  assert.match(hook, /updateBotConfig\(botId, action\.apply\.patch as Partial<BotConfig>\)/);
+  assert.match(hook, /preflight\.status === "blocked" \|\| preflight\.status === "stale"/);
+  assert.match(hook, /preflight\.status === "noop"/);
   assert.match(panel, /action\.apply\.type === "bot_patch"/);
   assert.match(panel, /navigate\(href\)/);
-  assert.match(botsHook, /queryKey: \["agent-capabilities"\]/);
-  assert.match(botsHook, /queryKey: \["admin-bots"\]/);
+  assert.match(panel, /WORKSPACE_ATTENTION_BRIEF_KEY/);
+  assert.match(panel, /WORKSPACE_ATTENTION_KEY/);
+  assert.match(panel, /queryKey: \["agent-capabilities"\]/);
+  assert.match(panel, /queryKey: \["admin-bots"\]/);
 });
 
 test("composer exposes readiness next to attach, skills, and tools", () => {

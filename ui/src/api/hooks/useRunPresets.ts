@@ -21,12 +21,21 @@ export interface RunPresetTaskDefaults {
   max_run_seconds?: number | null;
 }
 
+export interface RunPresetHeartbeatDefaults {
+  append_spatial_prompt: boolean;
+  append_spatial_map_overview: boolean;
+  include_pinned_widgets: boolean;
+  execution_config: Record<string, any>;
+  spatial_policy: Record<string, any>;
+}
+
 export interface RunPreset {
   id: string;
   title: string;
   description: string;
   surface: string;
-  task_defaults: RunPresetTaskDefaults;
+  task_defaults?: RunPresetTaskDefaults | null;
+  heartbeat_defaults?: RunPresetHeartbeatDefaults | null;
 }
 
 export function useRunPresets(surface?: string) {

@@ -26,6 +26,9 @@ from app.services.security_audit import (
     _check_exec_tools_without_rules,
     _check_host_exec,
     _check_inbound_callback_security,
+    _check_browser_live_pairing_surface,
+    _check_machine_control_lease_state,
+    _check_machine_control_tool_gates,
     _check_mcp_servers_count,
     _check_policy_rule_count,
     _check_rate_limiting,
@@ -153,6 +156,28 @@ def _make_bot(
     mock.cross_workspace_access = cross_workspace_access
     mock.api_permissions = api_permissions or []
     return mock
+
+
+class _FakeScalarResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+def _fake_machine_db(leases, sessions):
+    db = MagicMock()
+    results = [_FakeScalarResult(leases), _FakeScalarResult(sessions)]
+
+    async def _execute(_stmt):
+        return results.pop(0)
+
+    db.execute.side_effect = _execute
+    return db
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +477,65 @@ class TestInboundCallbackSecurity:
         assert c.details["failed"] == ["weak"]
 
 
+class TestMachineControlToolGates:
+    def test_machine_tools_have_expected_execution_gates(self):
+        expected = {
+            "machine_status": ("readonly", "interactive_user"),
+            "machine_inspect_command": ("readonly", "live_target_lease"),
+            "machine_exec_command": ("exec_capable", "live_target_lease"),
+        }
+
+        with patch("app.services.security_audit.get_tool_safety_tier", side_effect=lambda name: expected[name][0]), \
+             patch("app.services.security_audit.get_tool_execution_policy", side_effect=lambda name: expected[name][1]):
+            c = _check_machine_control_tool_gates()
+
+        assert c.status == Status.passed
+        assert c.details["observed"]["machine_exec_command"]["execution_policy"] == "live_target_lease"
+
+    def test_machine_exec_without_lease_gate_fails_critical(self):
+        with patch("app.services.security_audit.get_tool_safety_tier", return_value="readonly"), \
+             patch("app.services.security_audit.get_tool_execution_policy", return_value="normal"):
+            c = _check_machine_control_tool_gates()
+
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        assert c.details["mismatches"]
+
+
+class TestBrowserLivePairingSurface:
+    def test_no_token_no_connections_passes(self):
+        bridge = MagicMock()
+        bridge.list_connections.return_value = []
+        with patch("app.services.integration_settings.get_status", return_value="available"), \
+             patch("app.services.integration_settings.get_value", return_value=""), \
+             patch("integrations.browser_live.bridge.bridge", bridge):
+            c = _check_browser_live_pairing_surface()
+
+        assert c.status == Status.passed
+
+    def test_configured_token_warns(self):
+        bridge = MagicMock()
+        bridge.list_connections.return_value = []
+        with patch("app.services.integration_settings.get_status", return_value="enabled"), \
+             patch("app.services.integration_settings.get_value", return_value="secret"), \
+             patch("integrations.browser_live.bridge.bridge", bridge):
+            c = _check_browser_live_pairing_surface()
+
+        assert c.status == Status.warning
+        assert c.details["token_configured"] is True
+
+    def test_active_connection_warns(self):
+        bridge = MagicMock()
+        bridge.list_connections.return_value = [{"connection_id": "c1", "label": "browser"}]
+        with patch("app.services.integration_settings.get_status", return_value="enabled"), \
+             patch("app.services.integration_settings.get_value", return_value="secret"), \
+             patch("integrations.browser_live.bridge.bridge", bridge):
+            c = _check_browser_live_pairing_surface()
+
+        assert c.status == Status.warning
+        assert c.details["connection_count"] == 1
+
+
 # ---------------------------------------------------------------------------
 # DB checks
 # ---------------------------------------------------------------------------
@@ -574,6 +658,83 @@ class TestMCPServersCount:
         assert c.details["total"] == 2
 
 
+class TestMachineControlLeaseState:
+    @pytest.mark.asyncio
+    async def test_no_leases_passes(self):
+        c = await _check_machine_control_lease_state(_fake_machine_db([], []))
+
+        assert c.status == Status.passed
+        assert c.details["active_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_active_lease_warns(self):
+        user_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        lease = MagicMock(
+            session_id=session_id,
+            user_id=user_id,
+            provider_id="local_companion",
+            target_id="laptop",
+            lease_id="lease-active",
+            granted_at=now,
+            expires_at=now + timedelta(minutes=15),
+            capabilities=["shell"],
+            metadata_={},
+        )
+
+        c = await _check_machine_control_lease_state(_fake_machine_db([lease], []))
+
+        assert c.status == Status.warning
+        assert c.details["active_count"] == 1
+        assert c.details["overlong_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_overlong_lease_fails_critical(self):
+        user_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        lease = MagicMock(
+            session_id=session_id,
+            user_id=user_id,
+            provider_id="local_companion",
+            target_id="laptop",
+            lease_id="lease-overlong",
+            granted_at=now,
+            expires_at=now + timedelta(hours=2),
+            capabilities=["shell"],
+            metadata_={},
+        )
+
+        c = await _check_machine_control_lease_state(_fake_machine_db([lease], []))
+
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        assert c.details["overlong_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_legacy_metadata_lease_warns(self):
+        session_id = uuid.uuid4()
+        session = MagicMock(
+            id=session_id,
+            client_id="web",
+            bot_id="default",
+            metadata_={
+                "machine_target_lease": {
+                    "lease_id": "legacy",
+                    "provider_id": "local_companion",
+                    "target_id": "old",
+                    "expires_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+
+        c = await _check_machine_control_lease_state(_fake_machine_db([], [session]))
+
+        assert c.status == Status.warning
+        assert c.details["legacy_metadata_count"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Score computation
 # ---------------------------------------------------------------------------
@@ -645,7 +806,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_23_checks(self, db, monkeypatch):
+    async def test_returns_26_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -664,7 +825,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 23
+        assert len(result.checks) == 26
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary
@@ -674,3 +835,6 @@ class TestRunSecurityAudit:
         assert len(ids) == len(set(ids))
         assert "worksurface_isolation_static" in ids
         assert "inbound_callback_security" in ids
+        assert "machine_control_tool_gates" in ids
+        assert "browser_live_pairing_surface" in ids
+        assert "machine_control_lease_state" in ids

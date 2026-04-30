@@ -88,6 +88,23 @@ WIDGET_AUTHORING_SKILLS = (
     "widgets/authoring_runs",
 )
 
+SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
+    "widgets": "Widget authoring",
+    "widgets/html": "HTML widget authoring",
+    "widgets/channel_dashboards": "Channel dashboards",
+    "widgets/authoring_runs": "Widget authoring runs",
+    "configurator/integration": "Integration configuration",
+    "orchestrator/integration_builder": "Integration builder",
+    "diagnostics": "Diagnostics",
+    "diagnostics/health_summary": "Health summary",
+    "diagnostics/traces": "Trace diagnostics",
+    "workspace": "Workspace operations",
+    "workspace/files": "Workspace files",
+    "workspace/member": "Workspace member",
+    "context_mastery": "Context mastery",
+    "history_and_memory/session_history": "Session history",
+}
+
 TOOL_PROFILE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("api", ("api", "endpoint", "http")),
     ("project", ("project", "workspace", "file", "exec", "terminal")),
@@ -566,6 +583,72 @@ async def doctor_pending_repair_requests_payload(
         if len(pending) >= max(1, min(int(limit or 5), 20)):
             break
     return pending
+
+
+def _actor_label(actor: dict[str, Any] | None) -> str:
+    if not actor:
+        return "unknown actor"
+    name = actor.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    kind = actor.get("kind")
+    if isinstance(kind, str) and kind.strip():
+        return kind.replace("_", " ")
+    return "unknown actor"
+
+
+async def agent_readiness_autofix_queue_payload(
+    db: AsyncSession,
+    *,
+    bot_id: str | None = None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Return workspace-visible pending readiness repair requests."""
+    from app.services.execution_receipts import list_execution_receipts, serialize_execution_receipt
+
+    rows = await list_execution_receipts(
+        db,
+        scope="agent_readiness",
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        limit=100,
+    )
+    queued: list[dict[str, Any]] = []
+    for row in rows:
+        receipt = serialize_execution_receipt(row)
+        if receipt.get("status") != "needs_review":
+            continue
+        result = receipt.get("result") or {}
+        if not isinstance(result, dict) or result.get("requested_repair") is not True:
+            continue
+        target = receipt.get("target") or {}
+        if not isinstance(target, dict):
+            target = {}
+        action_id = target.get("action_id") or result.get("action_id")
+        finding_code = target.get("finding_code") or result.get("finding_code")
+        missing_scopes = result.get("requester_missing_actor_scopes") or []
+        if not isinstance(missing_scopes, list):
+            missing_scopes = []
+        queued.append({
+            "receipt_id": receipt.get("id"),
+            "bot_id": receipt.get("bot_id") or target.get("bot_id"),
+            "channel_id": receipt.get("channel_id") or target.get("channel_id"),
+            "session_id": receipt.get("session_id") or target.get("session_id"),
+            "action_id": str(action_id) if action_id else None,
+            "finding_code": str(finding_code) if finding_code else None,
+            "summary": receipt.get("summary") or "Requested readiness repair",
+            "requested_by": _actor_label(receipt.get("actor") if isinstance(receipt.get("actor"), dict) else None),
+            "requested_at": receipt.get("created_at"),
+            "rationale": result.get("rationale"),
+            "requester_missing_actor_scopes": [str(scope) for scope in missing_scopes],
+            "receipt": receipt,
+        })
+        if len(queued) >= max(1, min(int(limit or 20), 50)):
+            break
+    return queued
 
 
 def _integration_href(integration_id: str) -> str:
@@ -1515,6 +1598,164 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _enrolled_skill_ids(manifest: dict[str, Any]) -> set[str]:
+    rows = (manifest.get("skills", {}).get("bot_enrolled") or []) + (
+        manifest.get("skills", {}).get("channel_enrolled") or []
+    )
+    return {
+        str(row.get("id"))
+        for row in rows
+        if isinstance(row, dict) and row.get("id")
+    }
+
+
+def _skill_recommendation(
+    *,
+    feature_id: str,
+    feature_label: str,
+    skill_ids: list[str],
+    reason: str,
+    when_to_load: str,
+    enrolled: set[str],
+    model_support: str = "recommended_for_small_models",
+) -> dict[str, Any]:
+    deduped = _deduped(skill_ids)
+    missing = [skill_id for skill_id in deduped if skill_id not in enrolled]
+    primary = deduped[0] if deduped else ""
+    return {
+        "feature_id": feature_id,
+        "feature_label": feature_label,
+        "skill_ids": deduped,
+        "missing_skill_ids": missing,
+        "reason": reason,
+        "when_to_load": when_to_load,
+        "first_action": f'get_skill("{primary}")' if primary else None,
+        "model_support": model_support,
+        "labels": {
+            skill_id: SKILL_OPPORTUNITY_SKILL_LABELS.get(skill_id, skill_id)
+            for skill_id in deduped
+        },
+    }
+
+
+def _skill_creation_candidate(
+    *,
+    feature_id: str,
+    feature_label: str,
+    reason: str,
+    suggested_skill_id: str,
+    first_outline: list[str],
+    model_support: str = "recommended_for_small_models",
+) -> dict[str, Any]:
+    return {
+        "feature_id": feature_id,
+        "feature_label": feature_label,
+        "reason": reason,
+        "suggested_skill_id": suggested_skill_id,
+        "first_outline": first_outline,
+        "model_support": model_support,
+    }
+
+
+def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    enrolled = _enrolled_skill_ids(manifest)
+    findings = manifest.get("doctor", {}).get("findings") or []
+    finding_codes = {
+        str(finding.get("code"))
+        for finding in findings
+        if isinstance(finding, dict) and finding.get("code")
+    }
+    recommendations: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+
+    widgets = manifest.get("widgets") or {}
+    if widgets.get("readiness") in {"ready", "needs_skills"} or widgets.get("missing_skills"):
+        recommendations.append(_skill_recommendation(
+            feature_id="widget_authoring",
+            feature_label="Widget authoring",
+            skill_ids=["widgets", "widgets/html", "widgets/channel_dashboards", "widgets/authoring_runs"],
+            reason="Widget work is procedural and easy for smaller models to drift on without the authoring flow.",
+            when_to_load="Before authoring, repairing, pinning, or health-checking widgets.",
+            enrolled=enrolled,
+        ))
+
+    integration_summary = (manifest.get("integrations") or {}).get("summary") or {}
+    integration_issue_count = sum(int(integration_summary.get(key) or 0) for key in (
+        "needs_setup_count",
+        "dependency_gap_count",
+        "process_gap_count",
+        "channel_stub_binding_count",
+    ))
+    if integration_issue_count > 0 or any(code.startswith("integration_") or code.startswith("channel_integration_") for code in finding_codes):
+        recommendations.append(_skill_recommendation(
+            feature_id="integration_readiness",
+            feature_label="Integration readiness",
+            skill_ids=["configurator/integration", "orchestrator/integration_builder", "diagnostics"],
+            reason="Integration setup mixes settings, bindings, processes, dependencies, and logs; use a procedure before changing anything.",
+            when_to_load="Before diagnosing or proposing integration setup changes.",
+            enrolled=enrolled,
+        ))
+
+    if any(code in finding_codes for code in {
+        "agent_last_run_failed",
+        "agent_status_stale_run",
+        "heartbeat_repetition_detected",
+    }):
+        recommendations.append(_skill_recommendation(
+            feature_id="agent_diagnostics",
+            feature_label="Agent diagnostics",
+            skill_ids=["diagnostics", "diagnostics/health_summary", "diagnostics/traces"],
+            reason="Failure triage should follow the cheap-to-expensive diagnostic path instead of jumping to raw logs.",
+            when_to_load="Before investigating failed, stale, or repetitive autonomous runs.",
+            enrolled=enrolled,
+        ))
+
+    coding_run = manifest.get("coding_run") or {}
+    if coding_run.get("readiness") in {"ready", "runtime_needs_attention", "blocked"} or manifest.get("project", {}).get("attached"):
+        recommendations.append(_skill_recommendation(
+            feature_id="project_coding_run",
+            feature_label="Project coding run",
+            skill_ids=["workspace", "workspace/files", "workspace/member"],
+            reason="Project work needs workspace conventions, safe file operations, and handoff discipline.",
+            when_to_load="Before editing files, running project commands, or preparing a coding-run handoff.",
+            enrolled=enrolled,
+        ))
+
+    runtime_context = manifest.get("runtime_context") or {}
+    if runtime_context.get("recommendation") in {"summarize", "handoff"}:
+        recommendations.append(_skill_recommendation(
+            feature_id="context_pressure",
+            feature_label="Context pressure",
+            skill_ids=["context_mastery", "history_and_memory/session_history"],
+            reason="Context pressure is a procedural handoff/summarization problem, not a new API call.",
+            when_to_load="Before continuing broad work when runtime context is near its limit.",
+            enrolled=enrolled,
+        ))
+
+    if manifest.get("doctor", {}).get("pending_repair_requests") or any(code in finding_codes for code in {
+        "missing_api_scopes",
+        "empty_tool_working_set",
+        "widget_skills_not_enrolled",
+    }):
+        candidates.append(_skill_creation_candidate(
+            feature_id="agent_readiness_operator",
+            feature_label="Agent Readiness operator",
+            suggested_skill_id="agent_readiness/operator",
+            reason="Readiness repair review is a repeated approval-gated workflow that should have a short runtime skill for non-frontier models.",
+            first_outline=[
+                "Read the capability manifest and top Doctor findings.",
+                "Prefer existing skills before adding tools or APIs.",
+                "Use preflight/request/apply receipt paths for repairs.",
+                "Route stale requests to Bot readiness instead of mutating config.",
+            ],
+        ))
+
+    return {
+        "recommended_now": recommendations[:8],
+        "creation_candidates": candidates[:6],
+    }
+
+
 async def build_agent_capability_manifest(
     db: AsyncSession,
     *,
@@ -1609,4 +1850,5 @@ async def build_agent_capability_manifest(
     elif manifest["doctor"]["findings"]:
         manifest["doctor"]["status"] = "needs_attention"
     manifest["doctor"]["proposed_actions"] = _doctor_proposed_actions(manifest)
+    manifest["skills"].update(_skill_opportunity_payload(manifest))
     return manifest

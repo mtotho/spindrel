@@ -147,6 +147,7 @@ async def list_api_endpoints(scope: str = "") -> str:
                 },
                 "body": {
                     "type": ["object", "array", "string", "null"],
+                    "items": {},
                     "description": (
                         "Optional JSON request body. Prefer a structured object/array. "
                         "A JSON string is still accepted for backward compatibility."

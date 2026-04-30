@@ -566,6 +566,72 @@ def test_execution_evidence_updates_adherence_and_runtime(monkeypatch, tmp_path)
     assert runtime["latest_evidence"]["summary"] == "16 passed"
 
 
+def test_planning_tool_feedback_updates_runtime_focus(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    feedback = spm.record_plan_tool_feedback(
+        session,
+        tool_name="publish_plan",
+        tool_kind="local",
+        status="error",
+        error="Step '2' needs a concrete, outcome-oriented action label.",
+        error_kind="validation",
+        error_code="publish_plan_validation_failed",
+        retryable=False,
+        fallback="Revise the rejected fields, then call publish_plan again.",
+        tool_call_id="call-plan-1",
+        record_id="record-plan-1",
+        arguments={"steps": [{"label": "Implement changes"}]},
+        result_summary="publish_plan failed validation",
+        turn_id="turn-1",
+        correlation_id="corr-1",
+    )
+
+    assert feedback is not None
+    state = spm.get_session_plan_state(session)
+    runtime = state["runtime"]
+    assert runtime["latest_tool_feedback"]["tool_name"] == "publish_plan"
+    assert runtime["latest_tool_feedback"]["error_kind"] == "validation"
+    assert runtime["latest_tool_feedback"]["fallback"].startswith("Revise the rejected fields")
+    assert runtime["last_update_reason"] == "plan_tool_feedback"
+    context = spm.build_plan_artifact_context(session)
+    assert context is not None
+    assert "Latest plan tool feedback" in context
+    assert "publish_plan" in context
+
+
+def test_publish_plan_clears_stale_planning_tool_feedback(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+    spm.record_plan_tool_feedback(
+        session,
+        tool_name="publish_plan",
+        tool_kind="local",
+        status="error",
+        error="Step '2' needs a concrete, outcome-oriented action label.",
+        error_kind="validation",
+        error_code="publish_plan_validation_failed",
+        fallback="Revise the rejected fields, then call publish_plan again.",
+    )
+
+    plan = spm.publish_session_plan(
+        session,
+        title="Clear Tool Feedback",
+        summary="Publish a corrected plan after a failed draft.",
+        scope="Session plan runtime metadata.",
+        acceptance_criteria=["Corrected publish clears the prior tool failure."],
+        **_professional_fields(),
+        steps=[{"id": "correct", "label": "Publish the corrected plan"}],
+    )
+
+    runtime = spm.build_plan_runtime_capsule(session, plan)
+    assert "latest_tool_feedback" not in runtime
+    assert runtime["last_update_reason"] == "publish_plan"
+
+
 def test_exit_resume_records_and_clears_plan_suspension(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

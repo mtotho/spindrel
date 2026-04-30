@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Archive,
@@ -25,12 +27,16 @@ import {
   useStartAttentionTriageRun,
   useSubmitAttentionTriageFeedback,
   useWorkspaceAttentionBrief,
+  WORKSPACE_ATTENTION_BRIEF_KEY,
+  WORKSPACE_ATTENTION_KEY,
+  type AgentReadinessAutofixItem,
   type AttentionBriefResponse,
   type AttentionFixPack,
   type AttentionAssignmentMode,
   type AttentionTriageRunResponse,
   type WorkspaceAttentionItem,
 } from "../../api/hooks/useWorkspaceAttention";
+import { applyAgentReadinessRepair, fetchAgentCapabilities } from "../../api/hooks/useAgentCapabilities";
 import { useBots } from "../../api/hooks/useBots";
 import { BotPicker } from "../shared/BotPicker";
 import { SessionChatView } from "../chat/SessionChatView";
@@ -49,6 +55,7 @@ import type { AttentionDeckMode } from "../../lib/hubRoutes";
 type DeckMode = AttentionDeckMode;
 
 interface AttentionCommandDeckProps {
+  loading?: boolean;
   items: WorkspaceAttentionItem[];
   selectedId: string | null;
   onSelect: (item: WorkspaceAttentionItem | null) => void;
@@ -151,7 +158,58 @@ function sortDeckItems(mode: DeckMode, items: WorkspaceAttentionItem[]): Workspa
   return sorted.sort((a, b) => Number(Boolean(getBotReport(b))) - Number(Boolean(getBotReport(a))));
 }
 
+function SkeletonBlock({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded bg-skeleton/10 ${className}`} />;
+}
+
+function AttentionCommandDeckSkeleton() {
+  return (
+    <div className="flex h-full min-h-0 flex-col text-text" data-testid="attention-command-deck-loading">
+      <div className="shrink-0 border-b border-surface-border/70 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 space-y-2">
+            <SkeletonBlock className="h-3 w-40" />
+            <SkeletonBlock className="h-4 w-72 max-w-full" />
+          </div>
+          <SkeletonBlock className="h-8 w-36" />
+        </div>
+        <div className="mt-3 rounded-md bg-surface-overlay/30 px-3 py-3">
+          <SkeletonBlock className="h-3 w-24" />
+          <SkeletonBlock className="mt-3 h-4 w-56 max-w-full" />
+          <SkeletonBlock className="mt-2 h-3 w-full max-w-xl" />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[0, 1, 2, 3].map((index) => (
+            <div key={index} className="rounded-md bg-surface-overlay/25 px-3 py-2">
+              <SkeletonBlock className="h-3 w-16" />
+              <SkeletonBlock className="mt-2 h-5 w-8" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="min-h-0 px-3 py-3">
+          <div className="grid grid-cols-2 gap-1.5">
+            {[0, 1, 2, 3].map((index) => <SkeletonBlock key={index} className="h-10" />)}
+          </div>
+          <div className="mt-5 space-y-2">
+            {[0, 1, 2, 3, 4, 5].map((index) => <SkeletonBlock key={index} className="h-14" />)}
+          </div>
+        </aside>
+        <main className="min-h-0 border-t border-surface-border/60 px-4 py-4 md:border-l md:border-t-0">
+          <SkeletonBlock className="h-3 w-36" />
+          <SkeletonBlock className="mt-3 h-8 w-80 max-w-full" />
+          <SkeletonBlock className="mt-3 h-4 w-96 max-w-full" />
+          <SkeletonBlock className="mt-6 h-32 w-full max-w-3xl" />
+          <SkeletonBlock className="mt-5 h-24 w-full max-w-3xl" />
+        </main>
+      </div>
+    </div>
+  );
+}
+
 export function AttentionCommandDeck({
+  loading = false,
   items,
   selectedId,
   onSelect,
@@ -162,8 +220,13 @@ export function AttentionCommandDeck({
   onRunSelect,
   onReply,
 }: AttentionCommandDeckProps) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const [mode, setModeState] = useState<DeckMode>(() => initialMode ?? "review");
   const [notice, setNotice] = useState<string | null>(null);
+  const [autofixError, setAutofixError] = useState<string | null>(null);
+  const [applyingAutofixId, setApplyingAutofixId] = useState<string | null>(null);
+  const [staleAutofixIds, setStaleAutofixIds] = useState<string[]>([]);
   const [runModePinned, setRunModePinned] = useState(false);
   const [sweepStarting, setSweepStarting] = useState(false);
   const detailRef = useRef<HTMLElement | null>(null);
@@ -177,6 +240,7 @@ export function AttentionCommandDeck({
     const status = runStatusLabel(run);
     return status === "queued" || status === "running";
   });
+  const selectedRunLoaded = Boolean(selectedRunId && runs.some((run) => run.task_id === selectedRunId));
   const sweepBusy = startTriage.isPending || sweepStarting || hasActiveRun;
   const counts = {
     review: buckets.review.length,
@@ -212,8 +276,8 @@ export function AttentionCommandDeck({
   }, [initialMode, selected?.id, counts.review, counts.inbox, runs.length, runModePinned]);
 
   useEffect(() => {
-    if (hasActiveRun || runs.length > 0) setSweepStarting(false);
-  }, [hasActiveRun, runs.length]);
+    if (hasActiveRun || selectedRunLoaded) setSweepStarting(false);
+  }, [hasActiveRun, selectedRunLoaded]);
 
   useEffect(() => {
     if (!selected) return;
@@ -280,6 +344,68 @@ export function AttentionCommandDeck({
       setNotice("Could not copy the fix prompt from this browser.");
     }
   };
+
+  const openBotReadiness = (request: AgentReadinessAutofixItem) => {
+    if (!request.bot_id) return;
+    navigate(`/admin/bots/${request.bot_id}`);
+  };
+
+  const applyAutofixRequest = async (request: AgentReadinessAutofixItem) => {
+    setAutofixError(null);
+    setNotice(null);
+    const marker = request.receipt_id || `${request.bot_id}:${request.action_id}`;
+    if (!request.bot_id || !request.action_id) {
+      setAutofixError("This repair request is missing a bot or action id.");
+      return;
+    }
+    setApplyingAutofixId(marker);
+    try {
+      const manifest = await fetchAgentCapabilities({
+        botId: request.bot_id,
+        channelId: request.channel_id,
+        sessionId: request.session_id,
+        includeEndpoints: false,
+        includeSchemas: false,
+        maxTools: 40,
+      });
+      const action = (manifest.doctor.proposed_actions || []).find((candidate) => candidate.id === request.action_id);
+      if (!action || action.apply.type !== "bot_patch") {
+        setStaleAutofixIds((current) => current.includes(marker) ? current : [...current, marker]);
+        setNotice("That repair request is stale. Open the bot readiness panel for the current finding.");
+        return;
+      }
+      const result = await applyAgentReadinessRepair({
+        action,
+        botId: request.bot_id,
+        channelId: request.channel_id,
+        sessionId: request.session_id,
+        actor: { kind: "human_ui", surface: "mission_control_review" },
+        approvalRef: "mission_control_review",
+        beforeDoctorStatus: manifest.doctor.status,
+      });
+      if (result.status === "blocked" || result.status === "stale") {
+        if (result.status === "stale") {
+          setStaleAutofixIds((current) => current.includes(marker) ? current : [...current, marker]);
+        }
+        setAutofixError(result.preflight.reason || "This repair could not be applied.");
+        return;
+      }
+      setStaleAutofixIds((current) => current.filter((id) => id !== marker));
+      setNotice(result.findingResolved === false ? "Repair applied, but readiness still needs review." : "Repair applied and verified.");
+      void qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
+      void qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      void qc.invalidateQueries({ queryKey: ["agent-capabilities"] });
+      void qc.invalidateQueries({ queryKey: ["bots", request.bot_id] });
+      void qc.invalidateQueries({ queryKey: ["bot-editor", request.bot_id] });
+      void qc.invalidateQueries({ queryKey: ["bots"] });
+      void qc.invalidateQueries({ queryKey: ["admin-bots"] });
+    } catch (error) {
+      setAutofixError(error instanceof Error ? error.message : "Could not apply this readiness repair.");
+    } finally {
+      setApplyingAutofixId(null);
+    }
+  };
+
   const clearableCount = counts.review + counts.inbox;
   const bulkAcknowledge = useBulkAcknowledgeAttentionItems();
   const clearActiveAttention = () => {
@@ -323,6 +449,7 @@ export function AttentionCommandDeck({
         icon: <Sparkles size={15} />,
         onClick: () => {
           if (brief.next_action.kind === "sweep") startSweep();
+          else if (brief.next_action.kind === "autofix") setNotice("Review the Autofix queue below the brief metrics.");
           else selectBriefItem(itemId);
         },
       };
@@ -358,6 +485,10 @@ export function AttentionCommandDeck({
       onClick: () => setDeckMode("cleared"),
     };
   })();
+
+  if (loading && !items.length) {
+    return <AttentionCommandDeckSkeleton />;
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col text-text">
@@ -431,6 +562,11 @@ export function AttentionCommandDeck({
             brief={brief}
             onOpenItem={selectBriefItem}
             onCopyFixPrompt={copyFixPrompt}
+            onApplyAutofix={applyAutofixRequest}
+            onOpenAutofix={openBotReadiness}
+            applyingAutofixId={applyingAutofixId}
+            staleAutofixIds={staleAutofixIds}
+            autofixError={autofixError}
           />
         )}
       </div>
@@ -549,15 +685,25 @@ function BriefSummary({
   brief,
   onOpenItem,
   onCopyFixPrompt,
+  onApplyAutofix,
+  onOpenAutofix,
+  applyingAutofixId,
+  staleAutofixIds,
+  autofixError,
 }: {
   brief: AttentionBriefResponse;
   onOpenItem: (itemId?: string | null) => void;
   onCopyFixPrompt: (pack: AttentionFixPack) => void;
+  onApplyAutofix: (request: AgentReadinessAutofixItem) => void;
+  onOpenAutofix: (request: AgentReadinessAutofixItem) => void;
+  applyingAutofixId: string | null;
+  staleAutofixIds: string[];
+  autofixError: string | null;
 }) {
   const primaryFixPack = brief.fix_packs[0] ?? null;
   const primaryDecision = brief.decisions[0] ?? null;
   const primaryBlocker = brief.blockers[0] ?? null;
-  const hasBriefWork = Boolean(primaryFixPack || primaryDecision || primaryBlocker || brief.quiet_digest.count);
+  const hasBriefWork = Boolean(brief.autofix_queue.length || primaryFixPack || primaryDecision || primaryBlocker || brief.quiet_digest.count);
 
   if (!hasBriefWork) {
     return null;
@@ -565,12 +711,23 @@ function BriefSummary({
 
   return (
     <div className="mt-3 space-y-2" data-testid="attention-brief-summary">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <BriefMetric label="Autofix" value={brief.summary.autofix} tone={brief.summary.autofix ? "accent" : "muted"} />
         <BriefMetric label="Fix packs" value={brief.summary.fix_packs} tone={brief.summary.fix_packs ? "accent" : "muted"} />
         <BriefMetric label="Decisions" value={brief.summary.decisions} tone={brief.summary.decisions ? "warning" : "muted"} />
         <BriefMetric label="Blockers" value={brief.summary.blockers} tone={brief.summary.blockers ? "danger" : "muted"} />
         <BriefMetric label="Quiet" value={brief.summary.quiet} tone="muted" />
       </div>
+      {brief.autofix_queue.length > 0 && (
+        <AutofixQueue
+          requests={brief.autofix_queue}
+          onApply={onApplyAutofix}
+          onOpen={onOpenAutofix}
+          applyingId={applyingAutofixId}
+          staleIds={staleAutofixIds}
+          error={autofixError}
+        />
+      )}
       <div className="grid gap-2 lg:grid-cols-3">
         {primaryFixPack && (
           <BriefTile
@@ -603,6 +760,72 @@ function BriefSummary({
         )}
       </div>
     </div>
+  );
+}
+
+function AutofixQueue({
+  requests,
+  onApply,
+  onOpen,
+  applyingId,
+  staleIds,
+  error,
+}: {
+  requests: AgentReadinessAutofixItem[];
+  onApply: (request: AgentReadinessAutofixItem) => void;
+  onOpen: (request: AgentReadinessAutofixItem) => void;
+  applyingId: string | null;
+  staleIds: string[];
+  error: string | null;
+}) {
+  return (
+    <section className="rounded-md bg-surface-overlay/30 px-3 py-3" data-testid="agent-readiness-autofix-queue">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">Agent readiness autofix</div>
+          <div className="mt-1 text-sm font-medium text-text">
+            {requests.length} queued repair{requests.length === 1 ? "" : "s"}
+          </div>
+        </div>
+        {error && <div className="text-xs text-warning">{error}</div>}
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {requests.slice(0, 3).map((request) => {
+          const marker = request.receipt_id || `${request.bot_id}:${request.action_id}`;
+          const isStale = staleIds.includes(marker);
+          const isApplying = applyingId === marker;
+          return (
+            <div key={marker} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-raised/35 px-3 py-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-text">{request.summary || "Requested readiness repair"}</div>
+                <div className="mt-0.5 text-xs text-text-dim">
+                  {(request.finding_code || "readiness").replaceAll("_", " ")} · requested by {request.requested_by || "unknown actor"}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {isStale && <span className="rounded-full bg-surface-overlay px-2 py-1 text-[10px] font-medium text-text-muted">Stale</span>}
+                <button
+                  type="button"
+                  className="rounded-md px-2 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-overlay/60 hover:text-text"
+                  onClick={() => onOpen(request)}
+                >
+                  Open bot
+                </button>
+                <button
+                  type="button"
+                  disabled={isApplying || isStale}
+                  className="inline-flex min-h-7 items-center gap-1.5 rounded-md bg-accent/[0.08] px-2.5 text-xs font-medium text-accent hover:bg-accent/[0.12] disabled:opacity-50"
+                  onClick={() => onApply(request)}
+                >
+                  {isApplying ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  {isApplying ? "Applying" : "Apply"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -893,7 +1116,8 @@ function RunLogWorkspace({
 }) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const activeRunId = selectedRunId ?? selectedTaskId;
-  const selectedRun = runs.find((run) => run.task_id === activeRunId) ?? runs[0] ?? null;
+  const selectedRun = activeRunId ? runs.find((run) => run.task_id === activeRunId) ?? null : runs[0] ?? null;
+  const waitingForSelectedRun = Boolean(pending && activeRunId && !selectedRun);
   const selectRun = (taskId: string) => {
     setSelectedTaskId(taskId);
     onRunSelect?.(taskId);
@@ -945,8 +1169,12 @@ function RunLogWorkspace({
         </aside>
 
         <section className="min-w-0">
-          {selectedRun ? (
+          {waitingForSelectedRun ? (
+            <StartingSweepReceipt taskId={activeRunId} />
+          ) : selectedRun ? (
             <RunReceipt run={selectedRun} />
+          ) : pending ? (
+            <StartingSweepReceipt />
           ) : (
             <div className="rounded-md bg-surface-raised/35 px-4 py-8 text-center text-sm text-text-dim">
               Start a sweep to create a receipt.
@@ -955,6 +1183,34 @@ function RunLogWorkspace({
         </section>
       </div>
     </div>
+  );
+}
+
+function StartingSweepReceipt({ taskId }: { taskId?: string | null }) {
+  return (
+    <section className="space-y-4 rounded-md bg-surface-overlay/25 px-4 py-4" data-testid="attention-run-starting">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="inline-flex items-center gap-2 text-sm font-medium text-accent">
+            <Loader2 size={15} className="animate-spin" />
+            Starting Operator sweep
+          </div>
+          <p className="mt-1 text-xs leading-5 text-text-muted">
+            Creating the run receipt and attaching the Operator feed. This view will update without showing an older sweep.
+          </p>
+        </div>
+        {taskId ? <span className="max-w-48 truncate text-[10px] uppercase tracking-[0.08em] text-text-dim">{taskId}</span> : null}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <SkeletonBlock className="h-9" />
+        <SkeletonBlock className="h-9" />
+        <SkeletonBlock className="h-9" />
+      </div>
+      <section className="min-h-[260px] rounded-md bg-surface-raised/35 px-4 py-6">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator feed</div>
+        <div className="mt-12 text-center text-sm text-text-dim">Waiting for the first run event...</div>
+      </section>
+    </section>
   );
 }
 
@@ -972,7 +1228,6 @@ function runBucketItems(run: AttentionTriageRunResponse) {
 
 function RunReceipt({ run }: { run: AttentionTriageRunResponse }) {
   const status = runStatusLabel(run);
-  const hasTranscript = Boolean(run.session_id && run.parent_channel_id);
   const runItems = runBucketItems(run);
   const reviewCount = run.counts?.ready_for_review ?? runItems.review.length;
   const clearedCount = run.counts?.processed ?? runItems.cleared.length;
@@ -1006,26 +1261,51 @@ function RunReceipt({ run }: { run: AttentionTriageRunResponse }) {
         <RunItemList title="Cleared by Operator" items={runItems.cleared} empty="No cleared items from this run." />
       </div>
 
-      <details className="rounded-md bg-surface-overlay/30 px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium text-text-muted hover:text-text">Transcript evidence</summary>
-        <div className="mt-3 min-h-[min(72vh,720px)] overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
-          {hasTranscript ? (
-            <div className="relative h-[min(72vh,720px)]">
-              <SessionChatView
-                sessionId={run.session_id!}
-                parentChannelId={run.parent_channel_id!}
-                botId={run.bot_id}
-                chatMode="default"
-                surface="operator-panel"
-                emptyStateComponent={<div className="px-3 py-4 text-xs text-text-dim">Waiting for Operator transcript...</div>}
-              />
-            </div>
-          ) : (
-            <div className="px-4 py-8 text-center text-sm text-text-dim">Transcript is not available for this run.</div>
-          )}
-        </div>
-      </details>
+      <OperatorRunFeed run={run} status={status} />
     </div>
+  );
+}
+
+function OperatorRunFeed({ run, status }: { run: AttentionTriageRunResponse; status: string }) {
+  const hasTranscript = Boolean(run.session_id && run.parent_channel_id);
+  const stillRunning = status === "queued" || status === "running";
+  return (
+    <section className="rounded-md bg-surface-overlay/25 px-4 py-3" data-testid="attention-run-feed">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/80">Operator feed</div>
+          <p className="mt-1 text-xs leading-5 text-text-muted">
+            {hasTranscript
+              ? "Live session transcript for this sweep."
+              : stillRunning
+                ? "Waiting for the Operator session to attach. The run receipt above will keep updating."
+                : "No transcript was attached to this run."}
+          </p>
+        </div>
+        <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">{status}</span>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-md bg-surface-raised/35" style={{ contain: "paint" }}>
+        {hasTranscript ? (
+          <div className="relative h-[min(62vh,680px)] min-h-[420px]">
+            <SessionChatView
+              sessionId={run.session_id!}
+              parentChannelId={run.parent_channel_id!}
+              botId={run.bot_id}
+              chatMode="terminal"
+              surface="operator-panel"
+              emptyStateComponent={<div className="px-4 py-8 text-sm text-text-dim">Waiting for Operator feed...</div>}
+            />
+          </div>
+        ) : (
+          <div className="flex min-h-[220px] items-center justify-center px-4 py-8 text-center text-sm text-text-dim">
+            <span className="inline-flex items-center gap-2">
+              {stillRunning ? <Loader2 size={15} className="animate-spin" /> : null}
+              {stillRunning ? "Waiting for Operator feed..." : "No Operator feed is available for this run."}
+            </span>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 SPATIAL_HEARTBEAT_PROMPT = """Spatial canvas turn:
 - Use the [spatial canvas] context to understand your position, nearby channels/widgets/bots, radius, nearest-neighbor fallback, and any movement/tug/widget-management budgets.
 - If inspect is available, inspect only nearby objects that could help organize the space or make the heartbeat useful.
-- If spatial widget management is available, create or arrange widgets that would make this channel's workspace easier to understand at a glance.
+- If spatial widget management is available, inspect the current widget scene before changing anything. Prefer making the visible space clearer by resizing, moving, or removing your own low-value/overlapping widgets. Create a new widget only when the inspected scene shows a real missing surface and the after-state will be clearer.
+- If a spatial widget preview tool is available, dry-run your intended widget changes before mutating and avoid changes that make overlap, clipping, or duplicate low-signal widgets worse.
 - If movement or tugging is available, make small intentional moves only when they improve organization or visibility.
 - If memory/file tools are available, keep current spatial memory in your bot workspace at memory/reference/spatial.md: useful landmarks, why widgets are placed where they are, active layout intent, and follow-ups for the next spatial turn. Keep it current-state focused.
 - When spatial memory becomes historical or stale, archive it into your bot workspace's dated memory logs alongside your other memory notes instead of leaving old map state in memory/reference/spatial.md.

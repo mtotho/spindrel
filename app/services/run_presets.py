@@ -69,12 +69,22 @@ class RunPresetTaskDefaults:
 
 
 @dataclass(frozen=True)
+class RunPresetHeartbeatDefaults:
+    append_spatial_prompt: bool
+    append_spatial_map_overview: bool
+    include_pinned_widgets: bool
+    execution_config: dict[str, Any]
+    spatial_policy: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class RunPreset:
     id: str
     title: str
     description: str
     surface: str
-    task_defaults: RunPresetTaskDefaults
+    task_defaults: RunPresetTaskDefaults | None = None
+    heartbeat_defaults: RunPresetHeartbeatDefaults | None = None
 
 
 WIDGET_IMPROVEMENT_HEALTHCHECK = RunPreset(
@@ -151,7 +161,56 @@ PROJECT_CODING_RUN = RunPreset(
 )
 
 
-RUN_PRESETS: tuple[RunPreset, ...] = (WIDGET_IMPROVEMENT_HEALTHCHECK, PROJECT_CODING_RUN)
+SPATIAL_WIDGET_STEWARD_HEARTBEAT = RunPreset(
+    id="spatial_widget_steward_heartbeat",
+    title="Spatial Widget Steward",
+    description=(
+        "Adds spatial scene inspection, preview, and owned-widget editing to "
+        "this channel heartbeat so the bot can curate the channel orbit."
+    ),
+    surface="channel_heartbeat",
+    heartbeat_defaults=RunPresetHeartbeatDefaults(
+        append_spatial_prompt=True,
+        append_spatial_map_overview=True,
+        include_pinned_widgets=True,
+        execution_config={
+            "skills": (
+                "widgets",
+                "widgets/channel_dashboards",
+                "widgets/spatial_stewardship",
+            ),
+            "tools": (
+                "describe_canvas_neighborhood",
+                "view_spatial_canvas",
+                "inspect_spatial_widget_scene",
+                "preview_spatial_widget_changes",
+                "inspect_nearby_spatial_object",
+                "pin_spatial_widget",
+                "move_spatial_widget",
+                "resize_spatial_widget",
+                "remove_spatial_widget",
+                "assess_widget_usefulness",
+                "inspect_widget_pin",
+            ),
+            "history_mode": "recent",
+            "history_recent_count": 30,
+            "skip_tool_approval": True,
+        },
+        spatial_policy={
+            "enabled": True,
+            "allow_map_view": True,
+            "allow_nearby_inspect": True,
+            "allow_spatial_widget_management": True,
+        },
+    ),
+)
+
+
+RUN_PRESETS: tuple[RunPreset, ...] = (
+    WIDGET_IMPROVEMENT_HEALTHCHECK,
+    PROJECT_CODING_RUN,
+    SPATIAL_WIDGET_STEWARD_HEARTBEAT,
+)
 
 
 def list_run_presets(surface: str | None = None) -> list[RunPreset]:
@@ -165,13 +224,15 @@ def get_run_preset(preset_id: str) -> RunPreset | None:
 
 
 def serialize_run_preset(preset: RunPreset) -> dict[str, Any]:
-    defaults = preset.task_defaults
-    return {
+    payload: dict[str, Any] = {
         "id": preset.id,
         "title": preset.title,
         "description": preset.description,
         "surface": preset.surface,
-        "task_defaults": {
+    }
+    defaults = preset.task_defaults
+    if defaults is not None:
+        payload["task_defaults"] = {
             "title": defaults.title,
             "prompt": defaults.prompt,
             "scheduled_at": defaults.scheduled_at,
@@ -189,5 +250,18 @@ def serialize_run_preset(preset: RunPreset) -> dict[str, Any]:
             "allow_issue_reporting": defaults.allow_issue_reporting,
             "harness_effort": defaults.harness_effort,
             "max_run_seconds": defaults.max_run_seconds,
-        },
-    }
+        }
+    hb_defaults = preset.heartbeat_defaults
+    if hb_defaults is not None:
+        payload["heartbeat_defaults"] = {
+            "append_spatial_prompt": hb_defaults.append_spatial_prompt,
+            "append_spatial_map_overview": hb_defaults.append_spatial_map_overview,
+            "include_pinned_widgets": hb_defaults.include_pinned_widgets,
+            "execution_config": {
+                **hb_defaults.execution_config,
+                "skills": list(hb_defaults.execution_config.get("skills", ())),
+                "tools": list(hb_defaults.execution_config.get("tools", ())),
+            },
+            "spatial_policy": dict(hb_defaults.spatial_policy),
+        }
+    return payload

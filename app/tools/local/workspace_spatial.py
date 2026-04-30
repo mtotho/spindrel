@@ -10,6 +10,7 @@ from app.agent.context import (
     current_channel_id,
     current_spatial_move_steps_used,
     current_spatial_tug_steps_used,
+    current_spatial_widget_scene_seen,
 )
 from app.db.engine import async_session
 from app.domain.errors import NotFoundError, ValidationError
@@ -117,6 +118,64 @@ _MAP_VIEW_SCHEMA = {
     },
 }
 
+_INSPECT_WIDGET_SCENE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "inspect_spatial_widget_scene",
+        "description": (
+            "Inspect the channel-centered Spatial Canvas widget scene before "
+            "changing spatial widgets. Returns visible widget rectangles, "
+            "overlaps, clipped/offscreen state, ownership, labels, source "
+            "channels, content summaries, and scene warnings."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "viewport_w": {"type": "integer"},
+                "viewport_h": {"type": "integer"},
+                "scale": {"type": "number"},
+            },
+        },
+    },
+}
+
+_PREVIEW_WIDGET_CHANGES_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "preview_spatial_widget_changes",
+        "description": (
+            "Dry-run proposed move/resize/remove/pin operations for bot-owned "
+            "spatial widgets. Use this after inspecting the scene and before "
+            "mutating widgets."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["move", "resize", "remove", "pin"]},
+                            "target_node_id": {"type": "string"},
+                            "dx_steps": {"type": "integer"},
+                            "dy_steps": {"type": "integer"},
+                            "world_x": {"type": "number"},
+                            "world_y": {"type": "number"},
+                            "world_w": {"type": "number"},
+                            "world_h": {"type": "number"},
+                            "widget": {"type": "string"},
+                            "display_label": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "required": ["operations"],
+        },
+    },
+}
+
 _ERRORABLE_OBJECT_RETURNS = {
     "type": "object",
     "properties": {
@@ -150,6 +209,7 @@ _PIN_WIDGET_SCHEMA = {
                 "world_h": {"type": "number"},
                 "tool_args": {"type": "object"},
                 "widget_config": {"type": "object"},
+                "reason": {"type": "string"},
             },
             "required": ["widget"],
         },
@@ -170,6 +230,7 @@ _MOVE_WIDGET_SCHEMA = {
                 "target_node_id": {"type": "string"},
                 "dx_steps": {"type": "integer"},
                 "dy_steps": {"type": "integer"},
+                "reason": {"type": "string"},
             },
             "required": ["target_node_id", "dx_steps", "dy_steps"],
         },
@@ -187,6 +248,7 @@ _RESIZE_WIDGET_SCHEMA = {
                 "target_node_id": {"type": "string"},
                 "world_w": {"type": "number"},
                 "world_h": {"type": "number"},
+                "reason": {"type": "string"},
             },
             "required": ["target_node_id", "world_w", "world_h"],
         },
@@ -200,7 +262,7 @@ _REMOVE_WIDGET_SCHEMA = {
         "description": "Remove one of your bot-owned Spatial Canvas widgets.",
         "parameters": {
             "type": "object",
-            "properties": {"target_node_id": {"type": "string"}},
+            "properties": {"target_node_id": {"type": "string"}, "reason": {"type": "string"}},
             "required": ["target_node_id"],
         },
     },
@@ -432,6 +494,84 @@ async def view_spatial_canvas(
     return json.dumps(payload, default=str)
 
 
+@register(
+    _INSPECT_WIDGET_SCENE_SCHEMA,
+    safety_tier="readonly",
+    requires_bot_context=True,
+    requires_channel_context=True,
+    returns=_ERRORABLE_OBJECT_RETURNS,
+)
+async def inspect_spatial_widget_scene(
+    viewport_w: int = 1400,
+    viewport_h: int = 900,
+    scale: float = 0.72,
+) -> str:
+    bot_id, channel_id, err = _scope()
+    if err:
+        return json.dumps({"error": err})
+    assert bot_id and channel_id
+    async with async_session() as db:
+        from app.services.workspace_spatial import build_spatial_widget_scene
+        try:
+            payload = await build_spatial_widget_scene(
+                db,
+                channel_id=channel_id,
+                bot_id=bot_id,
+                viewport_w=viewport_w,
+                viewport_h=viewport_h,
+                scale=scale,
+            )
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    current_spatial_widget_scene_seen.set({
+        "bot_id": bot_id,
+        "channel_id": str(channel_id),
+        "score": payload.get("score") or {},
+    })
+    return json.dumps(payload, default=str)
+
+
+@register(
+    _PREVIEW_WIDGET_CHANGES_SCHEMA,
+    safety_tier="readonly",
+    requires_bot_context=True,
+    requires_channel_context=True,
+    returns=_ERRORABLE_OBJECT_RETURNS,
+)
+async def preview_spatial_widget_changes(operations: list[dict[str, Any]]) -> str:
+    bot_id, channel_id, err = _scope()
+    if err:
+        return json.dumps({"error": err})
+    assert bot_id and channel_id
+    async with async_session() as db:
+        from app.services.workspace_spatial import preview_spatial_widget_changes as preview
+        try:
+            payload = await preview(
+                db,
+                channel_id=channel_id,
+                bot_id=bot_id,
+                operations=operations,
+            )
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    current_spatial_widget_scene_seen.set({
+        "bot_id": bot_id,
+        "channel_id": str(channel_id),
+        "previewed": True,
+        "after": payload.get("after") or {},
+    })
+    return json.dumps(payload, default=str)
+
+
+def _recent_widget_scene_required(bot_id: str, channel_id: uuid.UUID) -> str | None:
+    seen = current_spatial_widget_scene_seen.get()
+    if not isinstance(seen, dict):
+        return "Inspect the spatial widget scene first with inspect_spatial_widget_scene."
+    if seen.get("bot_id") != bot_id or seen.get("channel_id") != str(channel_id):
+        return "Inspect this channel's spatial widget scene before changing spatial widgets."
+    return None
+
+
 async def _owned_spatial_widget(db, node_id: uuid.UUID, bot_id: str):
     from app.db.models import WidgetDashboardPin
     from app.services.workspace_spatial import get_node
@@ -477,11 +617,15 @@ async def pin_spatial_widget(
     world_h: float | None = None,
     tool_args: dict[str, Any] | None = None,
     widget_config: dict[str, Any] | None = None,
+    reason: str | None = None,
 ) -> str:
     bot_id, channel_id, err = _scope()
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
+    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    if scene_err:
+        return json.dumps({"error": scene_err})
     async with async_session() as db:
         try:
             await _ensure_widget_management(db, channel_id, bot_id)
@@ -571,15 +715,23 @@ async def pin_spatial_widget(
             )
         except Exception as exc:  # noqa: BLE001 - surface tool failure to the model
             return json.dumps({"error": str(exc)})
-    return json.dumps({"pin_id": str(pin.id), "node": serialize_node(node, pin), "llm": f"Pinned spatial widget {pin.display_label or pin.tool_name}."}, default=str)
+    return json.dumps({
+        "pin_id": str(pin.id),
+        "node": serialize_node(node, pin),
+        "reason": reason,
+        "llm": f"Pinned spatial widget {pin.display_label or pin.tool_name}.",
+    }, default=str)
 
 
 @register(_MOVE_WIDGET_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
-async def move_spatial_widget(target_node_id: str, dx_steps: int, dy_steps: int) -> str:
+async def move_spatial_widget(target_node_id: str, dx_steps: int, dy_steps: int, reason: str | None = None) -> str:
     bot_id, channel_id, err = _scope()
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
+    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    if scene_err:
+        return json.dumps({"error": scene_err})
     try:
         node_id = uuid.UUID(target_node_id)
     except (TypeError, ValueError):
@@ -599,15 +751,18 @@ async def move_spatial_widget(target_node_id: str, dx_steps: int, dy_steps: int)
             )
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
-    return json.dumps({"node": serialize_node(node, pin)}, default=str)
+    return json.dumps({"node": serialize_node(node, pin), "reason": reason}, default=str)
 
 
 @register(_RESIZE_WIDGET_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
-async def resize_spatial_widget(target_node_id: str, world_w: float, world_h: float) -> str:
+async def resize_spatial_widget(target_node_id: str, world_w: float, world_h: float, reason: str | None = None) -> str:
     bot_id, channel_id, err = _scope()
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
+    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    if scene_err:
+        return json.dumps({"error": scene_err})
     try:
         node_id = uuid.UUID(target_node_id)
     except (TypeError, ValueError):
@@ -621,15 +776,18 @@ async def resize_spatial_widget(target_node_id: str, world_w: float, world_h: fl
             node = await update_node_position(db, node.id, world_w=world_w, world_h=world_h)
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
-    return json.dumps({"node": serialize_node(node, pin)}, default=str)
+    return json.dumps({"node": serialize_node(node, pin), "reason": reason}, default=str)
 
 
 @register(_REMOVE_WIDGET_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
-async def remove_spatial_widget(target_node_id: str) -> str:
+async def remove_spatial_widget(target_node_id: str, reason: str | None = None) -> str:
     bot_id, channel_id, err = _scope()
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
+    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    if scene_err:
+        return json.dumps({"error": scene_err})
     try:
         node_id = uuid.UUID(target_node_id)
     except (TypeError, ValueError):
@@ -643,7 +801,7 @@ async def remove_spatial_widget(target_node_id: str) -> str:
             await delete_node(db, node.id)
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
-    return json.dumps({"removed_node_id": str(node_id), "removed_pin_id": str(pin.id)})
+    return json.dumps({"removed_node_id": str(node_id), "removed_pin_id": str(pin.id), "reason": reason})
 
 
 @register(_PLACE_ATTENTION_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)

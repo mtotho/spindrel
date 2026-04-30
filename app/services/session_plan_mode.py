@@ -55,6 +55,12 @@ PLAN_VALIDATION_ERROR = "error"
 PLAN_VALIDATION_WARNING = "warning"
 
 PLAN_MUTATING_TOOL_ALLOWLIST = frozenset({"publish_plan"})
+PLAN_TOOL_FEEDBACK_NAMES = frozenset({
+    "ask_plan_questions",
+    "publish_plan",
+    "record_plan_progress",
+    "request_plan_replan",
+})
 PLAN_EXECUTION_OUTCOME_TOOL_ALLOWLIST = frozenset({"record_plan_progress", "request_plan_replan"})
 PLAN_GUIDED_SUBAGENT_TOOL = "spawn_subagents"
 _PLANNING_STATE_LIST_LIMIT = 12
@@ -838,11 +844,36 @@ def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None
         "last_updated_at": existing.get("last_updated_at"),
         "last_update_reason": existing.get("last_update_reason"),
     }
+    latest_tool_feedback = _runtime_latest_tool_feedback(existing, mode=mode, plan=plan)
+    if latest_tool_feedback is not None:
+        runtime["latest_tool_feedback"] = latest_tool_feedback
     if mode == PLAN_MODE_CHAT and plan is not None:
         for key in _PLAN_RUNTIME_SUSPENSION_KEYS:
             if existing.get(key):
                 runtime[key] = existing[key]
     return runtime
+
+
+def _runtime_latest_tool_feedback(
+    runtime: dict[str, Any],
+    *,
+    mode: str,
+    plan: SessionPlan | None,
+) -> dict[str, Any] | None:
+    feedback = runtime.get("latest_tool_feedback")
+    if mode != PLAN_MODE_PLANNING or not isinstance(feedback, dict):
+        return None
+    feedback_revision = feedback.get("plan_revision")
+    current_revision = plan.revision if plan is not None else None
+    if feedback_revision is None and current_revision is None:
+        return copy.deepcopy(feedback)
+    try:
+        feedback_revision_int = int(feedback_revision) if feedback_revision is not None else None
+    except (TypeError, ValueError):
+        feedback_revision_int = None
+    if feedback_revision_int == current_revision:
+        return copy.deepcopy(feedback)
+    return None
 
 
 def _adherence_default() -> dict[str, Any]:
@@ -967,6 +998,60 @@ def record_plan_execution_evidence(
     session.metadata_ = meta
     flag_modified(session, "metadata_")
     return adherence
+
+
+def record_plan_tool_feedback(
+    session: Session,
+    *,
+    tool_name: str,
+    tool_kind: str,
+    status: str,
+    error: str | None = None,
+    error_kind: str | None = None,
+    error_code: str | None = None,
+    retryable: bool | None = None,
+    retry_after_seconds: int | None = None,
+    fallback: str | None = None,
+    tool_call_id: str | None = None,
+    record_id: str | None = None,
+    arguments: dict[str, Any] | None = None,
+    result_summary: str | None = None,
+    turn_id: str | None = None,
+    correlation_id: str | None = None,
+) -> dict[str, Any] | None:
+    mode = get_session_plan_mode(session)
+    if mode != PLAN_MODE_PLANNING or tool_name not in PLAN_TOOL_FEEDBACK_NAMES or not error:
+        return None
+    plan = load_session_plan(session, required=False)
+    now = _utc_now_iso()
+    feedback = {
+        "created_at": now,
+        "plan_revision": plan.revision if plan is not None else None,
+        "turn_id": turn_id,
+        "correlation_id": correlation_id,
+        "tool_name": tool_name,
+        "tool_kind": tool_kind,
+        "status": status,
+        "error": _clip_plan_context(error, 500),
+        "error_kind": error_kind,
+        "error_code": error_code,
+        "retryable": retryable,
+        "retry_after_seconds": retry_after_seconds,
+        "fallback": _clip_plan_context(fallback, 500) if fallback else None,
+        "tool_call_id": tool_call_id,
+        "record_id": record_id,
+        "arguments": copy.deepcopy(arguments or {}),
+        "summary": _clip_plan_context(result_summary or error or f"{tool_name} failed", 500),
+    }
+    meta = _session_plan_meta(session)
+    runtime = copy.deepcopy(meta.get(PLAN_RUNTIME_METADATA_KEY) if isinstance(meta.get(PLAN_RUNTIME_METADATA_KEY), dict) else {})
+    runtime["latest_tool_feedback"] = feedback
+    runtime["last_updated_at"] = now
+    runtime["last_update_reason"] = "plan_tool_feedback"
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    return feedback
 
 
 def record_plan_semantic_review(
@@ -2490,6 +2575,17 @@ def build_plan_artifact_context(session: Session) -> str | None:
             "Blockers:\n" + "\n".join(
                 f"- {_clip_plan_context(str(item), 180)}"
                 for item in runtime.get("blockers", [])[:5]
+            )
+        )
+    if runtime.get("latest_tool_feedback"):
+        feedback = runtime.get("latest_tool_feedback") or {}
+        runtime_lines.append(
+            "Latest plan tool feedback: "
+            + _clip_plan_context(
+                f"{feedback.get('tool_name') or 'plan tool'}: "
+                f"{feedback.get('error') or feedback.get('summary') or 'recorded'}"
+                + (f" Next: {feedback.get('fallback')}" if feedback.get("fallback") else ""),
+                300,
             )
         )
     if runtime.get("adherence_status"):
