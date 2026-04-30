@@ -35,18 +35,18 @@ python -m scripts.screenshots check
 
 Expected documentation artifacts:
 
-```text
-docs/images/spatial-check-map-brief-selection.png
-docs/images/spatial-check-jump-starboard-framing.png
-docs/images/spatial-check-attention-badge.png
-docs/images/spatial-check-attention-review-deck.png
-docs/images/spatial-check-attention-run-log.png
-docs/images/spatial-check-hover-suppression.png
-docs/images/spatial-check-overview-hover-calm.png
-docs/images/spatial-check-cluster-focus-calm.png
-docs/images/spatial-check-cluster-doubleclick-focus.png
-docs/images/spatial-check-density-smoke.png
-```
+- [docs/images/spatial-check-map-brief-selection.png](../../../docs/images/spatial-check-map-brief-selection.png)
+- [docs/images/spatial-check-canvas-view-controls.png](../../../docs/images/spatial-check-canvas-view-controls.png)
+- [docs/images/spatial-check-jump-starboard-framing.png](../../../docs/images/spatial-check-jump-starboard-framing.png)
+- [docs/images/spatial-check-channel-schedule-satellites.png](../../../docs/images/spatial-check-channel-schedule-satellites.png)
+- [docs/images/spatial-check-attention-badge.png](../../../docs/images/spatial-check-attention-badge.png)
+- [docs/images/spatial-check-attention-review-deck.png](../../../docs/images/spatial-check-attention-review-deck.png)
+- [docs/images/spatial-check-attention-run-log.png](../../../docs/images/spatial-check-attention-run-log.png)
+- [docs/images/spatial-check-hover-suppression.png](../../../docs/images/spatial-check-hover-suppression.png)
+- [docs/images/spatial-check-overview-hover-calm.png](../../../docs/images/spatial-check-overview-hover-calm.png)
+- [docs/images/spatial-check-cluster-focus-calm.png](../../../docs/images/spatial-check-cluster-focus-calm.png)
+- [docs/images/spatial-check-cluster-doubleclick-focus.png](../../../docs/images/spatial-check-cluster-doubleclick-focus.png)
+- [docs/images/spatial-check-density-smoke.png](../../../docs/images/spatial-check-density-smoke.png)
 
 After capture, inspect the images. If visual inspection is not possible in the
 current environment, say that explicitly and do not imply the visual pass was

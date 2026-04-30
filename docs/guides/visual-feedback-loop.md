@@ -17,21 +17,21 @@ python -m scripts.screenshots capture --only spatial-checks
 python -m scripts.screenshots check
 ```
 
-The capture step writes documentation artifacts to `docs/images/`:
+The capture step writes documentation artifacts to `docs/images/`. Review these
+checked-in images before closing the UI pass:
 
-```text
-spatial-check-map-brief-selection.png
-spatial-check-jump-starboard-framing.png
-spatial-check-channel-schedule-satellites.png
-spatial-check-attention-badge.png
-spatial-check-attention-review-deck.png
-spatial-check-attention-run-log.png
-spatial-check-hover-suppression.png
-spatial-check-overview-hover-calm.png
-spatial-check-cluster-focus-calm.png
-spatial-check-cluster-doubleclick-focus.png
-spatial-check-density-smoke.png
-```
+- [spatial-check-map-brief-selection.png](../images/spatial-check-map-brief-selection.png)
+- [spatial-check-canvas-view-controls.png](../images/spatial-check-canvas-view-controls.png)
+- [spatial-check-jump-starboard-framing.png](../images/spatial-check-jump-starboard-framing.png)
+- [spatial-check-channel-schedule-satellites.png](../images/spatial-check-channel-schedule-satellites.png)
+- [spatial-check-attention-badge.png](../images/spatial-check-attention-badge.png)
+- [spatial-check-attention-review-deck.png](../images/spatial-check-attention-review-deck.png)
+- [spatial-check-attention-run-log.png](../images/spatial-check-attention-run-log.png)
+- [spatial-check-hover-suppression.png](../images/spatial-check-hover-suppression.png)
+- [spatial-check-overview-hover-calm.png](../images/spatial-check-overview-hover-calm.png)
+- [spatial-check-cluster-focus-calm.png](../images/spatial-check-cluster-focus-calm.png)
+- [spatial-check-cluster-doubleclick-focus.png](../images/spatial-check-cluster-doubleclick-focus.png)
+- [spatial-check-density-smoke.png](../images/spatial-check-density-smoke.png)
 
 If these files change, inspect them before finishing. Passing screenshot
 assertions proves the DOM-level contract, not that the UI feels good.
