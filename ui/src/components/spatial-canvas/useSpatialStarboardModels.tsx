@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Brain, LayoutDashboard, MessageCircle, Radar, Target, Users as UsersIcon } from "lucide-react";
+import { Brain, FolderGit2, LayoutDashboard, MessageCircle, Radar, Target, Users as UsersIcon } from "lucide-react";
 import { attentionDeckHref, widgetPinHref } from "../../lib/hubRoutes";
 import { resolveChannelEntryHref } from "../../lib/channelNavigation";
 import { useUIStore } from "../../stores/ui";
@@ -66,6 +66,16 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
         icon: "settings",
         onSelect: () =>
           navigate(`/channels/${signal.channel_id}/settings#automation`, {
+            state: canvasBackState,
+          }),
+      };
+    }
+    if (signal.project_id) {
+      return {
+        label: "Open project runs",
+        icon: "open",
+        onSelect: () =>
+          navigate(`/admin/projects/${signal.project_id}#runs`, {
             state: canvasBackState,
           }),
       };
@@ -239,6 +249,31 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
             },
           ],
         });
+      } else if (node.project_id) {
+        const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
+        const projectName = node.project?.name || "Project";
+        const scheduleAction = scheduleActionForSignal(workState?.next);
+        items.push({
+          id: `node-${node.id}`,
+          label: projectName,
+          kind: "project",
+          subtitle: mapStateMeta(workState) ?? `${node.project?.attached_channel_count ?? 0} channels`,
+          workState,
+          worldX,
+          worldY,
+          worldW: node.world_w,
+          worldH: node.world_h,
+          distance: distanceFromFocus(worldX, worldY),
+          onSelect: () => {
+            selectNode("project", node, true);
+          },
+          actions: [
+            jumpAction(worldX, worldY),
+            { label: "Open project", icon: "open", onSelect: () => navigate(`/admin/projects/${node.project_id}`, { state: canvasBackState }) },
+            { label: "Open project runs", icon: "open", onSelect: () => navigate(`/admin/projects/${node.project_id}#runs`, { state: canvasBackState }) },
+            ...(scheduleAction ? [scheduleAction] : []),
+          ],
+        });
       } else if (node.pin) {
         const workState = mapState?.objects_by_node_id?.[node.id] ?? null;
         const reviewHref = attentionReviewHref(workState, { targetKind: "widget", targetId: node.pin.id, channelId: node.pin.source_channel_id });
@@ -409,6 +444,18 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
           icon: MessageCircle,
           onClick: () => flyToChannel(node.channel_id!),
         });
+      } else if (node.project_id) {
+        const projectName = node.project?.name || "Project";
+        beacons.push({
+          id: `project-${node.id}`,
+          label: projectName,
+          shortLabel: "Project",
+          worldX,
+          worldY,
+          colorClass: "border-fuchsia-300/35 text-fuchsia-100 hover:border-fuchsia-200/65",
+          icon: FolderGit2,
+          onClick: () => flyToNodeById(node.id),
+        });
       } else if (node.pin) {
         beacons.push({
           id: `widget-${node.id}`,
@@ -456,7 +503,12 @@ export function useSpatialStarboardModels(args: UseSpatialStarboardModelsArgs) {
 
   const selectedStarboardObject = useMemo(() => {
     if (!selectedSpatialObject) return null;
-    if (selectedSpatialObject.kind === "channel" || selectedSpatialObject.kind === "bot" || selectedSpatialObject.kind === "widget") {
+    if (
+      selectedSpatialObject.kind === "channel"
+      || selectedSpatialObject.kind === "project"
+      || selectedSpatialObject.kind === "bot"
+      || selectedSpatialObject.kind === "widget"
+    ) {
       return starboardObjects.find((item) => item.id === `node-${selectedSpatialObject.nodeId}`) ?? null;
     }
     if (selectedSpatialObject.kind === "landmark") {

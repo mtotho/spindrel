@@ -38,7 +38,7 @@ export interface WorldBbox {
 export interface SpatialActionCueObject {
   id: string;
   label: string;
-  kind: "channel" | "widget" | "bot" | "landmark";
+  kind: "channel" | "project" | "widget" | "bot" | "landmark";
   worldX: number;
   worldY: number;
   worldW?: number;

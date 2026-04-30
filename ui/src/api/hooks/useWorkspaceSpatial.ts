@@ -28,6 +28,7 @@ export type LandmarkKind =
 export interface SpatialNode {
   id: string;
   channel_id: string | null;
+  project_id: string | null;
   widget_pin_id: string | null;
   bot_id: string | null;
   landmark_kind: LandmarkKind | null;
@@ -67,6 +68,14 @@ export interface SpatialNode {
     display_name?: string | null;
     avatar_url?: string | null;
     avatar_emoji?: string | null;
+  };
+  project?: {
+    id: string;
+    workspace_id: string;
+    name: string;
+    slug?: string | null;
+    root_path?: string | null;
+    attached_channel_count?: number;
   };
   /** Present only when `widget_pin_id` is set. */
   pin?: SpatialNodePin;

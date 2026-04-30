@@ -70,6 +70,24 @@ Additional channel-detail artifact: [spatial channel card](../images/spatial-cha
 
 **Double-click a channel tile to dive in.** A ~300ms zoom-and-translate animation runs to completion, then the route changes to `/channels/:id`. The canvas never embeds the channel page — diving is always a route change.
 
+## Project planets
+
+Projects with one or more attached channels auto-populate as larger planet
+nodes. The node is backed by `workspace_spatial_nodes.project_id`, not by a
+synthetic channel or widget, and the server serializes the Project summary with
+attached-channel count for the canvas.
+
+Project planets seed near the centroid of their attached channels. Dragging a
+Project planet translates its attached channel nodes and the channel-sourced
+widget nodes with it, preserving the local constellation while letting the
+operator move the whole work surface. Channels remain individual tiles, so they
+can still be selected, inspected, or moved after the group move.
+
+The project orbit layer draws quiet ellipses around each Project and tethers
+member channels when connection lines are enabled. Selecting a Project opens
+Map Brief with Project source, member channels, upcoming Project work, recent
+Project task activity, and actions for the Project detail and Runs surfaces.
+
 ## Widget tiles
 
 Channel-associated widgets project across the channel dashboard and Spatial Canvas automatically. Pinning a widget onto a channel dashboard also creates a canvas placement near that channel; pinning a widget directly to the canvas with a source channel also creates a dashboard placement. Users move and resize the two placements independently, but they do not have to choose "dashboard-only" versus "spatial-only."
@@ -145,6 +163,13 @@ Click a heartbeat satellite to open that channel's Automation settings. Click
 a task satellite to open the automation detail page. Items due soon get a
 restrained semantic ring instead of a colored side stripe.
 
+Project coding-run schedules attach to Project planets instead of the global
+Now Well or local channel satellites. They render as Project-run satellites
+around the Project planet and open the Project Runs surface. The backing data is
+still an ordinary scheduled `Task` row marked with
+`execution_config.run_preset_id = "project_coding_run_schedule"`, so the canvas
+does not introduce a parallel scheduler primitive.
+
 ## Starboard
 
 ![Starboard hub with canvas stations](../images/starboard-hub.png)
@@ -168,7 +193,7 @@ viewport. The last station choice persists in `localStorage`.
 - **Daily Health** embeds the deterministic 24h server-error rollup so the
   canvas does not open a competing side panel.
 - **Objects** lists positioned canvas entities ordered by distance from the
-  current viewport center. It includes channel, widget, bot, and landmark
+  current viewport center. It includes channel, Project, widget, bot, and landmark
   positions. The list has client-side search, and clicking a row selects that
   object and flies the camera to it without changing the user's current zoom
   unless they are far out. Channel rows still double-click to dive.

@@ -367,13 +367,10 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
     };
   }, [nodes]);
 
-  // Contribute one palette item per pinned widget node so widgets are
-  // searchable in ⌘K. Selecting a widget flies the camera to its tile
-  // (handled by the widgetPick override). Items have no `href`, so the
-  // secondary "Open page" affordance is naturally hidden — widgets have no
-  // standalone route.
+  // Contribute one palette item per pinned widget and Project node so map
+  // objects are searchable in the canvas palette.
   useEffect(() => {
-    const items = (nodes ?? [])
+    const widgetItems = (nodes ?? [])
       .filter((n: any) => n.widget_pin_id && n.pin)
       .map((n: any) => ({
         id: `widget-${n.id}`,
@@ -383,6 +380,18 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
         routeKind: "spatial-widget",
         hint: n.pin?.tool_name || undefined,
       }));
+    const projectItems = (nodes ?? [])
+      .filter((n: any) => n.project_id)
+      .map((n: any) => ({
+        id: `project-${n.id}`,
+        label: `Project: ${n.project?.name || "Untitled"}`,
+        category: "On the map",
+        icon: LayoutDashboard,
+        routeKind: "spatial-project",
+        href: `/admin/projects/${n.project_id}`,
+        hint: n.project?.root_path || undefined,
+      }));
+    const items = [...projectItems, ...widgetItems];
     usePaletteOverrides.getState().setExtraItems(items);
     return () => {
       usePaletteOverrides.getState().setExtraItems([]);
@@ -418,6 +427,8 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
       firedInitialNodeFlyRef.current = true;
       if (found.bot_id) {
         setSelectedSpatialObject({ kind: "bot", nodeId: found.id });
+      } else if (found.project_id) {
+        setSelectedSpatialObject({ kind: "project", nodeId: found.id });
       } else if (found.channel_id) {
         setSelectedSpatialObject({ kind: "channel", nodeId: found.id });
       } else if (found.widget_pin_id) {
@@ -476,7 +487,7 @@ export function useSpatialNavigation(args: UseSpatialNavigationArgs) {
   );
 
   const selectNode = useCallback(
-    (kind: "channel" | "bot" | "widget", node: SpatialNode, focus = false) => {
+    (kind: "channel" | "project" | "bot" | "widget", node: SpatialNode, focus = false) => {
       setSelectedSpatialObject({ kind, nodeId: node.id });
       setContextMenu(null);
       setStarboardStation?.("objects");

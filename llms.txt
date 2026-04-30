@@ -48,6 +48,13 @@ curl http://localhost:8000/openapi.json
 curl -H "Authorization: Bearer $API_KEY" http://localhost:8000/api/v1/discover
 ```
 
+Confirm the authenticated runtime/build identity before live health triage or
+after a deploy:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8000/api/v1/system-health/runtime
+```
+
 Inspect an in-app agent's current working surface:
 
 ```bash
@@ -84,6 +91,7 @@ curl -X POST http://localhost:8000/chat \
 - Developer API guide: `docs/guides/api.md`
 - OpenAPI schema on a running server: `/openapi.json`
 - Scoped endpoint discovery: `/api/v1/discover`
+- Runtime/build identity: `/api/v1/system-health/runtime`
 - Agent capability manifest: `/api/v1/agent-capabilities`
 - Tool and skill discovery guide: `docs/guides/discovery-and-enrollment.md`
 - Context management guide: `docs/guides/context-management.md`

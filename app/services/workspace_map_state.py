@@ -23,6 +23,7 @@ from app.db.models import (
     ChannelBotMember,
     ChannelHeartbeat,
     ChannelIntegration,
+    Project,
     Task,
     TraceEvent,
     WidgetCronSubscription,
@@ -53,9 +54,11 @@ CUE_RANK = {"quiet": 0, "recent": 1, "next": 2, "investigate": 3}
 class MapStateSeed:
     channels: list[Channel]
     channel_by_id: dict[uuid.UUID, Channel]
+    project_by_id: dict[uuid.UUID, Project]
     visible_channel_ids: set[uuid.UUID]
     node_pairs: list[tuple[WorkspaceSpatialNode, WidgetDashboardPin | None]]
     node_by_channel: dict[uuid.UUID, WorkspaceSpatialNode]
+    node_by_project: dict[uuid.UUID, WorkspaceSpatialNode]
     node_by_bot: dict[str, WorkspaceSpatialNode]
     node_by_pin: dict[uuid.UUID, WorkspaceSpatialNode]
     pin_by_id: dict[uuid.UUID, WidgetDashboardPin]
@@ -95,11 +98,28 @@ def _bot_name(bot_id: str | None) -> str | None:
         return bot_id
 
 
+def _project_id_from_task(task: Task) -> uuid.UUID | None:
+    cfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    for key in ("project_coding_run_schedule", "project_coding_run", "project_coding_run_review"):
+        value = cfg.get(key)
+        if not isinstance(value, dict):
+            continue
+        raw = value.get("project_id")
+        if not raw:
+            continue
+        try:
+            return uuid.UUID(str(raw))
+        except ValueError:
+            return None
+    return None
+
+
 def _task_title(task: Task) -> str:
     return task.title or _truncate(task.prompt, 80) or task.task_type or "Automation"
 
 
 def _task_signal(task: Task, channel: Channel | None = None) -> dict[str, Any]:
+    project_id = _project_id_from_task(task)
     return {
         "id": str(task.id),
         "kind": "task",
@@ -110,6 +130,7 @@ def _task_signal(task: Task, channel: Channel | None = None) -> dict[str, Any]:
         "bot_name": _bot_name(task.bot_id),
         "channel_id": str(task.channel_id) if task.channel_id else None,
         "channel_name": channel.name if channel else None,
+        "project_id": str(project_id) if project_id else None,
         "scheduled_at": _iso(task.scheduled_at),
         "run_at": _iso(task.run_at),
         "completed_at": _iso(task.completed_at),
@@ -256,6 +277,8 @@ def _derive_cue(obj: dict[str, Any]) -> dict[str, Any]:
 def _node_kind(node: WorkspaceSpatialNode) -> str:
     if node.channel_id:
         return "channel"
+    if node.project_id:
+        return "project"
     if node.bot_id:
         return "bot"
     if node.widget_pin_id:
@@ -265,10 +288,18 @@ def _node_kind(node: WorkspaceSpatialNode) -> str:
     return "object"
 
 
-def _node_label(node: WorkspaceSpatialNode, channel_by_id: dict[uuid.UUID, Channel], pin: WidgetDashboardPin | None) -> str:
+def _node_label(
+    node: WorkspaceSpatialNode,
+    channel_by_id: dict[uuid.UUID, Channel],
+    pin: WidgetDashboardPin | None,
+    project_by_id: dict[uuid.UUID, Project] | None = None,
+) -> str:
     if node.channel_id:
         channel = channel_by_id.get(node.channel_id)
         return channel.name if channel else "Channel"
+    if node.project_id:
+        project = (project_by_id or {}).get(node.project_id)
+        return project.name if project else "Project"
     if node.bot_id:
         return _bot_name(node.bot_id) or node.bot_id
     if pin:
@@ -278,13 +309,18 @@ def _node_label(node: WorkspaceSpatialNode, channel_by_id: dict[uuid.UUID, Chann
     return "Object"
 
 
-def _empty_object(node: WorkspaceSpatialNode, channel_by_id: dict[uuid.UUID, Channel], pin: WidgetDashboardPin | None) -> dict[str, Any]:
+def _empty_object(
+    node: WorkspaceSpatialNode,
+    channel_by_id: dict[uuid.UUID, Channel],
+    pin: WidgetDashboardPin | None,
+    project_by_id: dict[uuid.UUID, Project] | None = None,
+) -> dict[str, Any]:
     kind = _node_kind(node)
     return {
         "node_id": str(node.id),
         "kind": kind,
-        "target_id": str(node.channel_id or node.widget_pin_id or node.bot_id or node.landmark_kind),
-        "label": _node_label(node, channel_by_id, pin),
+        "target_id": str(node.channel_id or node.project_id or node.widget_pin_id or node.bot_id or node.landmark_kind),
+        "label": _node_label(node, channel_by_id, pin, project_by_id),
         "status": "idle",
         "severity": None,
         "primary_signal": None,
@@ -296,6 +332,7 @@ def _empty_object(node: WorkspaceSpatialNode, channel_by_id: dict[uuid.UUID, Cha
             "widgets": 0,
             "integrations": 0,
             "bots": 0,
+            "channels": 0,
         },
         "next": None,
         "recent": [],
@@ -398,12 +435,20 @@ async def _load_map_state_seed(db: AsyncSession, auth: Any) -> MapStateSeed:
     channel_by_id = {channel.id: channel for channel in channels}
     visible_channel_ids = set(channel_by_id)
     node_pairs = await list_nodes(db)
+    project_ids = {node.project_id for node, _pin in node_pairs if node.project_id}
+    project_rows = []
+    if project_ids:
+        project_rows = list((await db.execute(
+            select(Project).where(Project.id.in_(project_ids))
+        )).scalars().all())
+    project_by_id = {project.id: project for project in project_rows}
     node_by_channel = {node.channel_id: node for node, _pin in node_pairs if node.channel_id}
+    node_by_project = {node.project_id: node for node, _pin in node_pairs if node.project_id}
     node_by_bot = {node.bot_id: node for node, _pin in node_pairs if node.bot_id}
     node_by_pin = {node.widget_pin_id: node for node, _pin in node_pairs if node.widget_pin_id}
     pin_by_id = {pin.id: pin for _node, pin in node_pairs if pin is not None}
     objects = {
-        str(node.id): _empty_object(node, channel_by_id, pin)
+        str(node.id): _empty_object(node, channel_by_id, pin, project_by_id)
         for node, pin in node_pairs
     }
     daily_health = next((node for node, _pin in node_pairs if node.landmark_kind == "daily_health"), None)
@@ -414,9 +459,11 @@ async def _load_map_state_seed(db: AsyncSession, auth: Any) -> MapStateSeed:
     return MapStateSeed(
         channels=channels,
         channel_by_id=channel_by_id,
+        project_by_id=project_by_id,
         visible_channel_ids=visible_channel_ids,
         node_pairs=node_pairs,
         node_by_channel=node_by_channel,
+        node_by_project=node_by_project,
         node_by_bot=node_by_bot,
         node_by_pin=node_by_pin,
         pin_by_id=pin_by_id,
@@ -456,6 +503,33 @@ def _attach_channel_rooms(seed: MapStateSeed) -> None:
         })
         obj["counts"]["bots"] = len(bot_ids)
         obj["counts"]["integrations"] = len(integrations)
+
+
+def _attach_project_rooms(seed: MapStateSeed) -> None:
+    channels_by_project: dict[uuid.UUID, list[Channel]] = defaultdict(list)
+    for channel in seed.channels:
+        if channel.project_id:
+            channels_by_project[channel.project_id].append(channel)
+    for project_id, node in seed.node_by_project.items():
+        project = seed.project_by_id.get(project_id)
+        obj = seed.objects.get(str(node.id))
+        if not obj:
+            continue
+        channels = channels_by_project.get(project_id, [])
+        obj["source"] = {
+            "project_id": str(project_id),
+            "project_name": project.name if project else None,
+            "root_path": project.root_path if project else None,
+            "slug": project.slug if project else None,
+        }
+        obj["attached"].update({
+            "channel_ids": [str(channel.id) for channel in channels],
+            "channels": [
+                {"id": str(channel.id), "name": channel.name, "bot_id": channel.bot_id}
+                for channel in channels
+            ],
+        })
+        obj["counts"]["channels"] = len(channels)
 
 
 async def _load_widget_subscription_index(
@@ -566,6 +640,8 @@ async def _attach_heartbeats(db: AsyncSession, seed: MapStateSeed) -> None:
 
 def _nodes_for_upcoming_item(seed: MapStateSeed, item: dict[str, Any]) -> list[WorkspaceSpatialNode]:
     candidates: list[WorkspaceSpatialNode] = []
+    if project_node := _node_for_uuid(item.get("project_id"), seed.node_by_project):
+        return [project_node]
     if node := _node_for_uuid(item.get("channel_id"), seed.node_by_channel):
         candidates.append(node)
     bot_id = item.get("bot_id")
@@ -580,6 +656,7 @@ def _attach_upcoming(seed: MapStateSeed, upcoming: list[dict[str, Any]]) -> None
     for item in upcoming:
         channel_id = item.get("channel_id")
         bot_id = item.get("bot_id")
+        project_id = item.get("project_id")
         for node in _nodes_for_upcoming_item(seed, item):
             obj = seed.objects.get(str(node.id))
             if not obj:
@@ -594,6 +671,8 @@ def _attach_upcoming(seed: MapStateSeed, upcoming: list[dict[str, Any]]) -> None
                 "bot_name": item.get("bot_name"),
                 "channel_id": channel_id,
                 "channel_name": item.get("channel_name"),
+                "project_id": project_id,
+                "project_name": item.get("project_name"),
             }
             if not obj["next"] or str(item.get("scheduled_at") or "9999") < str(obj["next"].get("scheduled_at") or "9999"):
                 obj["next"] = next_item
@@ -602,6 +681,9 @@ def _attach_upcoming(seed: MapStateSeed, upcoming: list[dict[str, Any]]) -> None
 
 def _nodes_for_task(seed: MapStateSeed, task: Task) -> list[WorkspaceSpatialNode]:
     candidates: list[WorkspaceSpatialNode] = []
+    project_id = _project_id_from_task(task)
+    if project_id and seed.node_by_project.get(project_id):
+        return [seed.node_by_project[project_id]]
     if task.channel_id and seed.node_by_channel.get(task.channel_id):
         candidates.append(seed.node_by_channel[task.channel_id])
     if task.bot_id and seed.node_by_bot.get(task.bot_id):
@@ -799,6 +881,7 @@ def _finalize_map_state_response(
     summary = {
         "objects": len(rows),
         "channels": sum(1 for item in rows if item["kind"] == "channel"),
+        "projects": sum(1 for item in rows if item["kind"] == "project"),
         "bots": sum(1 for item in rows if item["kind"] == "bot"),
         "widgets": sum(1 for item in rows if item["kind"] == "widget"),
         "landmarks": sum(1 for item in rows if item["kind"] == "landmark"),
@@ -830,6 +913,7 @@ async def build_workspace_map_state(
     """Build a map-ready projection over existing workspace primitives."""
     seed = await _load_map_state_seed(db, auth)
     _attach_channel_rooms(seed)
+    _attach_project_rooms(seed)
     _attach_widgets(seed, await _load_widget_subscription_index(db, seed))
     await _attach_heartbeats(db, seed)
     upcoming, recent_tasks, channel_for_task = await _attach_activity(

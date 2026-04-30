@@ -17,6 +17,8 @@ from app.db.models import (
     Bot as BotRow,
     Channel,
     ChannelHeartbeat,
+    Project,
+    SharedWorkspace,
     Task,
     TraceEvent,
     WidgetCronSubscription,
@@ -84,6 +86,28 @@ async def _create_channel(client, **overrides) -> dict:
     return resp.json()
 
 
+async def _create_project_for_channel(db_session, channel_id: str, *, name: str = "Spatial Project") -> Project:
+    workspace = SharedWorkspace(
+        name=f"spatial-project-{uuid.uuid4().hex[:8]}",
+        description="Spatial project test workspace",
+    )
+    db_session.add(workspace)
+    await db_session.flush()
+    project = Project(
+        workspace_id=workspace.id,
+        name=name,
+        slug=f"spatial-project-{uuid.uuid4().hex[:8]}",
+        root_path=f"/tmp/spatial-project-{uuid.uuid4().hex[:8]}",
+    )
+    db_session.add(project)
+    await db_session.flush()
+    channel = await db_session.get(Channel, uuid.UUID(channel_id))
+    assert channel is not None
+    channel.project_id = project.id
+    await db_session.commit()
+    return project
+
+
 class TestReservedSlug:
     async def test_workspace_spatial_dashboard_seeded(self, db_session):
         row = (
@@ -135,6 +159,29 @@ class TestSpatialNodesAutoSeed:
         )
         assert all(s is not None for s in seeds)
         assert len(set(seeds)) == len(seeds)
+
+    async def test_get_nodes_creates_project_rows_for_attached_channels(self, client, db_session):
+        ch = await _create_channel(client, name="Project Channel")
+        project = await _create_project_for_channel(db_session, ch["id"], name="Orbit Project")
+
+        r = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        nodes = r.json()["nodes"]
+        project_node = next(n for n in nodes if n["project_id"] == str(project.id))
+
+        assert project_node["channel_id"] is None
+        assert project_node["world_w"] == 420.0
+        assert project_node["world_h"] == 280.0
+        assert project_node["project"]["name"] == "Orbit Project"
+        assert project_node["project"]["attached_channel_count"] == 1
+
+        map_resp = await client.get("/api/v1/workspace/spatial/map-state", headers=AUTH_HEADERS)
+        assert map_resp.status_code == 200, map_resp.text
+        project_state = map_resp.json()["objects_by_node_id"][project_node["id"]]
+        assert project_state["kind"] == "project"
+        assert project_state["source"]["project_name"] == "Orbit Project"
+        assert project_state["attached"]["channel_ids"] == [ch["id"]]
+        assert project_state["counts"]["channels"] == 1
 
     async def test_get_nodes_idempotent(self, client):
         await _create_channel(client)
@@ -363,6 +410,38 @@ class TestUpdateAndDelete:
         ch_node = next(n for n in nodes2 if n["channel_id"] == node["channel_id"])
         assert ch_node["id"] != node["id"]
         assert (ch_node["world_x"], ch_node["world_y"]) != (999.0, 999.0)
+
+    async def test_moving_project_node_translates_attached_channels_and_widgets(self, client, db_session):
+        ch = await _create_channel(client, name="Project Move")
+        project = await _create_project_for_channel(db_session, ch["id"], name="Move Project")
+        channel_id = uuid.UUID(ch["id"])
+        await pin_widget_to_canvas(
+            db_session,
+            source_kind="channel",
+            source_channel_id=channel_id,
+            tool_name="core/project_widget",
+            envelope=_envelope("Project widget"),
+        )
+
+        nodes = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        project_node = next(n for n in nodes if n["project_id"] == str(project.id))
+        channel_node = next(n for n in nodes if n["channel_id"] == ch["id"])
+        widget_node = next(n for n in nodes if (n.get("pin") or {}).get("source_channel_id") == ch["id"])
+
+        r = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{project_node['id']}",
+            json={"world_x": project_node["world_x"] + 120.0, "world_y": project_node["world_y"] - 45.0},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+
+        nodes2 = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        channel_after = next(n for n in nodes2 if n["id"] == channel_node["id"])
+        widget_after = next(n for n in nodes2 if n["id"] == widget_node["id"])
+        assert channel_after["world_x"] == channel_node["world_x"] + 120.0
+        assert channel_after["world_y"] == channel_node["world_y"] - 45.0
+        assert widget_after["world_x"] == widget_node["world_x"] + 120.0
+        assert widget_after["world_y"] == widget_node["world_y"] - 45.0
 
 
 class TestPinWidgetToCanvas:

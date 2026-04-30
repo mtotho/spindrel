@@ -32,7 +32,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import Channel, ChannelBotMember, Message, Session, WidgetDashboardPin, WidgetInstance, WorkspaceSpatialNode
+from app.db.models import Channel, ChannelBotMember, Message, Project, Session, WidgetDashboardPin, WidgetInstance, WorkspaceSpatialNode
 from app.domain.errors import NotFoundError, ValidationError
 from app.services.dashboard_pins import create_pin, get_pin
 from app.services.dashboards import WORKSPACE_SPATIAL_DASHBOARD_KEY
@@ -47,6 +47,8 @@ _GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))  # ≈ 137.5°
 _PHYLLOTAXIS_RADIUS = 280.0
 _DEFAULT_TILE_W = 280.0
 _DEFAULT_TILE_H = 180.0
+_DEFAULT_PROJECT_W = 420.0
+_DEFAULT_PROJECT_H = 280.0
 # Widgets host live iframes at close zoom — give them more room than channels
 # by default. They're also a visually distinct shape (wider aspect ratio +
 # more chrome) so the user reads "this is a widget, not a channel" at any
@@ -133,6 +135,7 @@ def serialize_node(
     out: dict[str, Any] = {
         "id": str(node.id),
         "channel_id": str(node.channel_id) if node.channel_id else None,
+        "project_id": str(node.project_id) if node.project_id else None,
         "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
         "bot_id": node.bot_id,
         "landmark_kind": node.landmark_kind,
@@ -160,6 +163,18 @@ def serialize_node(
             }
         except Exception:
             out["bot"] = {"id": node.bot_id, "name": node.bot_id}
+    if node.project_id:
+        project = getattr(node, "_spatial_project", None)
+        channel_count = getattr(node, "_spatial_project_channel_count", None)
+        if project is not None:
+            out["project"] = {
+                "id": str(project.id),
+                "workspace_id": str(project.workspace_id),
+                "name": project.name,
+                "slug": project.slug,
+                "root_path": project.root_path,
+                "attached_channel_count": int(channel_count or 0),
+            }
     if pin is not None:
         # Lazy import — keeps the dashboard_pins serializer optional for
         # callers that only need bare-bones channel-node serialization.
@@ -298,6 +313,58 @@ async def _ensure_channel_nodes(db: AsyncSession) -> int:
             world_y=y,
             world_w=_DEFAULT_TILE_W,
             world_h=_DEFAULT_TILE_H,
+            seed_index=next_seed,
+        ))
+        next_seed += 1
+    await db.commit()
+    return len(missing_ids)
+
+
+async def _project_seed_position(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    seed_index: int,
+) -> tuple[float, float]:
+    """Place a Project near the centroid of its attached channel nodes."""
+    channel_nodes = list((await db.execute(
+        select(WorkspaceSpatialNode)
+        .join(Channel, WorkspaceSpatialNode.channel_id == Channel.id)
+        .where(Channel.project_id == project_id)
+    )).scalars().all())
+    if not channel_nodes:
+        x, y = phyllotaxis_position(seed_index)
+        return (x - (_DEFAULT_PROJECT_W - _DEFAULT_TILE_W) / 2, y - (_DEFAULT_PROJECT_H - _DEFAULT_TILE_H) / 2)
+
+    cx = sum(node.world_x + node.world_w / 2 for node in channel_nodes) / len(channel_nodes)
+    cy = sum(node.world_y + node.world_h / 2 for node in channel_nodes) / len(channel_nodes)
+    return (float(cx - _DEFAULT_PROJECT_W / 2), float(cy - _DEFAULT_PROJECT_H / 2))
+
+
+async def _ensure_project_nodes(db: AsyncSession) -> int:
+    """Create one spatial node for every Project that has attached channels."""
+    missing_stmt = (
+        select(Project.id)
+        .join(Channel, Channel.project_id == Project.id)
+        .outerjoin(
+            WorkspaceSpatialNode,
+            WorkspaceSpatialNode.project_id == Project.id,
+        )
+        .where(WorkspaceSpatialNode.id.is_(None))
+        .group_by(Project.id)
+    )
+    missing_ids = [row[0] for row in (await db.execute(missing_stmt)).all()]
+    if not missing_ids:
+        return 0
+
+    next_seed = await _next_seed_index(db)
+    for project_id in missing_ids:
+        x, y = await _project_seed_position(db, project_id, next_seed)
+        db.add(WorkspaceSpatialNode(
+            project_id=project_id,
+            world_x=x,
+            world_y=y,
+            world_w=_DEFAULT_PROJECT_W,
+            world_h=_DEFAULT_PROJECT_H,
             seed_index=next_seed,
         ))
         next_seed += 1
@@ -583,6 +650,7 @@ async def list_nodes(
     every page reload, even though dispatch already mutated the instance.
     """
     await _ensure_channel_nodes(db)
+    await _ensure_project_nodes(db)
     await _ensure_bot_nodes(db)
     await _ensure_landmark_nodes(db)
     rows = (await db.execute(
@@ -613,6 +681,24 @@ async def list_nodes(
         await db.commit()
         missing_ids = {n.id for n in missing_pin_nodes}
         nodes = [n for n in nodes if n.id not in missing_ids]
+
+    project_ids = [n.project_id for n in nodes if n.project_id is not None]
+    if project_ids:
+        project_rows = (await db.execute(
+            select(Project).where(Project.id.in_(project_ids))
+        )).scalars().all()
+        count_rows = (await db.execute(
+            select(Channel.project_id, func.count(Channel.id))
+            .where(Channel.project_id.in_(project_ids))
+            .group_by(Channel.project_id)
+        )).all()
+        project_map = {project.id: project for project in project_rows}
+        channel_counts = {row[0]: int(row[1]) for row in count_rows}
+        for node in nodes:
+            if node.project_id is None:
+                continue
+            setattr(node, "_spatial_project", project_map.get(node.project_id))
+            setattr(node, "_spatial_project_channel_count", channel_counts.get(node.project_id, 0))
     return [(n, pin_map.get(n.widget_pin_id) if n.widget_pin_id else None) for n in nodes]
 
 
@@ -914,6 +1000,8 @@ def _node_label(node: WorkspaceSpatialNode, pin: WidgetDashboardPin | None = Non
             return node.bot_id
     if node.channel_id:
         return f"channel {node.channel_id}"
+    if node.project_id:
+        return f"project {node.project_id}"
     if pin is not None:
         return pin.display_label or pin.tool_name or str(pin.id)
     return str(node.id)
@@ -1045,6 +1133,7 @@ async def _nodes_with_pins(
     db: AsyncSession,
 ) -> tuple[list[WorkspaceSpatialNode], dict[uuid.UUID, WidgetDashboardPin]]:
     await _ensure_channel_nodes(db)
+    await _ensure_project_nodes(db)
     await _ensure_bot_nodes(db)
     await _ensure_landmark_nodes(db)
     # Landmarks are visual chrome (zero-sized world rects), not collision
@@ -1067,6 +1156,8 @@ async def _nodes_with_pins(
 def _node_kind(node: WorkspaceSpatialNode) -> str:
     if node.bot_id:
         return "bot"
+    if node.project_id:
+        return "project"
     if node.channel_id:
         return "channel"
     return "widget"
@@ -1704,9 +1795,60 @@ async def update_node_position(
             new_y=node.world_y,
             actor=None,
         )
+        if node.project_id is not None:
+            dx = node.world_x - prev_x
+            dy = node.world_y - prev_y
+            if dx or dy:
+                await _translate_project_cluster(db, node.project_id, dx=dx, dy=dy, actor_node_id=node.id)
     await db.commit()
     await db.refresh(node)
     return node
+
+
+async def _translate_project_cluster(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    dx: float,
+    dy: float,
+    actor_node_id: uuid.UUID,
+) -> None:
+    """Move Project member channels and their spatial widgets with the Project."""
+    channel_ids = list((await db.execute(
+        select(Channel.id).where(Channel.project_id == project_id)
+    )).scalars().all())
+    if not channel_ids:
+        return
+    target_nodes = list((await db.execute(
+        select(WorkspaceSpatialNode)
+        .outerjoin(WidgetDashboardPin, WorkspaceSpatialNode.widget_pin_id == WidgetDashboardPin.id)
+        .where(
+            WorkspaceSpatialNode.id != actor_node_id,
+            (
+                WorkspaceSpatialNode.channel_id.in_(channel_ids)
+            ) | (
+                WidgetDashboardPin.source_channel_id.in_(channel_ids)
+            ),
+        )
+    )).scalars().all())
+    for target in target_nodes:
+        prev_x, prev_y = target.world_x, target.world_y
+        next_x = float(target.world_x + dx)
+        next_y = float(target.world_y + dy)
+        if abs(next_x) > WORLD_COORD_LIMIT or abs(next_y) > WORLD_COORD_LIMIT:
+            raise ValidationError(
+                f"Project move would push attached object out of range (limit ±{WORLD_COORD_LIMIT})"
+            )
+        target.world_x = next_x
+        target.world_y = next_y
+        _append_position_history(
+            target,
+            prev_x=prev_x,
+            prev_y=prev_y,
+            new_x=target.world_x,
+            new_y=target.world_y,
+            actor=None,
+        )
 
 
 async def delete_node(db: AsyncSession, node_id: uuid.UUID) -> None:

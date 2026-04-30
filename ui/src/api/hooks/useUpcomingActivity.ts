@@ -8,6 +8,8 @@ export interface UpcomingItem {
   bot_name: string;
   channel_id: string | null;
   channel_name: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
   title: string;
   // heartbeat-specific
   interval_minutes?: number;

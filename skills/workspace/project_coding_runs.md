@@ -12,6 +12,19 @@ category: workspace
 Use this skill before starting, continuing, reviewing, merging, or finalizing
 Project coding runs.
 
+## Scheduled Runs
+
+1. Use `schedule_project_coding_run` when the operator asks for recurring
+   Project review, maintenance, or implementation work in the current
+   Project-bound channel.
+2. Write the schedule request as the full run prompt. Include expected
+   outputs: tests, screenshots when relevant, PR/handoff, and a Project run
+   receipt.
+3. If no code change is needed for a scheduled review, publish a no-change
+   Project run receipt rather than opening an empty PR.
+4. Treat each schedule fire as a normal Project coding run: inspect state,
+   prepare the branch, run verification, and hand off evidence.
+
 ## Implementation Runs
 
 1. Confirm you are in the Project work surface. Use the Project root for file,

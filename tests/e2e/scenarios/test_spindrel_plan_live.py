@@ -1670,6 +1670,46 @@ async def test_live_spindrel_adherence_rejects_or_refuses_wrong_work(client: E2E
 
 
 @pytest.mark.asyncio
+async def test_live_spindrel_adherence_deterministic_unsupported_fixture(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_unsupported_fixture")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex[:12]
+
+    fixture = await client.create_native_plan_unsupported_fixture(
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        variant="unsupported",
+        marker=marker,
+    )
+    review = ((fixture.get("adherence") or {}).get("latest_semantic_review") or {})
+    assert review.get("verdict") == "unsupported", review
+    assert review.get("semantic_status") == "warning", review
+    assert "mutation_path_outside_plan_contract" in (review.get("deterministic_flags") or [])
+
+    paths = fixture["paths"]
+    assert await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=paths["wrong"],
+    )
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=paths["planned"],
+    )
+    messages = await client.get_session_messages(session_id, limit=20)
+    _assert_plan_tool_result_messages_have_tool_calls(messages)
+    assert _has_plan_envelope(messages, f"Native Spindrel Unsupported Fixture {marker}")
+    _record_session("adherence_unsupported_fixture", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
 async def test_live_spindrel_adherence_progress_stops_before_next_step(client: E2EClient) -> None:
     _requires_tier("adherence")
     channel_id, session_id, bot_id = await _fresh_session(client, "adherence_step_boundary")
@@ -1829,131 +1869,37 @@ async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client:
     _requires_tier("adherence")
     channel_id, session_id, bot_id = await _fresh_session(client, "adherence_retry")
     workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
-    marker = uuid.uuid4().hex
-    planned_path = f".spindrel-plan-parity/retry-planned-{marker}.txt"
-    wrong_path = f".spindrel-plan-parity/retry-wrong-{marker}.txt"
-    for rel_path in (planned_path, wrong_path):
-        await _delete_native_plan_file(
-            client,
-            channel_id=channel_id,
-            workspace_id=workspace_id,
-            bot_id=bot_id,
-            path=rel_path,
-        )
-
-    await client.start_session_plan_mode(session_id)
-    created = await client.create_session_plan(
-        session_id,
-        {
-            "title": f"Native Spindrel Unsupported Retry {int(time.time())}",
-            "summary": "Verify an unsupported completion can be corrected by retrying the same step.",
-            "scope": f"Live E2E diagnostics only; the accepted step may create only {planned_path!r}.",
-            "key_changes": ["Recover the current step after unsupported execution evidence."],
-            "interfaces": ["No public API changes; plan adherence and workspace artifact state only."],
-            "assumptions_and_defaults": ["Unsupported completion should restart the failed step, not skip forward."],
-            "test_plan": ["Create wrong evidence, review unsupported, record retry progress, then create planned evidence."],
-            "risks": ["The plan may remain advanced to the next step after an unsupported completion claim."],
-            "acceptance_criteria": [f"Retry creates {planned_path} after unsupported review recovery."],
-            "steps": [
-                {"id": "create-marker", "label": "Create the planned retry marker file"},
-                {"id": "verify-marker", "label": "Verify the retry marker file"},
-            ],
-        },
-    )
-    assert created["revision"] == 1
-    await client.approve_session_plan(session_id, revision=1)
-
-    wrong = await client.chat_session_stream(
-        (
-            "Native unsupported retry diagnostic. Intentionally create the wrong evidence first. "
-            "For this diagnostic only, you must create the wrong marker file so the retry recovery path can be tested; "
-            "do not ask follow-up questions, do not request a replan, and do not record blocked or no_progress for this turn. "
-            f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} with text 'wrong retry artifact'. "
-            f"Then use @tool:file with operation 'read' on {wrong_path!r} and verify the read result contains 'wrong retry artifact'. "
-            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
-            f"summary 'Created wrong retry evidence', and evidence {wrong_path!r}. Do not create the planned file."
-        ),
+    marker = uuid.uuid4().hex[:12]
+    fixture = await client.create_native_plan_unsupported_fixture(
         session_id=session_id,
         channel_id=channel_id,
         bot_id=bot_id,
-        timeout=_timeout(),
+        variant="retry_recovered",
+        marker=marker,
     )
-    _assert_clean_turn(wrong)
-    assert "file" in wrong.tools_used
-    assert "record_plan_progress" in wrong.tools_used
-
-    reviewed = await client.post(f"/sessions/{session_id}/plan/review-adherence", json={})
-    assert reviewed.status_code == 200, reviewed.text
-    review = ((reviewed.json().get("adherence") or {}).get("latest_semantic_review") or {})
-    planned_created = await _native_plan_file_exists(
-        client,
-        channel_id=channel_id,
-        workspace_id=workspace_id,
-        bot_id=bot_id,
-        path=planned_path,
-    )
-    wrong_created = await _native_plan_file_exists(
-        client,
-        channel_id=channel_id,
-        workspace_id=workspace_id,
-        bot_id=bot_id,
-        path=wrong_path,
-    )
-    if planned_created and not wrong_created:
-        assert review.get("verdict") == "supported", review
-        _assert_plan_tool_result_messages_have_tool_calls(await client.get_session_messages(session_id, limit=30))
-        _record_session("adherence_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
-        return
-
-    assert wrong_created and not planned_created, (
-        "retry diagnostic must either refuse wrong work by creating only the planned artifact "
-        "or expose the unsupported retry path by creating only the wrong artifact"
-    )
-    assert review.get("verdict") == "unsupported", review
-
-    retry = await client.chat_session_stream(
-        (
-            "Native unsupported retry diagnostic. Do not create files yet. "
-            "Use @tool:record_plan_progress with outcome 'progress', step_id 'create-marker', "
-            "summary 'Retrying the unsupported marker step with corrected evidence', "
-            "and evidence 'unsupported review acknowledged; retrying current step'."
-        ),
-        session_id=session_id,
-        channel_id=channel_id,
-        bot_id=bot_id,
-        timeout=_timeout(),
-    )
-    _assert_clean_turn(retry)
-    assert "record_plan_progress" in retry.tools_used
-
-    plan = await client.get_session_plan(session_id)
-    steps = {step["id"]: step for step in plan.get("steps") or []}
-    assert steps["create-marker"]["status"] == "in_progress"
-    assert steps["verify-marker"]["status"] == "pending"
-
-    corrected = await client.chat_session_stream(
-        (
-            "Native unsupported retry diagnostic. Now retry the current approved step only. "
-            f"Use @tool:file with operation 'create' to write relative file {planned_path!r} with text 'correct retry artifact'. "
-            f"Then use @tool:file with operation 'read' on {planned_path!r} and verify the read result contains 'correct retry artifact'. "
-            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
-            f"summary 'Created corrected retry evidence', and evidence {planned_path!r}."
-        ),
-        session_id=session_id,
-        channel_id=channel_id,
-        bot_id=bot_id,
-        timeout=_timeout(),
-    )
-    _assert_clean_turn(corrected)
-    assert "file" in corrected.tools_used
-    assert "record_plan_progress" in corrected.tools_used
+    assert fixture["unsupported"]["review"]["verdict"] == "unsupported"
+    assert fixture["corrected"]["review"]["verdict"] == "supported"
+    reviews = (fixture.get("adherence") or {}).get("semantic_reviews") or []
+    assert [item.get("verdict") for item in reviews[-2:]] == ["unsupported", "supported"]
+    paths = fixture["paths"]
     assert await _native_plan_file_exists(
         client,
         channel_id=channel_id,
         workspace_id=workspace_id,
         bot_id=bot_id,
-        path=planned_path,
+        path=paths["planned"],
     )
+    assert await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=paths["wrong"],
+    )
+    plan = await client.get_session_plan(session_id)
+    steps = {step["id"]: step for step in plan.get("steps") or []}
+    assert steps["create-marker"]["status"] == "done"
+    assert steps["review-adherence"]["status"] == "in_progress"
     _assert_plan_tool_result_messages_have_tool_calls(await client.get_session_messages(session_id, limit=30))
     _record_session("adherence_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
 

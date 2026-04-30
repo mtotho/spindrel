@@ -1606,6 +1606,28 @@ export interface ProjectCodingRun {
   updated_at?: string | null;
 }
 
+export interface ProjectCodingRunSchedule {
+  id: string;
+  project_id: string;
+  channel_id?: string | null;
+  title: string;
+  request?: string;
+  status: string;
+  enabled: boolean;
+  scheduled_at?: string | null;
+  recurrence?: string | null;
+  run_count: number;
+  last_run?: {
+    id?: string;
+    task_id?: string;
+    status?: string;
+    created_at?: string | null;
+    branch?: string | null;
+  } | null;
+  created_at?: string | null;
+  machine_target_grant?: ProjectCodingRunTask["machine_target_grant"];
+}
+
 export interface SessionProjectInstance {
   session_id: string;
   project_instance_id?: string | null;

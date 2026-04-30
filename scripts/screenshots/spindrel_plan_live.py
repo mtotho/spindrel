@@ -121,6 +121,10 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
             args.adherence_negative_session_id
             or artifact.get("adherence_negative_session_id", "")
         ),
+        "adherence_unsupported_fixture_session_id": (
+            args.adherence_unsupported_fixture_session_id
+            or artifact.get("adherence_unsupported_fixture_session_id", "")
+        ),
         "adherence_retry_session_id": (
             args.adherence_retry_session_id
             or artifact.get("adherence_retry_session_id", "")
@@ -143,6 +147,7 @@ def _build_specs(
     adherence_review_session_id: str = "",
     adherence_auto_session_id: str = "",
     adherence_negative_session_id: str = "",
+    adherence_unsupported_fixture_session_id: str = "",
     adherence_retry_session_id: str = "",
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
@@ -418,20 +423,21 @@ def _build_specs(
             channel_id=channel_id,
             chat_mode="terminal",
         ))
-    if adherence_negative_session_id:
-        route = f"{browser_url}/channels/{channel_id}/session/{adherence_negative_session_id}"
+    unsupported_session_id = adherence_unsupported_fixture_session_id or adherence_negative_session_id
+    if unsupported_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{unsupported_session_id}"
         wait = (
             "document.querySelector('[data-plan-focus]') !== null "
-            "&& document.body.innerText.toLowerCase().includes('native spindrel negative adherence review') "
-            "&& (document.body.innerText.toLowerCase().includes('unsupported') "
-            "|| document.body.innerText.toLowerCase().includes('supported'))"
+            "&& (document.body.innerText.toLowerCase().includes('native spindrel unsupported fixture') "
+            "|| document.body.innerText.toLowerCase().includes('native spindrel negative adherence review')) "
+            "&& document.body.innerText.toLowerCase().includes('unsupported')"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-adherence-unsupported-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Negative Adherence Review",),
-            scroll_plan_text="Native Spindrel Negative Adherence Review",
+            contains=("Native Spindrel", "unsupported"),
+            scroll_plan_text="Unsupported",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -439,8 +445,8 @@ def _build_specs(
             name="spindrel-plan-adherence-unsupported-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Negative Adherence Review",),
-            scroll_plan_text="Native Spindrel Negative Adherence Review",
+            contains=("Native Spindrel", "unsupported"),
+            scroll_plan_text="Unsupported",
             channel_id=channel_id,
             chat_mode="terminal",
         ))
@@ -493,6 +499,7 @@ async def _assert_sessions_exist(
     adherence_review_session_id: str,
     adherence_auto_session_id: str,
     adherence_negative_session_id: str,
+    adherence_unsupported_fixture_session_id: str,
     adherence_retry_session_id: str,
 ) -> None:
     for session_id in (
@@ -507,6 +514,7 @@ async def _assert_sessions_exist(
         adherence_review_session_id,
         adherence_auto_session_id,
         adherence_negative_session_id,
+        adherence_unsupported_fixture_session_id,
         adherence_retry_session_id,
     ):
         if session_id:
@@ -572,6 +580,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         adherence_review_session_id=resolved["adherence_review_session_id"],
         adherence_auto_session_id=resolved["adherence_auto_session_id"],
         adherence_negative_session_id=resolved["adherence_negative_session_id"],
+        adherence_unsupported_fixture_session_id=resolved["adherence_unsupported_fixture_session_id"],
         adherence_retry_session_id=resolved["adherence_retry_session_id"],
     )
     if not specs:
@@ -601,6 +610,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             adherence_review_session_id=resolved["adherence_review_session_id"],
             adherence_auto_session_id=resolved["adherence_auto_session_id"],
             adherence_negative_session_id=resolved["adherence_negative_session_id"],
+            adherence_unsupported_fixture_session_id=resolved["adherence_unsupported_fixture_session_id"],
             adherence_retry_session_id=resolved["adherence_retry_session_id"],
         )
 
@@ -663,6 +673,10 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--adherence-review-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_REVIEW_SESSION_ID"))
     parser.add_argument("--adherence-auto-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_AUTO_SESSION_ID"))
     parser.add_argument("--adherence-negative-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_NEGATIVE_SESSION_ID"))
+    parser.add_argument(
+        "--adherence-unsupported-fixture-session-id",
+        default=_env("SPINDREL_PLAN_ADHERENCE_UNSUPPORTED_FIXTURE_SESSION_ID"),
+    )
     parser.add_argument("--adherence-retry-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_RETRY_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:

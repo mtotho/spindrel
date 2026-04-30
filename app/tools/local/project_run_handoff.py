@@ -75,6 +75,18 @@ _REVIEW_CONTEXT_RETURNS = {
 }
 
 
+_SCHEDULE_RETURNS = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "schedule": {"type": "object"},
+        "error": {"type": "string"},
+        "error_code": {"type": "string"},
+    },
+    "required": ["ok"],
+}
+
+
 def _tool_error(error: str, error_code: str, *, error_kind: str = "validation", retryable: bool = False, **extra: Any) -> str:
     payload = {
         "ok": False,
@@ -162,6 +174,74 @@ async def prepare_project_run_handoff(
     except Exception as exc:
         return _tool_error(str(exc), "project_run_handoff_failed", error_kind="execution")
     return json.dumps(payload, ensure_ascii=False)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "schedule_project_coding_run",
+        "description": (
+            "Create a recurring Project coding-run schedule for the current Project-bound channel. "
+            "Use when the user asks for a nightly/weekly Project review, maintenance sweep, or recurring implementation run."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Human-readable schedule title."},
+                "request": {"type": "string", "description": "Prompt for each concrete Project coding run."},
+                "scheduled_at": {"type": "string", "description": "Optional ISO start time. Defaults to now."},
+                "recurrence": {"type": "string", "description": "Relative recurrence like +1d or +1w. Defaults to +1w."},
+            },
+            "required": ["title", "request"],
+        },
+    },
+}, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True, returns=_SCHEDULE_RETURNS)
+async def schedule_project_coding_run(
+    title: str,
+    request: str,
+    scheduled_at: str | None = None,
+    recurrence: str = "+1w",
+) -> str:
+    channel_id = current_channel_id.get()
+    if not channel_id:
+        return _tool_error("No channel context available.", "missing_channel_context")
+    try:
+        from datetime import datetime
+
+        from app.db.engine import async_session
+        from app.db.models import Channel, Project
+        from app.services.project_coding_runs import (
+            ProjectCodingRunScheduleCreate,
+            create_project_coding_run_schedule,
+            list_project_coding_run_schedules,
+        )
+
+        start = datetime.fromisoformat(scheduled_at) if scheduled_at else None
+        async with async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            if channel is None or channel.project_id is None:
+                return _tool_error("Current channel is not Project-bound.", "project_channel_required")
+            project = await db.get(Project, channel.project_id)
+            if project is None:
+                return _tool_error("Project not found.", "project_not_found")
+            schedule = await create_project_coding_run_schedule(
+                db,
+                project,
+                ProjectCodingRunScheduleCreate(
+                    channel_id=channel.id,
+                    title=title,
+                    request=request,
+                    scheduled_at=start,
+                    recurrence=recurrence or "+1w",
+                ),
+            )
+            rows = await list_project_coding_run_schedules(db, project)
+            row = next((item for item in rows if item["id"] == str(schedule.id)), None)
+    except ValueError as exc:
+        return _tool_error(str(exc), "project_schedule_invalid_request")
+    except Exception as exc:
+        return _tool_error(str(exc), "project_schedule_failed", error_kind="execution")
+    return json.dumps({"ok": True, "schedule": row}, ensure_ascii=False)
 
 
 @register({

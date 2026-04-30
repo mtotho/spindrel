@@ -1,4 +1,4 @@
-export type WorkspaceMapObjectKind = "channel" | "bot" | "widget" | "landmark" | "object";
+export type WorkspaceMapObjectKind = "channel" | "project" | "bot" | "widget" | "landmark" | "object";
 export type WorkspaceMapObjectStatus =
   | "idle"
   | "recent"
@@ -32,6 +32,8 @@ export interface WorkspaceMapSignal {
   bot_name?: string | null;
   channel_id?: string | null;
   channel_name?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
   correlation_id?: string | null;
   scheduled_at?: string | null;
   created_at?: string | null;
@@ -57,6 +59,7 @@ export interface WorkspaceMapObjectState {
     widgets: number;
     integrations: number;
     bots: number;
+    channels?: number;
   };
   next?: WorkspaceMapSignal | null;
   recent: WorkspaceMapSignal[];
@@ -72,6 +75,7 @@ export interface WorkspaceMapState {
   summary: {
     objects: number;
     channels: number;
+    projects: number;
     bots: number;
     widgets: number;
     landmarks: number;

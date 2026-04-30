@@ -71,6 +71,7 @@ plan-mode E2E channel. They are docs artifacts and regression targets.
 | Long-plan readability | [default](../images/spindrel-plan-stress-readability-default-dark.png) | [mobile](../images/spindrel-plan-stress-readability-mobile-dark.png) | [terminal](../images/spindrel-plan-stress-readability-terminal-dark.png) |
 | Adherence review | [default](../images/spindrel-plan-adherence-review-default-dark.png) | | [terminal](../images/spindrel-plan-adherence-review-terminal-dark.png) |
 | Automatic adherence receipt | [default](../images/spindrel-plan-adherence-auto-default-dark.png) | | [terminal](../images/spindrel-plan-adherence-auto-terminal-dark.png) |
+| Unsupported adherence fixture | [default](../images/spindrel-plan-adherence-unsupported-default-dark.png) | | [terminal](../images/spindrel-plan-adherence-unsupported-terminal-dark.png) |
 | Unsupported retry recovery | [default](../images/spindrel-plan-adherence-retry-default-dark.png) | | [terminal](../images/spindrel-plan-adherence-retry-terminal-dark.png) |
 
 ## Verification
@@ -81,6 +82,12 @@ plan prompts, execution guards, semantic review, or plan-card rendering:
 ```bash
 ./scripts/run_spindrel_plan_live.sh --tier adherence
 ```
+
+The adherence tier includes deterministic admin diagnostics for unsupported
+evidence and retry recovery. Those fixtures seed the same persisted transcript
+shape as native tool turns, including `ToolCall` rows, plan-card envelopes, and
+semantic-review history, so screenshots do not depend on a model agreeing to do
+wrong work.
 
 Then refresh the docs screenshots when UI output changes:
 

@@ -41,6 +41,7 @@ export function upcomingTypeLabel(item: UpcomingItem): string {
 }
 
 export function upcomingHref(item: UpcomingItem): string | null {
+  if (item.project_id) return `/admin/projects/${item.project_id}#runs`;
   if (item.type === "task" && item.task_id) return `/admin/automations/${item.task_id}`;
   if (item.type === "heartbeat" && item.channel_id) return `/channels/${item.channel_id}/settings#automation`;
   if (item.type === "memory_hygiene") return "/admin/learning";
@@ -48,6 +49,9 @@ export function upcomingHref(item: UpcomingItem): string | null {
 }
 
 export function upcomingTileColor(item: UpcomingItem): string {
+  if (item.project_id) {
+    return `hsl(${stableHue(item.project_id)}, 52%, 62%)`;
+  }
   if (item.channel_id) {
     return `hsl(${stableHue(item.channel_id)}, 55%, 58%)`;
   }
@@ -159,6 +163,7 @@ const CHANNEL_SCHEDULE_SLOT_DEGREES = [-68, -24, 20];
 const CHANNEL_SCHEDULE_OVERFLOW_DEGREES = 56;
 
 export function isChannelScheduleItem(item: UpcomingItem): boolean {
+  if (item.project_id) return false;
   return Boolean(item.channel_id && (item.type === "heartbeat" || (item.type === "task" && item.task_id)));
 }
 
@@ -229,6 +234,118 @@ export function channelScheduleSatellites(
         nodeId: anchor.nodeId,
         x: anchorX + Math.cos(theta) * radius,
         y: anchorY + Math.sin(theta) * radius * 0.82,
+        anchorX,
+        anchorY,
+        count: extra,
+      });
+    }
+  }
+  return { satellites, overflow };
+}
+
+export interface ProjectScheduleAnchor {
+  projectId: string;
+  nodeId?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface ProjectScheduleSatellite {
+  key: string;
+  projectId: string;
+  nodeId?: string;
+  item: UpcomingItem;
+  x: number;
+  y: number;
+  anchorX: number;
+  anchorY: number;
+  minutesUntil: number;
+  state: ChannelScheduleSatelliteState;
+  index: number;
+  visibleCount: number;
+  totalCount: number;
+}
+
+export interface ProjectScheduleOverflow {
+  key: string;
+  projectId: string;
+  nodeId?: string;
+  x: number;
+  y: number;
+  anchorX: number;
+  anchorY: number;
+  count: number;
+}
+
+export interface ProjectScheduleSatelliteLayout {
+  satellites: ProjectScheduleSatellite[];
+  overflow: ProjectScheduleOverflow[];
+}
+
+const PROJECT_SCHEDULE_SLOT_DEGREES = [-112, -58, -4, 50];
+const PROJECT_SCHEDULE_OVERFLOW_DEGREES = 104;
+
+export function isProjectScheduleItem(item: UpcomingItem): boolean {
+  return Boolean(item.project_id && item.type === "task" && item.task_id);
+}
+
+export function projectScheduleSatellites(
+  items: UpcomingItem[],
+  anchors: ProjectScheduleAnchor[],
+  tickedNow: number,
+  limitPerProject = 4,
+): ProjectScheduleSatelliteLayout {
+  const anchorByProject = new Map(anchors.map((anchor) => [anchor.projectId, anchor]));
+  const grouped = new Map<string, UpcomingItem[]>();
+  for (const item of items) {
+    if (!isProjectScheduleItem(item) || !item.project_id || !anchorByProject.has(item.project_id)) continue;
+    const bucket = grouped.get(item.project_id) ?? [];
+    bucket.push(item);
+    grouped.set(item.project_id, bucket);
+  }
+
+  const satellites: ProjectScheduleSatellite[] = [];
+  const overflow: ProjectScheduleOverflow[] = [];
+  for (const [projectId, bucket] of grouped) {
+    const anchor = anchorByProject.get(projectId);
+    if (!anchor) continue;
+    bucket.sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at));
+    const visible = bucket.slice(0, limitPerProject);
+    const anchorX = anchor.x + anchor.w / 2;
+    const anchorY = anchor.y + anchor.h / 2;
+    const radius = Math.max(214, Math.min(330, Math.max(anchor.w, anchor.h) * 0.72));
+    const rotation = ((stableHue(projectId) % 11) - 5) * (Math.PI / 180) * 2.4;
+    visible.forEach((item, index) => {
+      const slotDeg = PROJECT_SCHEDULE_SLOT_DEGREES[Math.min(index, PROJECT_SCHEDULE_SLOT_DEGREES.length - 1)];
+      const theta = slotDeg * (Math.PI / 180) + rotation;
+      const { state, minutesUntil } = scheduleSatelliteState(item.scheduled_at, tickedNow);
+      satellites.push({
+        key: `project-schedule:${upcomingReactKey(item)}`,
+        projectId,
+        nodeId: anchor.nodeId,
+        item,
+        x: anchorX + Math.cos(theta) * radius,
+        y: anchorY + Math.sin(theta) * radius * 0.74,
+        anchorX,
+        anchorY,
+        minutesUntil,
+        state,
+        index,
+        visibleCount: visible.length,
+        totalCount: bucket.length,
+      });
+    });
+    const extra = bucket.length - visible.length;
+    if (extra > 0) {
+      const theta = PROJECT_SCHEDULE_OVERFLOW_DEGREES * (Math.PI / 180) + rotation;
+      overflow.push({
+        key: `project-schedule-overflow:${projectId}`,
+        projectId,
+        nodeId: anchor.nodeId,
+        x: anchorX + Math.cos(theta) * radius,
+        y: anchorY + Math.sin(theta) * radius * 0.74,
         anchorX,
         anchorY,
         count: extra,

@@ -46,7 +46,7 @@ Expected output:
 {"status":"ok","version":"0.2.0"}
 ```
 
-Agent entrypoints: [`llms.txt`](llms.txt), `/llms.txt`, `/openapi.json`, `/api/v1/discover`, and `/api/v1/agent-capabilities`.
+Agent entrypoints: [`llms.txt`](llms.txt), `/llms.txt`, `/openapi.json`, `/api/v1/discover`, `/api/v1/system-health/runtime`, and `/api/v1/agent-capabilities`.
 
 > **Early Access** — Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.
 

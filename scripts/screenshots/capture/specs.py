@@ -2885,6 +2885,41 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
     const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
     if (raw && method === "POST") {
       const url = new URL(raw, window.location.origin);
+      const scheduleCreateMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-run-schedules$/);
+      if (scheduleCreateMatch) {
+        return new Response(JSON.stringify({
+          id: "screenshot-project-coding-run-schedule",
+          project_id: scheduleCreateMatch[1],
+          channel_id: null,
+          title: "Weekly Project review",
+          request: "Review the Project for regressions, stale PRs, missing tests, and architecture issues.",
+          status: "active",
+          enabled: true,
+          scheduled_at: "2026-05-01T13:00:00Z",
+          recurrence: "+1w",
+          run_count: 3,
+          last_run: {
+            id: "screenshot-project-coding-run-task",
+            task_id: "screenshot-project-coding-run-task",
+            status: "complete",
+            created_at: "2026-04-30T15:28:00Z",
+            branch: "screenshot/project-coding-run"
+          },
+          created_at: "2026-04-30T15:20:00Z",
+          machine_target_grant: {
+            provider_id: "ssh",
+            target_id: "e2e-8000",
+            capabilities: ["inspect", "exec"],
+            allow_agent_tools: true,
+            provider_label: "E2E Codex Target",
+            target_label: "spindrel-bot :8000 / :18000",
+            diagnostics: []
+          }
+        }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       const reviewMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs\\/review-sessions$/);
       if (reviewMatch) {
         return new Response(JSON.stringify({
@@ -2943,6 +2978,41 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             { type: "machine_exec", label: "Machine exec", capability: "exec" }
           ]
         }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      const scheduleMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-run-schedules$/);
+      if (scheduleMatch) {
+        return new Response(JSON.stringify([{
+          id: "screenshot-project-coding-run-schedule",
+          project_id: scheduleMatch[1],
+          channel_id: null,
+          title: "Weekly Project review",
+          request: "Review the Project for regressions, stale PRs, missing tests, and architecture issues.",
+          status: "active",
+          enabled: true,
+          scheduled_at: "2026-05-01T13:00:00Z",
+          recurrence: "+1w",
+          run_count: 3,
+          last_run: {
+            id: "screenshot-project-coding-run-task",
+            task_id: "screenshot-project-coding-run-task",
+            status: "complete",
+            created_at: "2026-04-30T15:28:00Z",
+            branch: "screenshot/project-coding-run"
+          },
+          created_at: "2026-04-30T15:20:00Z",
+          machine_target_grant: {
+            provider_id: "ssh",
+            target_id: "e2e-8000",
+            capabilities: ["inspect", "exec"],
+            allow_agent_tools: true,
+            provider_label: "E2E Codex Target",
+            target_label: "spindrel-bot :8000 / :18000",
+            diagnostics: []
+          }
+        }]), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -3420,6 +3490,41 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('project-workspace-runs.png') "
             "&& text.includes('pytest tests/unit/test_projects_service.py'), "
             "detail: 'Project Runs tab did not expose the coding run launcher and receipt evidence' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-scheduled-reviews",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
+            "&& document.body.innerText.includes('Scheduled Reviews') "
+            "&& document.body.innerText.includes('Weekly Project review') "
+            "&& document.body.innerText.includes('Run now')"
+        ),
+        output="project-workspace-scheduled-reviews.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const scheduled = [...root.querySelectorAll('*')].find((el) => /^Scheduled Reviews$/.test((el.textContent || '').trim()));"
+            "if (scheduled) scheduled.scrollIntoView({ block: 'start' });"
+            "await new Promise((resolve) => setTimeout(resolve, 160));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Scheduled Reviews') "
+            "&& text.includes('Recurring Project coding runs') "
+            "&& text.includes('Weekly Project review') "
+            "&& text.includes('+1w') "
+            "&& text.includes('3 runs') "
+            "&& text.includes('Last run: complete') "
+            "&& text.includes('Execution access: E2E Codex Target') "
+            "&& text.includes('Run now') "
+            "&& text.includes('Disable'), "
+            "detail: 'Project Runs tab did not expose scheduled review controls and provenance' };"
         ),
     ),
     ScreenshotSpec(

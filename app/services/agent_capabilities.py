@@ -57,6 +57,7 @@ PROJECT_CODING_RUN_TOOLS = (
     "exec_command",
     "run_e2e_tests",
     "prepare_project_run_handoff",
+    "schedule_project_coding_run",
     "get_project_coding_run_review_context",
     "finalize_project_coding_run_review",
     "publish_project_run_receipt",

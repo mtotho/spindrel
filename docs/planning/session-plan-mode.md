@@ -24,8 +24,12 @@ Live native-plan E2E captures for the current transcript UI are stored as
 `../images/spindrel-plan-stress-readability-terminal-dark.png`,
 `../images/spindrel-plan-adherence-review-default-dark.png`,
 `../images/spindrel-plan-adherence-review-terminal-dark.png`,
-`../images/spindrel-plan-adherence-auto-default-dark.png`, and
-`../images/spindrel-plan-adherence-auto-terminal-dark.png`.
+`../images/spindrel-plan-adherence-auto-default-dark.png`,
+`../images/spindrel-plan-adherence-auto-terminal-dark.png`,
+`../images/spindrel-plan-adherence-unsupported-default-dark.png`,
+`../images/spindrel-plan-adherence-unsupported-terminal-dark.png`,
+`../images/spindrel-plan-adherence-retry-default-dark.png`, and
+`../images/spindrel-plan-adherence-retry-terminal-dark.png`.
 
 The public screenshot gallery and live parity workflow are summarized in
 [Native Planning](../guides/native-planning.md).

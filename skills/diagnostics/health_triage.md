@@ -13,10 +13,14 @@ that are clearly benign, duplicate, external, stale, or already recovered.
 
 ## Start read-only
 
-1. Call `get_latest_health_summary(include_findings=true, max_findings=20)`.
-2. If the summary is stale, empty, or the user asks what is happening now, call
+1. If `call_api` is available, call `GET /api/v1/system-health/runtime` first
+   to confirm package version, process start time, uptime, build metadata when
+   supplied, and the `recent_errors_review_state` feature flag. `/health` only
+   proves liveness.
+2. Call `get_latest_health_summary(include_findings=true, max_findings=20)`.
+3. If the summary is stale, empty, or the user asks what is happening now, call
    `get_recent_server_errors(since="2h", limit=20)` or widen to `24h`.
-3. Summarize by `severity`, `service`, `signature`, `count`, and `last_seen`.
+4. Summarize by `severity`, `service`, `signature`, `count`, and `last_seen`.
    Do not paste raw logs unless the user needs surrounding context.
 
 ## Promote findings for durable review

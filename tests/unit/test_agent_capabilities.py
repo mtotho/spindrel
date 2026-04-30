@@ -302,6 +302,7 @@ def test_project_coding_run_payload_includes_review_tools(monkeypatch):
         "exec_command": {},
         "run_e2e_tests": {},
         "prepare_project_run_handoff": {},
+        "schedule_project_coding_run": {},
         "get_project_coding_run_review_context": {},
         "finalize_project_coding_run_review": {},
         "publish_project_run_receipt": {},

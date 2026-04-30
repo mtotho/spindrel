@@ -63,6 +63,21 @@ async def spawn_from_schedule(schedule_id: uuid.UUID, *, deps: TaskTriggerHostDe
             logger.warning("Schedule %s has invalid recurrence %r — skipping", schedule.id, schedule.recurrence)
             return
 
+        execution_config = schedule.execution_config if isinstance(schedule.execution_config, dict) else {}
+        if execution_config.get("run_preset_id") == "project_coding_run_schedule":
+            from app.services.project_coding_runs import fire_project_coding_run_schedule
+
+            task = await fire_project_coding_run_schedule(db, schedule, interval=interval, advance=True)
+            if task is not None:
+                logger.info(
+                    "Project coding-run schedule %s spawned run %s (run #%d), next at %s",
+                    schedule.id,
+                    task.id,
+                    schedule.run_count,
+                    schedule.scheduled_at.strftime("%Y-%m-%d %H:%M UTC") if schedule.scheduled_at else "unset",
+                )
+            return
+
         from app.services.prompt_resolution import resolve_prompt
         prompt = await resolve_prompt(
             workspace_id=str(schedule.workspace_id) if schedule.workspace_id else None,

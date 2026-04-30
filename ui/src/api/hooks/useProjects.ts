@@ -6,6 +6,7 @@ import type {
   ProjectBlueprint,
   ProjectBlueprintWrite,
   ProjectCodingRun,
+  ProjectCodingRunSchedule,
   ProjectCodingRunTask,
   ProjectFromBlueprintWrite,
   ProjectInstance,
@@ -77,6 +78,54 @@ export function useProjectCodingRuns(projectId: string | undefined) {
     queryKey: ["projects", projectId, "coding-runs"],
     queryFn: () => apiFetch<ProjectCodingRun[]>(`/api/v1/projects/${projectId}/coding-runs`),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectCodingRunSchedules(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "coding-run-schedules"],
+    queryFn: () => apiFetch<ProjectCodingRunSchedule[]>(`/api/v1/projects/${projectId}/coding-run-schedules`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateProjectCodingRunSchedule(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { channel_id: string; title?: string; request?: string; scheduled_at?: string | null; recurrence?: string; machine_target_grant?: MachineTargetGrant | null }) =>
+      apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-run-schedules"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+    },
+  });
+}
+
+export function useRunProjectCodingRunScheduleNow(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) =>
+      apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-run-schedules/${scheduleId}/run-now`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-run-schedules"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+    },
+  });
+}
+
+export function useDisableProjectCodingRunSchedule(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) =>
+      apiFetch<ProjectCodingRunSchedule>(`/api/v1/projects/${projectId}/coding-run-schedules/${scheduleId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-run-schedules"] }),
   });
 }
 

@@ -1,7 +1,14 @@
 name: "agent-server"
 services:
   agent-server:
-    build: .
+    build:
+      context: .
+      args:
+        SPINDREL_BUILD_SHA: ${SPINDREL_BUILD_SHA:-}
+        SPINDREL_BUILD_REF: ${SPINDREL_BUILD_REF:-}
+        SPINDREL_BUILD_TIME: ${SPINDREL_BUILD_TIME:-}
+        SPINDREL_BUILD_SOURCE: ${SPINDREL_BUILD_SOURCE:-docker-compose}
+        SPINDREL_DEPLOY_ID: ${SPINDREL_DEPLOY_ID:-}
     ports:
       - "8000:8000"
     env_file: .env

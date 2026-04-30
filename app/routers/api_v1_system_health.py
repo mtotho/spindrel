@@ -16,6 +16,7 @@ from app.db.models import SystemHealthSummary, WorkspaceAttentionItem
 from app.dependencies import get_db, require_scopes
 from app.domain.errors import ValidationError
 from app.services.error_log_parser import LogFinding
+from app.services.runtime_identity import runtime_identity
 from app.services.workspace_attention import place_attention_item, serialize_attention_item
 from app.tools.local.get_recent_server_errors import collect_findings
 
@@ -48,6 +49,13 @@ class PromoteRecentErrorsRequest(BaseModel):
     min_severity: str = "error"
     dedupe_keys: list[str] | None = None
     include_resolved: bool = False
+
+
+@router.get("/runtime")
+async def get_runtime_identity(
+    auth=Depends(require_scopes("channels:read")),
+):
+    return runtime_identity()
 
 
 def _serialize(row: SystemHealthSummary, *, include_findings: bool = True) -> dict:

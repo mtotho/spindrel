@@ -24,6 +24,7 @@ Agents that are discovering Spindrel from a running server should start with:
 | `/health` | Unauthenticated liveness/version probe |
 | `/openapi.json` | Full OpenAPI schema |
 | `/api/v1/discover` | Scoped endpoint catalog for the caller's API key |
+| `/api/v1/system-health/runtime` | Authenticated build/process identity for live health triage |
 | `/api/v1/agent-capabilities` | Runtime bot/channel/session capability manifest |
 | `/api/v1/agent-status` | Runtime bot/channel/session status snapshot |
 | `/api/v1/agent-activity` | Normalized replay log for bot activity and review evidence |
@@ -211,9 +212,17 @@ Integration readiness is read-only in v1. The `integrations` section summarizes 
 Daily health summaries remain available at `/api/v1/system-health/summaries/*`.
 For on-demand triage, use:
 
+- `GET /api/v1/system-health/runtime`
 - `GET /api/v1/system-health/recent-errors?since=24h&services=&limit=50&include_attention=true`
 - `POST /api/v1/system-health/recent-errors/promote`
 - `POST /api/v1/workspace/attention/{id}/resolve`
+
+`runtime` is the authenticated build/process identity preflight. It reports
+safe fields such as package version, process start time, uptime, hostname,
+best-effort container id, build commit/ref/time/source/deploy id when the
+deployment supplied them, and stable feature flags. Use it to confirm which
+build a live agent is talking to; keep `/health` for unauthenticated
+liveness/readiness checks.
 
 `recent-errors` returns the same deduped `LogFinding` shape as
 `get_recent_server_errors` and can annotate each finding with matching

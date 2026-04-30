@@ -26,6 +26,7 @@ def test_llms_txt_exists_with_agentic_readiness_sections() -> None:
     for endpoint in (
         "/openapi.json",
         "/api/v1/discover",
+        "/api/v1/system-health/runtime",
         "/api/v1/agent-capabilities",
         "/health",
     ):
@@ -56,6 +57,7 @@ def test_readme_first_50_lines_are_agent_parseable() -> None:
         "/llms.txt",
         "/openapi.json",
         "/api/v1/discover",
+        "/api/v1/system-health/runtime",
         "/api/v1/agent-capabilities",
     ):
         assert required in first_50

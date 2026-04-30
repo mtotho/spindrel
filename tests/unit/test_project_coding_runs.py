@@ -13,10 +13,14 @@ from app.services.project_coding_runs import (
     ProjectMachineTargetGrant,
     _review_summary,
     create_project_coding_run,
+    create_project_coding_run_schedule,
     expand_project_review_prompt_template,
+    fire_project_coding_run_schedule,
     finalize_project_coding_run_review,
     get_project_coding_run_review_context,
+    list_project_coding_run_schedules,
     project_coding_run_defaults,
+    ProjectCodingRunScheduleCreate,
 )
 from app.services.project_run_handoff import CommandResult
 
@@ -136,6 +140,95 @@ async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_s
     assert run_cfg["source_work_pack_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     assert "Task-scoped grant: ssh/e2e-8000" in task.prompt
     assert "machine_status, machine_inspect_command, and machine_exec_command" in task.prompt
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_schedule_fires_concrete_run_with_provenance(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={"blueprint_snapshot": {"repos": [{"path": "spindrel", "branch": "development"}]}},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    schedule = await create_project_coding_run_schedule(
+        db_session,
+        project,
+        ProjectCodingRunScheduleCreate(
+            channel_id=channel_id,
+            title="Weekly Project review",
+            request="Review the project and open a PR only when changes are needed.",
+            scheduled_at=datetime(2026, 4, 30, 12, tzinfo=timezone.utc),
+            recurrence="+1w",
+        ),
+    )
+    run = await fire_project_coding_run_schedule(db_session, schedule, advance=False)
+
+    assert run is not None
+    assert run.parent_task_id == schedule.id
+    assert run.recurrence is None
+    assert run.execution_config["run_preset_id"] == "project_coding_run"
+    cfg = run.execution_config["project_coding_run"]
+    assert cfg["schedule_task_id"] == str(schedule.id)
+    assert cfg["schedule_run_number"] == 1
+    assert cfg["request"] == "Review the project and open a PR only when changes are needed."
+    rows = await list_project_coding_run_schedules(db_session, project)
+    assert rows[0]["id"] == str(schedule.id)
+    assert rows[0]["run_count"] == 1
+    assert rows[0]["last_run"]["task_id"] == str(run.id)
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_schedule_definitions_are_not_listed_as_runs(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    schedule = await create_project_coding_run_schedule(
+        db_session,
+        project,
+        ProjectCodingRunScheduleCreate(channel_id=channel_id, title="Nightly review", request="Review.", recurrence="+1d"),
+    )
+
+    from app.services.project_coding_runs import list_project_coding_runs
+
+    runs = await list_project_coding_runs(db_session, project)
+    schedules = await list_project_coding_run_schedules(db_session, project)
+    assert runs == []
+    assert [item["id"] for item in schedules] == [str(schedule.id)]
 
 
 def test_project_coding_run_review_summary_uses_receipt_and_handoff_activity():

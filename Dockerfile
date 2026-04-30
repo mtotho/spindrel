@@ -10,6 +10,23 @@ RUN npm run build
 # ── Stage 2: Server ─────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
+ARG SPINDREL_BUILD_SHA=
+ARG SPINDREL_BUILD_REF=
+ARG SPINDREL_BUILD_TIME=
+ARG SPINDREL_BUILD_SOURCE=docker
+ARG SPINDREL_DEPLOY_ID=
+
+ENV SPINDREL_BUILD_SHA=$SPINDREL_BUILD_SHA \
+    SPINDREL_BUILD_REF=$SPINDREL_BUILD_REF \
+    SPINDREL_BUILD_TIME=$SPINDREL_BUILD_TIME \
+    SPINDREL_BUILD_SOURCE=$SPINDREL_BUILD_SOURCE \
+    SPINDREL_DEPLOY_ID=$SPINDREL_DEPLOY_ID
+
+LABEL org.opencontainers.image.revision=$SPINDREL_BUILD_SHA \
+      org.opencontainers.image.ref.name=$SPINDREL_BUILD_REF \
+      org.opencontainers.image.created=$SPINDREL_BUILD_TIME \
+      org.opencontainers.image.source=$SPINDREL_BUILD_SOURCE
+
 # Keep apt download cache around so a persistent volume at
 # /var/cache/apt/archives can survive rebuilds. Debian-slim ships
 # /etc/apt/apt.conf.d/docker-clean which deletes archives after every

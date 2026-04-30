@@ -1,21 +1,26 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, ServerCog, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, ServerCog, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
   useCleanupProjectCodingRun,
   useContinueProjectCodingRun,
   useCreateProjectCodingRun,
+  useCreateProjectCodingRunSchedule,
   useCreateProjectCodingRunReviewSession,
+  useDisableProjectCodingRunSchedule,
   useMarkProjectCodingRunsReviewed,
   useMarkProjectCodingRunReviewed,
   useProjectCodingRuns,
+  useProjectCodingRunSchedules,
   useRefreshProjectCodingRun,
+  useRunProjectCodingRunScheduleNow,
 } from "@/src/api/hooks/useProjects";
 import { useTaskMachineAutomationOptions, type MachineTargetGrant } from "@/src/api/hooks/useTasks";
 import { FormRow, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { RecurrencePicker, ScheduleSummary, ScheduledAtPicker } from "@/src/components/shared/SchedulingPickers";
 import { collapseProjectRunReceiptsForReview } from "@/src/lib/projectRunReceipts";
 import type { Channel, Project, ProjectCodingRun, ProjectRunReceipt } from "@/src/types/api";
 
@@ -53,6 +58,29 @@ function formatRunTime(value?: string | null) {
   } catch {
     return value;
   }
+}
+
+const START_OFFSET_MS: Record<string, number> = {
+  s: 1000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+};
+
+function toLocalDateTimeInput(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function scheduledAtForPicker(value: string | null | undefined): string {
+  if (!value) return "";
+  const match = value.match(/^\+(\d+)([smhdw])$/);
+  if (!match) return value;
+  const amount = Number.parseInt(match[1], 10);
+  const unit = match[2];
+  const ms = amount * (START_OFFSET_MS[unit] ?? 0);
+  return toLocalDateTimeInput(new Date(Date.now() + ms));
 }
 
 function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
@@ -379,7 +407,11 @@ export function ProjectRunsSection({
   receipts?: ProjectRunReceipt[];
 }) {
   const { data: runs = [] } = useProjectCodingRuns(project.id);
+  const { data: schedules = [] } = useProjectCodingRunSchedules(project.id);
   const createRun = useCreateProjectCodingRun(project.id);
+  const createSchedule = useCreateProjectCodingRunSchedule(project.id);
+  const runScheduleNow = useRunProjectCodingRunScheduleNow(project.id);
+  const disableSchedule = useDisableProjectCodingRunSchedule(project.id);
   const continueRun = useContinueProjectCodingRun(project.id);
   const markReviewedBatch = useMarkProjectCodingRunsReviewed(project.id);
   const createReviewSession = useCreateProjectCodingRunReviewSession(project.id);
@@ -387,6 +419,11 @@ export function ProjectRunsSection({
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
   const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
+  const [scheduleTitle, setScheduleTitle] = useState("Weekly Project review");
+  const [scheduleRequest, setScheduleRequest] = useState("Review the Project for regressions, stale PRs, missing tests, and architecture issues. If changes are needed, implement them, run tests/screenshots, open a PR, and publish a Project run receipt. If no change is needed, publish a no-change receipt.");
+  const [scheduleStart, setScheduleStart] = useState("");
+  const [scheduleRecurrence, setScheduleRecurrence] = useState("+1w");
+  const [scheduleMachineTargetGrant, setScheduleMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [changeRunId, setChangeRunId] = useState<string | null>(null);
   const [changeFeedback, setChangeFeedback] = useState("");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
@@ -407,6 +444,7 @@ export function ProjectRunsSection({
   const selectedRuns = runs.filter((run) => selectedRunIds.includes(run.id));
   const selectedTaskIds = selectedRuns.map((run) => run.task.id);
   const batchBusy = markReviewedBatch.isPending || createReviewSession.isPending;
+  const scheduleBusy = createSchedule.isPending || runScheduleNow.isPending || disableSchedule.isPending;
   const toggleRun = (runId: string) => {
     setSelectedRunIds((current) => (
       current.includes(runId)
@@ -429,6 +467,17 @@ export function ProjectRunsSection({
         },
       },
     );
+  };
+  const startSchedule = () => {
+    if (!selectedChannel || createSchedule.isPending) return;
+    createSchedule.mutate({
+      channel_id: selectedChannel.id,
+      title: scheduleTitle.trim() || "Scheduled Project coding run",
+      request: scheduleRequest.trim(),
+      scheduled_at: scheduleStart || null,
+      recurrence: scheduleRecurrence || "+1w",
+      machine_target_grant: scheduleMachineTargetGrant,
+    });
   };
   const submitChanges = () => {
     if (!changeRun || continueRun.isPending) return;
@@ -552,6 +601,106 @@ export function ProjectRunsSection({
             />
           </div>
         )}
+      </Section>
+
+      <Section
+        title="Scheduled Reviews"
+        description="Recurring Project coding runs for reviews, maintenance sweeps, and no-change receipts."
+        action={
+          <ActionButton
+            label={createSchedule.isPending ? "Saving" : "Create schedule"}
+            icon={<CalendarClock size={14} />}
+            disabled={!selectedChannel || createSchedule.isPending}
+            onPress={startSchedule}
+          />
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.25fr)]">
+          <div className="flex flex-col gap-3">
+            <FormRow label="Title">
+              <input
+                value={scheduleTitle}
+                onChange={(event) => setScheduleTitle(event.target.value)}
+                className="w-full rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              />
+            </FormRow>
+            <ScheduledAtPicker value={scheduleStart} onChange={(value) => setScheduleStart(scheduledAtForPicker(value))} />
+            <RecurrencePicker value={scheduleRecurrence} onChange={setScheduleRecurrence} />
+            <ScheduleSummary scheduledAt={scheduleStart} recurrence={scheduleRecurrence} />
+          </div>
+          <div className="flex flex-col gap-3">
+            <FormRow label="Review request">
+              <PromptEditor
+                value={scheduleRequest}
+                onChange={setScheduleRequest}
+                label="Scheduled review request"
+                rows={5}
+                fieldType="task_prompt"
+                generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
+              />
+            </FormRow>
+            <ExecutionAccessControl
+              value={scheduleMachineTargetGrant}
+              onChange={setScheduleMachineTargetGrant}
+              testId="project-schedule-execution-access"
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-col gap-2">
+          {schedules.length === 0 ? (
+            <EmptyState message="No scheduled Project reviews are configured yet." />
+          ) : (
+            schedules.map((schedule) => {
+              const channel = channels?.find((item) => item.id === schedule.channel_id);
+              return (
+                <SettingsControlRow
+                  key={schedule.id}
+                  leading={<CalendarClock size={14} />}
+                  title={schedule.title}
+                  description={
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span>
+                        {schedule.enabled ? "Enabled" : "Disabled"} · {schedule.recurrence || "manual"} · next {formatRunTime(schedule.scheduled_at)}
+                      </span>
+                      <span className="truncate text-[11px] text-text-dim">
+                        {channel ? `${channel.name} · ${channel.bot_id}` : "Project channel"} · {schedule.run_count} run{schedule.run_count === 1 ? "" : "s"}
+                      </span>
+                      {schedule.last_run && (
+                        <span className="truncate text-[11px] text-text-dim">
+                          Last run: {schedule.last_run.status} · {schedule.last_run.branch || schedule.last_run.task_id}
+                        </span>
+                      )}
+                      {executionAccessLine(schedule.machine_target_grant) && (
+                        <span className="truncate text-[11px] text-text-dim">Execution access: {executionAccessLine(schedule.machine_target_grant)}</span>
+                      )}
+                    </span>
+                  }
+                  meta={<StatusBadge label={schedule.enabled ? "active" : "disabled"} variant={schedule.enabled ? "success" : "neutral"} />}
+                  action={
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <ActionButton
+                        label={runScheduleNow.isPending ? "Starting" : "Run now"}
+                        icon={<Play size={13} />}
+                        size="small"
+                        variant="secondary"
+                        disabled={scheduleBusy || !schedule.enabled}
+                        onPress={() => runScheduleNow.mutate(schedule.id)}
+                      />
+                      <ActionButton
+                        label="Disable"
+                        size="small"
+                        variant="ghost"
+                        disabled={scheduleBusy || !schedule.enabled}
+                        onPress={() => disableSchedule.mutate(schedule.id)}
+                      />
+                      {schedule.last_run?.task_id && <RowLink to={`/admin/tasks/${schedule.last_run.task_id}`}>Last run</RowLink>}
+                    </div>
+                  }
+                />
+              );
+            })
+          )}
+        </div>
       </Section>
 
       <Section title="Coding Runs" description="Review state, branch/PR handoff, evidence, and workspace cleanup for API-launched Project work.">

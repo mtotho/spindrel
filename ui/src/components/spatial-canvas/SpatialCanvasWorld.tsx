@@ -15,6 +15,9 @@ import { MemoryObservatory } from "./MemoryObservatory";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { MovementTraceLayer } from "./MovementTraceLayer";
 import { NowWell } from "./NowWell";
+import { ProjectOrbitLayer } from "./ProjectOrbitLayer";
+import { ProjectScheduleSatelliteLayer } from "./ProjectScheduleSatelliteLayer";
+import { ProjectTile } from "./ProjectTile";
 import { ScheduleSatelliteLayer } from "./ScheduleSatelliteLayer";
 import { SpatialAttentionSignal } from "./SpatialAttentionLayer";
 import { SpatialMissionLayer } from "./SpatialMissionLayer";
@@ -215,6 +218,12 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             viewportBbox={viewportBbox}
           />
         )}
+        <ProjectOrbitLayer
+          nodes={nodes ?? []}
+          channelsById={channelsById}
+          viewportBbox={viewportBbox}
+          connectionsEnabled={connectionsEnabled}
+        />
         {trailsMode !== "off" && (
           <MovementHistoryLayer
             nodes={nodes ?? []}
@@ -240,6 +249,22 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             tickedNow={tickedNow}
             connectionsEnabled={connectionsEnabled}
             suppressedChannelIds={clusteredChannelIds}
+            viewportBbox={viewportBbox}
+            navigate={navigate}
+            canvasBackState={canvasBackState}
+            lensEngaged={lensEngaged}
+            focalScreen={focalScreen}
+            lensRadius={lensRadius}
+            camera={camera}
+          />
+        )}
+        {!channelClusterMode && (
+          <ProjectScheduleSatelliteLayer
+            items={upcomingItems ?? []}
+            nodes={nodes ?? []}
+            zoom={interactiveZoom}
+            tickedNow={tickedNow}
+            connectionsEnabled={connectionsEnabled}
             viewportBbox={viewportBbox}
             navigate={navigate}
             canvasBackState={canvasBackState}
@@ -364,7 +389,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
             />
           </div>
         </LandmarkWrapper>
-        {!channelClusterMode && (upcomingItems ?? []).map((item: any) => {
+        {!channelClusterMode && (upcomingItems ?? []).filter((item: any) => !item.project_id).map((item: any) => {
           const itemKey = upcomingReactKey(item);
           const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
           const orbit = upcomingOrbit(item, tickedNow, spread, wellPos);
@@ -525,6 +550,36 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
               </DraggableNode>
             );
           }
+          if (node.project_id) {
+            return (
+              <DraggableNode
+                key={node.id}
+                node={node}
+                scale={camera.scale}
+                isDragging={draggingNodeId === node.id}
+                diving={props.diving}
+                lens={lens}
+                lensSettling={lensSettling}
+                dragEnabled={dragEnabled}
+                onHoverChange={(hovered) =>
+                  setHoveredNodeId((curr: any) => {
+                    if (hovered) return node.id;
+                    return curr === node.id ? null : curr;
+                  })
+                }
+                onDoubleClick={() => navigate(`/admin/projects/${node.project_id}`, { state: canvasBackState })}
+              >
+                <ProjectTile
+                  node={node}
+                  zoom={interactiveZoom}
+                  extraScale={lens?.sizeFactor ?? 1}
+                  workState={mapState?.objects_by_node_id?.[node.id] ?? null}
+                  onSelect={() => selectNode("project", node)}
+                  onOpen={() => navigate(`/admin/projects/${node.project_id}`, { state: canvasBackState })}
+                />
+              </DraggableNode>
+            );
+          }
           if (node.bot_id) {
             if (!botsVisible) return null;
             const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
@@ -661,6 +716,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                   scale={camera.scale * (lens?.sizeFactor ?? 1) * botScale}
                   onSelect={(item: any) => {
                     if (node.channel_id) selectNode("channel", node);
+                    else if (node.project_id) selectNode("project", node);
                     else if (node.bot_id) selectNode("bot", node);
                     else if (node.pin) selectNode("widget", node);
                     else if (node.landmark_kind) selectLandmark(node.landmark_kind, node.world_x + node.world_w / 2, node.world_y + node.world_h / 2);
@@ -720,7 +776,12 @@ function buildSelectedAnchor({
   dailyHealthPos: { x: number; y: number };
 }) {
   if (!selectedSpatialObject) return null;
-  if (selectedSpatialObject.kind === "channel" || selectedSpatialObject.kind === "bot" || selectedSpatialObject.kind === "widget") {
+  if (
+    selectedSpatialObject.kind === "channel"
+    || selectedSpatialObject.kind === "project"
+    || selectedSpatialObject.kind === "bot"
+    || selectedSpatialObject.kind === "widget"
+  ) {
     const node = (nodes ?? []).find((item) => item.id === selectedSpatialObject.nodeId);
     if (!node) return null;
     const state = mapState?.objects_by_node_id?.[node.id] ?? null;
@@ -729,6 +790,7 @@ function buildSelectedAnchor({
       state?.label
       ?? (channel ? `#${channel.name}` : null)
       ?? node.bot?.display_name
+      ?? node.project?.name
       ?? node.bot?.name
       ?? node.bot_id
       ?? node.pin?.panel_title

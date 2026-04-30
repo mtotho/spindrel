@@ -12,7 +12,7 @@ import { attentionDeckHref } from "../../lib/hubRoutes";
 export interface StarboardObjectItem {
   id: string;
   label: string;
-  kind: "channel" | "widget" | "bot" | "landmark";
+  kind: "channel" | "project" | "widget" | "bot" | "landmark";
   subtitle?: string;
   worldX: number;
   worldY: number;
@@ -54,6 +54,7 @@ const MIN_STARBOARD_WIDTH = 420;
 
 const KIND_LABEL: Record<StarboardObjectItem["kind"], string> = {
   channel: "Channel",
+  project: "Project",
   widget: "Widget",
   bot: "Bot",
   landmark: "Landmark",

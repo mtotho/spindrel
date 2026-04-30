@@ -113,6 +113,7 @@ project-workspace-setup-ready.png
 project-workspace-setup-run-history.png
 project-workspace-instances.png
 project-workspace-runs.png
+project-workspace-scheduled-reviews.png
 project-workspace-execution-access.png
 project-workspace-review-launched.png
 project-workspace-review-execution-access.png
@@ -128,12 +129,13 @@ it, creates one attachable channel, writes a file through the channel workspace
 API, seeds a Blueprint-created Project with secret bindings, runs repo plus
 setup-command preparation for `https://github.com/mtotho/spindrel.git`, seeds
 a fresh Project instance, starts or shims one Project coding run with linked
-branch/PR progress receipts, review receipt, selected-run review controls, and
-a memory-tool turn. Inspect all seventeen images before closing out: the
+branch/PR progress receipts, review receipt, scheduled review controls,
+selected-run review controls, and a memory-tool turn. Inspect all eighteen images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project Basics readiness,
 Project runtime-env readiness, fresh
 Project instances, Project coding-run cockpit/receipts/review launcher,
+scheduled Project reviews,
 task-scoped execution access for coding and review launches, launched
 review-session confirmation, finalized review/merge provenance, Project
 settings, and the channel transcript.
@@ -339,6 +341,10 @@ spindrel-plan-adherence-review-default-dark.png
 spindrel-plan-adherence-review-terminal-dark.png
 spindrel-plan-adherence-auto-default-dark.png
 spindrel-plan-adherence-auto-terminal-dark.png
+spindrel-plan-adherence-unsupported-default-dark.png
+spindrel-plan-adherence-unsupported-terminal-dark.png
+spindrel-plan-adherence-retry-default-dark.png
+spindrel-plan-adherence-retry-terminal-dark.png
 ```
 
 When Playwright runs in the shared Docker browser runtime, use the same

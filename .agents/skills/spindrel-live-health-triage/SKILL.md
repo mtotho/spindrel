@@ -25,6 +25,18 @@ or triage live server issues before or after backend/runtime work.
 
 ## Fetch Current Findings
 
+First confirm the deployed build/process identity:
+
+```
+GET /api/v1/system-health/runtime
+```
+
+Use this to check package version, process `started_at`, `uptime_seconds`,
+container identity, build commit/ref/time/source/deploy id when supplied, and
+the `recent_errors_review_state` feature flag. `/health` only proves the server
+is alive; it does not prove the image contains the health triage features you
+expect.
+
 Call:
 
 ```

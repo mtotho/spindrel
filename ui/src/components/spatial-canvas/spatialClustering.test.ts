@@ -27,6 +27,7 @@ function node(id: string, channelId: string, x: number): SpatialNode {
   return {
     id,
     channel_id: channelId,
+    project_id: null,
     widget_pin_id: null,
     bot_id: null,
     landmark_kind: null,

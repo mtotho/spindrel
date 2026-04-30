@@ -240,6 +240,7 @@ interface SpatialCanvasProps {
 
 type SpatialSelection =
   | { kind: "channel"; nodeId: string }
+  | { kind: "project"; nodeId: string }
   | { kind: "bot"; nodeId: string }
   | { kind: "widget"; nodeId: string }
   | { kind: "landmark"; id: "now_well" | "memory_observatory" | "attention_hub" | "daily_health" };
@@ -285,6 +286,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId, initialFlyTo
     if (!selectedSpatialObject) return;
     if (
       (selectedSpatialObject.kind === "channel" ||
+        selectedSpatialObject.kind === "project" ||
         selectedSpatialObject.kind === "bot" ||
         selectedSpatialObject.kind === "widget") &&
       !(nodes ?? []).some((node) => node.id === selectedSpatialObject.nodeId)

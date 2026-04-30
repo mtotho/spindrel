@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Channel, ChannelHeartbeat, Task
+from app.db.models import Channel, ChannelHeartbeat, Project, Task
 from app.services.channels import apply_channel_visibility
 from app.services.heartbeat import _is_heartbeat_in_quiet_hours
 
@@ -27,6 +27,17 @@ def _bot_name(bot_id: str) -> str:
         return get_bot(bot_id).name
     except Exception:
         return bot_id
+
+
+def _project_schedule_id(task: Task) -> str | None:
+    cfg = task.execution_config if isinstance(task.execution_config, dict) else {}
+    if cfg.get("run_preset_id") != "project_coding_run_schedule":
+        return None
+    schedule = cfg.get("project_coding_run_schedule")
+    if not isinstance(schedule, dict):
+        return None
+    value = schedule.get("project_id")
+    return str(value) if value else None
 
 
 async def _visible_channel_ids(db: AsyncSession, auth: Any) -> set[Any]:
@@ -102,15 +113,24 @@ async def list_upcoming_activity(
         tasks = (await db.execute(task_stmt)).scalars().all()
 
         channel_ids = {t.channel_id for t in tasks if t.channel_id}
+        project_ids = {pid for task in tasks if (pid := _project_schedule_id(task))}
         channel_map: dict = {}
         if channel_ids:
             ch_rows = (
                 await db.execute(select(Channel).where(Channel.id.in_(channel_ids)))
             ).scalars().all()
             channel_map = {ch.id: ch for ch in ch_rows}
+        project_map: dict[str, Project] = {}
+        if project_ids:
+            project_rows = (
+                await db.execute(select(Project).where(Project.id.in_(project_ids)))
+            ).scalars().all()
+            project_map = {str(project.id): project for project in project_rows}
 
         for task in tasks:
             ch = channel_map.get(task.channel_id) if task.channel_id else None
+            project_id = _project_schedule_id(task)
+            project = project_map.get(project_id or "")
             prompt = task.prompt or ""
             items.append({
                 "type": "task",
@@ -123,6 +143,8 @@ async def list_upcoming_activity(
                 "task_id": str(task.id),
                 "task_type": task.task_type,
                 "recurrence": task.recurrence,
+                "project_id": project_id,
+                "project_name": project.name if project else None,
             })
 
     if include_memory_hygiene and (

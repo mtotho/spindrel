@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-30 (Attention cue cleanup.)
+updated: 2026-04-30 (Project planets.)
 ---
 
 # Track — Spatial Canvas
@@ -414,6 +414,27 @@ capture passed 10/12 against `localhost:5173`; the two Mission Control Review
 captures timed out on the `attention-command-deck-what-now` selector. The
 successfully refreshed Map Brief and canvas view-controls artifacts were
 inspected and looked coherent; docs image reference check still passed `91/91`.
+
+## 2026-04-30 — Project planets
+
+Added first-class Project representation to the Spatial Canvas substrate.
+`workspace_spatial_nodes` now has a nullable `project_id` target with the same
+exactly-one-target invariant as channels, widgets, bots, and landmarks. Projects
+with attached channels auto-seed as larger planet nodes near their channel
+centroid; dragging the Project node translates member channel nodes and
+channel-sourced widget nodes as one constellation.
+
+The map-state and upcoming-activity projections now understand Project coding
+run schedule tasks. Project schedule rows remain ordinary scheduled `Task`
+records with the `project_coding_run_schedule` preset marker, but the canvas
+attaches their next/recent state to the Project object and renders them as
+Project-run satellites orbiting the Project planet instead of duplicating them
+around channels or the Now Well.
+
+UI follow-through: Project planets render as selectable world objects, Project
+orbit/tether chrome uses the existing connection-line preference, Starboard
+Objects/edge beacons/context menus/palette entries include Projects, and Map
+Brief actions route to Project detail and Runs.
 
 ## Acceptance criteria (Phase 1 gate)
 

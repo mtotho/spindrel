@@ -881,6 +881,30 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def create_native_plan_unsupported_fixture(
+        self,
+        *,
+        session_id: str,
+        channel_id: str,
+        bot_id: str,
+        variant: str = "unsupported",
+        marker: str | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {
+            "session_id": session_id,
+            "channel_id": channel_id,
+            "bot_id": bot_id,
+            "variant": variant,
+        }
+        if marker:
+            payload["marker"] = marker
+        resp = await self._client.post(
+            "/api/v1/admin/diagnostics/native-plan-fixtures/unsupported-adherence",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def request_session_replan(
         self,
         session_id: str,

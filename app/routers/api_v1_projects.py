@@ -10,23 +10,30 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
+from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace, Task
 from app.dependencies import get_db, require_scopes
 from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
 from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunContinue,
     ProjectCodingRunReviewCreate,
+    ProjectCodingRunScheduleCreate,
+    ProjectCodingRunScheduleUpdate,
     ProjectMachineTargetGrant,
     cleanup_project_coding_run_instance,
     continue_project_coding_run,
     create_project_coding_run,
     create_project_coding_run_review_session,
+    create_project_coding_run_schedule,
+    disable_project_coding_run_schedule,
+    fire_project_coding_run_schedule,
     get_project_coding_run,
+    list_project_coding_run_schedules,
     list_project_coding_runs,
     mark_project_coding_run_reviewed,
     mark_project_coding_runs_reviewed,
     refresh_project_coding_run_status,
+    update_project_coding_run_schedule,
 )
 from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
@@ -268,6 +275,41 @@ class ProjectCodingRunReviewSessionWrite(BaseModel):
     prompt: str = ""
     merge_method: str = "squash"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
+
+
+class ProjectCodingRunScheduleWrite(BaseModel):
+    channel_id: uuid.UUID
+    title: str = "Scheduled Project coding run"
+    request: str = ""
+    scheduled_at: datetime | None = None
+    recurrence: str = "+1w"
+    machine_target_grant: ProjectMachineTargetGrantIn | None = None
+
+
+class ProjectCodingRunSchedulePatch(BaseModel):
+    channel_id: uuid.UUID | None = None
+    title: str | None = None
+    request: str | None = None
+    scheduled_at: datetime | None = None
+    recurrence: str | None = None
+    enabled: bool | None = None
+    machine_target_grant: ProjectMachineTargetGrantIn | None = None
+
+
+class ProjectCodingRunScheduleOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    channel_id: uuid.UUID | None = None
+    title: str
+    request: str = ""
+    status: str
+    enabled: bool
+    scheduled_at: str | None = None
+    recurrence: str | None = None
+    run_count: int = 0
+    last_run: dict | None = None
+    created_at: str | None = None
+    machine_target_grant: dict | None = None
 
 
 class ProjectCodingRunTaskOut(BaseModel):
@@ -946,6 +988,139 @@ async def create_project_coding_run_endpoint(
         if row["id"] == str(task.id):
             return row
     raise HTTPException(status_code=500, detail="Project coding run was created but could not be loaded")
+
+
+@router.get("/{project_id}/coding-run-schedules", response_model=list[ProjectCodingRunScheduleOut])
+async def get_project_coding_run_schedules(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await list_project_coding_run_schedules(db, project)
+
+
+@router.post("/{project_id}/coding-run-schedules", response_model=ProjectCodingRunScheduleOut, status_code=201)
+async def create_project_coding_run_schedule_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectCodingRunScheduleWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await create_project_coding_run_schedule(
+            db,
+            project,
+            ProjectCodingRunScheduleCreate(
+                channel_id=body.channel_id,
+                title=body.title,
+                request=body.request,
+                scheduled_at=body.scheduled_at,
+                recurrence=body.recurrence,
+                machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
+                granted_by_user_id=_auth_user_id(_auth),
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    rows = await list_project_coding_run_schedules(db, project)
+    for row in rows:
+        if row["id"] == str(task.id):
+            return row
+    raise HTTPException(status_code=500, detail="Project coding-run schedule was created but could not be loaded")
+
+
+@router.patch("/{project_id}/coding-run-schedules/{schedule_id}", response_model=ProjectCodingRunScheduleOut)
+async def update_project_coding_run_schedule_endpoint(
+    project_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    body: ProjectCodingRunSchedulePatch,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await update_project_coding_run_schedule(
+            db,
+            project,
+            schedule_id,
+            ProjectCodingRunScheduleUpdate(
+                channel_id=body.channel_id,
+                title=body.title,
+                request=body.request,
+                scheduled_at=body.scheduled_at,
+                recurrence=body.recurrence,
+                enabled=body.enabled,
+                machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
+                granted_by_user_id=_auth_user_id(_auth),
+            ),
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding-run schedule not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+    rows = await list_project_coding_run_schedules(db, project)
+    for row in rows:
+        if row["id"] == str(task.id):
+            return row
+    raise HTTPException(status_code=500, detail="Project coding-run schedule was updated but could not be loaded")
+
+
+@router.post("/{project_id}/coding-run-schedules/{schedule_id}/run-now", response_model=ProjectCodingRunOut, status_code=201)
+async def run_project_coding_run_schedule_now_endpoint(
+    project_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    schedule = await db.get(Task, schedule_id)
+    try:
+        if schedule is None:
+            raise ValueError("coding-run schedule not found")
+        task = await fire_project_coding_run_schedule(db, schedule, advance=False)
+    except ValueError as exc:
+        message = str(exc)
+        if message in {"coding-run schedule not found", "project not found"}:
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+    if task is None:
+        raise HTTPException(status_code=422, detail="coding-run schedule is disabled")
+    return await get_project_coding_run(db, project, task.id)
+
+
+@router.delete("/{project_id}/coding-run-schedules/{schedule_id}", response_model=ProjectCodingRunScheduleOut)
+async def disable_project_coding_run_schedule_endpoint(
+    project_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await disable_project_coding_run_schedule(db, project, schedule_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "coding-run schedule not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+    rows = await list_project_coding_run_schedules(db, project)
+    for row in rows:
+        if row["id"] == str(task.id):
+            return row
+    raise HTTPException(status_code=500, detail="Project coding-run schedule was disabled but could not be loaded")
 
 
 @router.post("/{project_id}/coding-runs/reviewed", response_model=list[ProjectCodingRunOut])

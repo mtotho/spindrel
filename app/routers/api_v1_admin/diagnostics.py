@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,13 +19,25 @@ from app.db.models import (
     Bot as BotRow,
     Document,
     FilesystemChunk,
+    Session,
     SharedWorkspace,
     SharedWorkspaceBot,
     Skill as SkillRow,
 )
+from app.domain.errors import NotFoundError
 from app.dependencies import get_db, require_scopes
+from app.services.native_plan_fixtures import seed_native_plan_unsupported_adherence_fixture
+from app.services.session_plan_mode import publish_session_plan_event
 
 router = APIRouter()
+
+
+class NativePlanUnsupportedFixtureRequest(BaseModel):
+    session_id: uuid.UUID
+    channel_id: uuid.UUID
+    bot_id: str = Field(default="e2e-bot", min_length=1)
+    variant: Literal["unsupported", "retry_recovered"] = "unsupported"
+    marker: str | None = None
 
 
 @router.get("/diagnostics/indexing")
@@ -216,6 +231,29 @@ async def diagnostics_operations(
     """Return in-progress background operations (lightweight, no DB)."""
     from app.services import progress
     return {"operations": progress.list_operations()}
+
+
+@router.post("/diagnostics/native-plan-fixtures/unsupported-adherence")
+async def diagnostics_native_plan_unsupported_adherence_fixture(
+    body: NativePlanUnsupportedFixtureRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("admin")),
+):
+    """Seed a deterministic native plan adherence fixture for live parity tests."""
+    session = await db.get(Session, body.session_id)
+    if session is None:
+        raise NotFoundError(f"Session not found: {body.session_id}")
+    result = await seed_native_plan_unsupported_adherence_fixture(
+        db,
+        session,
+        channel_id=body.channel_id,
+        bot_id=body.bot_id,
+        variant=body.variant,
+        marker=body.marker,
+    )
+    await db.commit()
+    publish_session_plan_event(session, "semantic_review")
+    return result
 
 
 @router.post("/diagnostics/reindex")

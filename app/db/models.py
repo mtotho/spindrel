@@ -3234,6 +3234,11 @@ class WorkspaceSpatialNode(Base):
         ForeignKey("channels.id", ondelete="CASCADE"),
         nullable=True,
     )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     widget_pin_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("widget_dashboard_pins.id", ondelete="CASCADE"),
@@ -3271,6 +3276,7 @@ class WorkspaceSpatialNode(Base):
     __table_args__ = (
         CheckConstraint(
             "((CASE WHEN channel_id IS NOT NULL THEN 1 ELSE 0 END) + "
+            "(CASE WHEN project_id IS NOT NULL THEN 1 ELSE 0 END) + "
             "(CASE WHEN widget_pin_id IS NOT NULL THEN 1 ELSE 0 END) + "
             "(CASE WHEN bot_id IS NOT NULL THEN 1 ELSE 0 END) + "
             "(CASE WHEN landmark_kind IS NOT NULL THEN 1 ELSE 0 END)) = 1",
@@ -3284,6 +3290,13 @@ class WorkspaceSpatialNode(Base):
             unique=True,
             postgresql_where=text("channel_id IS NOT NULL"),
             sqlite_where=text("channel_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_workspace_spatial_nodes_project",
+            "project_id",
+            unique=True,
+            postgresql_where=text("project_id IS NOT NULL"),
+            sqlite_where=text("project_id IS NOT NULL"),
         ),
         Index(
             "uq_workspace_spatial_nodes_widget_pin",

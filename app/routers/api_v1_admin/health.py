@@ -1,17 +1,14 @@
-"""GET /health — lightweight server health check."""
+"""GET /api/v1/admin/health — authenticated server health check."""
 from __future__ import annotations
-
-import time
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, require_scopes
+from app.services.runtime_identity import runtime_identity
 
 router = APIRouter()
-
-_start_time = time.monotonic()
 
 
 @router.get("/health")
@@ -30,9 +27,6 @@ async def health_check(
     except Exception as e:
         issues.append(f"Database unreachable: {e}")
 
-    # Uptime
-    uptime_seconds = int(time.monotonic() - _start_time)
-
     # Active bots
     try:
         from app.agent.bots import list_bots
@@ -42,24 +36,14 @@ async def health_check(
         bot_count = 0
         issues.append("Failed to load bots")
 
-    # Git version (from file or env)
-    version = None
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "log", "--oneline", "-1"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            version = result.stdout.strip()
-    except Exception:
-        pass
+    identity = runtime_identity()
 
     return {
         "healthy": len(issues) == 0,
         "database": db_ok,
-        "uptime_seconds": uptime_seconds,
+        "uptime_seconds": identity["process"]["uptime_seconds"],
         "bot_count": bot_count,
-        "version": version,
+        "version": identity["version"],
+        "runtime": identity,
         "issues": issues,
     }

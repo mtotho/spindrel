@@ -150,6 +150,24 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
           separator: true,
           onClick: () => deleteNode.mutate(hitNode.id),
         });
+      } else if (tileKind === "project" && hitNode?.project_id) {
+        const projectId = hitNode.project_id;
+        items.push({
+          label: "Open project",
+          icon: <ExternalLink size={14} />,
+          onClick: () => navigate(`/admin/projects/${projectId}`, { state: canvasBackState }),
+        });
+        items.push({
+          label: "Open project runs",
+          icon: <Maximize2 size={14} />,
+          onClick: () => navigate(`/admin/projects/${projectId}#runs`, { state: canvasBackState }),
+        });
+        items.push({
+          label: "Reset position",
+          icon: <Home size={14} />,
+          separator: true,
+          onClick: () => deleteNode.mutate(hitNode.id),
+        });
       } else if (tileKind === "widget" && hitNode?.pin) {
         const pin = hitNode.pin;
         items.push({
@@ -219,10 +237,11 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
         const screenX = e.clientX;
         const screenY = e.clientY;
         const openMovePicker = (
-          kind: "channel" | "widget" | "bot",
+          kind: "channel" | "project" | "widget" | "bot",
         ) => {
           const candidates = list.filter((n: SpatialNode) => {
             if (kind === "channel") return Boolean(n.channel_id);
+            if (kind === "project") return Boolean(n.project_id);
             if (kind === "widget") return Boolean(n.pin);
             return Boolean(n.bot_id);
           });
@@ -230,6 +249,9 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
             if (n.channel_id) {
               const c = channelsById.get(n.channel_id);
               return c?.name ? `#${c.name}` : "channel";
+            }
+            if (n.project_id) {
+              return n.project?.name || "project";
             }
             if (n.bot_id) {
               return n.bot?.display_name || n.bot?.name || n.bot_id;
@@ -275,6 +297,12 @@ export function useSpatialContextMenu(args: UseSpatialContextMenuArgs) {
           label: "Move channel here…",
           icon: <Move size={14} />,
           onClick: () => openMovePicker("channel"),
+          keepOpen: true,
+        });
+        items.push({
+          label: "Move project here…",
+          icon: <Move size={14} />,
+          onClick: () => openMovePicker("project"),
           keepOpen: true,
         });
         items.push({
