@@ -1264,7 +1264,7 @@ async def test_live_harness_codex_native_input_manifest_skill_and_image(
     if not skill_name:
         pytest.skip("deployed Codex runtime has no skills/list entries to invoke")
 
-    pixel_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    pixel_png = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGUlEQVQoz2M0TjvDQApgIkn1qIZRDUNKAwB2OQGFz8rhgwAAAABJRU5ErkJggg=="
     marker = uuid.uuid4().hex[:10]
     result = await client.chat_session_stream(
         f"${skill_name} Do not use tools. Reply exactly: codex input manifest {marker}",

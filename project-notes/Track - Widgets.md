@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-29 (widget improvement e2e)
+updated: 2026-04-29 (bot widget authoring DX)
 ---
 # Track — Widget System DX + Robustness
 
@@ -31,6 +31,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
+- **Bot widget authoring DX spine shipped** (2026-04-29) — bot-authored widget work now starts with `prepare_widget_authoring`, then uses `check_html_widget_authoring` or `check_widget_authoring` before emit/pin, and finishes with `check_widget` only after a real pin exists. The agent-capability manifest now exposes widget-authoring readiness, missing tools/skills, and the HTML/tool-widget check availability, and the shared Agent readiness UI shows that status in bot/channel/composer surfaces. Standalone HTML/library widgets can declare metadata in HTML frontmatter and run the same preview/static/runtime health path before pinning. New screenshot artifact: `channel-widget-authoring-readiness.png` in the `channel-widget-usefulness` bundle verifies the settings Agent readiness row and HTML full-check badge.
 - **Widget health loop shipped** (2026-04-29) — pinned and draft widgets now have a first-class health read model through `widget_health_checks`, `check_widget`, `check_dashboard_widgets`, and `/api/v1/widgets/.../health` routes. Health combines static envelope/source lint, recent per-pin debug events, and opportunistic browser smoke when the local browser runtime is configured; dashboard pin reads, `describe_dashboard`, chat-side widgets, full-page pins, and the dashboard page now surface the latest health summary. New invariant: bots should preview/check widgets before or immediately after pinning, and use `inspect_widget_pin` only when health indicates raw trace evidence is needed.
 - **Widget authoring runtime feedback shipped** (2026-04-29) — draft tool-widget YAML now has one shared authoring check behind `/api/v1/admin/widget-packages/authoring-check`, the Templates tab **Full Check** button, and the bot-facing `check_widget_authoring` tool. The check validates YAML/Python/schema, renders the preview envelope, runs static health, and can open the draft envelope in the real widget host through Playwright with screenshot artifacts. New invariant: tool-widget authors should not treat live preview as enough; use the shared full check before saving or relying on a new renderer.
 - **Widget usefulness recommendation layer shipped** (2026-04-29) — channel dashboards now have a shared read-only usefulness assessment through `assess_widget_usefulness` and `/api/v1/admin/channels/{channel_id}/widget-usefulness`. The assessment combines pin layout, latest health, duplicate/overlap signals, chat visibility under channel layout mode, context-export coverage, actionability hints, and Project-bound metadata. New invariant: recurring widget improvement should start with this structured assessment, then use health/trace tools only for deeper evidence. Agency is not global: some bots/channels/widgets may later be allowed to apply changes, while others stay propose-only, and that must be governed by policy rather than a single system-wide toggle.

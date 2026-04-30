@@ -1,0 +1,178 @@
+{
+  "schema_version": "repo-agent-skills.v1",
+  "scope": "repo-dev-only",
+  "runtime_import": false,
+  "notes": "These skills are for development agents working inside this Git repository. They are not Spindrel runtime skills, are not imported into app skill tables, and are not visible to channel bots unless a separate runtime bridge explicitly supplies them.",
+  "skills": [
+    {
+      "id": "spindrel-backend-operator",
+      "path": ".agents/skills/spindrel-backend-operator",
+      "description": "Backend source-editing workflow for app services, routers, tools, policies, context, and tests.",
+      "triggers": [
+        "backend change",
+        "api route",
+        "service logic",
+        "tool implementation",
+        "database or migration",
+        "pytest"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/development-process.md",
+        "docs/guides/api.md",
+        "docs/guides/discovery-and-enrollment.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_agent_capabilities.py tests/unit/test_api_access_tools.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-ui-operator",
+      "path": ".agents/skills/spindrel-ui-operator",
+      "description": "Frontend source-editing workflow for React routes, shared components, visual polish, and UI verification.",
+      "triggers": [
+        "ui change",
+        "frontend",
+        "React component",
+        "CSS",
+        "visual verification",
+        "typecheck"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/ui-design.md",
+        "docs/guides/ui-components.md",
+        "docs/guides/visual-feedback-loop.md"
+      ],
+      "verification_commands": [
+        "cd ui && npx tsc --noEmit --pretty false",
+        "node --test src/components/shared/agentReadinessSurface.test.ts",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-integration-operator",
+      "path": ".agents/skills/spindrel-integration-operator",
+      "description": "Integration source-editing workflow for manifests, activation, bindings, renderers, delivery, and platform depth.",
+      "triggers": [
+        "integration",
+        "Slack",
+        "Discord",
+        "BlueBubbles",
+        "activation manifest",
+        "binding",
+        "rich results"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/integrations.md",
+        "docs/guides/slack.md",
+        "docs/guides/discord.md",
+        "docs/guides/bluebubbles.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_integration_manifests.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q",
+        "PYTHONPATH=. pytest tests/unit/test_slack_renderer.py tests/unit/test_discord_renderer.py tests/unit/test_bluebubbles_renderer.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-widget-operator",
+      "path": ".agents/skills/spindrel-widget-operator",
+      "description": "Widget and dashboard source-editing workflow for widget contracts, package loaders, pins, SDK, and authoring checks.",
+      "triggers": [
+        "widget",
+        "dashboard",
+        "pin",
+        "widget package",
+        "iframe SDK",
+        "authoring check"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/widget-system.md",
+        "docs/guides/widget-dashboards.md",
+        "docs/guides/html-widgets.md",
+        "docs/guides/dev-panel.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_widget_manifest.py tests/unit/test_widget_library_list.py tests/unit/test_widget_authoring_check.py -q",
+        "cd ui && npx tsc --noEmit --pretty false",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-harness-operator",
+      "path": ".agents/skills/spindrel-harness-operator",
+      "description": "Harness runtime workflow for Codex and Claude adapters, native command parity, approvals, sessions, and task execution.",
+      "triggers": [
+        "harness",
+        "Codex runtime",
+        "Claude runtime",
+        "slash command",
+        "approval bridge",
+        "task harness"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/agent-harnesses.md",
+        "docs/guides/tool-policies.md",
+        "docs/guides/task-sub-sessions.md",
+        "docs/guides/projects.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_runtime_capabilities.py tests/unit/test_slash_commands_harness.py tests/unit/test_codex_runtime_bridge.py tests/unit/test_claude_code_runtime_bridge.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-docs-operator",
+      "path": ".agents/skills/spindrel-docs-operator",
+      "description": "Documentation and project-state workflow for canonical guides, vault tracks, roadmap notes, and session logs.",
+      "triggers": [
+        "docs",
+        "guide",
+        "roadmap",
+        "vault",
+        "track note",
+        "session log"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/index.md",
+        "docs/guides/development-process.md",
+        "docs/guides/ubiquitous-language.md"
+      ],
+      "verification_commands": [
+        "PYTHONPATH=. pytest tests/unit/test_canonical_docs_drift.py -q",
+        "git diff --check"
+      ]
+    },
+    {
+      "id": "spindrel-visual-feedback-loop",
+      "path": ".agents/skills/spindrel-visual-feedback-loop",
+      "description": "Browser screenshot workflow for UI visual feedback and documentation artifacts.",
+      "triggers": [
+        "screenshot",
+        "visual feedback",
+        "Spatial Canvas",
+        "Starboard",
+        "Mission Control Review",
+        "docs image"
+      ],
+      "canonical_guides": [
+        "CLAUDE.md",
+        "docs/guides/ui-design.md",
+        "docs/guides/visual-feedback-loop.md",
+        "docs/guides/spatial-canvas.md"
+      ],
+      "verification_commands": [
+        "python -m scripts.screenshots stage --only spatial-checks",
+        "python -m scripts.screenshots capture --only spatial-checks",
+        "python -m scripts.screenshots check",
+        "cd ui && npx tsc --noEmit --pretty false"
+      ]
+    }
+  ]
+}

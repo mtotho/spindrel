@@ -225,6 +225,59 @@ function derivePlanFocus({
     };
   }
 
+  const latestOutcome = plan.adherence?.latest_outcome ?? runtime?.latest_outcome;
+  const latestSemanticReview = plan.adherence?.latest_semantic_review ?? runtime?.latest_semantic_review;
+  const latestOutcomeNeedsReview = !!latestOutcome?.correlation_id
+    && latestSemanticReview?.correlation_id !== latestOutcome.correlation_id;
+  if (latestOutcomeNeedsReview) {
+    return {
+      label: "Needs review",
+      text: latestOutcome.summary || "Review the latest recorded execution outcome before continuing.",
+      tone: "warning",
+      detail: latestOutcome.outcome ? `outcome ${latestOutcome.outcome}` : undefined,
+    };
+  }
+  if (latestSemanticReview?.verdict === "unsupported") {
+    return {
+      label: "Unsupported outcome",
+      text: latestSemanticReview.reason || "The recorded outcome is not supported by the execution evidence.",
+      tone: "danger",
+      detail: latestSemanticReview.recommended_action
+        ? cleanReason(latestSemanticReview.recommended_action)
+        : "Repeat the step or request a replan.",
+    };
+  }
+  if (latestSemanticReview?.verdict === "needs_replan" || latestSemanticReview?.semantic_status === "needs_replan") {
+    return {
+      label: "Needs replan",
+      text: latestSemanticReview.reason || "The accepted plan no longer matches the execution evidence.",
+      tone: "warning",
+      detail: latestSemanticReview.recommended_action
+        ? cleanReason(latestSemanticReview.recommended_action)
+        : "Request a replan before continuing.",
+    };
+  }
+  if (latestSemanticReview?.verdict === "supported") {
+    return {
+      label: "Supported outcome",
+      text: latestSemanticReview.reason || "The latest recorded outcome is supported by execution evidence.",
+      tone: "success",
+      detail: latestSemanticReview.confidence != null
+        ? `${Math.round(latestSemanticReview.confidence * 100)}% confidence`
+        : undefined,
+    };
+  }
+  if (latestSemanticReview?.verdict === "weak_support") {
+    return {
+      label: "Weak support",
+      text: latestSemanticReview.reason || "The latest recorded outcome has only partial evidence.",
+      tone: "warning",
+      detail: latestSemanticReview.recommended_action
+        ? cleanReason(latestSemanticReview.recommended_action)
+        : undefined,
+    };
+  }
+
   const openQuestion = latestPlanningText(planningState?.open_questions);
   if (plan.mode === "planning" && openQuestion) {
     return {

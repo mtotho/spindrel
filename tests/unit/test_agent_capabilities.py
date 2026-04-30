@@ -42,6 +42,101 @@ def test_doctor_flags_missing_api_scopes_and_harness_workdir():
     assert "harness_without_workdir" in codes
 
 
+def test_missing_api_scopes_proposes_workspace_bot_patch():
+    manifest = {
+        "context": {"bot_id": "agent"},
+        "api": {"scopes": []},
+        "tools": {"catalog_count": 4, "working_set_count": 1},
+        "project": {"attached": False},
+        "harness": {"runtime": None, "workdir": None},
+    }
+    manifest["doctor"] = {"findings": agent_capabilities._doctor_findings(manifest)}
+
+    actions = agent_capabilities._doctor_proposed_actions(manifest)
+    action = next(item for item in actions if item["finding_code"] == "missing_api_scopes")
+
+    assert action["apply"]["type"] == "bot_patch"
+    assert action["required_actor_scopes"] == ["bots:write"]
+    assert action["grants_scopes"] == agent_capabilities.SCOPE_PRESETS["workspace_bot"]["scopes"]
+    assert action["apply"]["patch"] == {
+        "api_permissions": agent_capabilities.SCOPE_PRESETS["workspace_bot"]["scopes"]
+    }
+
+
+def test_empty_working_set_proposes_deduped_core_tool_patch(monkeypatch):
+    monkeypatch.setattr(agent_capabilities, "_local_tools", {
+        "list_agent_capabilities": {},
+        "run_agent_doctor": {},
+        "get_tool_info": {},
+        "get_skill": {},
+        "list_api_endpoints": {},
+        "call_api": {},
+    })
+    manifest = {
+        "context": {"bot_id": "agent"},
+        "api": {"scopes": ["tools:read"]},
+        "tools": {
+            "catalog_count": 6,
+            "working_set_count": 0,
+            "configured": ["get_tool_info"],
+            "pinned": ["get_tool_info"],
+            "recommended_core": ["get_tool_info", "run_agent_doctor", "call_api"],
+        },
+        "project": {"attached": False},
+        "harness": {"runtime": None, "workdir": None},
+    }
+    manifest["doctor"] = {"findings": agent_capabilities._doctor_findings(manifest)}
+
+    actions = agent_capabilities._doctor_proposed_actions(manifest)
+    action = next(item for item in actions if item["finding_code"] == "empty_tool_working_set")
+
+    assert action["apply"]["type"] == "bot_patch"
+    assert action["apply"]["patch"]["local_tools"] == [
+        "get_tool_info",
+        "run_agent_doctor",
+        "call_api",
+    ]
+    assert action["apply"]["patch"]["pinned_tools"] == [
+        "get_tool_info",
+        "run_agent_doctor",
+        "call_api",
+    ]
+
+
+def test_manual_findings_propose_navigation_not_patches():
+    manifest = {
+        "context": {"bot_id": "agent", "channel_id": "channel-1"},
+        "api": {"scopes": ["tools:read"]},
+        "tools": {"catalog_count": 4, "working_set_count": 1},
+        "project": {
+            "attached": True,
+            "id": "project-1",
+            "runtime_env": {"ready": False, "missing_secrets": ["TOKEN"]},
+        },
+        "harness": {"runtime": "codex", "workdir": None},
+    }
+    manifest["doctor"] = {"findings": agent_capabilities._doctor_findings(manifest)}
+
+    actions = agent_capabilities._doctor_proposed_actions(manifest)
+
+    assert actions
+    assert {action["apply"]["type"] for action in actions} == {"navigate"}
+    assert any(action["apply"]["href"] == "/admin/projects/project-1#Settings" for action in actions)
+
+
+def test_resolved_manifest_proposes_no_actions():
+    manifest = {
+        "context": {"bot_id": "agent"},
+        "api": {"scopes": ["tools:read"]},
+        "tools": {"catalog_count": 4, "working_set_count": 1},
+        "project": {"attached": False},
+        "harness": {"runtime": None, "workdir": None},
+        "doctor": {"findings": []},
+    }
+
+    assert agent_capabilities._doctor_proposed_actions(manifest) == []
+
+
 def test_widget_payload_lists_full_authoring_loop(monkeypatch):
     fake_tools = {name: {} for name in agent_capabilities.WIDGET_AUTHORING_TOOLS}
     monkeypatch.setattr(agent_capabilities, "_local_tools", fake_tools)

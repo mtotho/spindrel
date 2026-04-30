@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, mission-control, spatial-canvas, product-vision]
 status: active
-updated: 2026-04-29
+updated: 2026-04-30
 ---
 
 # Track - Mission Control Vision
@@ -473,9 +473,23 @@ the system can already inspect" is a shared capability manifest:
 - The UI consumes the same manifest in bot overview, channel tool overrides,
   and the chat composer. The composer now has an Agent readiness view and the
   tools menu promotes manifest-recommended core tools.
-- This is inspection-only. Follow-up Mission Control work should stage fixes
-  from these findings through existing approval/change mechanisms rather than
-  adding a separate mutation path.
+- Agent readiness findings can now include human-approved repair actions.
+  Missing API grants stage an exact `workspace_bot` permissions patch, empty
+  working sets stage deduped core tool additions, and Project/harness runtime
+  gaps navigate to the owning settings surface. No separate mutation endpoint
+  was added; the UI reuses the existing bot update path and refreshes the
+  manifest after apply.
+- Repo-dev AX is a separate surface: `.agents/manifest.json` indexes
+  repository-local skills for development agents working on Spindrel source.
+  These skills cover backend, UI, integrations, widgets, harnesses, docs, and
+  the existing visual feedback loop.
+- The repo-dev skills are not Spindrel runtime skills. Channel bots do not see
+  `.agents/skills` unless a future, explicit runtime bridge supplies that
+  content through a real app-owned contract.
+- This remains approval-first capability repair, not a spatial destination.
+  Spatial/Mission Control surfaces may consume the actions later as "Fix bot
+  access" or "Open setup", but Agent Readiness should not become a competing
+  map mode.
 
 ## Key Invariants
 

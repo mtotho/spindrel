@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[2]
+MANIFEST_PATH = ROOT / ".agents" / "manifest.json"
+NEW_SKILL_IDS = {
+    "spindrel-backend-operator",
+    "spindrel-ui-operator",
+    "spindrel-integration-operator",
+    "spindrel-widget-operator",
+    "spindrel-harness-operator",
+    "spindrel-docs-operator",
+}
+EXPECTED_SKILL_IDS = NEW_SKILL_IDS | {"spindrel-visual-feedback-loop"}
+
+
+def _load_manifest() -> dict:
+    return json.loads(MANIFEST_PATH.read_text())
+
+
+def _split_frontmatter(skill_markdown: str) -> tuple[dict, str]:
+    assert skill_markdown.startswith("---\n")
+    _, frontmatter, body = skill_markdown.split("---\n", 2)
+    return yaml.safe_load(frontmatter), body
+
+
+def test_repo_agent_manifest_is_repo_dev_only() -> None:
+    manifest = _load_manifest()
+
+    assert manifest["schema_version"] == "repo-agent-skills.v1"
+    assert manifest["scope"] == "repo-dev-only"
+    assert manifest["runtime_import"] is False
+    assert "not Spindrel runtime skills" in manifest["notes"]
+
+
+def test_repo_agent_manifest_indexes_each_skill_folder() -> None:
+    manifest = _load_manifest()
+    skills = {entry["id"]: entry for entry in manifest["skills"]}
+
+    assert EXPECTED_SKILL_IDS.issubset(skills)
+
+    for skill_id, entry in skills.items():
+        skill_dir = ROOT / entry["path"]
+        skill_path = skill_dir / "SKILL.md"
+
+        assert skill_path.exists(), skill_id
+        assert entry["path"] == f".agents/skills/{skill_id}"
+        assert entry["description"]
+        assert all(isinstance(trigger, str) and trigger for trigger in entry["triggers"])
+        assert all(
+            isinstance(command, str) and command
+            for command in entry["verification_commands"]
+        )
+
+
+def test_repo_agent_manifest_canonical_guides_exist() -> None:
+    manifest = _load_manifest()
+
+    for entry in manifest["skills"]:
+        for guide in entry["canonical_guides"]:
+            assert (ROOT / guide).exists(), f"{entry['id']} references missing {guide}"
+
+
+def test_repo_agent_skill_frontmatter_matches_manifest() -> None:
+    manifest = _load_manifest()
+
+    for entry in manifest["skills"]:
+        skill_path = ROOT / entry["path"] / "SKILL.md"
+        frontmatter, body = _split_frontmatter(skill_path.read_text())
+
+        assert frontmatter["name"] == entry["id"]
+        assert frontmatter["description"]
+        assert body.strip()
+
+
+def test_new_repo_agent_skills_keep_runtime_boundary_explicit() -> None:
+    manifest = _load_manifest()
+    skills = {entry["id"]: entry for entry in manifest["skills"]}
+
+    for skill_id in NEW_SKILL_IDS:
+        body = (ROOT / skills[skill_id]["path"] / "SKILL.md").read_text().lower()
+
+        assert "repo-dev skill" in body
+        assert "not a spindrel runtime skill" in body
+        assert "must not be imported into app skill tables" in body
+
+
+def test_integration_skill_preserves_integration_boundaries() -> None:
+    manifest = _load_manifest()
+    skills = {entry["id"]: entry for entry in manifest["skills"]}
+    integration_entry = skills["spindrel-integration-operator"]
+    skill_text = (
+        ROOT / integration_entry["path"] / "SKILL.md"
+    ).read_text().lower()
+
+    assert "docs/guides/integrations.md" in integration_entry["canonical_guides"]
+    assert "activation" in skill_text
+    assert "binding" in skill_text
+    assert "no integration-specific code in `app/`" in skill_text

@@ -2248,6 +2248,27 @@ def _clip_plan_context(value: str | None, limit: int) -> str:
     return text[: limit - 3].rstrip() + "..."
 
 
+def _execution_focus_lines(plan: SessionPlan, runtime: dict[str, Any]) -> list[str]:
+    current_step_id = runtime.get("current_step_id") or runtime.get("next_step_id")
+    current_step = next((step for step in plan.steps if step.id == current_step_id), None)
+    if current_step is None:
+        current_step = next((step for step in plan.steps if step.status == STEP_STATUS_IN_PROGRESS), None)
+    if current_step is None:
+        current_step = _find_next_pending_step(plan)
+    if current_step is None:
+        return []
+    lines = [
+        "Execution focus for this turn:",
+        f"Only execute current step: {current_step.id} | {_clip_plan_context(current_step.label, 240)} [{current_step.status}]",
+        "Do not start later pending steps or adjacent work in the same turn.",
+        "If the user asks for work outside this step, stop and record no_progress/blocked or request_plan_replan; do not mutate outside the accepted step.",
+        "End the turn immediately after record_plan_progress or request_plan_replan succeeds.",
+    ]
+    if current_step.note:
+        lines.append(f"Current step note: {_clip_plan_context(current_step.note, 240)}")
+    return lines
+
+
 def build_plan_artifact_context(session: Session) -> str | None:
     """Build a compact, load-bearing context block from the canonical plan file."""
     plan = load_session_plan(session, required=False)
@@ -2348,6 +2369,7 @@ def build_plan_artifact_context(session: Session) -> str | None:
     ]
     if mode in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE}:
         lines.append(f"Accepted revision: {accepted_revision}")
+        lines.append("\n".join(_execution_focus_lines(plan, runtime)))
 
     if plan.summary:
         lines.append(f"Summary: {_clip_plan_context(plan.summary, 600)}")
@@ -2489,12 +2511,19 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             "and keep the plan file current as progress changes."
         )
         lines.append(
+            "The current step is the only mutating scope for this turn. Do not start later pending steps, batch multiple checklist items, or perform adjacent implementation work."
+        )
+        lines.append(
+            "If the user asks for work outside the current step, do not mutate; record no_progress/blocked with record_plan_progress or use request_plan_replan when the accepted plan needs to change."
+        )
+        lines.append(
             "If execution reveals the accepted plan is stale, stop and use request_plan_replan with the reason/evidence instead of continuing or silently editing around the plan."
         )
         lines.append(
             "Before ending an execution turn, use record_plan_progress to record progress, verification, step_done, blocked, or no_progress. "
             "If a prior turn has a pending outcome, record that outcome before using more mutating tools."
         )
+        lines.append("After record_plan_progress or request_plan_replan succeeds, stop the turn instead of continuing to another tool or step.")
         lines.append(
             "Only record step_done after the current step is actually complete and any requested verification/readback has succeeded. "
             "If verification is still pending or failed, record progress, verification, blocked, or no_progress instead."
@@ -2505,6 +2534,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             lines.append(
                 f"Current step: {next_step.id} | {next_step.label} [{next_step.status}]"
             )
+            lines.append("Current-step boundary: no other pending step is authorized for mutation in this turn.")
         completed = [step for step in plan.steps if step.status == STEP_STATUS_DONE]
         if completed:
             lines.append("Completed steps:\n" + "\n".join(f"- {step.id} | {step.label}" for step in completed[-5:]))

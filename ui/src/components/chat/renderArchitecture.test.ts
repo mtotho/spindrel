@@ -88,6 +88,9 @@ test("native plan replay hydrates out-of-line envelopes before rendering plan ca
   assert.match(sessionPlanCard, /data-plan-card-mode=\{chatMode\}/);
   assert.match(sessionPlanCard, /data-plan-focus/);
   assert.match(sessionPlanCard, /derivePlanFocus/);
+  assert.match(sessionPlanCard, /Needs review/);
+  assert.match(sessionPlanCard, /Unsupported outcome/);
+  assert.match(sessionPlanCard, /Supported outcome/);
   assert.match(sessionPlanCard, /maxItems = 4/);
   assert.match(sessionPlanCard, /TERMINAL_FONT_STACK/);
   assert.doesNotMatch(sessionPlanCard, /useThemeTokens/);
@@ -412,7 +415,7 @@ test("MessageInput delegates draft files and submit decision policy", () => {
 test("Tiptap slash picker re-runs when the server command catalog hydrates", () => {
   const tiptapInput = readChatFile("TiptapChatInput.tsx");
 
-  assert.match(tiptapInput, /const slashCatalog = useSlashCommandList\(currentBotId\);/);
+  assert.match(tiptapInput, /const slashCatalog = useSlashCommandList\(currentBotId, currentSessionId\);/);
   assert.match(tiptapInput, /detectSlashCommand\(markdown\);/);
   assert.match(tiptapInput, /\}, \[editor, detectSlashCommand\]\);/);
 });

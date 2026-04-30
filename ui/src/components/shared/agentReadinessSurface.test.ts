@@ -23,8 +23,11 @@ test("agent readiness hook calls the shared capability manifest with scoped quer
 
 test("readiness panel renders doctor status, capability counts, surfaces, and findings", () => {
   const panel = readUiFile("src/components/shared/AgentReadinessPanel.tsx");
+  const hook = readUiFile("src/api/hooks/useAgentCapabilities.ts");
 
   assert.match(panel, /useAgentCapabilities/);
+  assert.match(hook, /interface AgentCapabilityAction/);
+  assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
   assert.match(panel, /StatusBadge label=\{label\}/);
   assert.match(panel, /SettingsStatGrid/);
   assert.match(panel, /API scopes/);
@@ -36,7 +39,22 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /HTML full check/);
   assert.match(panel, /agent-readiness-widget-authoring/);
   assert.match(panel, /data\.doctor\.findings/);
+  assert.match(panel, /data\.doctor\.proposed_actions/);
+  assert.match(panel, /Suggested repairs/);
+  assert.match(panel, /ProposedActionRow/);
   assert.match(panel, /Ready to act with current API grants, tools, skills, and runtime context/);
+});
+
+test("readiness proposed actions use existing bot update and invalidate capability queries", () => {
+  const panel = readUiFile("src/components/shared/AgentReadinessPanel.tsx");
+  const botsHook = readUiFile("src/api/hooks/useBots.ts");
+
+  assert.match(panel, /useUpdateBot\(botId \|\| undefined\)/);
+  assert.match(panel, /updateBot\.mutateAsync\(action\.apply\.patch as Partial<BotConfig>\)/);
+  assert.match(panel, /action\.apply\.type === "bot_patch"/);
+  assert.match(panel, /navigate\(href\)/);
+  assert.match(botsHook, /queryKey: \["agent-capabilities"\]/);
+  assert.match(botsHook, /queryKey: \["admin-bots"\]/);
 });
 
 test("composer exposes readiness next to attach, skills, and tools", () => {

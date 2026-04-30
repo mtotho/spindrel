@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-29
+updated: 2026-04-30
 ---
 # Agent Server — Roadmap
 
@@ -42,7 +42,7 @@ Full detail in [[Completed Tracks]].
 | Area | Latest | One-line | Track |
 |---|---|---|---|
 | System Health Visibility | shipped 2026-04-26 | Rotating JSONL log handler + `read_container_logs` / `get_recent_server_errors` tools + deterministic daily summary + `DailyHealthLandmark` canvas marker | (in [[Architecture Decisions]]) |
-| Agent-first capability surface | v1 + UX 2026-04-29 | Machine-readable `/api/v1/agent-capabilities` plus `list_agent_capabilities` / `run_agent_doctor`; bot overview, channel tool overrides, and composer now show readiness from the same manifest. | [[Track - Mission Control Vision]] / `docs/guides/discovery-and-enrollment.md` |
+| Agent-first capability surface | v1 + repo AX 2026-04-30 | Machine-readable `/api/v1/agent-capabilities` plus `list_agent_capabilities` / `run_agent_doctor`; UI readiness consumes the same manifest, and repo-local `.agents/skills` now guide outside/dev agents without becoming runtime bot skills. | [[Track - Mission Control Vision]] / `docs/guides/discovery-and-enrollment.md` |
 | Mission Control Vision | 2026-04-28 | Operator Map north star: Mission Control is the protected operator room, spatial canvas is the living work map, and AI setup help must inspect real state, stage concrete changes, and require approval. Near-term Professional Quest Board is Phase 1. | [[Track - Mission Control Vision]] |
 | Projects | 2026-04-29 | First-class shared roots inside the singleton Workspace. Channels attach to one Project; Project-bound turns use it for files/search/terminal/exec/harness cwd while bot memory stays separate through the `memory` tool. Templates/ephemeral instances remain follow-on. | [[Track - Projects]] |
 | Harness SDK | 2026-04-27 | External agent harnesses as a real runtime lane. Phases 3–6 v1 shipped; scheduled harness heartbeats/tasks now run real harness turns with per-run model/effort | [[Track - Harness SDK]] |

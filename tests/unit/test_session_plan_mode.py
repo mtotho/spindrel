@@ -201,6 +201,34 @@ def test_approve_plan_marks_first_step_in_progress(monkeypatch, tmp_path):
     assert session.metadata_["plan_accepted_revision"] == 1
 
 
+def test_execution_context_makes_current_step_authoritative(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Ship Step Boundary",
+        summary="Verify execution context keeps one step active.",
+        scope="Execution context only.",
+        acceptance_criteria=["Only the active step is authorized."],
+        **_professional_fields(),
+        steps=[
+            {"id": "first-step", "label": "Create the first marker"},
+            {"id": "second-step", "label": "Create the second marker"},
+        ],
+    )
+    spm.approve_session_plan(session)
+
+    system_context = "\n".join(spm.build_plan_mode_system_context(session))
+    artifact_context = spm.build_plan_artifact_context(session)
+
+    assert "current step is the only mutating scope" in system_context
+    assert "no other pending step is authorized" in system_context
+    assert "Execution focus for this turn" in (artifact_context or "")
+    assert "Only execute current step: first-step | Create the first marker" in (artifact_context or "")
+    assert "Do not start later pending steps" in (artifact_context or "")
+    assert "record no_progress/blocked" in (artifact_context or "")
+
+
 def test_publish_plan_creates_first_artifact(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

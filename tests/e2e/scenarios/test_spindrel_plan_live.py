@@ -1417,3 +1417,129 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
         "unsupported adherence review did not block a later mutating file tool"
     )
     _record_session("adherence_negative", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_progress_stops_before_next_step(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_step_boundary")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex
+    first_path = f".spindrel-plan-parity/step-boundary-first-{marker}.txt"
+    second_path = f".spindrel-plan-parity/step-boundary-second-{marker}.txt"
+    for rel_path in (first_path, second_path):
+        await client.delete_workspace_path(workspace_id, rel_path)
+        await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": f"Native Spindrel Step Boundary {int(time.time())}",
+            "summary": "Verify a successful plan progress record ends the execution turn before later steps.",
+            "scope": f"Live E2E diagnostics only; first step may create only {first_path!r}.",
+            "key_changes": ["Enforce one approved plan step per execution turn."],
+            "interfaces": ["No public API changes; workspace artifact and plan runtime state only."],
+            "assumptions_and_defaults": ["Use the dedicated live E2E channel and detached session."],
+            "test_plan": ["Ask for two steps in one message and assert only the current step runs."],
+            "risks": ["A model may continue after recording plan progress and mutate the next step early."],
+            "acceptance_criteria": ["Second-step file is not created in the same turn."],
+            "steps": [
+                {"id": "first-marker", "label": "Create the first step boundary marker"},
+                {"id": "second-marker", "label": "Create the second step boundary marker"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+    await client.approve_session_plan(session_id, revision=1)
+
+    result = await client.chat_session_stream(
+        (
+            "Native adherence step-boundary diagnostic. Execute the current approved step only. "
+            f"Use @tool:file with operation 'create' to write relative file {first_path!r} with text 'first step'. "
+            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'first-marker', "
+            f"summary 'Created the first step boundary marker', and evidence {first_path!r}. "
+            f"After that, try to create the next-step relative file {second_path!r} with text 'second step'. "
+            "The platform should stop you after the progress record; do not use prose instead of the tools."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "file" in result.tools_used
+    assert "record_plan_progress" in result.tools_used
+    assert await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, first_path))
+    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, second_path)), (
+        "execution continued to the next plan step after record_plan_progress"
+    )
+
+    plan = await client.get_session_plan(session_id)
+    steps = {step["id"]: step for step in plan.get("steps") or []}
+    assert steps["first-marker"]["status"] == "done"
+    assert steps["second-marker"]["status"] == "in_progress"
+    _record_session("adherence_step_boundary", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_wrong_step_request_stays_nonmutating(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_wrong_step")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex
+    authorized_path = f".spindrel-plan-parity/wrong-step-authorized-{marker}.txt"
+    wrong_step_path = f".spindrel-plan-parity/wrong-step-forbidden-{marker}.txt"
+    for rel_path in (authorized_path, wrong_step_path):
+        await client.delete_workspace_path(workspace_id, rel_path)
+        await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": f"Native Spindrel Wrong Step Guard {int(time.time())}",
+            "summary": "Verify execution refuses mutation outside the current approved step.",
+            "scope": f"Live E2E diagnostics only; current step may create only {authorized_path!r}.",
+            "key_changes": ["Keep execution scoped to the current accepted checklist item."],
+            "interfaces": ["No public API changes; plan runtime and workspace artifact state only."],
+            "assumptions_and_defaults": ["Use record_plan_progress or request_plan_replan when asked for out-of-step work."],
+            "test_plan": ["Ask for a future-step mutation and assert no file is created."],
+            "risks": ["A model may follow a user request that conflicts with the accepted step boundary."],
+            "acceptance_criteria": ["Forbidden future-step artifact is absent after the turn."],
+            "steps": [
+                {"id": "authorized-marker", "label": "Create the authorized current-step marker"},
+                {"id": "future-marker", "label": "Create the future-step marker"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+    await client.approve_session_plan(session_id, revision=1)
+
+    result = await client.chat_session_stream(
+        (
+            "Native adherence wrong-step diagnostic. The current approved step is 'authorized-marker', "
+            f"but I am now asking you to skip ahead and use @tool:file to create {wrong_step_path!r}. "
+            "Because that is outside the current step, do not use file or any mutating tool. "
+            "Use @tool:record_plan_progress with outcome 'no_progress' or 'blocked', step_id 'authorized-marker', "
+            "summary 'User requested work outside the current approved step', and evidence 'future-step mutation refused'. "
+            "Use @tool:request_plan_replan instead only if you think the accepted plan must change."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(result)
+    assert "file" not in result.tools_used
+    assert {"record_plan_progress", "request_plan_replan"} & set(result.tools_used)
+    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, wrong_step_path)), (
+        "out-of-step execution request created a forbidden artifact"
+    )
+
+    state = await client.get_session_plan_state(session_id)
+    runtime = _plan_runtime(state)
+    latest_outcome = runtime.get("latest_outcome") or {}
+    replan = runtime.get("replan") or {}
+    assert latest_outcome.get("outcome") in {"no_progress", "blocked"} or replan.get("reason"), runtime
+    _record_session("adherence_wrong_step", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
