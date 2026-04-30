@@ -1116,6 +1116,16 @@ async def test_live_harness_core_native_slash_direct_commands(
         assert result["payload"]["command"] == runtime_command
         assert result["payload"]["status"] == "ok"
         assert result["payload"].get("detail") or result.get("fallback_text")
+        if case.name == "codex" and runtime_command == "skills":
+            status = await client.get_session_harness_status(session_id)
+            expected_cwd = status.get("effective_cwd")
+            data = result["payload"].get("data") or {}
+            cwd_entries = data.get("data") if isinstance(data, dict) else None
+            assert expected_cwd
+            assert any(
+                isinstance(entry, dict) and entry.get("cwd") == expected_cwd
+                for entry in (cwd_entries or [])
+            ), f"Codex /skills did not use harness cwd {expected_cwd!r}: {data}"
 
 
 @pytest.mark.parametrize("case", HARNESS_PARAMS)

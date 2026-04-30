@@ -24,6 +24,7 @@ import {
   SettingsStatGrid,
   StatusBadge,
 } from "@/src/components/shared/SettingsControls";
+import { AgentReadinessPanel } from "@/src/components/shared/AgentReadinessPanel";
 import { SourceTextEditor } from "@/src/components/shared/SourceTextEditor";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
@@ -103,11 +104,12 @@ function BotSourceBadges({ bot }: { bot: BotConfig }) {
   );
 }
 
-function OverviewSection({ draft, usage, logs, setGroup }: {
+function OverviewSection({ draft, usage, logs, setGroup, readinessBotId }: {
   draft: BotConfig;
   usage: ReturnType<typeof useUsageSummary>["data"];
   logs: ReturnType<typeof useUsageLogs>["data"];
   setGroup: (group: BotGroupKey) => void;
+  readinessBotId?: string;
 }) {
   const toolCount = (draft.local_tools?.length ?? 0) + (draft.client_tools?.length ?? 0) + (draft.pinned_tools?.length ?? 0);
   const delegateCount = (draft.delegation_config?.delegate_bots as string[] | undefined)?.length ?? draft.delegate_bots?.length ?? 0;
@@ -115,6 +117,8 @@ function OverviewSection({ draft, usage, logs, setGroup }: {
 
   return (
     <div className="flex flex-col gap-6">
+      <AgentReadinessPanel botId={readinessBotId} />
+
       <SectionFrame title="Operational snapshot" description="The fast read on what this bot is, how it is sourced, and what it has been doing recently.">
         <SettingsStatGrid
           items={[
@@ -704,7 +708,7 @@ export default function BotEditorScreen() {
         {!isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile={false} visibleGroups={visibleGroups} />}
         <main className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-5 md:px-6">
-            {activeGroup === "overview" && <OverviewSection draft={draft} usage={usageSummary} logs={usageLogs} setGroup={setActiveGroup} />}
+            {activeGroup === "overview" && <OverviewSection draft={draft} usage={usageSummary} logs={usageLogs} setGroup={setActiveGroup} readinessBotId={isNew ? undefined : draft.id} />}
             {activeGroup === "identity" && <IdentitySection draft={draft} editorData={editorData} isNew={isNew} update={update} />}
             {activeGroup === "prompt" && <PromptPersonaSection draft={draft} editorData={editorData} botId={botId} update={update} />}
             {activeGroup === "tools" && <ToolsSkillsSection editorData={editorData} draft={draft} update={update} setGroup={setActiveGroup} />}

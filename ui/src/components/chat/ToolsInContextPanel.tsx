@@ -12,6 +12,7 @@ import { Wrench, Search, X, Pin } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { useChannelEffectiveTools } from "../../api/hooks/useChannels";
 import { useBot } from "../../api/hooks/useBots";
+import { useAgentCapabilities } from "../../api/hooks/useAgentCapabilities";
 import { useTools, type ToolItem } from "../../api/hooks/useTools";
 import { tokenize } from "../shared/ToolSelector";
 
@@ -69,6 +70,14 @@ export function ToolsInContextPanel({ channelId, botId, onInsertToolTag, onClose
 
   const { pinned, included, discoveryOn } = useToolsPosture({ channelId, botId });
   const { data: tools = [], isLoading } = useTools();
+  const { data: capabilities } = useAgentCapabilities({
+    botId,
+    channelId,
+    includeEndpoints: false,
+    includeSchemas: false,
+    maxTools: 24,
+    enabled: Boolean(botId || channelId),
+  });
 
   const pinnedEntries = useMemo(() => {
     const map = new Map<string, ToolItem>();
@@ -78,6 +87,16 @@ export function ToolsInContextPanel({ channelId, botId, onInsertToolTag, onClose
       tool: map.get(name),
     }));
   }, [tools, pinned]);
+
+  const recommended = useMemo(() => {
+    if (!capabilities?.tools?.recommended_core?.length || !tools.length) return [];
+    const byName = new Map<string, ToolItem>();
+    for (const tool of tools) byName.set(tool.tool_name, tool);
+    return capabilities.tools.recommended_core
+      .map((name) => byName.get(name))
+      .filter((tool): tool is ToolItem => Boolean(tool))
+      .slice(0, 6);
+  }, [capabilities, tools]);
 
   const filtered = useMemo(() => {
     if (!tools.length) return [];
@@ -184,14 +203,34 @@ export function ToolsInContextPanel({ channelId, botId, onInsertToolTag, onClose
             {isLoading ? "" : "No tools match."}
           </div>
         ) : (
-          filtered.map(({ tool, status }) => (
-            <CatalogRow
-              key={`${tool.tool_name}:${tool.id}`}
-              tool={tool}
-              status={status}
-              onSelect={onInsertToolTag}
-            />
-          ))
+          <>
+            {!search.trim() && recommended.length > 0 && (
+              <div
+                className="py-1"
+                style={{ borderBottom: `1px solid ${t.surfaceBorder}55` }}
+              >
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+                  Recommended now
+                </div>
+                {recommended.map((tool) => (
+                  <CatalogRow
+                    key={`recommended:${tool.tool_name}:${tool.id}`}
+                    tool={tool}
+                    status={statusFor(tool.tool_name, pinned, included, discoveryOn)}
+                    onSelect={onInsertToolTag}
+                  />
+                ))}
+              </div>
+            )}
+            {filtered.map(({ tool, status }) => (
+              <CatalogRow
+                key={`${tool.tool_name}:${tool.id}`}
+                tool={tool}
+                status={status}
+                onSelect={onInsertToolTag}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>

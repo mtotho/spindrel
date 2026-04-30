@@ -47,6 +47,7 @@ _FILE_TO_TIER = {
     "test_harness_live_smoke": "server_behavior",
     "test_harness_live_parity": "server_behavior",
     "test_spindrel_plan_live": "server_behavior",
+    "test_widget_improvement_loop": "server_behavior",
 }
 
 

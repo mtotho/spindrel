@@ -11,6 +11,7 @@ import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { EmptyState } from "@/src/components/shared/FormControls";
 import { ActionButton, InfoBanner, QuietPill, SettingsControlRow, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
 import { HoverPopover, SkillPreview, ToolPreview } from "@/src/components/shared/ItemPreviewPopover";
+import { AgentReadinessPanel } from "@/src/components/shared/AgentReadinessPanel";
 import { ActivationsSection } from "./integrations/ActivationsSection";
 
 function SectionLabel({ icon, label, count }: { icon: React.ReactNode; label: string; count?: number }) {
@@ -134,6 +135,8 @@ export function ToolsOverrideTab({ channelId, botId, isHarness = false }: { chan
   return (
     <div className="flex flex-col gap-5">
       <ActivationsSection channelId={channelId} />
+
+      <AgentReadinessPanel botId={botId} channelId={channelId} />
 
       {isHarness && (
         <InfoBanner variant="info" icon={<Wrench size={14} />}>

@@ -482,7 +482,7 @@ def _native_slash_specs(
             name="harness-codex-native-plugin-install-handoff-dark",
             route=codex_route,
             wait_js=codex_handoff_wait,
-            contains=("Unsupported Codex command arguments", "Terminal command", "codex plugin install spindrel-fixture-nonexistent"),
+            contains=("Open terminal for Codex command", "Terminal command", "codex plugin install spindrel-fixture-nonexistent"),
             theme="dark",
             channel_id=codex_channel_id,
             chat_mode="default",

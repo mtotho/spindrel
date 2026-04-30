@@ -11,6 +11,7 @@ import uuid
 from integrations.codex import schema
 from integrations.codex.harness import (
     _build_turn_input,
+    _codex_native_app_server_params_for_context,
     _codex_native_command_is_mutating,
     _codex_skill_paths_by_name,
     _dynamic_tool_entry,
@@ -299,6 +300,14 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_CONFIG_VALUE_WRITE,
         {"keyPath": "model", "value": "gpt-5.4", "mergeStrategy": "upsert"},
     )
+
+
+def test_codex_native_skills_list_is_scoped_to_harness_workdir():
+    ctx = _turn_ctx()
+
+    params = _codex_native_app_server_params_for_context(schema.METHOD_SKILLS_LIST, {}, ctx)
+
+    assert params == {"cwds": ["/tmp/project"]}
 
 
 def test_codex_native_command_classifies_mutating_args():

@@ -500,9 +500,21 @@ async def test_harness_runtime_command_dispatches_to_whitelisted_runtime(db_sess
     assert "args=extra" in result.payload["detail"]
 
 
-async def test_harness_native_command_dispatches_by_direct_slash_name(db_session):
+async def test_harness_native_command_dispatches_by_direct_slash_name(db_session, monkeypatch):
     bot, channel, session = await _make_harness_setup(db_session)
 
+    async def fake_resolve_harness_paths(db, *, channel_id, bot):
+        return type("Paths", (), {
+            "workdir": "/effective/project",
+            "bot_workspace_dir": "/bot/workspace",
+            "project_dir": None,
+            "work_surface": None,
+        })()
+
+    monkeypatch.setattr(
+        "app.services.agent_harnesses.project.resolve_harness_paths",
+        fake_resolve_harness_paths,
+    )
     result = await execute_slash_command(
         command_id="status",
         channel_id=channel.id,
@@ -516,6 +528,7 @@ async def test_harness_native_command_dispatches_by_direct_slash_name(db_session
     assert result.payload["runtime"] == _RUNTIME_NAME
     assert result.payload["command"] == "status"
     assert "args=extra" in result.payload["detail"]
+    assert result.payload["data"]["workdir"] == "/effective/project"
 
 
 async def test_harness_native_command_dispatches_by_alias(db_session):

@@ -470,6 +470,9 @@ the system can already inspect" is a shared capability manifest:
 - The endpoint catalog now includes OpenAPI-derived params/body/response hints
   when available, and `call_api` accepts structured JSON bodies so agents do
   not have to hand-escape request payloads.
+- The UI consumes the same manifest in bot overview, channel tool overrides,
+  and the chat composer. The composer now has an Agent readiness view and the
+  tools menu promotes manifest-recommended core tools.
 - This is inspection-only. Follow-up Mission Control work should stage fixes
   from these findings through existing approval/change mechanisms rather than
   adding a separate mutation path.

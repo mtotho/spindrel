@@ -801,6 +801,11 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_run_preset(self, preset_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/admin/run-presets/{preset_id}")
+        resp.raise_for_status()
+        return resp.json()
+
     async def create_task(self, payload: dict[str, Any]) -> dict:
         resp = await self._client.post("/api/v1/admin/tasks", json=payload)
         resp.raise_for_status()
@@ -832,6 +837,39 @@ class E2EClient:
 
     async def delete_task(self, task_id: str) -> None:
         resp = await self._client.delete(f"/api/v1/admin/tasks/{task_id}")
+        if resp.status_code not in (200, 204, 404):
+            resp.raise_for_status()
+
+    async def get_channel_widget_usefulness(self, channel_id: str) -> dict:
+        resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/widget-usefulness")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_widget_agency_receipts(self, channel_id: str, *, limit: int = 20) -> list[dict]:
+        resp = await self._client.get(
+            f"/api/v1/admin/channels/{channel_id}/widget-agency/receipts",
+            params={"limit": limit},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return list((data or {}).get("receipts") or [])
+
+    async def list_dashboard_pins(self, dashboard_key: str) -> list[dict]:
+        resp = await self._client.get(
+            "/api/v1/widgets/dashboard",
+            params={"slug": dashboard_key},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return list((data or {}).get("pins") or [])
+
+    async def create_dashboard_pin(self, payload: dict[str, Any]) -> dict:
+        resp = await self._client.post("/api/v1/widgets/dashboard/pins", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def delete_dashboard_pin(self, pin_id: str) -> None:
+        resp = await self._client.delete(f"/api/v1/widgets/dashboard/pins/{pin_id}")
         if resp.status_code not in (200, 204, 404):
             resp.raise_for_status()
 

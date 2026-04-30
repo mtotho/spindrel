@@ -426,6 +426,7 @@ class CodexRuntime:
         try:
             async with CodexAppServer.spawn(extra_env=dict(ctx.env)) as client:
                 await client.initialize()
+                params = _codex_native_app_server_params_for_context(method, params, ctx)
                 result = await client.request(method, params, timeout=20.0)
         except CodexBinaryNotFound as exc:
             return HarnessRuntimeCommandResult(
@@ -492,6 +493,18 @@ def _codex_native_command_is_mutating(command_id: str, args: tuple[str, ...]) ->
     if command_id == "config":
         return first in {"set", "write", "upsert", "replace"}
     return False
+
+
+def _codex_native_app_server_params_for_context(
+    method: str | None,
+    params: dict[str, Any],
+    ctx: TurnContext,
+) -> dict[str, Any]:
+    """Add harness context to app-server calls that would otherwise use process cwd."""
+
+    if method == schema.METHOD_SKILLS_LIST and not params.get("cwds"):
+        return {**params, "cwds": [ctx.workdir]}
+    return params
 
 
 def _resolve_codex_native_app_server_call(

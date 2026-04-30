@@ -9,9 +9,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { Plus, Paperclip, Sparkles, ChevronRight, ArrowLeft, Wrench } from "lucide-react";
+import { Plus, Paperclip, Sparkles, ChevronRight, ArrowLeft, Wrench, Gauge, AlertCircle, CheckCircle2 } from "lucide-react";
 
 import { useThemeTokens } from "../../theme/tokens";
+import { useAgentCapabilities } from "../../api/hooks/useAgentCapabilities";
+import { AgentReadinessPanel } from "../shared/AgentReadinessPanel";
 import { SkillsInContextPanel, useSkillsInContext } from "./SkillsInContextPanel";
 import { ToolsInContextPanel, useToolsPosture } from "./ToolsInContextPanel";
 
@@ -29,7 +31,7 @@ interface ComposerAddMenuProps {
   isMobile?: boolean;
 }
 
-type View = "root" | "skills" | "tools";
+type View = "root" | "skills" | "tools" | "readiness";
 
 export function ComposerAddMenu({
   channelId,
@@ -55,6 +57,14 @@ export function ComposerAddMenu({
 
   const { pinnedCount } = useToolsPosture({ channelId, botId });
   const toolsEmpty = pinnedCount === 0;
+  const { data: readiness } = useAgentCapabilities({
+    botId,
+    channelId,
+    includeEndpoints: false,
+    includeSchemas: false,
+    maxTools: 12,
+    enabled: Boolean(botId || channelId),
+  });
 
   // Outside click dismiss.
   useEffect(() => {
@@ -123,7 +133,7 @@ export function ComposerAddMenu({
   // children can distribute space + the list's `overflow-y-auto` engages.
   // `maxHeight` alone lets content grow past the visible area and clips the
   // top (header + search become unreachable). Root view stays auto-sized.
-  const inSubView = view === "skills" || view === "tools";
+  const inSubView = view === "skills" || view === "tools" || view === "readiness";
   const sizedHeight = inSubView ? "min(60vh, 520px)" : undefined;
 
   return (
@@ -197,6 +207,11 @@ export function ComposerAddMenu({
           >
             {view === "root" ? (
               <div className="flex flex-col py-1">
+                <ReadinessMenuRow
+                  status={readiness?.doctor.status}
+                  message={readiness?.doctor.findings?.[0]?.message}
+                  onClick={() => setView("readiness")}
+                />
                 <MenuRow
                   icon={<Paperclip size={14} color={t.textMuted} />}
                   label="Attach files or photos"
@@ -240,7 +255,7 @@ export function ComposerAddMenu({
                       }}
                       onClose={() => setOpen(false)}
                     />
-                  ) : (
+                  ) : view === "tools" ? (
                     <ToolsInContextPanel
                       channelId={channelId}
                       botId={botId}
@@ -250,6 +265,10 @@ export function ComposerAddMenu({
                       }}
                       onClose={() => setOpen(false)}
                     />
+                  ) : (
+                    <div className="overflow-y-auto p-3">
+                      <AgentReadinessPanel botId={botId} channelId={channelId} compact={false} maxTools={12} />
+                    </div>
                   )}
                 </div>
               </div>
@@ -258,6 +277,49 @@ export function ComposerAddMenu({
           document.body,
         )}
     </>
+  );
+}
+
+function ReadinessMenuRow({
+  status,
+  message,
+  onClick,
+}: {
+  status?: string;
+  message?: string;
+  onClick: () => void;
+}) {
+  const t = useThemeTokens();
+  const ok = status === "ok";
+  const error = status === "error";
+  const icon = ok
+    ? <CheckCircle2 size={14} color={t.success} />
+    : error
+      ? <AlertCircle size={14} color={t.danger} />
+      : <Gauge size={14} color={t.warning} />;
+  const label = status ? status.replace(/_/g, " ") : "checking";
+  const badgeColor = ok ? t.success : error ? t.danger : t.warning;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full flex-row items-start gap-2.5 border-none bg-transparent px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+    >
+      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] text-text">Agent readiness</span>
+        <span className="mt-0.5 block truncate text-[10px] text-text-dim">
+          {message || (ok ? "Ready to act with current grants" : "Inspect available tools, skills, and grants")}
+        </span>
+      </span>
+      <span
+        className="mt-px shrink-0 rounded px-1.5 py-px text-[9px] font-semibold uppercase"
+        style={{ color: badgeColor, background: `${badgeColor}1A` }}
+      >
+        {label}
+      </span>
+      <ChevronRight size={12} color={t.textDim} className="mt-1 shrink-0" />
+    </button>
   );
 }
 

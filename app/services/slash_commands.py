@@ -855,7 +855,7 @@ async def _execute_native_runtime_command(
         bot_id=bot.id,
         turn_id=uuid.uuid4(),
         channel_id=session.channel_id or session.parent_channel_id,
-        workdir=paths.bot_workspace_dir,
+        workdir=paths.workdir,
         env=dict(runtime_env.env) if runtime_env is not None else None,
         harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
         permission_mode=mode,
