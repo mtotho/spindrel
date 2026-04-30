@@ -12,6 +12,8 @@ import time
 import uuid
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import settings
 from app.agent.tool_dispatch import ToolResultEnvelope
 from app.schemas.widget_actions import (
@@ -225,9 +227,20 @@ async def _persist_refreshed_pin_envelopes(updates: dict[uuid.UUID, dict]) -> No
 
 async def refresh_widget_states_batch(
     req: WidgetRefreshBatchRequest,
+    *,
+    db: AsyncSession | None = None,
+    auth: object | None = None,
 ) -> WidgetRefreshBatchResponse:
     _evict_stale_cache()
     from app.agent.context import current_bot_id, current_channel_id
+
+    if auth is not None:
+        if db is None:
+            raise RuntimeError("db is required when auth is provided")
+        from app.services.widget_action_auth import authorize_widget_refresh_request
+
+        for item in req.requests:
+            await authorize_widget_refresh_request(db, auth, item)
 
     pin_contexts = await _load_refresh_pin_contexts(req.requests)
     results: dict[str, WidgetRefreshBatchResult] = {}
@@ -347,8 +360,20 @@ async def refresh_widget_states_batch(
     return WidgetRefreshBatchResponse(ok=all(item.ok for item in ordered), results=ordered)
 
 
-async def refresh_widget_state(req: WidgetRefreshRequest) -> WidgetActionResponse:
+async def refresh_widget_state(
+    req: WidgetRefreshRequest,
+    *,
+    db: AsyncSession | None = None,
+    auth: object | None = None,
+) -> WidgetActionResponse:
     _evict_stale_cache()
+
+    if auth is not None:
+        if db is None:
+            raise RuntimeError("db is required when auth is provided")
+        from app.services.widget_action_auth import authorize_widget_refresh_request
+
+        await authorize_widget_refresh_request(db, auth, req)
 
     poll_cfg = get_state_poll_config(req.tool_name)
     if not poll_cfg:

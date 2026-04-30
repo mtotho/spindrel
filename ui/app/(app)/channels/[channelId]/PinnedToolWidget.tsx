@@ -926,6 +926,73 @@ export function PinnedToolWidget({
       </div>
     );
   }
+  if (isDashboard && effectiveLayout === "header") {
+    const chipEditable = editMode && !!externalDrag;
+    return (
+      <div
+        ref={rootRef}
+        className={
+          "group flex h-full min-h-0 w-full items-center overflow-hidden rounded-md transition-colors "
+          + (showBorder ? "border border-surface-border/60 " : "")
+          + (showWrapperBackground ? "bg-surface-raised/45 hover:bg-white/[0.04] " : "")
+          + (chipEditable ? "ring-1 ring-inset ring-accent/20 " : "")
+        }
+        title={resolveDisplayName(widget)}
+        style={sortableStyle}
+        {...rootAttrs}
+      >
+        {chipEditable && (
+          <div
+            className="widget-drag-handle flex h-full w-8 shrink-0 cursor-grab items-center justify-center text-text-muted opacity-80 transition-colors hover:bg-white/[0.05] hover:text-text active:cursor-grabbing"
+            aria-label="Move widget"
+            title="Move widget"
+            {...(handleListeners ?? {})}
+          >
+            <Move size={13} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 self-stretch overflow-hidden">
+          <RichToolResult
+            envelope={currentEnvelope}
+            sessionId={viewedSessionId ?? undefined}
+            channelId={channelId ?? undefined}
+            dispatcher={dispatcher}
+            fillHeight={false}
+            dashboardPinId={widget.id}
+            gridDimensions={measuredSize ?? undefined}
+            onIframeReady={handleIframeReady}
+            hoverScrollbars={hostPolicy.hoverScrollbars}
+            layout={hostPolicy.zone}
+            hostSurface={hostPolicy.wrapperSurface}
+            presentationFamily={hostPolicy.presentationFamily}
+            t={t}
+          />
+        </div>
+        {chipEditable && onEdit && (
+          <button
+            type="button"
+            onClick={() => onEdit(widget.id)}
+            className="flex h-full w-7 shrink-0 items-center justify-center text-text-muted opacity-70 transition-colors hover:bg-white/[0.05] hover:text-text"
+            aria-label="Edit pin"
+            title="Edit pin"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
+        {chipEditable && (
+          <button
+            type="button"
+            onClick={() => onUnpin(widget.id)}
+            className="flex h-full w-7 shrink-0 items-center justify-center text-text-muted opacity-70 transition-colors hover:bg-white/[0.05] hover:text-text"
+            aria-label="Unpin widget"
+            title="Unpin"
+          >
+            <X size={12} />
+          </button>
+        )}
+      </div>
+    );
+  }
   return (
       <div
         ref={rootRef}

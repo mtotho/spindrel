@@ -71,13 +71,19 @@ def _classify_domain_error(exc: BaseException) -> str:
 async def dispatch_widget_action(
     req: WidgetActionRequest,
     db: AsyncSession,
+    *,
+    auth: object,
 ) -> WidgetActionResponse:
+    from app.services.widget_action_auth import authorize_widget_action_request
+
+    await authorize_widget_action_request(db, auth, req)
+
     if req.dispatch == "tool":
         return await _dispatch_tool(req, db)
     if req.dispatch == "api":
         return await _dispatch_api(req)
     if req.dispatch == "widget_config":
-        return await _dispatch_widget_config(req)
+        return await _dispatch_widget_config(req, db)
     if req.dispatch in ("db_query", "db_exec"):
         return await _dispatch_db(req, db)
     if req.dispatch == "widget_handler":
@@ -636,23 +642,32 @@ def _build_result_envelope(
     return _build_default_envelope(raw_result, cap_body=cap_body)
 
 
-async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionResponse:
+async def _dispatch_widget_config(req: WidgetActionRequest, db: AsyncSession | None = None) -> WidgetActionResponse:
     if req.config is None:
         return WidgetActionResponse(ok=False, error="Missing 'config' for widget_config dispatch")
     if req.dashboard_pin_id is None:
         return WidgetActionResponse(ok=False, error="Missing 'dashboard_pin_id' for widget_config dispatch")
 
-    from app.db.engine import async_session
     from app.services.dashboard_pins import apply_dashboard_pin_config_patch
 
     try:
-        async with async_session() as db:
+        if db is not None:
             patched_pin = await apply_dashboard_pin_config_patch(
                 db,
                 req.dashboard_pin_id,
                 req.config,
                 merge=True,
             )
+        else:
+            from app.db.engine import async_session
+
+            async with async_session() as session:
+                patched_pin = await apply_dashboard_pin_config_patch(
+                    session,
+                    req.dashboard_pin_id,
+                    req.config,
+                    merge=True,
+                )
     except DomainError as exc:
         return WidgetActionResponse(
             ok=False,

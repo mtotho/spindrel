@@ -116,7 +116,27 @@ At startup, Spindrel imports every `.py` file in `tools/` (except underscore-pre
 - **Async preferred** — use `async def` for I/O-bound tools (HTTP calls, file reads)
 - **Sync works too** — `def my_tool()` is fine for CPU-bound or trivial tools
 - **Graceful degradation** — check for missing API keys/config and return a clear error message
+- **Actionable errors** — keep the top-level `error` string and add `error_code`, `error_kind`, `retryable`, optional `retry_after_seconds`, and `fallback` for new failure paths
 - **Underscore prefix = skip** — `_helpers.py` won't be imported as a tool
+
+New tool failures should follow the shared agent error contract so bots and
+Mission Control can distinguish benign input/setup issues from retryable
+outages and platform bugs:
+
+```python
+from app.services.tool_error_contract import build_tool_error
+
+return json.dumps(build_tool_error(
+    message="OPENWEATHERMAP_API_KEY is not configured.",
+    error_code="missing_openweathermap_api_key",
+    error_kind="config_missing",
+    tool_name="get_weather",
+))
+```
+
+Existing `{"error": "..."}` returns still work. The dispatcher enriches them
+when it can, but explicit fields are better for agents and later review
+filtering.
 
 ### Tool Discovery (RAG)
 

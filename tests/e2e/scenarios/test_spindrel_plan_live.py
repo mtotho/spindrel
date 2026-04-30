@@ -204,6 +204,30 @@ def _plan_envelope_bodies(messages: list[dict]) -> list[dict]:
     return bodies
 
 
+def _assert_plan_tool_result_messages_have_tool_calls(messages: list[dict]) -> None:
+    plan_result_messages: list[dict] = []
+    missing: list[str] = []
+    for message in _assistant_messages(messages):
+        meta = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        plan_results = [
+            result
+            for result in meta.get("tool_results") or []
+            if isinstance(result, dict) and result.get("content_type") == PLAN_CONTENT_TYPE
+        ]
+        if not plan_results:
+            continue
+        plan_result_messages.append(message)
+        tool_calls = [call for call in message.get("tool_calls") or [] if isinstance(call, dict)]
+        tool_call_ids = {str(call.get("id") or "") for call in tool_calls if call.get("id")}
+        for result in plan_results:
+            result_call_id = str(result.get("tool_call_id") or "")
+            if not result_call_id or result_call_id not in tool_call_ids:
+                missing.append(result_call_id or "<missing tool_call_id>")
+
+    assert plan_result_messages, "no assistant messages persisted plan tool result envelopes"
+    assert not missing, f"plan tool result envelopes are missing matching assistant tool_calls: {missing}"
+
+
 def _plan_runtime(state: dict) -> dict:
     runtime = state.get("runtime")
     return runtime if isinstance(runtime, dict) else {}
@@ -1394,6 +1418,7 @@ async def test_live_spindrel_adherence_executes_plan_records_and_reviews(client:
     assert "record_plan_progress" in result.tools_used
 
     messages = await client.get_session_messages(session_id, limit=20)
+    _assert_plan_tool_result_messages_have_tool_calls(messages)
     tool_messages = [message for message in messages if message.get("role") == "tool"]
     assert any(exact_content in str(message.get("content") or "") for message in tool_messages), (
         "native file read did not return the exact planned marker content"
@@ -1800,6 +1825,7 @@ async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client:
         bot_id=bot_id,
         path=planned_path,
     )
+    _assert_plan_tool_result_messages_have_tool_calls(await client.get_session_messages(session_id, limit=30))
     _record_session("adherence_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
 
 
@@ -1874,10 +1900,15 @@ async def test_live_spindrel_adherence_replan_revision_approval_reenables_mutati
         path=revised_path,
     )
 
+    draft_before_update = await client.get_session_plan(session_id)
+    draft_revision = int(draft_before_update["revision"])
+    assert int(draft_before_update["accepted_revision"]) == 1
+    assert draft_before_update["mode"] == "planning"
+
     revised = await client.update_session_plan(
         session_id,
         {
-            "revision": 2,
+            "revision": draft_revision,
             "summary": "Execute the revised marker path after mid-step scope change.",
             "scope": f"Live E2E diagnostics only; create only {revised_path!r}; exclude {stale_path!r}.",
             "key_changes": [f"Replace stale marker path with {revised_path}."],
@@ -1889,8 +1920,8 @@ async def test_live_spindrel_adherence_replan_revision_approval_reenables_mutati
             "steps": [{"id": "create-revised-marker", "label": "Create the revised marker file"}],
         },
     )
-    assert revised["revision"] == 3
-    approved = await client.approve_session_plan(session_id, revision=3)
+    assert revised["revision"] == draft_revision + 1
+    approved = await client.approve_session_plan(session_id, revision=revised["revision"])
     assert approved["mode"] == "executing"
 
     executed = await client.chat_session_stream(

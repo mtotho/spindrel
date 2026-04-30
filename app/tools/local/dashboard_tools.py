@@ -1888,9 +1888,14 @@ async def invoke_widget_action(
             if pin_id_text is not None:
                 body["dashboard_pin_id"] = pin_id_text
             from app.schemas.widget_actions import WidgetActionRequest
+            from app.services.widget_action_auth import system_widget_action_auth
             from app.services.widget_action_dispatch import dispatch_widget_action
 
-            resp = await dispatch_widget_action(WidgetActionRequest(**body), db)
+            resp = await dispatch_widget_action(
+                WidgetActionRequest(**body),
+                db,
+                auth=system_widget_action_auth("dashboard-tool"),
+            )
             payload = {
                 "ok": resp.ok,
                 "action": action,

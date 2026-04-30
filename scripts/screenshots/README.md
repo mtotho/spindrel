@@ -96,6 +96,10 @@ Deeper tiers build on that path:
 - `skills` creates a temporary skill, tags it with `@skill:<id>`, and verifies a bridged `get_skill` call persists a renderable result envelope.
 - `replay` refetches a harness session after a bridge tool call and verifies the persisted transcript/tool-result metadata still renders from stored messages.
 
+The default runner channel ids are shared live Codex/Claude channels. Focused
+pytest slices with `-k` can run in parallel, but run full tier sweeps
+sequentially until the runner allocates isolated disposable channels per sweep.
+
 The runner prefers the running app container's `API_KEY` over the host `.env`,
 waits for `/health` before pytest starts, and uses `E2E_BOT_ID=default` for the
 generic E2E fixture readiness check; Codex and Claude harness turns still

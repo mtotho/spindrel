@@ -70,6 +70,9 @@ async def test_execute_tool_error_passthrough(auth_headers):
     assert resp.status_code == 200
     data = resp.json()
     assert data["error"] == "SONARR_URL is not configured"
+    assert data["error_code"] == "tool_execute_error"
+    assert data["error_kind"] == "config_missing"
+    assert data["retryable"] is False
 
 
 @pytest.mark.asyncio
@@ -252,6 +255,8 @@ async def test_execute_mcp_tool_error_passthrough(auth_headers):
             )
     assert resp.status_code == 200
     assert "timeout" in resp.json()["error"]
+    assert resp.json()["error_kind"] == "timeout"
+    assert resp.json()["retryable"] is True
 
 
 @pytest.mark.asyncio

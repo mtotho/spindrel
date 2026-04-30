@@ -176,6 +176,15 @@ export interface AgentWorkState {
   }>;
 }
 
+export interface AgentToolErrorContract {
+  version?: string;
+  fields?: string[];
+  retryable_kinds?: string[];
+  benign_review_kinds?: string[];
+  error_kind_descriptions?: Record<string, string>;
+  backward_compatibility?: string;
+}
+
 export interface AgentCapabilityManifest {
   schema_version: string;
   context: {
@@ -190,6 +199,7 @@ export interface AgentCapabilityManifest {
     endpoint_count?: number;
     endpoints?: unknown[];
   };
+  tool_error_contract?: AgentToolErrorContract;
   tools: {
     catalog_count?: number;
     working_set_count?: number;

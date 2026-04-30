@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, projects]
 status: active
-updated: 2026-04-29
+updated: 2026-04-30
 ---
 
 # Track - Projects
@@ -33,9 +33,10 @@ Evergreen scope for first-class Project roots inside the singleton SharedWorkspa
 - [x] **Phase 4A - Fresh Project instances** — Added `project_instances`, session/task bindings, creation/list APIs, shared work-surface resolution for instance roots, task-run opt-in via `execution_config.project_instance.mode=fresh`, session binding APIs, a Project Instances tab, task form work-surface controls, docs, and screenshot staging/spec coverage. Live e2e screenshot staging is waiting on the e2e backend deployment of `/api/v1/projects/{id}/instances`.
 - [x] **Phase 4B - Session fresh workspace control** — Added a readable session Project-instance state API, session summary fields, composer-level work-surface control, split-pane session menu actions, and screenshot assertion coverage for the Project-bound channel composer. The UI deliberately avoids header chips; session work-surface state lives near the command surface that will use it.
 - [x] **Phase 4C - Agent coding runs v0** — Fresh Project instances now flow through the same work-surface policy as shared Projects for file/exec/harness/context/index behavior. Added Project coding-run presets, Project run receipts, a `publish_project_run_receipt` bot tool, Project receipt API/UI, Agent Doctor coding-run readiness, and screenshot bundle coverage for the Runs tab.
+- [x] **Phase 4D - Real shared-root smoke** — Ran a main-server Project-bound agent task through the shared `common/projects` root. The agent fast-forwarded `mtotho/spindrel`, created a text-only fixture branch, opened draft PR #102, and published Project run receipts. Screenshot evidence now includes the refreshed Project Workspace bundle plus main-server smoke channel/runs captures.
 
 ## Queued Follow-Ups
 
 - Fresh instances: add expiration cleanup and explicit delete/retry controls after the first deployed e2e screenshot pass.
 - Blueprint setup observability: split clone/command run phases into clearer progress events and add rerun controls after deployed E2E validates setup-command history.
-- Agent coding runs: add automatic branch/MR helpers, richer run progress, and e2e server update/capture automation once the receipt surface has a deployed screenshot baseline.
+- Agent coding runs: add automatic branch/MR helpers, richer run progress, native e2e/screenshot target configuration, and receipt idempotency before relying on this for unattended feature work.

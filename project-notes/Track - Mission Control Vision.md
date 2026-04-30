@@ -509,6 +509,12 @@ the system can already inspect" is a shared capability manifest:
   current bot with recent updates and `idle` / `advance_mission` /
   `review_attention`, while existing mission/attention tools remain the only
   write path.
+- Runtime tool failures now have a shared agent-facing error contract. The
+  manifest publishes `tool_error_contract`, dispatch/API-tool failures preserve
+  the legacy `error` string while adding `error_code`, `error_kind`,
+  `retryable`, `retry_after_seconds`, and `fallback`, and tool-call audit rows
+  persist those fields so later reviews can filter benign validation/setup
+  warnings away from retryable outages and platform bugs.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

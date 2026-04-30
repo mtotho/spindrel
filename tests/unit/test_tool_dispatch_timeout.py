@@ -53,6 +53,9 @@ async def test_local_tool_hang_is_cancelled_by_wall_clock_guard(
     with patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
          patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
          patch("app.agent.tool_dispatch.call_local_tool", side_effect=_hang), \
+         patch("app.agent.tool_dispatch._plan_mode_guard", new_callable=AsyncMock, return_value=None), \
+         patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock), \
+         patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock), \
          patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock):
         result = await dispatch_tool_call(
             name="slow_tool",
@@ -64,6 +67,10 @@ async def test_local_tool_hang_is_cancelled_by_wall_clock_guard(
     assert "error" in parsed
     assert "wall-clock" in parsed["error"]
     assert "slow_tool" in parsed["error"]
+    assert parsed["error_code"] == "tool_dispatch_timeout"
+    assert parsed["error_kind"] == "timeout"
+    assert parsed["retryable"] is True
+    assert result.tool_event["error_kind"] == "timeout"
 
 
 @pytest.mark.asyncio
@@ -82,6 +89,9 @@ async def test_mcp_tool_hang_is_cancelled_by_wall_clock_guard(
          patch("app.agent.tool_dispatch.is_mcp_tool", return_value=True), \
          patch("app.agent.tool_dispatch.get_mcp_server_for_tool", return_value="firecrawl"), \
          patch("app.agent.tool_dispatch.call_mcp_tool", side_effect=_hang), \
+         patch("app.agent.tool_dispatch._plan_mode_guard", new_callable=AsyncMock, return_value=None), \
+         patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock), \
+         patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock), \
          patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock):
         result = await dispatch_tool_call(
             name="firecrawl_search",
@@ -93,6 +103,9 @@ async def test_mcp_tool_hang_is_cancelled_by_wall_clock_guard(
     assert "error" in parsed
     assert "wall-clock" in parsed["error"]
     assert "firecrawl_search" in parsed["error"]
+    assert parsed["error_code"] == "tool_dispatch_timeout"
+    assert parsed["error_kind"] == "timeout"
+    assert parsed["retryable"] is True
 
 
 @pytest.mark.asyncio
@@ -106,6 +119,9 @@ async def test_fast_local_tool_not_affected_by_guard(dispatch_kwargs, monkeypatc
              "app.agent.tool_dispatch.call_local_tool",
              new_callable=AsyncMock, return_value='{"ok": true}',
          ), \
+         patch("app.agent.tool_dispatch._plan_mode_guard", new_callable=AsyncMock, return_value=None), \
+         patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock), \
+         patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock), \
          patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock):
         result = await dispatch_tool_call(
             name="fast_tool",
@@ -145,5 +161,8 @@ async def test_client_tool_timeout_removes_pending_request(monkeypatch):
     parsed = json.loads(raw_result)
     assert tc_type == "client"
     assert tc_server is None
-    assert parsed == {"error": "Client did not respond in time"}
+    assert parsed["error"] == "Client did not respond in time"
+    assert parsed["error_code"] == "client_tool_timeout"
+    assert parsed["error_kind"] == "timeout"
+    assert parsed["retryable"] is True
     assert pending.pending_count() == 0

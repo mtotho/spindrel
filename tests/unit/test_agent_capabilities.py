@@ -143,6 +143,8 @@ async def test_manifest_includes_runtime_context(monkeypatch):
 
     assert manifest["runtime_context"]["recommendation"] == "continue"
     assert manifest["work_state"]["summary"]["recommended_next_action"] == "idle"
+    assert manifest["tool_error_contract"]["version"] == "tool-error.v1"
+    assert "validation" in manifest["tool_error_contract"]["benign_review_kinds"]
     assert "context_should_summarize" not in {
         finding["code"] for finding in manifest["doctor"]["findings"]
     }

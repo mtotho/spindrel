@@ -28,6 +28,7 @@ from app.db.models import (
 )
 from app.services import api_keys as _api_keys_mod
 from app.services.api_keys import SCOPE_PRESETS, has_scope
+from app.services.tool_error_contract import tool_error_contract
 from app.tools.registry import _tools as _local_tools
 
 
@@ -1085,6 +1086,7 @@ async def build_agent_capability_manifest(
             "endpoints": endpoints if include_endpoints else [],
             "catalog_detail": "request/response schemas are included when FastAPI OpenAPI exposes them",
         },
+        "tool_error_contract": tool_error_contract(),
         "tools": await _tool_payload(db, bot, include_schemas=include_schemas, max_tools=max_tools),
         "skills": await _skill_payload(db, bot, channel),
         "project": await _project_payload(db, channel),

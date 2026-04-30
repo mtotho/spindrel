@@ -6,6 +6,7 @@ from typing import Any
 from app.agent.llm import AccumulatedMessage
 from app.agent.loop_helpers import (
     _append_transcript_text_entry,
+    _collapse_final_assistant_tool_turn,
     _extract_client_actions,
     _sanitize_llm_text,
 )
@@ -93,6 +94,7 @@ async def stream_loop_tool_iteration(
             text = "Plan progress recorded."
             _append_transcript_text_entry(state.transcript_entries, text)
             state.messages.append(_plan_progress_final_assistant_message(text, state))
+            _collapse_final_assistant_tool_turn(state.messages, turn_start=ctx.turn_start)
             yield _event_with_compaction_tag({
                 "type": "response",
                 "text": text,

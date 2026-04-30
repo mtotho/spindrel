@@ -36,8 +36,9 @@ router = APIRouter(
 async def dispatch_widget_action(
     req: WidgetActionRequest,
     db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
 ) -> WidgetActionResponse:
-    return await dispatch_widget_action_service(req, db)
+    return await dispatch_widget_action_service(req, db, auth=auth)
 
 
 @router.get("/stream")
@@ -51,6 +52,8 @@ async def widget_event_stream_endpoint(
         None,
         description="Last seq seen; replay ring-buffered events after this seq.",
     ),
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
 ):
     """SSE stream of channel events, consumable by ``window.spindrel.stream``."""
     from app.services.widget_action_stream import (
@@ -62,6 +65,15 @@ async def widget_event_stream_endpoint(
         kind_set = parse_kinds_csv(kinds)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    from app.services.widget_action_auth import authorize_widget_channel_access
+
+    await authorize_widget_channel_access(
+        db,
+        auth,
+        channel_id,
+        required_scope="channels:read",
+    )
 
     return StreamingResponse(
         widget_event_stream(
@@ -80,10 +92,16 @@ async def widget_event_stream_endpoint(
 @router.post("/refresh-batch", response_model=WidgetRefreshBatchResponse)
 async def refresh_widget_states_batch(
     req: WidgetRefreshBatchRequest,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
 ) -> WidgetRefreshBatchResponse:
-    return await refresh_widget_states_batch_service(req)
+    return await refresh_widget_states_batch_service(req, db=db, auth=auth)
 
 
 @router.post("/refresh", response_model=WidgetActionResponse)
-async def refresh_widget_state(req: WidgetRefreshRequest) -> WidgetActionResponse:
-    return await refresh_widget_state_service(req)
+async def refresh_widget_state(
+    req: WidgetRefreshRequest,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+) -> WidgetActionResponse:
+    return await refresh_widget_state_service(req, db=db, auth=auth)

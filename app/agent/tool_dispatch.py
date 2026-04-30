@@ -534,6 +534,11 @@ def _apply_error_payload(
     tool_call_id: str,
     error_message: str,
     raw_result: str | None = None,
+    error_code: str | None = None,
+    error_kind: str | None = None,
+    retryable: bool | None = None,
+    retry_after_seconds: int | None = None,
+    fallback: str | None = None,
 ) -> None:
     """Populate ``result_obj`` for an error / denial return path.
 
@@ -543,7 +548,39 @@ def _apply_error_payload(
     pre-serialized JSON string. Otherwise a ``{"error": error_message}`` JSON
     body is used for both the user-visible and LLM-visible result strings.
     """
-    payload = raw_result if raw_result is not None else json.dumps({"error": error_message})
+    if raw_result is not None:
+        try:
+            parsed = json.loads(raw_result)
+            if isinstance(parsed, dict) and parsed.get("error"):
+                from app.services.tool_error_contract import enrich_tool_error_payload
+                parsed = enrich_tool_error_payload(
+                    parsed,
+                    default_code=error_code or "tool_error",
+                    default_kind=error_kind,
+                    retryable=retryable,
+                    retry_after_seconds=retry_after_seconds,
+                    fallback=fallback,
+                    tool_name=tool_name,
+                )
+                payload = json.dumps(parsed, ensure_ascii=False)
+            else:
+                payload = raw_result
+        except (json.JSONDecodeError, TypeError, ValueError):
+            payload = raw_result
+    else:
+        from app.services.tool_error_contract import build_tool_error
+        payload = json.dumps(
+            build_tool_error(
+                message=error_message,
+                error_code=error_code or "tool_error",
+                error_kind=error_kind,
+                retryable=retryable,
+                retry_after_seconds=retry_after_seconds,
+                fallback=fallback,
+                tool_name=tool_name,
+            ),
+            ensure_ascii=False,
+        )
     result_obj.result = payload
     result_obj.result_for_llm = payload
     result_obj.tool_event = {
@@ -552,6 +589,14 @@ def _apply_error_payload(
         "tool_call_id": tool_call_id,
         "error": error_message,
     }
+    try:
+        parsed_payload = json.loads(payload)
+        if isinstance(parsed_payload, dict):
+            for key in ("error_code", "error_kind", "retryable", "retry_after_seconds", "fallback"):
+                if key in parsed_payload:
+                    result_obj.tool_event[key] = parsed_payload[key]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
 
 
 def _enqueue_denial_record(
@@ -567,6 +612,11 @@ def _enqueue_denial_record(
     error: str,
     correlation_id: uuid.UUID | None,
     envelope: dict | None = None,
+    error_code: str | None = None,
+    error_kind: str | None = None,
+    retryable: bool | None = None,
+    retry_after_seconds: int | None = None,
+    fallback: str | None = None,
 ) -> None:
     """Enqueue a ``_record_tool_call`` insert with ``status='denied'``.
 
@@ -587,6 +637,11 @@ def _enqueue_denial_record(
         duration_ms=0,
         correlation_id=correlation_id,
         status="denied",
+        error_code=error_code,
+        error_kind=error_kind,
+        retryable=retryable,
+        retry_after_seconds=retry_after_seconds,
+        fallback=fallback,
     )
     if envelope is not None:
         kwargs["envelope"] = envelope
@@ -630,12 +685,17 @@ async def _authorization_guard(
         return None
     _trace("✗ %s not authorized for bot %s", name, bot_id)
     err = f"Tool '{name}' is not available. It must be explicitly assigned to this bot."
-    _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+    _apply_error_payload(
+        result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+        error_code="tool_not_assigned", error_kind="forbidden",
+    )
     _enqueue_denial_record(
         session_id=session_id, client_id=client_id, bot_id=bot_id,
         tool_name=name, tool_type="unknown", iteration=iteration,
         arguments=arguments, result=result_obj.result,
         error=err, correlation_id=correlation_id,
+        error_code="tool_not_assigned", error_kind="forbidden", retryable=False,
+        fallback="Ask an admin to assign the tool or choose an assigned alternative.",
     )
     return result_obj
 
@@ -674,13 +734,26 @@ async def _execution_policy_guard(
     except Exception:
         logger.exception("Execution-policy validation failed for %s", name)
         err = "Tool call denied: unable to validate the machine-control policy. Please retry."
-        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        _apply_error_payload(
+            result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+            error_code="execution_policy_validation_failed", error_kind="unavailable",
+            retryable=True,
+        )
         return result_obj, execution_policy
     if resolution is None or resolution.allowed:
         return None, execution_policy
 
     exec_err = resolution.reason or "Tool call denied by execution policy."
-    deny_result = json.dumps({"error": "local_control_required", "message": exec_err})
+    from app.services.tool_error_contract import build_tool_error
+    deny_payload_error = build_tool_error(
+        message=exec_err,
+        error_code="local_control_required",
+        error_kind="approval_required",
+        retryable=False,
+        tool_name=name,
+        extra={"message": exec_err},
+    )
+    deny_result = json.dumps(deny_payload_error, ensure_ascii=False)
     deny_payload: dict = {
         "reason": exec_err,
         "execution_policy": execution_policy,
@@ -725,7 +798,13 @@ async def _execution_policy_guard(
     result_obj.envelope.tool_name = name
     result_obj.envelope.tool_call_id = tool_call_id
     result_obj.tool_event = {
-        "type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": exec_err,
+        "type": "tool_result", "tool": name, "tool_call_id": tool_call_id,
+        "error": exec_err,
+        "error_code": "local_control_required",
+        "error_kind": "approval_required",
+        "retryable": False,
+        "retry_after_seconds": None,
+        "fallback": deny_payload_error.get("fallback"),
     }
     _enqueue_denial_record(
         session_id=session_id, client_id=client_id, bot_id=bot_id,
@@ -733,6 +812,9 @@ async def _execution_policy_guard(
         arguments=arguments, result=result_obj.result,
         error=exec_err, correlation_id=correlation_id,
         envelope=result_obj.envelope.compact_dict(),
+        error_code="local_control_required", error_kind="approval_required",
+        retryable=False, retry_after_seconds=None,
+        fallback=deny_payload_error.get("fallback"),
     )
     return result_obj, execution_policy
 
@@ -779,7 +861,10 @@ async def _policy_and_approval_guard(
             return None
         if decision.action == "deny":
             err = f"Tool call denied by policy: {decision.reason or 'no reason'}"
-            _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+            _apply_error_payload(
+                result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+                error_code="tool_policy_denied", error_kind="forbidden",
+            )
             # Preserve legacy ``"Denied by policy: ..."`` phrasing on tool_event.error
             # for renderers / tests that match on it.
             result_obj.tool_event["error"] = f"Denied by policy: {decision.reason or 'no reason'}"
@@ -789,6 +874,8 @@ async def _policy_and_approval_guard(
                 tool_name=name, tool_type="unknown", iteration=iteration,
                 arguments=arguments, result=result_obj.result,
                 error=err, correlation_id=correlation_id,
+                error_code="tool_policy_denied", error_kind="forbidden", retryable=False,
+                fallback="Ask for approval/config changes or choose an allowed tool.",
             )
             return result_obj
         if decision.action == "require_approval":
@@ -812,7 +899,11 @@ async def _policy_and_approval_guard(
             except Exception:
                 logger.exception("Failed to create approval state for %s", name)
                 err = "Tool call denied: approval state could not be created. Please retry."
-                _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+                _apply_error_payload(
+                    result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+                    error_code="approval_state_create_failed", error_kind="unavailable",
+                    retryable=True,
+                )
                 return result_obj
             result_obj.needs_approval = True
             result_obj.approval_id = approval_id
@@ -832,7 +923,11 @@ async def _policy_and_approval_guard(
     except Exception:
         logger.exception("Policy check failed for %s — denying by default", name)
         err = "Tool call denied: policy evaluation error. Please retry."
-        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        _apply_error_payload(
+            result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+            error_code="policy_evaluation_error", error_kind="unavailable",
+            retryable=True,
+        )
         return result_obj
     return None
 
@@ -874,18 +969,26 @@ async def _plan_mode_guard(
         )
         if not err:
             return None
-        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        _apply_error_payload(
+            result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+            error_code="plan_mode_denied", error_kind="forbidden",
+        )
         _enqueue_denial_record(
             session_id=session_id, client_id=client_id, bot_id=bot_id,
             tool_name=name, tool_type=pre_hook_type, iteration=iteration,
             arguments=arguments, result=result_obj.result,
             error=err, correlation_id=correlation_id,
+            error_code="plan_mode_denied", error_kind="forbidden", retryable=False,
         )
         return result_obj
     except Exception:
         logger.exception("Plan-mode guard failed for %s — denying by default", name)
         err = "Tool call denied: unable to validate plan-mode restrictions. Please retry."
-        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        _apply_error_payload(
+            result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err,
+            error_code="plan_mode_validation_failed", error_kind="unavailable",
+            retryable=True,
+        )
         return result_obj
 
 
@@ -1023,6 +1126,9 @@ def _build_tool_event(
             err = parsed["error"]
             logger.warning("Tool %s returned error: %s", name, err)
             event["error"] = err
+            for key in ("error_code", "error_kind", "retryable", "retry_after_seconds", "fallback"):
+                if key in parsed:
+                    event[key] = parsed[key]
             _trace("← %s error: %s", name, str(err)[:80])
         else:
             _trace("← %s (%d chars)", name, len(result_for_llm))
@@ -1111,7 +1217,18 @@ async def _execute_tool_call(
         except asyncio.TimeoutError:
             expire_pending(request_id)
             logger.warning("Client tool %s timed out (request %s)", name, request_id)
-            result = json.dumps({"error": "Client did not respond in time"})
+            from app.services.tool_error_contract import build_tool_error
+            result = json.dumps(
+                build_tool_error(
+                    message="Client did not respond in time",
+                    error_code="client_tool_timeout",
+                    error_kind="timeout",
+                    retryable=True,
+                    retry_after_seconds=1,
+                    tool_name=name,
+                ),
+                ensure_ascii=False,
+            )
     elif is_local_tool(name):
         tc_type = "local"
         if name in ("update_persona", "append_to_persona", "edit_persona"):
@@ -1126,7 +1243,16 @@ async def _execute_tool_call(
         tc_type = "widget"
         tool_coro = _call_widget_handler_tool(name, args, bot_id, channel_id)
     else:
-        result = json.dumps({"error": f"Unknown tool: {name}"})
+        from app.services.tool_error_contract import build_tool_error
+        result = json.dumps(
+            build_tool_error(
+                message=f"Unknown tool: {name}",
+                error_code="unknown_tool",
+                error_kind="not_found",
+                tool_name=name,
+            ),
+            ensure_ascii=False,
+        )
 
     if tool_coro is not None:
         try:
@@ -1138,12 +1264,21 @@ async def _execute_tool_call(
                 "Tool %s exceeded %.0fs wall-clock — cancelled by dispatch guard",
                 name, settings.TOOL_DISPATCH_TIMEOUT,
             )
-            result = json.dumps({
-                "error": (
-                    f"Tool {name} exceeded {settings.TOOL_DISPATCH_TIMEOUT:.0f}s "
-                    "wall-clock and was cancelled. Try a different approach."
+            from app.services.tool_error_contract import build_tool_error
+            result = json.dumps(
+                build_tool_error(
+                    message=(
+                        f"Tool {name} exceeded {settings.TOOL_DISPATCH_TIMEOUT:.0f}s "
+                        "wall-clock and was cancelled. Try a different approach."
+                    ),
+                    error_code="tool_dispatch_timeout",
+                    error_kind="timeout",
+                    retryable=True,
+                    retry_after_seconds=1,
+                    tool_name=name,
                 ),
-            })
+                ensure_ascii=False,
+            )
 
     result_obj.duration_ms = int((time.monotonic() - t0) * 1000)
     return result, tc_type, tc_server
@@ -1293,12 +1428,29 @@ async def dispatch_tool_call(
     # can tell a benign 4xx-shaped domain rejection from a real crash.
     _tc_error: str | None = None
     _tc_error_kind: str | None = None
+    _tc_error_code: str | None = None
+    _tc_retryable: bool | None = None
+    _tc_retry_after_seconds: int | None = None
+    _tc_fallback: str | None = None
     try:
         _parsed_r = json.loads(result)
         if isinstance(_parsed_r, dict):
             if "error" in _parsed_r and _parsed_r["error"]:
+                from app.services.tool_error_contract import enrich_tool_error_payload
+                _parsed_r = enrich_tool_error_payload(
+                    _parsed_r,
+                    default_code=f"{_tc_type}_tool_error",
+                    tool_name=name,
+                )
+                result = json.dumps(_parsed_r, ensure_ascii=False)
                 _tc_error = str(_parsed_r["error"])
-            if "error_kind" in _parsed_r and _parsed_r["error_kind"]:
+                _tc_error_kind = str(_parsed_r.get("error_kind") or "") or None
+                _tc_error_code = str(_parsed_r.get("error_code") or "") or None
+                _tc_retryable = bool(_parsed_r.get("retryable"))
+                retry_after_raw = _parsed_r.get("retry_after_seconds")
+                _tc_retry_after_seconds = int(retry_after_raw) if retry_after_raw is not None else None
+                _tc_fallback = str(_parsed_r.get("fallback") or "") or None
+            elif "error_kind" in _parsed_r and _parsed_r["error_kind"]:
                 _tc_error_kind = str(_parsed_r["error_kind"])
     except Exception:
         pass
@@ -1390,6 +1542,10 @@ async def dispatch_tool_call(
         result=result_obj.result,  # use redacted result
         error=_tc_error,
         error_kind=_tc_error_kind,
+        error_code=_tc_error_code,
+        retryable=_tc_retryable,
+        retry_after_seconds=_tc_retry_after_seconds,
+        fallback=_tc_fallback,
         duration_ms=_tc_duration,
         status="error" if _tc_error else "done",
         store_full_result=_store_full,
@@ -1494,12 +1650,19 @@ async def _call_widget_handler_tool(
             db, tool_name, bot_id, str(channel_id) if channel_id else None,
         )
     if resolved is None:
-        return json.dumps({
-            "error": (
-                f"widget handler {tool_name!r} could not be resolved — "
-                "the pin may have been removed or moved to a dashboard you can't see."
-            )
-        }, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message=(
+                    f"widget handler {tool_name!r} could not be resolved — "
+                    "the pin may have been removed or moved to a dashboard you can't see."
+                ),
+                error_code="widget_handler_not_found",
+                error_kind="not_found",
+                tool_name=tool_name,
+            ),
+            ensure_ascii=False,
+        )
 
     pin, handler_name, _tier = resolved
     try:
@@ -1509,13 +1672,42 @@ async def _call_widget_handler_tool(
             "widget handler %s dispatch failed (%s): %s",
             tool_name, type(exc).__name__, exc,
         )
-        return json.dumps({"error": str(exc)}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error, infer_error_kind
+        return json.dumps(
+            build_tool_error(
+                message=str(exc),
+                error_code=f"widget_handler_{type(exc).__name__.lower()}",
+                error_kind=infer_error_kind(type(exc).__name__, str(exc)),
+                tool_name=tool_name,
+            ),
+            ensure_ascii=False,
+        )
     except asyncio.TimeoutError:
         logger.warning("widget handler %s exceeded handler timeout", tool_name)
-        return json.dumps({"error": "widget handler timed out"}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="widget handler timed out",
+                error_code="widget_handler_timeout",
+                error_kind="timeout",
+                retryable=True,
+                retry_after_seconds=1,
+                tool_name=tool_name,
+            ),
+            ensure_ascii=False,
+        )
     except Exception:
         logger.exception("widget handler %s raised unexpectedly", tool_name)
-        return json.dumps({"error": "widget handler raised an unexpected error"}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="widget handler raised an unexpected error",
+                error_code="widget_handler_exception",
+                error_kind="internal",
+                tool_name=tool_name,
+            ),
+            ensure_ascii=False,
+        )
 
     if isinstance(result, str):
         return result

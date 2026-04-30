@@ -9,7 +9,7 @@ Behaviors exercised:
 - require_approval: needs_approval=True, approval_id/timeout propagated
 - require_approval: tier prefix injected into approval_reason
 - require_approval: result_for_llm is pending_approval JSON
-- require_approval: tool_type (local/mcp) forwarded to _create_approval_record
+- require_approval: tool_type (local/mcp) forwarded to _create_approval_state
 - Legacy activation approval edge cases
 - MCP bare-name resolution (resolve_mcp_tool_name fallback)
 """
@@ -61,6 +61,26 @@ def dkw():
         summarize_exclude=set(),
         compaction=False,
     )
+
+
+@pytest.fixture(autouse=True)
+def isolate_dispatch_recording_and_plan_mode(request):
+    """Keep this dispatcher suite focused on dispatch branches, not DB setup."""
+    patches = [
+        patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock),
+        patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock),
+    ]
+    if request.node.cls is not TestPlanModeGuard:
+        patches.append(
+            patch("app.agent.tool_dispatch._plan_mode_guard", new_callable=AsyncMock, return_value=None)
+        )
+
+    active = [p.start() for p in patches]
+    try:
+        yield active
+    finally:
+        for p in reversed(patches):
+            p.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +193,7 @@ class TestPolicyRequireApproval:
     async def test_when_approval_required_then_needs_approval_and_execution_skipped(self, dkw):
         decision = _policy_decision("require_approval", reason="sensitive op", tier=None, timeout=300)
         with patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=decision), \
-             patch("app.agent.tool_dispatch._create_approval_record", new_callable=AsyncMock, return_value="appr-001"), \
+             patch("app.agent.tool_dispatch._create_approval_state", new_callable=AsyncMock, return_value=(uuid.uuid4(), "appr-001")), \
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
@@ -189,7 +209,7 @@ class TestPolicyRequireApproval:
     async def test_when_tier_set_then_reason_has_tier_prefix(self, dkw):
         decision = _policy_decision("require_approval", reason="exec access", tier="exec_capable")
         with patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=decision), \
-             patch("app.agent.tool_dispatch._create_approval_record", new_callable=AsyncMock, return_value="appr-002"), \
+             patch("app.agent.tool_dispatch._create_approval_state", new_callable=AsyncMock, return_value=(uuid.uuid4(), "appr-002")), \
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False):
@@ -201,7 +221,7 @@ class TestPolicyRequireApproval:
     async def test_when_tier_none_then_reason_unchanged(self, dkw):
         decision = _policy_decision("require_approval", reason="plain reason", tier=None)
         with patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=decision), \
-             patch("app.agent.tool_dispatch._create_approval_record", new_callable=AsyncMock, return_value="appr-003"), \
+             patch("app.agent.tool_dispatch._create_approval_state", new_callable=AsyncMock, return_value=(uuid.uuid4(), "appr-003")), \
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False):
@@ -213,7 +233,7 @@ class TestPolicyRequireApproval:
     async def test_when_approval_required_then_result_for_llm_is_pending_json(self, dkw):
         decision = _policy_decision("require_approval", reason="policy match")
         with patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=decision), \
-             patch("app.agent.tool_dispatch._create_approval_record", new_callable=AsyncMock, return_value="appr-004"), \
+             patch("app.agent.tool_dispatch._create_approval_state", new_callable=AsyncMock, return_value=(uuid.uuid4(), "appr-004")), \
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False):
@@ -237,11 +257,11 @@ class TestPolicyRequireApproval:
 
     @pytest.mark.asyncio
     async def test_when_mcp_tool_requires_approval_then_tool_type_is_mcp(self, dkw):
-        """tool_type="mcp" (not "local") is forwarded to _create_approval_record."""
+        """tool_type="mcp" (not "local") is forwarded to _create_approval_state."""
         decision = _policy_decision("require_approval", reason="mcp access")
-        create_mock = AsyncMock(return_value="appr-005")
+        create_mock = AsyncMock(return_value=(uuid.uuid4(), "appr-005"))
         with patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=decision), \
-             patch("app.agent.tool_dispatch._create_approval_record", create_mock), \
+             patch("app.agent.tool_dispatch._create_approval_state", create_mock), \
              patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=True):

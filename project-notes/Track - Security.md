@@ -41,14 +41,14 @@ External frame checked 2026-04-30:
 - Added focused unit coverage for those audit checks in `tests/unit/test_security_audit.py`.
 - Refreshed `SECURITY.md` with a deployment-tier threat matrix and agentic attack classes.
 - Promoted this dedicated track into `INDEX.md` and `Roadmap.md`.
+- Added an explicit widget-action authorization boundary in `app/services/widget_action_auth.py`, wired router auth into action dispatch, refresh, refresh-batch, and event-stream paths, and pinned widget-token/channel-owner/scope checks in `tests/unit/test_widget_actions_authorization.py`.
 
 ## Live queue
 
-1. **Widget action authorization tests.** Add dispatch-mode tests that prove tool/API/widget-config/native/widget-handler paths hit their intended mechanical authorization checks.
-2. **Cross-workspace access observability.** Surface the flag in admin bot UI and log cross-channel file operations with bot, source channel, target channel, path, and operation.
-3. **Security audit deepening.** Add read-only checks for harness-enabled bots, local-machine leases, public callback routes, weak/missing webhook replay protection, widget DB action surfaces, and bot-authored skill/widget writable roots.
-4. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
-5. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
+1. **Cross-workspace access observability.** Surface the flag in admin bot UI and log cross-channel file operations with bot, source channel, target channel, path, and operation.
+2. **Security audit deepening.** Add read-only checks for harness-enabled bots, local-machine leases, public callback routes, weak/missing webhook replay protection, widget DB action surfaces, and bot-authored skill/widget writable roots.
+3. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
+4. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
 
 ## Watch list
 
@@ -61,3 +61,7 @@ External frame checked 2026-04-30:
 - `python -m py_compile app/services/security_audit.py tests/unit/test_security_audit.py` passed.
 - Focused new audit checks passed: `pytest tests/unit/test_security_audit.py -q -k "BotsWithCrossWorkspaceAccess or BotsWithHighRiskApiScopes or WidgetActionApiAllowlist"` -> `7 passed, 44 deselected`.
 - `timeout 20 pytest tests/unit/test_security_audit.py -q -k RunSecurityAudit --tb=short` timed out locally with no pytest output; this appears to be the existing DB-backed SQLite fixture behavior in that file and remains a test-infra follow-up.
+- Widget action boundary syntax passed with `PYTHONPYCACHEPREFIX=/tmp/spindrel-pycache python -m py_compile ...`.
+- Widget action authorization tests passed: `pytest tests/unit/test_widget_actions_authorization.py -q --tb=short` -> `13 passed`.
+- Existing widget state/native coverage passed locally: `pytest tests/unit/test_widget_actions_state_poll.py tests/unit/test_native_app_widgets.py -q --tb=short` -> `20 passed, 7 skipped`.
+- DB-backed widget dispatch and workspace-spatial native tests are still skipped in this Python 3.14 local profile by the repo's SQLite fixture guard; run them in the supported Python 3.12/Docker test runtime for execution coverage.

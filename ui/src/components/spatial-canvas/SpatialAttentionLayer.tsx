@@ -112,9 +112,10 @@ interface SignalProps {
   items: WorkspaceAttentionItem[];
   scale: number;
   onSelect: (item: WorkspaceAttentionItem) => void;
+  interactive?: boolean;
 }
 
-export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) {
+export function SpatialAttentionSignal({ items, scale, onSelect, interactive = true }: SignalProps) {
   const active = activeAttentionItems(items).filter(shouldSurfaceAttentionOnMap).sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
   if (!active.length) return null;
   const primary = active[0];
@@ -140,12 +141,13 @@ export function SpatialAttentionSignal({ items, scale, onSelect }: SignalProps) 
       <button
         type="button"
         data-testid="spatial-attention-badge"
-        className={`pointer-events-auto relative flex h-6 min-w-6 items-center justify-center rounded-full bg-surface-raised/95 px-1 text-[10px] font-semibold ring-1 ring-current/35 backdrop-blur ${signalClass(primary)} hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70`}
+        className={`${interactive ? "pointer-events-auto hover:bg-surface-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70" : "pointer-events-none"} relative flex h-6 min-w-6 items-center justify-center rounded-full bg-surface-raised/95 px-1 text-[10px] font-semibold ring-1 ring-current/35 backdrop-blur ${signalClass(primary)}`}
         title={label}
         aria-label={label}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
+          if (!interactive) return;
           onSelect(primary);
         }}
       >

@@ -18,6 +18,9 @@
 #   ./scripts/run_harness_parity_live.sh --tier skills
 #   ./scripts/run_harness_parity_live.sh --tier replay
 #   ./scripts/run_harness_parity_live.sh -k core
+#
+# The default Codex/Claude channel ids are shared live channels. Run full tiers
+# sequentially; use focused -k slices when parallelizing checks.
 
 set -euo pipefail
 

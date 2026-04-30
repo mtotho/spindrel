@@ -255,7 +255,16 @@ def _coerce_args(args: dict, schema_props: dict) -> dict:
 async def call_local_tool(name: str, arguments: str) -> str:
     entry = _tools.get(name)
     if entry is None:
-        return json.dumps({"error": f"Unknown local tool: {name}"}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message=f"Unknown local tool: {name}",
+                error_code="unknown_local_tool",
+                error_kind="not_found",
+                tool_name=name,
+            ),
+            ensure_ascii=False,
+        )
     try:
         args = {}
         if arguments:
@@ -296,4 +305,13 @@ async def call_local_tool(name: str, arguments: str) -> str:
     except Exception as e:
         logger.exception("Error executing local tool %s", name)
         from app.security.prompt_sanitize import sanitize_exception
-        return json.dumps({"error": sanitize_exception(e)}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message=sanitize_exception(e),
+                error_code="local_tool_exception",
+                error_kind="internal",
+                tool_name=name,
+            ),
+            ensure_ascii=False,
+        )

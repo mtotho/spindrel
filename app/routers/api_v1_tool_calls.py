@@ -36,6 +36,11 @@ class ToolCallOut(BaseModel):
     summary: Optional[dict] = None
     result: Optional[str] = None
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    error_kind: Optional[str] = None
+    retryable: Optional[bool] = None
+    retry_after_seconds: Optional[int] = None
+    fallback: Optional[str] = None
     duration_ms: Optional[int] = None
     correlation_id: Optional[uuid.UUID] = None
     created_at: datetime
@@ -72,6 +77,8 @@ async def list_tool_calls(
     tool_type: Optional[str] = Query(None),
     session_id: Optional[uuid.UUID] = Query(None),
     error_only: bool = Query(False),
+    error_kind: Optional[str] = Query(None),
+    retryable: Optional[bool] = Query(None),
     since: Optional[datetime] = Query(None),
     until: Optional[datetime] = Query(None),
     limit: int = Query(50, ge=1, le=500),
@@ -94,6 +101,10 @@ async def list_tool_calls(
         stmt = stmt.where(ToolCall.session_id == session_id)
     if error_only:
         stmt = stmt.where(ToolCall.error.isnot(None))
+    if error_kind:
+        stmt = stmt.where(ToolCall.error_kind == error_kind)
+    if retryable is not None:
+        stmt = stmt.where(ToolCall.retryable == retryable)
     if since:
         stmt = stmt.where(ToolCall.created_at >= since)
     if until:

@@ -45,6 +45,7 @@ from app.tools.registry import register
         "schema_version": {"type": "string"},
         "context": {"type": "object"},
         "api": {"type": "object"},
+        "tool_error_contract": {"type": "object"},
         "tools": {"type": "object"},
         "skills": {"type": "object"},
         "project": {"type": "object"},

@@ -737,6 +737,15 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - **Outer widget chrome belongs to the host wrapper.** Title bars and the outer surfaced-vs-plain shell are host concerns (`show_title`, `wrapper_surface`); widgets should not duplicate that chrome internally.
 - **Legacy HTML Notes is deleted, not compatibility-hidden.** The old `app/tools/local/widgets/notes/` bundle is intentionally unsupported so new and existing first-party Notes behavior routes through `notes_native`; stale direct refs should be replaced rather than shimmed.
 
+### Widget action authorization is a shared host boundary
+**Decided 2026-04-30.** `/api/v1/widget-actions` remains a dispatch proxy, but authorization is no longer implicit in each action implementation. The router passes the authenticated caller into `app/services/widget_action_auth.py`, and the service boundary authorizes before any action dispatch, state refresh, pin envelope write-back, native widget mutation, SQLite bundle DB access, widget.py handler invocation, or widget event stream.
+
+**Load-bearing invariants.**
+- Widget JWTs are pin-scoped. A token carrying `pin_id=A` cannot act on pin `B`, refresh pin `B`, read stream state for another channel, or target a native widget instance not referenced by pin `A`.
+- Non-widget API keys and users must carry the matching channel scope; non-admin users also have to own channel-scoped pins or channels for write-style actions.
+- `dashboard_pin_id` plus `widget_instance_id` must match exactly before native dispatch. A valid pin cannot be used as ambient authority for an unrelated instance.
+- Internal tools that intentionally invoke this shared path must pass an explicit system/admin principal instead of relying on an omitted-auth bypass.
+
 ### Widget taxonomy is definition-kind first; presets are an instantiation path, not a widget kind
 **Decided 2026-04-22.** The widget system now standardizes on an explicit public contract model instead of relying on overlapping historical terms like "template", "tool renderer", "preset", and "HTML widget" to explain everything.
 

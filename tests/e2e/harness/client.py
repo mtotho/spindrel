@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from .config import E2EConfig
 
 
+MAX_REPLAY_LAPSED_RETRIES = 8
+
+
 @dataclass
 class ChatResponse:
     """Response from the non-streaming /chat endpoint."""
@@ -35,6 +38,18 @@ def replay_lapsed_resume_cursor(payload: dict[str, Any]) -> str | None:
         value = value.strip()
         return value if value.isdigit() else None
     return None
+
+
+def replay_lapsed_retry_cursor(
+    payload: dict[str, Any],
+    *,
+    attempts: int,
+    max_attempts: int = MAX_REPLAY_LAPSED_RETRIES,
+) -> str | None:
+    """Return the next safe SSE cursor while the replay-lapsed retry budget remains."""
+    if attempts >= max_attempts:
+        return None
+    return replay_lapsed_resume_cursor(payload)
 
 
 class E2EClient:
@@ -363,8 +378,11 @@ class E2EClient:
                                 }))
                             break
                         elif kind == "replay_lapsed":
-                            resume_cursor = replay_lapsed_resume_cursor(dict(epayload))
-                            if resume_cursor is not None and replay_lapsed_retries < 2:
+                            resume_cursor = replay_lapsed_retry_cursor(
+                                dict(epayload),
+                                attempts=replay_lapsed_retries,
+                            )
+                            if resume_cursor is not None:
                                 reconnect_since = resume_cursor
                                 replay_lapsed_retries += 1
                                 break

@@ -54,17 +54,40 @@ logger = logging.getLogger(__name__)
         "scopes": {"type": "array", "items": {"type": "string"}},
         "message": {"type": "string"},
         "error": {"type": "string"},
+        "error_code": {"type": "string"},
+        "error_kind": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "retry_after_seconds": {"type": ["integer", "null"]},
+        "fallback": {"type": "string"},
     },
 })
 async def list_api_endpoints(scope: str = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="No bot context available.",
+                error_code="no_bot_context",
+                error_kind="config_missing",
+                tool_name="list_api_endpoints",
+            ),
+            ensure_ascii=False,
+        )
 
     from app.agent.bots import get_bot
     bot = get_bot(bot_id)
     if not bot.api_permissions:
-        return json.dumps({"error": "This bot has no API access configured. Ask an admin to set api_permissions."}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="This bot has no API access configured. Ask an admin to set api_permissions.",
+                error_code="missing_api_permissions",
+                error_kind="config_missing",
+                tool_name="list_api_endpoints",
+            ),
+            ensure_ascii=False,
+        )
 
     from app.services.api_keys import ENDPOINT_CATALOG, has_scope
 
@@ -139,16 +162,39 @@ async def list_api_endpoints(scope: str = "") -> str:
         "status": {"type": "integer"},
         "body": {},
         "error": {"type": "string"},
+        "error_code": {"type": "string"},
+        "error_kind": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "retry_after_seconds": {"type": ["integer", "null"]},
+        "fallback": {"type": "string"},
     },
 })
 async def call_api(method: str, path: str, body: Any = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
-        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="No bot context available.",
+                error_code="no_bot_context",
+                error_kind="config_missing",
+                tool_name="call_api",
+            ),
+            ensure_ascii=False,
+        )
 
     # Safety: only allow /api/ paths and /chat, /bots paths
     if not (path.startswith("/api/") or path.startswith("/chat") or path.startswith("/bots")):
-        return json.dumps({"error": "Path must start with /api/, /chat, or /bots. Arbitrary paths are not allowed."}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="Path must start with /api/, /chat, or /bots. Arbitrary paths are not allowed.",
+                error_code="invalid_api_path",
+                error_kind="validation",
+                tool_name="call_api",
+            ),
+            ensure_ascii=False,
+        )
 
     # Get API key
     from app.db.engine import async_session
@@ -157,7 +203,16 @@ async def call_api(method: str, path: str, body: Any = "") -> str:
         key_value = await get_bot_api_key_value(db, bot_id)
 
     if not key_value:
-        return json.dumps({"error": "No API key configured for this bot. Ask an admin to assign one."}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message="No API key configured for this bot. Ask an admin to assign one.",
+                error_code="no_bot_api_key",
+                error_kind="config_missing",
+                tool_name="call_api",
+            ),
+            ensure_ascii=False,
+        )
 
     # Parse body if provided
     request_body = None
@@ -166,12 +221,27 @@ async def call_api(method: str, path: str, body: Any = "") -> str:
             try:
                 request_body = json.loads(body)
             except json.JSONDecodeError:
-                return json.dumps({"error": f"Invalid JSON body: {body[:200]}"}, ensure_ascii=False)
+                from app.services.tool_error_contract import build_tool_error
+                return json.dumps(
+                    build_tool_error(
+                        message=f"Invalid JSON body: {body[:200]}",
+                        error_code="invalid_json_body",
+                        error_kind="validation",
+                        tool_name="call_api",
+                    ),
+                    ensure_ascii=False,
+                )
         elif isinstance(body, (dict, list)):
             request_body = body
         else:
+            from app.services.tool_error_contract import build_tool_error
             return json.dumps(
-                {"error": f"Body must be a JSON object, array, string, or null; got {type(body).__name__}."},
+                build_tool_error(
+                    message=f"Body must be a JSON object, array, string, or null; got {type(body).__name__}.",
+                    error_code="invalid_body_type",
+                    error_kind="validation",
+                    tool_name="call_api",
+                ),
                 ensure_ascii=False,
             )
 
@@ -199,6 +269,18 @@ async def call_api(method: str, path: str, body: Any = "") -> str:
             resp_body = response.text
 
         result = {"status": response.status_code, "body": resp_body}
+        if response.status_code >= 400:
+            from app.services.tool_error_contract import error_for_http_status
+            message = None
+            if isinstance(resp_body, dict):
+                message = str(resp_body.get("detail") or resp_body.get("error") or f"HTTP {response.status_code}")
+            elif isinstance(resp_body, str) and resp_body:
+                message = resp_body[:500]
+            result.update(error_for_http_status(
+                response.status_code,
+                message=message,
+                retry_after=response.headers.get("retry-after"),
+            ))
 
         # Truncate very large responses
         result_str = json.dumps(result, ensure_ascii=False)
@@ -210,4 +292,15 @@ async def call_api(method: str, path: str, body: Any = "") -> str:
 
     except Exception as e:
         logger.warning("call_api failed: %s %s — %s", method, path, e, exc_info=True)
-        return json.dumps({"error": f"Request failed: {str(e)}"}, ensure_ascii=False)
+        from app.services.tool_error_contract import build_tool_error
+        return json.dumps(
+            build_tool_error(
+                message=f"Request failed: {str(e)}",
+                error_code="api_request_failed",
+                error_kind="unavailable",
+                retryable=True,
+                retry_after_seconds=1,
+                tool_name="call_api",
+            ),
+            ensure_ascii=False,
+        )

@@ -70,6 +70,11 @@ class ToolExecuteResponse(BaseModel):
     tool_name: str
     result: Any
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    error_kind: Optional[str] = None
+    retryable: Optional[bool] = None
+    retry_after_seconds: Optional[int] = None
+    fallback: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +204,19 @@ async def admin_execute_tool(
 
     # Try to parse as JSON for structured output
     if isinstance(parsed, dict) and "error" in parsed:
-        return ToolExecuteResponse(tool_name=tool_name, result=parsed, error=parsed["error"])
+        from app.services.tool_error_contract import enrich_tool_error_payload
+
+        enriched = enrich_tool_error_payload(parsed, default_code="tool_execute_error", tool_name=resolved_tool_name)
+        return ToolExecuteResponse(
+            tool_name=tool_name,
+            result=enriched,
+            error=enriched["error"],
+            error_code=enriched.get("error_code"),
+            error_kind=enriched.get("error_kind"),
+            retryable=enriched.get("retryable"),
+            retry_after_seconds=enriched.get("retry_after_seconds"),
+            fallback=enriched.get("fallback"),
+        )
     return ToolExecuteResponse(tool_name=tool_name, result=parsed)
 
 

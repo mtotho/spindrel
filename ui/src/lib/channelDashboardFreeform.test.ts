@@ -13,6 +13,7 @@ import {
   gridLayoutToWorldRect,
   isFreeformGridConfig,
   migrateLayoutsToFreeform,
+  placeDashboardNeighborGhosts,
 } from "./channelDashboardFreeform.ts";
 import type { GridPreset } from "./dashboardGrid.ts";
 
@@ -83,4 +84,25 @@ test("dashboard camera never zooms past current dashboard scale", () => {
   const camera = clampDashboardCamera({ x: 1, y: 2, scale: 8 });
 
   assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
+});
+
+test("dashboard camera supports deep zoom-out before spatial handoff CTA", () => {
+  const camera = clampDashboardCamera({ x: 1, y: 2, scale: 0.01 });
+
+  assert.equal(camera.scale, 0.14);
+});
+
+test("neighbor ghosts stay outside the guided dashboard frame", () => {
+  const origin = freeformOriginForPreset(preset);
+  const frame = dashboardFrame(preset, origin, 720, 900);
+  const ghosts = placeDashboardNeighborGhosts(frame, [
+    { id: "near", channelId: "c1", dx: 12, dy: 12 },
+    { id: "far", channelId: "c2", dx: -90, dy: 30 },
+  ]);
+
+  for (const ghost of ghosts) {
+    const insideX = ghost.x >= frame.railRect.x && ghost.x <= frame.dockRect.x + frame.dockRect.w;
+    const insideY = ghost.y >= frame.headerRect.y && ghost.y <= frame.centerRect.y + frame.centerRect.h;
+    assert.equal(insideX && insideY, false);
+  }
 });

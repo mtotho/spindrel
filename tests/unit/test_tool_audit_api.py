@@ -27,11 +27,22 @@ class TestToolCallOutSchema:
             tool_name="web_search",
             tool_type="mcp",
             arguments={},
+            error="timeout",
+            error_code="tool_dispatch_timeout",
+            error_kind="timeout",
+            retryable=True,
+            retry_after_seconds=3,
+            fallback="Retry later.",
             created_at=datetime.now(timezone.utc),
         )
         assert tc.session_id is None
         assert tc.bot_id is None
-        assert tc.error is None
+        assert tc.error == "timeout"
+        assert tc.error_code == "tool_dispatch_timeout"
+        assert tc.error_kind == "timeout"
+        assert tc.retryable is True
+        assert tc.retry_after_seconds == 3
+        assert tc.fallback == "Retry later."
         assert tc.duration_ms is None
 
 

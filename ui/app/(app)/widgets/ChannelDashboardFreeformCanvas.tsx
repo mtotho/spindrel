@@ -12,7 +12,10 @@ import { useDashboardsStore } from "@/src/stores/dashboards";
 import type { DashboardChrome, GridPreset } from "@/src/lib/dashboardGrid";
 import type { ChatZone, GridLayoutItem, PinnedWidget, ToolResultEnvelope, WidgetDashboardPin } from "@/src/types/api";
 import { useSpatialNodes } from "@/src/api/hooks/useWorkspaceSpatial";
+import { useChannels } from "@/src/api/hooks/useChannels";
 import { writeSpatialHandoff } from "@/src/lib/spatialHandoff";
+import { CanvasStarfield } from "@/src/components/spatial-canvas/SpatialCanvasChrome";
+import { dotColor } from "@/src/components/spatial-canvas/spatialIdentity";
 import {
   DASHBOARD_CAMERA_EXIT_SCALE,
   DASHBOARD_CAMERA_MAX_SCALE,
@@ -30,6 +33,7 @@ import {
   isFreeformGridConfig,
   migrateLayoutsToFreeform,
   originFromGridConfig,
+  placeDashboardNeighborGhosts,
   zonedLayoutToWorldRect,
   type DashboardFrame,
   type Rect,
@@ -135,6 +139,7 @@ export function ChannelDashboardFreeformCanvas({
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const updateDashboard = useDashboardsStore((s) => s.update);
   const { data: spatialNodes } = useSpatialNodes();
+  const { data: channels } = useChannels();
   const {
     camera,
     cameraRef,
@@ -147,7 +152,6 @@ export function ChannelDashboardFreeformCanvas({
   } = useDashboardCanvasCamera(dashboardSlug);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [layoutError, setLayoutError] = useState<string | null>(null);
-  const [exitArmed, setExitArmed] = useState(false);
   const migratedRef = useRef(false);
   const initialCameraRef = useRef(false);
   const freeformEnabled = isFreeformGridConfig(gridConfig);
@@ -295,16 +299,9 @@ export function ChannelDashboardFreeformCanvas({
     if (event.ctrlKey) return;
     event.preventDefault();
     updateViewportMetrics();
-    const factor = event.deltaY > 0 ? 0.88 : 1.12;
-    const atExitScale = cameraRef.current.scale <= DASHBOARD_CAMERA_EXIT_SCALE && event.deltaY > 0;
-    if (atExitScale && exitArmed) {
-      writeSpatialHandoff({ kind: "channel", channelId, ts: Date.now() });
-      navigate(`/?channel=${encodeURIComponent(channelId)}`);
-      return;
-    }
-    setExitArmed(atExitScale);
+    const factor = Math.exp(-event.deltaY * 0.001);
     zoomAroundPoint(factor, event.clientX, event.clientY);
-  }, [cameraRef, channelId, exitArmed, navigate, updateViewportMetrics, zoomAroundPoint]);
+  }, [updateViewportMetrics, zoomAroundPoint]);
 
   const beginPan = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
@@ -330,28 +327,41 @@ export function ChannelDashboardFreeformCanvas({
     target.addEventListener("pointercancel", done, { once: true });
   }, [cameraRef, scheduleCamera]);
 
+  const channelById = useMemo(() => {
+    const out = new Map<string, { name?: string | null }>();
+    for (const channel of channels ?? []) out.set(channel.id, channel);
+    return out;
+  }, [channels]);
+
   const channelGhosts = useMemo(() => {
     const channelNode = spatialNodes?.find((node) => node.channel_id === channelId);
     if (!channelNode || !spatialNodes) return [];
-    return spatialNodes
+    const neighbors = spatialNodes
       .filter((node) => node.channel_id && node.channel_id !== channelId)
       .map((node) => ({
-        node,
+        id: node.id,
+        channelId: node.channel_id as string,
         dx: node.world_x - channelNode.world_x,
         dy: node.world_y - channelNode.world_y,
       }))
       .sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy))
       .slice(0, 6);
-  }, [channelId, spatialNodes]);
+    return placeDashboardNeighborGhosts(frame, neighbors);
+  }, [channelId, frame, spatialNodes]);
 
   return (
     <div
       ref={viewportRef}
-      className="relative h-full min-h-[520px] overflow-hidden rounded-lg border border-surface-border/60 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.045)_1px,transparent_1px)] [background-size:32px_32px]"
+      className="relative h-full min-h-[520px] select-none overflow-hidden rounded-lg border border-surface-border/60 bg-surface"
+      style={{
+        backgroundImage: "radial-gradient(rgb(var(--color-text) / 0.05) 1px, transparent 1px)",
+        backgroundSize: "32px 32px",
+      }}
       onWheel={handleWheel}
       onPointerDown={beginPan}
       data-testid="channel-dashboard-freeform-canvas"
     >
+      <CanvasStarfield />
       <DndContext onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
         <div
           ref={worldRef}
@@ -359,21 +369,28 @@ export function ChannelDashboardFreeformCanvas({
           style={{ transform: dashboardCameraTransform(camera) }}
         >
           <CanvasGuides frame={frame} editMode={editMode} />
-          {camera.scale <= 0.48 && channelGhosts.map(({ node, dx, dy }, index) => (
+          {camera.scale <= 0.48 && channelGhosts.map((ghost) => {
+            const channelName = channelById.get(ghost.channelId)?.name ?? "Unnamed channel";
+            const color = dotColor(ghost.channelId);
+            return (
             <div
-              key={node.id}
-              className="pointer-events-none absolute rounded-xl border border-accent/20 bg-accent/[0.035] px-4 py-3 text-[12px] text-text-muted shadow-[0_0_40px_rgba(80,120,255,0.08)]"
+              key={ghost.id}
+              className="pointer-events-none absolute rounded-xl border bg-surface-raised/75 px-3 py-2 text-[12px] text-text-muted shadow-[0_0_40px_rgba(80,120,255,0.10)] backdrop-blur"
               style={{
-                left: frame.frameX + dx * 0.7,
-                top: frame.frameY + dy * 0.7,
-                width: 180,
-                opacity: Math.max(0.28, 0.72 - index * 0.07),
+                left: ghost.x,
+                top: ghost.y,
+                width: 208,
+                opacity: ghost.opacity,
+                borderColor: `${color}55`,
               }}
             >
-              <div className="truncate font-medium text-text">{node.bot?.display_name ?? node.bot?.name ?? "Nearby channel"}</div>
-              <div className="mt-1 text-[10px] uppercase tracking-wide text-text-dim">Spatial neighbor</div>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                <span className="truncate font-medium text-text">{channelName}</span>
+              </div>
+              <div className="mt-1 pl-4 text-[10px] uppercase tracking-wide text-text-dim">Spatial neighbor</div>
             </div>
-          ))}
+          );})}
           {pins.map((pin, index) => {
             const layout = layouts.get(pin.id) ?? layoutForPin(pin, index, preset, origin);
             const zone = normalizeZone(pin);
@@ -432,8 +449,8 @@ export function ChannelDashboardFreeformCanvas({
 
       <CanvasControls
         scale={camera.scale}
-        onZoomIn={() => scheduleCamera({ ...cameraRef.current, scale: Math.min(DASHBOARD_CAMERA_MAX_SCALE, cameraRef.current.scale * 1.18) })}
-        onZoomOut={() => scheduleCamera({ ...cameraRef.current, scale: Math.max(DASHBOARD_CAMERA_MIN_SCALE, cameraRef.current.scale / 1.18) })}
+        onZoomIn={() => scheduleCamera({ ...cameraRef.current, scale: Math.min(DASHBOARD_CAMERA_MAX_SCALE, cameraRef.current.scale * 1.08) })}
+        onZoomOut={() => scheduleCamera({ ...cameraRef.current, scale: Math.max(DASHBOARD_CAMERA_MIN_SCALE, cameraRef.current.scale / 1.08) })}
         onFit={() => scheduleCamera(fitFrameCamera(frame, viewportSize), "immediate")}
         onActualSize={() => scheduleCamera(actualFrameCamera(frame, viewportSize), "immediate")}
         onSpatial={() => {

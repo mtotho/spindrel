@@ -246,7 +246,7 @@ Events emitted during streaming:
 |------------|-------------|------------|
 | `assistant_text` | Incremental text from LLM | `text` |
 | `tool_start` | Tool call beginning | `name`, `args` |
-| `tool_result` | Tool call completed | `name`, `result`, `duration_ms` |
+| `tool_result` | Tool call completed | `name`, `result`, `duration_ms`; failures also include `error_code`, `error_kind`, `retryable`, `retry_after_seconds`, and `fallback` when available |
 | `response` | Final response (always last) | `text`, `tools_used`, `client_actions` |
 | `thinking_content` | Extended thinking (Claude models) | `text` |
 | `error` | Processing error | `message` |
@@ -631,3 +631,21 @@ Validation errors (422) include field-level details:
   ]
 }
 ```
+
+Bot-facing tool errors keep a top-level `error` string for compatibility and
+add the shared agent error contract when possible:
+
+```json
+{
+  "error": "HTTP 429",
+  "error_code": "http_429",
+  "error_kind": "rate_limited",
+  "retryable": true,
+  "retry_after_seconds": 12,
+  "fallback": "Wait for retry_after_seconds when provided, then retry with backoff."
+}
+```
+
+The contract is published in `/api/v1/agent-capabilities` under
+`tool_error_contract`. `/api/v1/tool-calls` exposes the persisted fields and
+can filter by `error_kind` or `retryable`.

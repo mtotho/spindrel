@@ -50,9 +50,12 @@ test("cluster overview suppresses the focus lens hint", () => {
 
 test("attention signal keeps the ring visual-only and makes only the badge clickable", () => {
   const source = readFileSync(resolve(SPATIAL_DIR, "SpatialAttentionLayer.tsx"), "utf8");
+  const worldSource = readFileSync(resolve(SPATIAL_DIR, "SpatialCanvasWorld.tsx"), "utf8");
   assert.match(source, /pointer-events-none absolute left-1\/2 top-1\/2/);
   assert.match(source, /aria-hidden/);
-  assert.match(source, /pointer-events-auto relative flex h-6 min-w-6/);
+  assert.match(source, /interactive \? "pointer-events-auto/);
+  assert.match(source, /relative flex h-6 min-w-6/);
+  assert.match(worldSource, /interactive=\{false\}/);
   assert.match(source, /<AlertTriangle size=\{12\}/);
   assert.doesNotMatch(source, /border-t-2 border-r-2/);
 });

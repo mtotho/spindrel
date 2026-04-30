@@ -587,6 +587,13 @@ class ToolCall(Base):
     # not_found, conflict, forbidden) from a real system crash ("internal").
     # NULL when the call succeeded or the tool didn't tag its result.
     error_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Agent-facing error contract fields.  These duplicate the top-level JSON
+    # payload fields intentionally so review/attention queries can filter
+    # failures without reparsing stored result text.
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    retry_after_seconds: Mapped[int | None] = mapped_column(nullable=True)
+    fallback: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -610,6 +617,16 @@ class ToolCall(Base):
             "ix_tool_calls_error_kind",
             "error_kind",
             postgresql_where=text("error_kind IS NOT NULL"),
+        ),
+        Index(
+            "ix_tool_calls_error_code",
+            "error_code",
+            postgresql_where=text("error_code IS NOT NULL"),
+        ),
+        Index(
+            "ix_tool_calls_retryable",
+            "retryable",
+            postgresql_where=text("retryable IS NOT NULL"),
         ),
     )
 

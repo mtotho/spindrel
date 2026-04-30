@@ -1,4 +1,4 @@
-from tests.e2e.harness.client import replay_lapsed_resume_cursor
+from tests.e2e.harness.client import MAX_REPLAY_LAPSED_RETRIES, replay_lapsed_resume_cursor, replay_lapsed_retry_cursor
 
 
 def test_replay_lapsed_resume_cursor_accepts_valid_oldest_available() -> None:
@@ -12,3 +12,11 @@ def test_replay_lapsed_resume_cursor_rejects_invalid_values() -> None:
     assert replay_lapsed_resume_cursor({"oldest_available": -1}) is None
     assert replay_lapsed_resume_cursor({"oldest_available": True}) is None
     assert replay_lapsed_resume_cursor({"oldest_available": "abc"}) is None
+
+
+def test_replay_lapsed_retry_cursor_respects_retry_budget() -> None:
+    payload = {"oldest_available": 2290}
+
+    assert replay_lapsed_retry_cursor(payload, attempts=0) == "2290"
+    assert replay_lapsed_retry_cursor(payload, attempts=MAX_REPLAY_LAPSED_RETRIES - 1) == "2290"
+    assert replay_lapsed_retry_cursor(payload, attempts=MAX_REPLAY_LAPSED_RETRIES) is None

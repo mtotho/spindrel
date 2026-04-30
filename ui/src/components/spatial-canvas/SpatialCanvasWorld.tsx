@@ -454,6 +454,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
                 <SpatialAttentionSignal
                   items={cluster.members.flatMap((member: any) => attentionByNodeId.get(member.node.id) ?? [])}
                   scale={camera.scale}
+                  interactive={false}
                   onSelect={openStarboardAttention}
                 />
               )}
@@ -481,6 +482,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
               <SpatialAttentionSignal
                 items={cluster.nodes.flatMap((node: SpatialNode) => attentionByNodeId.get(node.id) ?? [])}
                 scale={camera.scale}
+                interactive={false}
                 onSelect={openStarboardAttention}
               />
             )}

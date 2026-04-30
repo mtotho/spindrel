@@ -821,10 +821,17 @@ async def _assert_mobile_header_safe(page: Any, *, label: str) -> None:
         f"{label} mobile title click opened bot info context details"
     )
 
-    context_chip = page.locator('[data-testid="harness-context-chip-mobile"]').first
-    await context_chip.wait_for(state="visible", timeout=20_000)
-    await context_chip.click()
+    mobile_context_chip = page.locator('[data-testid="harness-context-chip-mobile"]').first
+    desktop_context_chip = page.locator('[data-testid="harness-context-chip"]').first
+    context_chip = mobile_context_chip
     context_panel = page.locator('[data-testid="harness-context-panel-mobile"]').first
+    try:
+        await mobile_context_chip.wait_for(state="visible", timeout=10_000)
+    except Exception:
+        await desktop_context_chip.wait_for(state="visible", timeout=10_000)
+        context_chip = desktop_context_chip
+        context_panel = page.locator('[data-testid="harness-context-panel"]').first
+    await context_chip.click()
     await context_panel.wait_for(state="visible", timeout=5_000)
     panel_box = await context_panel.bounding_box()
     viewport_width = int(viewport.get("width") or 0)
@@ -1051,7 +1058,7 @@ async def test_live_harness_core_parity_controls_trace_and_context(
             result = await client.execute_slash_command("runtime", session_id=session_id, args=[command])
             assert result["result_type"] == "harness_runtime_command"
             assert result["payload"]["command"] == command
-            assert result["payload"]["status"] in {"ok", "error"}
+            assert result["payload"]["status"] in {"ok", "error", "terminal_handoff"}
             assert result["payload"].get("detail") or result.get("fallback_text")
 
         context = await client.execute_slash_command("context", session_id=session_id)

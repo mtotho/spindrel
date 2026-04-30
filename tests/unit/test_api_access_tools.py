@@ -130,6 +130,7 @@ class TestCallApi:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = [{"id": "ch-1", "name": "test"}]
+        mock_response.headers = {}
 
         mock_client = AsyncMock()
         mock_client.request = AsyncMock(return_value=mock_response)
@@ -163,6 +164,7 @@ class TestCallApi:
         mock_response = MagicMock()
         mock_response.status_code = 201
         mock_response.json.return_value = {"id": "ch-1"}
+        mock_response.headers = {}
 
         mock_client = AsyncMock()
         mock_client.request = AsyncMock(return_value=mock_response)
@@ -194,6 +196,7 @@ class TestCallApi:
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.json.return_value = {"detail": "Not found"}
+        mock_response.headers = {}
 
         mock_client = AsyncMock()
         mock_client.request = AsyncMock(return_value=mock_response)
@@ -210,6 +213,40 @@ class TestCallApi:
         assert "status" in result
         assert "body" in result
         assert result["status"] == 404
+        assert result["error_code"] == "http_404"
+        assert result["error_kind"] == "not_found"
+        assert result["retryable"] is False
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_call_surfaces_retry_contract(self):
+        from app.tools.local.api_access import call_api
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.json.return_value = {"detail": "Too many requests"}
+        mock_response.headers = {"retry-after": "12"}
+
+        mock_client = AsyncMock()
+        mock_client.request = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.tools.local.api_access.current_bot_id") as mock_ctx:
+            mock_ctx.get.return_value = "test-bot"
+            with patch("app.db.engine.async_session", return_value=mock_session_ctx):
+                with patch("app.services.api_keys.get_bot_api_key_value", new_callable=AsyncMock, return_value="ask_key"):
+                    with patch("httpx.AsyncClient", return_value=mock_client):
+                        result = json.loads(await call_api(method="GET", path="/api/v1/channels"))
+
+        assert result["status"] == 429
+        assert result["error_kind"] == "rate_limited"
+        assert result["retryable"] is True
+        assert result["retry_after_seconds"] == 12
 
     @pytest.mark.asyncio
     async def test_no_bot_context(self):

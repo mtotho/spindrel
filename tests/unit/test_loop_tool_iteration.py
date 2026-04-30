@@ -172,6 +172,56 @@ async def test_record_plan_progress_final_turn_preserves_tool_envelopes():
 
 
 @pytest.mark.asyncio
+async def test_record_plan_progress_final_turn_preserves_tool_calls_for_persisted_renderer():
+    accumulated = AccumulatedMessage(
+        content="Recording progress.",
+        tool_calls=[{
+            "id": "call_plan",
+            "type": "function",
+            "function": {"name": "record_plan_progress", "arguments": "{}"},
+        }],
+    )
+    state = LoopRunState(messages=[
+        {"role": "user", "content": "hi"},
+        accumulated.to_msg_dict(),
+    ])
+    plan_envelope = {
+        "content_type": "application/vnd.spindrel.plan+json",
+        "body": {"title": "Progress"},
+        "plain_body": "Progress",
+        "tool_call_id": "call_plan",
+    }
+
+    async def _dispatch_progress(**kwargs):
+        state = kwargs["state"]
+        state.tool_calls_made.append("record_plan_progress")
+        state.tool_envelopes_made.append(plan_envelope)
+        state.transcript_entries.append({
+            "id": "tool:call_plan",
+            "kind": "tool_call",
+            "toolCallId": "call_plan",
+        })
+        yield {"type": "tool_result", "tool": "record_plan_progress"}
+
+    _, state = await _collect(
+        accumulated_msg=accumulated,
+        state=state,
+        dispatch_iteration_tool_calls_fn=_dispatch_progress,
+    )
+
+    assert state.messages[1]["_hidden"] is True
+    final = state.messages[-1]
+    assert final["content"] == "Plan progress recorded."
+    assert final["tool_calls"] == accumulated.tool_calls
+    assert final["_tool_envelopes"] == [plan_envelope]
+    body = final["_assistant_turn_body"]
+    assert any(
+        item.get("kind") == "tool_call" and item.get("toolCallId") == "call_plan"
+        for item in body["items"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_injected_images_are_described_for_nonvision_models():
     async def _dispatch_with_image(**kwargs):
         kwargs["state"].iteration_injected_images.append({

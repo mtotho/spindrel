@@ -2,9 +2,9 @@ import type { ChatZone, GridLayoutItem } from "@/src/types/api";
 import type { GridPreset, GridPresetId } from "@/src/lib/dashboardGrid";
 
 export const FREEFORM_CANVAS_MODE = "freeform_v1";
-export const DASHBOARD_CAMERA_MIN_SCALE = 0.32;
+export const DASHBOARD_CAMERA_MIN_SCALE = 0.14;
 export const DASHBOARD_CAMERA_MAX_SCALE = 1;
-export const DASHBOARD_CAMERA_EXIT_SCALE = 0.34;
+export const DASHBOARD_CAMERA_EXIT_SCALE = 0.18;
 export const DASHBOARD_CANVAS_GAP = 12;
 export const DASHBOARD_SIDE_RAIL_WIDTH = 260;
 export const DASHBOARD_HEADER_ROW_HEIGHT = 36;
@@ -48,6 +48,14 @@ export interface DashboardFrame {
   centerRect: Rect;
   dockRect: Rect;
   headerRect: Rect;
+}
+
+export interface DashboardNeighborGhost {
+  id: string;
+  channelId: string;
+  x: number;
+  y: number;
+  opacity: number;
 }
 
 export function clampDashboardCamera(camera: DashboardCamera): DashboardCamera {
@@ -323,5 +331,40 @@ export function fitFrameCamera(
     scale,
     x: viewport.w / 2 - (minX + w / 2) * scale,
     y: viewport.h / 2 - (minY + h / 2) * scale,
+  });
+}
+
+export function placeDashboardNeighborGhosts(
+  frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
+  neighbors: Array<{ id: string; channelId: string; dx: number; dy: number }>,
+): DashboardNeighborGhost[] {
+  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
+  const minY = Math.min(frame.headerRect.y, frame.railRect.y, frame.centerRect.y);
+  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
+  const maxY = Math.max(frame.centerRect.y + frame.centerRect.h, frame.railRect.y + frame.railRect.h, frame.dockRect.y + frame.dockRect.h);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const halfW = (maxX - minX) / 2;
+  const halfH = (maxY - minY) / 2;
+  const fallbackStep = (Math.PI * 2) / Math.max(1, neighbors.length);
+
+  return neighbors.map((neighbor, index) => {
+    const angle = Number.isFinite(neighbor.dx) && Number.isFinite(neighbor.dy) && Math.hypot(neighbor.dx, neighbor.dy) > 1
+      ? Math.atan2(neighbor.dy, neighbor.dx)
+      : index * fallbackStep - Math.PI / 2;
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    const edgeDistance = Math.min(
+      Math.abs(ux) > 0.001 ? halfW / Math.abs(ux) : Number.POSITIVE_INFINITY,
+      Math.abs(uy) > 0.001 ? halfH / Math.abs(uy) : Number.POSITIVE_INFINITY,
+    );
+    const lane = 360 + (index % 3) * 120;
+    return {
+      id: neighbor.id,
+      channelId: neighbor.channelId,
+      x: cx + ux * (edgeDistance + lane),
+      y: cy + uy * (edgeDistance + lane),
+      opacity: Math.max(0.34, 0.78 - index * 0.06),
+    };
   });
 }

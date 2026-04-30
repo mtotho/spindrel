@@ -44,6 +44,55 @@ def _trim_stored_result(result: str | None, store_full: bool) -> str | None:
     return result[:_STORED_RESULT_CAP_CHARS]
 
 
+def _derive_error_contract_fields(
+    result: str | None,
+    *,
+    error: str | None,
+    error_code: str | None,
+    error_kind: str | None,
+    retryable: bool | None,
+    retry_after_seconds: int | None,
+    fallback: str | None,
+) -> dict:
+    if not error:
+        return {
+            "error_code": error_code,
+            "error_kind": error_kind,
+            "retryable": retryable,
+            "retry_after_seconds": retry_after_seconds,
+            "fallback": fallback,
+        }
+    payload = None
+    if result:
+        try:
+            import json
+
+            parsed = json.loads(result)
+            if isinstance(parsed, dict):
+                payload = parsed
+        except Exception:
+            payload = None
+    if payload is None:
+        payload = {"error": error}
+    from app.services.tool_error_contract import enrich_tool_error_payload
+
+    enriched = enrich_tool_error_payload(
+        payload,
+        default_code=error_code or "tool_error",
+        default_kind=error_kind,
+        retryable=retryable,
+        retry_after_seconds=retry_after_seconds,
+        fallback=fallback,
+    )
+    return {
+        "error_code": enriched.get("error_code"),
+        "error_kind": enriched.get("error_kind"),
+        "retryable": enriched.get("retryable"),
+        "retry_after_seconds": enriched.get("retry_after_seconds"),
+        "fallback": enriched.get("fallback"),
+    }
+
+
 def schedule_exec_completion_record(
     *,
     command: str,
@@ -149,6 +198,11 @@ async def _record_tool_call(
     store_full_result: bool = False,
     status: str = "done",
     envelope: dict | None = None,
+    error_code: str | None = None,
+    error_kind: str | None = None,
+    retryable: bool | None = None,
+    retry_after_seconds: int | None = None,
+    fallback: str | None = None,
 ) -> None:
     """Fire-and-forget: write a complete ToolCall row in one shot.
 
@@ -162,6 +216,15 @@ async def _record_tool_call(
     """
     try:
         stored_result = _trim_stored_result(result, store_full_result)
+        error_fields = _derive_error_contract_fields(
+            result,
+            error=error,
+            error_code=error_code,
+            error_kind=error_kind,
+            retryable=retryable,
+            retry_after_seconds=retry_after_seconds,
+            fallback=fallback,
+        )
         surface, summary = derive_tool_presentation(
             tool_name=tool_name,
             arguments=arguments,
@@ -183,6 +246,11 @@ async def _record_tool_call(
             summary=summary,
             result=stored_result,
             error=error,
+            error_code=error_fields["error_code"],
+            error_kind=error_fields["error_kind"],
+            retryable=error_fields["retryable"],
+            retry_after_seconds=error_fields["retry_after_seconds"],
+            fallback=error_fields["fallback"],
             duration_ms=duration_ms,
             correlation_id=correlation_id,
             created_at=now,
@@ -263,6 +331,10 @@ async def _complete_tool_call(
     envelope: dict | None = None,
     strict: bool = False,
     error_kind: str | None = None,
+    error_code: str | None = None,
+    retryable: bool | None = None,
+    retry_after_seconds: int | None = None,
+    fallback: str | None = None,
 ) -> bool:
     """Fire-and-forget: UPDATE an existing ToolCall row on completion.
 
@@ -272,6 +344,15 @@ async def _complete_tool_call(
     """
     try:
         stored_result = _trim_stored_result(result, store_full_result)
+        error_fields = _derive_error_contract_fields(
+            result,
+            error=error,
+            error_code=error_code,
+            error_kind=error_kind,
+            retryable=retryable,
+            retry_after_seconds=retry_after_seconds,
+            fallback=fallback,
+        )
         surface, summary = derive_tool_presentation(
             tool_name=tool_name,
             arguments=arguments,
@@ -288,7 +369,11 @@ async def _complete_tool_call(
                     summary=summary,
                     result=stored_result,
                     error=error,
-                    error_kind=error_kind,
+                    error_kind=error_fields["error_kind"],
+                    error_code=error_fields["error_code"],
+                    retryable=error_fields["retryable"],
+                    retry_after_seconds=error_fields["retry_after_seconds"],
+                    fallback=error_fields["fallback"],
                     duration_ms=duration_ms,
                     status=status,
                     completed_at=datetime.now(timezone.utc),
