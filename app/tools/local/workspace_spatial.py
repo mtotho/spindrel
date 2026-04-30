@@ -560,7 +560,7 @@ async def preview_spatial_widget_changes(operations: list[dict[str, Any]]) -> st
     current_spatial_widget_scene_seen.set({
         "bot_id": bot_id,
         "channel_id": str(channel_id),
-        "previewed": True,
+        "previewed": not bool(payload.get("rejected")),
         "operations": [op for op in operations if isinstance(op, dict)],
         "after": payload.get("after") or {},
     })
