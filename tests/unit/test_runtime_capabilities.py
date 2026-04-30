@@ -328,3 +328,41 @@ def test_codex_native_mutating_args_require_approval():
     )
     assert runtime.native_command_requires_approval(command_id="undo", args=())
     assert runtime.native_command_requires_approval(command_id="branch", args=("feature-x",))
+
+
+@pytest.mark.asyncio
+async def test_codex_auth_status_blocks_unsupported_cli_version(monkeypatch):
+    from integrations.codex import harness as codex_harness
+
+    monkeypatch.setattr(codex_harness, "_codex_cli_version", lambda: "0.125.0")
+
+    status = await codex_harness._check_auth_status()
+
+    assert status.ok is False
+    assert "0.125.0" in status.detail
+    assert "0.128.0+" in status.detail
+    assert status.suggested_command == "npm --prefix /home/spindrel/.local install -g @openai/codex@latest"
+
+
+@pytest.mark.asyncio
+async def test_codex_auth_status_includes_supported_cli_version(monkeypatch):
+    from integrations.codex import harness as codex_harness
+
+    class _FakeClient:
+        async def initialize(self):
+            return {}
+
+        async def request(self, method, params, *, timeout=60.0):
+            return {"account": {"email": "codex@example.test"}}
+
+    @asynccontextmanager
+    async def _fake_spawn(*, extra_env=None):
+        yield _FakeClient()
+
+    monkeypatch.setattr(codex_harness, "_codex_cli_version", lambda: "0.128.0")
+    monkeypatch.setattr(codex_harness.CodexAppServer, "spawn", _fake_spawn)
+
+    status = await codex_harness._check_auth_status()
+
+    assert status.ok is True
+    assert status.detail == "Logged in as codex@example.test (codex-cli 0.128.0)"

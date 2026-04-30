@@ -9,8 +9,12 @@ prerequisite, and this integration spawns it as a subprocess.
 1. **Enable the integration** on `/admin/integrations`. Spindrel
    auto-installs `@openai/codex` from npm (declared in
    `integration.yaml`'s `dependencies.npm`) into
-   `~/.local/bin/codex`. Set `CODEX_BIN=/path/to/codex` only if the
-   binary lives somewhere else.
+   `~/.local/bin/codex`. Spindrel currently supports `codex-cli 0.128.0+`;
+   older app-server builds are blocked by the harness auth-status check because
+   their JSON-RPC method surface can be missing runtime features. To update the
+   deployed CLI in the persisted Spindrel home volume, run
+   `npm --prefix /home/spindrel/.local install -g @openai/codex@latest`. Set
+   `CODEX_BIN=/path/to/codex` only if the binary lives somewhere else.
 2. **Authenticate** by running `codex login --device-auth` inside the
    Spindrel container. The default `codex login` opens a localhost
    redirect URL that a browser running on the host can't reach into the
@@ -24,9 +28,9 @@ prerequisite, and this integration spawns it as a subprocess.
    The binary persists credentials at the standard path it controls
    (typically under `$HOME` for the spindrel user).
 
-`auth_status()` distinguishes the two failure modes — "binary not
-installed" vs "not logged in" — so the admin UI surfaces a useful error
-even before login is attempted.
+`auth_status()` distinguishes "binary not installed", "unsupported CLI
+version", and "not logged in" so the admin UI surfaces a useful error even
+before login is attempted.
 
 ## Approval mapping
 

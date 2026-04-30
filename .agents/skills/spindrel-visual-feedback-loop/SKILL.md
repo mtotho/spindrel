@@ -189,6 +189,11 @@ Basics readiness, applied Blueprint settings, runtime-env readiness, fresh Proje
 branch/PR progress plus receipts, scheduled Project reviews, task-scoped execution access, selected-run review controls, review-session
 execution access, launched review sessions, finalized review/merge provenance, channel settings,
 Project-rooted file/terminal behavior, and the memory-tool transcript envelope.
+Staging may repair existing screenshot secret fixtures when the local e2e
+encryption key changed; do that through the API instead of wiping the database.
+The memory-tool docs capture is a deterministic injected transcript so the
+artifact verifies the structured tool-result envelope without relying on a live
+model call.
 
 ## Widget Authoring Runtime Loop
 

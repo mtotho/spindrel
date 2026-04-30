@@ -59,6 +59,36 @@ python -m scripts.screenshots capture --only project-workspace
 python -m scripts.screenshots check
 ```
 
+Project Factory contract check:
+
+```bash
+python scripts/agent_e2e_dev.py doctor
+python scripts/agent_e2e_dev.py prepare
+set -a && source .env.agent-e2e && set +a
+E2E_KEEP_RUNNING=1 pytest tests/e2e/scenarios/test_project_factory_flow.py -v
+```
+
+Run this before a live agent/PR smoke when the work changes issue intake,
+work-pack triage, Project coding-run launch, receipts, review sessions, or
+review finalization. It proves the durable spine: rough issue notes -> work
+packs -> Project coding run -> PR-like receipt -> review context -> accepted
+finalization -> reviewed provenance.
+
+## Lessons Learned
+
+- Run `doctor` first. If subscription bootstrap is already connected, do not
+  restart browser/device-code OAuth.
+- Rebuild current source before judging e2e behavior. If Docker context fails
+  on generated dependency folders, exclude those folders instead of wiping the
+  local e2e database.
+- Normal local `prepare` preserves provider/OAuth state. Only
+  `wipe-db --yes` should erase the durable local e2e Postgres volume.
+- Screenshot staging should use deterministic fixtures for documentation
+  transcripts. Do not depend on a live model turn to render a docs artifact.
+- Durable screenshot fixtures can outlive a regenerated encryption key. Staging
+  should repair screenshot secret values through the API instead of clearing
+  the stack.
+
 ## Completion Standard
 
 Report:

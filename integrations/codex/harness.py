@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 from typing import Any
 
@@ -23,6 +24,7 @@ from integrations.codex.app_server import (
     CodexBinaryNotFound,
     Notification,
     ServerRequest,
+    _resolve_binary,
 )
 from integrations.codex.approvals import (
     CodexServerRequestFatal,
@@ -56,6 +58,7 @@ _CODEX_FALLBACK_MODELS: tuple[str, ...] = (
     "gpt-5.4-mini",
 )
 _CODEX_FALLBACK_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
+_CODEX_MIN_SUPPORTED_VERSION = "0.128.0"
 
 
 _CODEX_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset(
@@ -1237,6 +1240,17 @@ def _server_supports_dynamic_tools(client: CodexAppServer) -> bool:
 
 async def _check_auth_status() -> AuthStatus:
     try:
+        version = _codex_cli_version()
+        if _version_tuple(version) < _version_tuple(_CODEX_MIN_SUPPORTED_VERSION):
+            return AuthStatus(
+                ok=False,
+                detail=(
+                    f"Codex CLI {version} is below Spindrel's supported app-server "
+                    f"surface ({_CODEX_MIN_SUPPORTED_VERSION}+). Upgrade Codex before "
+                    "using the Codex harness."
+                ),
+                suggested_command=_codex_upgrade_command(),
+            )
         async with CodexAppServer.spawn() as client:
             await client.initialize()
             try:
@@ -1284,7 +1298,38 @@ async def _check_auth_status() -> AuthStatus:
         or account.get("type")
         or "Codex account"
     )
-    return AuthStatus(ok=True, detail=f"Logged in as {label}")
+    return AuthStatus(ok=True, detail=f"Logged in as {label} (codex-cli {version})")
+
+
+def _codex_cli_version() -> str:
+    binary = _resolve_binary()
+    proc = subprocess.run(
+        [binary, "--version"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    match = re.search(r"(\d+\.\d+\.\d+)", proc.stdout or proc.stderr or "")
+    if not match:
+        raise RuntimeError(f"could not parse Codex CLI version from: {proc.stdout or proc.stderr!r}")
+    return match.group(1)
+
+
+def _version_tuple(value: str) -> tuple[int, int, int]:
+    parts = []
+    for raw in value.split(".")[:3]:
+        try:
+            parts.append(int(raw))
+        except ValueError:
+            parts.append(0)
+    while len(parts) < 3:
+        parts.append(0)
+    return parts[0], parts[1], parts[2]
+
+
+def _codex_upgrade_command() -> str:
+    return "npm --prefix /home/spindrel/.local install -g @openai/codex@latest"
 
 
 def _register() -> None:

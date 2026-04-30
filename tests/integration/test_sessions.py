@@ -223,6 +223,26 @@ class TestStorePassiveMessage:
         assert msg.metadata_.get("passive") is True
         assert msg.metadata_.get("sender_id") == "U123"
 
+    @pytest.mark.asyncio
+    async def test_stores_passive_with_requested_role(self, db_session, bot):
+        sid = uuid.uuid4()
+        session = Session(id=sid, client_id="c", bot_id=bot.id)
+        db_session.add(session)
+        await db_session.commit()
+
+        from app.services.sessions import store_passive_message
+
+        await store_passive_message(db_session, sid, "review result", role="assistant")
+        await store_passive_message(db_session, sid, "bad role", role="invalid")
+
+        result = await db_session.execute(
+            select(Message).where(Message.session_id == sid).order_by(Message.created_at)
+        )
+        messages = result.scalars().all()
+        assert [msg.role for msg in messages] == ["assistant", "user"]
+        assert messages[0].content == "review result"
+        assert messages[1].content == "bad role"
+
 
 # ---------------------------------------------------------------------------
 # Channel-events integration: per-row publish from persist_turn

@@ -4,7 +4,7 @@
 
 An **external agent harness** lets you run a coding-agent session from Spindrel's web UI without routing the turn through Spindrel's RAG loop. Claude Code and Codex are both supported today on the same runtime boundary.
 
-> **Codex prerequisite.** The Codex runtime spawns the user-installed `codex` binary as `codex app-server` and speaks the official OpenAI app-server JSON-RPC protocol over stdio. No third-party Python SDK is bundled. Install the `codex` binary on the Spindrel host (or set `CODEX_BIN` to its path) and run `codex login` once. `auth_status()` distinguishes "binary not installed" from "not logged in" so the admin card surfaces a useful error before login is attempted. Spindrel's effective tool set bridges into Codex via `dynamicTools` when the installed binary supports it; otherwise the bridge status records `"unsupported"` and the harness still runs with native Codex tools. Spindrel session planning maps to Codex `collaborationMode: plan` on every turn, including resumed native threads.
+> **Codex prerequisite.** The Codex runtime spawns the user-installed `codex` binary as `codex app-server` and speaks the official OpenAI app-server JSON-RPC protocol over stdio. No third-party Python SDK is bundled. Install the `codex` binary on the Spindrel host (or set `CODEX_BIN` to its path) and run `codex login` once. `auth_status()` distinguishes "binary not installed", "unsupported CLI version", and "not logged in" so the admin card surfaces a useful error before login is attempted. Spindrel currently requires `codex-cli 0.128.0+`; older binaries are blocked with the supported npm upgrade command. Spindrel's effective tool set bridges into Codex via `dynamicTools` when the installed binary supports it; otherwise the bridge status records `"unsupported"` and the harness still runs with native Codex tools. Spindrel session planning maps to Codex `collaborationMode: plan` on every turn, including resumed native threads.
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
 
@@ -21,7 +21,7 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
     ![Claude Code SDK integration install surface](../images/claude-code-sdk.png)
 
-2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. For Claude, click **Run `claude login`** if needed. For Codex, install the binary first, then run `codex login` once in the same host/container environment that Spindrel will spawn. The auth-status card distinguishes "binary missing" from "not logged in" so setup failures are obvious before the first turn.
+2. **Authenticate the harness from the admin UI.** Open `/admin/harnesses`. Each enabled integration that provides a harness shows up as a card. For Claude, click **Run `claude login`** if needed. For Codex, install the binary first, then run `codex login` once in the same host/container environment that Spindrel will spawn. The auth-status card distinguishes "binary missing", "unsupported CLI version", and "not logged in" so setup failures are obvious before the first turn.
 
     Under the hood the CLI writes credentials to `$CLAUDE_CONFIG_DIR/.credentials.json` (default `~/.claude/.credentials.json`). The Claude Agent SDK that the integration installed inherits these credentials — no API key needed. See [Admin Terminal](admin-terminal.md) for the terminal mechanics.
 
@@ -308,7 +308,7 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 
 ## What's coming
 
-- **Codex live validation:** `model/list`, account shape, plan collaboration mode, and token-window telemetry have been verified against a local `codex-cli 0.125.0` binary. Remaining live checks: real `dynamicTools` calls, approval routing under a mutating command, and native compaction on a non-empty thread.
+- **Codex live validation:** `model/list`, account shape, plan collaboration mode, token-window telemetry, app/fs/config requirement methods, and `hooks/list` have been verified against `codex-cli 0.128.0`. Spindrel blocks older Codex CLIs at auth-status time when they fall below the app-server method surface the harness supports. Remaining live checks: real `dynamicTools` calls, approval routing under a mutating command, and native compaction on a non-empty thread.
 - **Richer native context telemetry:** Keep expanding runtime-specific telemetry where the native harness exposes it.
 - **Skill bridge:** Expose selected Spindrel skills through export/sync or searchable bridged tools/resources.
 - **Heartbeat/memory integration:** Add a harness heartbeat path that can inject optional context hints, then layer read-only memory hints before allowing explicit writes through bridged tools.

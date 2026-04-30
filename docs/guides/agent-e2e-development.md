@@ -113,6 +113,42 @@ python -m scripts.screenshots check
 Inspect changed images before calling the work done. Screenshot assertions prove
 that the scripted route rendered; visual review proves the UI is acceptable.
 
+Screenshot staging should be deterministic for documentation artifacts. If a
+capture needs a transcript, inject fixture messages or seed durable rows instead
+of relying on a live model turn. Local screenshot data can survive app rebuilds
+with an old encrypted secret value; staging should repair those fixture secrets
+through the API instead of wiping the durable e2e database.
+
+## Project Factory Contract Test
+
+Use this scenario before a live agent/PR smoke when changing issue intake,
+triage work packs, Project coding-run launch, Project run receipts, review
+sessions, or review finalization:
+
+```bash
+python scripts/agent_e2e_dev.py doctor
+python scripts/agent_e2e_dev.py prepare
+
+set -a && source .env.agent-e2e && set +a
+E2E_KEEP_RUNNING=1 pytest tests/e2e/scenarios/test_project_factory_flow.py -v
+```
+
+The test proves the durable Project Factory spine without asking a real model
+or GitHub repo to do work: rough issue notes become work packs, a code work pack
+launches a Project coding run, the run publishes a PR-like receipt with test and
+screenshot evidence, a review session reads fresh context, accepted
+finalization marks the selected run reviewed, and needs-info packs stay out of
+the coding-run queue.
+
+After UI-affecting Project Factory changes, refresh and inspect the Project
+Workspace screenshot bundle:
+
+```bash
+python -m scripts.screenshots stage --only project-workspace
+python -m scripts.screenshots capture --only project-workspace
+python -m scripts.screenshots check
+```
+
 ## Project Coding Runs
 
 Project coding-run and review agents should:
