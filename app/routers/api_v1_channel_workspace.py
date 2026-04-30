@@ -22,6 +22,7 @@ from app.dependencies import get_db, require_scopes
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channels/{channel_id}/workspace", tags=["Channel Workspace"])
 _SAFE_UPLOAD_FILENAME_RE = re.compile(r"[^\w.\- ]")
+_PROJECT_ATTACHMENT_UPLOAD_PATH_RE = re.compile(r"^(?:data/uploads|\.uploads)(?:/.*)?$")
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
@@ -127,10 +128,8 @@ async def read_workspace_file_raw(
 ):
     """Serve a workspace file as raw bytes (for images, PDFs, etc.)."""
     channel, bot = await _require_channel_workspace(channel_id, db)
-    from app.services.channel_workspace import get_channel_workspace_root
-    ws_path = get_channel_workspace_root(str(channel_id), bot)
-    ws_real = os.path.realpath(ws_path)
-    target = os.path.realpath(os.path.join(ws_path, path))
+    ws_real, _ = await _resolve_workspace_root(channel, bot, db)
+    target = os.path.realpath(os.path.join(ws_real, path))
     if not (target == ws_real or target.startswith(ws_real + os.sep)):
         raise HTTPException(404, "File not found")
     if not os.path.isfile(target):
@@ -205,15 +204,48 @@ async def move_workspace_file(
     return result
 
 
-def _resolve_channel_path(channel_id: uuid.UUID, bot, path: str) -> str:
-    """Resolve a channel-relative path to its absolute, sandbox-safe form."""
+async def _resolve_workspace_root(
+    channel: Channel,
+    bot,
+    db: AsyncSession,
+) -> tuple[str, bool]:
+    """Return (root_path, is_project_like_surface) for this channel."""
     from app.services.channel_workspace import get_channel_workspace_root
-    ws_path = get_channel_workspace_root(str(channel_id), bot)
-    ws_real = os.path.realpath(ws_path)
-    target = os.path.realpath(os.path.join(ws_path, path))
+
+    channel_root = os.path.realpath(get_channel_workspace_root(str(channel.id), bot))
+    try:
+        from app.services.projects import is_project_like_surface, resolve_channel_work_surface
+
+        surface = await resolve_channel_work_surface(db, channel, bot)
+        if is_project_like_surface(surface):
+            return os.path.realpath(surface.root_host_path), True
+    except Exception:
+        logger.debug("Failed to resolve project work surface for channel %s", channel.id, exc_info=True)
+    return channel_root, False
+
+
+def _resolve_channel_path(ws_root: str, path: str) -> str:
+    """Resolve a workspace-relative path to an absolute, sandbox-safe form."""
+    ws_real = os.path.realpath(ws_root)
+    target = os.path.realpath(os.path.join(ws_real, path))
     if not (target == ws_real or target.startswith(ws_real + os.sep)):
         raise HTTPException(404, "File not found")
     return target
+
+
+def _rewrite_project_attachment_upload_path(path: str) -> str | None:
+    """Map legacy attachment upload paths to `.uploads/...` for project surfaces."""
+    raw = (path or "").strip().replace("\\", "/").strip("/")
+    if not raw or not _PROJECT_ATTACHMENT_UPLOAD_PATH_RE.match(raw):
+        return None
+    parts = [part for part in raw.split("/") if part and part not in {".", ".."}]
+    if len(parts) >= 2 and parts[0] == "data" and parts[1] == "uploads":
+        suffix = parts[2:]
+    elif parts and parts[0] == ".uploads":
+        suffix = parts[1:]
+    else:
+        return None
+    return "/".join([".uploads", *suffix]) if suffix else ".uploads"
 
 
 def _safe_upload_filename(filename: str | None) -> str:
@@ -272,7 +304,8 @@ async def list_workspace_file_versions(
     listing via API for the File History UI.
     """
     channel, bot = await _require_channel_workspace(channel_id, db)
-    target = _resolve_channel_path(channel_id, bot, path)
+    ws_root, _ = await _resolve_workspace_root(channel, bot, db)
+    target = _resolve_channel_path(ws_root, path)
     parent = os.path.dirname(target)
     basename = os.path.basename(target)
     versions_dir = os.path.join(parent, ".versions")
@@ -311,7 +344,8 @@ async def restore_workspace_file(
     channel, bot = await _require_channel_workspace(channel_id, db)
     if "/" in body.version or ".." in body.version:
         raise HTTPException(400, "version must be a plain filename")
-    target = _resolve_channel_path(channel_id, bot, path)
+    ws_root, _ = await _resolve_workspace_root(channel, bot, db)
+    target = _resolve_channel_path(ws_root, path)
     basename = os.path.basename(target)
     if not body.version.startswith(basename + "."):
         raise HTTPException(400, f"Backup does not belong to {basename}")
@@ -356,13 +390,17 @@ async def upload_workspace_file(
 ):
     """Upload a file to the channel workspace with streamed size enforcement."""
     channel, bot = await _require_channel_workspace(channel_id, db)
-    from app.services.channel_workspace import ensure_channel_workspace, get_channel_workspace_root
+    from app.services.channel_workspace import ensure_channel_workspace
     ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
 
     filename = _safe_upload_filename(file.filename)
-    ws_path = get_channel_workspace_root(str(channel_id), bot)
-    ws_real = os.path.realpath(ws_path)
-    target_dir = os.path.realpath(os.path.join(ws_real, path)) if path else ws_real
+    ws_real, project_like = await _resolve_workspace_root(channel, bot, db)
+    upload_path = path
+    if project_like:
+        rewritten = _rewrite_project_attachment_upload_path(path)
+        if rewritten is not None:
+            upload_path = rewritten
+    target_dir = os.path.realpath(os.path.join(ws_real, upload_path)) if upload_path else ws_real
     if not (target_dir == ws_real or target_dir.startswith(ws_real + os.sep)):
         raise HTTPException(400, "Path escapes workspace root")
     os.makedirs(target_dir, exist_ok=True)
