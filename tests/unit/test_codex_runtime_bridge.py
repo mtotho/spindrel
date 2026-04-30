@@ -283,6 +283,10 @@ def test_codex_native_command_method_constants_are_current():
     assert schema.METHOD_CONFIG_REQUIREMENTS_OPEN == "configRequirements/open"
     assert schema.METHOD_USER_LIMITS == "user/limits"
     assert schema.METHOD_USER_LIMITS_SUBSCRIPTION == "user/limits/subscription"
+    assert schema.METHOD_THREAD_LIST == "thread/list"
+    assert schema.METHOD_THREAD_READ == "thread/read"
+    assert schema.METHOD_THREAD_TURNS_LIST == "thread/turns/list"
+    assert schema.METHOD_ACCOUNT_RATE_LIMITS_READ == "account/rateLimits/read"
 
 
 def test_summarize_native_command_result_counts_common_list_fields():
@@ -318,26 +322,20 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_ACCOUNT_READ,
         {"refreshToken": False},
     )
-    assert _resolve_codex_native_app_server_call("diff", ()) == (
-        schema.METHOD_FS_LIST_CHANGED_FILES,
-        {},
-    )
+    assert _resolve_codex_native_app_server_call("diff", ()) == (None, {})
     assert _resolve_codex_native_app_server_call("resume", ()) == (
-        schema.METHOD_CONVERSATION_LIST,
+        schema.METHOD_THREAD_LIST,
         {},
     )
     assert _resolve_codex_native_app_server_call("resume", ("search", "fixture")) == (
-        schema.METHOD_CONVERSATION_SEARCH,
+        schema.METHOD_THREAD_LIST,
         {"query": "fixture"},
     )
     assert _resolve_codex_native_app_server_call("cloud", ()) == (
-        schema.METHOD_USER_LIMITS,
+        schema.METHOD_ACCOUNT_RATE_LIMITS_READ,
         {},
     )
-    assert _resolve_codex_native_app_server_call("approvals", ()) == (
-        schema.METHOD_CONFIG_REQUIREMENTS_LIST,
-        {},
-    )
+    assert _resolve_codex_native_app_server_call("approvals", ()) == (None, {})
     assert _resolve_codex_native_app_server_call("review", ()) == (None, {})
 
 

@@ -908,7 +908,7 @@ async def _execute_native_runtime_command(
     work_surface = getattr(paths, "work_surface", None)
     from app.services.projects import is_project_like_surface
 
-    if is_project_like_surface(work_surface):
+    if is_project_like_surface(work_surface) and work_surface.project_id:
         runtime_env = await load_project_runtime_environment_for_id(ctx.db, work_surface.project_id)
     turn_ctx = build_turn_context(
         spindrel_session_id=session.id,

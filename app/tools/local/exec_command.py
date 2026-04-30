@@ -91,7 +91,8 @@ async def exec_command(command: str, working_dir: str = "") -> str:
                         if not working_dir:
                             working_dir = surface.root_host_path
                             effective_working_dir = working_dir
-                        runtime_env = await load_project_runtime_environment_for_id(db, surface.project_id)
+                        if surface.project_id:
+                            runtime_env = await load_project_runtime_environment_for_id(db, surface.project_id)
             except Exception:
                 logger.debug("Could not resolve project runtime for exec_command", exc_info=True)
         block_err = await run_before_access(bot_id, effective_working_dir)

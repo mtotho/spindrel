@@ -47,7 +47,29 @@ def test_list_run_presets_can_filter_by_surface():
     assert [preset.id for preset in list_run_presets("channel_task")] == [
         "widget_improvement_healthcheck"
     ]
+    assert [preset.id for preset in list_run_presets("project_coding_run")] == [
+        "project_coding_run"
+    ]
     assert list_run_presets("missing_surface") == []
+
+
+def test_project_coding_run_defaults_to_fresh_project_receipt_flow():
+    preset = get_run_preset("project_coding_run")
+
+    assert preset is not None
+    payload = serialize_run_preset(preset)
+    defaults = payload["task_defaults"]
+
+    assert payload["surface"] == "project_coding_run"
+    assert defaults["session_target"] == {"mode": "new_each_run"}
+    assert defaults["project_instance"] == {"mode": "fresh"}
+    assert defaults["allow_issue_reporting"] is True
+    assert defaults["harness_effort"] == "high"
+    assert defaults["max_run_seconds"] == 7200
+    assert "publish_project_run_receipt" in defaults["tools"]
+    assert "run_e2e_tests" in defaults["tools"]
+    assert "spindrel-visual-feedback-loop" in defaults["skills"]
+    assert "publish_project_run_receipt" in defaults["prompt"]
 
 
 def test_unknown_run_preset_returns_none():

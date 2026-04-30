@@ -48,6 +48,7 @@ from app.tools.registry import register
         "tools": {"type": "object"},
         "skills": {"type": "object"},
         "project": {"type": "object"},
+        "coding_run": {"type": "object"},
         "harness": {"type": "object"},
         "widgets": {"type": "object"},
         "doctor": {"type": "object"},

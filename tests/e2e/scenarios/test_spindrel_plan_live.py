@@ -255,6 +255,44 @@ async def _workspace_file_exists(client: E2EClient, workspace_id: str, path: str
     return True
 
 
+async def _channel_workspace_file_exists(client: E2EClient, channel_id: str, path: str) -> bool:
+    try:
+        await client.read_channel_workspace_file(channel_id, path)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (400, 404):
+            return False
+        raise
+    return True
+
+
+async def _native_plan_file_exists(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    workspace_id: str,
+    bot_id: str,
+    path: str,
+) -> bool:
+    if await _channel_workspace_file_exists(client, channel_id, path):
+        return True
+    if await _workspace_file_exists(client, workspace_id, path):
+        return True
+    return await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, path))
+
+
+async def _delete_native_plan_file(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    workspace_id: str,
+    bot_id: str,
+    path: str,
+) -> None:
+    await client.delete_channel_workspace_path(channel_id, path)
+    await client.delete_workspace_path(workspace_id, path)
+    await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, path))
+
+
 def _bot_workspace_path(bot_id: str, path: str) -> str:
     return f"bots/{bot_id}/{path.lstrip('/')}"
 
@@ -621,8 +659,13 @@ async def test_live_spindrel_planning_mode_blocks_file_mutation(client: E2EClien
     channel_id, session_id, bot_id = await _fresh_session(client, "guardrail")
     workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
     rel_path = f".spindrel-plan-parity/guardrail-{uuid.uuid4().hex}.txt"
-    await client.delete_workspace_path(workspace_id, rel_path)
-    await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+    await _delete_native_plan_file(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=rel_path,
+    )
     await client.start_session_plan_mode(session_id)
 
     result = await client.chat_session_stream(
@@ -638,7 +681,13 @@ async def test_live_spindrel_planning_mode_blocks_file_mutation(client: E2EClien
     )
     _assert_clean_turn(result)
 
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, rel_path)), (
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=rel_path,
+    ), (
         "planning mode allowed a direct file mutation"
     )
     state = await client.get_session_plan_state(session_id)
@@ -794,8 +843,13 @@ async def test_live_spindrel_behavior_planning_implementation_request_stays_read
     channel_id, session_id, bot_id = await _fresh_session(client, "behavior_guardrail")
     workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
     rel_path = f".spindrel-plan-parity/behavior-guardrail-{uuid.uuid4().hex}.txt"
-    await client.delete_workspace_path(workspace_id, rel_path)
-    await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+    await _delete_native_plan_file(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=rel_path,
+    )
     await client.start_session_plan_mode(session_id)
 
     result = await client.chat_session_stream(
@@ -810,7 +864,13 @@ async def test_live_spindrel_behavior_planning_implementation_request_stays_read
         timeout=_timeout(),
     )
     _assert_clean_turn(result)
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, rel_path))
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=rel_path,
+    )
     state = await client.get_session_plan_state(session_id)
     assert state["mode"] == "planning"
     assert state["has_plan"] is False
@@ -822,8 +882,13 @@ async def test_live_spindrel_behavior_missing_outcome_blocks_next_mutation(clien
     channel_id, session_id, bot_id = await _fresh_session(client, "behavior_pending")
     workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
     rel_path = f".spindrel-plan-parity/pending-outcome-{uuid.uuid4().hex}.txt"
-    await client.delete_workspace_path(workspace_id, rel_path)
-    await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+    await _delete_native_plan_file(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=rel_path,
+    )
     title = f"Native Spindrel Pending Outcome Parity {int(time.time())}"
     await _create_approved_execution_plan(
         client,
@@ -863,7 +928,13 @@ async def test_live_spindrel_behavior_missing_outcome_blocks_next_mutation(clien
         timeout=_timeout(),
     )
     _assert_clean_turn(blocked)
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, rel_path))
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=rel_path,
+    )
     latest_state = await client.get_session_plan_state(session_id)
     latest_pending = _plan_runtime(latest_state).get("pending_turn_outcome")
     assert latest_pending, latest_state
@@ -1380,8 +1451,13 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
     wrong_content = f"wrong native plan adherence {marker}"
     title = f"Native Spindrel Negative Adherence Review {int(time.time())}"
     for rel_path in (planned_path, wrong_path, blocked_path):
-        await client.delete_workspace_path(workspace_id, rel_path)
-        await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+        await _delete_native_plan_file(
+            client,
+            channel_id=channel_id,
+            workspace_id=workspace_id,
+            bot_id=bot_id,
+            path=rel_path,
+        )
 
     await client.start_session_plan_mode(session_id)
     created = await client.create_session_plan(
@@ -1422,8 +1498,20 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
     _assert_clean_turn(result)
     assert "file" in result.tools_used
     assert "record_plan_progress" in result.tools_used
-    assert await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, wrong_path))
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, planned_path))
+    assert await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=wrong_path,
+    )
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=planned_path,
+    )
 
     review_resp = await client.post(f"/sessions/{session_id}/plan/review-adherence", json={})
     assert review_resp.status_code == 200, review_resp.text
@@ -1444,7 +1532,13 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
         timeout=_timeout(),
     )
     _assert_clean_turn(blocked)
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, blocked_path)), (
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=blocked_path,
+    ), (
         "unsupported adherence review did not block a later mutating file tool"
     )
     _record_session("adherence_negative", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
@@ -1459,8 +1553,13 @@ async def test_live_spindrel_adherence_progress_stops_before_next_step(client: E
     first_path = f".spindrel-plan-parity/step-boundary-first-{marker}.txt"
     second_path = f".spindrel-plan-parity/step-boundary-second-{marker}.txt"
     for rel_path in (first_path, second_path):
-        await client.delete_workspace_path(workspace_id, rel_path)
-        await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+        await _delete_native_plan_file(
+            client,
+            channel_id=channel_id,
+            workspace_id=workspace_id,
+            bot_id=bot_id,
+            path=rel_path,
+        )
 
     await client.start_session_plan_mode(session_id)
     created = await client.create_session_plan(
@@ -1501,8 +1600,20 @@ async def test_live_spindrel_adherence_progress_stops_before_next_step(client: E
     _assert_clean_turn(result)
     assert "file" in result.tools_used
     assert "record_plan_progress" in result.tools_used
-    assert await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, first_path))
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, second_path)), (
+    assert await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=first_path,
+    )
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=second_path,
+    ), (
         "execution continued to the next plan step after record_plan_progress"
     )
 
@@ -1522,8 +1633,13 @@ async def test_live_spindrel_adherence_wrong_step_request_stays_nonmutating(clie
     authorized_path = f".spindrel-plan-parity/wrong-step-authorized-{marker}.txt"
     wrong_step_path = f".spindrel-plan-parity/wrong-step-forbidden-{marker}.txt"
     for rel_path in (authorized_path, wrong_step_path):
-        await client.delete_workspace_path(workspace_id, rel_path)
-        await client.delete_workspace_path(workspace_id, _bot_workspace_path(bot_id, rel_path))
+        await _delete_native_plan_file(
+            client,
+            channel_id=channel_id,
+            workspace_id=workspace_id,
+            bot_id=bot_id,
+            path=rel_path,
+        )
 
     await client.start_session_plan_mode(session_id)
     created = await client.create_session_plan(
@@ -1564,7 +1680,13 @@ async def test_live_spindrel_adherence_wrong_step_request_stays_nonmutating(clie
     _assert_clean_turn(result)
     assert "file" not in result.tools_used
     assert {"record_plan_progress", "request_plan_replan"} & set(result.tools_used)
-    assert not await _workspace_file_exists(client, workspace_id, _bot_workspace_path(bot_id, wrong_step_path)), (
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=wrong_step_path,
+    ), (
         "out-of-step execution request created a forbidden artifact"
     )
 

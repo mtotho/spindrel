@@ -55,6 +55,7 @@ COPY integrations/ integrations/
 COPY packages/ packages/
 COPY prompts/ prompts/
 COPY docs/ docs/
+COPY llms.txt .
 COPY alembic.ini .
 COPY migrations/ migrations/
 COPY scripts/entrypoint.sh /entrypoint.sh

@@ -859,7 +859,7 @@ async def run_native_harness_compact(
     work_surface = getattr(harness_paths, "work_surface", None)
     from app.services.projects import is_project_like_surface
 
-    if is_project_like_surface(work_surface):
+    if is_project_like_surface(work_surface) and work_surface.project_id:
         runtime_env = await load_project_runtime_environment_for_id(
             db,
             work_surface.project_id,

@@ -38,6 +38,14 @@ CORE_AGENT_TOOLS = (
     "get_skill",
     "list_api_endpoints",
     "call_api",
+    "publish_project_run_receipt",
+)
+
+PROJECT_CODING_RUN_TOOLS = (
+    "file",
+    "exec_command",
+    "run_e2e_tests",
+    "publish_project_run_receipt",
 )
 
 WIDGET_AUTHORING_TOOLS = (
@@ -542,6 +550,14 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
             "message": "The attached Project runtime environment has missing, invalid, or reserved variables.",
             "next_action": "Open Project settings and bind the missing secrets or adjust the Blueprint env keys.",
         })
+    coding_run = manifest.get("coding_run") or {}
+    if project.get("attached") and coding_run.get("missing_tools"):
+        findings.append({
+            "severity": "warning",
+            "code": "project_coding_run_tools_missing",
+            "message": f"Missing Project coding-run tools: {', '.join(coding_run.get('missing_tools') or [])}.",
+            "next_action": "Restart/reload local tools and verify coding-run helper modules import cleanly.",
+        })
     if manifest["harness"].get("runtime") and not manifest["project"].get("attached") and not manifest["harness"].get("workdir"):
         findings.append({
             "severity": "warning",
@@ -853,6 +869,35 @@ def _widget_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    available_tools = [name for name in PROJECT_CODING_RUN_TOOLS if name in _local_tools]
+    missing_tools = [name for name in PROJECT_CODING_RUN_TOOLS if name not in _local_tools]
+    project = manifest.get("project") or {}
+    runtime = project.get("runtime_env") or {}
+    readiness = "ready"
+    if not project.get("attached"):
+        readiness = "needs_project"
+    elif missing_tools:
+        readiness = "blocked"
+    elif runtime and not runtime.get("ready", True):
+        readiness = "runtime_needs_attention"
+    return {
+        "readiness": readiness,
+        "fresh_instances": "available",
+        "run_receipts": "available" if "publish_project_run_receipt" in _local_tools else "missing",
+        "required_tools": list(PROJECT_CODING_RUN_TOOLS),
+        "available_tools": available_tools,
+        "missing_tools": missing_tools,
+        "default_flow": [
+            "start Project coding run",
+            "bind fresh Project instance",
+            "edit and test in Project root",
+            "capture screenshots when UI changes",
+            "publish_project_run_receipt",
+        ],
+    }
+
+
 async def build_agent_capability_manifest(
     db: AsyncSession,
     *,
@@ -898,6 +943,7 @@ async def build_agent_capability_manifest(
             "bridge_status": "native" if bot and bot.harness_runtime else "not_configured",
         },
     }
+    manifest["coding_run"] = _coding_run_payload(manifest)
     manifest["widgets"] = _widget_payload(manifest)
     manifest["integrations"] = await _integration_payload(db, channel)
     manifest["doctor"] = {

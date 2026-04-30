@@ -35,8 +35,16 @@ activation:
   description: "TrueNAS storage health and read-mostly operations."
 
 provides:
+  - router
   - tools
   - skills
+
+debug_actions:
+  - id: diagnose
+    label: Run Diagnostics
+    description: "Test TrueNAS endpoint selection, authentication, and system.info."
+    endpoint: diagnose
+    method: GET
 
 tool_families:
   truenas:
@@ -89,6 +97,24 @@ widget_presets:
       tool_args:
         alerts_limit: "{{binding.alerts_limit}}"
         jobs_limit: "{{binding.jobs_limit}}"
+
+  truenas-connection-diagnostics:
+    name: Connection Diagnostics
+    description: Test the TrueNAS connection path and show endpoint/protocol diagnostics.
+    icon: PlugZap
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: truenas_test_connection
+    tool_family: truenas
+    tool_dependencies: [truenas_test_connection]
+    binding_schema:
+      type: object
+      properties: {}
+    binding_sources: {}
+    default_config: {}
+    runtime:
+      tool_args: {}
 
   truenas-pool-card:
     name: Pool Card
@@ -181,6 +207,52 @@ widget_presets:
         limit: "{{binding.limit}}"
 
 tool_widgets:
+  truenas_test_connection:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "TrueNAS diagnostics"
+    state_poll:
+      tool: truenas_test_connection
+      args: {}
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      status_color: success
+      message: "Connected to nas."
+      system: {hostname: nas, version: "25.04.2"}
+      connection:
+        endpoint: "ws://truenas.local/api/current"
+        protocol: jsonrpc
+        verify_ssl: false
+        attempted_endpoints:
+          - {endpoint: "ws://truenas.local/api/current", protocol: jsonrpc, status: connected}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "TrueNAS diagnostics"
+          level: 2
+        - type: status
+          text: "{{status}}"
+          color: "{{status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
+        - type: properties
+          variant: metadata
+          items:
+            - label: Host
+              value: "{{system.hostname | default: unknown}}"
+            - label: Version
+              value: "{{system.version | default: unknown}}"
+            - label: Endpoint
+              value: "{{connection.endpoint | default: unknown}}"
+            - label: Protocol
+              value: "{{connection.protocol | default: unknown}}"
+            - label: Attempts
+              value: "{{connection.attempted_endpoints | count}}"
+
   truenas_health_snapshot:
     content_type: application/vnd.spindrel.components+json
     display: inline
@@ -230,6 +302,10 @@ tool_widgets:
         - type: status
           text: "{{status}}"
           color: "{{status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
         - type: tiles
           min_width: 140
           items: "{{tiles}}"
@@ -268,6 +344,10 @@ tool_widgets:
         - type: status
           text: "{{status}}"
           color: "{{status | status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
         - type: tiles
           min_width: 180
           items: "{{pool_tiles}}"
@@ -310,6 +390,10 @@ tool_widgets:
         - type: status
           text: "{{count}} active"
           color: "{{status | status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
         - type: text
           when: "{{alert_tiles | not_empty | not}}"
           content: "No active alerts."
@@ -359,7 +443,10 @@ tool_widgets:
         - type: status
           text: "{{count}} recent"
           color: info
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
         - type: tiles
           min_width: 220
           items: "{{job_tiles}}"
-

@@ -674,6 +674,14 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def read_channel_workspace_file(self, channel_id: str, path: str) -> dict:
+        resp = await self._client.get(
+            f"/api/v1/channels/{channel_id}/workspace/files/content",
+            params={"path": path},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def write_workspace_file(self, workspace_id: str, path: str, content: str) -> dict:
         resp = await self._client.put(
             f"/api/v1/workspaces/{workspace_id}/files/content",
@@ -704,6 +712,17 @@ class E2EClient:
             return
         if resp.status_code not in (200, 204, 404):
             resp.raise_for_status()
+
+    async def delete_channel_workspace_path(self, channel_id: str, path: str) -> None:
+        resp = await self._client.delete(
+            f"/api/v1/channels/{channel_id}/workspace/files",
+            params={"path": path},
+        )
+        if resp.status_code in (200, 204, 404):
+            return
+        if resp.status_code == 400 and "not" in resp.text.lower():
+            return
+        resp.raise_for_status()
 
     async def exit_session_plan_mode(self, session_id: str) -> dict:
         resp = await self._client.post(f"/sessions/{session_id}/plan/exit", json={})

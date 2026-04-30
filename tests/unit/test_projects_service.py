@@ -14,6 +14,7 @@ from app.services.project_instances import (
 )
 from app.services.projects import (
     PROJECT_KB_PATH,
+    is_project_like_surface,
     materialize_project_blueprint,
     materialize_project_blueprint_snapshot,
     normalize_project_path,
@@ -130,6 +131,7 @@ def test_project_instance_work_surface_keeps_parent_project_policy(monkeypatch, 
     assert surface.project_instance_id == str(instance_id)
     assert surface.index_prefix == instance.root_path
     assert surface.prompt == "Project prompt"
+    assert is_project_like_surface(surface) is True
 
 
 def test_task_project_instance_policy_accepts_nested_and_shortcut_forms():

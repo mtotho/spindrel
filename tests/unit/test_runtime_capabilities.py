@@ -1,6 +1,9 @@
 """Coverage for RuntimeCapabilities + the harness slash-policy intersection."""
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+
 import pytest
 
 from app.services.agent_harnesses.base import (
@@ -202,6 +205,39 @@ async def test_codex_native_mutating_args_return_canonical_terminal_command():
 
     assert mcp.status == "terminal_handoff"
     assert mcp.payload["suggested_command"] == "codex mcp add fixture-server"
+
+
+@pytest.mark.asyncio
+async def test_codex_native_unknown_app_server_method_returns_terminal_handoff(monkeypatch):
+    from integrations.codex import harness as codex_harness
+    from integrations.codex.app_server import CodexAppServerError
+    from integrations.codex.harness import CodexRuntime
+
+    class _FakeClient:
+        async def initialize(self):
+            return {}
+
+        async def request(self, method, params, *, timeout=60.0):
+            raise CodexAppServerError(
+                -32600,
+                f"Invalid request: unknown variant `{method}`",
+            )
+
+    @asynccontextmanager
+    async def _fake_spawn(*, extra_env=None):
+        yield _FakeClient()
+
+    monkeypatch.setattr(codex_harness.CodexAppServer, "spawn", _fake_spawn)
+
+    result = await CodexRuntime().execute_native_command(
+        command_id="cloud",
+        args=("subscription",),
+        ctx=SimpleNamespace(env={}, workdir="/tmp/project"),
+    )
+
+    assert result.status == "terminal_handoff"
+    assert result.payload["method"] == "user/limits/subscription"
+    assert result.payload["suggested_command"] == "codex cloud subscription"
 
 
 def test_codex_native_mutating_args_require_approval():

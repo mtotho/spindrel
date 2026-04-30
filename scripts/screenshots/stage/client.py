@@ -371,6 +371,19 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def create_project_run_receipt(self, project_id: str, payload: dict[str, Any]) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN POST /projects/%s/run-receipts keys=%s", project_id, sorted(payload))
+            return {"id": "dry-run-receipt", "project_id": project_id, **payload}
+        r = self._http.post(f"/api/v1/projects/{project_id}/run-receipts", json=payload)
+        if r.status_code == 404:
+            logger.warning("POST /projects/%s/run-receipts unavailable; capture shim will seed receipt UI", project_id)
+            return {"id": "missing-run-receipt-endpoint", "project_id": project_id, **payload}
+        if r.status_code >= 400:
+            logger.error("POST /projects/%s/run-receipts -> %s body=%s", project_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     # --- skills ------------------------------------------------------------
 
     def list_skills(self, *, limit: int = 100) -> list[dict]:

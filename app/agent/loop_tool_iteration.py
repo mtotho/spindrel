@@ -92,7 +92,7 @@ async def stream_loop_tool_iteration(
         if _plan_progress_result_ends_turn(dispatch_event):
             text = "Plan progress recorded."
             _append_transcript_text_entry(state.transcript_entries, text)
-            state.messages.append({"role": "assistant", "content": text})
+            state.messages.append(_plan_progress_final_assistant_message(text, state))
             yield _event_with_compaction_tag({
                 "type": "response",
                 "text": text,
@@ -161,6 +161,23 @@ def _plan_progress_result_ends_turn(event: dict[str, Any]) -> bool:
         and event.get("tool") == "record_plan_progress"
         and not event.get("error")
     )
+
+
+def _plan_progress_final_assistant_message(text: str, state: LoopRunState) -> dict[str, Any]:
+    """Build the synthetic final assistant turn for progress-marker tool turns."""
+    message: dict[str, Any] = {"role": "assistant", "content": text}
+    if state.tool_calls_made:
+        message["_tools_used"] = list(state.tool_calls_made)
+        if state.tool_envelopes_made:
+            message["_tool_envelopes"] = list(state.tool_envelopes_made)
+    if state.thinking_content:
+        message["_thinking_content"] = state.thinking_content
+    if state.tool_calls_made and state.transcript_entries:
+        message["_assistant_turn_body"] = {
+            "version": 1,
+            "items": list(state.transcript_entries),
+        }
+    return message
 
 
 async def _inject_iteration_images(

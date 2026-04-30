@@ -492,6 +492,11 @@ the system can already inspect" is a shared capability manifest:
 - The repo-dev skills are not Spindrel runtime skills. Channel bots do not see
   `.agents/skills` unless a future, explicit runtime bridge supplies that
   content through a real app-owned contract.
+- External agentic discovery now has its own low-level entrypoint:
+  repo-root `llms.txt` plus unauthenticated `GET /llms.txt` on running
+  Spindrel servers. This is for outside/dev agents and external integrators;
+  in-app runtime agents still use the capability manifest and runtime
+  tools/skills.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

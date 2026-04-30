@@ -14,6 +14,20 @@ Spindrel auto-generates OpenAPI docs from its route definitions:
 
 All endpoints are visible, including admin routes. Authentication is still enforced — the docs just show what's available.
 
+## Agent Entry Points
+
+Agents that are discovering Spindrel from a running server should start with:
+
+| URL | Purpose |
+|-----|---------|
+| `/llms.txt` | Agent-readable project summary, quickstart, concepts, and links |
+| `/health` | Unauthenticated liveness/version probe |
+| `/openapi.json` | Full OpenAPI schema |
+| `/api/v1/discover` | Scoped endpoint catalog for the caller's API key |
+| `/api/v1/agent-capabilities` | Runtime bot/channel/session capability manifest |
+
+Repo-dev agents working from the Git checkout should read `llms.txt`, `README.md`, `.agents/manifest.json`, and the relevant `.agents/skills/*/SKILL.md` files. Those repo-dev skills are not Spindrel runtime skills and are not visible to in-app channel agents unless a runtime bridge explicitly supplies them.
+
 ## Authentication
 
 Spindrel supports three authentication methods:

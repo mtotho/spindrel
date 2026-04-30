@@ -8,7 +8,45 @@
 [![Docs](https://img.shields.io/badge/docs-docs.spindrel.dev-informational.svg)](https://docs.spindrel.dev)
 [![Release](https://img.shields.io/github/v/release/mtotho/spindrel?include_prereleases&sort=semver)](https://github.com/mtotho/spindrel/releases)
 
-Self-hosted AI agent server with persistent channels, composable expertise, workspace-driven memory, task pipelines, interactive widgets, and a pluggable integration framework.
+Self-hosted AI agent server with persistent channels, runtime skills, scoped tools and APIs, Project workspaces, scheduled work, widgets, integrations, and external coding-agent harnesses.
+
+## Agent Quickstart
+
+### What it is
+
+Spindrel is a FastAPI + React application for running AI agents as durable workspace operators instead of one-off chats.
+
+### Problem it solves
+
+It gives agents a persistent operating surface: channels, memory, runtime skills, tool discovery, Project files, scheduled heartbeats/tasks, widgets, integrations, and harnesses such as Claude Code and Codex.
+
+### Install
+
+```bash
+git clone https://github.com/mtotho/spindrel.git
+cd spindrel
+bash setup.sh
+```
+
+One-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | bash
+```
+
+### First call
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected output:
+
+```json
+{"status":"ok","version":"0.2.0"}
+```
+
+Agent entrypoints: [`llms.txt`](llms.txt), `/llms.txt`, `/openapi.json`, `/api/v1/discover`, and `/api/v1/agent-capabilities`.
 
 > **Early Access** — Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.
 

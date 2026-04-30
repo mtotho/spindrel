@@ -21,7 +21,8 @@ class _AsyncSessionCtx:
 
 
 @pytest.mark.asyncio
-async def test_exec_command_injects_project_runtime_env_and_redacts_output(monkeypatch) -> None:
+@pytest.mark.parametrize("surface_kind", ["project", "project_instance"])
+async def test_exec_command_injects_project_runtime_env_and_redacts_output(monkeypatch, surface_kind: str) -> None:
     channel_id = uuid.uuid4()
     bot = SimpleNamespace(
         id="runtime-bot",
@@ -49,7 +50,7 @@ async def test_exec_command_injects_project_runtime_env_and_redacts_output(monke
     monkeypatch.setattr("app.db.engine.async_session", lambda: _AsyncSessionCtx())
     monkeypatch.setattr(
         "app.services.projects.resolve_channel_work_surface_by_id",
-        AsyncMock(return_value=SimpleNamespace(kind="project", root_host_path="/tmp/project", project_id=uuid.uuid4())),
+        AsyncMock(return_value=SimpleNamespace(kind=surface_kind, root_host_path="/tmp/project", project_id=uuid.uuid4())),
     )
     monkeypatch.setattr(
         "app.services.project_runtime.load_project_runtime_environment_for_id",

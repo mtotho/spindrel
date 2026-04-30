@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from integrations.sdk import register_tool as register
@@ -16,6 +17,7 @@ CRITICAL_ALERT_LEVELS = {"CRITICAL", "ERROR"}
 WARNING_ALERT_LEVELS = {"WARNING", "WARN"}
 UNHEALTHY_POOL_STATES = {"DEGRADED", "FAULTED", "OFFLINE", "REMOVED", "UNAVAIL"}
 HIGH_DISK_TEMP_C = 55.0
+logger = logging.getLogger(__name__)
 
 
 def truenas_json(payload: Any) -> str:
@@ -33,6 +35,66 @@ def truenas_error_payload(exc: Exception) -> dict[str, Any]:
             payload["code"] = exc.code
         return payload
     return {"error": "Failed to query TrueNAS", "status": "error", "detail": str(exc)}
+
+
+def truenas_exception_diagnostics(exc: Exception) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {
+        "exception_type": type(exc).__name__,
+        "message": str(exc),
+    }
+    attempts = getattr(exc, "attempts", None)
+    if attempts:
+        diagnostics["attempted_endpoints"] = attempts
+    return diagnostics
+
+
+def truenas_connection_payload(client: Any) -> dict[str, Any]:
+    summary = getattr(client, "connection_summary", None)
+    if callable(summary):
+        return summary()
+    endpoint = getattr(client, "url", None)
+    if not endpoint:
+        return {}
+    return {
+        "endpoint": endpoint,
+        "protocol": getattr(client, "protocol", "unknown"),
+        "attempted_endpoints": getattr(client, "connection_attempts", []),
+    }
+
+
+def truenas_widget_error_payload(exc: Exception, *, context: str) -> dict[str, Any]:
+    base = truenas_error_payload(exc)
+    message = str(base.get("error") or base.get("detail") or exc)
+    status = str(base.get("status") or "error")
+    diagnostics = truenas_exception_diagnostics(exc)
+    attempts = diagnostics.get("attempted_endpoints", [])
+    connection: dict[str, Any] = {"attempted_endpoints": attempts}
+    if attempts and isinstance(attempts, list):
+        last_attempt = attempts[-1]
+        if isinstance(last_attempt, dict):
+            connection["endpoint"] = last_attempt.get("endpoint")
+            connection["protocol"] = last_attempt.get("protocol")
+    return {
+        "status": status,
+        "status_color": truenas_status_color(status),
+        "message": message,
+        "context": context,
+        "system": {},
+        "connection": connection,
+        "diagnostics": diagnostics,
+        "errors": {"connection": message},
+        "tiles": [{
+            "label": "Connection",
+            "value": "Unavailable",
+            "caption": message[:96],
+            "status": "danger",
+        }],
+        "pool_tiles": [],
+        "alert_tiles": [],
+        "job_tiles": [],
+        "scrub_schedules": [],
+        "count": 0,
+    }
 
 
 def truenas_as_list(value: Any) -> list[Any]:
@@ -316,12 +378,21 @@ async def truenas_fetch_shares(client: Any) -> dict[str, Any]:
     }
 
 
-async def truenas_run(call) -> str:
+async def truenas_run(call, *, widget_context: str | None = None) -> str:
     try:
         async with truenas_client_from_settings() as client:
             payload = await call(client)
+            if isinstance(payload, dict):
+                connection = truenas_connection_payload(client)
+                if connection:
+                    payload.setdefault("connection", connection)
     except Exception as exc:
-        payload = truenas_error_payload(exc)
+        logger.warning("TrueNAS tool call failed: %s", exc, exc_info=True)
+        payload = (
+            truenas_widget_error_payload(exc, context=widget_context)
+            if widget_context
+            else truenas_error_payload(exc)
+        )
     return truenas_json(payload)
 
 
@@ -336,9 +407,15 @@ async def truenas_run(call) -> str:
 async def truenas_test_connection() -> str:
     async def call(client):
         system = await client.call("system.info")
-        return {"status": "ok", "system": system}
+        hostname = system.get("hostname") if isinstance(system, dict) else None
+        return {
+            "status": "ok",
+            "status_color": "success",
+            "message": f"Connected to {hostname or 'TrueNAS'}.",
+            "system": system,
+        }
 
-    return await truenas_run(call)
+    return await truenas_run(call, widget_context="test_connection")
 
 
 @register({
@@ -379,7 +456,7 @@ async def truenas_health_snapshot(
             include_snapshots=bool(include_snapshots),
         )
 
-    return await truenas_run(call)
+    return await truenas_run(call, widget_context="health_snapshot")
 
 
 @register({
@@ -411,7 +488,7 @@ async def truenas_pool_status_tool(pool_name: str | None = None, include_scrub_s
             payload["scrub_schedules"] = truenas_as_list(await truenas_query(client, "pool.scrub.query", scrub_filters))
         return payload
 
-    return await truenas_run(call)
+    return await truenas_run(call, widget_context="pool_status")
 
 
 @register({
@@ -439,7 +516,7 @@ async def truenas_alerts(limit: int = 50) -> str:
             "alert_tiles": truenas_alert_tiles(alerts),
         }
 
-    return await truenas_run(call)
+    return await truenas_run(call, widget_context="alerts")
 
 
 @register({
@@ -467,7 +544,7 @@ async def truenas_jobs(state: str | None = None, limit: int = 20) -> str:
         jobs = truenas_as_list(await truenas_query(client, "core.get_jobs", filters, {"limit": limit_n, "order_by": ["-id"]}))
         return {"status": "ok", "count": len(jobs), "jobs": jobs, "job_tiles": truenas_job_tiles(jobs)}
 
-    return await truenas_run(call)
+    return await truenas_run(call, widget_context="jobs")
 
 
 @register({

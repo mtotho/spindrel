@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import json
 import inspect
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -202,6 +203,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-setup-ready.png",
         "project-workspace-setup-run-history.png",
         "project-workspace-instances.png",
+        "project-workspace-runs.png",
         "project-workspace-terminal.png",
         "project-workspace-channels.png",
         "project-workspace-channel-settings.png",
@@ -216,6 +218,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert routes["project-workspace-setup-ready"] == "/admin/projects/blueprint-project-1#Setup"
     assert routes["project-workspace-setup-run-history"] == "/admin/projects/blueprint-project-1#Setup"
     assert routes["project-workspace-instances"] == "/admin/projects/blueprint-project-1#Instances"
+    assert routes["project-workspace-runs"] == "/admin/projects/project-1#Runs"
     assert routes["project-workspace-terminal"] == "/admin/projects/project-1#Terminal"
     assert routes["project-workspace-channels"] == "/admin/projects/project-1#Channels"
     assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"
@@ -448,6 +451,16 @@ def test_harness_live_filter_specs_accepts_exact_names_and_globs():
         "harness-codex-terminal-write",
         "harness-claude-mobile-context",
     ]
+
+
+def test_harness_parity_runner_skips_auto_screenshots_for_targeted_pytest():
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "run_harness_parity_live.sh"
+    ).read_text()
+
+    assert "if [[ ${#PYTEST_ARGS[@]} -gt 0" in script
+    assert "HARNESS_PARITY_SCREENSHOT_ONLY" in script
 
 
 def test_harness_live_mobile_context_specs_are_docs_fixtures():

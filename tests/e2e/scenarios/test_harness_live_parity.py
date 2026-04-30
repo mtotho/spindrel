@@ -110,6 +110,11 @@ HARNESSES = (
             ("plugins", "plugins"),
             ("skills", "skills"),
             ("mcp", "mcp-status"),
+            ("status", "status"),
+            ("diff", "diff"),
+            ("resume", "resume"),
+            ("cloud", "cloud"),
+            ("approvals", "approvals"),
         ),
         native_terminal_handoff_commands=(
             ("plugin", ("install", "spindrel-fixture-nonexistent"), "codex plugin install spindrel-fixture-nonexistent"),
@@ -1117,7 +1122,10 @@ async def test_live_harness_core_native_slash_direct_commands(
         assert result["result_type"] == "harness_runtime_command"
         assert result["command_id"] == slash_name
         assert result["payload"]["command"] == runtime_command
-        assert result["payload"]["status"] == "ok"
+        expected_status = "ok"
+        if case.name == "codex" and runtime_command in {"diff", "approvals"}:
+            expected_status = "terminal_handoff"
+        assert result["payload"]["status"] == expected_status
         assert result["payload"].get("detail") or result.get("fallback_text")
         if case.name == "codex" and runtime_command == "skills":
             status = await client.get_session_harness_status(session_id)
@@ -1764,6 +1772,7 @@ async def test_live_harness_default_mode_bridge_write_approval_resume(
 
         result = await client.chat_session_stream(
             (
+                f"{_local_tool_prompt('file')} "
                 "Use the Spindrel host file bridge tool for this task "
                 "(Codex dynamic tool `file`; Claude MCP tool `mcp__spindrel__file`). "
                 f"Create or overwrite the relative file {rel_path!r} with exactly "

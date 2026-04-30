@@ -834,12 +834,14 @@ function ProjectRunsSection({
             <SelectInput
               value={selectedChannelId}
               onChange={(value) => setSelectedChannelId(value)}
-              options={(channels ?? []).map((channel) => ({
-                label: `${channel.name} · ${channel.bot_id}`,
-                value: channel.id,
-              }))}
-              placeholder="Attach a Project channel first"
-              disabled={!channels || channels.length === 0}
+              options={
+                channels && channels.length > 0
+                  ? channels.map((channel) => ({
+                    label: `${channel.name} · ${channel.bot_id}`,
+                    value: channel.id,
+                  }))
+                  : [{ label: "Attach a Project channel first", value: "" }]
+              }
             />
           </FormRow>
           <FormRow label="Project request" description="A short bug, feature, or review task for the selected Project channel.">

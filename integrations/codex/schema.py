@@ -38,6 +38,9 @@ NOTIFICATION_INITIALIZED = "initialized"
 METHOD_THREAD_START = "thread/start"
 METHOD_THREAD_RESUME = "thread/resume"
 METHOD_THREAD_COMPACT_START = "thread/compact/start"
+METHOD_THREAD_LIST = "thread/list"
+METHOD_THREAD_READ = "thread/read"
+METHOD_THREAD_TURNS_LIST = "thread/turns/list"
 METHOD_TURN_START = "turn/start"
 METHOD_TURN_INTERRUPT = "turn/interrupt"
 METHOD_ACCOUNT_READ = "account/read"
@@ -90,6 +93,7 @@ METHOD_CONFIG_REQUIREMENTS_LIST = "configRequirements/list"
 METHOD_CONFIG_REQUIREMENTS_OPEN = "configRequirements/open"
 METHOD_USER_LIMITS = "user/limits"
 METHOD_USER_LIMITS_SUBSCRIPTION = "user/limits/subscription"
+METHOD_ACCOUNT_RATE_LIMITS_READ = "account/rateLimits/read"
 
 
 # ---------------------------------------------------------------------------

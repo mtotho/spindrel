@@ -105,6 +105,7 @@ project-workspace-settings-blueprint.png
 project-workspace-setup-ready.png
 project-workspace-setup-run-history.png
 project-workspace-instances.png
+project-workspace-runs.png
 project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
@@ -114,11 +115,13 @@ project-workspace-memory-tool.png
 The staging step creates a reusable screenshot Project, attaches one channel to
 it, creates one attachable channel, writes a file through the channel workspace
 API, seeds a Blueprint-created Project with secret bindings, runs repo plus
-setup-command preparation for `https://github.com/mtotho/spindrel.git`, and
-seeds a fresh Project instance, and seeds a memory-tool turn. Inspect all twelve images before closing out: the
+setup-command preparation for `https://github.com/mtotho/spindrel.git`, seeds
+a fresh Project instance, seeds a Project coding-run receipt, and seeds a
+memory-tool turn. Inspect all thirteen images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project runtime-env readiness, fresh
-Project instances, Project settings, and the channel transcript.
+Project instances, Project coding-run receipts, Project settings, and the
+channel transcript.
 
 ## Channel Quick Automations Run
 

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 
 from app.config import VERSION, settings
 from app.services.startup_bootstrap import run_startup_bootstrap
@@ -203,6 +204,20 @@ app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(transcribe.router)
 app.include_router(_api_v1_router)
+
+
+_LLMS_TXT = Path(__file__).resolve().parent.parent / "llms.txt"
+
+
+@app.get("/llms.txt", response_class=PlainTextResponse, include_in_schema=False)
+async def llms_txt():
+    """Serve the agent-readable project discovery document."""
+    if not _LLMS_TXT.is_file():
+        raise HTTPException(status_code=404, detail="llms.txt not found")
+    return PlainTextResponse(
+        _LLMS_TXT.read_text(encoding="utf-8"),
+        media_type="text/plain; charset=utf-8",
+    )
 
 
 

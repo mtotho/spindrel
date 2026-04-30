@@ -1,0 +1,93 @@
+# Spindrel
+
+> Self-hosted AI agent server for persistent channels, runtime skills, scoped tools, Projects, widgets, scheduled work, integrations, and external coding-agent harnesses.
+
+## What this is
+
+Spindrel is a FastAPI + React application that hosts AI agents in durable channels. Use it when you need agents that can keep memory, call scoped tools and APIs, operate on Project workspaces, publish widgets, run scheduled tasks and heartbeats, and integrate with systems such as Slack, GitHub, Discord, Home Assistant, TrueNAS, and external coding-agent runtimes.
+
+There are two agent contexts:
+
+- Outside/dev agents read this Git repository, `README.md`, `.agents/manifest.json`, `.agents/skills/*/SKILL.md`, and the docs to understand, modify, install, or integrate with Spindrel.
+- In-app runtime agents run inside Spindrel channels. They do not automatically see repo-local `.agents/skills`; they inspect their live capability surface through `/api/v1/agent-capabilities`, `list_agent_capabilities`, `run_agent_doctor`, runtime tools, runtime skills, Projects, integrations, and channel context.
+
+## Quickstart
+
+```bash
+git clone https://github.com/mtotho/spindrel.git
+cd spindrel
+bash setup.sh
+```
+
+One-line install path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | bash
+```
+
+Primary assumptions: Docker, Git, a modern Linux/macOS shell, and at least one LLM provider or local Ollama-style provider configured during setup.
+
+## First API calls
+
+After the server is running and you have an API key:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected shape:
+
+```json
+{"status":"ok","version":"0.2.0"}
+```
+
+Discover the API:
+
+```bash
+curl http://localhost:8000/openapi.json
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8000/api/v1/discover
+```
+
+Inspect an in-app agent's current working surface:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8000/api/v1/agent-capabilities?bot_id=default&include_schemas=true"
+```
+
+Send a message:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"bot_id":"default","message":"Summarize your current capabilities."}'
+```
+
+## Key concepts
+
+- Channel: durable conversation room with history, dashboard widgets, optional integrations, and a primary bot.
+- Bot: configured agent identity with model/provider settings, runtime skills, tools, API permissions, and memory.
+- Runtime skill: markdown expertise discovered and loaded by in-app Spindrel agents.
+- Repo-dev skill: `.agents/skills/*/SKILL.md` instructions for outside agents editing this repository; not imported into runtime skill tables.
+- Tool: callable function exposed to an in-app agent, with safety tier, input schema, and often a return schema.
+- Agent Capability Manifest: machine-readable runtime contract for one bot/channel/session, available at `/api/v1/agent-capabilities` and through `list_agent_capabilities`.
+- Project: shared or fresh workspace root that gives agents files, setup runs, receipts, and coding-run context.
+- Harness: external coding-agent runtime such as Claude Code or Codex run through Spindrel while keeping native tool/approval semantics.
+- Integration: pluggable connector under `integrations/<id>/` with manifests, settings, activation/binding, tools, widgets, and delivery behavior.
+- Widget: structured or HTML UI artifact emitted or managed by tools and rendered in dashboards.
+
+## Links
+
+- Repository README: `README.md`
+- Setup guide: `docs/setup.md`
+- Developer API guide: `docs/guides/api.md`
+- OpenAPI schema on a running server: `/openapi.json`
+- Scoped endpoint discovery: `/api/v1/discover`
+- Agent capability manifest: `/api/v1/agent-capabilities`
+- Tool and skill discovery guide: `docs/guides/discovery-and-enrollment.md`
+- Context management guide: `docs/guides/context-management.md`
+- Agent harnesses guide: `docs/guides/agent-harnesses.md`
+- Integrations guide: `docs/guides/integrations.md`
+- Widget system guide: `docs/guides/widget-system.md`
+- Repo-dev skill manifest: `.agents/manifest.json`

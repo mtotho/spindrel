@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import logging
 import ssl
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,8 @@ import websockets
 
 from integrations.truenas.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class TrueNASConfigurationError(RuntimeError):
     """Raised when required TrueNAS settings are missing."""
@@ -20,6 +23,10 @@ class TrueNASConfigurationError(RuntimeError):
 
 class TrueNASConnectionError(RuntimeError):
     """Raised when Spindrel cannot connect to TrueNAS."""
+
+    def __init__(self, message: str, *, attempts: list[dict[str, Any]] | None = None):
+        self.attempts = attempts or []
+        super().__init__(message)
 
 
 class TrueNASApiError(RuntimeError):
@@ -101,23 +108,55 @@ class TrueNASClient:
         self.urls = truenas_ws_url_candidates(config.base_url)
         self.url = self.urls[0]
         self.protocol = "jsonrpc"
+        self.connection_attempts: list[dict[str, Any]] = []
         self._ids = itertools.count(1)
         self._ws: Any | None = None
 
     async def __aenter__(self) -> "TrueNASClient":
         last_exc: Exception | None = None
         for url in self.urls:
+            protocol = self.protocol_for_url(url)
             try:
+                logger.info("Trying TrueNAS %s endpoint %s", protocol, url)
                 await self.connect_url(url)
+                self.connection_attempts.append({
+                    "endpoint": url,
+                    "protocol": protocol,
+                    "status": "connected",
+                })
+                logger.info("Connected to TrueNAS via %s endpoint %s", self.protocol, self.url)
                 return self
             except Exception as exc:
                 last_exc = exc
+                self.connection_attempts.append({
+                    "endpoint": url,
+                    "protocol": protocol,
+                    "status": "failed",
+                    "error": str(exc),
+                    "exception_type": type(exc).__name__,
+                })
+                logger.warning("TrueNAS endpoint failed: %s (%s)", url, exc)
                 await self.close()
-        raise TrueNASConnectionError(f"Failed to connect to TrueNAS at {self.urls[0]}") from last_exc
+        raise TrueNASConnectionError(
+            f"Failed to connect to TrueNAS at {self.urls[0]}",
+            attempts=self.connection_attempts,
+        ) from last_exc
+
+    def connection_summary(self) -> dict[str, Any]:
+        return {
+            "endpoint": self.url,
+            "protocol": self.protocol,
+            "attempted_endpoints": self.connection_attempts,
+            "verify_ssl": self.config.verify_ssl,
+        }
+
+    @staticmethod
+    def protocol_for_url(url: str) -> str:
+        return "legacy" if url.endswith("/websocket") else "jsonrpc"
 
     async def connect_url(self, url: str) -> None:
         self.url = url
-        self.protocol = "legacy" if url.endswith("/websocket") else "jsonrpc"
+        self.protocol = self.protocol_for_url(url)
         ssl_context = None
         if self.url.startswith("wss://") and not self.config.verify_ssl:
             ssl_context = ssl._create_unverified_context()

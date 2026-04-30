@@ -20,9 +20,9 @@ Open `/admin/projects` to create or inspect shared roots. A Project owns:
 
 The Project detail page is the work surface: use **Files** for the rooted file
 browser, **Terminal** for a Project-root shell, **Setup** for Blueprint runtime
-preparation, **Instances** for fresh workspaces created from the applied
-snapshot, **Settings** for instructions and Blueprint metadata, and **Channels**
-for membership.
+preparation, **Runs** for agent coding-run launch and receipts, **Instances**
+for fresh workspaces created from the applied snapshot, **Settings** for
+instructions and Blueprint metadata, and **Channels** for membership.
 
 ## Blueprints
 
@@ -75,6 +75,17 @@ bound to a fresh instance through the session Project-instance API. Project
 session composers expose that binding as quiet work-surface text near the
 composer controls, not as channel header chrome; creating or clearing a fresh
 copy affects future turns only.
+
+## Agent Coding Runs
+
+![Project coding run launcher and receipts](../images/project-workspace-runs.png)
+
+Project coding runs are ordinary background tasks with Project defaults:
+a new session per run, a fresh Project instance, Project file/exec/harness cwd,
+e2e screenshot tooling, and `publish_project_run_receipt`. The receipt records
+the implementation summary, changed files, tests, screenshots, branch or review
+handoff, and task/session linkage so a later session can pick up from durable
+Project state instead of searching chat history.
 
 ## Channels And Memory
 

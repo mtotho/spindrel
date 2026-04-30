@@ -181,6 +181,29 @@ def stage_project_workspace(
         f"{PROJECT_ROOT}/README.md",
         "# Screenshot Project Workspace\n\nThis file is rooted at the shared Project, not the channel workspace.\n",
     )
+    client.create_project_run_receipt(
+        project_id,
+        {
+            "status": "completed",
+            "summary": "Screenshot Project coding run receipt",
+            "bot_id": PROJECT_BOT_ID,
+            "changed_files": [
+                "app/services/projects.py",
+                "ui/app/(app)/admin/projects/[projectId]/index.tsx",
+            ],
+            "tests": [
+                {"command": "pytest tests/unit/test_projects_service.py", "status": "passed"},
+                {"command": "cd ui && npx tsc --noEmit", "status": "passed"},
+            ],
+            "screenshots": [
+                {"path": "docs/images/project-workspace-runs.png", "status": "captured"},
+            ],
+            "handoff_type": "branch",
+            "handoff_url": "https://example.invalid/spindrel/project-run",
+            "branch": "screenshot/project-coding-run",
+            "base_branch": "development",
+        },
+    )
     client.write_channel_workspace_file(
         channel_id,
         "README.md",

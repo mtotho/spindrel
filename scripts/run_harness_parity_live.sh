@@ -267,6 +267,9 @@ should_capture_screenshots() {
             return 1
             ;;
         auto)
+            if [[ ${#PYTEST_ARGS[@]} -gt 0 && -z "${HARNESS_PARITY_SCREENSHOT_ONLY:-}" ]]; then
+                return 1
+            fi
             tier_at_least "$HARNESS_PARITY_TIER" "project"
             return
             ;;

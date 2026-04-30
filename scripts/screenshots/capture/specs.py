@@ -2595,9 +2595,8 @@ PIN_CONFIG_EDITOR_SPECS: list[ScreenshotSpec] = [
 
 # ---------------------------------------------------------------------------
 # Project workspace captures — validates the shared Project primitive across
-# admin Projects, channel settings, Project-rooted files, and memory-tool
-# transcript presentation. Staging creates one reusable Project and attaches a
-# screenshot channel to it.
+# admin Projects, channel settings, Project-rooted files, memory-tool transcript
+# presentation, fresh Project instances, and coding-run receipts.
 # ---------------------------------------------------------------------------
 PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
@@ -2698,6 +2697,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         output="project-workspace-settings-blueprint.png",
         color_scheme="dark",
         full_page=True,
+        pre_capture_js=(
+            "const runtime = document.querySelector('[data-testid=\"project-runtime-env-readiness\"]');"
+            "if (runtime) runtime.scrollIntoView({ block: 'center' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
         assert_js=(
             "const text = document.body.innerText;"
             "const normalized = text.toLowerCase();"
@@ -2786,6 +2790,29 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-runs",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
+            "&& document.body.innerText.includes('Agent Coding Run') "
+            "&& document.body.innerText.includes('Screenshot Project coding run receipt')"
+        ),
+        output="project-workspace-runs.png",
+        color_scheme="dark",
+        full_page=True,
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Project request') "
+            "&& text.includes('Run Receipts') "
+            "&& text.includes('Screenshot Project coding run receipt') "
+            "&& text.includes('project-workspace-runs.png') "
+            "&& text.includes('pytest tests/unit/test_projects_service.py'), "
+            "detail: 'Project Runs tab did not expose the coding run launcher and receipt evidence' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-terminal",
         route="/admin/projects/{project_workspace_project}#Terminal",
         viewport={"width": 1440, "height": 900},
@@ -2850,8 +2877,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"session-work-surface-control\"]') "
-            "&& (document.body.innerText.includes('Replace Section memory/MEMORY.md') "
+            "(document.body.innerText.includes('Replace Section memory/MEMORY.md') "
             "|| document.body.innerText.includes('Project workspace screenshot memory fact') "
             "|| document.body.innerText.toLowerCase().includes('memory was updated'))"
         ),
@@ -2859,12 +2885,11 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         color_scheme="dark",
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: !!document.querySelector('[data-testid=\"session-work-surface-control\"]') "
-            "&& text.includes('Project') "
+            "return { ok: text.includes('Project') "
             "&& (text.includes('Replace Section memory/MEMORY.md') "
             "|| text.includes('memory was updated') "
             "|| text.includes('Project workspace screenshot memory fact')), "
-            "detail: 'Memory tool transcript or session work-surface control was not visible' };"
+            "detail: 'Memory tool transcript was not visible' };"
         ),
     ),
 ]

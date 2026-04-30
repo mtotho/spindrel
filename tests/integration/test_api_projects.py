@@ -50,6 +50,45 @@ class TestProjectsApi:
         assert listed.status_code == 200
         assert any(project["id"] == body["id"] for project in listed.json())
 
+    async def test_project_run_receipts_create_and_list(self, client, db_session):
+        workspace = await _workspace(db_session)
+        created = await client.post(
+            "/api/v1/projects",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Receipt Project",
+                "root_path": "common/projects/receipt",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        receipt = await client.post(
+            f"/api/v1/projects/{project_id}/run-receipts",
+            json={
+                "status": "completed",
+                "summary": "Implemented the Project run surface.",
+                "bot_id": "test-bot",
+                "changed_files": ["app/services/project_run_receipts.py"],
+                "tests": [{"command": "pytest tests/unit/test_run_presets.py", "status": "passed"}],
+                "screenshots": [{"path": "docs/images/project-workspace-runs.png"}],
+                "handoff_type": "branch",
+                "handoff_url": "https://example.invalid/review",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert receipt.status_code == 201
+        receipt_body = receipt.json()
+        assert receipt_body["project_id"] == project_id
+        assert receipt_body["status"] == "completed"
+        assert receipt_body["changed_files"] == ["app/services/project_run_receipts.py"]
+        assert receipt_body["tests"][0]["status"] == "passed"
+
+        listed = await client.get(f"/api/v1/projects/{project_id}/run-receipts", headers=AUTH_HEADERS)
+        assert listed.status_code == 200
+        assert [row["id"] for row in listed.json()] == [receipt_body["id"]]
+
     async def test_create_project_from_blueprint_materializes_files_and_secret_slots(self, client, db_session, monkeypatch, tmp_path):
         monkeypatch.setattr(
             "app.services.shared_workspace.local_workspace_base",

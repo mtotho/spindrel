@@ -522,6 +522,37 @@ class CodexRuntime:
                 detail=str(exc),
                 status="error",
             )
+        except CodexAppServerError as exc:
+            logger.exception("codex native command failed: %s", command_id)
+            suggested_command = _codex_native_terminal_command(command_id, args)
+            if _codex_app_server_error_is_unknown_method(exc):
+                return HarnessRuntimeCommandResult(
+                    command_id=command_id,
+                    title="Open terminal for Codex command",
+                    detail=(
+                        f"Codex app-server does not expose {method}. "
+                        "Use the native CLI flow in the in-app terminal."
+                    ),
+                    status="terminal_handoff",
+                    payload={
+                        "method": method,
+                        "cwd": getattr(ctx, "workdir", None),
+                        "suggested_command": suggested_command,
+                        "error": str(exc),
+                    },
+                )
+            return HarnessRuntimeCommandResult(
+                command_id=command_id,
+                title="Codex native command failed",
+                detail=str(exc),
+                status="error",
+                payload={
+                    "method": method,
+                    "cwd": getattr(ctx, "workdir", None),
+                    "suggested_command": suggested_command,
+                    "error": str(exc),
+                },
+            )
         except Exception as exc:
             logger.exception("codex native command failed: %s", command_id)
             return HarnessRuntimeCommandResult(
@@ -692,34 +723,33 @@ def _resolve_codex_native_app_server_call(
             return schema.METHOD_ACCOUNT_READ, {"refreshToken": False}
         return None, {}
     if command_id == "diff":
-        if not cleaned:
-            return schema.METHOD_FS_LIST_CHANGED_FILES, {}
         return None, {}
     if command_id == "resume":
         if not cleaned or first in {"list", "history"}:
-            return schema.METHOD_CONVERSATION_LIST, {}
+            return schema.METHOD_THREAD_LIST, {}
         if first == "search" and len(cleaned) >= 2:
-            return schema.METHOD_CONVERSATION_SEARCH, {"query": " ".join(cleaned[1:])}
+            return schema.METHOD_THREAD_LIST, {"query": " ".join(cleaned[1:])}
         if first in {"get", "show"} and len(cleaned) >= 2:
-            return schema.METHOD_CONVERSATION_GET, {"conversationId": cleaned[1]}
+            return schema.METHOD_THREAD_READ, {"threadId": cleaned[1]}
         if first in {"responses", "response"} and len(cleaned) >= 2:
-            return schema.METHOD_CONVERSATION_RESPONSES_LIST, {"conversationId": cleaned[1]}
+            return schema.METHOD_THREAD_TURNS_LIST, {"threadId": cleaned[1]}
         return None, {}
     if command_id == "cloud":
         if not cleaned or first in {"limits", "status"}:
-            return schema.METHOD_USER_LIMITS, {}
+            return schema.METHOD_ACCOUNT_RATE_LIMITS_READ, {}
         if first in {"subscription", "sub"}:
             return schema.METHOD_USER_LIMITS_SUBSCRIPTION, {}
         return None, {}
     if command_id == "approvals":
-        if not cleaned or first in {"list", "status", "show"}:
-            return schema.METHOD_CONFIG_REQUIREMENTS_LIST, {}
-        if first == "open":
-            return None, {}
         return None, {}
     if command_id in {"undo", "branch", "review", "prompts", "editor", "init"}:
         return None, {}
     return None
+
+
+def _codex_app_server_error_is_unknown_method(exc: CodexAppServerError) -> bool:
+    message = (getattr(exc, "message", "") or str(exc)).lower()
+    return "unknown variant" in message or "method not found" in message
 
 
 def _parse_codex_config_value(raw: str) -> Any:

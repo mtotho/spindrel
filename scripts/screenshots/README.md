@@ -82,6 +82,8 @@ Per-test diagnostic screenshots land under `/tmp/spindrel-harness-parity/`
 unless `HARNESS_PARITY_ARTIFACT_DIR` is set. For `project` and deeper tiers,
 `run_harness_parity_live.sh` also runs the live harness screenshot capturer
 after pytest passes and writes verification captures under `/tmp` by default.
+Targeted pytest runs such as `-k native_skill_invocation` skip the automatic
+screenshot phase unless `HARNESS_PARITY_SCREENSHOT_ONLY` is explicitly set.
 Use `HARNESS_PARITY_SCREENSHOT_OUTPUT_DIR=docs/images` when intentionally
 refreshing checked-in docs fixtures, or
 `HARNESS_PARITY_CAPTURE_SCREENSHOTS=false` to skip screenshot capture. Use

@@ -144,6 +144,34 @@ async def test_record_plan_progress_result_finishes_turn_without_more_llm_iterat
 
 
 @pytest.mark.asyncio
+async def test_record_plan_progress_final_turn_preserves_tool_envelopes():
+    plan_envelope = {
+        "content_type": "application/vnd.spindrel.plan+json",
+        "body": {"title": "Progress"},
+        "plain_body": "Progress",
+    }
+
+    async def _dispatch_progress(**kwargs):
+        state = kwargs["state"]
+        state.tool_calls_made.append("record_plan_progress")
+        state.tool_envelopes_made.append(plan_envelope)
+        yield {"type": "tool_result", "tool": "record_plan_progress"}
+
+    _, state = await _collect(
+        accumulated_msg=_accumulated(content="Recording progress."),
+        dispatch_iteration_tool_calls_fn=_dispatch_progress,
+    )
+
+    assert state.messages[-1]["content"] == "Plan progress recorded."
+    assert state.messages[-1]["_tools_used"] == ["record_plan_progress"]
+    assert state.messages[-1]["_tool_envelopes"] == [plan_envelope]
+    body = state.messages[-1]["_assistant_turn_body"]
+    assert body["version"] == 1
+    assert "Recording progress." in body["items"][0]["text"]
+    assert "Plan progress recorded." in body["items"][0]["text"]
+
+
+@pytest.mark.asyncio
 async def test_injected_images_are_described_for_nonvision_models():
     async def _dispatch_with_image(**kwargs):
         kwargs["state"].iteration_injected_images.append({
