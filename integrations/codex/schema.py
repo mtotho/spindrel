@@ -284,7 +284,6 @@ def verify_schema_against_binary(binary_path: str) -> None:
         client_request,
         (
             METHOD_APPS_LIST,
-            METHOD_HOOKS_LIST,
             METHOD_COMMAND_EXECUTE,
             METHOD_FS_READ_TEXT_FILE,
             METHOD_FS_LIST_DIRECTORY,

@@ -30,7 +30,6 @@ def test_verify_schema_against_binary_checks_required_fields(monkeypatch):
             out / "ClientRequest.json",
             [
                 schema.METHOD_APPS_LIST,
-                schema.METHOD_HOOKS_LIST,
                 schema.METHOD_COMMAND_EXECUTE,
                 schema.METHOD_FS_READ_TEXT_FILE,
                 schema.METHOD_FS_LIST_DIRECTORY,
@@ -56,7 +55,6 @@ def test_verify_schema_against_binary_raises_on_drift(monkeypatch):
             out / "ClientRequest.json",
             [
                 schema.METHOD_APPS_LIST,
-                schema.METHOD_HOOKS_LIST,
                 schema.METHOD_COMMAND_EXECUTE,
                 schema.METHOD_FS_READ_TEXT_FILE,
                 schema.METHOD_FS_LIST_DIRECTORY,
@@ -83,7 +81,6 @@ def test_verify_schema_against_binary_raises_on_method_drift(monkeypatch):
             out / "ClientRequest.json",
             [
                 "apps/list",
-                schema.METHOD_HOOKS_LIST,
                 schema.METHOD_COMMAND_EXECUTE,
                 schema.METHOD_FS_READ_TEXT_FILE,
                 schema.METHOD_FS_LIST_DIRECTORY,

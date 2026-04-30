@@ -965,7 +965,7 @@ async def inject_channel_message(
     await db.commit()
 
     metadata = {"source": body.source} if body.source else {}
-    await store_passive_message(db, session_id, body.content, metadata, channel_id=channel_id)
+    await store_passive_message(db, session_id, body.content, metadata, channel_id=channel_id, role=body.role)
 
     result = await db.execute(
         select(Message)

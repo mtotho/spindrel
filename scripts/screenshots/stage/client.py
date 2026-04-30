@@ -455,6 +455,13 @@ class SpindrelClient:
             json={"channel_id": channel_id, "message": text},
         ).json()
 
+    def inject_channel_message(self, *, channel_id: str, content: str, role: str = "user", source: str = "screenshot") -> dict:
+        """Inject deterministic chat history without starting a model turn."""
+        return self._post(
+            f"/api/v1/channels/{channel_id}/messages",
+            json={"content": content, "role": role, "source": source, "run_agent": False},
+        ).json()
+
     def start_session_plan_mode(self, session_id: str) -> dict:
         """Flip a session into ``planning`` mode so ``publish_plan`` is allowed."""
         if self._dry_run:
@@ -877,6 +884,14 @@ class SpindrelClient:
             "/api/v1/admin/secret-values/",
             json={"name": name, "value": value, "description": description},
         ).json()
+
+    def update_secret_value(self, secret_id: str, *, name: str, value: str, description: str = "") -> dict:
+        r = self._http.put(
+            f"/api/v1/admin/secret-values/{secret_id}",
+            json={"name": name, "value": value, "description": description},
+        )
+        r.raise_for_status()
+        return r.json()
 
     def delete_secret_value(self, secret_id: str) -> None:
         r = self._http.delete(f"/api/v1/admin/secret-values/{secret_id}")

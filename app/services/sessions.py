@@ -962,12 +962,14 @@ async def store_passive_message(
     content: str,
     metadata: dict,
     channel_id: uuid.UUID | None = None,
+    role: str = "user",
 ) -> None:
     """Store a passive (non-agent-triggering) message in the session."""
     now = datetime.now(timezone.utc)
+    clean_role = role if role in {"user", "assistant", "system", "tool"} else "user"
     record = Message(
         session_id=session_id,
-        role="user",
+        role=clean_role,
         content=content,
         metadata_=metadata,
         created_at=now,

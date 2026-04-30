@@ -1692,7 +1692,7 @@ async def inject_message(
         raise HTTPException(status_code=404, detail="Session not found")
 
     metadata = {"source": body.source} if body.source else {}
-    await store_passive_message(db, session_id, body.content, metadata, channel_id=session.channel_id)
+    await store_passive_message(db, session_id, body.content, metadata, channel_id=session.channel_id, role=body.role)
 
     # Retrieve the stored message id
     result = await db.execute(

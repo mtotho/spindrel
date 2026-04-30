@@ -102,9 +102,23 @@ def stage_project_workspace(
             value="screenshot-token",
             description="Project Blueprint screenshot secret binding.",
         )
+    else:
+        existing_secret = client.update_secret_value(
+            str(existing_secret["id"]),
+            name=BOUND_SECRET_NAME,
+            value="screenshot-token",
+            description="Project Blueprint screenshot secret binding.",
+        )
     existing_secret_two = next((s for s in client.list_secret_values() if s.get("name") == SECOND_BOUND_SECRET_NAME), None)
     if existing_secret_two is None:
         existing_secret_two = client.create_secret_value(
+            name=SECOND_BOUND_SECRET_NAME,
+            value="screenshot-token-two",
+            description="Second Project Blueprint screenshot secret binding.",
+        )
+    else:
+        existing_secret_two = client.update_secret_value(
+            str(existing_secret_two["id"]),
             name=SECOND_BOUND_SECRET_NAME,
             value="screenshot-token-two",
             description="Second Project Blueprint screenshot secret binding.",
@@ -295,22 +309,29 @@ def stage_project_workspace(
         "# Screenshot Project Workspace\n\nThis file is rooted at the shared Project, not the channel workspace.\n",
     )
 
-    try:
-        client.reset_channel(channel_id)
-        client.seed_turn(
-            channel_id=channel_id,
-            bot_id=PROJECT_BOT_ID,
-            message=(
-                "Call the host-provided memory tool exactly once with this JSON object as arguments: "
-                '{"operation":"replace_section","path":"MEMORY.md","heading":"Screenshot Project Workspace",'
-                '"content":"Project workspace screenshot memory fact."} '
-                "Do not use shell commands. After the tool call, reply with one short sentence saying the memory was updated."
-            ),
-            expected_tool="memory",
-            timeout_s=180.0,
-        )
-    except Exception:
-        logger.exception("project-workspace memory turn seed failed; capture will show the channel if transcript is missing")
+    client.reset_channel(channel_id)
+    client.inject_channel_message(
+        channel_id=channel_id,
+        role="user",
+        content=(
+            "Call the host-provided memory tool exactly once with this JSON object as arguments: "
+            '{"operation":"replace_section","path":"MEMORY.md","heading":"Screenshot Project Workspace",'
+            '"content":"Project workspace screenshot memory fact."} '
+            "Do not use shell commands. After the tool call, reply with one short sentence saying the memory was updated."
+        ),
+        source="screenshot-fixture",
+    )
+    client.inject_channel_message(
+        channel_id=channel_id,
+        role="assistant",
+        content=(
+            "memory tool_result\n"
+            "Replace Section memory/MEMORY.md\n"
+            "Project workspace screenshot memory fact.\n"
+            "The memory was updated."
+        ),
+        source="screenshot-fixture",
+    )
 
     return state
 
