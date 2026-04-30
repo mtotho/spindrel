@@ -143,16 +143,18 @@ docs/images/project-workspace-blueprint-editor.png
 docs/images/project-workspace-settings-blueprint.png
 docs/images/project-workspace-setup-ready.png
 docs/images/project-workspace-setup-run-history.png
+docs/images/project-workspace-instances.png
 docs/images/project-workspace-terminal.png
 docs/images/project-workspace-channels.png
 docs/images/project-workspace-channel-settings.png
 docs/images/project-workspace-memory-tool.png
 ```
 
-Inspect all eleven images before closing out. The bundle checks Project admin
+Inspect all twelve images before closing out. The bundle checks Project admin
 surfaces, Blueprint management, setup-command readiness/run history, applied
-Blueprint settings, runtime-env readiness, channel settings, Project-rooted
-file/terminal behavior, and the memory-tool transcript envelope.
+Blueprint settings, runtime-env readiness, fresh Project instances, channel
+settings, Project-rooted file/terminal behavior, and the memory-tool transcript
+envelope.
 
 ## Widget Authoring Runtime Loop
 
@@ -163,6 +165,13 @@ include_screenshot=true)`. The check renders the draft envelope in the real
 widget host via Playwright and returns browser-smoke phases plus an optional PNG
 artifact for visual inspection. It is runtime feedback for drafts, not a
 checked-in docs image bundle.
+
+For standalone HTML/library/path widgets, use the sibling bot tool
+`check_html_widget_authoring(..., include_runtime=true,
+include_screenshot=true)` with the same `library_ref`, `html`, or `path` args
+that will later be passed to `emit_html_widget` or `pin_widget`. Inspect the
+returned PNG artifact when present; use `inspect_widget_pin` only after a
+pinned-widget health check needs raw trace evidence.
 
 ## Adding A Scenario
 

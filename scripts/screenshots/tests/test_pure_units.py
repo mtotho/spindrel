@@ -201,6 +201,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
         "project-workspace-settings-blueprint.png",
         "project-workspace-setup-ready.png",
         "project-workspace-setup-run-history.png",
+        "project-workspace-instances.png",
         "project-workspace-terminal.png",
         "project-workspace-channels.png",
         "project-workspace-channel-settings.png",
@@ -214,6 +215,7 @@ def test_project_workspace_specs_have_assertions_and_artifacts():
     assert routes["project-workspace-settings-blueprint"] == "/admin/projects/blueprint-project-1#Settings"
     assert routes["project-workspace-setup-ready"] == "/admin/projects/blueprint-project-1#Setup"
     assert routes["project-workspace-setup-run-history"] == "/admin/projects/blueprint-project-1#Setup"
+    assert routes["project-workspace-instances"] == "/admin/projects/blueprint-project-1#Instances"
     assert routes["project-workspace-terminal"] == "/admin/projects/project-1#Terminal"
     assert routes["project-workspace-channels"] == "/admin/projects/project-1#Channels"
     assert routes["project-workspace-channel-settings"] == "/channels/channel-1/settings#agent"

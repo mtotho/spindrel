@@ -441,6 +441,22 @@ def _task_run_origin(task: Task) -> str:
     return resolve_task_run_policy(task.task_type).origin
 
 
+async def _bind_project_instance_if_requested(
+    db: Any,
+    *,
+    task: Task,
+    execution_config: dict[str, Any],
+) -> Any | None:
+    from app.services.project_instances import bind_fresh_project_instance_for_task
+
+    return await bind_fresh_project_instance_for_task(
+        db,
+        task_id=task.id,
+        channel_id=task.channel_id,
+        execution_config=execution_config,
+    )
+
+
 async def _run_normal_agent_task(
     prepared: _PreparedTaskRun,
     *,
@@ -825,7 +841,14 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
         prepared = await _prepare_task_run(task, _task_channel, deps)
         _task_timeout = prepared.task_timeout
         correlation_id = prepared.correlation_id
-        from app.agent.context import current_issue_reporting_enabled, current_task_id
+        from app.agent.context import current_issue_reporting_enabled, current_project_instance_id, current_task_id
+        async with deps.async_session() as instance_db:
+            project_instance = await _bind_project_instance_if_requested(
+                instance_db,
+                task=task,
+                execution_config=prepared.ecfg,
+            )
+            current_project_instance_id.set(project_instance.id if project_instance is not None else None)
         current_task_id.set(task.id)
         current_issue_reporting_enabled.set(bool(prepared.ecfg.get("allow_issue_reporting")))
         if task.task_type == "heartbeat":
@@ -914,8 +937,9 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
             task, turn_id=_turn_id, error=str(exc)[:500], log_label="error",
         )
     finally:
-        from app.agent.context import current_issue_reporting_enabled, current_task_id
+        from app.agent.context import current_issue_reporting_enabled, current_project_instance_id, current_task_id
         current_task_id.set(None)
+        current_project_instance_id.set(None)
         current_issue_reporting_enabled.set(False)
         if _lock_acquired:
             deps.session_locks.release(task.session_id)

@@ -194,16 +194,17 @@ So:
 
 When the user says *"build me a dashboard for X"*:
 
-1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had. `widget_library_list()` to see what bundles already exist.
+1. **Prepare + discover** — call `prepare_widget_authoring(goal=..., target_surface=...)` first. It returns the lane, bundle ref/path, required skills/tools, validation loop, and current readiness gaps. Then use `list_api_endpoints(scope="...")` to see what your bot can read/write and `widget_library_list()` to see what bundles already exist.
 2. **Pick a scope** — `widget://bot/<name>/...` (your bot's own library, always available) or `widget://workspace/<name>/...` (shared with every bot in this workspace, shared-workspace bots only). `widget://core/...` is read-only.
 3. **Decide tool-widget vs HTML** — choose a tool widget if the renderer/model is already a good fit and the UI should stay bound to one tool result; choose standalone HTML if you need bespoke layout, local interactivity, or bundle-owned behavior.
 4. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two. See `widgets/dashboards.md`.
 5. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
 6. **Group it if it belongs with siblings** — set exactly one of `suite:` or `package:` in the HTML frontmatter or `widget.yaml`. Use a group when the widget is part of a related family the library should show together.
-7. **Preview/check** — for standalone HTML/library widgets, call `preview_widget(...)` with the same args you plan to emit, then `check_widget(...)` before or immediately after pinning. For draft tool-widget YAML, call `check_widget_authoring(yaml_template=..., python_code=..., sample_payload=..., tool_name=..., include_runtime=true)` before saving or pinning. Catch manifest, library-ref, CSP, static lint, preview-render, and browser-runtime problems before the next user-visible step.
+7. **Full-check before emit/pin** — for standalone HTML/library/path widgets, call `check_html_widget_authoring(...)` with the same source args you plan to emit or pin (`library_ref`, `html`, or `path`) and `include_runtime=true`. For draft tool-widget YAML, call `check_widget_authoring(yaml_template=..., python_code=..., sample_payload=..., tool_name=..., include_runtime=true)` before saving or pinning. `preview_widget(...)` remains the cheap dry-run, but the full check is the default before the next user-visible step.
 8. **Emit or pin** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. The library resolves bot → workspace → core for unscoped refs; prefix with `bot/` or `workspace/` to disambiguate. User pins it to the dashboard.
-9. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
-10. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
+9. **Post-pin evidence** — after `pin_widget`, run `check_widget(pin_id=...)`. Use `inspect_widget_pin(pin_id=...)` only when health fails/warns or when you need the raw trace response shape for a widget action/tool call.
+10. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+11. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
 
 ## Plan mode for widget work
 

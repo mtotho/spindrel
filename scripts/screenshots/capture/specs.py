@@ -2618,6 +2618,28 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-instances",
+        route="/admin/projects/{project_workspace_blueprint_project}#Instances",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-instances\"]') "
+            "&& document.body.innerText.includes('Fresh Instances') "
+            "&& document.body.innerText.includes('common/project-instances')"
+        ),
+        output="project-workspace-instances.png",
+        color_scheme="dark",
+        full_page=True,
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Fresh Instances') "
+            "&& text.includes('Instance History') "
+            "&& text.includes('common/project-instances') "
+            "&& text.includes('ready'), "
+            "detail: 'Project Instances tab did not show a ready fresh instance and its root path' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-terminal",
         route="/admin/projects/{project_workspace_project}#Terminal",
         viewport={"width": 1440, "height": 900},

@@ -7,7 +7,7 @@ manifest, CSP, path-resolution, and library-ref errors in the same turn
 
 Same input shape as ``emit_html_widget`` (``library_ref`` / ``html`` /
 ``path`` plus optional ``js`` / ``css`` / ``extra_csp`` /
-``display_label`` / ``display_mode``). Returns a structured JSON result
+``display_label`` / ``display_mode`` / ``runtime``). Returns a structured JSON result
 with ``ok``, an ``envelope`` (what would have been emitted), and an
 ``errors`` list with ``phase`` / ``message`` / ``severity``. On success
 ``errors`` is empty and the envelope is populated; on any failure the
@@ -122,6 +122,16 @@ _SCHEMA = {
                         "as `emit_html_widget`."
                     ),
                 },
+                "runtime": {
+                    "type": "string",
+                    "enum": ["html", "react"],
+                    "description": (
+                        "Runtime flavor for the widget body. Same semantics "
+                        "as `emit_html_widget`: omitted or `html` leaves the "
+                        "envelope default, while `react` stamps runtime=react "
+                        "so the iframe loads the React/Babel runtime."
+                    ),
+                },
                 "extra_csp": {
                     "type": "object",
                     "description": (
@@ -227,6 +237,7 @@ async def preview_widget(
     display_label: str = "",
     extra_csp: dict | None = None,
     display_mode: str = "inline",
+    runtime: str | None = None,
 ) -> str:
     html_set = bool(html and html.strip())
     path_set = bool(path and path.strip())
@@ -243,6 +254,14 @@ async def preview_widget(
     mode = (display_mode or "inline").strip().lower()
     if mode not in ("inline", "panel"):
         return _fail("input", "display_mode must be one of 'inline', 'panel'.")
+
+    runtime_value: str | None = None
+    if runtime is not None:
+        runtime_clean = str(runtime).strip().lower()
+        if runtime_clean not in ("html", "react"):
+            return _fail("input", "runtime must be one of 'html', 'react'.")
+        if runtime_clean == "react":
+            runtime_value = "react"
 
     validated_csp: dict[str, list[str]] | None = None
     if extra_csp is not None:
@@ -303,6 +322,8 @@ async def preview_widget(
             envelope["extra_csp"] = validated_csp
         if mode == "panel":
             envelope["display_mode"] = "panel"
+        if runtime_value:
+            envelope["runtime"] = runtime_value
         return _ok(envelope, notes)
 
     if html_set:
@@ -325,6 +346,8 @@ async def preview_widget(
             envelope["extra_csp"] = validated_csp
         if mode == "panel":
             envelope["display_mode"] = "panel"
+        if runtime_value:
+            envelope["runtime"] = runtime_value
         return _ok(envelope, notes)
 
     # Path mode — resolve the workspace file the same way emit_html_widget
@@ -395,4 +418,6 @@ async def preview_widget(
         envelope["extra_csp"] = validated_csp
     if mode == "panel":
         envelope["display_mode"] = "panel"
+    if runtime_value:
+        envelope["runtime"] = runtime_value
     return _ok(envelope, notes)

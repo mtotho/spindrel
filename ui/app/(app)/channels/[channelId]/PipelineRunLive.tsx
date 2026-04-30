@@ -193,6 +193,7 @@ export function PipelineRunLive({
               disabled={!runSessionId}
               isStreaming={isSending}
               currentBotId={task?.bot_id}
+              currentSessionId={runSessionId ?? undefined}
               channelId={runSessionId ?? undefined}
             />
           </ChatComposerShell>

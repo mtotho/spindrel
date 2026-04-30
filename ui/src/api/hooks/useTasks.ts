@@ -69,6 +69,10 @@ export type SessionTarget =
   | { mode: "existing"; session_id: string }
   | { mode: "new_each_run" };
 
+export type ProjectInstancePolicy =
+  | { mode: "shared" }
+  | { mode: "fresh" };
+
 export interface TaskDetail {
   id: string;
   status: string;
@@ -89,6 +93,7 @@ export interface TaskDetail {
   parent_task_id?: string | null;
   run_isolation?: "inline" | "sub_session";
   run_session_id?: string | null;
+  project_instance_id?: string | null;
   session_target?: SessionTarget | null;
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
@@ -152,6 +157,7 @@ export interface TaskCreatePayload {
   post_final_to_channel?: boolean | null;
   history_mode?: "none" | "recent" | "full" | null;
   history_recent_count?: number | null;
+  project_instance?: ProjectInstancePolicy | null;
 }
 
 export interface TaskUpdatePayload {
@@ -184,6 +190,7 @@ export interface TaskUpdatePayload {
   post_final_to_channel?: boolean | null;
   history_mode?: "none" | "recent" | "full" | null;
   history_recent_count?: number | null;
+  project_instance?: ProjectInstancePolicy | null;
   session_target?: SessionTarget | null;
 }
 

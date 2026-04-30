@@ -156,6 +156,19 @@ def _load_library_widget(
 
     body = index_path.read_text()
     meta: dict = {"name": name, "scope": resolved_scope or "core"}
+    try:
+        from app.services.html_widget_scanner import parse_frontmatter
+        parsed_html = parse_frontmatter(body) or {}
+        if isinstance(parsed_html, dict):
+            yaml_name = parsed_html.get("name")
+            if yaml_name and not parsed_html.get("display_label"):
+                meta["display_label"] = str(yaml_name)
+            for key in ("display_label", "panel_title", "show_panel_title", "description", "version"):
+                value = parsed_html.get(key)
+                if value is not None and key not in meta:
+                    meta[key] = value
+    except Exception:  # noqa: BLE001 - HTML frontmatter is a metadata hint only
+        logger.debug("Failed parsing HTML frontmatter from %s", index_path, exc_info=True)
     yaml_path = widget_dir / "widget.yaml"
     if yaml_path.is_file():
         try:
@@ -170,7 +183,7 @@ def _load_library_widget(
                     meta["display_label"] = str(yaml_name)
                 for key in ("display_label", "panel_title", "show_panel_title", "description", "version"):
                     value = parsed.get(key)
-                    if value is not None and key not in meta:
+                    if value is not None:
                         meta[key] = value
         except Exception:  # noqa: BLE001
             logger.debug("Failed parsing %s", yaml_path, exc_info=True)

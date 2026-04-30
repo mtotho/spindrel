@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agent.llm import AccumulatedMessage
-from app.agent.loop_helpers import _append_transcript_text_entry, _sanitize_llm_text
+from app.agent.loop_helpers import (
+    _append_transcript_text_entry,
+    _extract_client_actions,
+    _sanitize_llm_text,
+)
 from app.agent.loop_state import LoopRunContext, LoopRunState
 from app.agent.message_utils import _event_with_compaction_tag, _extract_transcript
 
@@ -15,6 +19,7 @@ logger = logging.getLogger(__name__)
 class LoopToolIterationDone:
     cancelled: bool = False
     break_loop: bool = False
+    finished: bool = False
 
 
 async def stream_loop_tool_iteration(
@@ -84,6 +89,18 @@ async def stream_loop_tool_iteration(
         if dispatch_event.get("type") == "cancelled":
             yield LoopToolIterationDone(cancelled=True)
             return
+        if _plan_progress_result_ends_turn(dispatch_event):
+            text = "Plan progress recorded."
+            _append_transcript_text_entry(state.transcript_entries, text)
+            state.messages.append({"role": "assistant", "content": text})
+            yield _event_with_compaction_tag({
+                "type": "response",
+                "text": text,
+                "client_actions": _extract_client_actions(state.messages, ctx.turn_start) + state.embedded_client_actions,
+                **({"correlation_id": str(ctx.correlation_id)} if ctx.correlation_id else {}),
+            }, ctx.compaction)
+            yield LoopToolIterationDone(finished=True)
+            return
 
     async for image_event in _inject_iteration_images(
         state=state,
@@ -135,6 +152,15 @@ async def stream_loop_tool_iteration(
             return
 
     yield LoopToolIterationDone()
+
+
+def _plan_progress_result_ends_turn(event: dict[str, Any]) -> bool:
+    """`record_plan_progress` is an end-of-turn marker, not an invitation to keep executing."""
+    return (
+        event.get("type") == "tool_result"
+        and event.get("tool") == "record_plan_progress"
+        and not event.get("error")
+    )
 
 
 async def _inject_iteration_images(

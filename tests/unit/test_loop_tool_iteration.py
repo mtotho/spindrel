@@ -125,6 +125,25 @@ async def test_injected_images_are_added_as_native_vision_parts():
 
 
 @pytest.mark.asyncio
+async def test_record_plan_progress_result_finishes_turn_without_more_llm_iterations():
+    async def _dispatch_progress(**kwargs):
+        yield {"type": "tool_result", "tool": "record_plan_progress"}
+
+    outputs, state = await _collect(dispatch_iteration_tool_calls_fn=_dispatch_progress)
+
+    assert outputs == [
+        {"type": "tool_result", "tool": "record_plan_progress"},
+        {
+            "type": "response",
+            "text": "Plan progress recorded.",
+            "client_actions": [],
+        },
+        LoopToolIterationDone(finished=True),
+    ]
+    assert state.messages[-1] == {"role": "assistant", "content": "Plan progress recorded."}
+
+
+@pytest.mark.asyncio
 async def test_injected_images_are_described_for_nonvision_models():
     async def _dispatch_with_image(**kwargs):
         kwargs["state"].iteration_injected_images.append({

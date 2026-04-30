@@ -205,7 +205,7 @@ export function FixedSessionChatSession({
     syncCancelledState();
   }, [botId, cancelChat, parentChannelId, sessionId, syncCancelledState]);
 
-  const slashCatalog = useSlashCommandList(botId || undefined);
+  const slashCatalog = useSlashCommandList(botId || undefined, sessionId);
   const availableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
       catalog: slashCatalog,
@@ -283,6 +283,7 @@ export function FixedSessionChatSession({
           disabled={!botId}
           isStreaming={isSending}
           currentBotId={botId || undefined}
+          currentSessionId={sessionId}
           channelId={sessionId}
           toolContextChannelId={parentChannelId}
           onSlashCommand={handleSlashCommand}

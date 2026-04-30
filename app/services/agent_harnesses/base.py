@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Mapping, Protocol, runtime_checkable
+from typing import Any, Awaitable, Callable, Literal, Mapping, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -577,6 +577,7 @@ class HarnessRuntimeCommandSpec:
     label: str
     description: str
     readonly: bool = True
+    mutability: Literal["readonly", "mutating", "argument_sensitive"] = "readonly"
     aliases: tuple[str, ...] = ()
     interaction_kind: str = "structured"
     fallback_behavior: str = "none"

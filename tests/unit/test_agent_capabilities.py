@@ -40,3 +40,49 @@ def test_doctor_flags_missing_api_scopes_and_harness_workdir():
     assert "missing_api_scopes" in codes
     assert "empty_tool_working_set" in codes
     assert "harness_without_workdir" in codes
+
+
+def test_widget_payload_lists_full_authoring_loop(monkeypatch):
+    fake_tools = {name: {} for name in agent_capabilities.WIDGET_AUTHORING_TOOLS}
+    monkeypatch.setattr(agent_capabilities, "_local_tools", fake_tools)
+    manifest = {
+        "skills": {
+            "bot_enrolled": [
+                {"id": "widgets"},
+                {"id": "widgets/html"},
+                {"id": "widgets/sdk"},
+                {"id": "widgets/styling"},
+                {"id": "widgets/errors"},
+                {"id": "widgets/channel_dashboards"},
+            ],
+            "channel_enrolled": [],
+        }
+    }
+
+    widgets = agent_capabilities._widget_payload(manifest)
+
+    assert widgets["readiness"] == "ready"
+    assert widgets["missing_authoring_tools"] == []
+    assert "prepare_widget_authoring" in widgets["authoring_tools"]
+    assert "check_html_widget_authoring" in widgets["authoring_tools"]
+    assert widgets["missing_skills"] == []
+
+
+def test_widget_payload_reports_skill_gap_without_doctor_warning(monkeypatch):
+    fake_tools = {name: {} for name in agent_capabilities.WIDGET_AUTHORING_TOOLS}
+    monkeypatch.setattr(agent_capabilities, "_local_tools", fake_tools)
+    manifest = {
+        "context": {"bot_id": "agent"},
+        "api": {"scopes": ["tools:execute"]},
+        "tools": {"catalog_count": 4, "working_set_count": 1},
+        "project": {"attached": False},
+        "harness": {"runtime": None, "workdir": None},
+        "skills": {"bot_enrolled": [], "channel_enrolled": []},
+    }
+    manifest["widgets"] = agent_capabilities._widget_payload(manifest)
+
+    assert manifest["widgets"]["readiness"] == "needs_skills"
+    assert manifest["widgets"]["missing_skills"]
+    assert "widget_authoring_tools_missing" not in {
+        finding["code"] for finding in agent_capabilities._doctor_findings(manifest)
+    }

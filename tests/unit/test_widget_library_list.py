@@ -147,6 +147,34 @@ async def test_bot_scope_lists_authored_widgets(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bot_scope_uses_html_frontmatter_without_widget_yaml(tmp_path, monkeypatch):
+    from app.tools.local import widget_library as wl
+
+    ws = tmp_path / "ws"
+    bundle = ws / ".widget_library" / "project_status"
+    bundle.mkdir(parents=True)
+    (bundle / "index.html").write_text(
+        "<!--\n"
+        "---\n"
+        "name: Project Status\n"
+        "description: Live phase and blocker summary\n"
+        "tags: [project, status]\n"
+        "---\n"
+        "-->\n"
+        "<div>status</div>"
+    )
+
+    monkeypatch.setattr(wl, "_resolve_scope_roots", lambda: (str(ws), None))
+
+    data = _parse(await widget_library_list(scope="bot"))
+    assert data["count"] == 1
+    widget = data["widgets"][0]
+    assert widget["display_label"] == "Project Status"
+    assert widget["description"] == "Live phase and blocker summary"
+    assert widget["tags"] == ["project", "status"]
+
+
+@pytest.mark.asyncio
 async def test_bot_scope_surfaces_head_revision(tmp_path, monkeypatch):
     from app.tools.local import widget_library as wl
 

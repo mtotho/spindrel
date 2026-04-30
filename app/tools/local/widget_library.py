@@ -117,6 +117,24 @@ def _read_widget_meta(
 
     meta: dict = {"name": name, "scope": scope, "format": fmt}
 
+    if has_index:
+        try:
+            from app.services.html_widget_scanner import parse_frontmatter
+            html_meta = parse_frontmatter((widget_dir / "index.html").read_text())
+            if isinstance(html_meta, dict):
+                html_name = html_meta.get("name")
+                if html_name and not html_meta.get("display_label"):
+                    meta["display_label"] = str(html_name)
+                for key in _METADATA_KEYS:
+                    value = html_meta.get(key)
+                    if value is not None:
+                        meta[key] = value
+                config_schema = normalize_config_schema(html_meta.get("config_schema"))
+                if config_schema is not None:
+                    meta["config_schema"] = config_schema
+        except Exception:  # noqa: BLE001 — HTML metadata is best-effort
+            logger.debug("Failed parsing HTML frontmatter from %s", widget_dir / "index.html", exc_info=True)
+
     if yaml_path.is_file():
         try:
             import yaml  # lazy — not every call site uses it

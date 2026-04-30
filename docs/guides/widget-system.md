@@ -282,7 +282,10 @@ Both flavors share the same authoring loop. There is no JSX server-side typechec
 
 | Tool | When | What it surfaces |
 |---|---|---|
+| `prepare_widget_authoring` | Start of bot-authored widget work | Read-only authoring brief: recommended widget lane, bundle scope/path, required skills/tools, API readiness, validation sequence, risks, and next calls. |
 | `preview_widget` | Pre-pin dry-run | Manifest errors, CSP rejections, library-ref / path-resolution failures, mode-conflict input errors. Returns the same envelope shape `emit_html_widget` would produce, plus a structured `errors: [{phase, message, severity}]` list. Does **not** compile JSX (Babel runs in the iframe, not on the server). |
+| `check_html_widget_authoring` | HTML/library/path full check before emit or pin | Wraps `preview_widget`, static widget health, and optional Playwright smoke of the draft envelope through `/widgets/dev/runtime-preview`; can return a screenshot artifact. Use for standalone HTML widgets. |
+| `check_widget_authoring` | Tool-widget YAML full check before save or pin | Validates YAML/Python/schema, renders a draft envelope, runs static health, and optionally smokes the draft in the real widget host. Use for tool-bound YAML widgets. |
 | `check_widget` | Draft or pinned health check | For drafts, wraps `preview_widget` and static lint checks. For pins, persists a latest health summary (`healthy`, `warning`, `failing`, `unknown`) from static validation, runtime debug events, and an opportunistic Playwright smoke check when `BASE_URL` + browser runtime are available. |
 | `check_dashboard_widgets` | Dashboard-wide health check | Runs `check_widget` across dashboard pins and stores latest summaries so `describe_dashboard`, dashboard UI badges, and bot follow-up turns have the same health read model. |
 | `assess_widget_usefulness` | Dashboard usefulness proposals | Channel dashboard assessment for health signals, duplicates, hidden chat surfaces, context-export gaps, actionability hints, Project-bound starter coverage, and the channel's widget agency mode. |
@@ -298,11 +301,12 @@ before/after state, and the tool-supplied reason.
 
 Iteration recipe for a React widget:
 
-1. Author v1, `preview_widget` to catch envelope/CSP/path errors.
-2. Run `check_widget(...)` on the draft, then pin it when the static result is clean enough.
-3. Run `check_widget(pin_id=...)` after pinning to persist the latest health summary.
-4. If health is failing or the widget renders blank data, call `inspect_widget_pin(pin_id)` — read the `tool-call` event's `response` for ground-truth tool envelopes, read `error` / `rejection` / `log` events for JSX compile errors and JS bugs.
-5. Rewrite against confirmed shape; re-emit. No fallback chains.
+1. Call `prepare_widget_authoring` so the bot knows the lane, scope, tools, skills, and validation loop.
+2. Author v1, then run `check_html_widget_authoring(..., include_runtime=true)` for standalone HTML/library/path widgets, or `check_widget_authoring(..., include_runtime=true)` for tool-widget YAML.
+3. Emit or pin only after the full check is clean enough.
+4. Run `check_widget(pin_id=...)` after pinning to persist the latest health summary.
+5. If health is failing or the widget renders blank data, call `inspect_widget_pin(pin_id)` — read the `tool-call` event's `response` for ground-truth tool envelopes, read `error` / `rejection` / `log` events for JSX compile errors and JS bugs.
+6. Rewrite against confirmed shape; re-check. No fallback chains.
 
 ## Native widgets
 

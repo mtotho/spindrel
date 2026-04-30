@@ -59,6 +59,9 @@ current_run_origin: ContextVar[str | None] = ContextVar("current_run_origin", de
 # opt-in issue reporting.
 current_task_id: ContextVar[uuid.UUID | None] = ContextVar("current_task_id", default=None)
 current_issue_reporting_enabled: ContextVar[bool] = ContextVar("current_issue_reporting_enabled", default=False)
+current_project_instance_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "current_project_instance_id", default=None
+)
 
 # Effective model/provider for the current agent run (after override resolution).
 # Tools read these to propagate the model to callback tasks.
@@ -203,6 +206,7 @@ class AgentContextSnapshot:
 
     session_id: uuid.UUID | None
     channel_id: uuid.UUID | None
+    project_instance_id: uuid.UUID | None
     correlation_id: uuid.UUID | None
     turn_id: uuid.UUID | None
     client_id: str | None
@@ -234,6 +238,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
     return AgentContextSnapshot(
         session_id=current_session_id.get(),
         channel_id=current_channel_id.get(),
+        project_instance_id=current_project_instance_id.get(),
         correlation_id=current_correlation_id.get(),
         turn_id=current_turn_id.get(),
         client_id=current_client_id.get(),
@@ -265,6 +270,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
 def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_session_id.set(snap.session_id)
     current_channel_id.set(snap.channel_id)
+    current_project_instance_id.set(snap.project_instance_id)
     current_correlation_id.set(snap.correlation_id)
     current_turn_id.set(snap.turn_id)
     current_client_id.set(snap.client_id)

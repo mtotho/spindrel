@@ -26,12 +26,13 @@ class ProjectDirectory:
     path: str
     host_path: str
     project_id: str | None = None
+    project_instance_id: str | None = None
     name: str | None = None
 
 
 @dataclass(frozen=True)
 class WorkSurface:
-    kind: Literal["project", "channel"]
+    kind: Literal["project", "project_instance", "channel"]
     root_host_path: str
     display_path: str
     index_root_host_path: str
@@ -40,6 +41,7 @@ class WorkSurface:
     workspace_id: str | None
     channel_id: str | None = None
     project_id: str | None = None
+    project_instance_id: str | None = None
     project_name: str | None = None
     prompt: str | None = None
 
@@ -54,6 +56,7 @@ class WorkSurface:
             "workspace_id": self.workspace_id,
             "channel_id": self.channel_id,
             "project_id": self.project_id,
+            "project_instance_id": self.project_instance_id,
             "project_name": self.project_name,
         }
 
@@ -202,6 +205,20 @@ def materialize_project_blueprint(
     )
 
 
+class _SnapshotBlueprint:
+    def __init__(self, snapshot: dict[str, Any]) -> None:
+        self.folders = list(snapshot.get("folders") or [])
+        self.files = dict(snapshot.get("files") or {})
+        self.knowledge_files = dict(snapshot.get("knowledge_files") or {})
+
+
+def materialize_project_blueprint_snapshot(
+    project_dir: ProjectDirectory,
+    snapshot: dict[str, Any],
+) -> ProjectBlueprintMaterialization:
+    return materialize_project_blueprint(project_dir, _SnapshotBlueprint(snapshot))
+
+
 def _config_dict(channel: Channel | None) -> dict[str, Any]:
     if channel is None or not isinstance(channel.config, dict):
         return {}
@@ -225,6 +242,7 @@ def _project_directory_from_values(
     workspace_id: str,
     path: str,
     project_id: str | None = None,
+    project_instance_id: str | None = None,
     name: str | None = None,
 ) -> ProjectDirectory:
     root = os.path.realpath(shared_workspace_service.ensure_host_dirs(workspace_id))
@@ -239,6 +257,7 @@ def _project_directory_from_values(
         path=path,
         host_path=host_path,
         project_id=project_id,
+        project_instance_id=project_instance_id,
         name=name,
     )
 
@@ -249,6 +268,23 @@ def project_directory_from_project(project: Project) -> ProjectDirectory:
         path=project.root_path,
         project_id=str(project.id),
         name=project.name,
+    )
+
+
+def project_directory_from_instance_values(
+    *,
+    workspace_id: uuid.UUID | str,
+    root_path: str,
+    project_id: uuid.UUID | str,
+    project_instance_id: uuid.UUID | str,
+    name: str | None = None,
+) -> ProjectDirectory:
+    return _project_directory_from_values(
+        workspace_id=str(workspace_id),
+        path=root_path,
+        project_id=str(project_id),
+        project_instance_id=str(project_instance_id),
+        name=name,
     )
 
 
@@ -302,6 +338,7 @@ def project_directory_payload(project_dir: ProjectDirectory | None) -> dict[str,
         return None
     return {
         "project_id": project_dir.project_id,
+        "project_instance_id": project_dir.project_instance_id,
         "name": project_dir.name,
         "workspace_id": project_dir.workspace_id,
         "path": project_dir.path,
@@ -343,10 +380,11 @@ def work_surface_from_project_directory(
     *,
     prompt: str | None = None,
     channel_id: str | None = None,
+    kind: Literal["project", "project_instance"] = "project",
 ) -> WorkSurface:
     index_root = shared_workspace_service.get_host_root(project_dir.workspace_id)
     return WorkSurface(
-        kind="project",
+        kind=kind,
         root_host_path=project_dir.host_path,
         display_path=project_workspace_path(project_dir),
         index_root_host_path=str(Path(index_root).resolve()),
@@ -355,6 +393,7 @@ def work_surface_from_project_directory(
         workspace_id=project_dir.workspace_id,
         channel_id=channel_id,
         project_id=project_dir.project_id,
+        project_instance_id=project_dir.project_instance_id,
         project_name=project_dir.name,
         prompt=prompt,
     )
@@ -393,6 +432,13 @@ async def resolve_channel_work_surface(
     *,
     include_prompt: bool = False,
 ) -> WorkSurface | None:
+    instance_surface = await _resolve_context_project_instance_surface(
+        db,
+        channel_id=str(channel.id) if channel is not None else None,
+        include_prompt=include_prompt,
+    )
+    if instance_surface is not None:
+        return instance_surface
     if channel is None:
         return None
     project_id = getattr(channel, "project_id", None)
@@ -430,6 +476,51 @@ async def resolve_channel_work_surface_by_id(
         return None
     channel = await db.get(Channel, ch_uuid)
     return await resolve_channel_work_surface(db, channel, bot, include_prompt=include_prompt)
+
+
+async def _resolve_context_project_instance_surface(
+    db: AsyncSession,
+    *,
+    channel_id: str | None,
+    include_prompt: bool,
+) -> WorkSurface | None:
+    instance_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    try:
+        from app.agent.context import current_project_instance_id, current_session_id
+
+        instance_id = current_project_instance_id.get()
+        session_id = current_session_id.get()
+    except Exception:
+        pass
+
+    if instance_id is None and session_id is not None:
+        from app.db.models import Session
+
+        session = await db.get(Session, session_id)
+        instance_id = getattr(session, "project_instance_id", None) if session is not None else None
+    if instance_id is None:
+        return None
+
+    from app.db.models import ProjectInstance
+    from app.services.project_instances import (
+        INSTANCE_STATUS_READY,
+        project_directory_from_instance,
+    )
+
+    instance = await db.get(ProjectInstance, instance_id)
+    if instance is None or instance.status != INSTANCE_STATUS_READY or instance.deleted_at is not None:
+        return None
+    project = await db.get(Project, instance.project_id)
+    if project is None:
+        return None
+    prompt = _project_prompt_from_project(project) if include_prompt else None
+    return work_surface_from_project_directory(
+        project_directory_from_instance(instance, project),
+        prompt=prompt,
+        channel_id=channel_id,
+        kind="project_instance",
+    )
 
 
 async def resolve_project_prompt(db: AsyncSession, channel: Channel | None) -> str | None:

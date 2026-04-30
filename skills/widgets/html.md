@@ -96,6 +96,21 @@ Unscoped refs (`library_ref="project-status"`) resolve in the order **bot → wo
 
 **Why virtual paths** — bundles live in one place and render anywhere (any channel, cron runs, non-channel contexts). You never encode a channel ID, never fight the "which workspace does this path resolve against" question, and `file(list_files, path="widget://bot/")` gives you a clean catalogue walk.
 
+### Authoring check — before emit or pin
+
+After writing or editing an HTML bundle, run:
+
+```text
+check_html_widget_authoring(
+  library_ref="bot/project-status",
+  include_runtime=true,
+  include_screenshot=true)
+```
+
+Use the same source mode you plan to ship: `library_ref`, `html`, or `path`. The check wraps `preview_widget`, static widget health, and the real browser runtime host. It catches library-ref/path errors, manifest errors, CSP errors, raw-fetch warnings, React runtime warnings, and browser-load failures before the widget appears in chat or on a dashboard.
+
+`preview_widget(...)` is still useful as a cheap dry-run while editing. The full check is the default gate before `emit_html_widget(...)` or `pin_widget(...)`.
+
 ### `path=` — explicit file overrides
 
 `emit_html_widget(path=...)` stays around for the rare case where you want to render a one-off HTML file that isn't part of the library. Accepts:

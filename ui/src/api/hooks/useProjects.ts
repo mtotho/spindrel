@@ -6,6 +6,7 @@ import type {
   ProjectBlueprint,
   ProjectBlueprintWrite,
   ProjectFromBlueprintWrite,
+  ProjectInstance,
   ProjectRuntimeEnv,
   ProjectSetup,
   ProjectSetupRun,
@@ -48,6 +49,29 @@ export function useProjectRuntimeEnv(projectId: string | undefined) {
     queryKey: ["projects", projectId, "runtime-env"],
     queryFn: () => apiFetch<ProjectRuntimeEnv>(`/api/v1/projects/${projectId}/runtime-env`),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectInstances(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "instances"],
+    queryFn: () => apiFetch<ProjectInstance[]>(`/api/v1/projects/${projectId}/instances`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateProjectInstance(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<ProjectInstance>(`/api/v1/projects/${projectId}/instances`, {
+        method: "POST",
+        body: JSON.stringify({ owner_kind: "manual" }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "instances"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId] });
+    },
   });
 }
 

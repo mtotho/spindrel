@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Session, Task, ToolCall
+from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Project, Session, Task, ToolCall
 from app.domain.errors import DomainError
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user, verify_user
 from app.services.api_keys import has_scope
@@ -224,6 +224,14 @@ class SessionOutDetail(BaseModel):
     session_id: uuid.UUID
     title: Optional[str] = None
     summary: Optional[str] = None
+
+
+class SessionProjectInstanceOut(BaseModel):
+    session_id: uuid.UUID
+    project_instance_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    status: str | None = None
+    root_path: str | None = None
 
 
 class SessionSummaryOut(BaseModel):
@@ -814,6 +822,52 @@ async def update_session(
     session.title = title
     await db.commit()
     return SessionOutDetail(session_id=session.id, title=session.title, summary=session.summary)
+
+
+@router.post("/{session_id}/project-instance", response_model=SessionProjectInstanceOut)
+async def create_session_project_instance(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    from app.services.project_instances import bind_fresh_project_instance_to_session
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    channel_id = session.channel_id or session.parent_channel_id
+    channel = await db.get(Channel, channel_id) if channel_id else None
+    project_id = getattr(channel, "project_id", None) if channel is not None else None
+    if project_id is None:
+        raise HTTPException(status_code=422, detail="Session is not attached to a Project-bound channel")
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    try:
+        instance = await bind_fresh_project_instance_to_session(db, session=session, project=project)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return SessionProjectInstanceOut(
+        session_id=session.id,
+        project_instance_id=instance.id,
+        project_id=instance.project_id,
+        status=instance.status,
+        root_path=instance.root_path,
+    )
+
+
+@router.delete("/{session_id}/project-instance", response_model=SessionProjectInstanceOut)
+async def clear_session_project_instance(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session.project_instance_id = None
+    await db.commit()
+    return SessionProjectInstanceOut(session_id=session.id)
 
 
 class ApprovalModeOut(BaseModel):

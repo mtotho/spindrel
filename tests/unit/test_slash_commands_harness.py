@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.db.models import Bot as BotRow, Channel as ChannelRow, Session as SessionRow
+from app.db.models import Bot as BotRow, Channel as ChannelRow, Message, Session as SessionRow
 from app.services.agent_harnesses import HARNESS_REGISTRY, register_runtime, unregister_runtime
 from app.services.agent_harnesses.base import (
     HarnessRuntimeCommandResult,
@@ -91,6 +91,7 @@ class _StubRuntime:
                     label="mutate",
                     description="Mutating test command.",
                     readonly=False,
+                    mutability="mutating",
                 ),
             ),
         )
@@ -480,6 +481,45 @@ async def test_catalog_with_bot_id_intersects(db_session):
     catalog = await list_supported_slash_commands(db=db_session, bot_id=bot.id)
     ids = {c["id"] for c in catalog}
     assert ids == {"help", "stop", "rename", "model", "runtime", "status", "health", "mutate"}
+    mutate = next(item for item in catalog if item["id"] == "mutate")
+    assert mutate["runtime_command_mutability"] == "mutating"
+
+
+async def test_catalog_with_session_id_adds_runtime_reported_native_slashes(db_session):
+    bot, _channel, session = await _make_harness_setup(db_session)
+    db_session.add(Message(
+        session_id=session.id,
+        role="assistant",
+        content="initialized",
+        metadata_={
+            "harness": {
+                "claude_native_slash_commands": [
+                    {
+                        "name": "project-fixture",
+                        "description": "Project-local fixture skill.",
+                    },
+                    {
+                        "name": "status",
+                        "description": "Duplicate static native command.",
+                    },
+                ]
+            }
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db_session.commit()
+
+    catalog = await list_supported_slash_commands(
+        db=db_session,
+        bot_id=bot.id,
+        session_id=session.id,
+    )
+
+    by_id = {item["id"]: item for item in catalog}
+    assert "project-fixture" in by_id
+    assert by_id["project-fixture"]["runtime_command_interaction_kind"] == "native_session"
+    assert by_id["project-fixture"]["description"] == "Project-local fixture skill."
+    assert sum(1 for item in catalog if item["id"] == "status") == 1
 
 
 async def test_harness_runtime_command_dispatches_to_whitelisted_runtime(db_session):

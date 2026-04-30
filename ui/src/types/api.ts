@@ -967,6 +967,12 @@ export interface SlashCommandSpec {
   surfaces: SlashCommandSurface[];
   local_only: boolean;
   args: SlashCommandArgSpec[];
+  runtime_native?: boolean;
+  runtime_command_id?: string;
+  runtime_command_readonly?: boolean;
+  runtime_command_mutability?: "readonly" | "mutating" | "argument_sensitive" | string;
+  runtime_command_interaction_kind?: string;
+  runtime_command_fallback_behavior?: string;
 }
 
 export interface SlashCommandCatalog {
@@ -1441,6 +1447,32 @@ export interface Project extends ProjectSummary {
   attached_channel_count?: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectInstance {
+  id: string;
+  workspace_id: string;
+  project_id: string;
+  root_path: string;
+  status: "preparing" | "ready" | "failed" | "expired" | "deleted" | string;
+  source: string;
+  source_snapshot?: Record<string, any>;
+  setup_result?: Record<string, any>;
+  metadata_?: Record<string, any>;
+  owner_kind?: "manual" | "task" | "session" | null;
+  owner_id?: string | null;
+  expires_at?: string | null;
+  deleted_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved?: {
+    project_id?: string | null;
+    project_instance_id?: string | null;
+    name?: string | null;
+    workspace_id: string;
+    path: string;
+    host_path: string;
+  } | null;
 }
 
 export interface ProjectSetupRun {

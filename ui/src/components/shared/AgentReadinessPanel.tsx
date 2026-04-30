@@ -81,6 +81,40 @@ function SurfaceSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
   );
 }
 
+function widgetReadinessLabel(readiness?: string | null): string {
+  if (readiness === "ready") return "Widget authoring ready";
+  if (readiness === "blocked") return "Widget authoring blocked";
+  if (readiness === "needs_skills") return "Widget skills on demand";
+  return "Widget authoring";
+}
+
+function widgetReadinessTone(readiness?: string | null): "success" | "warning" | "danger" | "neutral" {
+  if (readiness === "ready") return "success";
+  if (readiness === "blocked") return "danger";
+  if (readiness === "needs_skills") return "warning";
+  return "neutral";
+}
+
+function WidgetAuthoringSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
+  const widgets = manifest.widgets;
+  const missingTools = widgets.missing_authoring_tools?.length ?? 0;
+  const missingSkills = widgets.missing_skills?.length ?? 0;
+  const description = missingTools > 0
+    ? `${missingTools} authoring tool${missingTools === 1 ? "" : "s"} missing`
+    : missingSkills > 0
+      ? `${missingSkills} widget skill${missingSkills === 1 ? "" : "s"} will be loaded on demand`
+      : `${widgets.authoring_tools?.length ?? 0} authoring tools available`;
+  return (
+    <SettingsControlRow
+      leading={<Wrench size={14} />}
+      title={widgetReadinessLabel(widgets.readiness)}
+      description={description}
+      meta={<QuietPill label={widgets.html_authoring_check === "available" ? "HTML full check" : "HTML check missing"} tone={widgetReadinessTone(widgets.readiness)} />}
+      compact
+    />
+  );
+}
+
 export function AgentReadinessPanel({
   botId,
   channelId,
@@ -167,6 +201,7 @@ export function AgentReadinessPanel({
       </div>
       <CapabilityStats manifest={data} />
       <SurfaceSummary manifest={data} />
+      <WidgetAuthoringSummary manifest={data} />
       {findings.length > 0 ? (
         <div className="flex flex-col gap-1">
           {findings.slice(0, 4).map((finding) => (

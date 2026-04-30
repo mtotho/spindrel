@@ -53,6 +53,17 @@ _SCHEMA = {
 }
 
 
+def _question_set_label(title: str) -> str:
+    cleaned = " ".join(str(title or "").strip().split())
+    if not cleaned:
+        return "Planning questions"
+    topic = cleaned.split(":", 1)[0].strip()
+    first_word = (topic.split() or [cleaned])[0].strip(" -")
+    if not first_word:
+        return "Planning questions"
+    return f"{first_word} planning questions"
+
+
 @register(
     _SCHEMA,
     safety_tier="readonly",
@@ -77,11 +88,14 @@ async def ask_plan_questions(
     from app.agent.tool_dispatch import ToolResultEnvelope
     from app.services.session_plan_mode import publish_session_plan_event, update_planning_state
 
+    question_set_label = _question_set_label(title)
     payload = {
         "widget_ref": "core/plan_questions",
         "display_label": title,
+        "attention_label": question_set_label,
         "state": {
             "title": title.strip(),
+            "attention_label": question_set_label,
             "intro": intro.strip(),
             "submit_label": submit_label.strip() or "Submit Answers",
             "questions": questions,

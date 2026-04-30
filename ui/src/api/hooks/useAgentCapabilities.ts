@@ -72,7 +72,17 @@ export interface AgentCapabilityManifest {
   };
   widgets: {
     authoring_tools?: string[];
+    required_authoring_tools?: string[];
+    missing_authoring_tools?: string[];
+    recommended_skills?: string[];
+    available_skills?: string[];
+    missing_skills?: string[];
     health_loop?: string | null;
+    html_authoring_check?: string | null;
+    tool_widget_authoring_check?: string | null;
+    authoring_flow?: string[];
+    readiness?: string | null;
+    findings?: AgentDoctorFinding[];
   };
   doctor: {
     status: AgentReadinessStatus;

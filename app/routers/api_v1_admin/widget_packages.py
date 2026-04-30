@@ -174,6 +174,20 @@ class AuthoringCheckIn(BaseModel):
     include_screenshot: bool = False
 
 
+class HtmlAuthoringCheckIn(BaseModel):
+    library_ref: Optional[str] = None
+    html: Optional[str] = None
+    path: Optional[str] = None
+    js: str = ""
+    css: str = ""
+    display_label: str = ""
+    display_mode: str = "inline"
+    runtime: Optional[str] = None
+    extra_csp: Optional[dict] = None
+    include_runtime: bool = False
+    include_screenshot: bool = False
+
+
 class GenericRenderIn(BaseModel):
     """Auto-render an arbitrary tool result as a dashboard card.
 
@@ -619,6 +633,28 @@ async def widget_authoring_check(
         tool_name=body.tool_name,
         source_bot_id=body.source_bot_id,
         source_channel_id=body.source_channel_id,
+        include_runtime=body.include_runtime,
+        include_screenshot=body.include_screenshot,
+    )
+
+
+@router.post("/widget-packages/html-authoring-check")
+async def html_widget_authoring_check(
+    body: HtmlAuthoringCheckIn,
+    _auth: str = Depends(require_scopes("admin")),
+):
+    from app.services.html_widget_authoring_check import run_html_widget_authoring_check
+
+    return await run_html_widget_authoring_check(
+        html=body.html,
+        path=body.path,
+        library_ref=body.library_ref,
+        js=body.js,
+        css=body.css,
+        display_label=body.display_label,
+        extra_csp=body.extra_csp,
+        display_mode=body.display_mode,
+        runtime=body.runtime,
         include_runtime=body.include_runtime,
         include_screenshot=body.include_screenshot,
     )

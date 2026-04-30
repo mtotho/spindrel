@@ -34,6 +34,8 @@ async def test_ask_plan_questions_returns_native_app_envelope() -> None:
 
     assert envelope["content_type"] == "application/vnd.spindrel.native-app+json"
     assert body["widget_ref"] == "core/plan_questions"
+    assert body["attention_label"] == "Clarify planning questions"
     assert body["state"]["title"] == "Clarify widget scope"
+    assert body["state"]["attention_label"] == "Clarify planning questions"
     assert body["state"]["questions"][0]["id"] == "target_surface"
     assert "Wait for their answers before publishing the plan." in payload["llm"]

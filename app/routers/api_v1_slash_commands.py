@@ -49,6 +49,7 @@ def _session_belongs_to_channel(session: Session, channel_id: uuid.UUID) -> bool
 @router.get("")
 async def list_slash_commands(
     bot_id: str | None = None,
+    session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Slash-command catalog.
@@ -60,7 +61,11 @@ async def list_slash_commands(
     ``"claude-code-bot"``), not a UUID — Bot row PKs are text, not uuid.
     """
     return {
-        "commands": await list_supported_slash_commands(db=db, bot_id=bot_id),
+        "commands": await list_supported_slash_commands(
+            db=db,
+            bot_id=bot_id,
+            session_id=session_id,
+        ),
     }
 
 

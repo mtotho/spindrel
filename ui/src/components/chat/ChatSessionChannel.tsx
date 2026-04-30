@@ -248,7 +248,7 @@ export function ChannelChatSession({
     [srcHandleSend],
   );
 
-  const channelSlashCatalog = useSlashCommandList(src.bot_id);
+  const channelSlashCatalog = useSlashCommandList(src.bot_id, src.sessionId);
   const { data: channelModelGroups } = useModelGroups();
   const channelSlashLocalHandlers = useMemo(
     () => ({
@@ -439,6 +439,7 @@ export function ChannelChatSession({
                     isStreaming={src.isStreaming}
                     onCancel={src.handleCancel}
                     currentBotId={src.bot_id}
+                    currentSessionId={src.sessionId}
                     channelId={source.channelId}
                     onSlashCommand={handleSlashCommand}
                     slashSurface="channel"
@@ -503,6 +504,7 @@ export function ChannelChatSession({
                 isStreaming={src.isStreaming}
                 onCancel={src.handleCancel}
                 currentBotId={src.bot_id}
+                currentSessionId={src.sessionId}
                 channelId={source.channelId}
                 onSlashCommand={handleSlashCommand}
                 slashSurface="channel"

@@ -6,6 +6,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
@@ -131,12 +132,27 @@ def build_project_setup_plan(
 ) -> dict[str, Any]:
     """Return a secret-safe setup plan derived from the applied snapshot."""
     snapshot = project_snapshot(project)
+    return build_project_setup_plan_from_snapshot(
+        project_id=project.id,
+        snapshot=snapshot,
+        bindings=bindings,
+    )
+
+
+def build_project_setup_plan_from_snapshot(
+    *,
+    project_id: uuid.UUID | str,
+    snapshot: dict[str, Any],
+    bindings: list[ProjectSecretBinding],
+) -> dict[str, Any]:
+    """Return a setup plan from a frozen Project blueprint snapshot."""
     repos = [_normalize_repo(repo, index) for index, repo in enumerate(snapshot.get("repos") or [])]
     commands = [
         _normalize_setup_command(command, index)
         for index, command in enumerate(snapshot.get("setup_commands") or [])
     ]
-    runtime_env = build_project_runtime_environment(project, bindings=bindings)
+    runtime_project = SimpleNamespace(id=project_id, metadata_={"blueprint_snapshot": snapshot})
+    runtime_env = build_project_runtime_environment(runtime_project, bindings=bindings)
 
     bindings_by_name = {binding.logical_name: binding for binding in bindings}
     secret_slots: list[dict[str, Any]] = []

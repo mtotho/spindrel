@@ -161,7 +161,7 @@ export function ThreadChatSession({
     useChatStore.getState().clearProcessing(storeKey);
     qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
   }, [effectiveSessionId, qc, storeKey]);
-  const threadSlashCatalog = useSlashCommandList(botId || undefined);
+  const threadSlashCatalog = useSlashCommandList(botId || undefined, effectiveSessionId);
   const threadAvailableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
       catalog: threadSlashCatalog,
@@ -410,7 +410,8 @@ export function ThreadChatSession({
                     onSend={handleSend}
                     disabled={!botId}
                     isStreaming={isSending}
-                    currentBotId={botId}
+                    currentBotId={botId ?? undefined}
+                    currentSessionId={effectiveSessionId ?? undefined}
                     channelId={storeKey}
                     onSlashCommand={handleThreadSlashCommand}
                     slashSurface="session"
@@ -455,7 +456,7 @@ export function ThreadChatSession({
             t={t}
             scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
-            sessionId={effectiveSessionId}
+            sessionId={effectiveSessionId ?? undefined}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
@@ -468,7 +469,8 @@ export function ThreadChatSession({
                     onSend={handleSend}
                     disabled={!botId}
                     isStreaming={isSending}
-                    currentBotId={botId}
+                    currentBotId={botId ?? undefined}
+                    currentSessionId={effectiveSessionId ?? undefined}
                     channelId={storeKey}
                     defaultModel={bot?.model}
                     hideModelOverride={!!bot?.harness_runtime}
@@ -506,7 +508,8 @@ export function ThreadChatSession({
                 onSend={handleSend}
                 disabled={!botId}
                 isStreaming={isSending}
-                currentBotId={botId}
+                currentBotId={botId ?? undefined}
+                currentSessionId={effectiveSessionId ?? undefined}
                 channelId={storeKey}
                 onSlashCommand={handleThreadSlashCommand}
                 slashSurface="session"

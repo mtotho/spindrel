@@ -39,6 +39,31 @@ CORE_AGENT_TOOLS = (
     "call_api",
 )
 
+WIDGET_AUTHORING_TOOLS = (
+    "prepare_widget_authoring",
+    "widget_library_list",
+    "preview_widget",
+    "check_html_widget_authoring",
+    "check_widget_authoring",
+    "emit_html_widget",
+    "pin_widget",
+    "check_widget",
+    "check_dashboard_widgets",
+    "inspect_widget_pin",
+    "describe_dashboard",
+    "assess_widget_usefulness",
+    "invoke_widget_action",
+)
+
+WIDGET_AUTHORING_SKILLS = (
+    "widgets",
+    "widgets/html",
+    "widgets/sdk",
+    "widgets/styling",
+    "widgets/errors",
+    "widgets/channel_dashboards",
+)
+
 TOOL_PROFILE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("api", ("api", "endpoint", "http")),
     ("project", ("project", "workspace", "file", "exec", "terminal")),
@@ -333,7 +358,74 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
             "message": "The bot uses an external harness but has no Project or harness workdir.",
             "next_action": "Attach the channel to a Project or configure harness_workdir.",
         })
+    widgets = manifest.get("widgets") or {}
+    if widgets.get("missing_authoring_tools"):
+        findings.append({
+            "severity": "warning",
+            "code": "widget_authoring_tools_missing",
+            "message": "Some widget authoring tools are missing from the local registry.",
+            "next_action": "Restart/reload local tools and verify the widget authoring modules import cleanly.",
+        })
     return findings
+
+
+def _widget_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    skill_rows = (manifest.get("skills", {}).get("bot_enrolled") or []) + (
+        manifest.get("skills", {}).get("channel_enrolled") or []
+    )
+    enrolled_skills = {
+        row.get("id")
+        for row in skill_rows
+        if isinstance(row, dict) and row.get("id")
+    }
+    available_tools = [name for name in WIDGET_AUTHORING_TOOLS if name in _local_tools]
+    missing_tools = [name for name in WIDGET_AUTHORING_TOOLS if name not in _local_tools]
+    available_skills = [skill for skill in WIDGET_AUTHORING_SKILLS if skill in enrolled_skills]
+    missing_skills = [skill for skill in WIDGET_AUTHORING_SKILLS if skill not in enrolled_skills]
+    findings: list[dict[str, str]] = []
+    if missing_tools:
+        findings.append({
+            "severity": "warning",
+            "code": "missing_widget_authoring_tools",
+            "message": f"Missing widget authoring tools: {', '.join(missing_tools)}.",
+            "next_action": "Verify local tool import/registration before asking the bot to author widgets.",
+        })
+    if missing_skills:
+        findings.append({
+            "severity": "info",
+            "code": "widget_skills_not_enrolled",
+            "message": f"Widget skills not in the current working set: {', '.join(missing_skills)}.",
+            "next_action": "Call prepare_widget_authoring or get_skill('widgets') when starting widget work.",
+        })
+
+    readiness = "ready"
+    if missing_tools:
+        readiness = "blocked"
+    elif missing_skills:
+        readiness = "needs_skills"
+
+    return {
+        "authoring_tools": available_tools,
+        "required_authoring_tools": list(WIDGET_AUTHORING_TOOLS),
+        "missing_authoring_tools": missing_tools,
+        "recommended_skills": list(WIDGET_AUTHORING_SKILLS),
+        "available_skills": available_skills,
+        "missing_skills": missing_skills,
+        "health_loop": "available" if "check_widget" in _local_tools else "missing",
+        "html_authoring_check": "available" if "check_html_widget_authoring" in _local_tools else "missing",
+        "tool_widget_authoring_check": "available" if "check_widget_authoring" in _local_tools else "missing",
+        "authoring_flow": [
+            "prepare_widget_authoring",
+            "widget_library_list",
+            "file",
+            "check_html_widget_authoring",
+            "emit_html_widget_or_pin_widget",
+            "check_widget",
+            "inspect_widget_pin_if_health_fails",
+        ],
+        "readiness": readiness,
+        "findings": findings,
+    }
 
 
 async def build_agent_capability_manifest(
@@ -380,19 +472,8 @@ async def build_agent_capability_manifest(
             "workdir": bot.harness_workdir if bot else None,
             "bridge_status": "native" if bot and bot.harness_runtime else "not_configured",
         },
-        "widgets": {
-            "authoring_tools": [
-                name for name in (
-                    "emit_html_widget",
-                    "check_widget",
-                    "check_dashboard_widgets",
-                    "describe_dashboard",
-                )
-                if name in _local_tools
-            ],
-            "health_loop": "available" if "check_widget" in _local_tools else "missing",
-        },
     }
+    manifest["widgets"] = _widget_payload(manifest)
     manifest["doctor"] = {
         "status": "ok",
         "findings": _doctor_findings(manifest),

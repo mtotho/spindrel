@@ -302,7 +302,11 @@ async def run_agent_tool_loop(
                     _tool_iteration_done = _tool_iteration_event
                     continue
                 yield _tool_iteration_event
-            if _tool_iteration_done is None or _tool_iteration_done.cancelled:
+            if (
+                _tool_iteration_done is None
+                or _tool_iteration_done.cancelled
+                or _tool_iteration_done.finished
+            ):
                 return
             if _tool_iteration_done.break_loop:
                 break

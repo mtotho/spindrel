@@ -104,6 +104,7 @@ project-workspace-blueprint-editor.png
 project-workspace-settings-blueprint.png
 project-workspace-setup-ready.png
 project-workspace-setup-run-history.png
+project-workspace-instances.png
 project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
@@ -114,10 +115,10 @@ The staging step creates a reusable screenshot Project, attaches one channel to
 it, creates one attachable channel, writes a file through the channel workspace
 API, seeds a Blueprint-created Project with secret bindings, runs repo plus
 setup-command preparation for `https://github.com/mtotho/spindrel.git`, and
-seeds a memory-tool turn. Inspect all eleven images before closing out: the
+seeds a fresh Project instance, and seeds a memory-tool turn. Inspect all twelve images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
-Project setup commands and run history, Project runtime-env readiness, Project
-settings, and the channel transcript.
+Project setup commands and run history, Project runtime-env readiness, fresh
+Project instances, Project settings, and the channel transcript.
 
 ## Channel Quick Automations Run
 
@@ -199,10 +200,12 @@ and mobile drawer captures before closeout.
 Use the Templates tab **Full Check** action, or the bot-facing
 `check_widget_authoring(..., include_runtime=true, include_screenshot=true)`
 tool, when changing tool-widget authoring UX or debugging draft YAML/Python
-widgets. This is a runtime smoke, not a docs screenshot bundle: the server
-renders the draft envelope, opens `/widgets/dev/runtime-preview` in Playwright,
-checks browser errors and visible bounds, and can return a PNG data URL artifact
-for inspection.
+widgets. For standalone HTML/library/path widgets, use
+`check_html_widget_authoring(..., include_runtime=true, include_screenshot=true)`
+with the same source args you plan to emit or pin. These are runtime smokes, not
+docs screenshot bundles: the server renders the draft envelope, opens
+`/widgets/dev/runtime-preview` in Playwright, checks browser errors and visible
+bounds, and can return a PNG data URL artifact for inspection.
 
 Run the normal UI typecheck after related UI changes:
 

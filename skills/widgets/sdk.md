@@ -140,10 +140,11 @@ Two readers of that same ring:
 Iteration recipe:
 
 1. `toolSchema(toolName)` — if `returns_schema` is present, code against it.
-2. If `returns_schema` is null (MCP tool), emit widget v1 as a best-effort probe. Optionally wrap the first `callTool` in a `try { ...; spindrel.log.info("shape", env); } catch (e) { spindrel.log.error(e.message); }` so the shape is guaranteed to appear in the Inspector timeline.
-3. Pin the widget, then call `inspect_widget_pin(pin_id)` to read the real response shape.
-4. Rewrite extraction against the confirmed path. **One path, not a fallback chain.**
-5. Re-emit; confirm the Inspector shows only clean tool-call rows and no `error` / `rejection` events.
+2. Run `check_html_widget_authoring(..., include_runtime=true)` before emit/pin so manifest, CSP, static health, and browser-host failures are caught early.
+3. If `returns_schema` is null (MCP tool), pin widget v1 as a best-effort probe. Optionally wrap the first `callTool` in a `try { ...; spindrel.log.info("shape", env); } catch (e) { spindrel.log.error(e.message); }` so the shape is guaranteed to appear in the Inspector timeline.
+4. Call `check_widget(pin_id)` after pinning. If it fails/warns, call `inspect_widget_pin(pin_id)` and read the real response shape.
+5. Rewrite extraction against the confirmed path. **One path, not a fallback chain.**
+6. Re-check; confirm the Inspector shows only clean tool-call rows and no `error` / `rejection` events.
 
 Canonical shapes for the two tools people hit first:
 

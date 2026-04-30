@@ -89,6 +89,8 @@ Every keystroke (debounced) re-runs the pipeline and re-renders. YAML errors sur
 
 The **Full Check** button runs the shared authoring diagnostic pipeline used by bots through `check_widget_authoring`: package validation, preview-envelope rendering, static widget health, and a Playwright smoke against the real widget host when the browser runtime is configured. When screenshot capture is requested, the result includes a runtime thumbnail so authoring failures are visible before the package is saved or pinned.
 
+Standalone HTML/library widgets use the sibling bot/API check `check_html_widget_authoring` / `/api/v1/admin/widget-packages/html-authoring-check`. It accepts `library_ref`, `html`, or `path`, builds the same envelope as `preview_widget`, then runs static health and optional runtime smoke through the same `/widgets/dev/runtime-preview` host. Use it before `emit_html_widget` or `pin_widget`; use the Templates tab Full Check for YAML tool-widget packages.
+
 ### Seed vs User packages
 
 Packages fall into two sources:

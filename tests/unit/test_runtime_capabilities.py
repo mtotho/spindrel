@@ -4,9 +4,11 @@ from __future__ import annotations
 import pytest
 
 from app.services.agent_harnesses.base import (
+    HarnessModelOption,
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
 )
+from app.services.agent_harnesses.capabilities import resolve_runtime_model_surface
 from app.services.slash_commands import COMMANDS, _filter_specs_for_runtime
 
 
@@ -98,7 +100,48 @@ def test_codex_capabilities_shape():
     }
     aliases = {alias for cmd in caps.native_commands for alias in cmd.aliases}
     assert {"mcp", "plugin", "feature", "marketplaces"} <= aliases
+    by_id = {cmd.id: cmd for cmd in caps.native_commands}
+    assert by_id["plugins"].mutability == "argument_sensitive"
+    assert by_id["plugins"].readonly is False
+    assert by_id["mcp-status"].mutability == "readonly"
     assert caps.native_compaction is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_model_surface_uses_live_effort_projection():
+    class Runtime:
+        def capabilities(self):
+            return RuntimeCapabilities(
+                display_name="Live",
+                supported_models=("fallback",),
+                model_options=(
+                    HarnessModelOption(
+                        id="fallback",
+                        effort_values=("minimal", "low", "medium"),
+                    ),
+                ),
+                effort_values=("minimal", "low", "medium"),
+            )
+
+        async def list_model_options(self):
+            return (
+                HarnessModelOption(
+                    id="live-a",
+                    effort_values=("low", "medium"),
+                    default_effort="medium",
+                ),
+                HarnessModelOption(
+                    id="live-b",
+                    effort_values=("high", "xhigh"),
+                    default_effort="high",
+                ),
+            )
+
+    surface = await resolve_runtime_model_surface(Runtime())
+
+    assert [option.id for option in surface.model_options] == ["live-a", "live-b"]
+    assert surface.available_models == ("live-a", "live-b")
+    assert surface.effort_values == ("low", "medium", "high", "xhigh")
 
 
 def test_claude_and_codex_have_distinct_display_names():

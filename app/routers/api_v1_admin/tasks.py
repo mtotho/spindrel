@@ -55,6 +55,7 @@ class TaskDetailOut(BaseModel):
     parent_task_id: Optional[uuid.UUID] = None
     run_isolation: str = "inline"
     run_session_id: Optional[uuid.UUID] = None
+    project_instance_id: Optional[uuid.UUID] = None
     session_target: Optional[dict] = None
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
@@ -151,6 +152,7 @@ class TaskCreateIn(BaseModel):
     post_final_to_channel: Optional[bool] = None
     history_mode: Optional[str] = None  # "none" | "recent" | "full"
     history_recent_count: Optional[int] = None
+    project_instance: Optional[dict] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -207,6 +209,7 @@ class TaskUpdateIn(BaseModel):
     post_final_to_channel: Optional[bool] = None
     history_mode: Optional[str] = None  # "none" | "recent" | "full"
     history_recent_count: Optional[int] = None
+    project_instance: Optional[dict] = None
     session_target: Optional[dict] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
@@ -644,6 +647,8 @@ async def admin_create_task(
         ec_extras["history_mode"] = body.history_mode
     if body.history_recent_count is not None:
         ec_extras["history_recent_count"] = int(body.history_recent_count)
+    if body.project_instance is not None:
+        ec_extras["project_instance"] = body.project_instance
     if body.session_target is not None:
         from app.services.session_targets import validate_session_target_for_channel
         try:
@@ -806,7 +811,7 @@ async def admin_update_task(
         "skip_tool_approval", "allow_issue_reporting",
         "skills", "tools",
         "post_final_to_channel", "history_mode", "history_recent_count",
-        "session_target",
+        "project_instance", "session_target",
     }
     if ec_fields & updates.keys():
         ec = dict(task.execution_config or {})
@@ -832,6 +837,8 @@ async def admin_update_task(
             ec["history_mode"] = updates["history_mode"] or None
         if "history_recent_count" in updates:
             ec["history_recent_count"] = int(updates["history_recent_count"]) if updates["history_recent_count"] is not None else None
+        if "project_instance" in updates:
+            ec["project_instance"] = updates["project_instance"] or None
         if "session_target" in updates:
             from app.services.session_targets import validate_session_target_for_channel
             try:

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import verify_auth_or_user
 from app.services.agent_harnesses import HARNESS_REGISTRY
+from app.services.agent_harnesses.capabilities import resolve_runtime_model_surface
 
 router = APIRouter(prefix="/runtimes", tags=["Runtimes"])
 
@@ -38,6 +39,7 @@ class HarnessRuntimeCommandOut(BaseModel):
     label: str
     description: str
     readonly: bool = True
+    mutability: str = "readonly"
     aliases: list[str] = Field(default_factory=list)
     interaction_kind: str = "structured"
     fallback_behavior: str = "none"
@@ -75,25 +77,8 @@ async def get_runtime_capabilities(
             status_code=501,
             detail=f"runtime {name!r} does not expose capabilities",
         )
-    caps = runtime.capabilities()
-    available_models: list[str] = []
-    live_model_options = []
-    if hasattr(runtime, "list_model_options"):
-        try:
-            live_model_options = list(await runtime.list_model_options())
-            available_models = [opt.id for opt in live_model_options]
-        except Exception:
-            live_model_options = []
-    if hasattr(runtime, "list_models"):
-        try:
-            if not available_models:
-                available_models = list(await runtime.list_models())
-        except Exception:
-            # Don't 500 the endpoint if a runtime adapter's list_models
-            # raises (e.g. SDK call fails). Fall back to the curated
-            # supported_models hint and let the UI render that.
-            available_models = list(caps.supported_models)
-    source_model_options = live_model_options or list(getattr(caps, "model_options", ()))
+    surface = await resolve_runtime_model_surface(runtime)
+    caps = surface.caps
     model_options = [
         HarnessModelOptionOut(
             id=opt.id,
@@ -101,26 +86,16 @@ async def get_runtime_capabilities(
             effort_values=list(opt.effort_values),
             default_effort=opt.default_effort,
         )
-        for opt in source_model_options
+        for opt in surface.model_options
     ]
-    if not model_options:
-        model_options = [
-            HarnessModelOptionOut(
-                id=model,
-                label=None,
-                effort_values=list(caps.effort_values),
-                default_effort=None,
-            )
-            for model in (available_models or list(caps.supported_models))
-        ]
     return RuntimeCapabilitiesOut(
         name=name,
         display_name=caps.display_name,
         supported_models=list(caps.supported_models),
         model_options=model_options,
-        available_models=available_models,
+        available_models=list(surface.available_models),
         model_is_freeform=caps.model_is_freeform,
-        effort_values=list(caps.effort_values),
+        effort_values=list(surface.effort_values),
         approval_modes=list(caps.approval_modes),
         slash_policy=HarnessSlashCommandPolicyOut(
             allowed_command_ids=sorted(caps.slash_policy.allowed_command_ids),
@@ -133,6 +108,7 @@ async def get_runtime_capabilities(
                 label=cmd.label,
                 description=cmd.description,
                 readonly=cmd.readonly,
+                mutability=getattr(cmd, "mutability", "readonly"),
                 aliases=list(getattr(cmd, "aliases", ()) or ()),
                 interaction_kind=getattr(cmd, "interaction_kind", "structured"),
                 fallback_behavior=getattr(cmd, "fallback_behavior", "none"),

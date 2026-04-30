@@ -1232,6 +1232,66 @@ async def test_live_harness_claude_project_local_native_skill_invocation(
     assert restored
 
 
+@pytest.mark.parametrize("case", HARNESS_PARAMS)
+@pytest.mark.asyncio
+async def test_live_harness_codex_native_input_manifest_skill_and_image(
+    client: E2EClient,
+    case: HarnessCase,
+) -> None:
+    _requires_tier("skills")
+    if case.name != "codex":
+        pytest.skip("Codex app-server owns skill and image input items")
+
+    channel_id, session_id, bot_id = await _fresh_session(client, case)
+    await _configure_low_cost_session(client, case, session_id)
+
+    skills_result = await client.execute_slash_command(
+        "skills",
+        session_id=session_id,
+        args=[],
+    )
+    data = ((skills_result.get("payload") or {}).get("data") or {}).get("data") or []
+    skill_name = ""
+    for cwd_entry in data:
+        if not isinstance(cwd_entry, dict):
+            continue
+        for skill in cwd_entry.get("skills") or []:
+            if isinstance(skill, dict) and isinstance(skill.get("name"), str):
+                skill_name = skill["name"]
+                break
+        if skill_name:
+            break
+    if not skill_name:
+        pytest.skip("deployed Codex runtime has no skills/list entries to invoke")
+
+    pixel_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    marker = uuid.uuid4().hex[:10]
+    result = await client.chat_session_stream(
+        f"${skill_name} Do not use tools. Reply exactly: codex input manifest {marker}",
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+        attachments=[
+            {
+                "type": "image",
+                "content": pixel_png,
+                "mime_type": "image/png",
+                "name": "pixel.png",
+            }
+        ],
+    )
+    _assert_clean_turn(result)
+
+    messages = await client.get_session_messages(session_id, limit=10)
+    harness_meta = (_message_metadata(_assistant_messages(messages)[-1]).get("harness") or {})
+    input_manifest = harness_meta.get("input_manifest") or {}
+    item_counts = input_manifest.get("runtime_item_counts") or {}
+    assert item_counts.get("skill") == 1, input_manifest
+    assert item_counts.get("image") == 1, input_manifest
+    assert "base64" not in json.dumps(input_manifest).lower()
+
+
 @pytest.mark.asyncio
 async def test_live_browser_automation_runtime_diagnostics(client: E2EClient) -> None:
     _requires_tier("bridge")

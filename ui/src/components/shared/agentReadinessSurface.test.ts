@@ -31,6 +31,9 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /manifest\.tools\.working_set_count/);
   assert.match(panel, /manifest\.skills\.working_set_count/);
   assert.match(panel, /SurfaceSummary/);
+  assert.match(panel, /WidgetAuthoringSummary/);
+  assert.match(panel, /widgets\.readiness/);
+  assert.match(panel, /HTML full check/);
   assert.match(panel, /data\.doctor\.findings/);
   assert.match(panel, /Ready to act with current API grants, tools, skills, and runtime context/);
 });

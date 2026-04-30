@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Project, ProjectBlueprint, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
+from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
+from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
 from app.services.projects import (
@@ -153,6 +154,33 @@ class ProjectRuntimeEnvOut(BaseModel):
     reserved_env_keys: list[str] = Field(default_factory=list)
 
 
+class ProjectInstanceOut(BaseModel):
+    id: uuid.UUID
+    workspace_id: uuid.UUID
+    project_id: uuid.UUID
+    root_path: str
+    status: str
+    source: str
+    source_snapshot: dict = Field(default_factory=dict)
+    setup_result: dict = Field(default_factory=dict)
+    metadata_: dict = Field(default_factory=dict)
+    owner_kind: str | None = None
+    owner_id: uuid.UUID | None = None
+    expires_at: datetime | None = None
+    deleted_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    resolved: dict | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectInstanceWrite(BaseModel):
+    owner_kind: str = "manual"
+    ttl_seconds: int | None = None
+    metadata_: dict | None = None
+
+
 class ProjectFromBlueprintWrite(BaseModel):
     blueprint_id: uuid.UUID
     workspace_id: uuid.UUID | None = None
@@ -255,6 +283,12 @@ def _blueprint_out(blueprint: ProjectBlueprint) -> ProjectBlueprintOut:
 
 def _setup_run_out(run: ProjectSetupRun) -> ProjectSetupRunOut:
     return ProjectSetupRunOut.model_validate(run)
+
+
+def _instance_out(instance: ProjectInstance) -> ProjectInstanceOut:
+    out = ProjectInstanceOut.model_validate(instance)
+    out.resolved = project_directory_payload(project_directory_from_instance(instance))
+    return out
 
 
 def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWrite) -> None:
@@ -626,6 +660,43 @@ async def get_project_runtime_env(
         raise HTTPException(status_code=404, detail="project not found")
     runtime_env = await load_project_runtime_environment(db, project)
     return ProjectRuntimeEnvOut(**runtime_env.safe_payload())
+
+
+@router.get("/{project_id}/instances", response_model=list[ProjectInstanceOut])
+async def get_project_instances(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    if await db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return [_instance_out(instance) for instance in await list_project_instances(db, project_id)]
+
+
+@router.post("/{project_id}/instances", response_model=ProjectInstanceOut, status_code=201)
+async def create_fresh_project_instance(
+    project_id: uuid.UUID,
+    body: ProjectInstanceWrite | None = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    payload = body or ProjectInstanceWrite()
+    if payload.owner_kind not in {"manual", "task", "session"}:
+        raise HTTPException(status_code=422, detail="owner_kind must be manual, task, or session")
+    try:
+        instance = await create_project_instance(
+            db,
+            project,
+            owner_kind=payload.owner_kind,
+            ttl_seconds=payload.ttl_seconds or 7 * 24 * 60 * 60,
+            metadata=payload.metadata_ or {},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _instance_out(instance)
 
 
 @router.post("/{project_id}/setup/runs", response_model=ProjectSetupRunOut, status_code=201)

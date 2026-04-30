@@ -46,6 +46,13 @@ class TestInputValidation:
         assert out["errors"][0]["phase"] == "input"
         assert "display_mode" in out["errors"][0]["message"]
 
+    @pytest.mark.asyncio
+    async def test_invalid_runtime_errors(self):
+        out = _parse(await preview_widget(html="<p>x</p>", runtime="solidjs"))
+        assert out["ok"] is False
+        assert out["errors"][0]["phase"] == "input"
+        assert "runtime" in out["errors"][0]["message"]
+
 
 class TestInlineMode:
     @pytest.mark.asyncio
@@ -80,6 +87,17 @@ class TestInlineMode:
         out = _parse(await preview_widget(html="<p>hi</p>", display_mode="panel"))
         env = out["envelope"]
         assert env["display_mode"] == "panel"
+
+    @pytest.mark.asyncio
+    async def test_inline_react_runtime_round_trips(self):
+        out = _parse(await preview_widget(html='<div id="root"></div>', runtime="react"))
+        env = out["envelope"]
+        assert env["runtime"] == "react"
+
+    @pytest.mark.asyncio
+    async def test_explicit_html_runtime_omits_runtime_field(self):
+        out = _parse(await preview_widget(html="<p>hi</p>", runtime="html"))
+        assert "runtime" not in out["envelope"]
 
     @pytest.mark.asyncio
     async def test_inline_bakes_bot_and_channel_context(self):

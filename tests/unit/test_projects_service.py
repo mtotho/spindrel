@@ -5,10 +5,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import Project
+from app.db.models import Project, ProjectInstance
+from app.services.project_instances import (
+    project_directory_from_instance,
+    project_instance_root_path,
+    task_project_instance_policy,
+    work_surface_from_project_instance,
+)
 from app.services.projects import (
     PROJECT_KB_PATH,
     materialize_project_blueprint,
+    materialize_project_blueprint_snapshot,
     normalize_project_path,
     project_blueprint_snapshot,
     project_directory_from_project,
@@ -70,6 +77,65 @@ def test_materialize_project_blueprint_creates_starter_surface(tmp_path):
     second = materialize_project_blueprint(project_dir, blueprint)
     assert second.payload()["files_skipped"] == ["README.md"]
     assert second.payload()["knowledge_files_skipped"] == ["overview.md"]
+
+
+def test_materialize_project_blueprint_snapshot_reuses_blueprint_policy(tmp_path):
+    project_dir = SimpleNamespace(host_path=str(tmp_path / "instance"))
+    snapshot = {
+        "folders": ["app"],
+        "files": {"app/README.md": "Fresh\n"},
+        "knowledge_files": {"overview.md": "Instance KB\n"},
+    }
+
+    result = materialize_project_blueprint_snapshot(project_dir, snapshot)
+
+    assert result.files_written == ["app/README.md"]
+    assert (tmp_path / "instance" / "app" / "README.md").read_text() == "Fresh\n"
+    assert (tmp_path / "instance" / PROJECT_KB_PATH / "overview.md").read_text() == "Instance KB\n"
+
+
+def test_project_instance_work_surface_keeps_parent_project_policy(monkeypatch, tmp_path):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    instance_id = uuid.uuid4()
+    monkeypatch.setattr(
+        "app.services.shared_workspace.local_workspace_base",
+        lambda: str(tmp_path),
+    )
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Common Projects",
+        slug="common-projects",
+        root_path="common/projects",
+    )
+    instance = ProjectInstance(
+        id=instance_id,
+        workspace_id=workspace_id,
+        project_id=project_id,
+        root_path=project_instance_root_path(project, instance_id),
+        status="ready",
+        source_snapshot={},
+        setup_result={},
+        metadata_={},
+    )
+
+    project_dir = project_directory_from_instance(instance, project)
+    surface = work_surface_from_project_instance(instance, project, channel_id=uuid.uuid4(), prompt="Project prompt")
+
+    assert project_dir.project_id == str(project_id)
+    assert project_dir.project_instance_id == str(instance_id)
+    assert surface.kind == "project_instance"
+    assert surface.project_id == str(project_id)
+    assert surface.project_instance_id == str(instance_id)
+    assert surface.index_prefix == instance.root_path
+    assert surface.prompt == "Project prompt"
+
+
+def test_task_project_instance_policy_accepts_nested_and_shortcut_forms():
+    assert task_project_instance_policy({"project_instance": {"mode": "fresh"}}).fresh is True
+    assert task_project_instance_policy({"fresh_project_instance": True}).fresh is True
+    assert task_project_instance_policy({"project_instance": {"mode": "shared"}}).fresh is False
 
 
 def test_project_directory_stays_inside_shared_workspace(monkeypatch, tmp_path):

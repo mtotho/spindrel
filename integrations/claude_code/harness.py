@@ -152,6 +152,8 @@ _CLAUDE_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         id="plugins",
         label="plugins",
         description="List Claude Code native plugins when the installed CLI supports it.",
+        readonly=False,
+        mutability="argument_sensitive",
         aliases=("plugin",),
         fallback_behavior="terminal",
     ),
@@ -159,6 +161,8 @@ _CLAUDE_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         id="mcp",
         label="mcp",
         description="List Claude Code native MCP servers when the installed CLI supports it.",
+        readonly=False,
+        mutability="argument_sensitive",
         fallback_behavior="terminal",
     ),
     HarnessRuntimeCommandSpec(
@@ -225,6 +229,22 @@ class ClaudeCodeRuntime:
 
     def autoapprove_in_plan(self, tool_name: str) -> bool:
         return tool_name in self._PLAN_AUTOAPPROVE
+
+    def native_command_requires_approval(
+        self,
+        *,
+        command_id: str,
+        args: tuple[str, ...],
+        args_text: str | None = None,
+    ) -> bool:
+        del args_text
+        cleaned = tuple(arg.strip() for arg in args if arg and arg.strip())
+        first = cleaned[0].lower() if cleaned else ""
+        if command_id in {"plugins", "plugin"}:
+            return first in _CLAUDE_PLUGIN_MUTATING_SUBCOMMANDS
+        if command_id == "mcp":
+            return first in _CLAUDE_MCP_MUTATING_SUBCOMMANDS
+        return False
 
     def capabilities(self) -> RuntimeCapabilities:
         return RuntimeCapabilities(

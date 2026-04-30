@@ -49,6 +49,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [botId, setBotId] = useState("");
   const [channelId, setRawChannelId] = useState("");
   const [sessionTarget, setSessionTarget] = useState<SessionTarget>({ mode: "primary" });
+  const [freshProjectInstance, setFreshProjectInstance] = useState(false);
   const [status, setStatus] = useState("pending");
   const [taskType, setTaskType] = useState("scheduled");
   const [scheduledAt, setScheduledAt] = useState("");
@@ -57,7 +58,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [modelOverride, setModelOverride] = useState("");
   const [harnessEffort, setHarnessEffort] = useState("");
   const [skipToolApproval, setSkipToolApproval] = useState(false);
-  const [allowIssueReporting, setAllowIssueReporting] = useState(false);
+  const [allowIssueReporting, setAllowIssueReporting] = useState(true);
   const [fallbackModels, setFallbackModels] = useState<Array<{ model: string; provider_id?: string | null }>>([]);
   const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [workflowId, setWorkflowId] = useState<string | null>(null);
@@ -88,6 +89,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setBotId(existingTask.bot_id || "");
       setRawChannelId(existingTask.channel_id || "");
       setSessionTarget(existingTask.session_target ?? (existingTask.execution_config?.session_target as SessionTarget | undefined) ?? { mode: "primary" });
+      setFreshProjectInstance(existingTask.execution_config?.project_instance?.mode === "fresh");
       setStatus(existingTask.status || "pending");
       setTaskType(existingTask.task_type || "scheduled");
       setScheduledAt(existingTask.scheduled_at ? isoToLocalInput(existingTask.scheduled_at) : "");
@@ -127,6 +129,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setBotId(existingTask.bot_id || "");
       setRawChannelId(existingTask.channel_id || "");
       setSessionTarget(existingTask.session_target ?? (existingTask.execution_config?.session_target as SessionTarget | undefined) ?? { mode: "primary" });
+      setFreshProjectInstance(existingTask.execution_config?.project_instance?.mode === "fresh");
       setTaskType(existingTask.task_type || "scheduled");
       setScheduledAt("");
       setRecurrence(existingTask.recurrence || "");
@@ -208,6 +211,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           bot_id: botId,
           channel_id: channelId || null,
           session_target: channelId ? sessionTarget : null,
+          project_instance: freshProjectInstance ? { mode: "fresh" } : { mode: "shared" },
           scheduled_at: scheduledAtISO,
           recurrence: effectiveRecurrence,
           task_type: effectiveTaskType,
@@ -240,6 +244,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           bot_id: botId,
           channel_id: channelId || null,
           session_target: channelId ? sessionTarget : null,
+          project_instance: freshProjectInstance ? { mode: "fresh" } : { mode: "shared" },
           status,
           scheduled_at: scheduledAtISO,
           recurrence: effectiveRecurrence,
@@ -266,7 +271,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, sessionTarget, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, skipToolApproval, allowIssueReporting, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
+  }, [prompt, title, botId, channelId, sessionTarget, freshProjectInstance, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, skipToolApproval, allowIssueReporting, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -308,6 +313,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     botId, setBotId,
     channelId, setChannelId,
     sessionTarget, setSessionTarget,
+    freshProjectInstance, setFreshProjectInstance,
     status, setStatus,
     taskType, setTaskType,
     scheduledAt, setScheduledAt,

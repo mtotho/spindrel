@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Clock3, ExternalLink, FileText, FolderGit2, FolderOpen, Hash, KeyRound, Layers, Play, Plus, Save, Terminal, Unlink, Users } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
-import { useProject, useProjectChannels, useProjectRuntimeEnv, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
+import { useCreateProjectInstance, useProject, useProjectChannels, useProjectInstances, useProjectRuntimeEnv, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
@@ -24,15 +24,15 @@ import {
 import { Spinner } from "@/src/components/shared/Spinner";
 import { WorkspaceFileBrowserSurface } from "@/src/components/workspace/WorkspaceFileBrowserSurface";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import type { Channel, Project, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
+import type { Channel, Project, ProjectInstance, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
 
 const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
 
-type ProjectTab = "Files" | "Terminal" | "Setup" | "Settings" | "Channels";
+type ProjectTab = "Files" | "Terminal" | "Setup" | "Instances" | "Settings" | "Channels";
 
-const TABS: ProjectTab[] = ["Files", "Terminal", "Setup", "Settings", "Channels"];
+const TABS: ProjectTab[] = ["Files", "Terminal", "Setup", "Instances", "Settings", "Channels"];
 
 function HeaderLink({ to, children, icon }: { to: string; children: React.ReactNode; icon: React.ReactNode }) {
   return (
@@ -255,7 +255,7 @@ function formatRunTime(value?: string | null) {
 }
 
 function setupTone(status: string): "success" | "warning" | "danger" | "neutral" {
-  if (status === "succeeded" || status === "cloned" || status === "already_present") return "success";
+  if (status === "succeeded" || status === "ready" || status === "cloned" || status === "already_present") return "success";
   if (status === "failed" || status === "invalid") return "danger";
   if (status === "running" || status === "skipped") return "warning";
   return "neutral";
@@ -653,11 +653,98 @@ function ProjectChannelsSection({
   );
 }
 
+function ProjectInstancesSection({
+  project,
+  instances,
+}: {
+  project: Project;
+  instances?: ProjectInstance[];
+}) {
+  const createInstance = useCreateProjectInstance(project.id);
+  const latest = instances?.[0];
+  const readyCount = (instances ?? []).filter((instance) => instance.status === "ready").length;
+
+  return (
+    <div data-testid="project-workspace-instances" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
+      <Section
+        title="Fresh Instances"
+        description="Temporary Project workspaces created from this Project's frozen Blueprint snapshot."
+        action={
+          <ActionButton
+            label={createInstance.isPending ? "Creating" : "Create Instance"}
+            icon={<Plus size={14} />}
+            disabled={createInstance.isPending}
+            onPress={() => createInstance.mutate()}
+          />
+        }
+      >
+        <div className="grid gap-2 md:grid-cols-3">
+          <SettingsControlRow
+            leading={<Layers size={14} />}
+            title="Instance source"
+            description={project.blueprint?.name ?? "No blueprint snapshot"}
+            meta={<QuietPill label={project.blueprint ? "snapshot" : "direct"} />}
+          />
+          <SettingsControlRow
+            leading={<CheckCircle2 size={14} />}
+            title="Ready instances"
+            description={`${readyCount} ready out of ${(instances ?? []).length}`}
+            meta={<QuietPill label={`${readyCount}`} tone={readyCount > 0 ? "success" : "neutral"} />}
+          />
+          <SettingsControlRow
+            leading={<Clock3 size={14} />}
+            title="Latest"
+            description={latest ? formatRunTime(latest.created_at) : "No instance has been created"}
+            meta={<StatusBadge label={latest?.status ?? "none"} variant={setupTone(latest?.status ?? "pending")} />}
+          />
+        </div>
+        {createInstance.error && (
+          <div className="mt-3">
+            <SettingsControlRow
+              leading={<AlertTriangle size={14} />}
+              title="Instance was not created"
+              description={createInstance.error instanceof Error ? createInstance.error.message : "The create request failed."}
+              meta={<StatusBadge label="failed" variant="danger" />}
+            />
+          </div>
+        )}
+      </Section>
+
+      <Section title="Instance History" description="Task runs can create these automatically when Fresh Project instance is enabled.">
+        <div className="flex flex-col gap-2">
+          {(!instances || instances.length === 0) ? (
+            <EmptyState message="No fresh Project instances have been created yet." />
+          ) : (
+            instances.map((instance) => (
+              <SettingsControlRow
+                key={instance.id}
+                leading={<FolderOpen size={14} />}
+                title={`/${instance.root_path}`}
+                description={`${instance.owner_kind ?? "manual"}${instance.owner_id ? ` · ${instance.owner_id}` : ""}`}
+                meta={<StatusBadge label={instance.status} variant={setupTone(instance.status)} />}
+                action={
+                  <HeaderLink
+                    to={`/admin/workspaces/${instance.workspace_id}/files?path=${encodeURIComponent(`/${instance.root_path}`)}`}
+                    icon={<ExternalLink size={13} />}
+                  >
+                    Files
+                  </HeaderLink>
+                }
+              />
+            ))
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
 export default function ProjectDetail() {
   const { projectId } = useParams<{ projectId: string }>();
   const { data: project, isLoading } = useProject(projectId);
   const { data: channels } = useProjectChannels(projectId);
   const { data: setup } = useProjectSetup(projectId);
+  const { data: instances } = useProjectInstances(projectId);
   const { data: runtimeEnv } = useProjectRuntimeEnv(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id);
   const updateProject = useUpdateProject(projectId);
@@ -746,6 +833,12 @@ export default function ProjectDetail() {
         {tab === "Setup" && (
           <div className="h-full overflow-auto">
             <ProjectSetupSection project={project} setup={setup} />
+          </div>
+        )}
+
+        {tab === "Instances" && (
+          <div className="h-full overflow-auto">
+            <ProjectInstancesSection project={project} instances={instances} />
           </div>
         )}
 

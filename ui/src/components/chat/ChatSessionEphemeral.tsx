@@ -323,7 +323,7 @@ export function EphemeralChatSession({
     useChatStore.getState().clearProcessing(sessionId);
     qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
   }, [qc, sessionId]);
-  const sessionSlashCatalog = useSlashCommandList(botId || undefined);
+  const sessionSlashCatalog = useSlashCommandList(botId || undefined, sessionId ?? undefined);
   const sessionAvailableSlashCommands = useMemo(
     () => resolveAvailableSlashCommandIds({
       catalog: sessionSlashCatalog,
@@ -660,6 +660,7 @@ export function EphemeralChatSession({
                     disabled={!botId}
                     isStreaming={isSending}
                     currentBotId={botId || undefined}
+                    currentSessionId={sessionId ?? undefined}
                     channelId={sessionId ?? undefined}
                     toolContextChannelId={scratchBoundChannelId ?? parentChannelId}
                     onSlashCommand={handleSessionSlashCommand}
@@ -719,6 +720,7 @@ export function EphemeralChatSession({
                     disabled={!botId}
                     isStreaming={isSending}
                     currentBotId={botId || undefined}
+                    currentSessionId={sessionId ?? undefined}
                     channelId={sessionId ?? undefined}
                     toolContextChannelId={scratchBoundChannelId ?? parentChannelId}
                     slashSurface="session"
@@ -760,6 +762,7 @@ export function EphemeralChatSession({
                 disabled={!botId}
                 isStreaming={isSending}
                 currentBotId={botId || undefined}
+                currentSessionId={sessionId ?? undefined}
                 channelId={sessionId ?? undefined}
                 toolContextChannelId={scratchBoundChannelId ?? parentChannelId}
                 onSlashCommand={handleSessionSlashCommand}

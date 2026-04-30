@@ -241,6 +241,34 @@ def test_external_integration_harnesses_are_discovered(tmp_path, monkeypatch):
         agent_harnesses.HARNESS_REGISTRY.pop("bennie-runtime", None)
 
 
+def test_harness_module_counts_as_detected_provides(tmp_path, monkeypatch):
+    from integrations.discovery import IntegrationSource, load_single_integration
+    from app.services import integration_manifests
+
+    root = tmp_path / "spindrel-home" / "bennieloggins"
+    _write(root / "harness.py", "")
+    _write(root / "integration.yaml", "id: bennieloggins\nprovides:\n  - harness\n")
+    monkeypatch.setattr(
+        "integrations.discovery.iter_integration_sources",
+        lambda: [
+            IntegrationSource(
+                integration_id="bennieloggins",
+                path=root.resolve(),
+                source="external",
+                is_external=True,
+            )
+        ],
+    )
+    integration_manifests._manifests["bennieloggins"] = {
+        "id": "bennieloggins",
+        "provides": ["harness"],
+    }
+
+    load_single_integration(root.resolve(), "bennieloggins", True, "external")
+
+    assert integration_manifests._manifests["bennieloggins"]["_detected_provides"] == ["harness"]
+
+
 def test_scaffold_dir_uses_effective_external_integration_dirs(tmp_path):
     from app.tools.local import admin_integrations
 

@@ -2027,6 +2027,7 @@ function ThreadFullScreenBody({
               disabled={!botId}
               isStreaming={isSending}
               currentBotId={botId}
+              currentSessionId={threadSessionId}
               channelId={threadSessionId}
               modelOverride={modelOverride}
               modelProviderIdOverride={modelProviderId}

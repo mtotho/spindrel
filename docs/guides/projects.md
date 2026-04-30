@@ -20,8 +20,9 @@ Open `/admin/projects` to create or inspect shared roots. A Project owns:
 
 The Project detail page is the work surface: use **Files** for the rooted file
 browser, **Terminal** for a Project-root shell, **Setup** for Blueprint runtime
-preparation, **Settings** for instructions and Blueprint metadata, and
-**Channels** for membership.
+preparation, **Instances** for fresh workspaces created from the applied
+snapshot, **Settings** for instructions and Blueprint metadata, and **Channels**
+for membership.
 
 ## Blueprints
 
@@ -56,6 +57,21 @@ Project terminals, `exec_command`, and harness-backed Project turns. Settings
 show key names and missing bindings only; secret values are not returned by the
 Project API or rendered in the UI. Missing required secrets warn in readiness
 surfaces but do not block general Project runtimes.
+
+## Fresh Instances
+
+Project Instances are temporary roots created from a Project's frozen Blueprint
+snapshot. They live under `common/project-instances/{project-slug}/{id}` and
+reuse the parent Project policy: prompt, runtime env, secret bindings,
+knowledge-prefix locality, and harness cwd all resolve through the same
+work-surface service.
+
+Tasks can opt into a fresh Project instance for each run. The task worker
+creates and prepares the instance before invoking the agent, stores the
+`project_instance_id` on the task, and sets a run-scoped context override so
+file, exec, search, terminal, and harness tools resolve to the instance root
+without mutating the shared channel session. Sessions can also be explicitly
+bound to a fresh instance through the session Project-instance API.
 
 ## Channels And Memory
 

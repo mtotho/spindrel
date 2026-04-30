@@ -83,7 +83,8 @@ async def list_agent_capabilities(
         "description": (
             "Run a read-only readiness check over this agent's capability manifest. "
             "Returns concrete findings and suggested next actions for missing API "
-            "grants, Project readiness, harness workdir gaps, and empty working sets."
+            "grants, Project readiness, harness workdir gaps, widget-authoring "
+            "tool registration gaps, and empty working sets."
         ),
         "parameters": {
             "type": "object",

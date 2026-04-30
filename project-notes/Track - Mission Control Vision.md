@@ -487,10 +487,12 @@ the system can already inspect" is a shared capability manifest:
   tasks as the durable substrate. Processed/noisy items can leave active
   Attention, but their outcomes must remain recoverable through operator run
   history.
-- Bot-reported issues are Attention Items, not a new alert system. Enable
-  `report_issue` only per scheduled task or heartbeat, prioritize those reports
-  above automatic detector noise, and fold same-target same-signature detector
-  events into the report evidence.
+- Bot-reported issues are Attention Items, not a new alert system. New
+  scheduled tasks and heartbeats default to `report_issue` enabled, existing
+  saved runs keep their saved setting, and the UI should present this as
+  "Report blockers to Mission Control" rather than an advanced tool-policy
+  switch. Prioritize those reports above automatic detector noise, and fold
+  same-target same-signature detector events into the report evidence.
 - Mission tasks remain the execution truth until a later track explicitly adds
   heartbeat consumption.
 - Mission Control suggestions require human approval before creating durable

@@ -18,7 +18,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel
 from sqlalchemy import select, update
@@ -309,8 +309,66 @@ def _native_command_catalog_entries(runtime) -> list[dict]:
                 "runtime_native": True,
                 "runtime_command_id": getattr(command, "id", slash_name),
                 "runtime_command_readonly": bool(getattr(command, "readonly", True)),
+                "runtime_command_mutability": getattr(command, "mutability", "readonly"),
                 "runtime_command_interaction_kind": getattr(command, "interaction_kind", "structured"),
                 "runtime_command_fallback_behavior": getattr(command, "fallback_behavior", "none"),
+            }
+        )
+    return entries
+
+
+def _session_native_slash_catalog_entries(
+    metadata: dict[str, Any] | None,
+    *,
+    runtime,
+) -> list[dict]:
+    """Build picker entries from runtime-reported per-session slash inventory."""
+
+    if not metadata:
+        return []
+    raw_commands = metadata.get("claude_native_slash_commands")
+    if not isinstance(raw_commands, list):
+        return []
+    runtime_lookup = _runtime_native_command_lookup(runtime)
+    entries: list[dict] = []
+    seen: set[str] = set()
+    for item in raw_commands:
+        if not isinstance(item, dict):
+            continue
+        name = (
+            item.get("name")
+            or item.get("command")
+            or item.get("id")
+            or item.get("title")
+        )
+        if not isinstance(name, str):
+            continue
+        slash_name = name.strip().lstrip("/").lower()
+        if not slash_name or slash_name in seen or slash_name in COMMANDS or slash_name in runtime_lookup:
+            continue
+        seen.add(slash_name)
+        description = item.get("description")
+        entries.append(
+            {
+                "id": slash_name,
+                "label": f"/{slash_name}",
+                "description": description if isinstance(description, str) and description.strip() else f"Run native /{slash_name}",
+                "surfaces": ["channel", "session"],
+                "local_only": False,
+                "args": [
+                    {
+                        "name": "args",
+                        "source": "free_text",
+                        "required": False,
+                        "enum": None,
+                    }
+                ],
+                "runtime_native": True,
+                "runtime_command_id": slash_name,
+                "runtime_command_readonly": True,
+                "runtime_command_mutability": "readonly",
+                "runtime_command_interaction_kind": "native_session",
+                "runtime_command_fallback_behavior": "session",
             }
         )
     return entries
@@ -1223,7 +1281,7 @@ async def _effort_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     )
 
 
-def _harness_picker_result(
+async def _harness_picker_result(
     *,
     command_id: str,
     runtime,
@@ -1231,7 +1289,10 @@ def _harness_picker_result(
     selected_model: str | None,
     selected_effort: str | None,
 ) -> SlashCommandResult:
-    caps = runtime.capabilities()
+    from app.services.agent_harnesses.capabilities import resolve_runtime_model_surface
+
+    surface = await resolve_runtime_model_surface(runtime)
+    caps = surface.caps
     model_options = [
         {
             "id": opt.id,
@@ -1239,18 +1300,8 @@ def _harness_picker_result(
             "effort_values": list(opt.effort_values),
             "default_effort": opt.default_effort,
         }
-        for opt in getattr(caps, "model_options", ())
+        for opt in surface.model_options
     ]
-    if not model_options:
-        model_options = [
-            {
-                "id": model,
-                "label": model,
-                "effort_values": list(caps.effort_values),
-                "default_effort": None,
-            }
-            for model in caps.supported_models
-        ]
     return SlashCommandResult(
         command_id=command_id,
         result_type="harness_model_effort_picker",
@@ -1304,20 +1355,26 @@ async def _harness_effort_handler(
     if not level:
         session = await _resolve_current_session(ctx)
         settings = await load_session_settings(ctx.db, session.id)
-        return _harness_picker_result(
+        return await _harness_picker_result(
             command_id="effort",
             runtime=runtime,
             session_id=session.id,
             selected_model=settings.model,
             selected_effort=settings.effort,
         )
-    if level not in caps.effort_values:
+    session = await _resolve_current_session(ctx)
+    settings = await load_session_settings(ctx.db, session.id)
+    from app.services.agent_harnesses.capabilities import resolve_runtime_model_surface
+
+    surface = await resolve_runtime_model_surface(runtime)
+    by_model = {option.id: tuple(option.effort_values or ()) for option in surface.model_options}
+    accepted = by_model.get(settings.model or "") or tuple(surface.effort_values)
+    if level not in accepted:
         raise ValueError(
             f"Unknown effort level {level!r}. {display} accepts: "
-            f"{', '.join(caps.effort_values)}"
+            f"{', '.join(accepted)}"
         )
 
-    session = await _resolve_current_session(ctx)
     await patch_session_settings(ctx.db, session.id, patch={"effort": level})
 
     payload = SideEffectPayload(
@@ -1360,7 +1417,7 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             )
         if not ctx.args or not (ctx.args[0] or "").strip():
             settings = await load_session_settings(ctx.db, session.id)
-            return _harness_picker_result(
+            return await _harness_picker_result(
                 command_id="model",
                 runtime=runtime,
                 session_id=session.id,
@@ -1832,6 +1889,7 @@ async def list_supported_slash_commands(
     *,
     db: AsyncSession | None = None,
     bot_id: str | None = None,
+    session_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Canonical slash-command registry.
 
@@ -1856,6 +1914,13 @@ async def list_supported_slash_commands(
         runtime = await _resolve_harness_runtime_for_bot(db, bot_id)
         specs = _filter_specs_for_runtime(specs, runtime)
         native_entries = _native_command_catalog_entries(runtime)
+        if runtime is not None and session_id is not None:
+            from app.services.agent_harnesses.session_state import load_latest_harness_metadata
+
+            harness_meta, _ = await load_latest_harness_metadata(db, session_id)
+            native_entries.extend(
+                _session_native_slash_catalog_entries(harness_meta, runtime=runtime)
+            )
     entries = [
         {
             "id": s.id,

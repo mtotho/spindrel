@@ -316,3 +316,21 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
   assert.match(deckSource, /sortDeckItems/);
   assert.match(deckSource, /including \$\{counts\.botReports\} bot-reported issue/);
 });
+
+test("background run issue reporting is visible and default-on for new runs", () => {
+  const heartbeatSource = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/HeartbeatTab.tsx"), "utf8");
+  const taskFieldsSource = readFileSync(resolve(process.cwd(), "src/components/shared/task/TaskFormFields.tsx"), "utf8");
+  const taskStateSource = readFileSync(resolve(process.cwd(), "src/components/shared/task/useTaskFormState.ts"), "utf8");
+
+  assert.match(heartbeatSource, /withIssueReportingDefault\(\{\}, true\)/);
+  assert.match(heartbeatSource, /title=\{\s*<div className="flex flex-wrap items-center gap-2">\s*<span>Escalation<\/span>/);
+  assert.match(heartbeatSource, /Can report blockers/);
+  assert.match(heartbeatSource, /Report blockers to Mission Control/);
+  assert.match(heartbeatSource, /Tool Policies/);
+  assert.doesNotMatch(heartbeatSource, /label="Allow issue reporting"/);
+
+  assert.match(taskStateSource, /const \[allowIssueReporting, setAllowIssueReporting\] = useState\(true\)/);
+  assert.match(taskFieldsSource, />\s*Escalation\s*</);
+  assert.match(taskFieldsSource, /Report blockers to Mission Control/);
+  assert.doesNotMatch(taskFieldsSource, /label="Allow issue reporting"/);
+});

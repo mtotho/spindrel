@@ -349,6 +349,12 @@ class Session(Base):
     is_current: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    project_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_instances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     channel: Mapped["Channel | None"] = relationship(
         back_populates="sessions",
@@ -1287,6 +1293,11 @@ class Project(Base):
         cascade="all, delete-orphan",
     )
     channels: Mapped[list["Channel"]] = relationship("Channel", back_populates="project")
+    instances: Mapped[list["ProjectInstance"]] = relationship(
+        "ProjectInstance",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "root_path", name="uq_projects_workspace_root_path"),
@@ -1397,6 +1408,52 @@ class ProjectSetupRun(Base):
 
     __table_args__ = (
         Index("ix_project_setup_runs_project_created", "project_id", created_at.desc()),
+    )
+
+
+class ProjectInstance(Base):
+    __tablename__ = "project_instances"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shared_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'preparing'"))
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'blueprint_snapshot'"))
+    source_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    setup_result: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    owner_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    workspace: Mapped["SharedWorkspace"] = relationship("SharedWorkspace")
+    project: Mapped["Project"] = relationship("Project", back_populates="instances")
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "root_path", name="uq_project_instances_workspace_root_path"),
+        CheckConstraint("status in ('preparing', 'ready', 'failed', 'expired', 'deleted')", name="ck_project_instances_status"),
+        CheckConstraint("owner_kind is null or owner_kind in ('task', 'session', 'manual')", name="ck_project_instances_owner_kind"),
+        Index("ix_project_instances_project_created", "project_id", created_at.desc()),
+        Index("ix_project_instances_status_expires", "status", "expires_at"),
     )
 
 
@@ -1690,6 +1747,12 @@ class Task(Base):
         UUID(as_uuid=True),
         ForeignKey("sessions.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    project_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_instances.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     __table_args__ = (

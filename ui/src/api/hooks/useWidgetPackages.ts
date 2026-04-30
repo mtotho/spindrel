@@ -108,6 +108,11 @@ export interface AuthoringCheckResponse {
       left: number;
     };
   };
+  next_actions?: Array<{
+    tool?: string;
+    args?: Record<string, unknown>;
+    hint?: string;
+  }>;
 }
 
 interface ListFilter {
@@ -254,6 +259,25 @@ export function checkWidgetAuthoring(body: {
 }): Promise<AuthoringCheckResponse> {
   return apiFetch<AuthoringCheckResponse>(
     "/api/v1/admin/widget-packages/authoring-check",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export function checkHtmlWidgetAuthoring(body: {
+  library_ref?: string | null;
+  html?: string | null;
+  path?: string | null;
+  js?: string | null;
+  css?: string | null;
+  display_label?: string | null;
+  display_mode?: "inline" | "panel" | string | null;
+  runtime?: "html" | "react" | string | null;
+  extra_csp?: Record<string, unknown> | null;
+  include_runtime?: boolean;
+  include_screenshot?: boolean;
+}): Promise<AuthoringCheckResponse> {
+  return apiFetch<AuthoringCheckResponse>(
+    "/api/v1/admin/widget-packages/html-authoring-check",
     { method: "POST", body: JSON.stringify(body) },
   );
 }

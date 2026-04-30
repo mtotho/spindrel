@@ -275,6 +275,8 @@ def load_single_integration(candidate: Path, integration_id: str, is_external: b
         detected_provides.add("tools")
     if (candidate / "skills").is_dir() and any((candidate / "skills").glob("*.md")):
         detected_provides.add("skills")
+    if (candidate / "harness.py").exists():
+        detected_provides.add("harness")
     if (candidate / "machine_control.py").exists() or get_manifest_field(integration_id, "machine_control"):
         detected_provides.add("machine_control")
 

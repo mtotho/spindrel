@@ -361,6 +361,16 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def create_project_instance(self, project_id: str) -> dict:
+        if self._dry_run:
+            logger.info("DRY-RUN POST /projects/%s/instances", project_id)
+            return {"id": "dry-run-instance", "status": "ready", "dry_run": True}
+        r = self._http.post(f"/api/v1/projects/{project_id}/instances", json={"owner_kind": "manual"})
+        if r.status_code >= 400:
+            logger.error("POST /projects/%s/instances -> %s body=%s", project_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     # --- skills ------------------------------------------------------------
 
     def list_skills(self, *, limit: int = 100) -> list[dict]:

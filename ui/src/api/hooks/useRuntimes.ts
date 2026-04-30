@@ -28,6 +28,7 @@ export interface RuntimeCapabilities {
     label: string;
     description: string;
     readonly: boolean;
+    mutability?: "readonly" | "mutating" | "argument_sensitive" | string;
     aliases?: string[];
     interaction_kind?: string;
     fallback_behavior?: string;

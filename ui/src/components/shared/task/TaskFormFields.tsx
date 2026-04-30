@@ -213,6 +213,7 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     fallbackModels, setFallbackModels,
     bots, channels, skillOptions, allTools,
     sessionTarget, setSessionTarget,
+    freshProjectInstance, setFreshProjectInstance,
     postFinalToChannel, setPostFinalToChannel,
     historyMode, setHistoryMode,
     historyRecentCount, setHistoryRecentCount,
@@ -248,6 +249,30 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
         />
       </FormRow>
 
+      <div className="flex flex-col gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+          Work surface
+        </div>
+        <Toggle
+          value={freshProjectInstance}
+          onChange={setFreshProjectInstance}
+          label="Fresh Project instance for each run"
+          description="Creates a temporary Project workspace from the Project template before the task starts. Requires a Project-bound channel."
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+          Escalation
+        </div>
+        <Toggle
+          value={allowIssueReporting}
+          onChange={setAllowIssueReporting}
+          label="Report blockers to Mission Control"
+          description="Enabled for new scheduled tasks. Use this when the bot may find durable blockers, missing permissions, or system problems that need review."
+        />
+      </div>
+
       {/* Skills & Tools */}
       <div className="flex flex-col gap-4">
         <ChipPicker
@@ -268,12 +293,6 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           onChange={setSkipToolApproval}
           label="Auto-approve tool calls"
           description="For automated runs only. Selected tools can run without waiting for manual approval."
-        />
-        <Toggle
-          value={allowIssueReporting}
-          onChange={setAllowIssueReporting}
-          label="Allow issue reporting"
-          description="Lets this run create a review item when it finds a durable blocker, missing permission, or system problem."
         />
       </div>
 

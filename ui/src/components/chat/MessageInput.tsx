@@ -39,6 +39,8 @@ interface Props {
   isMultiBot?: boolean;
   /** Channel/session key for persisting drafts across navigation */
   channelId?: string;
+  /** Current Spindrel session id for session-native slash discovery. */
+  currentSessionId?: string;
   /** Parent channel used to resolve contextual tools/skills in session views. */
   toolContextChannelId?: string;
   /** Handler for slash commands typed in the input */
@@ -107,14 +109,14 @@ function tapHaptic(pattern: number | number[] = 8) {
   try { (navigator as Navigator & { vibrate?: (p: number | number[]) => boolean }).vibrate?.(pattern); } catch { /* ignore */ }
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason = null, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, currentSessionId, toolContextChannelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, planModeControl = "auto", onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessEffortValues = [], harnessCurrentModel = null, harnessCurrentEffort = null, harnessApprovalMode = null, onHarnessModelChange, onHarnessEffortChange, onHarnessApprovalModeCycle, harnessModelMutating = false, harnessApprovalModeMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
   const recorder = useAudioRecorder();
   // Phase 4: scope slash catalog by bot id so harness sessions get the
   // runtime-allowlisted set automatically (picker + /help share one source).
-  const slashCatalog = useSlashCommandList(currentBotId);
+  const slashCatalog = useSlashCommandList(currentBotId, currentSessionId);
   const toolChannelId = toolContextChannelId ?? channelId;
 
   const {
@@ -735,6 +737,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, sendDisabledReason
                   autoFocus={!isMobile}
                   isMobile={isMobile}
                   currentBotId={currentBotId}
+                  currentSessionId={currentSessionId}
                   isMultiBot={isMultiBot}
                   placeholder={isTerminalMode ? terminalPlaceholder : undefined}
                   chatMode={chatMode}
