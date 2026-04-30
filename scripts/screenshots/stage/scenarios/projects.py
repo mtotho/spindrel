@@ -21,6 +21,7 @@ BLUEPRINT_PROJECT_NAME = "Screenshot Blueprint Project"
 BLUEPRINT_PROJECT_ROOT = "common/projects/spindrel-blueprint"
 BOUND_SECRET_NAME = "SCREENSHOT_PROJECT_GITHUB_TOKEN"
 SECOND_BOUND_SECRET_NAME = "SCREENSHOT_PROJECT_NPM_TOKEN"
+CODING_RUN_REQUEST = "Prepare the Project workspace screenshot receipt and handoff evidence."
 
 
 def stage_project_workspace(
@@ -181,15 +182,26 @@ def stage_project_workspace(
         f"{PROJECT_ROOT}/README.md",
         "# Screenshot Project Workspace\n\nThis file is rooted at the shared Project, not the channel workspace.\n",
     )
+    existing_runs = client.list_project_coding_runs(project_id)
+    coding_run = next((run for run in existing_runs if run.get("request") == CODING_RUN_REQUEST), None)
+    if coding_run is None:
+        coding_run = client.create_project_coding_run(
+            project_id,
+            channel_id=channel_id,
+            request=CODING_RUN_REQUEST,
+        )
+    task_id = (coding_run.get("task") or {}).get("id")
     client.create_project_run_receipt(
         project_id,
         {
+            "idempotency_key": "screenshot:project-coding-run",
+            "task_id": task_id,
             "status": "completed",
             "summary": "Screenshot Project coding run receipt",
             "bot_id": PROJECT_BOT_ID,
             "changed_files": [
                 "app/services/projects.py",
-                "ui/app/(app)/admin/projects/[projectId]/index.tsx",
+                "ui/app/(app)/admin/projects/[projectId]/ProjectRunsSection.tsx",
             ],
             "tests": [
                 {"command": "pytest tests/unit/test_projects_service.py", "status": "passed"},

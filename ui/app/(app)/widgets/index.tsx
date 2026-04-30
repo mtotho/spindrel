@@ -264,7 +264,7 @@ export default function WidgetsDashboardPage() {
    *  grid tile, cleared after ~1.4s. Set via `highlightPin` from Add sheet. */
   const [highlightPinId, setHighlightPinId] = useState<string | null>(null);
   const [pendingNewPinId, setPendingNewPinId] = useState<string | null>(null);
-  const [dashboardViewLockToken, setDashboardViewLockToken] = useState(0);
+  const [dashboardViewLocked, setDashboardViewLocked] = useState(true);
   // Track viewport width for mobile-only behavior — drag/resize on touch is
   // unusable, so the grid is read-only below the `sm` breakpoint even when
   // edit mode is toggled on (e.g. user hopped from desktop to phone).
@@ -553,10 +553,16 @@ export default function WidgetsDashboardPage() {
       {useChannelFreeformCanvas && (
         <button
           type="button"
-          onClick={() => setDashboardViewLockToken((value) => value + 1)}
-          className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
-          aria-label="Lock dashboard view"
-          title="Lock dashboard view"
+          onClick={() => setDashboardViewLocked((locked) => !locked)}
+          className={
+            "inline-flex items-center justify-center h-8 w-8 rounded-md border transition-colors " +
+            (dashboardViewLocked
+              ? "border-accent/60 bg-accent/10 text-accent"
+              : "border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text")
+          }
+          aria-pressed={dashboardViewLocked}
+          aria-label={dashboardViewLocked ? "Unlock dashboard view" : "Lock dashboard view"}
+          title={dashboardViewLocked ? "Unlock dashboard view" : "Lock dashboard view"}
         >
           <LockKeyhole size={14} />
         </button>
@@ -761,7 +767,8 @@ export default function WidgetsDashboardPage() {
             gridConfig={currentDashboard?.grid_config ?? null}
             highlightPinId={highlightPinId}
             pendingNewPinId={pendingNewPinId}
-            lockViewToken={dashboardViewLockToken}
+            viewLocked={dashboardViewLocked}
+            onViewLockedChange={setDashboardViewLocked}
             onPendingNewPinHandled={(pinId) => {
               setPendingNewPinId((current) => (current === pinId ? null : current));
             }}

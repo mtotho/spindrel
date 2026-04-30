@@ -1508,6 +1508,38 @@ export interface ProjectRunReceipt {
   created_at: string;
 }
 
+export interface ProjectCodingRunTask {
+  id: string;
+  status: string;
+  title?: string | null;
+  bot_id: string;
+  channel_id?: string | null;
+  session_id?: string | null;
+  project_instance_id?: string | null;
+  correlation_id?: string | null;
+  created_at?: string | null;
+  scheduled_at?: string | null;
+  run_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+}
+
+export interface ProjectCodingRun {
+  id: string;
+  project_id: string;
+  status: "pending" | "running" | "completed" | "blocked" | "failed" | "needs_review" | string;
+  request?: string;
+  branch?: string | null;
+  base_branch?: string | null;
+  repo?: Record<string, any>;
+  runtime_target?: Record<string, any>;
+  task: ProjectCodingRunTask;
+  receipt?: ProjectRunReceipt | null;
+  activity?: Array<Record<string, any>>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface SessionProjectInstance {
   session_id: string;
   project_instance_id?: string | null;

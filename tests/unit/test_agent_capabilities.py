@@ -272,6 +272,17 @@ def test_agent_status_snapshot_tool_registered_with_return_schema():
     assert entry["returns"]["properties"]["agent_status"]["type"] == "object"
 
 
+def test_publish_execution_receipt_tool_registered_with_return_schema():
+    from app.tools.local import execution_receipts as _tool_module  # noqa: F401
+    from app.tools.registry import _tools
+
+    entry = _tools["publish_execution_receipt"]
+
+    assert entry["safety_tier"] == "mutating"
+    assert entry["requires_bot_context"] is True
+    assert entry["returns"]["properties"]["receipt"]["type"] == "object"
+
+
 def test_doctor_flags_missing_api_scopes_and_harness_workdir():
     manifest = {
         "context": {"bot_id": "agent"},

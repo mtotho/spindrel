@@ -17,7 +17,7 @@ from app.tools.registry import register
             "Return the machine-readable manifest for what this agent can do now: "
             "API scopes/endpoints, tool working set, skill working set, Project "
             "context, runtime context budget, assigned work, agent status, harness status, widget authoring tools, and readiness findings. "
-            "Use this before broad configuration, API, Project, widget, or harness work."
+            "Use this before broad configuration, API, Project, widget, or harness work; publish_execution_receipt records outcomes after approved fixes."
         ),
         "parameters": {
             "type": "object",
@@ -191,7 +191,7 @@ async def get_agent_work_snapshot(max_items: int = 10) -> str:
         "name": "get_agent_activity_log",
         "description": (
             "Return this agent's recent replayable activity across tool calls, Attention, Mission updates, "
-            "Project run receipts, and widget receipts. Use this to reconstruct what happened before "
+            "Project run receipts, widget receipts, and execution receipts. Use this to reconstruct what happened before "
             "continuing work, summarizing progress, or debugging a failure."
         ),
         "parameters": {
@@ -199,7 +199,7 @@ async def get_agent_work_snapshot(max_items: int = 10) -> str:
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": ["tool_call", "attention", "mission_update", "project_receipt", "widget_receipt"],
+                    "enum": ["tool_call", "attention", "mission_update", "project_receipt", "widget_receipt", "execution_receipt"],
                     "description": "Optional activity kind filter.",
                 },
                 "max_items": {

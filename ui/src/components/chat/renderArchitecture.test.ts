@@ -268,6 +268,10 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.match(channelHeader, /data-testid=\{compact \? "harness-context-chip-mobile" : "harness-context-chip"\}/);
   assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
   assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
+  assert.match(channelHeader, /const panelClassName = compact/);
+  assert.match(channelHeader, /: "fixed left-2 right-2 top-14 z-\[50002\] max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
+  assert.match(channelHeader, /typeof panelStyle\.width === "number" \? \{ right: "auto" \} : \{\}/);
+  assert.doesNotMatch(channelHeader, /max-\[600px\]/);
 });
 
 test("usage page honors deep-link filters for trace screenshots", () => {

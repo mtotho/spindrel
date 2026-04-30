@@ -22,6 +22,7 @@ class AgentActivityActor(BaseModel):
 
 
 class AgentActivityTarget(BaseModel):
+    bot_id: str | None = None
     channel_id: str | None = None
     project_id: str | None = None
     widget_pin_ids: list[str] = Field(default_factory=list)

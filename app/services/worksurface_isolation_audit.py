@@ -128,8 +128,11 @@ def audit_worksurface_isolation(repo_root: Path | None = None) -> list[WorkSurfa
             severity="info",
             status="pass",
             title="Shared workspace exec uses scoped secret injection",
-            evidence="Shared workspace exec no longer injects the full Secret Values vault by default.",
-            recommendation="Keep secret injection explicit and binding-driven.",
+            evidence=(
+                "app/services/shared_workspace.py uses current_allowed_secrets; Project runtime "
+                "env still flows through explicit extra_env."
+            ),
+            recommendation="Keep shared workspace secret injection explicit and binding-driven.",
         ))
 
     file_ops_source = _read(root, "app/tools/local/file_ops.py")

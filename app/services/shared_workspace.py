@@ -131,6 +131,31 @@ class SharedWorkspaceService:
         env.setdefault("AGENT_SERVER_URL", settings.SERVER_INTERNAL_URL)
         return env
 
+    def _inject_allowed_secret_values(self, env: dict[str, str]) -> None:
+        """Inject Secret Values only when this execution context allows them."""
+        try:
+            from app.agent.context import current_allowed_secrets
+
+            allowed = current_allowed_secrets.get(None)
+            if allowed is None:
+                return
+
+            allowed_names = {str(name) for name in allowed if str(name)}
+            if not allowed_names:
+                return
+
+            from app.services.secret_values import get_env_dict as _get_secret_env
+
+            for key, value in _get_secret_env().items():
+                if (
+                    key in allowed_names
+                    and self._ENV_NAME_RE.match(key)
+                    and "\x00" not in str(value)
+                ):
+                    env[key] = str(value)
+        except Exception:
+            pass
+
     # ── Write protection ───────────────────────────────────────────
 
     def _check_write_protection(
@@ -243,14 +268,7 @@ class SharedWorkspaceService:
         except Exception:
             pass
 
-        # Inject secret values
-        try:
-            from app.services.secret_values import get_env_dict as _get_secret_env
-            for _sk, _sv in _get_secret_env().items():
-                if self._ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
-                    env[_sk] = str(_sv)
-        except Exception:
-            pass
+        self._inject_allowed_secret_values(env)
 
         start = time.monotonic()
         proc = await asyncio.create_subprocess_exec(

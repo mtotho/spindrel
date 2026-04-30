@@ -8,6 +8,7 @@ import pytest
 
 from app.db.models import (
     Channel,
+    ExecutionReceipt,
     Project,
     ProjectRunReceipt,
     Session,
@@ -118,6 +119,25 @@ async def _seed_activity(db_session):
             metadata_={"kind": "authoring", "next_actions": [{"label": "Fix stale data"}]},
             created_at=now,
         ),
+        ExecutionReceipt(
+            scope="agent_readiness",
+            action_type="bot_patch",
+            status="succeeded",
+            summary="Applied readiness repair.",
+            actor={"kind": "human_ui"},
+            target={"bot_id": "agent", "finding_code": "missing_api_permissions"},
+            before_summary="Bot could not call APIs.",
+            after_summary="Bot has API grants.",
+            approval_required=True,
+            approval_ref="agent_readiness_panel",
+            result={"applied": True},
+            bot_id="agent",
+            channel_id=channel_id,
+            session_id=session_id,
+            task_id=task_id,
+            correlation_id=correlation_id,
+            created_at=now,
+        ),
     ])
     await db_session.commit()
     return {
@@ -140,6 +160,7 @@ async def test_agent_activity_normalizes_existing_evidence(db_session):
         "mission_update",
         "project_receipt",
         "widget_receipt",
+        "execution_receipt",
     }
     assert by_kind["tool_call"]["status"] == "failed"
     assert by_kind["tool_call"]["error"] == {
@@ -152,6 +173,8 @@ async def test_agent_activity_normalizes_existing_evidence(db_session):
     assert by_kind["mission_update"]["next_action"] == "Review the retryable tool failure."
     assert by_kind["project_receipt"]["target"]["project_id"]
     assert by_kind["widget_receipt"]["target"]["widget_pin_ids"]
+    assert by_kind["execution_receipt"]["source"]["scope"] == "agent_readiness"
+    assert by_kind["execution_receipt"]["target"]["bot_id"] == "agent"
 
 
 async def test_agent_activity_filters_by_kind_task_and_correlation(db_session):
@@ -176,6 +199,7 @@ async def test_agent_activity_filters_by_kind_task_and_correlation(db_session):
         "mission_update",
         "project_receipt",
         "widget_receipt",
+        "execution_receipt",
     }
 
 
@@ -191,8 +215,9 @@ async def test_agent_activity_summary_advertises_replay_contract(db_session):
     assert summary["available"] is True
     assert "correlation_id" in summary["supported_filters"]
     assert "tool_call" in summary["supported_kinds"]
-    assert summary["recent_count"] == 5
+    assert summary["recent_count"] == 6
     assert summary["recent_counts"]["tool_call"] == 1
+    assert summary["recent_counts"]["execution_receipt"] == 1
     assert len(summary["recent"]) == 5
 
 

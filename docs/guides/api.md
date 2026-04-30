@@ -27,6 +27,7 @@ Agents that are discovering Spindrel from a running server should start with:
 | `/api/v1/agent-capabilities` | Runtime bot/channel/session capability manifest |
 | `/api/v1/agent-status` | Runtime bot/channel/session status snapshot |
 | `/api/v1/agent-activity` | Normalized replay log for bot activity and review evidence |
+| `/api/v1/execution-receipts` | Durable receipts for approval-gated or agent-important actions |
 
 Repo-dev agents working from the Git checkout should read `llms.txt`, `README.md`, `.agents/manifest.json`, and the relevant `.agents/skills/*/SKILL.md` files. Those repo-dev skills are not Spindrel runtime skills and are not visible to in-app channel agents unless a runtime bridge explicitly supplies them.
 
@@ -155,7 +156,7 @@ curl -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8000/api/v1/agent-capabilities?bot_id=default&include_schemas=true"
 ```
 
-The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, runtime context budget, assigned Mission Control work, agent status, recent agent activity, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `get_agent_context_snapshot` returns the compact runtime budget/recommendation view, `get_agent_work_snapshot` returns only assigned missions/Attention Items, `get_agent_status_snapshot` returns only current run/heartbeat status, `get_agent_activity_log` returns the normalized replay log, and `run_agent_doctor` returns only the readiness findings.
+The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, runtime context budget, assigned Mission Control work, agent status, recent agent activity, harness status, widget authoring tools, integration readiness, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `get_agent_context_snapshot` returns the compact runtime budget/recommendation view, `get_agent_work_snapshot` returns only assigned missions/Attention Items, `get_agent_status_snapshot` returns only current run/heartbeat status, `get_agent_activity_log` returns the normalized replay log, `publish_execution_receipt` records durable action outcomes, and `run_agent_doctor` returns only the readiness findings.
 
 The `runtime_context` section normalizes the latest context budget into `tokens_used`, `tokens_remaining`, `total_tokens`, `percent_full`, `source`, `context_profile`, and a recommendation of `continue`, `summarize`, `handoff`, or `unknown`. Doctor findings flag `context_should_summarize` at 75-89% full and `context_should_handoff` at 90% or higher.
 
@@ -163,7 +164,9 @@ The `work_state` section is read-only. It lists active Mission assignments and a
 
 The `agent_status` section is read-only. It derives `idle`, `scheduled`, `working`, `blocked`, `error`, or `unknown` from existing Tasks, HeartbeatRuns, ChannelHeartbeat config, sessions, and structured tool-call errors. Use `GET /api/v1/agent-status` or `get_agent_status_snapshot` when an agent needs to decide whether to wait, review a stale run, inspect the latest failure, or configure a heartbeat through the existing Channel Automation settings.
 
-The `activity_log` section is read-only. It summarizes replayable activity already persisted elsewhere: tool calls, Attention Items, Mission updates, Project run receipts, and widget agency receipts. Use `GET /api/v1/agent-activity` or the `get_agent_activity_log` bot tool when an agent needs the actual items. Each item has a stable `kind`, normalized `actor`, `target`, `status`, `summary`, optional `next_action`, optional `trace.correlation_id`, and optional structured `error` fields.
+The `activity_log` section is read-only. It summarizes replayable activity already persisted elsewhere: tool calls, Attention Items, Mission updates, Project run receipts, widget agency receipts, and execution receipts. Use `GET /api/v1/agent-activity` or the `get_agent_activity_log` bot tool when an agent needs the actual items. Each item has a stable `kind`, normalized `actor`, `target`, `status`, `summary`, optional `next_action`, optional `trace.correlation_id`, and optional structured `error` fields.
+
+Execution receipts use `execution-receipt.v1`. They are not a second mutation path: the real change still goes through the existing Bot, Channel, Project, Widget, or Integration API/tool. The receipt records the outcome for later review with `actor`, `target`, `action_type`, `before_summary`, `after_summary`, `approval_required`, `approval_ref`, `result`, `rollback_hint`, and trace identifiers. Agent Readiness repairs write these receipts after the approved bot patch succeeds, and bots can publish equivalent receipts with `publish_execution_receipt` after agent-important actions.
 
 Integration readiness is read-only in v1. The `integrations` section summarizes workspace-level setup health and current-channel activation/binding state; doctor actions route humans to existing Integration or Channel settings instead of enabling integrations, installing dependencies, starting processes, or writing secrets automatically.
 

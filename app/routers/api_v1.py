@@ -9,6 +9,7 @@ from app.routers.api_v1_agent_status import router as agent_status_router
 from app.routers.api_v1_attachments import router as attachments_router
 from app.routers.api_v1_channels import router as channels_router
 from app.routers.api_v1_documents import router as documents_router
+from app.routers.api_v1_execution_receipts import router as execution_receipts_router
 from app.routers.api_v1_sessions import router as sessions_router
 from app.routers.api_v1_tasks import router as tasks_router
 from app.routers.api_v1_todos import router as todos_router
@@ -55,6 +56,7 @@ router.include_router(attachments_router)
 router.include_router(channels_router)
 router.include_router(discover_router)
 router.include_router(documents_router)
+router.include_router(execution_receipts_router)
 router.include_router(prompt_templates_router)
 router.include_router(projects_router)
 router.include_router(sessions_router)

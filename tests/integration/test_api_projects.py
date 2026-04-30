@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from app.db.models import Channel, SecretValue, SharedWorkspace
+from app.db.models import Channel, SecretValue, SharedWorkspace, Task
 from app.services.encryption import encrypt
 from tests.integration.conftest import AUTH_HEADERS
 
@@ -138,6 +138,123 @@ class TestProjectsApi:
         listed = await client.get(f"/api/v1/projects/{project_id}/run-receipts", headers=AUTH_HEADERS)
         assert listed.status_code == 200
         assert [row["id"] for row in listed.json()] == [first_body["id"]]
+
+    async def test_project_coding_runs_create_guided_task_and_list_receipt(self, client, db_session):
+        workspace = await _workspace(db_session)
+        blueprint_resp = await client.post(
+            "/api/v1/projects/blueprints",
+            json={
+                "workspace_id": str(workspace.id),
+                "name": "Coding Run Blueprint",
+                "repos": [
+                    {
+                        "name": "spindrel",
+                        "url": "https://github.com/mtotho/spindrel.git",
+                        "path": "spindrel",
+                        "branch": "development",
+                    }
+                ],
+                "env": {"SPINDREL_E2E_URL": "http://127.0.0.1:8000"},
+                "required_secrets": ["GITHUB_TOKEN"],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert blueprint_resp.status_code == 201
+
+        created = await client.post(
+            "/api/v1/projects/from-blueprint",
+            json={
+                "blueprint_id": blueprint_resp.json()["id"],
+                "workspace_id": str(workspace.id),
+                "name": "Coding Run Project",
+                "root_path": "common/projects/coding-run",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        channel_resp = await client.post(
+            "/api/v1/channels",
+            json={
+                "bot_id": "test-bot",
+                "client_id": f"project-coding-run-{uuid.uuid4().hex[:8]}",
+                "name": "Coding Run Channel",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert channel_resp.status_code == 201
+        channel = await db_session.get(Channel, uuid.UUID(channel_resp.json()["id"]))
+        channel.project_id = uuid.UUID(project_id)
+        await db_session.commit()
+
+        wrong_channel = await client.post(
+            "/api/v1/channels",
+            json={
+                "bot_id": "test-bot",
+                "client_id": f"project-coding-wrong-{uuid.uuid4().hex[:8]}",
+                "name": "Wrong Project Channel",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert wrong_channel.status_code == 201
+        rejected = await client.post(
+            f"/api/v1/projects/{project_id}/coding-runs",
+            json={"channel_id": wrong_channel.json()["id"], "request": "Should not run"},
+            headers=AUTH_HEADERS,
+        )
+        assert rejected.status_code == 422
+
+        launched = await client.post(
+            f"/api/v1/projects/{project_id}/coding-runs",
+            json={"channel_id": str(channel.id), "request": "Fix the screenshot diff in Project runs"},
+            headers=AUTH_HEADERS,
+        )
+        assert launched.status_code == 201
+        launched_body = launched.json()
+        assert launched_body["status"] == "pending"
+        assert launched_body["request"] == "Fix the screenshot diff in Project runs"
+        assert launched_body["base_branch"] == "development"
+        assert launched_body["branch"].startswith("spindrel/project-")
+        assert launched_body["repo"]["path"] == "spindrel"
+        assert launched_body["runtime_target"]["configured_keys"] == ["SPINDREL_E2E_URL"]
+        assert launched_body["runtime_target"]["missing_secrets"] == ["GITHUB_TOKEN"]
+
+        task = await db_session.get(Task, uuid.UUID(launched_body["task"]["id"]))
+        assert task is not None
+        assert task.channel_id == channel.id
+        assert task.execution_config["run_preset_id"] == "project_coding_run"
+        assert task.execution_config["session_target"] == {"mode": "new_each_run"}
+        assert task.execution_config["project_instance"] == {"mode": "fresh"}
+        assert task.execution_config["project_coding_run"]["branch"] == launched_body["branch"]
+        assert "Create or switch to the work branch" in task.prompt
+        assert "publish_project_run_receipt" in task.prompt
+
+        receipt = await client.post(
+            f"/api/v1/projects/{project_id}/run-receipts",
+            json={
+                "task_id": launched_body["task"]["id"],
+                "status": "needs_review",
+                "summary": "Screenshot diff is fixed and ready for review.",
+                "branch": launched_body["branch"],
+                "base_branch": "development",
+                "changed_files": ["ui/app/(app)/admin/projects/[projectId]/ProjectRunsSection.tsx"],
+                "tests": [{"command": "pytest tests/integration/test_api_projects.py", "status": "passed"}],
+                "screenshots": [{"path": "docs/images/project-workspace-runs.png"}],
+                "handoff_type": "pull_request",
+                "handoff_url": "https://github.com/mtotho/spindrel/pull/123",
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert receipt.status_code == 201
+
+        listed = await client.get(f"/api/v1/projects/{project_id}/coding-runs", headers=AUTH_HEADERS)
+        assert listed.status_code == 200
+        rows = listed.json()
+        assert [row["id"] for row in rows] == [launched_body["id"]]
+        assert rows[0]["status"] == "needs_review"
+        assert rows[0]["receipt"]["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
+        assert rows[0]["receipt"]["screenshots"][0]["path"] == "docs/images/project-workspace-runs.png"
 
     async def test_create_project_from_blueprint_materializes_files_and_secret_slots(self, client, db_session, monkeypatch, tmp_path):
         monkeypatch.setattr(

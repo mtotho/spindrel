@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Activity, AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
 
-import { useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding } from "@/src/api/hooks/useAgentCapabilities";
+import { createExecutionReceipt, useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding, type ExecutionReceipt } from "@/src/api/hooks/useAgentCapabilities";
 import { useUpdateBot } from "@/src/api/hooks/useBots";
 import { ApiError } from "@/src/api/client";
 import type { BotConfig } from "@/src/types/api";
@@ -278,9 +279,11 @@ export function AgentReadinessPanel({
   maxTools?: number;
 }) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const updateBot = useUpdateBot(botId || undefined);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<ExecutionReceipt | null>(null);
   const { data, isLoading, error } = useAgentCapabilities({
     botId,
     channelId,
@@ -316,9 +319,46 @@ export function AgentReadinessPanel({
   async function applyAction(action: AgentCapabilityAction) {
     if (action.apply.type !== "bot_patch") return;
     setActionError(null);
+    setLastReceipt(null);
     setPendingActionId(action.id);
     try {
       await updateBot.mutateAsync(action.apply.patch as Partial<BotConfig>);
+      try {
+        const receipt = await createExecutionReceipt({
+          scope: "agent_readiness",
+          action_type: action.kind || "bot_patch",
+          status: "succeeded",
+          summary: `Applied readiness repair: ${action.title}`,
+          actor: { kind: "human_ui", surface: "agent_readiness_panel" },
+          target: {
+            bot_id: botId ?? undefined,
+            channel_id: channelId ?? undefined,
+            session_id: sessionId ?? undefined,
+            finding_code: action.finding_code,
+            action_id: action.id,
+          },
+          before_summary: action.description,
+          after_summary: action.impact,
+          approval_required: true,
+          approval_ref: "agent_readiness_panel",
+          result: {
+            applied: true,
+            patch: action.apply.patch,
+            required_actor_scopes: action.required_actor_scopes ?? [],
+            grants_scopes: action.grants_scopes ?? [],
+          },
+          rollback_hint: "Open Bot settings and remove the added API scopes or tool enrollments if this repair was not intended.",
+          bot_id: botId ?? undefined,
+          channel_id: channelId ?? undefined,
+          session_id: sessionId ?? undefined,
+          idempotency_key: `agent_readiness:${botId ?? "none"}:${action.id}`,
+          metadata: { finding_code: action.finding_code },
+        });
+        setLastReceipt(receipt);
+      } catch (err) {
+        setActionError(`Repair applied, but the execution receipt was not recorded: ${errorMessage(err)}`);
+      }
+      void qc.invalidateQueries({ queryKey: ["agent-capabilities"] });
     } catch (err) {
       setActionError(errorMessage(err));
     } finally {
@@ -400,6 +440,11 @@ export function AgentReadinessPanel({
           {actionError && (
             <InfoBanner variant="danger" icon={<AlertCircle size={14} />}>
               {actionError}
+            </InfoBanner>
+          )}
+          {lastReceipt && (
+            <InfoBanner variant="success" icon={<CheckCircle2 size={14} />}>
+              {lastReceipt.summary}
             </InfoBanner>
           )}
         </div>

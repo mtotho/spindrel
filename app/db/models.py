@@ -2860,6 +2860,66 @@ class WidgetAgencyReceipt(Base):
     )
 
 
+class ExecutionReceipt(Base):
+    """Generic durable receipt for approval-gated or agent-important actions."""
+
+    __tablename__ = "execution_receipts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    scope: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'general'"))
+    action_type: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'reported'"))
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    target: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    before_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approval_required: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    approval_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    rollback_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"), nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint("status in ('reported', 'succeeded', 'failed', 'blocked', 'needs_review')", name="ck_execution_receipts_status"),
+        Index("ix_execution_receipts_scope_created", "scope", text("created_at DESC")),
+        Index("ix_execution_receipts_bot_created", "bot_id", text("created_at DESC")),
+        Index("ix_execution_receipts_channel_created", "channel_id", text("created_at DESC")),
+        Index("ix_execution_receipts_correlation", "correlation_id"),
+        Index(
+            "ux_execution_receipts_scope_idempotency",
+            "scope",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
+
+
 class WidgetCronSubscription(Base):
     """One scheduled ``@on_cron`` handler declared by a pinned widget bundle.
 

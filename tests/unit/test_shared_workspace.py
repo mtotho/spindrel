@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from app.agent.context import current_allowed_secrets
 from app.services.shared_workspace import SharedWorkspaceService
 
 
@@ -133,6 +134,48 @@ class TestBuildEnv:
             mock_settings.SERVER_PUBLIC_URL = "http://host.docker.internal:8000"
             env = svc._build_env(ws)
         assert env["AGENT_SERVER_URL"] == "http://localhost:8000"
+
+    def test_secret_values_are_not_ambient(self):
+        svc = SharedWorkspaceService()
+        env = {}
+
+        with patch("app.services.secret_values.get_env_dict") as get_env:
+            svc._inject_allowed_secret_values(env)
+
+        get_env.assert_not_called()
+        assert env == {}
+
+    def test_injects_only_currently_allowed_secret_values(self):
+        svc = SharedWorkspaceService()
+        env = {}
+        token = current_allowed_secrets.set(["GITHUB_TOKEN"])
+        try:
+            with patch(
+                "app.services.secret_values.get_env_dict",
+                return_value={
+                    "GITHUB_TOKEN": "ghp_secret",
+                    "NPM_TOKEN": "npm_secret",
+                    "INVALID-NAME": "bad",
+                },
+            ):
+                svc._inject_allowed_secret_values(env)
+        finally:
+            current_allowed_secrets.reset(token)
+
+        assert env == {"GITHUB_TOKEN": "ghp_secret"}
+
+    def test_empty_allowed_secret_list_injects_nothing(self):
+        svc = SharedWorkspaceService()
+        env = {}
+        token = current_allowed_secrets.set([])
+        try:
+            with patch("app.services.secret_values.get_env_dict") as get_env:
+                svc._inject_allowed_secret_values(env)
+        finally:
+            current_allowed_secrets.reset(token)
+
+        get_env.assert_not_called()
+        assert env == {}
 
 
 class TestListFiles:

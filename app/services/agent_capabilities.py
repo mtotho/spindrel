@@ -39,6 +39,7 @@ CORE_AGENT_TOOLS = (
     "get_agent_work_snapshot",
     "get_agent_activity_log",
     "get_agent_status_snapshot",
+    "publish_execution_receipt",
     "get_tool_info",
     "get_skill",
     "list_api_endpoints",

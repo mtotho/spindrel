@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Channel, Project, ProjectBlueprint, ProjectInstance, ProjectRunReceipt, ProjectSecretBinding, ProjectSetupRun, SecretValue, SharedWorkspace
 from app.dependencies import get_db, require_scopes
 from app.services.project_instances import create_project_instance, list_project_instances, project_directory_from_instance
+from app.services.project_coding_runs import ProjectCodingRunCreate, create_project_coding_run, list_project_coding_runs
 from app.services.project_run_receipts import create_project_run_receipt, list_project_run_receipts, serialize_project_run_receipt
 from app.services.project_setup import list_project_setup_runs, load_project_setup_plan, run_project_setup
 from app.services.project_runtime import load_project_runtime_environment
@@ -221,6 +222,43 @@ class ProjectRunReceiptWrite(BaseModel):
     tests: list = Field(default_factory=list)
     screenshots: list = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+
+
+class ProjectCodingRunWrite(BaseModel):
+    channel_id: uuid.UUID
+    request: str = ""
+
+
+class ProjectCodingRunTaskOut(BaseModel):
+    id: uuid.UUID
+    status: str
+    title: str | None = None
+    bot_id: str
+    channel_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    project_instance_id: uuid.UUID | None = None
+    correlation_id: uuid.UUID | None = None
+    created_at: str | None = None
+    scheduled_at: str | None = None
+    run_at: str | None = None
+    completed_at: str | None = None
+    error: str | None = None
+
+
+class ProjectCodingRunOut(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    status: str
+    request: str = ""
+    branch: str | None = None
+    base_branch: str | None = None
+    repo: dict = Field(default_factory=dict)
+    runtime_target: dict = Field(default_factory=dict)
+    task: ProjectCodingRunTaskOut
+    receipt: ProjectRunReceiptOut | None = None
+    activity: list[dict] = Field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class ProjectFromBlueprintWrite(BaseModel):
@@ -795,6 +833,45 @@ async def create_project_run_receipt_endpoint(
             raise HTTPException(status_code=404, detail=message) from exc
         raise HTTPException(status_code=422, detail=message) from exc
     return _run_receipt_out(receipt)
+
+
+@router.get("/{project_id}/coding-runs", response_model=list[ProjectCodingRunOut])
+async def get_project_coding_runs(
+    project_id: uuid.UUID,
+    limit: int = 25,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await list_project_coding_runs(db, project, limit=limit)
+
+
+@router.post("/{project_id}/coding-runs", response_model=ProjectCodingRunOut, status_code=201)
+async def create_project_coding_run_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectCodingRunWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        task = await create_project_coding_run(
+            db,
+            project,
+            ProjectCodingRunCreate(channel_id=body.channel_id, request=body.request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    rows = await list_project_coding_runs(db, project, limit=1)
+    for row in rows:
+        if row["id"] == str(task.id):
+            return row
+    raise HTTPException(status_code=500, detail="Project coding run was created but could not be loaded")
 
 
 @router.post("/{project_id}/setup/runs", response_model=ProjectSetupRunOut, status_code=201)

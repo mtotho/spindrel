@@ -57,10 +57,13 @@ The global Secret Values vault is not an ambient environment for every subproces
 
 The static audit at `app.services.worksurface_isolation_audit` intentionally reports these known gaps until they are remediated:
 
-- shared workspace subprocess execution injects every Secret Value by default
 - `cross_workspace_access` remains a legacy sibling-channel escape hatch
 - `harness_workdir` can bypass a resolved WorkSurface and should be treated as operator-target config
 - `widget://workspace` is shared-workspace scoped and still needs a policy decision: shared library or WorkSurface-published asset
+
+Remediated findings:
+
+- shared workspace subprocess execution no longer injects every Secret Value by default; it only uses `current_allowed_secrets` plus explicit Project runtime `extra_env`
 
 ## External Baseline
 

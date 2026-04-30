@@ -533,6 +533,14 @@ the system can already inspect" is a shared capability manifest:
   Attention Items, Mission updates, Project run receipts, and widget agency
   receipts, then returns one ordered stream with normalized actor, target,
   status, summary, trace/correlation, and structured error fields.
+- Agent-important outcomes now have a generic receipt contract:
+  `execution-receipt.v1`, `GET/POST /api/v1/execution-receipts`,
+  `publish_execution_receipt`, and `execution_receipt` activity replay items.
+  Agent Readiness writes these receipts after approved bot config repairs
+  succeed, recording actor, target, action type, before/after summary,
+  approval reference, result, rollback hint, and trace IDs. The receipt does
+  not perform the mutation; Bot/Channel/Project/Widget/Integration APIs remain
+  the actual write paths.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing

@@ -118,9 +118,10 @@ Inside a supported execution environment, a bot's tool can use `$GITHUB_TOKEN` i
 The target security model is explicit binding only: a subprocess should receive
 Project runtime bindings, per-bot allowed secrets, or integration-scoped
 credentials, never the full Secret Values vault just because it is executing in
-a workspace. See [WorkSurface Isolation](worksurface-isolation.md). Some legacy
-workspace execution paths still need cleanup and are reported by the security
-audit as WorkSurface isolation findings.
+a workspace. Shared workspace subprocesses follow that model: ordinary
+execution gets Project runtime env only, and Secret Values require an explicit
+`current_allowed_secrets` binding. See [WorkSurface Isolation](worksurface-isolation.md).
+Legacy host/client execution paths remain separate compatibility surfaces.
 
 ## User Input Secret Detection
 

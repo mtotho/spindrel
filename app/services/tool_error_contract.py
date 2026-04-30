@@ -128,7 +128,19 @@ def default_fallback_for_kind(error_kind: str, *, tool_name: str | None = None) 
     if error_kind == "validation":
         return f"Fix the arguments{target} and retry."
     if error_kind == "not_found":
-        return "Call get_tool_info or list_agent_capabilities to refresh the available tool/API surface."
+        if tool_name:
+            return (
+                f"Do not retry {tool_name} under invented aliases. Use only exact "
+                "tool names listed by list_agent_capabilities or loaded with "
+                "get_tool_info; if this name is absent, report the missing "
+                "capability/tool surface."
+            )
+        return (
+            "Refresh the available surface with list_agent_capabilities or "
+            "get_tool_info, then use only exact listed tool names. Do not invent "
+            "alternate workspace/file helper names; report the missing capability "
+            "if the needed tool is absent."
+        )
     if error_kind == "forbidden":
         return "Ask for the required permission or choose an allowed tool."
     if error_kind == "approval_required":

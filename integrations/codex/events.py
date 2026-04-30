@@ -122,6 +122,12 @@ def translate_notification(
             surface=surface,
             summary=summary,
         )
+        if kind == "commandExecution" and is_error and _looks_like_execution_surface_failure(result_summary):
+            result_meta["is_error"] = True
+            result_meta["error"] = (
+                "Codex native command execution surface failed: "
+                f"{result_summary}"
+            )
         return
 
     if method == schema.ITEM_FILE_CHANGE_OUTPUT_DELTA:
@@ -314,6 +320,25 @@ def _looks_like_generic_command_status(text: str) -> bool:
         "deleted",
         "removed",
     }
+
+
+def _looks_like_execution_surface_failure(text: str) -> bool:
+    normalized = " ".join(text.strip().lower().split())
+    if not normalized:
+        return False
+    failure_markers = (
+        "sandbox namespace",
+        "namespace error",
+        "failed to enter namespace",
+        "failed to create namespace",
+        "failed to join namespace",
+        "setns",
+        "unshare",
+        "bubblewrap",
+        "bwrap",
+        "seccomp",
+    )
+    return any(marker in normalized for marker in failure_markers)
 
 
 def _pop_codex_command_output_for_item(result_meta: dict[str, Any], item_id: str) -> str | None:

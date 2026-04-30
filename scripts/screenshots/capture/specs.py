@@ -2598,6 +2598,89 @@ PIN_CONFIG_EDITOR_SPECS: list[ScreenshotSpec] = [
 # admin Projects, channel settings, Project-rooted files, memory-tool transcript
 # presentation, fresh Project instances, and coding-run receipts.
 # ---------------------------------------------------------------------------
+_PROJECT_CODING_RUN_ENDPOINT_INIT = """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
+    if (raw && method === "GET") {
+      const url = new URL(raw, window.location.origin);
+      const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
+      if (match) {
+        const response = await originalFetch(input, init);
+        if (response.ok) return response;
+        if (response.status !== 404) return response;
+        const projectId = match[1];
+        const body = [{
+          id: "screenshot-project-coding-run",
+          project_id: projectId,
+          status: "completed",
+          request: "Prepare the Project workspace screenshot receipt and handoff evidence.",
+          branch: "screenshot/project-coding-run",
+          base_branch: "development",
+          repo: { name: "spindrel", path: "spindrel", url: "https://github.com/mtotho/spindrel.git" },
+          runtime_target: { ready: true, configured_keys: ["SPINDREL_E2E_URL", "GITHUB_TOKEN"], missing_secrets: [] },
+          task: {
+            id: "screenshot-project-coding-run-task",
+            status: "complete",
+            title: "Project coding run",
+            bot_id: "screenshot-projects",
+            channel_id: null,
+            session_id: null,
+            project_instance_id: null,
+            correlation_id: null,
+            created_at: new Date().toISOString(),
+            scheduled_at: null,
+            run_at: null,
+            completed_at: new Date().toISOString(),
+            error: null
+          },
+          receipt: {
+            id: "screenshot-project-coding-run-receipt",
+            project_id: projectId,
+            project_instance_id: null,
+            task_id: "screenshot-project-coding-run-task",
+            session_id: null,
+            bot_id: "screenshot-projects",
+            idempotency_key: "screenshot:project-coding-run",
+            status: "completed",
+            summary: "Screenshot Project coding run receipt",
+            handoff_type: "branch",
+            handoff_url: "https://example.invalid/spindrel/project-run",
+            branch: "screenshot/project-coding-run",
+            base_branch: "development",
+            commit_sha: null,
+            changed_files: ["app/services/projects.py", "ui/app/(app)/admin/projects/[projectId]/ProjectRunsSection.tsx"],
+            tests: [
+              { command: "pytest tests/unit/test_projects_service.py", status: "passed" },
+              { command: "cd ui && npx tsc --noEmit", status: "passed" }
+            ],
+            screenshots: [{ path: "docs/images/project-workspace-runs.png", status: "captured" }],
+            metadata: {},
+            created_at: new Date().toISOString()
+          },
+          activity: [{
+            id: "screenshot-project-coding-run-activity",
+            kind: "project_receipt",
+            status: "succeeded",
+            summary: "Published screenshot handoff receipt",
+            created_at: new Date().toISOString()
+          }],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }];
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+"""
+
 PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="project-workspace-list",
@@ -2797,14 +2880,18 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
             "&& document.body.innerText.includes('Agent Coding Run') "
+            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt') "
             "&& document.body.innerText.includes('Screenshot Project coding run receipt')"
         ),
         output="project-workspace-runs.png",
         color_scheme="dark",
         full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Project request') "
+            "&& text.includes('Coding Runs') "
+            "&& text.includes('Prepare the Project workspace screenshot receipt') "
             "&& text.includes('Run Receipts') "
             "&& text.includes('Screenshot Project coding run receipt') "
             "&& text.includes('project-workspace-runs.png') "

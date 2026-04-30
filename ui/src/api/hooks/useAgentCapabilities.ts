@@ -178,13 +178,14 @@ export interface AgentWorkState {
 
 export interface AgentActivityItem {
   id: string;
-  kind: "tool_call" | "attention" | "mission_update" | "project_receipt" | "widget_receipt" | string;
+  kind: "tool_call" | "attention" | "mission_update" | "project_receipt" | "widget_receipt" | "execution_receipt" | string;
   actor: {
     bot_id?: string | null;
     session_id?: string | null;
     task_id?: string | null;
   };
   target: {
+    bot_id?: string | null;
     channel_id?: string | null;
     project_id?: string | null;
     widget_pin_ids?: string[];
@@ -282,6 +283,49 @@ export interface AgentToolErrorContract {
   benign_review_kinds?: string[];
   error_kind_descriptions?: Record<string, string>;
   backward_compatibility?: string;
+}
+
+export interface ExecutionReceiptWrite {
+  scope?: string;
+  action_type: string;
+  status?: "reported" | "succeeded" | "failed" | "blocked" | "needs_review" | string;
+  summary: string;
+  actor?: Record<string, unknown>;
+  target?: Record<string, unknown>;
+  before_summary?: string | null;
+  after_summary?: string | null;
+  approval_required?: boolean;
+  approval_ref?: string | null;
+  result?: Record<string, unknown>;
+  rollback_hint?: string | null;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  session_id?: string | null;
+  task_id?: string | null;
+  correlation_id?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecutionReceipt extends ExecutionReceiptWrite {
+  schema_version: "execution-receipt.v1" | string;
+  id: string;
+  scope: string;
+  status: string;
+  actor: Record<string, unknown>;
+  target: Record<string, unknown>;
+  approval_required: boolean;
+  result: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+}
+
+export function createExecutionReceipt(payload: ExecutionReceiptWrite) {
+  return apiFetch<ExecutionReceipt>("/api/v1/execution-receipts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 export interface AgentCapabilityManifest {

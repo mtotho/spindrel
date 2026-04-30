@@ -7,6 +7,7 @@ import {
   FREEFORM_CANVAS_MODE,
   buildFreeformGridConfig,
   clampDashboardCamera,
+  clampDropToZone,
   classifyDashboardDrop,
   dashboardFrame,
   findOpenGridPlacement,
@@ -71,6 +72,13 @@ test("drop classifier keeps rail, dock, header, and free grid distinct", () => {
   assert.equal(classifyDashboardDrop(freeRect, frame).zone, "grid");
 });
 
+test("header drop can fit the full top center lane", () => {
+  assert.deepEqual(
+    clampDropToZone("header", 0, 0, preset.cols.lg, 2, preset.cols.lg),
+    { x: 0, y: 0, w: preset.cols.lg, h: 2 },
+  );
+});
+
 test("open placement searches around a collided target", () => {
   const next = findOpenGridPlacement(
     { x: 4, y: 4, w: 3, h: 3 },
@@ -90,10 +98,23 @@ test("dashboard camera never zooms past current dashboard scale", () => {
 
 test("home dashboard camera keeps the native dashboard scale", () => {
   const frame = dashboardFrame(preset, freeformOriginForPreset(preset), 720, 900);
-  const camera = homeFrameCamera(frame, { w: 1280, h: 760 });
+  const camera = homeFrameCamera(frame, { w: 1800, h: 760 });
+  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
+  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
+  const frameWidth = maxX - minX;
 
   assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
+  assert.equal(camera.x, 1800 / 2 - (minX + frameWidth / 2));
   assert.equal(camera.y, 24 - frame.headerRect.y);
+});
+
+test("home dashboard camera keeps the left edge visible on narrow containers", () => {
+  const frame = dashboardFrame(preset, freeformOriginForPreset(preset), 1080, 900);
+  const camera = homeFrameCamera(frame, { w: 900, h: 760 });
+  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
+
+  assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
+  assert.equal(camera.x, 24 - minX);
 });
 
 test("dashboard camera supports deep zoom-out before spatial handoff CTA", () => {
@@ -124,8 +145,17 @@ test("freeform dashboard canvas has one lock reset outside the canvas controls",
   assert.doesNotMatch(source, /useDraggable/);
   assert.doesNotMatch(source, /CanvasControls/);
   assert.doesNotMatch(source, /Fit dashboard/);
-  assert.match(source, /cursor: isPanning \? "grabbing" : "grab"/);
-  assert.match(routeSource, /lockViewToken=\{dashboardViewLockToken\}/);
+  assert.match(source, /function classifyDashboardPointer/);
+  assert.match(source, /pointInRect\(point, frame\.railRect, 28\)/);
+  assert.match(source, /const target = classifyDashboardPointer\(pointerWorld, movedRect, frame\)/);
+  assert.match(source, /const fromNarrowZoneToGrid = normalizeZone\(pin\) !== "grid" && target\.zone === "grid"/);
+  assert.doesNotMatch(source, /findOpenGridPlacement\(desired, gridOccupancy\(pins, layouts, pinId\)\)/);
+  assert.match(source, /const snappedRect = zonedLayoutToWorldRect\(target\.zone, next, frame\)/);
+  assert.match(source, /rect: settleCollision \|\| target\.zone !== "grid"\s+\? snappedRect\s+: \{ \.\.\.movedRect, w: snappedRect\.w, h: snappedRect\.h \}/);
+  assert.match(source, /clampDropToZone\("header", 0, 0, preset\.cols\.lg, DASHBOARD_HEADER_ROWS, preset\.cols\.lg\)/);
+  assert.match(source, /cursor: viewLocked \? "default" : isPanning \? "grabbing" : "grab"/);
+  assert.match(routeSource, /viewLocked=\{dashboardViewLocked\}/);
+  assert.match(routeSource, /aria-pressed=\{dashboardViewLocked\}/);
   assert.match(routeSource, /Lock dashboard view/);
   assert.match(routeSource, /overflow-hidden p-0/);
 });

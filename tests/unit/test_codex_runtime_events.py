@@ -150,6 +150,61 @@ def test_command_completed_uses_buffered_command_output_envelope():
     assert result["result_summary"] == "hello world"
 
 
+def test_command_namespace_failure_marks_turn_as_execution_surface_error():
+    emitter, ids, parts, meta = _harness()
+    ids["cmd1"] = "bash -lc pwd"
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "isError": True,
+                    "summary": "sandbox namespace error: failed to enter namespace",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emitter.calls[0][0] == "tool_result"
+    assert emitter.calls[0][1]["is_error"] is True
+    assert meta["is_error"] is True
+    assert "execution surface failed" in meta["error"]
+
+
+def test_command_regular_failure_does_not_abort_turn():
+    emitter, ids, parts, meta = _harness()
+    ids["cmd1"] = "bash -lc cat missing.txt"
+
+    translate_notification(
+        Notification(
+            method=schema.ITEM_COMPLETED,
+            params={
+                "item": {
+                    "id": "cmd1",
+                    "kind": "commandExecution",
+                    "isError": True,
+                    "summary": "cat: missing.txt: No such file or directory",
+                },
+            },
+        ),
+        emit=emitter,
+        tool_name_by_id=ids,
+        final_text_parts=parts,
+        result_meta=meta,
+    )
+
+    assert emitter.calls[0][1]["is_error"] is True
+    assert "is_error" not in meta
+    assert "error" not in meta
+
+
 def test_single_command_without_output_delta_falls_back_to_final_text_envelope():
     emitter, ids, parts, meta = _harness()
 

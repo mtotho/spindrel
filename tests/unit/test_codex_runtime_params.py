@@ -115,6 +115,19 @@ def test_turn_input_renders_host_instructions_before_context_hints():
     assert text.endswith("current user request")
 
 
+def test_turn_input_keeps_native_request_ahead_of_spindrel_bridge_guidance():
+    ctx = _ctx()
+
+    [item] = _build_turn_input(
+        "Fix the repo bug.\n\n<spindrel_tool_guidance>\nbridge note\n</spindrel_tool_guidance>",
+        ctx,
+    )
+    text = item["text"]
+
+    assert text.startswith("Fix the repo bug.")
+    assert text.index("Fix the repo bug.") < text.index("<spindrel_tool_guidance>")
+
+
 def test_parse_model_options_preserves_per_model_efforts_and_defaults():
     options = _parse_model_options(
         {

@@ -81,6 +81,7 @@ def test_thread_start_dynamic_tools_entry_uses_input_schema():
     entry = _dynamic_tool_entry(spec)
     assert "inputSchema" in entry
     assert entry["namespace"] == "spindrel"
+    assert entry["deferLoading"] is True
     assert "parameters" not in entry
     assert "query" in entry["inputSchema"]["properties"]
 
@@ -156,7 +157,12 @@ def test_bridge_guidance_names_exact_callable_dynamic_tools():
     assert "Callable Spindrel dynamic tools this turn: get_tool_info, list_channels" in prompt
     assert "invoke the dynamic tool by its exact name" in prompt
     assert "Do not emulate it with shell commands" in prompt
-    assert prompt.endswith("Call get_tool_info for list_channels.")
+    assert "The callable tool list below is exhaustive for this turn" in prompt
+    assert "read_workspace_file" in prompt
+    assert "sandbox, process namespace, or runtime shell is broken" in prompt
+    assert prompt.startswith("Call get_tool_info for list_channels.")
+    assert prompt.index("Call get_tool_info for list_channels.") < prompt.index("<spindrel_tool_guidance>")
+    assert "not the primary coding surface" in prompt
 
 
 def test_extract_thread_id_reads_nested_thread_object():

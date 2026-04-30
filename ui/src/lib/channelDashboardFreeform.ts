@@ -216,7 +216,7 @@ export function zonedLayoutToWorldRect(
       x: frame.frameX + layout.x * frame.stepX,
       y: frame.headerRect.y + layout.y * DASHBOARD_HEADER_ROW_HEIGHT,
       w: Math.max(frame.colWidth, layout.w * frame.stepX - DASHBOARD_CANVAS_GAP),
-      h: Math.max(24, DASHBOARD_HEADER_ROW_HEIGHT - 6),
+      h: Math.max(24, layout.h * DASHBOARD_HEADER_ROW_HEIGHT - 6),
     };
   }
   return gridLayoutToWorldRect(layout, frame);
@@ -269,11 +269,12 @@ export function clampDropToZone(
   }
   if (zone === "header") {
     const cw = Math.max(1, Math.min(cols, w));
+    const ch = Math.max(1, Math.min(DASHBOARD_HEADER_ROWS, h));
     return {
       x: Math.max(0, Math.min(cols - cw, x)),
-      y: Math.max(0, Math.min(DASHBOARD_HEADER_ROWS - 1, y)),
+      y: Math.max(0, Math.min(DASHBOARD_HEADER_ROWS - ch, y)),
       w: cw,
-      h: 1,
+      h: ch,
     };
   }
   return {
@@ -335,12 +336,18 @@ export function fitFrameCamera(
 }
 
 export function homeFrameCamera(
-  frame: Pick<DashboardFrame, "centerRect" | "headerRect">,
+  frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
   viewport: { w: number; h: number },
 ): DashboardCamera {
+  const minX = Math.min(frame.railRect.x, frame.headerRect.x, frame.centerRect.x);
+  const maxX = Math.max(frame.dockRect.x + frame.dockRect.w, frame.headerRect.x + frame.headerRect.w);
+  const w = Math.max(1, maxX - minX);
+  const x = w <= viewport.w - 48
+    ? viewport.w / 2 - (minX + w / 2)
+    : 24 - minX;
   return clampDashboardCamera({
     scale: DASHBOARD_CAMERA_MAX_SCALE,
-    x: Math.max(24, (viewport.w - frame.centerRect.w) / 2) - frame.centerRect.x,
+    x,
     y: 24 - frame.headerRect.y,
   });
 }

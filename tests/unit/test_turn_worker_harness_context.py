@@ -419,11 +419,16 @@ async def test_harness_turn_context_includes_channel_prompt_instruction(monkeypa
     assert error is None
     assert text == "done"
     assert runtime.ctx is not None
-    [hint] = runtime.ctx.context_hints
-    assert hint.kind == "channel_prompt"
-    assert hint.priority == "instruction"
-    assert hint.consume_after_next_turn is False
-    assert "PLAN-123" in hint.text
+    native_hint, channel_hint = runtime.ctx.context_hints[:2]
+    assert native_hint.kind == "native_workspace"
+    assert native_hint.priority == "instruction"
+    assert "native coding harness turn" in native_hint.text
+    assert "AGENTS.md" in native_hint.text
+    assert "Spindrel host tools and context hints are supplemental" in native_hint.text
+    assert channel_hint.kind == "channel_prompt"
+    assert channel_hint.priority == "instruction"
+    assert channel_hint.consume_after_next_turn is False
+    assert "PLAN-123" in channel_hint.text
 
 
 async def test_harness_workspace_files_memory_hint_points_without_loading_contents():

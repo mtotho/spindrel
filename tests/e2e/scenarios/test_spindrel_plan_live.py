@@ -1512,6 +1512,8 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
     result = await client.chat_session_stream(
         (
             "Native negative adherence diagnostic. This is intentionally wrong-work test data. "
+            "For this diagnostic only, you must create the wrong marker file so the semantic review can reject it; "
+            "do not record blocked, no_progress, or request a replan for this turn. "
             f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} "
             f"with exactly this content: {wrong_content!r}. Do not write the planned file. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "

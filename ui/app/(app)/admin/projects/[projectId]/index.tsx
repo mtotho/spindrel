@@ -4,11 +4,10 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { useCreateProjectInstance, useProject, useProjectChannels, useProjectInstances, useProjectRunReceipts, useProjectRuntimeEnv, useProjectSetup, useRunProjectSetup, useUpdateProject, useUpdateProjectSecretBindings } from "@/src/api/hooks/useProjects";
 import { useCreateChannel, useChannels, usePatchChannelSettings } from "@/src/api/hooks/useChannels";
-import { useRunPresets } from "@/src/api/hooks/useRunPresets";
-import { useCreateTask } from "@/src/api/hooks/useTasks";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { useWorkspace } from "@/src/api/hooks/useWorkspaces";
+import { ProjectRunsSection } from "./ProjectRunsSection";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { FormRow, Section, SelectInput, TabBar, TextInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
@@ -26,8 +25,7 @@ import {
 import { Spinner } from "@/src/components/shared/Spinner";
 import { WorkspaceFileBrowserSurface } from "@/src/components/workspace/WorkspaceFileBrowserSurface";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import { collapseProjectRunReceiptsForReview } from "@/src/lib/projectRunReceipts";
-import type { Channel, Project, ProjectInstance, ProjectRunReceipt, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
+import type { Channel, Project, ProjectInstance, ProjectRuntimeEnv, ProjectSetup } from "@/src/types/api";
 
 const TerminalPanel = lazy(() =>
   import("@/src/components/terminal/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
@@ -732,189 +730,6 @@ function ProjectInstancesSection({
                   >
                     Files
                   </HeaderLink>
-                }
-              />
-            ))
-          )}
-        </div>
-      </Section>
-    </div>
-  );
-}
-
-function receiptTone(status: string): "success" | "warning" | "danger" | "neutral" {
-  if (status === "completed" || status === "reported") return "success";
-  if (status === "blocked" || status === "needs_review") return "warning";
-  if (status === "failed") return "danger";
-  return "neutral";
-}
-
-function compactReceiptList(values?: Array<Record<string, any> | string>) {
-  const items = values ?? [];
-  if (items.length === 0) return "None reported";
-  return items
-    .slice(0, 3)
-    .map((item) => (typeof item === "string" ? item : String(item.name || item.path || item.command || item.status || "record")))
-    .join(", ");
-}
-
-function ProjectRunsSection({
-  project,
-  channels,
-  receipts,
-}: {
-  project: Project;
-  channels?: Pick<Channel, "id" | "name" | "bot_id">[];
-  receipts?: ProjectRunReceipt[];
-}) {
-  const { data: presetResponse } = useRunPresets("project_coding_run");
-  const preset = presetResponse?.presets?.[0];
-  const createTask = useCreateTask();
-  const [selectedChannelId, setSelectedChannelId] = useState("");
-  const [request, setRequest] = useState("");
-  const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
-  const visibleReceipts = useMemo(() => collapseProjectRunReceiptsForReview(receipts), [receipts]);
-
-  useEffect(() => {
-    if (!selectedChannelId && channels && channels.length > 0) {
-      setSelectedChannelId(channels[0].id);
-    }
-  }, [channels, selectedChannelId]);
-
-  const selectedChannel = channels?.find((channel) => channel.id === selectedChannelId);
-  const startRun = () => {
-    if (!selectedChannel || !preset || createTask.isPending) return;
-    const defaults = preset.task_defaults;
-    const trimmedRequest = request.trim();
-    const prompt = trimmedRequest
-      ? `${defaults.prompt}\n\nProject task request:\n${trimmedRequest}`
-      : defaults.prompt;
-    createTask.mutate({
-      bot_id: selectedChannel.bot_id,
-      channel_id: selectedChannel.id,
-      title: defaults.title,
-      prompt,
-      scheduled_at: defaults.scheduled_at ?? null,
-      recurrence: defaults.recurrence ?? null,
-      task_type: defaults.task_type,
-      trigger_config: defaults.trigger_config,
-      skills: defaults.skills,
-      tools: defaults.tools,
-      post_final_to_channel: defaults.post_final_to_channel,
-      history_mode: defaults.history_mode,
-      history_recent_count: defaults.history_recent_count,
-      skip_tool_approval: defaults.skip_tool_approval,
-      session_target: defaults.session_target as any,
-      project_instance: defaults.project_instance as any,
-      allow_issue_reporting: defaults.allow_issue_reporting,
-      harness_effort: defaults.harness_effort,
-      max_run_seconds: defaults.max_run_seconds,
-    }, {
-      onSuccess: (task) => {
-        setCreatedTaskId(task.id);
-        setRequest("");
-      },
-    });
-  };
-
-  return (
-    <div data-testid="project-workspace-runs" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
-      <Section
-        title="Agent Coding Run"
-        description="Start a Project-scoped implementation task with a fresh instance and a durable review receipt."
-        action={
-          <ActionButton
-            label={createTask.isPending ? "Starting" : "Start Run"}
-            icon={<Play size={14} />}
-            disabled={!selectedChannel || !preset || createTask.isPending}
-            onPress={startRun}
-          />
-        }
-      >
-        <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-          <FormRow label="Channel">
-            <SelectInput
-              value={selectedChannelId}
-              onChange={(value) => setSelectedChannelId(value)}
-              options={
-                channels && channels.length > 0
-                  ? channels.map((channel) => ({
-                    label: `${channel.name} · ${channel.bot_id}`,
-                    value: channel.id,
-                  }))
-                  : [{ label: "Attach a Project channel first", value: "" }]
-              }
-            />
-          </FormRow>
-          <FormRow label="Project request" description="A short bug, feature, or review task for the selected Project channel.">
-            <PromptEditor
-              value={request}
-              onChange={setRequest}
-              label="Run request"
-              placeholder="Ask the agent to solve a bug, implement a feature, run tests, and capture e2e screenshots..."
-              rows={5}
-              fieldType="task_prompt"
-              generateContext={`Project: ${project.name}. Root: /${project.root_path}`}
-            />
-          </FormRow>
-        </div>
-        {createdTaskId && (
-          <div className="mt-3">
-            <SettingsControlRow
-              leading={<CheckCircle2 size={14} />}
-              title="Run task created"
-              description={createdTaskId}
-              meta={<StatusBadge label="pending" variant="warning" />}
-              action={<HeaderLink to={`/admin/tasks/${createdTaskId}`} icon={<ExternalLink size={13} />}>Open task</HeaderLink>}
-            />
-          </div>
-        )}
-        {createTask.error && (
-          <div className="mt-3">
-            <SettingsControlRow
-              leading={<AlertTriangle size={14} />}
-              title="Run did not start"
-              description={createTask.error instanceof Error ? createTask.error.message : "The task request failed."}
-              meta={<StatusBadge label="failed" variant="danger" />}
-            />
-          </div>
-        )}
-      </Section>
-
-      <Section title="Run Receipts" description="Implementation summaries, test evidence, screenshots, and handoff links published by coding agents.">
-        <div className="flex flex-col gap-2">
-          {visibleReceipts.length === 0 ? (
-            <EmptyState message="No coding-run receipts have been published for this Project." />
-          ) : (
-            visibleReceipts.map((receipt) => (
-              <SettingsControlRow
-                key={receipt.id}
-                leading={<FileText size={14} />}
-                title={receipt.summary}
-                description={
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span>{formatRunTime(receipt.created_at)} · {receipt.bot_id ?? "unknown bot"}</span>
-                    {(receipt.duplicate_count ?? 1) > 1 && (
-                      <span className="text-[11px] text-text-dim">{receipt.duplicate_count} receipt updates collapsed</span>
-                    )}
-                    <span className="truncate font-mono text-[11px] text-text-dim">Files: {compactReceiptList(receipt.changed_files)}</span>
-                    <span className="truncate text-[11px] text-text-dim">Tests: {compactReceiptList(receipt.tests)}</span>
-                    <span className="truncate text-[11px] text-text-dim">Screenshots: {compactReceiptList(receipt.screenshots)}</span>
-                  </span>
-                }
-                meta={<StatusBadge label={receipt.status} variant={receiptTone(receipt.status)} />}
-                action={
-                  receipt.handoff_url ? (
-                    <a
-                      href={receipt.handoff_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted no-underline transition-colors hover:bg-surface-overlay/50 hover:text-text"
-                    >
-                      <ExternalLink size={13} />
-                      Handoff
-                    </a>
-                  ) : undefined
                 }
               />
             ))

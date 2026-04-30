@@ -403,12 +403,12 @@ class TestWorkSurfaceIsolationStatic:
 
         assert c.id == "worksurface_isolation_static"
         assert c.category == "agentic_boundaries"
-        assert c.status == Status.fail
-        assert c.severity == Severity.critical
+        assert c.status == Status.warning
+        assert c.severity == Severity.warning
         assert c.details is not None
-        finding_ids = {f["id"] for f in c.details["findings"]}
-        assert "shared_workspace_unscoped_secret_injection" in finding_ids
-        assert "legacy_cross_workspace_access_flag" in finding_ids
+        findings = {f["id"]: f for f in c.details["findings"]}
+        assert findings["shared_workspace_unscoped_secret_injection"]["status"] == "pass"
+        assert findings["legacy_cross_workspace_access_flag"]["status"] == "warning"
 
 
 # ---------------------------------------------------------------------------

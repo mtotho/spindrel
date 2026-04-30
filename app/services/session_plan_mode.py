@@ -2354,8 +2354,30 @@ def append_plan_artifact(
     return save_session_plan(session, plan, mode=get_session_plan_mode(session), reason="append_artifact")
 
 
-def _clip_plan_context(value: str | None, limit: int) -> str:
-    text = " ".join((value or "").split())
+def _plan_context_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = [
+            value.get("label"),
+            value.get("target_label"),
+            value.get("path"),
+            value.get("error"),
+            value.get("preview_text"),
+        ]
+        text = " ".join(str(part) for part in parts if part)
+        if text:
+            return text
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return str(value)
+
+
+def _clip_plan_context(value: Any, limit: int) -> str:
+    text = " ".join(_plan_context_text(value).split())
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."

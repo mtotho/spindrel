@@ -566,6 +566,41 @@ def test_execution_evidence_updates_adherence_and_runtime(monkeypatch, tmp_path)
     assert runtime["latest_evidence"]["summary"] == "16 passed"
 
 
+def test_execution_evidence_accepts_structured_tool_summary(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Structured Evidence",
+        summary="Capture structured tool summaries.",
+        scope="Plan adherence metadata.",
+        acceptance_criteria=["Structured summaries are persisted without crashing."],
+        **_professional_fields(),
+        steps=[{"id": "write-file", "label": "Write the marker file"}],
+    )
+    spm.approve_session_plan(session)
+
+    adherence = spm.record_plan_execution_evidence(
+        session,
+        tool_name="file",
+        tool_kind="local",
+        status="done",
+        tool_call_id="call-1",
+        arguments={"operation": "create", "path": ".spindrel-plan-parity/marker.txt"},
+        result_summary={
+            "kind": "write",
+            "subject_type": "file",
+            "label": "Created marker.txt",
+            "path": ".spindrel-plan-parity/marker.txt",
+        },
+    )
+
+    assert adherence is not None
+    summary = adherence["latest_evidence"]["summary"]
+    assert "Created marker.txt" in summary
+    assert ".spindrel-plan-parity/marker.txt" in summary
+
+
 def test_missing_turn_outcome_marks_pending_and_blocks_mutation(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

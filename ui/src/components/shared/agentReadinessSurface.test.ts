@@ -30,6 +30,9 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /interface AgentIntegrationReadiness/);
   assert.match(hook, /interface AgentStatusSnapshot/);
   assert.match(hook, /interface AgentActivityLogSummary/);
+  assert.match(hook, /interface ExecutionReceiptWrite/);
+  assert.match(hook, /createExecutionReceipt/);
+  assert.match(hook, /\/api\/v1\/execution-receipts/);
   assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
   assert.match(hook, /integrations\?: AgentIntegrationReadiness/);
   assert.match(hook, /agent_status\?: AgentStatusSnapshot/);
@@ -57,6 +60,9 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /data\.doctor\.proposed_actions/);
   assert.match(panel, /Suggested repairs/);
   assert.match(panel, /ProposedActionRow/);
+  assert.match(panel, /createExecutionReceipt/);
+  assert.match(panel, /agent_readiness/);
+  assert.match(panel, /execution receipt/);
   assert.match(panel, /Ready to act with current API grants, tools, skills, and runtime context/);
 });
 

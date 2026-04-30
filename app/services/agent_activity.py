@@ -1,7 +1,8 @@
 """Read-only agent activity/replay stream.
 
-This is a normalized view over existing durable evidence.  It deliberately
-does not create another receipt table; the source systems stay authoritative.
+This is a normalized view over durable evidence.  It deliberately keeps each
+source system authoritative instead of turning activity replay into the owner
+of receipts or workflow state.
 """
 from __future__ import annotations
 
@@ -10,10 +11,11 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Literal
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
+    ExecutionReceipt,
     ProjectRunReceipt,
     Session,
     ToolCall,
@@ -30,6 +32,7 @@ AgentActivityKind = Literal[
     "mission_update",
     "project_receipt",
     "widget_receipt",
+    "execution_receipt",
 ]
 
 AGENT_ACTIVITY_KINDS: tuple[AgentActivityKind, ...] = (
@@ -38,6 +41,7 @@ AGENT_ACTIVITY_KINDS: tuple[AgentActivityKind, ...] = (
     "mission_update",
     "project_receipt",
     "widget_receipt",
+    "execution_receipt",
 )
 
 
@@ -79,11 +83,13 @@ def _first_string(values: Any) -> str | None:
 
 def _target(
     *,
+    bot_id: str | None = None,
     channel_id: uuid.UUID | None = None,
     project_id: uuid.UUID | None = None,
     widget_pin_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
+        "bot_id": bot_id,
         "channel_id": str(channel_id) if channel_id else None,
         "project_id": str(project_id) if project_id else None,
         "widget_pin_ids": list(widget_pin_ids or []),
@@ -447,6 +453,63 @@ async def _widget_receipt_items(
     return items
 
 
+async def _execution_receipt_items(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+    task_id: uuid.UUID | None,
+    correlation_id: uuid.UUID | None,
+    since: datetime | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    stmt = (
+        select(ExecutionReceipt)
+        .order_by(ExecutionReceipt.created_at.desc())
+        .limit(limit)
+    )
+    if bot_id:
+        stmt = stmt.where(ExecutionReceipt.bot_id == bot_id)
+    if channel_id:
+        stmt = stmt.where(ExecutionReceipt.channel_id == channel_id)
+    if session_id:
+        stmt = stmt.where(ExecutionReceipt.session_id == session_id)
+    if task_id:
+        stmt = stmt.where(ExecutionReceipt.task_id == task_id)
+    if correlation_id:
+        stmt = stmt.where(ExecutionReceipt.correlation_id == correlation_id)
+    stmt = _apply_time(stmt, ExecutionReceipt.created_at, since)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        target = row.target or {}
+        target_bot_id = target.get("bot_id") if isinstance(target.get("bot_id"), str) else row.bot_id
+        items.append(_activity_item(
+            id=f"execution_receipt:{row.id}",
+            kind="execution_receipt",
+            actor=_actor(bot_id=row.bot_id, session_id=row.session_id, task_id=row.task_id),
+            target=_target(bot_id=target_bot_id, channel_id=row.channel_id),
+            status=_receipt_status(row.status),
+            summary=row.summary,
+            next_action=row.rollback_hint if row.status in {"failed", "blocked", "needs_review"} else None,
+            trace=_trace(correlation_id=row.correlation_id),
+            error=_error(error_kind="internal" if row.status == "failed" else None),
+            created_at=row.created_at,
+            source={
+                "scope": row.scope,
+                "action_type": row.action_type,
+                "approval_required": bool(row.approval_required),
+                "approval_ref": row.approval_ref,
+                "before_summary": row.before_summary,
+                "after_summary": row.after_summary,
+                "result": dict(row.result or {}),
+            },
+        ))
+    return items
+
+
 async def list_agent_activity(
     db: AsyncSession,
     *,
@@ -512,6 +575,17 @@ async def list_agent_activity(
         ))
     if "widget_receipt" in selected_kinds:
         items.extend(await _widget_receipt_items(
+            db,
+            bot_id=bot_id,
+            channel_id=channel_uuid,
+            session_id=session_uuid,
+            task_id=task_uuid,
+            correlation_id=correlation_uuid,
+            since=since,
+            limit=per_source_limit,
+        ))
+    if "execution_receipt" in selected_kinds:
+        items.extend(await _execution_receipt_items(
             db,
             bot_id=bot_id,
             channel_id=channel_uuid,

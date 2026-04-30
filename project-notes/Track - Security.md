@@ -43,15 +43,15 @@ External frame checked 2026-04-30:
 - Promoted this dedicated track into `INDEX.md` and `Roadmap.md`.
 - Added an explicit widget-action authorization boundary in `app/services/widget_action_auth.py`, wired router auth into action dispatch, refresh, refresh-batch, and event-stream paths, and pinned widget-token/channel-owner/scope checks in `tests/unit/test_widget_actions_authorization.py`.
 - Reframed the cross-workspace item into a WorkSurface isolation audit. Added `app/services/worksurface_isolation_audit.py`, surfaced its findings through the admin security audit, documented `docs/guides/worksurface-isolation.md`, and pinned the current model/gaps in `tests/unit/test_worksurface_isolation_audit.py`.
+- Removed ambient Secret Values injection from shared workspace subprocesses. Shared workspace exec now defaults to no Secret Values and only injects names present in `current_allowed_secrets`, while Project runtime env continues through explicit `extra_env`.
 
 ## Live queue
 
-1. **WorkSurface remediation phase 1.** Remove ambient Secret Values injection from shared workspace subprocesses; use explicit Project runtime/per-bot/integration bindings only.
-2. **WorkSurface remediation phase 2.** Replace `cross_workspace_access` with an explicit operator/orchestrator capability and durable audit events for boundary crossings.
-3. **WorkSurface remediation phase 3.** Constrain `harness_workdir` and `widget://workspace` behind WorkSurface/operator policy decisions.
-4. **Security audit deepening.** Add read-only checks for local-machine leases, public callback routes, weak/missing webhook replay protection, widget DB action surfaces, and bot-authored skill/widget writable roots.
-5. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
-6. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
+1. **WorkSurface remediation phase 2.** Replace `cross_workspace_access` with an explicit operator/orchestrator capability and durable audit events for boundary crossings.
+2. **WorkSurface remediation phase 3.** Constrain `harness_workdir` and `widget://workspace` behind WorkSurface/operator policy decisions.
+3. **Security audit deepening.** Add read-only checks for local-machine leases, public callback routes, weak/missing webhook replay protection, widget DB action surfaces, and bot-authored skill/widget writable roots.
+4. **Deployment-tier gates.** Convert the `SECURITY.md` threat matrix into concrete admin readiness findings before recommending internet-exposed deployment.
+5. **Skill/plugin supply-chain pass.** Review repo `.agents/skills`, runtime bot-authored skills, widget bundles, integration manifests, and future plugin import paths against provenance, permission, and review requirements.
 
 ## Watch list
 
@@ -70,4 +70,5 @@ External frame checked 2026-04-30:
 - DB-backed widget dispatch and workspace-spatial native tests are still skipped in this Python 3.14 local profile by the repo's SQLite fixture guard; run them in the supported Python 3.12/Docker test runtime for execution coverage.
 - WorkSurface isolation audit syntax passed with `PYTHONPYCACHEPREFIX=/tmp/spindrel-pycache python -m py_compile app/services/worksurface_isolation_audit.py app/services/security_audit.py tests/unit/test_worksurface_isolation_audit.py tests/unit/test_security_audit.py`.
 - WorkSurface isolation audit tests passed: `pytest tests/unit/test_worksurface_isolation_audit.py -q` -> `6 passed`; focused non-DB security audit slice passed: `pytest tests/unit/test_security_audit.py -q -k "WorkSurfaceIsolationStatic or BotsWithCrossWorkspaceAccess or BotsWithHighRiskApiScopes or WidgetActionApiAllowlist"` -> `8 passed, 44 deselected`.
+- Shared workspace secret hardening tests passed: `pytest tests/unit/test_shared_workspace.py tests/unit/test_worksurface_isolation_audit.py -q --tb=short` -> `24 passed`; Project runtime/run-script guard slice passed: `pytest tests/unit/test_exec_command_project_runtime.py tests/unit/test_project_runtime.py tests/unit/test_run_script_tool.py -q --tb=short` -> `5 passed, 2 skipped`.
 - The DB-backed `tests/unit/test_security_audit.py::TestRunSecurityAudit::test_returns_22_checks` path still reproduces the known local fixture hang under `timeout 20`; run that orchestrator assertion in the supported Docker/Python 3.12 test runtime after the test-infra issue is cleared.

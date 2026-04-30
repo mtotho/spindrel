@@ -899,10 +899,14 @@ function HarnessStatusPill({
   }, [compact, open, updatePanelPosition]);
   const panelClassName = compact
     ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
-    : "fixed overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border";
+    : "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border";
   const mergedPanelStyle = compact
     ? { fontFamily: "system-ui, sans-serif" }
-    : { fontFamily: "system-ui, sans-serif", ...panelStyle };
+    : {
+        fontFamily: "system-ui, sans-serif",
+        ...(typeof panelStyle.width === "number" ? { right: "auto" } : {}),
+        ...panelStyle,
+      };
   if (!data) {
     const loadingLabel = compact ? "ctx" : "ctx loading";
     return (

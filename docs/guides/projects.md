@@ -80,12 +80,21 @@ copy affects future turns only.
 
 ![Project coding run launcher and receipts](../images/project-workspace-runs.png)
 
-Project coding runs are ordinary background tasks with Project defaults:
-a new session per run, a fresh Project instance, Project file/exec/harness cwd,
-e2e screenshot tooling, and `publish_project_run_receipt`. The receipt records
-the implementation summary, changed files, tests, screenshots, branch or review
-handoff, and task/session linkage so a later session can pick up from durable
-Project state instead of searching chat history.
+Project coding runs are launched through `/api/v1/projects/{id}/coding-runs`.
+The service validates that the selected channel belongs to the Project, creates
+a normal background task from the `project_coding_run` preset, and records a
+secret-safe handoff config in `execution_config.project_coding_run`: request,
+repo, base branch, generated work branch, runtime target key names, new-session
+policy, and fresh-instance policy. The prompt tells the agent to update from the
+base branch, switch to the generated branch, use Project runtime env, run e2e
+checks when relevant, and publish `publish_project_run_receipt` evidence.
+
+The Runs tab reads `/api/v1/projects/{id}/coding-runs` as the review cockpit. It
+shows the launch form, recent API-launched runs, branch/base/repo state, recent
+activity, task links, handoff links, and the latest receipt for each run. The
+receipt records the implementation summary, changed files, tests, screenshots,
+branch or review handoff, and task/session linkage so a later session can pick
+up from durable Project state instead of searching chat history.
 
 Receipts are idempotent by task, handoff URL, git handoff metadata, or an
 explicit `idempotency_key`. Retrying `publish_project_run_receipt` updates the

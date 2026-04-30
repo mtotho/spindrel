@@ -384,6 +384,33 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def list_project_coding_runs(self, project_id: str) -> list[dict[str, Any]]:
+        if self._dry_run:
+            logger.info("DRY-RUN GET /projects/%s/coding-runs", project_id)
+            return []
+        r = self._http.get(f"/api/v1/projects/{project_id}/coding-runs")
+        if r.status_code == 404:
+            logger.warning("GET /projects/%s/coding-runs unavailable; capture shim will rely on receipts", project_id)
+            return []
+        if r.status_code >= 400:
+            logger.error("GET /projects/%s/coding-runs -> %s body=%s", project_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
+    def create_project_coding_run(self, project_id: str, *, channel_id: str, request: str) -> dict[str, Any]:
+        payload = {"channel_id": channel_id, "request": request}
+        if self._dry_run:
+            logger.info("DRY-RUN POST /projects/%s/coding-runs", project_id)
+            return {"id": "dry-run-coding-run", "project_id": project_id, "request": request, "task": {"id": "dry-run-task"}}
+        r = self._http.post(f"/api/v1/projects/{project_id}/coding-runs", json=payload)
+        if r.status_code == 404:
+            logger.warning("POST /projects/%s/coding-runs unavailable; capture shim will seed receipt UI", project_id)
+            return {"id": "missing-coding-run-endpoint", "project_id": project_id, "request": request, "task": {"id": None}}
+        if r.status_code >= 400:
+            logger.error("POST /projects/%s/coding-runs -> %s body=%s", project_id, r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
+
     # --- skills ------------------------------------------------------------
 
     def list_skills(self, *, limit: int = 100) -> list[dict]:

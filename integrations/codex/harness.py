@@ -896,6 +896,7 @@ def _dynamic_tool_entry(spec: HarnessToolSpec) -> dict[str, Any]:
         "namespace": "spindrel",
         "description": spec.description or spec.name,
         "inputSchema": spec.parameters or {"type": "object", "properties": {}},
+        "deferLoading": True,
     }
 
 
@@ -936,10 +937,24 @@ def _prompt_with_bridge_guidance(prompt: str, exported_tools: list[str]) -> str:
     guidance_parts = [
         "<spindrel_tool_guidance>",
         (
-            "Spindrel host tools are available through the spindrel dynamic-tool "
-            "namespace. When asked to call one of these host tools, invoke the "
-            "dynamic tool by its exact name. Do not emulate it with shell commands, "
-            "MCP helper probes, or text-only JSON."
+            "Supplemental Spindrel host tools are available through the spindrel "
+            "dynamic-tool namespace. They are not the primary coding surface. For "
+            "normal repository work, use Codex-native filesystem, shell, and edit "
+            "tools in the current cwd and follow repository instruction files first."
+        ),
+        (
+            "When the user explicitly selects, tags, or asks for one of these host "
+            "tools, invoke the dynamic tool by its exact name. Do not emulate it "
+            "with shell commands, MCP helper probes, or text-only JSON."
+        ),
+        (
+            "The callable tool list below is exhaustive for this turn. Do not invent "
+            "workspace/file helper names such as read_workspace_file, get_workspace_file, "
+            "list_workspace_files, search_workspace, or search_channel_workspace unless "
+            "one is explicitly listed. If native command execution fails because the "
+            "sandbox, process namespace, or runtime shell is broken, stop and report "
+            "that harness execution surface failure instead of probing alternate tool "
+            "names."
         ),
         "Callable Spindrel dynamic tools this turn: " + tool_list,
     ]
@@ -949,8 +964,8 @@ def _prompt_with_bridge_guidance(prompt: str, exported_tools: list[str]) -> str:
             "and durable state instead of reading or editing those records with "
             "shell commands."
         )
-    guidance_parts.extend(["</spindrel_tool_guidance>", prompt])
-    return "\n\n".join(guidance_parts)
+    guidance_parts.append("</spindrel_tool_guidance>")
+    return "\n\n".join([prompt, *guidance_parts])
 
 
 def _native_plan_metadata(result_meta: dict[str, Any]) -> dict[str, Any]:

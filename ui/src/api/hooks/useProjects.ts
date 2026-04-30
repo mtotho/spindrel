@@ -5,6 +5,7 @@ import type {
   Project,
   ProjectBlueprint,
   ProjectBlueprintWrite,
+  ProjectCodingRun,
   ProjectFromBlueprintWrite,
   ProjectInstance,
   ProjectRunReceipt,
@@ -66,6 +67,29 @@ export function useProjectRunReceipts(projectId: string | undefined) {
     queryKey: ["projects", projectId, "run-receipts"],
     queryFn: () => apiFetch<ProjectRunReceipt[]>(`/api/v1/projects/${projectId}/run-receipts`),
     enabled: !!projectId,
+  });
+}
+
+export function useProjectCodingRuns(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["projects", projectId, "coding-runs"],
+    queryFn: () => apiFetch<ProjectCodingRun[]>(`/api/v1/projects/${projectId}/coding-runs`),
+    enabled: !!projectId,
+  });
+}
+
+export function useCreateProjectCodingRun(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { channel_id: string; request?: string }) =>
+      apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "coding-runs"] });
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "run-receipts"] });
+    },
   });
 }
 

@@ -5,6 +5,7 @@ import pytest
 from app.services.tool_error_contract import (
     BENIGN_REVIEW_ERROR_KINDS,
     build_tool_error,
+    default_fallback_for_kind,
     error_for_http_status,
     infer_error_kind,
     parse_retry_after,
@@ -75,3 +76,12 @@ async def test_unknown_local_tool_returns_standard_error_contract():
     assert payload["error_code"] == "unknown_local_tool"
     assert payload["error_kind"] == "not_found"
     assert payload["retryable"] is False
+    assert "Do not retry __missing_tool__ under invented aliases" in payload["fallback"]
+
+
+def test_not_found_fallback_discourages_invented_tool_names():
+    fallback = default_fallback_for_kind("not_found")
+
+    assert fallback is not None
+    assert "use only exact listed tool names" in fallback.lower()
+    assert "Do not invent alternate workspace/file helper names" in fallback

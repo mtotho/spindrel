@@ -16,11 +16,11 @@ import {
   DASHBOARD_CAMERA_EXIT_SCALE,
   DASHBOARD_CAMERA_MAX_SCALE,
   DASHBOARD_CAMERA_MIN_SCALE,
+  DASHBOARD_HEADER_ROWS,
   DASHBOARD_HEADER_ROW_HEIGHT,
   buildFreeformGridConfig,
   clampDashboardCamera,
   clampDropToZone,
-  classifyDashboardDrop,
   dashboardFrame,
   findOpenGridPlacement,
   freeformOriginForPreset,
@@ -84,6 +84,7 @@ function tileRect(pin: WidgetDashboardPin, layout: GridLayoutItem, frame: Dashbo
 type LayoutPreview = {
   zone: ChatZone;
   layout: GridLayoutItem;
+  rect?: Rect;
 };
 
 function gridOccupancy(
@@ -95,6 +96,38 @@ function gridOccupancy(
     .filter((p) => p.id !== excludeId && normalizeZone(p) === "grid")
     .map((p) => layouts.get(p.id))
     .filter((box): box is GridLayoutItem => !!box);
+}
+
+function pointInRect(point: { x: number; y: number }, rect: Rect, inset = 0): boolean {
+  return point.x >= rect.x - inset
+    && point.x <= rect.x + rect.w + inset
+    && point.y >= rect.y - inset
+    && point.y <= rect.y + rect.h + inset;
+}
+
+function classifyDashboardPointer(
+  point: { x: number; y: number },
+  rect: Rect,
+  frame: DashboardFrame,
+): { zone: ChatZone; x: number; y: number } {
+  if (pointInRect(point, frame.headerRect, 72)) {
+    return {
+      zone: "header",
+      x: 0,
+      y: Math.max(0, Math.min(1, Math.round((point.y - frame.headerRect.y) / DASHBOARD_HEADER_ROW_HEIGHT))),
+    };
+  }
+  if (pointInRect(point, frame.railRect, 28)) {
+    return { zone: "rail", x: 0, y: Math.max(0, Math.round((point.y - frame.frameY) / frame.stepY)) };
+  }
+  if (pointInRect(point, frame.dockRect, 28)) {
+    return { zone: "dock", x: 0, y: Math.max(0, Math.round((point.y - frame.frameY) / frame.stepY)) };
+  }
+  return {
+    zone: "grid",
+    x: Math.max(0, Math.round(rect.x / frame.stepX)),
+    y: Math.max(0, Math.round(rect.y / frame.stepY)),
+  };
 }
 
 interface Props {
@@ -111,7 +144,8 @@ interface Props {
   highlightPinId: string | null;
   pendingNewPinId: string | null;
   onPendingNewPinHandled: (pinId: string) => void;
-  lockViewToken: number;
+  viewLocked: boolean;
+  onViewLockedChange: (locked: boolean) => void;
 }
 
 export function ChannelDashboardFreeformCanvas({
@@ -128,7 +162,8 @@ export function ChannelDashboardFreeformCanvas({
   highlightPinId,
   pendingNewPinId,
   onPendingNewPinHandled,
-  lockViewToken,
+  viewLocked,
+  onViewLockedChange,
 }: Props) {
   const navigate = useNavigate();
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
@@ -148,7 +183,6 @@ export function ChannelDashboardFreeformCanvas({
   const [movingPinId, setMovingPinId] = useState<string | null>(null);
   const [layoutPreview, setLayoutPreview] = useState<Map<string, LayoutPreview>>(() => new Map());
   const [isPanning, setIsPanning] = useState(false);
-  const [viewLocked, setViewLocked] = useState(true);
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const migratedRef = useRef(false);
   const freeformEnabled = isFreeformGridConfig(gridConfig);
@@ -217,19 +251,13 @@ export function ChannelDashboardFreeformCanvas({
 
   const lockDashboardView = useCallback(() => {
     if (!viewportSize.w || !viewportSize.h) return;
-    setViewLocked(true);
     scheduleCamera(homeFrameCamera(frame, viewportSize), "immediate");
   }, [frame, scheduleCamera, viewportSize]);
 
   useEffect(() => {
     if (!viewportSize.w || !viewportSize.h || !viewLocked) return;
-    scheduleCamera(homeFrameCamera(frame, viewportSize), "immediate");
-  }, [frame, scheduleCamera, viewLocked, viewportSize]);
-
-  useEffect(() => {
-    if (!lockViewToken) return;
     lockDashboardView();
-  }, [lockDashboardView, lockViewToken]);
+  }, [lockDashboardView, viewLocked, viewportSize]);
 
   const focusWorldRect = useCallback((rect: Rect, zoom = DASHBOARD_CAMERA_MAX_SCALE) => {
     if (!viewportSize.w || !viewportSize.h) return;
@@ -270,23 +298,49 @@ export function ChannelDashboardFreeformCanvas({
     });
   }, [cameraRef, focusWorldRect, frame, layouts, onPendingNewPinHandled, pendingNewPinId, persistLayout, pins, preset, origin, viewportSize]);
 
-  const layoutFromMovedRect = useCallback((pinId: string, movedRect: Rect, layout: GridLayoutItem, settleCollision: boolean): LayoutPreview | null => {
+  const layoutFromMovedRect = useCallback((
+    pinId: string,
+    movedRect: Rect,
+    pointerWorld: { x: number; y: number },
+    layout: GridLayoutItem,
+    settleCollision: boolean,
+  ): LayoutPreview | null => {
     const pin = pins.find((p) => p.id === pinId);
     if (!pin || !layout) return null;
-    const target = classifyDashboardDrop(movedRect, frame);
+    const target = classifyDashboardPointer(pointerWorld, movedRect, frame);
+    if (target.zone === "header") {
+      const fitted = clampDropToZone("header", 0, 0, preset.cols.lg, DASHBOARD_HEADER_ROWS, preset.cols.lg);
+      return {
+        zone: "header",
+        layout: fitted,
+        rect: zonedLayoutToWorldRect("header", fitted, frame),
+      };
+    }
     const bounds = getWidgetLayoutBounds(pin.widget_presentation, target.zone, preset.cols.lg);
+    const fromNarrowZoneToGrid = normalizeZone(pin) !== "grid" && target.zone === "grid";
+    const preferredW = fromNarrowZoneToGrid
+      ? Math.max(bounds.minW, Math.min(bounds.maxW, preset.defaultTile.w))
+      : Math.max(bounds.minW, Math.min(bounds.maxW, target.zone === "rail" || target.zone === "dock" ? 1 : layout.w));
+    const preferredH = fromNarrowZoneToGrid
+      ? Math.max(bounds.minH, preset.defaultTile.h)
+      : Math.max(bounds.minH, layout.h);
     const desired = clampDropToZone(
       target.zone,
       target.x,
       target.y,
-      Math.max(bounds.minW, Math.min(bounds.maxW, target.zone === "rail" || target.zone === "dock" ? 1 : layout.w)),
-      Math.max(bounds.minH, layout.h),
+      preferredW,
+      preferredH,
       preset.cols.lg,
     );
-    const next = settleCollision && target.zone === "grid"
-      ? findOpenGridPlacement(desired, gridOccupancy(pins, layouts, pinId))
-      : desired;
-    return { zone: target.zone, layout: next };
+    const next = desired;
+    const snappedRect = zonedLayoutToWorldRect(target.zone, next, frame);
+    return {
+      zone: target.zone,
+      layout: next,
+      rect: settleCollision || target.zone !== "grid"
+        ? snappedRect
+        : { ...movedRect, w: snappedRect.w, h: snappedRect.h },
+    };
   }, [frame, layouts, pins, preset]);
 
   const beginTileMove = useCallback((pinId: string, event: React.PointerEvent<HTMLElement>) => {
@@ -296,7 +350,6 @@ export function ChannelDashboardFreeformCanvas({
     if (!pin || !layout) return;
     event.preventDefault();
     event.stopPropagation();
-    setViewLocked(false);
     setMovingPinId(pinId);
     const startRect = tileRect(pin, layout, frame);
     const start = { x: event.clientX, y: event.clientY };
@@ -305,12 +358,16 @@ export function ChannelDashboardFreeformCanvas({
 
     const previewFor = (moveEvent: PointerEvent, settleCollision: boolean) => {
       const scale = Math.max(0.01, cameraRef.current.scale);
+      const pointerWorld = {
+        x: (moveEvent.clientX - cameraRef.current.x) / scale,
+        y: (moveEvent.clientY - cameraRef.current.y) / scale,
+      };
       const movedRect = {
         ...startRect,
         x: startRect.x + (moveEvent.clientX - start.x) / scale,
         y: startRect.y + (moveEvent.clientY - start.y) / scale,
       };
-      return layoutFromMovedRect(pinId, movedRect, layout, settleCollision);
+      return layoutFromMovedRect(pinId, movedRect, pointerWorld, layout, settleCollision);
     };
 
     const move = (moveEvent: PointerEvent) => {
@@ -333,12 +390,26 @@ export function ChannelDashboardFreeformCanvas({
         /* pointer capture may already be released */
       }
       setMovingPinId(null);
+      if (!next) {
+        setLayoutPreview((current) => {
+          const clone = new Map(current);
+          clone.delete(pinId);
+          return clone;
+        });
+        return;
+      }
       setLayoutPreview((current) => {
         const clone = new Map(current);
-        clone.delete(pinId);
+        clone.set(pinId, next);
         return clone;
       });
-      if (next) void persistLayout([{ id: pinId, zone: next.zone, ...next.layout }]);
+      void persistLayout([{ id: pinId, zone: next.zone, ...next.layout }]).finally(() => {
+        setLayoutPreview((current) => {
+          const clone = new Map(current);
+          clone.delete(pinId);
+          return clone;
+        });
+      });
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", done, { once: true });
@@ -347,9 +418,9 @@ export function ChannelDashboardFreeformCanvas({
 
   const beginPan = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
+    if (viewLocked) return;
     if ((event.target as HTMLElement).closest("[data-dashboard-tile],button,a,input,textarea,select,[role='button'],iframe")) return;
     event.preventDefault();
-    setViewLocked(false);
     setIsPanning(true);
     const start = { x: event.clientX, y: event.clientY, camera: cameraRef.current };
     const target = event.currentTarget;
@@ -370,42 +441,42 @@ export function ChannelDashboardFreeformCanvas({
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", done, { once: true });
     target.addEventListener("pointercancel", done, { once: true });
-  }, [cameraRef, scheduleCamera]);
+  }, [cameraRef, scheduleCamera, viewLocked]);
 
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const handleWheel = (event: WheelEvent) => {
       if (event.ctrlKey) return;
+      if (viewLocked) return;
       event.preventDefault();
-      setViewLocked(false);
       updateViewportMetrics();
       const factor = Math.exp(-event.deltaY * 0.00042);
       zoomAroundPoint(factor, event.clientX, event.clientY);
     };
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, [updateViewportMetrics, viewportRef, zoomAroundPoint]);
+  }, [updateViewportMetrics, viewLocked, viewportRef, zoomAroundPoint]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       if (!viewportRef.current?.contains(document.activeElement)) return;
       if (event.key === "+" || event.key === "=") {
+        if (viewLocked) return;
         event.preventDefault();
-        setViewLocked(false);
         scheduleCamera({ ...cameraRef.current, scale: Math.min(DASHBOARD_CAMERA_MAX_SCALE, cameraRef.current.scale * 1.12) });
       } else if (event.key === "-" || event.key === "_") {
+        if (viewLocked) return;
         event.preventDefault();
-        setViewLocked(false);
         scheduleCamera({ ...cameraRef.current, scale: Math.max(DASHBOARD_CAMERA_MIN_SCALE, cameraRef.current.scale / 1.12) });
       } else if (event.key.toLowerCase() === "f") {
         event.preventDefault();
-        lockDashboardView();
+        onViewLockedChange(true);
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [cameraRef, lockDashboardView, scheduleCamera, viewportRef]);
+  }, [cameraRef, onViewLockedChange, scheduleCamera, viewLocked, viewportRef]);
 
   const channelById = useMemo(() => {
     const out = new Map<string, { name?: string | null }>();
@@ -436,7 +507,7 @@ export function ChannelDashboardFreeformCanvas({
       style={{
         backgroundImage: "radial-gradient(rgb(var(--color-text) / 0.05) 1px, transparent 1px)",
         backgroundSize: "32px 32px",
-        cursor: isPanning ? "grabbing" : "grab",
+        cursor: viewLocked ? "default" : isPanning ? "grabbing" : "grab",
         touchAction: "none",
         overscrollBehavior: "none",
       }}
@@ -477,7 +548,7 @@ export function ChannelDashboardFreeformCanvas({
           const preview = layoutPreview.get(pin.id);
           const layout = preview?.layout ?? layouts.get(pin.id) ?? layoutForPin(pin, index, preset, origin);
           const zone = preview?.zone ?? normalizeZone(pin);
-          const rect = tileRect({ ...pin, zone }, layout, frame);
+          const rect = preview?.rect ?? tileRect({ ...pin, zone }, layout, frame);
           const binding = tileMoveBinding(pin.id, editMode, movingPinId, beginTileMove);
           return (
             <DashboardTile
@@ -514,7 +585,6 @@ export function ChannelDashboardFreeformCanvas({
                     }}
                     clampH={{ min: zone === "header" ? 1 : getWidgetLayoutBounds(pin.widget_presentation, zone, preset.cols.lg).minH }}
                     onResizing={(box: TileBox) => {
-                      setViewLocked(false);
                       const next = clampDropToZone(zone, box.x, box.y, box.w, box.h, preset.cols.lg);
                       setLayoutPreview((current) => {
                         const clone = new Map(current);
@@ -526,10 +596,16 @@ export function ChannelDashboardFreeformCanvas({
                       const next = clampDropToZone(zone, box.x, box.y, box.w, box.h, preset.cols.lg);
                       setLayoutPreview((current) => {
                         const clone = new Map(current);
-                        clone.delete(pin.id);
+                        clone.set(pin.id, { zone, layout: next });
                         return clone;
                       });
-                      void persistLayout([{ id: pin.id, zone, ...next }]);
+                      void persistLayout([{ id: pin.id, zone, ...next }]).finally(() => {
+                        setLayoutPreview((current) => {
+                          const clone = new Map(current);
+                          clone.delete(pin.id);
+                          return clone;
+                        });
+                      });
                     }}
                   />
                 )}
@@ -606,7 +682,7 @@ function DashboardTile({
     <div
       data-dashboard-tile
       data-pin-id={id}
-      className={`absolute min-w-0 ${className ?? ""}`}
+      className={`absolute min-w-0 ${isMoving ? "" : "transition-[left,top,width,height] duration-150 ease-out"} ${className ?? ""}`}
       style={{
         left: rect.x,
         top: rect.y,
