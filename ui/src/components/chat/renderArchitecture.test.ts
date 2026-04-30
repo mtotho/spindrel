@@ -275,7 +275,7 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.match(channelHeader, /const isMobile = routeIsMobile \|\| detectedMobile;/);
   assert.match(channelHeader, /const routeSessionMatch = useMatch\("\/channels\/:channelId\/session\/:sessionId"\);/);
   assert.match(channelHeader, /const effectiveSessionId = sessionId \?\? routeSessionId;/);
-  assert.match(channelHeader, /const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !bot\.harness_runtime && !!onContextBudgetClick;/);
+  assert.match(channelHeader, /const titleOpensContext =\s+!isMobile &&\s+!isSystemChannel &&\s+!!bot &&\s+!bot\.harness_runtime &&\s+!!onContextBudgetClick;/);
   assert.match(channelHeader, /data-testid="channel-header-title-region"/);
   assert.match(channelHeader, /onClick=\{titleOpensContext \? onContextBudgetClick : undefined\}/);
   assert.match(channelHeader, /isMobile \? \(/);
@@ -283,11 +283,16 @@ test("mobile channel header does not make the whole title open context chrome", 
   assert.doesNotMatch(channelHeader, /compact && !contextNeedsAttention\) return null;/);
   assert.doesNotMatch(channelHeader, /if \(!data\) return null;/);
   assert.match(channelHeader, /sessionId=\{effectiveSessionId\}/);
-  assert.match(channelHeader, /data-testid=\{compact \? "harness-context-chip-mobile" : "harness-context-chip"\}/);
+  assert.match(channelHeader, /harness-context-chip-mobile/);
+  assert.match(channelHeader, /harness-context-chip/);
   assert.match(channelHeader, /data-testid="channel-header-mobile-overflow-menu"/);
   assert.match(channelHeader, /max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
   assert.match(channelHeader, /const panelClassName = compact/);
   assert.match(channelHeader, /: "fixed left-2 right-2 top-14 z-\[50002\] max-h-\[calc\(100dvh-72px\)\] overflow-auto rounded-md/);
+  assert.match(channelHeader, /function harnessVisualViewportBounds\(\)/);
+  assert.match(channelHeader, /const visual = window\.visualViewport;/);
+  assert.match(channelHeader, /if \(viewport\.width <= 600\) \{/);
+  assert.match(channelHeader, /window\.visualViewport\?\.addEventListener\("resize", updatePanelPosition\);/);
   assert.match(channelHeader, /typeof panelStyle\.width === "number" \? \{ right: "auto" \} : \{\}/);
   assert.doesNotMatch(channelHeader, /max-\[600px\]/);
 });

@@ -1165,19 +1165,33 @@ function HarnessStatusPill({
       return;
     }
     const margin = 8;
+    const viewport = harnessVisualViewportBounds();
     const rect = buttonRef.current?.getBoundingClientRect();
-    const width = Math.min(320, Math.max(0, window.innerWidth - margin * 2));
-    const anchorRight = rect?.right ?? window.innerWidth - margin;
-    const left = Math.max(
-      margin,
-      Math.min(anchorRight - width, window.innerWidth - margin - width),
+    const top = Math.max(
+      viewport.top + margin,
+      (rect?.bottom ?? viewport.top + 48) + margin,
     );
-    const top = Math.max(margin, (rect?.bottom ?? 48) + margin);
+    if (viewport.width <= 600) {
+      setPanelStyle({
+        left: viewport.left + margin,
+        top,
+        width: Math.max(160, viewport.width - margin * 2),
+        maxHeight: Math.max(160, viewport.height - (top - viewport.top) - margin),
+        zIndex: 50002,
+      });
+      return;
+    }
+    const width = Math.min(320, Math.max(0, viewport.width - margin * 2));
+    const anchorRight = rect?.right ?? viewport.left + viewport.width - margin;
+    const left = Math.max(
+      viewport.left + margin,
+      Math.min(anchorRight - width, viewport.left + viewport.width - margin - width),
+    );
     setPanelStyle({
       left,
       top,
       width,
-      maxHeight: Math.max(160, window.innerHeight - top - margin),
+      maxHeight: Math.max(160, viewport.height - (top - viewport.top) - margin),
       zIndex: 50002,
     });
   }, [compact]);
@@ -1187,9 +1201,13 @@ function HarnessStatusPill({
     if (compact || typeof window === "undefined") return;
     window.addEventListener("resize", updatePanelPosition);
     window.addEventListener("scroll", updatePanelPosition, true);
+    window.visualViewport?.addEventListener("resize", updatePanelPosition);
+    window.visualViewport?.addEventListener("scroll", updatePanelPosition);
     return () => {
       window.removeEventListener("resize", updatePanelPosition);
       window.removeEventListener("scroll", updatePanelPosition, true);
+      window.visualViewport?.removeEventListener("resize", updatePanelPosition);
+      window.visualViewport?.removeEventListener("scroll", updatePanelPosition);
     };
   }, [compact, open, updatePanelPosition]);
   const panelClassName = compact
@@ -1600,6 +1618,27 @@ function HarnessStatusPill({
       )}
     </span>
   );
+}
+
+function harnessVisualViewportBounds() {
+  const doc = document.documentElement;
+  const visual = window.visualViewport;
+  const widthCandidates = [
+    visual?.width,
+    doc?.clientWidth,
+    window.innerWidth,
+  ].filter((value): value is number => typeof value === "number" && value > 0);
+  const heightCandidates = [
+    visual?.height,
+    doc?.clientHeight,
+    window.innerHeight,
+  ].filter((value): value is number => typeof value === "number" && value > 0);
+  return {
+    left: visual?.offsetLeft ?? 0,
+    top: visual?.offsetTop ?? 0,
+    width: Math.max(0, Math.min(...widthCandidates)),
+    height: Math.max(0, Math.min(...heightCandidates)),
+  };
 }
 
 function formatHarnessUsage(
