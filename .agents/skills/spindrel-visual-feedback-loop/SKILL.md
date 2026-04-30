@@ -78,7 +78,8 @@ drawer only; it must not create a scheduled task during capture.
 
 Use this target when changing the channel dashboard widget proposal affordance,
 usefulness drawer, recent bot widget change receipts, Channel Settings ->
-Dashboard usefulness summary, or Bot widget agency control.
+Dashboard usefulness summary, Bot widget agency control, or Agent readiness
+widget-authoring status.
 
 ```bash
 python -m scripts.screenshots stage --only channel-widget-usefulness
@@ -92,13 +93,15 @@ Expected documentation artifacts:
 docs/images/channel-widget-usefulness-dashboard.png
 docs/images/channel-widget-usefulness-drawer.png
 docs/images/channel-widget-usefulness-settings.png
+docs/images/channel-widget-authoring-readiness.png
 ```
 
 Inspect the toolbar affordance, drawer, recent bot widget change receipts, and
-settings summary. The staged dashboard should show real duplicate/visibility
-pin state. Capture uses a narrow browser shim for the assessment/receipt
-endpoints when the shared e2e API lags the UI branch; capture must not create or
-mutate widgets.
+settings summary, plus the Agent readiness widget-authoring row and HTML
+full-check badge. The staged dashboard should show real duplicate/visibility
+pin state. Capture uses a narrow browser shim for the assessment/receipt/
+capability endpoints when the shared e2e API lags the UI branch; capture must
+not create or mutate widgets.
 
 ## Dashboard Pin Config Editor Loop
 

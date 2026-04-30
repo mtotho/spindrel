@@ -2285,6 +2285,75 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
 })();
 """
 
+_AGENT_WIDGET_AUTHORING_ENDPOINT_INIT = """
+(() => {
+  const originalFetch = window.fetch.bind(window);
+  const manifest = {
+    schema_version: "2026-04-29",
+    context: {
+      bot_id: "widget-health-bot",
+      bot_name: "Widget Health Bot",
+      channel_id: "screenshot-channel",
+      channel_name: "Widget usefulness proposals"
+    },
+    api: { scopes: ["read:channels", "read:widgets", "write:widgets"], endpoint_count: 142 },
+    tools: {
+      catalog_count: 96,
+      working_set_count: 18,
+      configured: ["prepare_widget_authoring", "check_html_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      pinned: [],
+      enrolled: [],
+      profiles: {},
+      safety_tiers: {},
+      recommended_core: ["prepare_widget_authoring", "check_html_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      details: [],
+      details_truncated: false
+    },
+    skills: {
+      working_set_count: 3,
+      bot_enrolled: [{ id: "widgets", name: "Widgets", source: "file", scope: "bot" }],
+      channel_enrolled: [{ id: "widgets/html", name: "HTML widgets", source: "file", scope: "channel" }]
+    },
+    project: {
+      attached: true,
+      id: "widget-authoring-project",
+      name: "Widget Authoring",
+      root_path: "/workspace/widgets",
+      runtime_env: { ready: true, missing_secrets: [], invalid_env_keys: [], reserved_env_keys: [] }
+    },
+    harness: { runtime: "codex", workdir: "/workspace/widgets", bridge_status: "connected" },
+    widgets: {
+      authoring_tools: ["prepare_widget_authoring", "check_html_widget_authoring", "check_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      required_authoring_tools: ["prepare_widget_authoring", "check_html_widget_authoring", "check_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      missing_authoring_tools: [],
+      recommended_skills: ["widgets", "widgets/html", "widgets/sdk"],
+      available_skills: ["widgets", "widgets/html", "widgets/sdk"],
+      missing_skills: [],
+      health_loop: "available",
+      html_authoring_check: "available",
+      tool_widget_authoring_check: "available",
+      authoring_flow: ["prepare_widget_authoring", "preview_widget", "check_html_widget_authoring", "emit_html_widget", "pin_widget", "check_widget"],
+      readiness: "ready",
+      findings: []
+    },
+    doctor: { status: "ok", findings: [] }
+  };
+  window.fetch = async (input, init) => {
+    const raw = typeof input === "string" ? input : input?.url;
+    if (raw) {
+      const url = new URL(raw, window.location.origin);
+      if (url.pathname === "/api/v1/agent-capabilities") {
+        return new Response(JSON.stringify(manifest), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+    return originalFetch(input, init);
+  };
+})();
+"""
+
 CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
     ScreenshotSpec(
         name="channel-widget-usefulness-dashboard",
@@ -2333,6 +2402,32 @@ CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
             "if (!/Widget usefulness/.test(text)) throw new Error('settings usefulness title missing');"
             "if (!/pins|widget proposals|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
             "if (!/bot widget change|Moved 2 widget pins/.test(text)) throw new Error('settings receipt summary missing');"
+        ),
+    ),
+    ScreenshotSpec(
+        name="channel-widget-authoring-readiness",
+        route="/channels/{channel_widget_usefulness}/settings#agent",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"agent-readiness-widget-authoring\"]') "
+            "&& /Widget authoring ready/.test(document.body.innerText)"
+        ),
+        output="channel-widget-authoring-readiness.png",
+        color_scheme="dark",
+        extra_init_scripts=[_AGENT_WIDGET_AUTHORING_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const row = document.querySelector('[data-testid=\"agent-readiness-widget-authoring\"]');"
+            "if (row) row.scrollIntoView({ block: 'center', inline: 'nearest' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
+        assert_js=(
+            "const row = document.querySelector('[data-testid=\"agent-readiness-widget-authoring\"]');"
+            "if (!row) throw new Error('widget authoring readiness row missing');"
+            "const text = document.body.innerText || row.textContent || '';"
+            "if (!/Widget authoring ready/.test(text)) throw new Error('widget authoring ready label missing');"
+            "if (!/HTML full check/i.test(text)) throw new Error('HTML authoring check badge missing');"
+            "if (!/authoring tools available/.test(text)) throw new Error('authoring tool count missing');"
         ),
     ),
 ]

@@ -148,7 +148,8 @@ checks the in-settings preset surface plus desktop and mobile drawer framing.
 
 Use this bundle when changing the channel dashboard widget proposal affordance,
 usefulness drawer, recent bot widget change receipts, Channel Settings ->
-Dashboard usefulness summary, or Bot widget agency control:
+Dashboard usefulness summary, Bot widget agency control, or Agent readiness
+widget-authoring status:
 
 ```bash
 python -m scripts.screenshots stage --only channel-widget-usefulness
@@ -162,15 +163,17 @@ Expected artifacts:
 channel-widget-usefulness-dashboard.png
 channel-widget-usefulness-drawer.png
 channel-widget-usefulness-settings.png
+channel-widget-authoring-readiness.png
 ```
 
 The staging step creates one channel with duplicate native widgets and a dock
 widget hidden by the channel's chat layout mode. Capture uses a narrow browser
-shim for the assessment endpoint so artifacts stay deterministic when
-the shared e2e API lags the UI branch; the dashboard pins themselves are real.
-Inspect all three images before closeout: the bundle checks the dashboard
-toolbar affordance, the widget proposal drawer, recent bot widget change
-receipts, and the compact settings summary.
+shim for the assessment, receipt, and agent-capability endpoints so artifacts
+stay deterministic when the shared e2e API lags the UI branch; the dashboard
+pins themselves are real. Inspect all four images before closeout: the bundle
+checks the dashboard toolbar affordance, the widget proposal drawer, recent bot
+widget change receipts, the compact settings summary, and the Agent readiness
+widget-authoring row with the HTML full-check badge.
 
 ## Dashboard Pin Config Editor Run
 

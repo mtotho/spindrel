@@ -46,6 +46,7 @@ async def test_html_authoring_check_requires_runtime_when_requested(monkeypatch:
 
     result = await run_html_widget_authoring_check(
         html="<div>ok</div>",
+        display_label="Demo",
         include_runtime=True,
     )
 
@@ -71,6 +72,7 @@ async def test_html_authoring_check_accepts_successful_runtime_smoke(monkeypatch
 
     result = await run_html_widget_authoring_check(
         html="<div>ok</div>",
+        display_label="Demo",
         include_runtime=True,
         include_screenshot=True,
     )

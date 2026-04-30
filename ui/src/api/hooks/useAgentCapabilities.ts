@@ -11,6 +11,20 @@ export interface AgentDoctorFinding {
   next_action?: string;
 }
 
+export interface AgentCapabilityAction {
+  id: string;
+  finding_code: string;
+  kind: string;
+  title: string;
+  description: string;
+  impact: string;
+  required_actor_scopes?: string[];
+  grants_scopes?: string[];
+  apply:
+    | { type: "bot_patch"; patch: Record<string, unknown> }
+    | { type: "navigate"; href: string };
+}
+
 export interface AgentToolDetail {
   name: string;
   profile?: string | null;
@@ -87,6 +101,7 @@ export interface AgentCapabilityManifest {
   doctor: {
     status: AgentReadinessStatus;
     findings: AgentDoctorFinding[];
+    proposed_actions?: AgentCapabilityAction[];
   };
 }
 

@@ -232,11 +232,13 @@ def test_channel_widget_usefulness_specs_have_assertions_and_artifacts():
         "channel-widget-usefulness-dashboard.png",
         "channel-widget-usefulness-drawer.png",
         "channel-widget-usefulness-settings.png",
+        "channel-widget-authoring-readiness.png",
     }
     assert all(spec.assert_js for spec in resolved)
     routes = {spec.name: spec.route for spec in resolved}
     assert routes["channel-widget-usefulness-dashboard"] == "/widgets/channel/channel-1"
     assert routes["channel-widget-usefulness-settings"] == "/channels/channel-1/settings#dashboard"
+    assert routes["channel-widget-authoring-readiness"] == "/channels/channel-1/settings#agent"
 
 
 def test_pin_config_editor_specs_open_target_pin_and_have_artifacts():
@@ -569,6 +571,7 @@ def test_spindrel_plan_live_builds_expected_specs():
         progress_session_id="progress-1",
         replan_session_id="replan-1",
         pending_session_id="pending-1",
+        adherence_negative_session_id="adherence-negative-1",
     )
 
     assert [spec.name for spec in specs] == [
@@ -584,6 +587,8 @@ def test_spindrel_plan_live_builds_expected_specs():
         "spindrel-plan-replan-pending-terminal-dark",
         "spindrel-plan-pending-outcome-default-dark",
         "spindrel-plan-pending-outcome-terminal-dark",
+        "spindrel-plan-adherence-unsupported-default-dark",
+        "spindrel-plan-adherence-unsupported-terminal-dark",
     ]
     assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
     assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
@@ -598,11 +603,16 @@ def test_spindrel_plan_live_builds_expected_specs():
     assert specs[9].chat_mode == "terminal"
     assert specs[10].route == "http://ui/channels/channel-1/session/pending-1"
     assert specs[11].chat_mode == "terminal"
+    assert specs[12].route == "http://ui/channels/channel-1/session/adherence-negative-1"
+    assert specs[12].scroll_plan_text == "Unsupported outcome"
+    assert specs[13].chat_mode == "terminal"
     assert specs[1].scroll_text == "Native Spindrel Plan Parity"
     assert all("harness sdk" in spec.not_contains for spec in specs)
     assert [spec.chat_mode for spec in specs] == [
         "default",
         "default",
+        "default",
+        "terminal",
         "default",
         "terminal",
         "default",

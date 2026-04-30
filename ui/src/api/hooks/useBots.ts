@@ -60,6 +60,8 @@ export function useUpdateBot(botId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["bots", botId] });
       qc.invalidateQueries({ queryKey: ["bot-editor", botId] });
       qc.invalidateQueries({ queryKey: ["bots"] });
+      qc.invalidateQueries({ queryKey: ["admin-bots"] });
+      qc.invalidateQueries({ queryKey: ["agent-capabilities"] });
     },
   });
 }

@@ -34,6 +34,7 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /WidgetAuthoringSummary/);
   assert.match(panel, /widgets\.readiness/);
   assert.match(panel, /HTML full check/);
+  assert.match(panel, /agent-readiness-widget-authoring/);
   assert.match(panel, /data\.doctor\.findings/);
   assert.match(panel, /Ready to act with current API grants, tools, skills, and runtime context/);
 });

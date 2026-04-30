@@ -93,12 +93,13 @@ async def list_agent_capabilities(
     },
 }, safety_tier="readonly", requires_bot_context=True, returns={
     "type": "object",
-    "properties": {
-        "status": {"type": "string"},
-        "findings": {"type": "array", "items": {"type": "object"}},
-        "context": {"type": "object"},
-        "error": {"type": "string"},
-    },
+        "properties": {
+            "status": {"type": "string"},
+            "findings": {"type": "array", "items": {"type": "object"}},
+            "proposed_actions": {"type": "array", "items": {"type": "object"}},
+            "context": {"type": "object"},
+            "error": {"type": "string"},
+        },
     "required": ["status", "findings"],
 })
 async def run_agent_doctor() -> str:

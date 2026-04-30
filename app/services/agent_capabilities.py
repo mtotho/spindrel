@@ -26,7 +26,7 @@ from app.db.models import (
     Skill,
 )
 from app.services import api_keys as _api_keys_mod
-from app.services.api_keys import has_scope
+from app.services.api_keys import SCOPE_PRESETS, has_scope
 from app.tools.registry import _tools as _local_tools
 
 
@@ -369,6 +369,108 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
     return findings
 
 
+def _deduped(values: list[str] | tuple[str, ...]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _bot_settings_href(manifest: dict[str, Any], group: str = "access") -> str | None:
+    bot_id = manifest.get("context", {}).get("bot_id")
+    if bot_id:
+        return f"/admin/bots/{bot_id}#{group}"
+    channel_id = manifest.get("context", {}).get("channel_id")
+    if channel_id:
+        return f"/channels/{channel_id}/settings#agent"
+    return None
+
+
+def _project_settings_href(manifest: dict[str, Any]) -> str:
+    project = manifest.get("project") or {}
+    if project.get("id"):
+        return f"/admin/projects/{project['id']}#Settings"
+    return "/admin/projects"
+
+
+def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    findings = manifest.get("doctor", {}).get("findings") or []
+    finding_codes = {finding.get("code") for finding in findings if isinstance(finding, dict)}
+    context = manifest.get("context") or {}
+    bot_id = context.get("bot_id")
+    if not bot_id:
+        return actions
+
+    if "missing_api_scopes" in finding_codes:
+        workspace_scopes = list(SCOPE_PRESETS["workspace_bot"]["scopes"])
+        actions.append({
+            "id": f"{bot_id}:missing_api_scopes:workspace_bot",
+            "finding_code": "missing_api_scopes",
+            "kind": "permission",
+            "title": "Grant workspace API access",
+            "description": "Enable this bot to inspect and update workspace state through the existing API tools.",
+            "impact": "Adds the workspace_bot API scope preset. The bot can use call_api only within those grants.",
+            "required_actor_scopes": ["bots:write"],
+            "grants_scopes": workspace_scopes,
+            "apply": {
+                "type": "bot_patch",
+                "patch": {"api_permissions": workspace_scopes},
+            },
+        })
+
+    if "empty_tool_working_set" in finding_codes:
+        core_tools = list(manifest.get("tools", {}).get("recommended_core") or [])
+        if not core_tools:
+            core_tools = [name for name in CORE_AGENT_TOOLS if name in _local_tools]
+        configured = list(manifest.get("tools", {}).get("configured") or [])
+        pinned = list(manifest.get("tools", {}).get("pinned") or [])
+        actions.append({
+            "id": f"{bot_id}:empty_tool_working_set:core_tools",
+            "finding_code": "empty_tool_working_set",
+            "kind": "tool_setup",
+            "title": "Add core agent tools",
+            "description": "Give the bot the basic discovery and API tools it needs to understand its own capabilities.",
+            "impact": "Adds core tools to local and pinned tools without removing existing tools.",
+            "required_actor_scopes": ["bots:write"],
+            "grants_scopes": [],
+            "apply": {
+                "type": "bot_patch",
+                "patch": {
+                    "local_tools": _deduped([*configured, *core_tools]),
+                    "pinned_tools": _deduped([*pinned, *core_tools]),
+                },
+            },
+        })
+
+    if "harness_without_workdir" in finding_codes:
+        href = _bot_settings_href(manifest, "identity")
+        if href:
+            actions.append({
+                "id": f"{bot_id}:harness_without_workdir:settings",
+                "finding_code": "harness_without_workdir",
+                "kind": "configuration",
+                "title": "Open harness settings",
+                "description": "Attach the channel to a Project or set a harness workspace path.",
+                "impact": "Navigation only. No configuration changes are applied automatically.",
+                "required_actor_scopes": [],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": href},
+            })
+
+    if "project_runtime_not_ready" in finding_codes:
+        actions.append({
+            "id": f"{bot_id}:project_runtime_not_ready:settings",
+            "finding_code": "project_runtime_not_ready",
+            "kind": "configuration",
+            "title": "Open Project settings",
+            "description": "Review missing secrets or invalid runtime environment keys for the attached Project.",
+            "impact": "Navigation only. Secret values and runtime variables are never inferred automatically.",
+            "required_actor_scopes": [],
+            "grants_scopes": [],
+            "apply": {"type": "navigate", "href": _project_settings_href(manifest)},
+        })
+
+    return actions
+
+
 def _widget_payload(manifest: dict[str, Any]) -> dict[str, Any]:
     skill_rows = (manifest.get("skills", {}).get("bot_enrolled") or []) + (
         manifest.get("skills", {}).get("channel_enrolled") or []
@@ -477,9 +579,11 @@ async def build_agent_capability_manifest(
     manifest["doctor"] = {
         "status": "ok",
         "findings": _doctor_findings(manifest),
+        "proposed_actions": [],
     }
     if any(f["severity"] == "error" for f in manifest["doctor"]["findings"]):
         manifest["doctor"]["status"] = "error"
     elif manifest["doctor"]["findings"]:
         manifest["doctor"]["status"] = "needs_attention"
+    manifest["doctor"]["proposed_actions"] = _doctor_proposed_actions(manifest)
     return manifest

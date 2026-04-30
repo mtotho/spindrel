@@ -1,8 +1,12 @@
-import { AlertCircle, CheckCircle2, CircleAlert, Gauge, Wrench } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, Sparkles, Wrench } from "lucide-react";
 
-import { useAgentCapabilities, type AgentCapabilityManifest, type AgentDoctorFinding } from "@/src/api/hooks/useAgentCapabilities";
+import { useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding } from "@/src/api/hooks/useAgentCapabilities";
+import { useUpdateBot } from "@/src/api/hooks/useBots";
 import { ApiError } from "@/src/api/client";
-import { EmptyState, InfoBanner, QuietPill, SettingsControlRow, SettingsStatGrid, StatusBadge } from "./SettingsControls";
+import type { BotConfig } from "@/src/types/api";
+import { ActionButton, EmptyState, InfoBanner, QuietPill, SettingsControlRow, SettingsStatGrid, StatusBadge } from "./SettingsControls";
 import { Spinner } from "./Spinner";
 
 function statusVariant(status?: string): "success" | "warning" | "danger" | "neutral" {
@@ -38,6 +42,48 @@ function TopFinding({ finding }: { finding: AgentDoctorFinding }) {
       title={finding.message}
       description={finding.next_action}
       meta={<QuietPill label={finding.severity} tone={severityTone(finding.severity)} />}
+      compact
+    />
+  );
+}
+
+function ActionMeta({ action }: { action: AgentCapabilityAction }) {
+  if (action.apply.type === "bot_patch") {
+    return <QuietPill label="staged patch" tone="info" />;
+  }
+  return <QuietPill label="open settings" />;
+}
+
+function ProposedActionRow({
+  action,
+  onApply,
+  onOpen,
+  pending,
+}: {
+  action: AgentCapabilityAction;
+  onApply: (action: AgentCapabilityAction) => void;
+  onOpen: (href: string) => void;
+  pending: boolean;
+}) {
+  const isPatch = action.apply.type === "bot_patch";
+  return (
+    <SettingsControlRow
+      leading={<Sparkles size={14} />}
+      title={action.title}
+      description={`${action.description} ${action.impact}`}
+      meta={<ActionMeta action={action} />}
+      action={
+        <ActionButton
+          label={pending ? "Applying" : isPatch ? "Apply" : "Open"}
+          size="small"
+          disabled={pending}
+          icon={isPatch ? <Sparkles size={12} /> : <ExternalLink size={12} />}
+          onPress={() => {
+            if (action.apply.type === "bot_patch") onApply(action);
+            else onOpen(action.apply.href);
+          }}
+        />
+      }
       compact
     />
   );
@@ -105,13 +151,15 @@ function WidgetAuthoringSummary({ manifest }: { manifest: AgentCapabilityManifes
       ? `${missingSkills} widget skill${missingSkills === 1 ? "" : "s"} will be loaded on demand`
       : `${widgets.authoring_tools?.length ?? 0} authoring tools available`;
   return (
-    <SettingsControlRow
-      leading={<Wrench size={14} />}
-      title={widgetReadinessLabel(widgets.readiness)}
-      description={description}
-      meta={<QuietPill label={widgets.html_authoring_check === "available" ? "HTML full check" : "HTML check missing"} tone={widgetReadinessTone(widgets.readiness)} />}
-      compact
-    />
+    <div data-testid="agent-readiness-widget-authoring">
+      <SettingsControlRow
+        leading={<Wrench size={14} />}
+        title={widgetReadinessLabel(widgets.readiness)}
+        description={description}
+        meta={<QuietPill label={widgets.html_authoring_check === "available" ? "HTML full check" : "HTML check missing"} tone={widgetReadinessTone(widgets.readiness)} />}
+        compact
+      />
+    </div>
   );
 }
 
@@ -128,6 +176,10 @@ export function AgentReadinessPanel({
   compact?: boolean;
   maxTools?: number;
 }) {
+  const navigate = useNavigate();
+  const updateBot = useUpdateBot(botId || undefined);
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const { data, isLoading, error } = useAgentCapabilities({
     botId,
     channelId,
@@ -156,8 +208,22 @@ export function AgentReadinessPanel({
   }
 
   const findings = data.doctor.findings || [];
+  const proposedActions = data.doctor.proposed_actions || [];
   const topFinding = findings[0];
   const label = data.doctor.status.replace(/_/g, " ");
+
+  async function applyAction(action: AgentCapabilityAction) {
+    if (action.apply.type !== "bot_patch") return;
+    setActionError(null);
+    setPendingActionId(action.id);
+    try {
+      await updateBot.mutateAsync(action.apply.patch as Partial<BotConfig>);
+    } catch (err) {
+      setActionError(errorMessage(err));
+    } finally {
+      setPendingActionId(null);
+    }
+  }
 
   if (compact) {
     return (
@@ -212,6 +278,27 @@ export function AgentReadinessPanel({
         <InfoBanner variant="success" icon={<CheckCircle2 size={14} />}>
           Ready to act with current API grants, tools, skills, and runtime context.
         </InfoBanner>
+      )}
+      {proposedActions.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <div className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+            Suggested repairs
+          </div>
+          {proposedActions.slice(0, 4).map((action) => (
+            <ProposedActionRow
+              key={action.id}
+              action={action}
+              pending={pendingActionId === action.id}
+              onApply={applyAction}
+              onOpen={(href) => navigate(href)}
+            />
+          ))}
+          {actionError && (
+            <InfoBanner variant="danger" icon={<AlertCircle size={14} />}>
+              {actionError}
+            </InfoBanner>
+          )}
+        </div>
       )}
     </section>
   );
