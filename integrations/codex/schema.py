@@ -68,29 +68,23 @@ METHOD_CONVERSATION_LIST = "conversation/list"
 METHOD_CONVERSATION_SEARCH = "conversation/search"
 METHOD_CONVERSATION_GET = "conversation/get"
 METHOD_CONVERSATION_RESPONSES_LIST = "conversation/responses/list"
-METHOD_APPS_LIST = "apps/list"
-METHOD_APPS_LAUNCH = "apps/launch"
-METHOD_COMMAND_EXECUTE = "command/execute"
-METHOD_COMMAND_STATUS = "command/status"
-METHOD_COMMAND_INPUT = "command/input"
-METHOD_COMMAND_KILL = "command/kill"
-METHOD_COMMAND_LIST = "command/list"
-METHOD_FS_READ_TEXT_FILE = "fs/readTextFile"
-METHOD_FS_WRITE_TEXT_FILE = "fs/writeTextFile"
-METHOD_FS_LIST_DIRECTORY = "fs/listDirectory"
-METHOD_FS_SEARCH = "fs/search"
-METHOD_FS_GET_FILE_INFO = "fs/getFileInfo"
-METHOD_FS_MKDIR = "fs/mkdir"
+METHOD_HOOKS_LIST = "hooks/list"
+METHOD_APPS_LIST = "app/list"
+METHOD_COMMAND_EXECUTE = "command/exec"
+METHOD_COMMAND_INPUT = "command/exec/write"
+METHOD_COMMAND_KILL = "command/exec/terminate"
+METHOD_COMMAND_RESIZE = "command/exec/resize"
+METHOD_FS_READ_TEXT_FILE = "fs/readFile"
+METHOD_FS_WRITE_TEXT_FILE = "fs/writeFile"
+METHOD_FS_LIST_DIRECTORY = "fs/readDirectory"
+METHOD_FS_GET_FILE_INFO = "fs/getMetadata"
+METHOD_FS_MKDIR = "fs/createDirectory"
 METHOD_FS_MOVE = "fs/move"
 METHOD_FS_COPY = "fs/copy"
-METHOD_FS_DELETE = "fs/delete"
+METHOD_FS_DELETE = "fs/remove"
 METHOD_FS_WATCH = "fs/watch"
 METHOD_FS_UNWATCH = "fs/unwatch"
-METHOD_FS_LIST_WATCHES = "fs/listWatches"
-METHOD_FS_GET_FILE_CONTENT = "fs/getFileContent"
-METHOD_FS_LIST_CHANGED_FILES = "fs/listChangedFiles"
-METHOD_CONFIG_REQUIREMENTS_LIST = "configRequirements/list"
-METHOD_CONFIG_REQUIREMENTS_OPEN = "configRequirements/open"
+METHOD_CONFIG_REQUIREMENTS_LIST = "configRequirements/read"
 METHOD_USER_LIMITS = "user/limits"
 METHOD_USER_LIMITS_SUBSCRIPTION = "user/limits/subscription"
 METHOD_ACCOUNT_RATE_LIMITS_READ = "account/rateLimits/read"
@@ -278,6 +272,7 @@ def verify_schema_against_binary(binary_path: str) -> None:
         user_input = _load_schema(out / "ToolRequestUserInputResponse.json")
         dynamic_tool = _load_schema(out / "DynamicToolCallResponse.json")
         token_usage = _load_schema(out / "v2" / "ThreadTokenUsageUpdatedNotification.json")
+        client_request = _load_schema(out / "ClientRequest.json")
 
     _require_property(thread_start, "dynamicTools", "ThreadStartParams")
     _require_property(turn_start, "collaborationMode", "TurnStartParams")
@@ -285,6 +280,19 @@ def verify_schema_against_binary(binary_path: str) -> None:
     _require_property(dynamic_tool, DYNAMIC_TOOL_RESULT_CONTENT_ITEMS, "DynamicToolCallResponse")
     _require_property(dynamic_tool, DYNAMIC_TOOL_RESULT_SUCCESS, "DynamicToolCallResponse")
     _require_property(token_usage, "tokenUsage", "ThreadTokenUsageUpdatedNotification")
+    _require_methods(
+        client_request,
+        (
+            METHOD_APPS_LIST,
+            METHOD_HOOKS_LIST,
+            METHOD_COMMAND_EXECUTE,
+            METHOD_FS_READ_TEXT_FILE,
+            METHOD_FS_LIST_DIRECTORY,
+            METHOD_FS_GET_FILE_INFO,
+            METHOD_CONFIG_REQUIREMENTS_LIST,
+        ),
+        "ClientRequest",
+    )
 
 
 def _load_schema(path: Path) -> dict:
@@ -298,3 +306,27 @@ def _require_property(schema_doc: dict, name: str, label: str) -> None:
     properties = schema_doc.get("properties")
     if not isinstance(properties, dict) or name not in properties:
         raise CodexSchemaError(f"{label} missing required property {name!r}")
+
+
+def _require_methods(schema_doc: dict, methods: tuple[str, ...], label: str) -> None:
+    available = _collect_schema_method_values(schema_doc)
+    for method in methods:
+        if method not in available:
+            raise CodexSchemaError(f"{label} missing required method {method!r}")
+
+
+def _collect_schema_method_values(value: object) -> set[str]:
+    found: set[str] = set()
+    if isinstance(value, dict):
+        const = value.get("const")
+        if isinstance(const, str) and "/" in const:
+            found.add(const)
+        enum = value.get("enum")
+        if isinstance(enum, list):
+            found.update(item for item in enum if isinstance(item, str) and "/" in item)
+        for child in value.values():
+            found.update(_collect_schema_method_values(child))
+    elif isinstance(value, list):
+        for child in value:
+            found.update(_collect_schema_method_values(child))
+    return found

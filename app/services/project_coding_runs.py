@@ -1290,8 +1290,10 @@ def _review_context_row(row: dict[str, Any]) -> dict[str, Any]:
             "actions": review.get("actions") or {},
         },
         "receipt": {
+            "id": receipt.get("id"),
             "status": receipt.get("status"),
             "summary": receipt.get("summary"),
+            "handoff_url": receipt.get("handoff_url"),
             "changed_files": receipt.get("changed_files") or [],
             "tests": receipt.get("tests") or [],
             "screenshots": receipt.get("screenshots") or [],

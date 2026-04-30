@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from integrations.codex import schema
 from integrations.codex.harness import (
     _build_turn_input,
@@ -325,14 +327,16 @@ def test_codex_native_command_method_constants_are_current():
     assert schema.METHOD_CONVERSATION_SEARCH == "conversation/search"
     assert schema.METHOD_CONVERSATION_GET == "conversation/get"
     assert schema.METHOD_CONVERSATION_RESPONSES_LIST == "conversation/responses/list"
-    assert schema.METHOD_COMMAND_EXECUTE == "command/execute"
-    assert schema.METHOD_COMMAND_STATUS == "command/status"
-    assert schema.METHOD_COMMAND_INPUT == "command/input"
-    assert schema.METHOD_COMMAND_KILL == "command/kill"
-    assert schema.METHOD_COMMAND_LIST == "command/list"
-    assert schema.METHOD_FS_LIST_CHANGED_FILES == "fs/listChangedFiles"
-    assert schema.METHOD_CONFIG_REQUIREMENTS_LIST == "configRequirements/list"
-    assert schema.METHOD_CONFIG_REQUIREMENTS_OPEN == "configRequirements/open"
+    assert schema.METHOD_HOOKS_LIST == "hooks/list"
+    assert schema.METHOD_APPS_LIST == "app/list"
+    assert schema.METHOD_COMMAND_EXECUTE == "command/exec"
+    assert schema.METHOD_COMMAND_INPUT == "command/exec/write"
+    assert schema.METHOD_COMMAND_KILL == "command/exec/terminate"
+    assert schema.METHOD_COMMAND_RESIZE == "command/exec/resize"
+    assert schema.METHOD_FS_READ_TEXT_FILE == "fs/readFile"
+    assert schema.METHOD_FS_LIST_DIRECTORY == "fs/readDirectory"
+    assert schema.METHOD_FS_GET_FILE_INFO == "fs/getMetadata"
+    assert schema.METHOD_CONFIG_REQUIREMENTS_LIST == "configRequirements/read"
     assert schema.METHOD_USER_LIMITS == "user/limits"
     assert schema.METHOD_USER_LIMITS_SUBSCRIPTION == "user/limits/subscription"
     assert schema.METHOD_THREAD_LIST == "thread/list"
@@ -374,6 +378,30 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_ACCOUNT_READ,
         {"refreshToken": False},
     )
+    assert _resolve_codex_native_app_server_call("hooks", ()) == (
+        schema.METHOD_HOOKS_LIST,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("apps", ()) == (
+        schema.METHOD_APPS_LIST,
+        {},
+    )
+    assert _resolve_codex_native_app_server_call("fs", ("list", "src")) == (
+        schema.METHOD_FS_LIST_DIRECTORY,
+        {"path": "src"},
+    )
+    assert _resolve_codex_native_app_server_call("fs", ("read", "README.md")) == (
+        schema.METHOD_FS_READ_TEXT_FILE,
+        {"path": "README.md"},
+    )
+    assert _resolve_codex_native_app_server_call("fs", ("info", "README.md")) == (
+        schema.METHOD_FS_GET_FILE_INFO,
+        {"path": "README.md"},
+    )
+    assert _resolve_codex_native_app_server_call("config", ("requirements",)) == (
+        schema.METHOD_CONFIG_REQUIREMENTS_LIST,
+        {},
+    )
     assert _resolve_codex_native_app_server_call("diff", ()) == (None, {})
     assert _resolve_codex_native_app_server_call("resume", ()) == (
         schema.METHOD_THREAD_LIST,
@@ -399,7 +427,10 @@ def test_codex_native_command_maps_management_methods():
         schema.METHOD_ACCOUNT_RATE_LIMITS_READ,
         {},
     )
-    assert _resolve_codex_native_app_server_call("approvals", ()) == (None, {})
+    assert _resolve_codex_native_app_server_call("approvals", ()) == (
+        schema.METHOD_CONFIG_REQUIREMENTS_LIST,
+        {},
+    )
     assert _resolve_codex_native_app_server_call("review", ()) == (None, {})
 
 
@@ -411,12 +442,31 @@ def test_codex_native_skills_list_is_scoped_to_harness_workdir():
     assert params == {"cwds": ["/tmp/project"]}
 
 
-def test_codex_native_diff_is_scoped_to_harness_workdir():
+def test_codex_native_hooks_and_fs_are_scoped_to_harness_workdir():
     ctx = _turn_ctx()
 
-    params = _codex_native_app_server_params_for_context(schema.METHOD_FS_LIST_CHANGED_FILES, {}, ctx)
+    hook_params = _codex_native_app_server_params_for_context(schema.METHOD_HOOKS_LIST, {}, ctx)
+    read_params = _codex_native_app_server_params_for_context(
+        schema.METHOD_FS_READ_TEXT_FILE,
+        {"path": "README.md"},
+        ctx,
+    )
+    list_params = _codex_native_app_server_params_for_context(
+        schema.METHOD_FS_LIST_DIRECTORY,
+        {"path": "."},
+        ctx,
+    )
 
-    assert params == {"cwd": "/tmp/project"}
+    assert hook_params == {"cwds": ["/tmp/project"]}
+    assert read_params == {"path": "/tmp/project/README.md"}
+    assert list_params == {"path": "/tmp/project"}
+
+    with pytest.raises(ValueError, match="inside the harness cwd"):
+        _codex_native_app_server_params_for_context(
+            schema.METHOD_FS_READ_TEXT_FILE,
+            {"path": "../outside.txt"},
+            ctx,
+        )
 
 
 def test_codex_native_command_classifies_mutating_args():

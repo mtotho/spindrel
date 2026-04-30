@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from . import StagedState
 from ..client import SpindrelClient
@@ -24,6 +25,27 @@ SECOND_BOUND_SECRET_NAME = "SCREENSHOT_PROJECT_NPM_TOKEN"
 CODING_RUN_REQUEST = "Prepare the Project workspace screenshot receipt and handoff evidence."
 
 
+def _screenshot_bot_model(client: SpindrelClient) -> tuple[str, str | None]:
+    """Return a provider/model pair that exists on this e2e stack."""
+    model = os.environ.get("SPINDREL_SCREENSHOT_MODEL", "").strip()
+    provider_id = os.environ.get("SPINDREL_SCREENSHOT_MODEL_PROVIDER_ID", "").strip()
+    if model and provider_id:
+        return model, provider_id
+    providers = [p for p in client.list_providers() if p.get("is_enabled", True)]
+    provider = next((p for p in providers if p.get("id") == "chatgpt-subscription"), None)
+    provider = provider or next((p for p in providers if p.get("id") == "gemini"), None)
+    provider = provider or (providers[0] if providers else None)
+    if provider is None:
+        return model or "gemini-2.5-flash-lite", provider_id or None
+    resolved_provider_id = provider_id or str(provider.get("id") or "").strip() or None
+    if model:
+        return model, resolved_provider_id
+    provider_type = str(provider.get("provider_type") or "")
+    if provider_type == "openai-subscription":
+        return "gpt-5.4-mini", resolved_provider_id
+    return "gemini-2.5-flash-lite", resolved_provider_id
+
+
 def stage_project_workspace(
     client: SpindrelClient,
     *,
@@ -42,12 +64,13 @@ def stage_project_workspace(
     if not workspaces:
         raise RuntimeError("project-workspace staging requires at least one workspace")
     workspace_id = str(workspaces[0]["id"])
+    bot_model, bot_provider_id = _screenshot_bot_model(client)
 
     bot = client.ensure_bot(
         bot_id=PROJECT_BOT_ID,
         name="Project Screenshot Bot",
-        model="gemini-2.5-flash-lite",
-        model_provider_id="gemini",
+        model=bot_model,
+        model_provider_id=bot_provider_id,
         system_prompt=(
             "You are a screenshot fixture bot. When asked to use memory, call the "
             "host-provided memory tool exactly as requested and then answer briefly."
@@ -55,8 +78,8 @@ def stage_project_workspace(
     )
     client.update_bot(
         str(bot["id"]),
-        model="gemini-2.5-flash-lite",
-        model_provider_id="gemini",
+        model=bot_model,
+        model_provider_id=bot_provider_id,
         memory_scheme="workspace-files",
     )
     state.bots["project_bot"] = PROJECT_BOT_ID

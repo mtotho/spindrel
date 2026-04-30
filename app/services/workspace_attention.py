@@ -571,6 +571,66 @@ async def publish_issue_intake(
     )
 
 
+async def create_issue_intake_note(
+    db: AsyncSession,
+    *,
+    actor: str,
+    channel_id: uuid.UUID | None,
+    title: str,
+    summary: str,
+    observed_behavior: str | None = None,
+    expected_behavior: str | None = None,
+    steps: list[str] | None = None,
+    severity: str = "warning",
+    category_hint: str = "bug",
+    project_hint: str | None = None,
+    tags: list[str] | None = None,
+) -> WorkspaceAttentionItem:
+    """Create a user/admin-authored issue intake item without requiring a bot turn."""
+    clean_title = (title or "").strip()
+    clean_summary = (summary or "").strip()
+    if not clean_title:
+        raise ValidationError("title is required.")
+    if not clean_summary:
+        raise ValidationError("summary is required.")
+    if severity not in VALID_SEVERITIES:
+        severity = "warning"
+    category = normalize_dedupe_key(category_hint or "bug").replace("-", "_")
+    if category not in ISSUE_INTAKE_CATEGORIES:
+        category = "other"
+    target_kind = "channel" if channel_id else "system"
+    target_id = str(channel_id) if channel_id else "workspace"
+    clean_steps = [str(step).strip() for step in (steps or []) if str(step).strip()]
+    evidence = {
+        "issue_intake": {
+            "reported_by": actor,
+            "reported_at": _now().isoformat(),
+            "category_hint": category,
+            "project_hint": (project_hint or "").strip() or None,
+            "tags": [str(tag).strip() for tag in (tags or []) if str(tag).strip()][:12],
+            "observed_behavior": (observed_behavior or "").strip() or None,
+            "expected_behavior": (expected_behavior or "").strip() or None,
+            "steps": clean_steps[:20],
+            "source": "user",
+        },
+    }
+    return await place_attention_item(
+        db,
+        source_type="user",
+        source_id=actor or "user",
+        channel_id=channel_id,
+        target_kind=target_kind,
+        target_id=target_id,
+        title=clean_title[:500],
+        message=clean_summary[:8000],
+        severity=severity,
+        requires_response=True,
+        next_steps=["Triage this issue into a work pack before launching implementation."],
+        dedupe_key=f"issue-intake:{uuid.uuid4()}",
+        evidence=evidence,
+    )
+
+
 async def _fold_system_signal_into_bot_report(
     db: AsyncSession,
     *,
@@ -1953,6 +2013,97 @@ def _normalize_work_pack_category(value: Any) -> str:
 def _normalize_confidence(value: Any) -> str:
     confidence = str(value or "medium").strip().lower()
     return confidence if confidence in {"low", "medium", "high"} else "medium"
+
+
+async def create_manual_issue_work_pack(
+    db: AsyncSession,
+    *,
+    actor: str | None,
+    title: str,
+    summary: str,
+    category: str,
+    confidence: str,
+    source_item_ids: list[str],
+    launch_prompt: str = "",
+    project_id: uuid.UUID | None = None,
+    channel_id: uuid.UUID | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> IssueWorkPack:
+    clean_title = str(title or "").strip()
+    clean_summary = str(summary or "").strip()
+    if not clean_title:
+        raise ValidationError("title is required.")
+    parsed_item_ids: list[str] = []
+    for raw in source_item_ids or []:
+        try:
+            item_id = str(uuid.UUID(str(raw)))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(f"Invalid source item id: {raw!r}") from exc
+        item = await db.get(WorkspaceAttentionItem, uuid.UUID(item_id))
+        if item is None:
+            raise ValidationError(f"Source attention item not found: {item_id}")
+        if item_id not in parsed_item_ids:
+            parsed_item_ids.append(item_id)
+    if not parsed_item_ids:
+        raise ValidationError("At least one source item id is required.")
+    if project_id and await db.get(Project, project_id) is None:
+        raise ValidationError("Project not found.")
+    if channel_id and await db.get(Channel, channel_id) is None:
+        raise ValidationError("Channel not found.")
+
+    normalized_category = _normalize_work_pack_category(category)
+    normalized_confidence = _normalize_confidence(confidence)
+    prompt = str(launch_prompt or "").strip() or (
+        f"{clean_title}\n\n"
+        f"{clean_summary}\n\n"
+        "Use the linked issue intake as evidence. Start with a regression test where applicable, "
+        "fix the root cause, run focused verification, and publish a Project run receipt."
+    )
+    now = _now()
+    pack = IssueWorkPack(
+        title=clean_title[:500],
+        summary=clean_summary[:8000],
+        category=normalized_category,
+        confidence=normalized_confidence,
+        status="needs_info" if normalized_category == "needs_info" else "proposed",
+        source_item_ids=parsed_item_ids,
+        launch_prompt=prompt[:12000],
+        project_id=project_id,
+        channel_id=channel_id,
+        metadata_={
+            **(metadata or {}),
+            "created_by": actor,
+            "created_at": now.isoformat(),
+            "source": "manual",
+        },
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(pack)
+    await db.flush()
+    for item_id in parsed_item_ids:
+        item = await db.get(WorkspaceAttentionItem, uuid.UUID(item_id))
+        if item is None:
+            continue
+        evidence = dict(item.evidence or {})
+        triage = dict(evidence.get("issue_triage") or {})
+        pack_ids = list(triage.get("work_pack_ids") or [])
+        if str(pack.id) not in pack_ids:
+            pack_ids.append(str(pack.id))
+        triage.update({
+            "state": "packed" if pack.status == "proposed" else pack.status,
+            "work_pack_ids": pack_ids,
+            "manual": True,
+            "actor": actor,
+            "updated_at": now.isoformat(),
+        })
+        evidence["issue_triage"] = triage
+        item.evidence = evidence
+        item.updated_at = now
+        flag_modified(item, "evidence")
+    await db.commit()
+    await db.refresh(pack)
+    return pack
 
 
 async def report_issue_work_packs(

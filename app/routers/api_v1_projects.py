@@ -17,6 +17,7 @@ from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunContinue,
     ProjectCodingRunReviewCreate,
+    ProjectCodingRunReviewFinalize,
     ProjectCodingRunScheduleCreate,
     ProjectCodingRunScheduleUpdate,
     ProjectMachineTargetGrant,
@@ -26,8 +27,10 @@ from app.services.project_coding_runs import (
     create_project_coding_run_review_session,
     create_project_coding_run_schedule,
     disable_project_coding_run_schedule,
+    finalize_project_coding_run_review,
     fire_project_coding_run_schedule,
     get_project_coding_run,
+    get_project_coding_run_review_context,
     list_project_coding_run_schedules,
     list_project_coding_runs,
     mark_project_coding_run_reviewed,
@@ -275,6 +278,16 @@ class ProjectCodingRunReviewSessionWrite(BaseModel):
     prompt: str = ""
     merge_method: str = "squash"
     machine_target_grant: ProjectMachineTargetGrantIn | None = None
+
+
+class ProjectCodingRunReviewFinalizeWrite(BaseModel):
+    review_task_id: uuid.UUID
+    run_task_id: uuid.UUID
+    outcome: str = "accepted"
+    summary: str = ""
+    details: dict = Field(default_factory=dict)
+    merge: bool = False
+    merge_method: str = "squash"
 
 
 class ProjectCodingRunScheduleWrite(BaseModel):
@@ -1188,6 +1201,50 @@ async def create_project_coding_run_review_session_endpoint(
         "error": task.error,
         "machine_target_grant": await task_machine_grant_payload(db, task),
     })
+
+
+@router.get("/{project_id}/coding-runs/review-sessions/{review_task_id}/context")
+async def get_project_coding_run_review_context_endpoint(
+    project_id: uuid.UUID,
+    review_task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    try:
+        return await get_project_coding_run_review_context(db, project, review_task_id)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Project coding-run review task not found":
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=422, detail=message) from exc
+
+
+@router.post("/{project_id}/coding-runs/review-finalize")
+async def finalize_project_coding_run_review_endpoint(
+    project_id: uuid.UUID,
+    body: ProjectCodingRunReviewFinalizeWrite,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return await finalize_project_coding_run_review(
+        db,
+        project,
+        ProjectCodingRunReviewFinalize(
+            review_task_id=body.review_task_id,
+            run_task_id=body.run_task_id,
+            outcome=body.outcome,
+            summary=body.summary,
+            details=body.details,
+            merge=body.merge,
+            merge_method=body.merge_method,
+        ),
+    )
 
 
 @router.post("/{project_id}/coding-runs/{task_id}/refresh", response_model=ProjectCodingRunOut)

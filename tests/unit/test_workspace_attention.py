@@ -17,6 +17,8 @@ from app.services.workspace_attention import (
     build_attention_brief_from_serialized,
     build_attention_assignment_block,
     create_attention_triage_run,
+    create_issue_intake_note,
+    create_manual_issue_work_pack,
     create_user_attention_item,
     detect_structured_attention_once,
     get_attention_triage_run,
@@ -199,6 +201,51 @@ async def test_publish_issue_intake_creates_conversational_attention_item(db_ses
     assert item.evidence["issue_intake"]["source"] == "conversation"
     assert item.evidence["issue_intake"]["category_hint"] == "quality"
     assert item.evidence["issue_intake"]["steps"] == ["Open Mission Control Review", "Launch a work pack"]
+
+
+async def test_create_issue_intake_note_creates_user_issue_intake(db_session):
+    item = await create_issue_intake_note(
+        db_session,
+        actor="api_key:e2e",
+        channel_id=None,
+        title="Project Factory note",
+        summary="A rough issue note should be triageable later.",
+        category_hint="quality",
+        tags=["e2e"],
+    )
+
+    assert item.source_type == "user"
+    assert item.target_kind == "system"
+    assert item.evidence["issue_intake"]["source"] == "user"
+    assert item.evidence["issue_intake"]["category_hint"] == "quality"
+
+
+async def test_create_manual_issue_work_pack_links_source_items(db_session):
+    item = await create_issue_intake_note(
+        db_session,
+        actor="api_key:e2e",
+        channel_id=None,
+        title="Runs row lacks review evidence",
+        summary="The review cockpit should show receipt provenance.",
+    )
+
+    pack = await create_manual_issue_work_pack(
+        db_session,
+        actor="api_key:e2e",
+        title="Expose review evidence in Project Runs",
+        summary="Surface receipt and review provenance on the run row.",
+        category="code_bug",
+        confidence="high",
+        source_item_ids=[str(item.id)],
+        launch_prompt="Implement the review evidence display and publish a receipt.",
+    )
+
+    assert pack.status == "proposed"
+    assert pack.source_item_ids == [str(item.id)]
+    refreshed = await db_session.get(type(item), item.id)
+    triage = refreshed.evidence["issue_triage"]
+    assert triage["state"] == "packed"
+    assert triage["work_pack_ids"] == [str(pack.id)]
 
 
 @pytest.mark.asyncio

@@ -549,6 +549,93 @@ class E2EClient:
         data = resp.json()
         return data["channels"] if isinstance(data, dict) and "channels" in data else data
 
+    async def create_project(self, project_data: dict[str, Any]) -> dict:
+        """POST /api/v1/projects — create a Project."""
+        resp = await self._client.post("/api/v1/projects", json=project_data)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_issue_intake(self, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/workspace/attention/issue-intake."""
+        resp = await self._client.post("/api/v1/workspace/attention/issue-intake", json=payload)
+        resp.raise_for_status()
+        return resp.json()["item"]
+
+    async def create_issue_work_pack(self, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/workspace/attention/issue-work-packs."""
+        resp = await self._client.post("/api/v1/workspace/attention/issue-work-packs", json=payload)
+        resp.raise_for_status()
+        return resp.json()["work_pack"]
+
+    async def list_issue_work_packs(self, *, status: str | None = None) -> list[dict]:
+        """GET /api/v1/workspace/attention/issue-work-packs."""
+        params = {"status": status} if status else None
+        resp = await self._client.get("/api/v1/workspace/attention/issue-work-packs", params=params)
+        resp.raise_for_status()
+        return resp.json()["work_packs"]
+
+    async def launch_issue_work_pack_project_run(
+        self,
+        pack_id: str,
+        *,
+        project_id: str,
+        channel_id: str,
+    ) -> dict:
+        """POST /api/v1/workspace/attention/issue-work-packs/{id}/launch-project-run."""
+        resp = await self._client.post(
+            f"/api/v1/workspace/attention/issue-work-packs/{pack_id}/launch-project-run",
+            json={"project_id": project_id, "channel_id": channel_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_project_coding_runs(self, project_id: str) -> list[dict]:
+        """GET /api/v1/projects/{id}/coding-runs."""
+        resp = await self._client.get(f"/api/v1/projects/{project_id}/coding-runs")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_project_run_receipt(self, project_id: str, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/projects/{id}/run-receipts."""
+        resp = await self._client.post(f"/api/v1/projects/{project_id}/run-receipts", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_project_review_session(self, project_id: str, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/projects/{id}/coding-runs/review-sessions."""
+        resp = await self._client.post(f"/api/v1/projects/{project_id}/coding-runs/review-sessions", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_project_review_context(self, project_id: str, review_task_id: str) -> dict:
+        """GET /api/v1/projects/{id}/coding-runs/review-sessions/{task}/context."""
+        resp = await self._client.get(
+            f"/api/v1/projects/{project_id}/coding-runs/review-sessions/{review_task_id}/context"
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def finalize_project_review(self, project_id: str, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/projects/{id}/coding-runs/review-finalize."""
+        resp = await self._client.post(f"/api/v1/projects/{project_id}/coding-runs/review-finalize", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def mark_project_coding_runs_reviewed(
+        self,
+        project_id: str,
+        *,
+        task_ids: list[str],
+        note: str,
+    ) -> list[dict]:
+        """POST /api/v1/projects/{id}/coding-runs/reviewed."""
+        resp = await self._client.post(
+            f"/api/v1/projects/{project_id}/coding-runs/reviewed",
+            json={"task_ids": task_ids, "note": note},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def create_channel_session(self, channel_id: str) -> str:
         """POST /api/v1/channels/{channel_id}/sessions and return the new session id."""
         resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions")

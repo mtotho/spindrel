@@ -108,6 +108,12 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    def list_providers(self) -> list[dict]:
+        r = self._http.get("/api/v1/admin/providers")
+        r.raise_for_status()
+        data = r.json()
+        return data.get("providers", []) if isinstance(data, dict) else list(data or [])
+
     # --- channels ----------------------------------------------------------
 
     def ensure_channel(

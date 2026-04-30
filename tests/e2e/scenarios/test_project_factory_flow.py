@@ -1,0 +1,154 @@
+"""Project Factory contract flow.
+
+This intentionally stays model-free: it validates the durable surfaces that
+nightly/agentic Project work will use before a live harness agent does the
+expensive part.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+
+from tests.e2e.harness.client import E2EClient
+
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.e2e]
+
+
+async def test_issue_intake_to_work_pack_to_reviewed_project_run(client: E2EClient) -> None:
+    suffix = uuid.uuid4().hex[:8]
+    project = await client.create_project({
+        "name": f"Factory E2E {suffix}",
+        "slug": f"factory-e2e-{suffix}",
+        "root_path": f"scratch/project-factory-e2e/{suffix}",
+        "metadata_": {"e2e": True, "scenario": "project_factory_flow"},
+    })
+    channel = await client.create_channel({
+        "name": f"Factory E2E {suffix}",
+        "client_id": client.new_client_id("e2e-factory"),
+        "bot_id": client.default_bot_id,
+        "project_id": project["id"],
+        "private": True,
+    })
+
+    broken_widget = await client.create_issue_intake({
+        "channel_id": channel["id"],
+        "title": f"Factory E2E broken widget {suffix}",
+        "summary": "Workspace Review opens but the task list never refreshes.",
+        "observed_behavior": "The task list stays stale after a new run is created.",
+        "expected_behavior": "New Project coding runs appear without a manual refresh.",
+        "steps": ["Open Workspace Review", "Launch a Project coding run", "Check the run list"],
+        "severity": "warning",
+        "category_hint": "bug",
+        "project_hint": project["slug"],
+        "tags": ["project-factory", "review"],
+    })
+    review_gap = await client.create_issue_intake({
+        "channel_id": channel["id"],
+        "title": f"Factory E2E missing review marker {suffix}",
+        "summary": "Accepted Project coding runs need durable reviewed provenance.",
+        "observed_behavior": "A reviewer can accept work without a linked review session.",
+        "expected_behavior": "Accepted runs link back to the review session and summary.",
+        "steps": ["Create a run receipt", "Create a review session", "Accept the run"],
+        "severity": "warning",
+        "category_hint": "bug",
+        "project_hint": project["slug"],
+        "tags": ["project-factory", "review"],
+    })
+    planning_note = await client.create_issue_intake({
+        "channel_id": channel["id"],
+        "title": f"Factory E2E future planning note {suffix}",
+        "summary": "Consider richer planning notes before launching broad product changes.",
+        "severity": "info",
+        "category_hint": "idea",
+        "project_hint": project["slug"],
+        "tags": ["planning"],
+    })
+
+    code_pack = await client.create_issue_work_pack({
+        "title": f"Factory E2E review refresh pack {suffix}",
+        "summary": "Fix stale Project Review run list and durable reviewed provenance together.",
+        "category": "code_bug",
+        "confidence": "high",
+        "source_item_ids": [broken_widget["id"], review_gap["id"]],
+        "launch_prompt": "Implement the Project Review refresh/provenance fix and include e2e evidence.",
+        "project_id": project["id"],
+        "channel_id": channel["id"],
+        "metadata": {"scenario": "project_factory_flow", "kind": "code"},
+    })
+    needs_info_pack = await client.create_issue_work_pack({
+        "title": f"Factory E2E planning note pack {suffix}",
+        "summary": "Future planning note should not launch implementation without a plan.",
+        "category": "needs_info",
+        "confidence": "low",
+        "source_item_ids": [planning_note["id"]],
+        "project_id": project["id"],
+        "channel_id": channel["id"],
+        "metadata": {"scenario": "project_factory_flow", "kind": "planning"},
+    })
+
+    packs = await client.list_issue_work_packs()
+    assert any(pack["id"] == code_pack["id"] and pack["status"] == "proposed" for pack in packs)
+    assert any(pack["id"] == needs_info_pack["id"] and pack["status"] == "needs_info" for pack in packs)
+
+    launched = await client.launch_issue_work_pack_project_run(
+        code_pack["id"],
+        project_id=project["id"],
+        channel_id=channel["id"],
+    )
+    run = launched["run"]
+    task_id = run["task"]["id"]
+    assert launched["work_pack"]["status"] == "launched"
+    assert launched["work_pack"]["launched_task_id"] == task_id
+    assert run["source_work_pack_id"] == code_pack["id"]
+
+    receipt = await client.create_project_run_receipt(project["id"], {
+        "task_id": task_id,
+        "bot_id": client.default_bot_id,
+        "idempotency_key": f"project-factory-e2e:{suffix}",
+        "status": "needs_review",
+        "summary": "Factory e2e deterministic coding receipt.",
+        "handoff_type": "github_pr",
+        "handoff_url": f"https://github.com/example/project-factory-e2e/pull/{suffix}",
+        "branch": f"e2e/factory-{suffix}",
+        "base_branch": "development",
+        "commit_sha": "0" * 40,
+        "changed_files": [{"path": "FACTORY_E2E.md", "status": "modified"}],
+        "tests": [{"command": "pytest tests/e2e/scenarios/test_project_factory_flow.py", "status": "passed"}],
+        "screenshots": [{"path": "docs/images/project-workspace-runs.png", "status": "referenced"}],
+        "metadata": {"scenario": "project_factory_flow", "work_pack_id": code_pack["id"]},
+    })
+    assert receipt["task_id"] == task_id
+    assert receipt["handoff_url"].endswith(f"/{suffix}")
+
+    review = await client.create_project_review_session(project["id"], {
+        "channel_id": channel["id"],
+        "task_ids": [task_id],
+        "prompt": "Review the selected factory e2e run. Accept without merging.",
+        "merge_method": "squash",
+    })
+    review_context = await client.get_project_review_context(project["id"], review["id"])
+    assert review_context["ok"] is True
+    assert review_context["readiness"]["ready"] is True
+    assert review_context["selected_task_ids"] == [task_id]
+    assert review_context["selected_runs"][0]["receipt"]["id"] == receipt["id"]
+
+    finalized = await client.finalize_project_review(project["id"], {
+        "review_task_id": review["id"],
+        "run_task_id": task_id,
+        "outcome": "accepted",
+        "summary": "Factory e2e review accepted the deterministic Project run.",
+        "details": {"checks": "passed", "scenario": "project_factory_flow"},
+        "merge": False,
+        "merge_method": "squash",
+    })
+    assert finalized["ok"] is True
+    assert finalized["status"] == "reviewed"
+    assert finalized["run"]["review"]["status"] == "reviewed"
+    assert finalized["run"]["review"]["review_task_id"] == review["id"]
+    assert finalized["run"]["review"]["reviewed_by"] == "agent"
+
+    remaining_needs_info = await client.list_issue_work_packs(status="needs_info")
+    assert any(pack["id"] == needs_info_pack["id"] and pack["launched_task_id"] is None for pack in remaining_needs_info)

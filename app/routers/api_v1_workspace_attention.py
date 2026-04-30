@@ -15,7 +15,9 @@ from app.services.workspace_attention import (
     assign_attention_item,
     actor_label,
     create_attention_triage_run,
+    create_issue_intake_note,
     create_issue_intake_triage_run,
+    create_manual_issue_work_pack,
     create_user_attention_item,
     get_attention_brief,
     get_attention_triage_run,
@@ -92,6 +94,31 @@ class IssueWorkPacksResponse(BaseModel):
     work_packs: list[dict]
 
 
+class IssueIntakeCreateRequest(BaseModel):
+    channel_id: uuid.UUID | None = None
+    title: str
+    summary: str
+    observed_behavior: str | None = None
+    expected_behavior: str | None = None
+    steps: list[str] = Field(default_factory=list)
+    severity: str = "warning"
+    category_hint: str = "bug"
+    project_hint: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class IssueWorkPackCreateRequest(BaseModel):
+    title: str
+    summary: str = ""
+    category: str = "code_bug"
+    confidence: str = "medium"
+    source_item_ids: list[uuid.UUID] = Field(default_factory=list)
+    launch_prompt: str = ""
+    project_id: uuid.UUID | None = None
+    channel_id: uuid.UUID | None = None
+    metadata: dict = Field(default_factory=dict)
+
+
 class IssueWorkPackLaunchRequest(BaseModel):
     project_id: uuid.UUID
     channel_id: uuid.UUID
@@ -118,6 +145,32 @@ async def create_attention_item_route(
             severity=body.severity,
             requires_response=body.requires_response,
             next_steps=body.next_steps,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"item": await serialize_attention_item(db, item)}
+
+
+@router.post("/issue-intake", status_code=201)
+async def create_issue_intake_route(
+    body: IssueIntakeCreateRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        item = await create_issue_intake_note(
+            db,
+            actor=actor_label(auth) or "user",
+            channel_id=body.channel_id,
+            title=body.title,
+            summary=body.summary,
+            observed_behavior=body.observed_behavior,
+            expected_behavior=body.expected_behavior,
+            steps=body.steps,
+            severity=body.severity,
+            category_hint=body.category_hint,
+            project_hint=body.project_hint,
+            tags=body.tags,
         )
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
@@ -218,6 +271,31 @@ async def list_issue_work_packs_route(
     db: AsyncSession = Depends(get_db),
 ):
     return {"work_packs": await list_issue_work_packs(db, status=status, limit=limit)}
+
+
+@router.post("/issue-work-packs", status_code=201)
+async def create_issue_work_pack_route(
+    body: IssueWorkPackCreateRequest,
+    auth=Depends(require_scopes("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        pack = await create_manual_issue_work_pack(
+            db,
+            actor=actor_label(auth),
+            title=body.title,
+            summary=body.summary,
+            category=body.category,
+            confidence=body.confidence,
+            source_item_ids=[str(item_id) for item_id in body.source_item_ids],
+            launch_prompt=body.launch_prompt,
+            project_id=body.project_id,
+            channel_id=body.channel_id,
+            metadata=body.metadata,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"work_pack": await serialize_issue_work_pack(db, pack)}
 
 
 @router.get("/issue-work-packs/{pack_id}")

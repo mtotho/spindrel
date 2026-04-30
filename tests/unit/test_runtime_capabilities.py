@@ -101,14 +101,17 @@ def test_codex_capabilities_shape():
     assert {cmd.id for cmd in caps.native_commands} >= {
         "config", "mcp-status", "plugins", "skills", "features", "marketplace",
         "status", "diff", "undo", "branch", "resume", "review", "cloud",
-        "agents", "prompts", "approvals", "editor", "init",
+        "agents", "hooks", "apps", "fs", "prompts", "approvals", "editor", "init",
     }
     aliases = {alias for cmd in caps.native_commands for alias in cmd.aliases}
-    assert {"mcp", "plugin", "feature", "marketplaces", "agent"} <= aliases
+    assert {"mcp", "plugin", "feature", "marketplaces", "agent", "app"} <= aliases
     by_id = {cmd.id: cmd for cmd in caps.native_commands}
     assert by_id["plugins"].mutability == "argument_sensitive"
     assert by_id["plugins"].readonly is False
     assert by_id["mcp-status"].mutability == "readonly"
+    assert by_id["hooks"].mutability == "readonly"
+    assert by_id["apps"].mutability == "readonly"
+    assert by_id["fs"].mutability == "readonly"
     assert by_id["diff"].interaction_kind == "structured"
     assert by_id["review"].fallback_behavior == "terminal"
     assert by_id["undo"].mutability == "mutating"
@@ -276,6 +279,41 @@ async def test_codex_native_unknown_app_server_method_returns_terminal_handoff(m
     assert result.status == "terminal_handoff"
     assert result.payload["method"] == "user/limits/subscription"
     assert result.payload["suggested_command"] == "codex cloud subscription"
+
+
+@pytest.mark.asyncio
+async def test_codex_native_apps_hooks_and_fs_route_to_current_app_server_methods(monkeypatch):
+    from integrations.codex import harness as codex_harness
+    from integrations.codex.harness import CodexRuntime
+
+    calls: list[tuple[str, dict]] = []
+
+    class _FakeClient:
+        async def initialize(self):
+            return {}
+
+        async def request(self, method, params, *, timeout=60.0):
+            calls.append((method, params))
+            return {"ok": True}
+
+    @asynccontextmanager
+    async def _fake_spawn(*, extra_env=None):
+        yield _FakeClient()
+
+    monkeypatch.setattr(codex_harness.CodexAppServer, "spawn", _fake_spawn)
+    ctx = SimpleNamespace(env={}, workdir="/tmp/project")
+
+    await CodexRuntime().execute_native_command(command_id="apps", args=(), ctx=ctx)
+    await CodexRuntime().execute_native_command(command_id="hooks", args=(), ctx=ctx)
+    await CodexRuntime().execute_native_command(command_id="fs", args=("read", "README.md"), ctx=ctx)
+    await CodexRuntime().execute_native_command(command_id="approvals", args=(), ctx=ctx)
+
+    assert calls == [
+        ("app/list", {}),
+        ("hooks/list", {"cwds": ["/tmp/project"]}),
+        ("fs/readFile", {"path": "/tmp/project/README.md"}),
+        ("configRequirements/read", {}),
+    ]
 
 
 def test_codex_native_mutating_args_require_approval():

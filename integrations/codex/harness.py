@@ -117,6 +117,22 @@ _CODEX_NATIVE_COMMANDS: tuple[HarnessRuntimeCommandSpec, ...] = (
         description="Show Codex native account/status details.",
     ),
     HarnessRuntimeCommandSpec(
+        id="hooks",
+        label="hooks",
+        description="List Codex native hooks visible from the harness cwd.",
+    ),
+    HarnessRuntimeCommandSpec(
+        id="apps",
+        label="apps",
+        description="List Codex app-server apps/connectors when supported.",
+        aliases=("app",),
+    ),
+    HarnessRuntimeCommandSpec(
+        id="fs",
+        label="fs",
+        description="Read Codex app-server filesystem diagnostics inside the harness cwd.",
+    ),
+    HarnessRuntimeCommandSpec(
         id="diff",
         label="diff",
         description="Show Codex-visible workspace changes when the app-server supports it.",
@@ -638,6 +654,7 @@ def _codex_native_terminal_command(command_id: str, args: tuple[str, ...]) -> st
         "plugins": "plugin",
         "features": "features",
         "marketplace": "marketplace",
+        "apps": "app",
     }.get(command_id, command_id)
     return " ".join(("codex", cli_command, *args))
 
@@ -673,8 +690,15 @@ def _codex_native_app_server_params_for_context(
         return params
     if method == schema.METHOD_SKILLS_LIST and not params.get("cwds"):
         return {**params, "cwds": [ctx.workdir]}
-    if method == schema.METHOD_FS_LIST_CHANGED_FILES and not params.get("cwd"):
-        return {**params, "cwd": ctx.workdir}
+    if method == schema.METHOD_HOOKS_LIST and not params.get("cwds"):
+        return {**params, "cwds": [ctx.workdir]}
+    if method in {
+        schema.METHOD_FS_READ_TEXT_FILE,
+        schema.METHOD_FS_LIST_DIRECTORY,
+        schema.METHOD_FS_GET_FILE_INFO,
+    }:
+        raw_path = str(params.get("path") or ".")
+        return {**params, "path": _codex_native_resolve_read_path(ctx.workdir, raw_path)}
     return params
 
 
@@ -688,6 +712,8 @@ def _resolve_codex_native_app_server_call(
     if command_id == "config":
         if not cleaned or first in {"read", "list", "show"}:
             return schema.METHOD_CONFIG_READ, {}
+        if first in {"requirements", "requirement"}:
+            return schema.METHOD_CONFIG_REQUIREMENTS_LIST, {}
         if first in {"set", "write", "upsert", "replace"} and len(cleaned) >= 3:
             key = cleaned[1]
             value = _parse_codex_config_value(" ".join(cleaned[2:]))
@@ -759,6 +785,23 @@ def _resolve_codex_native_app_server_call(
         if not cleaned:
             return schema.METHOD_ACCOUNT_READ, {"refreshToken": False}
         return None, {}
+    if command_id == "hooks":
+        if not cleaned or first == "list":
+            return schema.METHOD_HOOKS_LIST, {}
+        return None, {}
+    if command_id == "apps":
+        if not cleaned or first == "list":
+            return schema.METHOD_APPS_LIST, {}
+        # Launch/open flows are app-owned and not exposed by the current app-server schema.
+        return None, {}
+    if command_id == "fs":
+        if not cleaned or first in {"list", "ls"}:
+            return schema.METHOD_FS_LIST_DIRECTORY, {"path": cleaned[1] if len(cleaned) >= 2 else "."}
+        if first in {"read", "cat", "show"} and len(cleaned) >= 2:
+            return schema.METHOD_FS_READ_TEXT_FILE, {"path": cleaned[1]}
+        if first in {"info", "stat", "metadata"} and len(cleaned) >= 2:
+            return schema.METHOD_FS_GET_FILE_INFO, {"path": cleaned[1]}
+        return None, {}
     if command_id == "diff":
         return None, {}
     if command_id == "resume":
@@ -788,10 +831,21 @@ def _resolve_codex_native_app_server_call(
             return schema.METHOD_USER_LIMITS_SUBSCRIPTION, {}
         return None, {}
     if command_id == "approvals":
+        if not cleaned or first in {"list", "status", "show", "requirements"}:
+            return schema.METHOD_CONFIG_REQUIREMENTS_LIST, {}
         return None, {}
     if command_id in {"undo", "branch", "review", "prompts", "editor", "init"}:
         return None, {}
     return None
+
+
+def _codex_native_resolve_read_path(workdir: str, raw_path: str) -> str:
+    base = os.path.realpath(workdir)
+    candidate = raw_path if os.path.isabs(raw_path) else os.path.join(base, raw_path)
+    resolved = os.path.realpath(candidate)
+    if resolved == base or resolved.startswith(base + os.sep):
+        return resolved
+    raise ValueError("Codex native fs command path must stay inside the harness cwd")
 
 
 def _codex_app_server_error_is_unknown_method(exc: CodexAppServerError) -> bool:

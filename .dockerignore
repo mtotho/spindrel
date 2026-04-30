@@ -1,4 +1,5 @@
 ui/node_modules
+integrations/**/node_modules
 ui/dist
 ui/.expo
 android-client

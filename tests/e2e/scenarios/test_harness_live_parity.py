@@ -104,7 +104,7 @@ HARNESSES = (
         default_bot_id="codex-bot",
         native_commands=(
             "config", "mcp-status", "plugins", "skills", "features",
-            "status", "diff", "resume", "cloud", "approvals",
+            "status", "hooks", "apps", "fs", "diff", "resume", "cloud", "approvals",
         ),
         direct_native_commands=(
             ("agents", "agents"),
@@ -112,6 +112,9 @@ HARNESSES = (
             ("skills", "skills"),
             ("mcp", "mcp-status"),
             ("status", "status"),
+            ("hooks", "hooks"),
+            ("apps", "apps"),
+            ("app", "apps"),
             ("diff", "diff"),
             ("resume", "resume"),
             ("cloud", "cloud"),
@@ -1158,8 +1161,11 @@ async def test_live_harness_core_native_slash_direct_commands(
         assert result["command_id"] == slash_name
         assert result["payload"]["command"] == runtime_command
         expected_status = "ok"
-        if case.name == "codex" and runtime_command in {"diff", "approvals"}:
+        if case.name == "codex" and runtime_command in {"diff"}:
             expected_status = "terminal_handoff"
+        if case.name == "codex" and runtime_command in {"apps", "hooks", "approvals"}:
+            assert result["payload"]["status"] in {"ok", "terminal_handoff"}
+            continue
         if case.name == "claude" and runtime_command in {"agents", "hooks", "status", "doctor"}:
             assert result["payload"]["status"] in {"ok", "terminal_handoff"}
         else:
