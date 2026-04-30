@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { Check, Columns2, CornerDownLeft, MessageSquare, Plus, Search, Star, X } from "lucide-react";
+import {
+  Check,
+  Columns2,
+  CornerDownLeft,
+  MessageSquare,
+  Plus,
+  Search,
+  Star,
+  X,
+} from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buildChannelSessionPickerGroups,
@@ -14,6 +23,7 @@ import {
 import { apiFetch } from "@/src/api/client";
 import {
   channelSessionCatalogKey,
+  useDeleteSession,
   useChannelSessionCatalog,
   useChannelSessionSearch,
   usePromoteScratchSession,
@@ -21,6 +31,7 @@ import {
   useResetScratchSession,
   useScratchHistory,
 } from "@/src/api/hooks/useChannelSessions";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 
 interface SessionPickerOverlayProps {
   open: boolean;
@@ -29,7 +40,10 @@ interface SessionPickerOverlayProps {
   botId?: string | null;
   channelLabel?: string | null;
   selectedSessionId?: string | null;
-  onActivateSurface: (surface: ChannelSessionSurface, intent: ChannelSessionActivationIntent) => void;
+  onActivateSurface: (
+    surface: ChannelSessionSurface,
+    intent: ChannelSessionActivationIntent,
+  ) => void;
   allowSplit?: boolean;
   mode?: "switch" | "split";
   hiddenSurfaces?: ChannelSessionSurface[];
@@ -51,10 +65,19 @@ export function SessionPickerOverlay({
 }: SessionPickerOverlayProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
-  const { data: history, isLoading, error } = useScratchHistory(open ? channelId : null);
-  const { data: channelSessions, isLoading: catalogLoading, error: catalogError } = useChannelSessionCatalog(open ? channelId : null);
+  const {
+    data: history,
+    isLoading,
+    error,
+  } = useScratchHistory(open ? channelId : null);
+  const {
+    data: channelSessions,
+    isLoading: catalogLoading,
+    error: catalogError,
+  } = useChannelSessionCatalog(open ? channelId : null);
   const resetScratch = useResetScratchSession();
   const promoteScratch = usePromoteScratchSession();
+  const deleteSession = useDeleteSession();
   const promoteChannelSession = useMutation({
     mutationFn: (sessionId: string) =>
       apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
@@ -62,7 +85,9 @@ export function SessionPickerOverlay({
         body: JSON.stringify({ session_id: sessionId }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: channelSessionCatalogKey(channelId) });
+      queryClient.invalidateQueries({
+        queryKey: channelSessionCatalogKey(channelId),
+      });
       queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
       onClose();
@@ -70,6 +95,7 @@ export function SessionPickerOverlay({
     },
   });
   const renameSession = useRenameSession();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -108,11 +134,20 @@ export function SessionPickerOverlay({
     };
   }, [mode, open]);
 
-  const hiddenKeys = useMemo(() => new Set(hiddenSurfaces.map((surface) => {
-    if (surface.kind === "primary") return "primary";
-    return `${surface.kind}:${surface.sessionId}`;
-  })), [hiddenSurfaces]);
-  const openKeys = useMemo(() => new Set(openSurfaces.map(surfaceKey)), [openSurfaces]);
+  const hiddenKeys = useMemo(
+    () =>
+      new Set(
+        hiddenSurfaces.map((surface) => {
+          if (surface.kind === "primary") return "primary";
+          return `${surface.kind}:${surface.sessionId}`;
+        }),
+      ),
+    [hiddenSurfaces],
+  );
+  const openKeys = useMemo(
+    () => new Set(openSurfaces.map(surfaceKey)),
+    [openSurfaces],
+  );
 
   const entries = useMemo(() => {
     const built = buildChannelSessionPickerEntries({
@@ -126,9 +161,20 @@ export function SessionPickerOverlay({
     if (pickerMode !== "split") return built;
     return built.filter((entry) => {
       if (entry.surface.kind === "primary") return !hiddenKeys.has("primary");
-      return !hiddenKeys.has(`${entry.surface.kind}:${entry.surface.sessionId}`);
+      return !hiddenKeys.has(
+        `${entry.surface.kind}:${entry.surface.sessionId}`,
+      );
     });
-  }, [channelLabel, channelSessions, deepMatches, hiddenKeys, history, pickerMode, query, selectedSessionId]);
+  }, [
+    channelLabel,
+    channelSessions,
+    deepMatches,
+    hiddenKeys,
+    history,
+    pickerMode,
+    query,
+    selectedSessionId,
+  ]);
 
   const groups = useMemo(
     () => buildChannelSessionPickerGroups(entries, query),
@@ -136,7 +182,9 @@ export function SessionPickerOverlay({
   );
 
   useEffect(() => {
-    setActiveIndex((idx) => Math.max(0, Math.min(idx, Math.max(entries.length - 1, 0))));
+    setActiveIndex((idx) =>
+      Math.max(0, Math.min(idx, Math.max(entries.length - 1, 0))),
+    );
   }, [entries.length]);
 
   if (!open || typeof document === "undefined") return null;
@@ -144,16 +192,24 @@ export function SessionPickerOverlay({
   const choose = (entry: ChannelSessionPickerEntry) => {
     if (entry.selected) return;
     onClose();
-    onActivateSurface(entry.surface, pickerMode === "split" ? "split" : "switch");
+    onActivateSurface(
+      entry.surface,
+      pickerMode === "split" ? "split" : "switch",
+    );
   };
 
   const startNewSession = () => {
     if (!botId) return;
     const intent = pickerMode === "split" ? "split" : "switch";
-    const blankCurrent = (history ?? []).find((row) => row.is_current && isUntouchedDraftSession(row));
+    const blankCurrent = (history ?? []).find(
+      (row) => row.is_current && isUntouchedDraftSession(row),
+    );
     if (blankCurrent) {
       onClose();
-      onActivateSurface({ kind: "scratch", sessionId: blankCurrent.session_id }, intent);
+      onActivateSurface(
+        { kind: "scratch", sessionId: blankCurrent.session_id },
+        intent,
+      );
       return;
     }
     resetScratch.mutate(
@@ -161,17 +217,27 @@ export function SessionPickerOverlay({
       {
         onSuccess: (row) => {
           onClose();
-          onActivateSurface({ kind: "scratch", sessionId: row.session_id }, intent);
+          onActivateSurface(
+            { kind: "scratch", sessionId: row.session_id },
+            intent,
+          );
         },
       },
     );
   };
 
-  const saveRename = (entry: Extract<ChannelSessionPickerEntry, { kind: "scratch" }>) => {
+  const saveRename = (
+    entry: Extract<ChannelSessionPickerEntry, { kind: "scratch" }>,
+  ) => {
     const title = editingTitle.trim();
     if (!title) return;
     renameSession.mutate(
-      { session_id: entry.id, title, parent_channel_id: channelId, bot_id: entry.row.bot_id },
+      {
+        session_id: entry.id,
+        title,
+        parent_channel_id: channelId,
+        bot_id: entry.row.bot_id,
+      },
       {
         onSuccess: () => {
           setEditingId(null);
@@ -181,13 +247,25 @@ export function SessionPickerOverlay({
     );
   };
 
-  const setAsChannelPrimary = (entry: Extract<ChannelSessionPickerEntry, { kind: "channel" | "scratch" }>) => {
+  const setAsChannelPrimary = async (
+    entry: Extract<ChannelSessionPickerEntry, { kind: "channel" | "scratch" }>,
+  ) => {
+    const confirmed = await confirm(
+      `Set "${entry.label}" as the channel primary session?\n\nIntegrations that mirror the channel primary will switch to mirroring this session.`,
+      {
+        title: "Set channel primary?",
+        confirmLabel: "Set primary",
+        variant: "warning",
+      },
+    );
+    if (!confirmed) return;
     if (entry.kind === "scratch") {
       promoteScratch.mutate(
         {
           session_id: entry.id,
           parent_channel_id: channelId,
-          bot_id: "bot_id" in entry.row ? entry.row.bot_id : botId ?? undefined,
+          bot_id:
+            "bot_id" in entry.row ? entry.row.bot_id : (botId ?? undefined),
         },
         {
           onSuccess: () => {
@@ -200,6 +278,35 @@ export function SessionPickerOverlay({
       return;
     }
     promoteChannelSession.mutate(entry.id);
+  };
+
+  const deleteSessionEntry = async (
+    entry: Extract<ChannelSessionPickerEntry, { kind: "channel" | "scratch" }>,
+  ) => {
+    const confirmed = await confirm(
+      `Delete "${entry.label}"?\n\nThis permanently deletes the session transcript. This cannot be undone.`,
+      {
+        title: "Delete session?",
+        confirmLabel: "Delete",
+        variant: "danger",
+      },
+    );
+    if (!confirmed) return;
+    deleteSession.mutate(
+      {
+        session_id: entry.id,
+        parent_channel_id: channelId,
+        bot_id: "bot_id" in entry.row ? entry.row.bot_id : (botId ?? undefined),
+      },
+      {
+        onSuccess: () => {
+          if (selectedSessionId === entry.id) {
+            onClose();
+            onActivateSurface({ kind: "primary" }, "switch");
+          }
+        },
+      },
+    );
   };
 
   return ReactDOM.createPortal(
@@ -231,20 +338,33 @@ export function SessionPickerOverlay({
                 else onClose();
               } else if (event.key === "ArrowDown") {
                 event.preventDefault();
-                setActiveIndex((idx) => Math.min(idx + 1, Math.max(entries.length - 1, 0)));
+                setActiveIndex((idx) =>
+                  Math.min(idx + 1, Math.max(entries.length - 1, 0)),
+                );
               } else if (event.key === "ArrowUp") {
                 event.preventDefault();
                 setActiveIndex((idx) => Math.max(idx - 1, 0));
-            } else if (event.key === "Enter") {
-              event.preventDefault();
-              const entry = entries[activeIndex];
-              if (entry && !entry.selected) {
-                onClose();
-                onActivateSurface(entry.surface, event.metaKey || event.ctrlKey ? "split" : pickerMode === "split" ? "split" : "switch");
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                const entry = entries[activeIndex];
+                if (entry && !entry.selected) {
+                  onClose();
+                  onActivateSurface(
+                    entry.surface,
+                    event.metaKey || event.ctrlKey
+                      ? "split"
+                      : pickerMode === "split"
+                        ? "split"
+                        : "switch",
+                  );
+                }
               }
+            }}
+            placeholder={
+              pickerMode === "split"
+                ? "Search session to split..."
+                : "Search or pick a session..."
             }
-          }}
-            placeholder={pickerMode === "split" ? "Search session to split..." : "Search or pick a session..."}
             className="min-w-0 flex-1 bg-transparent text-[15px] text-text outline-none placeholder:text-text-dim"
           />
           <button
@@ -268,7 +388,11 @@ export function SessionPickerOverlay({
             {allowSplit && (
               <button
                 type="button"
-                onClick={() => setPickerMode((current) => current === "split" ? "switch" : "split")}
+                onClick={() =>
+                  setPickerMode((current) =>
+                    current === "split" ? "switch" : "split",
+                  )
+                }
                 className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
               >
                 <Columns2 size={13} />
@@ -287,7 +411,11 @@ export function SessionPickerOverlay({
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          {(isLoading || catalogLoading) && <div className="px-4 py-8 text-sm text-text-dim">Loading sessions...</div>}
+          {(isLoading || catalogLoading) && (
+            <div className="px-4 py-8 text-sm text-text-dim">
+              Loading sessions...
+            </div>
+          )}
           {(error || catalogError) && (
             <div className="px-4 py-8 text-sm text-danger">
               {error instanceof Error
@@ -297,163 +425,233 @@ export function SessionPickerOverlay({
                   : "Failed to load sessions."}
             </div>
           )}
-          {!isLoading && !catalogLoading && !deepSearchLoading && !error && !catalogError && entries.length === 0 && (
-            <div className="px-4 py-8 text-sm text-text-dim">No sessions matched that search.</div>
-          )}
-          {!isLoading && !catalogLoading && !error && !catalogError && groups.map((group) => (
-            <div key={group.id}>
-              {groups.length > 1 && (
-                <div className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  {group.label}
-                </div>
-              )}
-              {group.entries.map((entry) => {
-                const index = entries.findIndex((candidate) => candidate.id === entry.id);
-                const active = index === activeIndex;
-            const scratch = entry.kind === "scratch" ? entry : null;
-            const splitEligible = allowSplit
-              && pickerMode === "switch"
-              && !entry.selected
-              && (entry.kind === "scratch" || entry.kind === "channel");
-            const primaryEligible = entry.kind === "scratch" || (entry.kind === "channel" && !entry.row.is_active);
-            const editing = scratch && editingId === scratch.id;
-            return (
-              <div
-                key={entry.id}
-                role="button"
-                tabIndex={-1}
-                onMouseMove={() => setActiveIndex(index)}
-                onClick={() => !editing && choose(entry)}
-                className={`mx-1 flex items-start gap-3 rounded-md px-3 py-2 transition-colors ${entry.selected ? "cursor-default opacity-75" : "cursor-pointer"} ${active ? "bg-accent/[0.08]" : ""}`}
-              >
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay text-text-dim">
-                  {entry.kind === "primary" ? <MessageSquare size={14} /> : <Star size={13} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  {editing && scratch ? (
-                    <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
-                      <input
-                        autoFocus
-                        value={editingTitle}
-                        onChange={(event) => setEditingTitle(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            saveRename(scratch);
-                          } else if (event.key === "Escape") {
-                            event.preventDefault();
-                            setEditingId(null);
-                            setEditingTitle("");
-                          }
-                        }}
-                        className="min-w-0 flex-1 rounded-md border border-surface-border bg-surface px-2 py-1 text-[13px] text-text outline-none focus:border-accent"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => saveRename(scratch)}
-                        className="rounded-md p-1 text-text-dim hover:bg-surface-overlay hover:text-text"
-                        aria-label="Save session name"
-                      >
-                        <Check size={13} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-text">{entry.label}</div>
-                        <div className="mt-0.5 truncate text-[11px] text-text-dim">{entry.meta}</div>
-                        {entry.matches && entry.matches.length > 0 && (
-                          <div className="mt-1 space-y-1">
-                            {entry.matches.slice(0, 2).map((match, matchIndex) => (
-                              <div
-                                key={`${match.kind}:${match.message_id ?? match.section_id ?? matchIndex}`}
-                                className="truncate text-[11px] text-text-muted"
-                              >
-                                {match.kind === "section" ? "Section" : "Message"}: {match.preview}
+          {!isLoading &&
+            !catalogLoading &&
+            !deepSearchLoading &&
+            !error &&
+            !catalogError &&
+            entries.length === 0 && (
+              <div className="px-4 py-8 text-sm text-text-dim">
+                No sessions matched that search.
+              </div>
+            )}
+          {!isLoading &&
+            !catalogLoading &&
+            !error &&
+            !catalogError &&
+            groups.map((group) => (
+              <div key={group.id}>
+                {groups.length > 1 && (
+                  <div className="px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    {group.label}
+                  </div>
+                )}
+                {group.entries.map((entry) => {
+                  const index = entries.findIndex(
+                    (candidate) => candidate.id === entry.id,
+                  );
+                  const active = index === activeIndex;
+                  const scratch = entry.kind === "scratch" ? entry : null;
+                  const splitEligible =
+                    allowSplit &&
+                    pickerMode === "switch" &&
+                    !entry.selected &&
+                    (entry.kind === "scratch" || entry.kind === "channel");
+                  const primaryEligible =
+                    entry.kind === "scratch" ||
+                    (entry.kind === "channel" && !entry.row.is_active);
+                  const deleteEligible =
+                    entry.kind === "scratch" ||
+                    (entry.kind === "channel" && !entry.row.is_active);
+                  const editing = scratch && editingId === scratch.id;
+                  return (
+                    <div
+                      key={entry.id}
+                      role="button"
+                      tabIndex={-1}
+                      onMouseMove={() => setActiveIndex(index)}
+                      onClick={() => !editing && choose(entry)}
+                      className={`mx-1 flex items-start gap-3 rounded-md px-3 py-2 transition-colors ${entry.selected ? "cursor-default opacity-75" : "cursor-pointer"} ${active ? "bg-accent/[0.08]" : ""}`}
+                    >
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay text-text-dim">
+                        {entry.kind === "primary" ? (
+                          <MessageSquare size={14} />
+                        ) : (
+                          <Star size={13} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        {editing && scratch ? (
+                          <div
+                            className="flex items-center gap-1"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <input
+                              autoFocus
+                              value={editingTitle}
+                              onChange={(event) =>
+                                setEditingTitle(event.target.value)
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  saveRename(scratch);
+                                } else if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setEditingId(null);
+                                  setEditingTitle("");
+                                }
+                              }}
+                              className="min-w-0 flex-1 rounded-md border border-surface-border bg-surface px-2 py-1 text-[13px] text-text outline-none focus:border-accent"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveRename(scratch)}
+                              className="rounded-md p-1 text-text-dim hover:bg-surface-overlay hover:text-text"
+                              aria-label="Save session name"
+                            >
+                              <Check size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-medium text-text">
+                                {entry.label}
                               </div>
-                            ))}
+                              <div className="mt-0.5 truncate text-[11px] text-text-dim">
+                                {entry.meta}
+                              </div>
+                              {entry.matches && entry.matches.length > 0 && (
+                                <div className="mt-1 space-y-1">
+                                  {entry.matches
+                                    .slice(0, 2)
+                                    .map((match, matchIndex) => (
+                                      <div
+                                        key={`${match.kind}:${match.message_id ?? match.section_id ?? matchIndex}`}
+                                        className="truncate text-[11px] text-text-muted"
+                                      >
+                                        {match.kind === "section"
+                                          ? "Section"
+                                          : "Message"}
+                                        : {match.preview}
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              {entry.selected && (
+                                <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                                  Current
+                                </span>
+                              )}
+                              {!entry.selected &&
+                                openKeys.has(surfaceKey(entry.surface)) && (
+                                  <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-dim">
+                                    Open
+                                  </span>
+                                )}
+                              {splitEligible && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onClose();
+                                    onActivateSurface(entry.surface, "split");
+                                  }}
+                                  className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
+                                  title="Open this session as a split pane (Ctrl/Cmd+Enter)"
+                                >
+                                  <Columns2 size={12} />
+                                  Split
+                                </button>
+                              )}
+                              {active && (
+                                <CornerDownLeft
+                                  size={12}
+                                  className="text-text-dim"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {primaryEligible && !editing && (
+                          <div className="mt-1 flex items-center gap-3 text-[11px]">
+                            {scratch && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setEditingId(scratch.id);
+                                  setEditingTitle(
+                                    scratch.label === "Untitled session"
+                                      ? ""
+                                      : scratch.label,
+                                  );
+                                }}
+                                className="text-text-dim hover:text-text"
+                              >
+                                Rename
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={
+                                promoteScratch.isPending ||
+                                promoteChannelSession.isPending
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void setAsChannelPrimary(entry);
+                              }}
+                              className="text-text-dim hover:text-text disabled:opacity-50"
+                            >
+                              Set as channel primary
+                            </button>
+                            {deleteEligible && (
+                              <button
+                                type="button"
+                                disabled={deleteSession.isPending}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void deleteSessionEntry(entry);
+                                }}
+                                className="text-danger hover:text-danger/80 disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {entry.selected && (
-                          <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
-                            Current
-                          </span>
-                        )}
-                        {!entry.selected && openKeys.has(surfaceKey(entry.surface)) && (
-                          <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-dim">
-                            Open
-                          </span>
-                        )}
-                        {splitEligible && (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onClose();
-                              onActivateSurface(entry.surface, "split");
-                            }}
-                            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
-                            title="Open this session as a split pane (Ctrl/Cmd+Enter)"
-                          >
-                            <Columns2 size={12} />
-                            Split
-                          </button>
-                        )}
-                        {active && <CornerDownLeft size={12} className="text-text-dim" />}
-                      </div>
                     </div>
-                  )}
-                  {primaryEligible && !editing && (
-                    <div className="mt-1 flex items-center gap-3 text-[11px]">
-                      {scratch && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setEditingId(scratch.id);
-                            setEditingTitle(scratch.label === "Untitled session" ? "" : scratch.label);
-                          }}
-                          className="text-text-dim hover:text-text"
-                        >
-                          Rename
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        disabled={promoteScratch.isPending || promoteChannelSession.isPending}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setAsChannelPrimary(entry);
-                        }}
-                        className="text-text-dim hover:text-text disabled:opacity-50"
-                      >
-                        Set as channel primary
-                      </button>
-                    </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-            );
-              })}
-            </div>
-          ))}
+            ))}
           {entries[activeIndex] && (
             <div className="border-t border-surface-border px-4 py-2 text-[11px] text-text-dim">
-              {pickerMode === "split" ? "Enter adds split · Esc closes" : "Enter switches · Ctrl/Cmd+Enter splits · /split opens split mode"}
+              {pickerMode === "split"
+                ? "Enter adds split · Esc closes"
+                : "Enter switches · Ctrl/Cmd+Enter splits · /split opens split mode"}
             </div>
           )}
           {deepSearchLoading && query.trim().length >= 2 && (
-            <div className="px-4 py-2 text-[11px] text-text-dim">Searching message history...</div>
+            <div className="px-4 py-2 text-[11px] text-text-dim">
+              Searching message history...
+            </div>
           )}
           {deepSearchError && (
             <div className="px-4 py-2 text-[11px] text-danger">
-              {deepSearchError instanceof Error ? deepSearchError.message : "Deep search failed."}
+              {deepSearchError instanceof Error
+                ? deepSearchError.message
+                : "Deep search failed."}
             </div>
           )}
         </div>
       </div>
+      <ConfirmDialogSlot />
     </>,
     document.body,
   );

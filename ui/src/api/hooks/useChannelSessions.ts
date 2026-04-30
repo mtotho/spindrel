@@ -111,9 +111,7 @@ export function useResetScratchSession() {
   });
 }
 
-export function useScratchHistory(
-  parentChannelId: string | null | undefined,
-) {
+export function useScratchHistory(parentChannelId: string | null | undefined) {
   return useQuery({
     queryKey: parentChannelId
       ? scratchHistoryKey(parentChannelId)
@@ -133,7 +131,9 @@ export function useScratchHistory(
 
 export function useChannelSessionCatalog(channelId: string | null | undefined) {
   return useQuery({
-    queryKey: channelId ? channelSessionCatalogKey(channelId) : ["channel-session-catalog", "disabled"],
+    queryKey: channelId
+      ? channelSessionCatalogKey(channelId)
+      : ["channel-session-catalog", "disabled"],
     queryFn: async (): Promise<ChannelSessionCatalogItem[]> => {
       const data = await apiFetch<{ sessions: ChannelSessionCatalogItem[] }>(
         `/api/v1/channels/${channelId}/sessions?limit=100`,
@@ -151,14 +151,16 @@ export function useChannelSessionSearch(
 ) {
   const q = query.trim();
   return useQuery({
-    queryKey: channelId && q.length >= 2
-      ? channelSessionSearchKey(channelId, q)
-      : ["channel-session-search", "disabled"],
+    queryKey:
+      channelId && q.length >= 2
+        ? channelSessionSearchKey(channelId, q)
+        : ["channel-session-search", "disabled"],
     queryFn: async (): Promise<ChannelSessionCatalogItem[]> => {
       const params = new URLSearchParams({ q, limit: "100" });
-      const data = await apiFetch<{ query: string; sessions: ChannelSessionCatalogItem[] }>(
-        `/api/v1/channels/${channelId}/sessions/search?${params.toString()}`,
-      );
+      const data = await apiFetch<{
+        query: string;
+        sessions: ChannelSessionCatalogItem[];
+      }>(`/api/v1/channels/${channelId}/sessions/search?${params.toString()}`);
       return data.sessions;
     },
     enabled: !!channelId && q.length >= 2,
@@ -171,8 +173,11 @@ export function useSessionSummary(
   enabled = true,
 ) {
   return useQuery({
-    queryKey: sessionId ? ["session-summary", sessionId] : ["session-summary", "disabled"],
-    queryFn: () => apiFetch<SessionSummaryResponse>(`/api/v1/sessions/${sessionId}/summary`),
+    queryKey: sessionId
+      ? ["session-summary", sessionId]
+      : ["session-summary", "disabled"],
+    queryFn: () =>
+      apiFetch<SessionSummaryResponse>(`/api/v1/sessions/${sessionId}/summary`),
     enabled: !!sessionId && enabled,
     staleTime: 60_000,
   });
@@ -192,39 +197,58 @@ function invalidateSessionWorkSurface(
   qc.invalidateQueries({ queryKey: ["session-header-stats"] });
   qc.invalidateQueries({ queryKey: ["session-harness-status", sessionId] });
   if (data?.project_id) {
-    qc.invalidateQueries({ queryKey: ["projects", data.project_id, "instances"] });
+    qc.invalidateQueries({
+      queryKey: ["projects", data.project_id, "instances"],
+    });
   }
 }
 
-export function useSessionProjectInstance(sessionId: string | null | undefined) {
+export function useSessionProjectInstance(
+  sessionId: string | null | undefined,
+) {
   return useQuery({
-    queryKey: sessionId ? sessionProjectInstanceKey(sessionId) : ["session-project-instance", "disabled"],
-    queryFn: () => apiFetch<SessionProjectInstance>(`/api/v1/sessions/${sessionId}/project-instance`),
+    queryKey: sessionId
+      ? sessionProjectInstanceKey(sessionId)
+      : ["session-project-instance", "disabled"],
+    queryFn: () =>
+      apiFetch<SessionProjectInstance>(
+        `/api/v1/sessions/${sessionId}/project-instance`,
+      ),
     enabled: !!sessionId,
     staleTime: 30_000,
   });
 }
 
-export function useCreateSessionProjectInstance(sessionId: string | null | undefined) {
+export function useCreateSessionProjectInstance(
+  sessionId: string | null | undefined,
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch<SessionProjectInstance>(`/api/v1/sessions/${sessionId}/project-instance`, {
-        method: "POST",
-      }),
+      apiFetch<SessionProjectInstance>(
+        `/api/v1/sessions/${sessionId}/project-instance`,
+        {
+          method: "POST",
+        },
+      ),
     onSuccess: (data) => {
       if (sessionId) invalidateSessionWorkSurface(qc, sessionId, data);
     },
   });
 }
 
-export function useClearSessionProjectInstance(sessionId: string | null | undefined) {
+export function useClearSessionProjectInstance(
+  sessionId: string | null | undefined,
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch<SessionProjectInstance>(`/api/v1/sessions/${sessionId}/project-instance`, {
-        method: "DELETE",
-      }),
+      apiFetch<SessionProjectInstance>(
+        `/api/v1/sessions/${sessionId}/project-instance`,
+        {
+          method: "DELETE",
+        },
+      ),
     onSuccess: (data) => {
       if (sessionId) invalidateSessionWorkSurface(qc, sessionId, data);
     },
@@ -234,15 +258,63 @@ export function useClearSessionProjectInstance(sessionId: string | null | undefi
 export function useRenameSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (req: { session_id: string; title: string; parent_channel_id?: string; bot_id?: string }) =>
-      apiFetch<{ session_id: string; title?: string | null; summary?: string | null }>(`/api/v1/sessions/${req.session_id}`, {
+    mutationFn: (req: {
+      session_id: string;
+      title: string;
+      parent_channel_id?: string;
+      bot_id?: string;
+    }) =>
+      apiFetch<{
+        session_id: string;
+        title?: string | null;
+        summary?: string | null;
+      }>(`/api/v1/sessions/${req.session_id}`, {
         method: "PATCH",
         body: JSON.stringify({ title: req.title }),
       }),
     onSuccess: (_data, vars) => {
       if (vars.parent_channel_id) {
-        qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
-        qc.invalidateQueries({ queryKey: channelSessionCatalogKey(vars.parent_channel_id) });
+        qc.invalidateQueries({
+          queryKey: scratchHistoryKey(vars.parent_channel_id),
+        });
+        qc.invalidateQueries({
+          queryKey: channelSessionCatalogKey(vars.parent_channel_id),
+        });
+      }
+      if (vars.parent_channel_id && vars.bot_id) {
+        qc.invalidateQueries({
+          queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),
+        });
+      }
+    },
+  });
+}
+
+export function useDeleteSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: {
+      session_id: string;
+      parent_channel_id?: string;
+      bot_id?: string;
+    }) =>
+      apiFetch<void>(`/api/v1/sessions/${req.session_id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["session-summary", vars.session_id] });
+      qc.invalidateQueries({ queryKey: ["session-header-stats"] });
+      qc.invalidateQueries({ queryKey: ["channels"] });
+      if (vars.parent_channel_id) {
+        qc.invalidateQueries({
+          queryKey: ["channels", vars.parent_channel_id],
+        });
+        qc.invalidateQueries({
+          queryKey: scratchHistoryKey(vars.parent_channel_id),
+        });
+        qc.invalidateQueries({
+          queryKey: channelSessionCatalogKey(vars.parent_channel_id),
+        });
       }
       if (vars.parent_channel_id && vars.bot_id) {
         qc.invalidateQueries({
@@ -256,14 +328,25 @@ export function useRenameSession() {
 export function usePromoteScratchSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (req: { session_id: string; parent_channel_id: string; bot_id?: string }) =>
-      apiFetch<{ primary_session_id: string; demoted_session_id: string; channel_id: string }>(
-        `/api/v1/sessions/${req.session_id}/promote-to-primary`,
-        { method: "POST" },
-      ),
+    mutationFn: (req: {
+      session_id: string;
+      parent_channel_id: string;
+      bot_id?: string;
+    }) =>
+      apiFetch<{
+        primary_session_id: string;
+        demoted_session_id: string;
+        channel_id: string;
+      }>(`/api/v1/sessions/${req.session_id}/promote-to-primary`, {
+        method: "POST",
+      }),
     onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
-      qc.invalidateQueries({ queryKey: channelSessionCatalogKey(vars.parent_channel_id) });
+      qc.invalidateQueries({
+        queryKey: scratchHistoryKey(vars.parent_channel_id),
+      });
+      qc.invalidateQueries({
+        queryKey: channelSessionCatalogKey(vars.parent_channel_id),
+      });
       if (vars.bot_id) {
         qc.invalidateQueries({
           queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),

@@ -391,3 +391,44 @@ class TestScratchSessionMutations:
         assert demoted.parent_channel_id == test_channel.id
         assert demoted.channel_id is None
         assert demoted.is_current is True
+
+    async def test_can_delete_scratch_session(self, user_client, db_session, test_channel):
+        current = await user_client.get(
+            "/api/v1/sessions/scratch/current",
+            params={"parent_channel_id": str(test_channel.id), "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+        scratch_id = uuid.UUID(current.json()["session_id"])
+
+        deleted = await user_client.delete(
+            f"/api/v1/sessions/{scratch_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert deleted.status_code == 204, deleted.text
+
+        row = await db_session.get(SessionRow, scratch_id)
+        assert row is None
+
+    async def test_delete_primary_channel_session_is_rejected(self, user_client, db_session, test_channel):
+        primary = SessionRow(
+            id=uuid.uuid4(),
+            client_id=f"primary-{uuid.uuid4().hex[:6]}",
+            bot_id="test-bot",
+            channel_id=test_channel.id,
+            session_type="channel",
+        )
+        db_session.add(primary)
+        await db_session.flush()
+        test_channel.active_session_id = primary.id
+        await db_session.commit()
+
+        response = await user_client.delete(
+            f"/api/v1/sessions/{primary.id}",
+            headers=AUTH_HEADERS,
+        )
+
+        assert response.status_code == 409, response.text
+        assert "Set another session as primary first" in response.json()["detail"]
+
+        still_there = await db_session.get(SessionRow, primary.id)
+        assert still_there is not None

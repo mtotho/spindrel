@@ -2,17 +2,31 @@ import React from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
-  Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
-  Cog, PanelRight, Sparkles, StickyNote,
+  Settings,
+  Menu,
+  ArrowLeft,
+  Hash,
+  Lock,
+  LayoutDashboard,
+  Cog,
+  PanelRight,
+  Sparkles,
+  StickyNote,
   X as CloseIcon,
-  User as UserIcon, MoreHorizontal,
+  User as UserIcon,
+  MoreHorizontal,
   AlertTriangle,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
-import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useChannelSessions";
+import {
+  useDeleteSession,
+  useRenameSession,
+  useScratchHistory,
+  useScratchSession,
+} from "@/src/api/hooks/useChannelSessions";
 import {
   useSessionHarnessSettings,
   useSessionHarnessStatus,
@@ -23,13 +37,24 @@ import { useWorkspaceAttention } from "@/src/api/hooks/useWorkspaceAttention";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { attentionDeckHref } from "@/src/lib/hubRoutes";
-import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
+import {
+  resolveHeaderMetrics,
+  resolveRouteSessionChrome,
+} from "./sessionHeaderChrome";
 
 export interface ChannelHeaderProps {
   channelId: string;
   displayName: string;
-  bot: { id?: string; name?: string; model?: string; harness_runtime?: string | null } | undefined;
+  bot:
+    | {
+        id?: string;
+        name?: string;
+        model?: string;
+        harness_runtime?: string | null;
+      }
+    | undefined;
   channelModelOverride: string | undefined;
   columns: "single" | "double" | "triple";
   goBack: () => void;
@@ -87,8 +112,7 @@ export interface ChannelHeaderProps {
   /** When the current URL is the scratch full-page route, the header
    *  switches into scratch-session chrome so the route reads clearly as a
    *  parallel session rather than the main channel chat. */
-  scratchFullpageMode?: {
-  };
+  scratchFullpageMode?: {};
 }
 
 function formatScratchHeaderTimestamp(iso?: string | null): string | null {
@@ -139,7 +163,11 @@ export function ChannelHeader({
   const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
   const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);
   const mobileOverflowMenuRef = React.useRef<HTMLDivElement | null>(null);
-  const [mobileOverflowPos, setMobileOverflowPos] = React.useState({ top: 0, left: 0, width: 190 });
+  const [mobileOverflowPos, setMobileOverflowPos] = React.useState({
+    top: 0,
+    left: 0,
+    width: 190,
+  });
   // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
   // than the plain command palette — drawer's Jump tab wraps the palette
   // content inline, so channel-route mobile users get one surface with nav
@@ -149,15 +177,22 @@ export function ChannelHeader({
   // force-pins it to the Widgets tab. Hamburger still opens wherever the
   // user last explicitly navigated (persisted `omniPanelTab`), so the two
   // buttons don't clobber each other.
-  const toggleDrawerToWidgets = useUIStore((s) => s.toggleMobileDrawerToWidgets);
+  const toggleDrawerToWidgets = useUIStore(
+    (s) => s.toggleMobileDrawerToWidgets,
+  );
   const drawerPrefs = useUIStore((s) => s.channelPanelPrefs[channelId]);
   const drawerOpen = drawerPrefs?.mobileDrawerOpen ?? false;
   const drawerTab = drawerPrefs?.leftTab ?? "widgets";
   const widgetsDrawerActive = isMobile && drawerOpen && drawerTab === "widgets";
 
   const { data: channelData } = useChannel(channelId);
+  const renameSession = useRenameSession();
+  const deleteSession = useDeleteSession();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
   const { data: attentionItems } = useWorkspaceAttention(channelId);
-  const { data: scratchHistory } = useScratchHistory(scratchFullpageMode ? channelId : null);
+  const { data: scratchHistory } = useScratchHistory(
+    scratchFullpageMode ? channelId : null,
+  );
   const { data: currentScratchSession } = useScratchSession(
     scratchFullpageMode && bot?.id ? channelId : null,
     scratchFullpageMode && bot?.id ? bot.id : null,
@@ -170,15 +205,19 @@ export function ChannelHeader({
   const { data: adminUsers } = useAdminUsers(isAdmin);
   const ownerUserId = channelData?.user_id ?? null;
   const ownerName = ownerUserId
-    ? adminUsers?.find((u) => u.id === ownerUserId)?.display_name ?? null
+    ? (adminUsers?.find((u) => u.id === ownerUserId)?.display_name ?? null)
     : null;
   const showOwnerChip =
-    isAdmin && !!ownerUserId && ownerUserId !== currentUserId && !isSystemChannel;
+    isAdmin &&
+    !!ownerUserId &&
+    ownerUserId !== currentUserId &&
+    !isSystemChannel;
 
   const isPrivate = !!channelData?.private;
 
   const fmtTokens = (n: number) => {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+    if (n >= 1_000_000)
+      return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
     if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
     return String(n);
   };
@@ -189,25 +228,32 @@ export function ChannelHeader({
   const showDashboardButton = !!channelId && !isSystemChannel;
   const showFindingsButton =
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
-  const resolvedChromeMode = sessionChromeMode ?? (scratchFullpageMode ? "session" : "primary");
+  const resolvedChromeMode =
+    sessionChromeMode ?? (scratchFullpageMode ? "session" : "primary");
   const showScratchState = resolvedChromeMode === "session";
   const showCanvasState = resolvedChromeMode === "canvas";
   const sessionButtonLabel = "Sessions";
   const showFindingsInline = !isMobile && showFindingsButton;
   const showSettingsInline = !isMobile;
   const showDashboardInline = !isMobile;
-  const resolvedMetrics = resolveHeaderMetrics(contextBudget, sessionHeaderStats);
+  const resolvedMetrics = resolveHeaderMetrics(
+    contextBudget,
+    sessionHeaderStats,
+  );
   const scratchSessionMeta = React.useMemo(() => {
     if (!showScratchState || !scratchSessionId) return null;
-    const matchedHistory = scratchHistory?.find((row) => row.session_id === scratchSessionId) ?? null;
-    const matchedCurrent = currentScratchSession?.session_id === scratchSessionId ? currentScratchSession : null;
+    const matchedHistory =
+      scratchHistory?.find((row) => row.session_id === scratchSessionId) ??
+      null;
+    const matchedCurrent =
+      currentScratchSession?.session_id === scratchSessionId
+        ? currentScratchSession
+        : null;
     const lastActiveLabel = formatScratchHeaderTimestamp(
       matchedHistory?.last_active ?? matchedCurrent?.created_at ?? null,
     );
     const label =
-      matchedHistory?.title?.trim()
-      || matchedCurrent?.title?.trim()
-      || null;
+      matchedHistory?.title?.trim() || matchedCurrent?.title?.trim() || null;
     const bits = [
       lastActiveLabel,
       typeof matchedHistory?.message_count === "number"
@@ -226,68 +272,179 @@ export function ChannelHeader({
       lastActiveLabel,
       stats: bits.join(" · ") || null,
     };
-  }, [currentScratchSession, scratchHistory, scratchSessionId, showScratchState]);
+  }, [
+    currentScratchSession,
+    scratchHistory,
+    scratchSessionId,
+    showScratchState,
+  ]);
   const headerSessionChrome = resolveRouteSessionChrome(
     showScratchState,
     sessionChromeTitle ?? scratchSessionMeta?.label ?? null,
     sessionChromeMeta ?? scratchSessionMeta?.lastActiveLabel ?? null,
   );
   const modeLabel = showCanvasState ? "Canvas" : headerSessionChrome.modeLabel;
-  const compactModeLabel = showCanvasState && typeof canvasSessionCount === "number"
-    ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
-    : modeLabel;
-  const showModeBadge = !isSystemChannel && (!isMobile || showScratchState || showCanvasState);
-  const attentionCount = (attentionItems ?? []).filter((item) => item.status !== "resolved").length;
-  const canvasTitle = showCanvasState && typeof canvasSessionCount === "number"
-    ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
-    : null;
-  const tokenUsageBit = resolvedMetrics.hasAnyTokenUsage && !bot?.harness_runtime ? (
-    <span
-      key="tokens"
-      onClick={onContextBudgetClick}
-      style={{
-        fontSize: 10,
-        fontFamily: "monospace",
-        color: (resolvedMetrics.utilization ?? 0) > 0.8 ? "#f87171" : (resolvedMetrics.utilization ?? 0) > 0.5 ? "#fbbf24" : t.textDim,
-        flexShrink: 0,
-        cursor: onContextBudgetClick ? "pointer" : undefined,
-        borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
-        transition: "border-color 0.15s",
-      }}
-      onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
-      onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
-      title={[
-        resolvedMetrics.hasTokenMetrics
-          ? `Prompt: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} tokens (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`
-          : `Prompt: ${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tokens`,
-        resolvedMetrics.current != null ? `Current: ${fmtTokens(resolvedMetrics.current)}` : null,
-        resolvedMetrics.cached != null ? `Cached: ${fmtTokens(resolvedMetrics.cached)}` : null,
-        resolvedMetrics.completion != null ? `Completion: ${fmtTokens(resolvedMetrics.completion)}` : null,
-        resolvedMetrics.contextProfile ? `Profile: ${resolvedMetrics.contextProfile}` : null,
-      ].filter(Boolean).join("\n")}
-    >
-      {resolvedMetrics.hasTokenMetrics
-        ? `${fmtTokens(resolvedMetrics.gross ?? 0)}/${fmtTokens(resolvedMetrics.total ?? 0)}`
-        : `${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tok`}
-    </span>
-  ) : null;
+  const compactModeLabel =
+    showCanvasState && typeof canvasSessionCount === "number"
+      ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
+      : modeLabel;
+  const showModeBadge =
+    !isSystemChannel && (!isMobile || showScratchState || showCanvasState);
+  const canRenameCurrentSession = !!effectiveSessionId;
+  const canDeleteCurrentSession = !!effectiveSessionId && showScratchState;
+  const renameSeedTitle = (
+    sessionChromeTitle ??
+    scratchSessionMeta?.label ??
+    headerSessionChrome.inlineTitle ??
+    ""
+  ).trim();
+  const handleRenameCurrentSession = React.useCallback(() => {
+    if (!effectiveSessionId) return;
+    const nextTitle = window.prompt("Rename session", renameSeedTitle);
+    if (nextTitle == null) return;
+    const trimmed = nextTitle.trim();
+    if (!trimmed) return;
+    renameSession.mutate({
+      session_id: effectiveSessionId,
+      title: trimmed,
+      parent_channel_id: channelId,
+      bot_id: bot?.id ?? undefined,
+    });
+  }, [bot?.id, channelId, effectiveSessionId, renameSeedTitle, renameSession]);
+  const handleDeleteCurrentSession = React.useCallback(async () => {
+    if (!effectiveSessionId) return;
+    const targetLabel = renameSeedTitle || "this session";
+    const accepted = await confirm(
+      `Delete "${targetLabel}"?\n\nThis permanently deletes the session transcript. This cannot be undone.`,
+      {
+        title: "Delete session?",
+        confirmLabel: "Delete",
+        variant: "danger",
+      },
+    );
+    if (!accepted) return;
+    deleteSession.mutate(
+      {
+        session_id: effectiveSessionId,
+        parent_channel_id: channelId,
+        bot_id: bot?.id ?? undefined,
+      },
+      {
+        onSuccess: () => {
+          onOpenMainChat?.();
+        },
+      },
+    );
+  }, [
+    bot?.id,
+    channelId,
+    confirm,
+    deleteSession,
+    effectiveSessionId,
+    onOpenMainChat,
+    renameSeedTitle,
+  ]);
+  const attentionCount = (attentionItems ?? []).filter(
+    (item) => item.status !== "resolved",
+  ).length;
+  const canvasTitle =
+    showCanvasState && typeof canvasSessionCount === "number"
+      ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
+      : null;
+  const tokenUsageBit =
+    resolvedMetrics.hasAnyTokenUsage && !bot?.harness_runtime ? (
+      <span
+        key="tokens"
+        onClick={onContextBudgetClick}
+        style={{
+          fontSize: 10,
+          fontFamily: "monospace",
+          color:
+            (resolvedMetrics.utilization ?? 0) > 0.8
+              ? "#f87171"
+              : (resolvedMetrics.utilization ?? 0) > 0.5
+                ? "#fbbf24"
+                : t.textDim,
+          flexShrink: 0,
+          cursor: onContextBudgetClick ? "pointer" : undefined,
+          borderBottom: onContextBudgetClick
+            ? "1px dotted transparent"
+            : undefined,
+          transition: "border-color 0.15s",
+        }}
+        onMouseEnter={
+          onContextBudgetClick
+            ? (e) => {
+                (e.currentTarget as HTMLSpanElement).style.borderBottomColor =
+                  t.textDim;
+              }
+            : undefined
+        }
+        onMouseLeave={
+          onContextBudgetClick
+            ? (e) => {
+                (e.currentTarget as HTMLSpanElement).style.borderBottomColor =
+                  "transparent";
+              }
+            : undefined
+        }
+        title={[
+          resolvedMetrics.hasTokenMetrics
+            ? `Prompt: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} tokens (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`
+            : `Prompt: ${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tokens`,
+          resolvedMetrics.current != null
+            ? `Current: ${fmtTokens(resolvedMetrics.current)}`
+            : null,
+          resolvedMetrics.cached != null
+            ? `Cached: ${fmtTokens(resolvedMetrics.cached)}`
+            : null,
+          resolvedMetrics.completion != null
+            ? `Completion: ${fmtTokens(resolvedMetrics.completion)}`
+            : null,
+          resolvedMetrics.contextProfile
+            ? `Profile: ${resolvedMetrics.contextProfile}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n")}
+      >
+        {resolvedMetrics.hasTokenMetrics
+          ? `${fmtTokens(resolvedMetrics.gross ?? 0)}/${fmtTokens(resolvedMetrics.total ?? 0)}`
+          : `${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tok`}
+      </span>
+    ) : null;
   const headerMetaBits = [
     tokenUsageBit,
     !resolvedMetrics.hasTokenMetrics && showScratchState ? (
-      <span key="session-kind" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+      <span
+        key="session-kind"
+        className="shrink-0"
+        style={{ fontSize: 10, color: t.textDim }}
+      >
         {headerSessionChrome.subtitleIdentity ?? "session"}
       </span>
     ) : null,
     // Spindrel-side context stats describe OUR RAG loop's window. Harness
     // bots delegate context management to the external runtime — these
     // numbers don't apply, so suppress them.
-    !bot?.harness_runtime && typeof resolvedMetrics.turnsInContext === "number" ? (
-      <span key="turns-in-context" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
-        {resolvedMetrics.turnsInContext} turn{resolvedMetrics.turnsInContext === 1 ? "" : "s"} in ctx
+    !bot?.harness_runtime &&
+    typeof resolvedMetrics.turnsInContext === "number" ? (
+      <span
+        key="turns-in-context"
+        className="shrink-0"
+        style={{ fontSize: 10, color: t.textDim }}
+      >
+        {resolvedMetrics.turnsInContext} turn
+        {resolvedMetrics.turnsInContext === 1 ? "" : "s"} in ctx
       </span>
     ) : null,
-    !bot?.harness_runtime && typeof resolvedMetrics.turnsUntilCompaction === "number" ? (
-      <span key="turns-until-compaction" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+    !bot?.harness_runtime &&
+    typeof resolvedMetrics.turnsUntilCompaction === "number" ? (
+      <span
+        key="turns-until-compaction"
+        className="shrink-0"
+        style={{ fontSize: 10, color: t.textDim }}
+      >
         {resolvedMetrics.turnsUntilCompaction} until compact
       </span>
     ) : null,
@@ -313,6 +470,30 @@ export function ChannelHeader({
           danger: false,
         }
       : null,
+    canRenameCurrentSession
+      ? {
+          key: "rename-session",
+          label: "Rename session",
+          icon: Settings,
+          onClick: handleRenameCurrentSession,
+          active: false,
+          danger: false,
+          disabled: renameSession.isPending,
+        }
+      : null,
+    canDeleteCurrentSession
+      ? {
+          key: "delete-session",
+          label: "Delete session",
+          icon: CloseIcon,
+          onClick: () => {
+            void handleDeleteCurrentSession();
+          },
+          active: false,
+          danger: true,
+          disabled: deleteSession.isPending,
+        }
+      : null,
     channelId
       ? {
           key: "settings",
@@ -321,6 +502,7 @@ export function ChannelHeader({
           onClick: () => navigate(`/channels/${channelId}/settings`),
           active: false,
           danger: false,
+          disabled: false,
         }
       : null,
     showDashboardButton
@@ -333,6 +515,7 @@ export function ChannelHeader({
             : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`),
           active: !!widgetsDrawerActive,
           danger: false,
+          disabled: false,
         }
       : null,
   ].filter(Boolean) as Array<{
@@ -342,9 +525,15 @@ export function ChannelHeader({
     onClick: () => void;
     active: boolean;
     danger: boolean;
+    disabled?: boolean;
   }>;
   const showMobileOverflow = isMobile && mobileOverflowActions.length > 0;
-  const titleOpensContext = !isMobile && !isSystemChannel && !!bot && !bot.harness_runtime && !!onContextBudgetClick;
+  const titleOpensContext =
+    !isMobile &&
+    !isSystemChannel &&
+    !!bot &&
+    !bot.harness_runtime &&
+    !!onContextBudgetClick;
 
   const updateMobileOverflowPosition = React.useCallback(() => {
     const rect = mobileOverflowRef.current?.getBoundingClientRect();
@@ -352,7 +541,10 @@ export function ChannelHeader({
     const width = Math.min(224, Math.max(184, window.innerWidth - 16));
     setMobileOverflowPos({
       top: rect.bottom + 5,
-      left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width)),
+      left: Math.max(
+        8,
+        Math.min(window.innerWidth - width - 8, rect.right - width),
+      ),
       width,
     });
   }, []);
@@ -362,8 +554,16 @@ export function ChannelHeader({
     updateMobileOverflowPosition();
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      const inTrigger = !!(mobileOverflowRef.current && target && mobileOverflowRef.current.contains(target));
-      const inMenu = !!(mobileOverflowMenuRef.current && target && mobileOverflowMenuRef.current.contains(target));
+      const inTrigger = !!(
+        mobileOverflowRef.current &&
+        target &&
+        mobileOverflowRef.current.contains(target)
+      );
+      const inMenu = !!(
+        mobileOverflowMenuRef.current &&
+        target &&
+        mobileOverflowMenuRef.current.contains(target)
+      );
       if (!inTrigger && !inMenu) {
         setMobileOverflowOpen(false);
       }
@@ -408,7 +608,12 @@ export function ChannelHeader({
           <Menu size={18} color={t.textMuted} />
         </button>
       ) : columns === "single" ? (
-        <button className="header-icon-btn" style={{ width: 36, height: 36 }} onClick={goBack} title="Back">
+        <button
+          className="header-icon-btn"
+          style={{ width: 36, height: 36 }}
+          onClick={goBack}
+          title="Back"
+        >
           <ArrowLeft size={18} color={t.textMuted} />
         </button>
       ) : null}
@@ -416,14 +621,27 @@ export function ChannelHeader({
       {isSystemChannel ? (
         <Cog size={16} className="text-accent ml-0.5 shrink-0" />
       ) : isPrivate ? (
-        <Lock size={16} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
+        <Lock
+          size={16}
+          color={t.textDim}
+          style={{ marginLeft: 2, flexShrink: 0 }}
+        />
       ) : (
-        <Hash size={16} color={t.textDim} style={{ marginLeft: 2, flexShrink: 0 }} />
+        <Hash
+          size={16}
+          color={t.textDim}
+          style={{ marginLeft: 2, flexShrink: 0 }}
+        />
       )}
 
       <div
         data-testid="channel-header-title-region"
-        style={{ flex: 1, minWidth: 0, padding: isMobile ? "6px 0" : "6px 0", cursor: titleOpensContext ? "pointer" : undefined }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: isMobile ? "6px 0" : "6px 0",
+          cursor: titleOpensContext ? "pointer" : undefined,
+        }}
         onClick={titleOpensContext ? onContextBudgetClick : undefined}
         title={titleOpensContext ? bot.name : undefined}
       >
@@ -453,17 +671,30 @@ export function ChannelHeader({
               }}
               title={
                 [
-                  showCanvasState ? "Channel canvas" : showScratchState ? "Session" : "Primary",
-                  showCanvasState ? canvasTitle : (sessionChromeTitle ?? scratchSessionMeta?.label ?? null),
-                  showCanvasState ? null : (sessionChromeMeta ?? scratchSessionMeta?.stats ?? null),
-                ].filter(Boolean).join("\n") || modeLabel
+                  showCanvasState
+                    ? "Channel canvas"
+                    : showScratchState
+                      ? "Session"
+                      : "Primary",
+                  showCanvasState
+                    ? canvasTitle
+                    : (sessionChromeTitle ?? scratchSessionMeta?.label ?? null),
+                  showCanvasState
+                    ? null
+                    : (sessionChromeMeta ?? scratchSessionMeta?.stats ?? null),
+                ]
+                  .filter(Boolean)
+                  .join("\n") || modeLabel
               }
             >
-              {showScratchState || showCanvasState ? <StickyNote size={10} color={t.textDim} /> : null}
+              {showScratchState || showCanvasState ? (
+                <StickyNote size={10} color={t.textDim} />
+              ) : null}
               {isMobile ? compactModeLabel : modeLabel}
             </span>
           )}
-          {!isMobile && (showCanvasState ? null : headerSessionChrome.inlineMeta) ? (
+          {!isMobile &&
+          (showCanvasState ? null : headerSessionChrome.inlineMeta) ? (
             <span
               className="shrink-0 text-[10px] uppercase tracking-[0.12em]"
               style={{ color: t.textDim }}
@@ -472,11 +703,16 @@ export function ChannelHeader({
               {headerSessionChrome.inlineMeta}
             </span>
           ) : null}
-          {!isMobile && (showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle) ? (
+          {!isMobile &&
+          (showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle) ? (
             <span
               className="truncate text-[11px] shrink max-w-[28rem]"
               style={{ color: t.textMuted }}
-              title={showCanvasState ? canvasTitle ?? undefined : headerSessionChrome.inlineTitle ?? undefined}
+              title={
+                showCanvasState
+                  ? (canvasTitle ?? undefined)
+                  : (headerSessionChrome.inlineTitle ?? undefined)
+              }
             >
               {showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle}
             </span>
@@ -508,34 +744,43 @@ export function ChannelHeader({
               type="button"
               className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning hover:bg-warning/15"
               title={`${attentionCount} active Attention Beacon${attentionCount === 1 ? "" : "s"}`}
-              onClick={() => navigate(attentionDeckHref({ channelId, mode: "inbox" }))}
+              onClick={() =>
+                navigate(attentionDeckHref({ channelId, mode: "inbox" }))
+              }
             >
               <AlertTriangle size={10} />
               {attentionCount}
             </button>
           )}
-          {channelData?.config?.effort_override && channelData.config.effort_override !== "off" && (
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+          {channelData?.config?.effort_override &&
+            channelData.config.effort_override !== "off" && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
                          bg-surface-overlay text-text-muted text-[10px] uppercase tracking-wider
                          shrink-0"
-              title={`Reasoning effort set to ${channelData.config.effort_override}. Use /effort off to clear.`}
-            >
-              effort: {channelData.config.effort_override}
-            </span>
-          )}
-          {isMobile && !isSystemChannel && resolvedMetrics.hasTokenMetrics && (resolvedMetrics.utilization ?? 0) > 0.5 && (
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                backgroundColor: (resolvedMetrics.utilization ?? 0) > 0.8 ? "#f87171" : "#fbbf24",
-                flexShrink: 0,
-              }}
-              title={`Context: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`}
-            />
-          )}
+                title={`Reasoning effort set to ${channelData.config.effort_override}. Use /effort off to clear.`}
+              >
+                effort: {channelData.config.effort_override}
+              </span>
+            )}
+          {isMobile &&
+            !isSystemChannel &&
+            resolvedMetrics.hasTokenMetrics &&
+            (resolvedMetrics.utilization ?? 0) > 0.5 && (
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  backgroundColor:
+                    (resolvedMetrics.utilization ?? 0) > 0.8
+                      ? "#f87171"
+                      : "#fbbf24",
+                  flexShrink: 0,
+                }}
+                title={`Context: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`}
+              />
+            )}
         </div>
         {isSystemChannel && !isMobile && (
           <div className="text-[11px] text-text-dim mt-0.5 truncate">
@@ -543,11 +788,26 @@ export function ChannelHeader({
           </div>
         )}
         {!isSystemChannel && bot && (
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              marginTop: 1,
+              minWidth: 0,
+            }}
+          >
             {isMobile ? (
               <span
                 className="header-bot-label"
-                style={{ fontSize: 11, color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                style={{
+                  fontSize: 11,
+                  color: t.textMuted,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
                 title={bot.name}
               >
                 {bot.name}
@@ -555,9 +815,20 @@ export function ChannelHeader({
             ) : (
               <a
                 className="header-bot-link"
-                onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate(`/admin/bots/${bot.id}`);
+                }}
                 href={`/admin/bots/${bot.id}`}
-                style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                style={{
+                  fontSize: 11,
+                  color: t.textMuted,
+                  textDecoration: "none",
+                  cursor: "pointer",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
                 title={bot.name}
               >
                 {bot.name}
@@ -571,9 +842,11 @@ export function ChannelHeader({
                 t={t}
               />
             )}
-            {(isMobile ? [tokenUsageBit].filter(Boolean) : headerMetaBits).map((bit, idx) => (
-              <React.Fragment key={idx}>{bit}</React.Fragment>
-            ))}
+            {(isMobile ? [tokenUsageBit].filter(Boolean) : headerMetaBits).map(
+              (bit, idx) => (
+                <React.Fragment key={idx}>{bit}</React.Fragment>
+              ),
+            )}
           </div>
         )}
       </div>
@@ -588,14 +861,23 @@ export function ChannelHeader({
           style={{
             width: iconSize,
             height: iconSize,
-            backgroundColor: findingsPanelOpen ? t.surfaceOverlay : "transparent",
+            backgroundColor: findingsPanelOpen
+              ? t.surfaceOverlay
+              : "transparent",
           }}
           onClick={() => toggleFindingsPanel?.()}
           aria-label="Findings"
           aria-pressed={!!findingsPanelOpen}
-          title={findingsCount > 0 ? `${findingsCount} pending finding${findingsCount === 1 ? "" : "s"}` : "Findings"}
+          title={
+            findingsCount > 0
+              ? `${findingsCount} pending finding${findingsCount === 1 ? "" : "s"}`
+              : "Findings"
+          }
         >
-          <PanelRight size={16} color={findingsPanelOpen ? t.accent : t.textDim} />
+          <PanelRight
+            size={16}
+            color={findingsPanelOpen ? t.accent : t.textDim}
+          />
           {findingsCount > 0 && (
             <span
               className="absolute top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full text-[9px] font-bold flex items-center justify-center leading-none animate-pulse"
@@ -639,7 +921,9 @@ export function ChannelHeader({
                   }
                 : {
                     border: "none",
-                    backgroundColor: scratchOpen ? t.surfaceOverlay : "transparent",
+                    backgroundColor: scratchOpen
+                      ? t.surfaceOverlay
+                      : "transparent",
                     color: scratchOpen ? t.text : t.textMuted,
                   }
             }
@@ -726,7 +1010,10 @@ export function ChannelHeader({
           aria-label={isMobile ? "Widgets" : "Switch to dashboard view"}
           aria-pressed={isMobile ? widgetsDrawerActive : undefined}
         >
-          <LayoutDashboard size={16} color={widgetsDrawerActive ? t.accent : t.textDim} />
+          <LayoutDashboard
+            size={16}
+            color={widgetsDrawerActive ? t.accent : t.textDim}
+          />
         </button>
       )}
 
@@ -741,7 +1028,9 @@ export function ChannelHeader({
             style={{
               width: iconSize,
               height: iconSize,
-              backgroundColor: mobileOverflowOpen ? t.surfaceOverlay : undefined,
+              backgroundColor: mobileOverflowOpen
+                ? t.surfaceOverlay
+                : undefined,
             }}
             onClick={() => {
               updateMobileOverflowPosition();
@@ -752,53 +1041,61 @@ export function ChannelHeader({
             aria-expanded={mobileOverflowOpen}
             title="More actions"
           >
-            <MoreHorizontal size={18} color={mobileOverflowOpen ? t.text : t.textDim} />
+            <MoreHorizontal
+              size={18}
+              color={mobileOverflowOpen ? t.text : t.textDim}
+            />
           </button>
         </div>
       )}
-      {mobileOverflowOpen && typeof document !== "undefined" && createPortal(
-        <div
-          data-testid="channel-header-mobile-overflow-menu"
-          ref={mobileOverflowMenuRef}
-          role="menu"
-          className="fixed max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-1 text-text shadow-xl ring-1 ring-surface-border"
-          style={{
-            top: mobileOverflowPos.top,
-            left: mobileOverflowPos.left,
-            width: mobileOverflowPos.width,
-            zIndex: 50001,
-          }}
-        >
-          {mobileOverflowActions.map((action) => {
-            const Icon = action.icon;
-            const color = action.danger
-              ? t.danger
-              : action.active
-                ? t.accent
-                : t.text;
-            return (
-              <button
-                key={action.key}
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center gap-3 rounded px-3 py-2.5 text-left text-sm transition-colors"
-                style={{
-                  background: action.active ? t.accentSubtle : "transparent",
-                  color,
-                }}
-                onClick={() => {
-                  setMobileOverflowOpen(false);
-                  action.onClick();
-                }}
-              >
-                <Icon size={16} color={color} />
-                <span>{action.label}</span>
-              </button>
-            );
-          })}
-        </div>,
-        document.body,
-      )}
+      {mobileOverflowOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-testid="channel-header-mobile-overflow-menu"
+            ref={mobileOverflowMenuRef}
+            role="menu"
+            className="fixed max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-1 text-text shadow-xl ring-1 ring-surface-border"
+            style={{
+              top: mobileOverflowPos.top,
+              left: mobileOverflowPos.left,
+              width: mobileOverflowPos.width,
+              zIndex: 50001,
+            }}
+          >
+            {mobileOverflowActions.map((action) => {
+              const Icon = action.icon;
+              const color = action.danger
+                ? t.danger
+                : action.active
+                  ? t.accent
+                  : t.text;
+              return (
+                <button
+                  key={action.key}
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-3 rounded px-3 py-2.5 text-left text-sm transition-colors"
+                  style={{
+                    background: action.active ? t.accentSubtle : "transparent",
+                    color: action.disabled ? t.textDim : color,
+                  }}
+                  disabled={action.disabled}
+                  onClick={() => {
+                    if (action.disabled) return;
+                    setMobileOverflowOpen(false);
+                    action.onClick();
+                  }}
+                >
+                  <Icon size={16} color={action.disabled ? t.textDim : color} />
+                  <span>{action.label}</span>
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
+      <ConfirmDialogSlot />
     </header>
   );
 }
@@ -823,7 +1120,9 @@ function HarnessHeaderChrome({
   const { data: caps } = useRuntimeCapabilities(runtime);
   const displayName = caps?.display_name ?? runtime;
   if (compact) {
-    return sessionId ? <HarnessStatusPill sessionId={sessionId} t={t} compact /> : null;
+    return sessionId ? (
+      <HarnessStatusPill sessionId={sessionId} t={t} compact />
+    ) : null;
   }
   return (
     <>
@@ -839,11 +1138,7 @@ function HarnessHeaderChrome({
       </span>
       {sessionId && caps && (
         <>
-          <HarnessModelPill
-            sessionId={sessionId}
-            caps={caps}
-            t={t}
-          />
+          <HarnessModelPill sessionId={sessionId} caps={caps} t={t} />
           <HarnessStatusPill sessionId={sessionId} t={t} />
         </>
       )}
@@ -914,7 +1209,9 @@ function HarnessStatusPill({
         <button
           ref={buttonRef}
           type="button"
-          data-testid={compact ? "harness-context-chip-mobile" : "harness-context-chip"}
+          data-testid={
+            compact ? "harness-context-chip-mobile" : "harness-context-chip"
+          }
           onClick={() => setOpen((v) => !v)}
           className={
             compact
@@ -928,19 +1225,30 @@ function HarnessStatusPill({
         </button>
         {open && (
           <div
-            data-testid={compact ? "harness-context-panel-mobile" : "harness-context-panel"}
+            data-testid={
+              compact ? "harness-context-panel-mobile" : "harness-context-panel"
+            }
             className={panelClassName}
             style={mergedPanelStyle}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="font-medium text-text">Harness context</div>
-              <button type="button" onClick={() => setOpen(false)} className="rounded bg-transparent p-1 text-text-dim hover:bg-surface-overlay hover:text-text" aria-label="Close context details">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded bg-transparent p-1 text-text-dim hover:bg-surface-overlay hover:text-text"
+                aria-label="Close context details"
+              >
                 <CloseIcon size={12} />
               </button>
             </div>
             <div className="grid gap-1">
-              <div><span className="text-text-dim">Context</span> loading</div>
-              <div><span className="text-text-dim">CWD</span> loading</div>
+              <div>
+                <span className="text-text-dim">Context</span> loading
+              </div>
+              <div>
+                <span className="text-text-dim">CWD</span> loading
+              </div>
             </div>
           </div>
         )}
@@ -951,52 +1259,105 @@ function HarnessStatusPill({
     ? data.harness_session_id.slice(0, 8)
     : "new";
   const usageLabel = formatHarnessUsage(data.usage);
-  const remainingLabel = typeof data.context_remaining_pct === "number"
-    ? `${Math.round(data.context_remaining_pct)}% left`
-    : null;
-  const remainingSource = data.context_remaining_source === "native_compaction"
-    ? "after native compact"
-    : data.context_remaining_source === "last_turn"
-      ? "last turn"
+  const remainingLabel =
+    typeof data.context_remaining_pct === "number"
+      ? `${Math.round(data.context_remaining_pct)}% left`
       : null;
-  const diagnostics = (data.context_diagnostics ?? null) as Record<string, unknown> | null;
-  const confidence = typeof diagnostics?.confidence === "string" ? diagnostics.confidence : null;
-  const contextReason = typeof diagnostics?.reason === "string" ? diagnostics.reason : null;
-  const sourceFields = Array.isArray(diagnostics?.source_fields) ? diagnostics.source_fields.map(String) : [];
-  const contextTokens = typeof diagnostics?.context_tokens === "number" ? diagnostics.context_tokens : null;
-  const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
+  const remainingSource =
+    data.context_remaining_source === "native_compaction"
+      ? "after native compact"
+      : data.context_remaining_source === "last_turn"
+        ? "last turn"
+        : null;
+  const diagnostics = (data.context_diagnostics ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const confidence =
+    typeof diagnostics?.confidence === "string" ? diagnostics.confidence : null;
+  const contextReason =
+    typeof diagnostics?.reason === "string" ? diagnostics.reason : null;
+  const sourceFields = Array.isArray(diagnostics?.source_fields)
+    ? diagnostics.source_fields.map(String)
+    : [];
+  const contextTokens =
+    typeof diagnostics?.context_tokens === "number"
+      ? diagnostics.context_tokens
+      : null;
+  const hints =
+    data.pending_hint_count > 0
+      ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}`
+      : "";
   const bridge = (data.bridge_status ?? {}) as Record<string, unknown>;
   const bridgeErrors = [
     typeof bridge.error === "string" && bridge.error ? bridge.error : null,
-    ...(Array.isArray(bridge.inventory_errors) ? bridge.inventory_errors.map(String) : []),
+    ...(Array.isArray(bridge.inventory_errors)
+      ? bridge.inventory_errors.map(String)
+      : []),
   ].filter(Boolean);
-  const nativeCompact = (data.native_compaction ?? null) as Record<string, unknown> | null;
-  const compactBefore = (nativeCompact?.context_before ?? null) as Record<string, unknown> | null;
-  const compactAfter = (nativeCompact?.context_after ?? null) as Record<string, unknown> | null;
-  const compactTraceId = typeof nativeCompact?.trace_correlation_id === "string" ? nativeCompact.trace_correlation_id : null;
-  const compactSource = typeof nativeCompact?.source === "string" ? nativeCompact.source : null;
-  const compactBeforePct = typeof compactBefore?.remaining_pct === "number" ? `${Math.round(compactBefore.remaining_pct)}%` : null;
-  const compactAfterPct = typeof compactAfter?.remaining_pct === "number" ? `${Math.round(compactAfter.remaining_pct)}%` : null;
-  const exportedTools = Array.isArray(bridge.exported_tools) ? bridge.exported_tools.map(String) : [];
-  const ignoredClientTools = Array.isArray(bridge.ignored_client_tools) ? bridge.ignored_client_tools.map(String) : [];
-  const explicitTools = Array.isArray(bridge.explicit_tool_names) ? bridge.explicit_tool_names.map(String) : [];
-  const taggedSkills = Array.isArray(bridge.tagged_skill_ids) ? bridge.tagged_skill_ids.map(String) : [];
+  const nativeCompact = (data.native_compaction ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const compactBefore = (nativeCompact?.context_before ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const compactAfter = (nativeCompact?.context_after ?? null) as Record<
+    string,
+    unknown
+  > | null;
+  const compactTraceId =
+    typeof nativeCompact?.trace_correlation_id === "string"
+      ? nativeCompact.trace_correlation_id
+      : null;
+  const compactSource =
+    typeof nativeCompact?.source === "string" ? nativeCompact.source : null;
+  const compactBeforePct =
+    typeof compactBefore?.remaining_pct === "number"
+      ? `${Math.round(compactBefore.remaining_pct)}%`
+      : null;
+  const compactAfterPct =
+    typeof compactAfter?.remaining_pct === "number"
+      ? `${Math.round(compactAfter.remaining_pct)}%`
+      : null;
+  const exportedTools = Array.isArray(bridge.exported_tools)
+    ? bridge.exported_tools.map(String)
+    : [];
+  const ignoredClientTools = Array.isArray(bridge.ignored_client_tools)
+    ? bridge.ignored_client_tools.map(String)
+    : [];
+  const explicitTools = Array.isArray(bridge.explicit_tool_names)
+    ? bridge.explicit_tool_names.map(String)
+    : [];
+  const taggedSkills = Array.isArray(bridge.tagged_skill_ids)
+    ? bridge.tagged_skill_ids.map(String)
+    : [];
   const hintRows = Array.isArray(data.hints) ? data.hints : [];
-  const computedHintRows = Array.isArray(data.next_turn_computed_hints) ? data.next_turn_computed_hints : [];
-  const lastHintRows = Array.isArray(data.last_hints_sent) ? data.last_hints_sent : [];
+  const computedHintRows = Array.isArray(data.next_turn_computed_hints)
+    ? data.next_turn_computed_hints
+    : [];
+  const lastHintRows = Array.isArray(data.last_hints_sent)
+    ? data.last_hints_sent
+    : [];
   const projectDir = (data.project_dir ?? {}) as Record<string, unknown>;
-  const projectPathLabel = typeof projectDir.path === "string" ? projectDir.path : null;
-  const compactLabel = data.pending_hint_count > 0
-    ? `${data.pending_hint_count}`
-    : typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60
-      ? `${Math.round(data.context_remaining_pct)}%`
-      : "ctx";
+  const projectPathLabel =
+    typeof projectDir.path === "string" ? projectDir.path : null;
+  const compactLabel =
+    data.pending_hint_count > 0
+      ? `${data.pending_hint_count}`
+      : typeof data.context_remaining_pct === "number" &&
+          data.context_remaining_pct < 60
+        ? `${Math.round(data.context_remaining_pct)}%`
+        : "ctx";
   return (
     <span className="relative inline-flex shrink-0">
       <button
         ref={buttonRef}
         type="button"
-        data-testid={compact ? "harness-context-chip-mobile" : "harness-context-chip"}
+        data-testid={
+          compact ? "harness-context-chip-mobile" : "harness-context-chip"
+        }
         onClick={() => setOpen((v) => !v)}
         className={
           compact
@@ -1004,42 +1365,81 @@ function HarnessStatusPill({
             : "inline-flex max-w-[14rem] items-center gap-1 truncate rounded bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-muted hover:text-text"
         }
         style={{
-          color: bridgeErrors.length > 0
-            ? t.warningMuted
-            : data.pending_hint_count > 0
+          color:
+            bridgeErrors.length > 0
               ? t.warningMuted
-              : typeof data.context_remaining_pct === "number" && data.context_remaining_pct < 60
+              : data.pending_hint_count > 0
                 ? t.warningMuted
-                : t.textMuted,
+                : typeof data.context_remaining_pct === "number" &&
+                    data.context_remaining_pct < 60
+                  ? t.warningMuted
+                  : t.textMuted,
           fontFamily: "'Menlo', monospace",
         }}
         title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}. Remaining: ${remainingLabel || "unknown"}${remainingSource ? ` (${remainingSource})` : ""}${confidence ? `, confidence ${confidence}` : ""}.`}
       >
-        {compact
-          ? compactLabel
-          : <>ctx {remainingLabel ?? usageLabel ?? resume}{remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}{confidence && confidence !== "high" ? ` · ${confidence}` : ""}{hints}</>}
+        {compact ? (
+          compactLabel
+        ) : (
+          <>
+            ctx {remainingLabel ?? usageLabel ?? resume}
+            {remainingLabel && remainingSource ? ` · ${remainingSource}` : ""}
+            {confidence && confidence !== "high" ? ` · ${confidence}` : ""}
+            {hints}
+          </>
+        )}
       </button>
       {open && (
         <div
-          data-testid={compact ? "harness-context-panel-mobile" : "harness-context-panel"}
+          data-testid={
+            compact ? "harness-context-panel-mobile" : "harness-context-panel"
+          }
           className={panelClassName}
           style={mergedPanelStyle}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="font-medium text-text">Harness context</div>
-            <button type="button" onClick={() => setOpen(false)} className="rounded bg-transparent p-1 text-text-dim hover:bg-surface-overlay hover:text-text" aria-label="Close context details">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded bg-transparent p-1 text-text-dim hover:bg-surface-overlay hover:text-text"
+              aria-label="Close context details"
+            >
               <CloseIcon size={12} />
             </button>
           </div>
           <div className="grid gap-1">
-            <div className="min-w-0 break-words"><span className="text-text-dim">Resume</span> {data.harness_session_id || "new"}</div>
-            <div className="min-w-0 break-words"><span className="text-text-dim">Context</span> {remainingLabel || "unknown"}{remainingSource ? ` · ${remainingSource}` : ""}{data.context_window_tokens ? ` · ${data.context_window_tokens.toLocaleString()} window` : ""}</div>
-            <div><span className="text-text-dim">Estimate</span> {confidence || "none"}{contextTokens ? ` · ${contextTokens.toLocaleString()} tokens` : ""}</div>
+            <div className="min-w-0 break-words">
+              <span className="text-text-dim">Resume</span>{" "}
+              {data.harness_session_id || "new"}
+            </div>
+            <div className="min-w-0 break-words">
+              <span className="text-text-dim">Context</span>{" "}
+              {remainingLabel || "unknown"}
+              {remainingSource ? ` · ${remainingSource}` : ""}
+              {data.context_window_tokens
+                ? ` · ${data.context_window_tokens.toLocaleString()} window`
+                : ""}
+            </div>
+            <div>
+              <span className="text-text-dim">Estimate</span>{" "}
+              {confidence || "none"}
+              {contextTokens
+                ? ` · ${contextTokens.toLocaleString()} tokens`
+                : ""}
+            </div>
             {contextReason && (
-              <div className="min-w-0 break-words"><span className="text-text-dim">Reason</span> {contextReason}</div>
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Reason</span> {contextReason}
+              </div>
             )}
             {sourceFields.length > 0 && (
-              <div className="min-w-0 break-words"><span className="text-text-dim">Usage fields</span> <span className="font-mono text-[10px] break-all">{sourceFields.join(", ")}</span></div>
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Usage fields</span>{" "}
+                <span className="font-mono text-[10px] break-all">
+                  {sourceFields.join(", ")}
+                </span>
+              </div>
             )}
             <div>
               <span className="text-text-dim">Native compact</span>{" "}
@@ -1064,47 +1464,115 @@ function HarnessStatusPill({
                 </a>
               </div>
             )}
-            <div className="min-w-0 break-words"><span className="text-text-dim">CWD</span> <span className="font-mono text-[10px] break-all">{data.effective_cwd || "unknown"}</span>{data.effective_cwd_source ? ` · ${data.effective_cwd_source}` : ""}</div>
-            {projectPathLabel && <div className="min-w-0 break-words"><span className="text-text-dim">Project</span> <span className="font-mono text-[10px] break-all">/{projectPathLabel}</span></div>}
-            {data.bot_workspace_dir && <div className="min-w-0 break-words"><span className="text-text-dim">Bot memory root</span> <span className="font-mono text-[10px] break-all">{data.bot_workspace_dir}</span></div>}
-            <div><span className="text-text-dim">Bridge</span> {String(bridge.status || "unknown")} · {exportedTools.length} tool{exportedTools.length === 1 ? "" : "s"}</div>
-            {bridgeErrors.length > 0 && (
-              <div className="min-w-0 break-words text-warning-muted">{bridgeErrors.join("; ")}</div>
+            <div className="min-w-0 break-words">
+              <span className="text-text-dim">CWD</span>{" "}
+              <span className="font-mono text-[10px] break-all">
+                {data.effective_cwd || "unknown"}
+              </span>
+              {data.effective_cwd_source
+                ? ` · ${data.effective_cwd_source}`
+                : ""}
+            </div>
+            {projectPathLabel && (
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Project</span>{" "}
+                <span className="font-mono text-[10px] break-all">
+                  /{projectPathLabel}
+                </span>
+              </div>
             )}
-            {explicitTools.length > 0 && <div className="min-w-0 break-words"><span className="text-text-dim">One-turn tools</span> {explicitTools.join(", ")}</div>}
-            {taggedSkills.length > 0 && <div className="min-w-0 break-words"><span className="text-text-dim">Tagged skills</span> {taggedSkills.join(", ")}</div>}
-            {ignoredClientTools.length > 0 && <div className="min-w-0 break-words"><span className="text-text-dim">Not bridgeable</span> {ignoredClientTools.join(", ")}</div>}
+            {data.bot_workspace_dir && (
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Bot memory root</span>{" "}
+                <span className="font-mono text-[10px] break-all">
+                  {data.bot_workspace_dir}
+                </span>
+              </div>
+            )}
+            <div>
+              <span className="text-text-dim">Bridge</span>{" "}
+              {String(bridge.status || "unknown")} · {exportedTools.length} tool
+              {exportedTools.length === 1 ? "" : "s"}
+            </div>
+            {bridgeErrors.length > 0 && (
+              <div className="min-w-0 break-words text-warning-muted">
+                {bridgeErrors.join("; ")}
+              </div>
+            )}
+            {explicitTools.length > 0 && (
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">One-turn tools</span>{" "}
+                {explicitTools.join(", ")}
+              </div>
+            )}
+            {taggedSkills.length > 0 && (
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Tagged skills</span>{" "}
+                {taggedSkills.join(", ")}
+              </div>
+            )}
+            {ignoredClientTools.length > 0 && (
+              <div className="min-w-0 break-words">
+                <span className="text-text-dim">Not bridgeable</span>{" "}
+                {ignoredClientTools.join(", ")}
+              </div>
+            )}
           </div>
           <div className="mt-3 border-t border-surface-border pt-2">
-            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Pending hints</div>
+            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+              Pending hints
+            </div>
             {hintRows.length === 0 ? (
               <div className="text-text-dim">None</div>
-            ) : hintRows.map((hint, idx) => (
-              <div key={idx} className="mb-2 last:mb-0">
-                <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
-                <div className="line-clamp-3 text-[11px] leading-snug">{String(hint.preview || "")}</div>
-              </div>
-            ))}
+            ) : (
+              hintRows.map((hint, idx) => (
+                <div key={idx} className="mb-2 last:mb-0">
+                  <div className="font-mono text-[10px] text-text">
+                    {String(hint.kind || "hint")}{" "}
+                    {hint.source ? `from ${String(hint.source)}` : ""}
+                  </div>
+                  <div className="line-clamp-3 text-[11px] leading-snug">
+                    {String(hint.preview || "")}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           <div className="mt-3 border-t border-surface-border pt-2">
-            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Computed next-turn hints</div>
+            <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+              Computed next-turn hints
+            </div>
             {computedHintRows.length === 0 ? (
               <div className="text-text-dim">None</div>
-            ) : computedHintRows.map((hint, idx) => (
-              <div key={idx} className="mb-2 last:mb-0">
-                <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
-                <div className="line-clamp-3 text-[11px] leading-snug">{String(hint.preview || "")}</div>
-              </div>
-            ))}
+            ) : (
+              computedHintRows.map((hint, idx) => (
+                <div key={idx} className="mb-2 last:mb-0">
+                  <div className="font-mono text-[10px] text-text">
+                    {String(hint.kind || "hint")}{" "}
+                    {hint.source ? `from ${String(hint.source)}` : ""}
+                  </div>
+                  <div className="line-clamp-3 text-[11px] leading-snug">
+                    {String(hint.preview || "")}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           {lastHintRows.length > 0 && (
             <div className="mt-3 border-t border-surface-border pt-2">
-              <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Last hints sent</div>
+              <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+                Last hints sent
+              </div>
               <div className="max-h-24 overflow-auto">
                 {lastHintRows.map((hint, idx) => (
                   <div key={idx} className="mb-2 last:mb-0">
-                    <div className="font-mono text-[10px] text-text">{String(hint.kind || "hint")} {hint.source ? `from ${String(hint.source)}` : ""}</div>
-                    <div className="line-clamp-3 text-[11px] leading-snug">{String(hint.preview || "")}</div>
+                    <div className="font-mono text-[10px] text-text">
+                      {String(hint.kind || "hint")}{" "}
+                      {hint.source ? `from ${String(hint.source)}` : ""}
+                    </div>
+                    <div className="line-clamp-3 text-[11px] leading-snug">
+                      {String(hint.preview || "")}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1112,8 +1580,12 @@ function HarnessStatusPill({
           )}
           {exportedTools.length > 0 && (
             <div className="mt-3 border-t border-surface-border pt-2">
-              <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">Exported tools</div>
-              <div className="max-h-24 overflow-auto break-words font-mono text-[10px] leading-4">{exportedTools.join(", ")}</div>
+              <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-text-dim">
+                Exported tools
+              </div>
+              <div className="max-h-24 overflow-auto break-words font-mono text-[10px] leading-4">
+                {exportedTools.join(", ")}
+              </div>
             </div>
           )}
         </div>
@@ -1122,7 +1594,9 @@ function HarnessStatusPill({
   );
 }
 
-function formatHarnessUsage(usage: Record<string, unknown> | null): string | null {
+function formatHarnessUsage(
+  usage: Record<string, unknown> | null,
+): string | null {
   if (!usage) return null;
   const keys = [
     "input_tokens",
@@ -1151,7 +1625,13 @@ function HarnessModelPill({
   t,
 }: {
   sessionId: string;
-  caps: { supported_models: string[]; available_models?: string[]; model_options?: Array<{ id: string; label?: string | null }>; model_is_freeform: boolean; display_name: string };
+  caps: {
+    supported_models: string[];
+    available_models?: string[];
+    model_options?: Array<{ id: string; label?: string | null }>;
+    model_is_freeform: boolean;
+    display_name: string;
+  };
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const { data, isLoading } = useSessionHarnessSettings(sessionId);
@@ -1207,9 +1687,14 @@ function HarnessModelPill({
         if (caps.model_is_freeform) {
           setDraft(current ?? "");
           setEditing(true);
-        } else if ((caps.model_options?.length ?? 0) > 0 || caps.supported_models.length > 0) {
+        } else if (
+          (caps.model_options?.length ?? 0) > 0 ||
+          caps.supported_models.length > 0
+        ) {
           // Cycle through supported models + a "clear" slot at the end.
-          const models = (caps.model_options?.length ? caps.model_options.map((m) => m.id) : caps.supported_models);
+          const models = caps.model_options?.length
+            ? caps.model_options.map((m) => m.id)
+            : caps.supported_models;
           const idx = current ? models.indexOf(current) : -1;
           const cycle = [...models, null];
           const next = cycle[(idx + 1) % cycle.length];
@@ -1243,17 +1728,19 @@ function HarnessEffortPill({
   t,
 }: {
   sessionId: string;
-  caps: { effort_values: string[]; model_options: Array<{ id: string; effort_values: string[] }> };
+  caps: {
+    effort_values: string[];
+    model_options: Array<{ id: string; effort_values: string[] }>;
+  };
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const { data, isLoading } = useSessionHarnessSettings(sessionId);
   const setSettings = useSetSessionHarnessSettings();
   const current = data?.effort ?? null;
   const selectedModel = data?.model ?? null;
-  const effortValues = (
-    caps.model_options.find((m) => m.id === selectedModel)?.effort_values
-    ?? caps.effort_values
-  );
+  const effortValues =
+    caps.model_options.find((m) => m.id === selectedModel)?.effort_values ??
+    caps.effort_values;
   const handleCycle = () => {
     if (setSettings.isPending) return;
     // Cycle through declared effort values + a "clear" slot at the end.
