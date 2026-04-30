@@ -2,7 +2,7 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-30 (provider-advertised machine task steps)
+updated: 2026-04-30 (machine task automation hardening)
 ---
 # Track — Automations (Task Pipelines)
 
@@ -573,3 +573,10 @@ Modified:
 - SSH is the first provider to opt in through its integration manifest; the UI and task APIs do not hard-code SSH labels or provider ids.
 - Agent steps spawned from a granted pipeline inherit access through parent-task grant resolution; task-origin agent runs materialize a short session lease before the agent loop starts.
 - Follow-up: add richer launch-time warnings for pipelines that contain machine steps but no `machine_target_grant`.
+
+## Addendum — Machine Task Automation Hardening
+
+- The machine automation options API now reports only machine step types backed by currently available provider capabilities, so inspect-only providers do not surface scheduled exec authoring.
+- Task details now include machine automation diagnostics for missing grants, stale targets, unavailable providers, and missing capabilities; the admin task UI renders those as warnings while keeping save compatibility.
+- Local Companion opts into scheduled `machine_inspect` only. SSH remains the provider path for scheduled `machine_exec`.
+- Grant validation now rejects explicit unsupported capabilities instead of silently widening or filtering them.

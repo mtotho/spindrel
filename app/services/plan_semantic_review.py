@@ -46,6 +46,7 @@ _VERIFY_COMMAND_RE = re.compile(
 )
 _REPLAN_EVENT_RE = re.compile(r"replan", re.I)
 _PLAN_OUTCOME_TOOL_NAMES = {"record_plan_progress", "request_plan_replan"}
+_RECOVERABLE_PLAN_OUTCOME_ERROR_CODES = {"plan_progress_verification_missing"}
 _AUTO_REVIEW_OUTCOMES = {
     PLAN_PROGRESS_OUTCOME_BLOCKED,
     PLAN_PROGRESS_OUTCOME_STEP_DONE,
@@ -245,6 +246,40 @@ def _build_trace_summary(events: list[TraceEvent]) -> list[dict[str, Any]]:
             }
         )
     return summary
+
+
+def _tool_error_code(tool: ToolCall) -> str | None:
+    explicit = str(getattr(tool, "error_code", None) or "").strip()
+    if explicit:
+        return explicit
+    for payload in (
+        getattr(tool, "summary", None),
+        getattr(tool, "result", None),
+        getattr(tool, "error", None),
+    ):
+        if isinstance(payload, dict):
+            code = str(payload.get("error_code") or "").strip()
+            if code:
+                return code
+            continue
+        if not isinstance(payload, str) or "error_code" not in payload:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            code = str(parsed.get("error_code") or "").strip()
+            if code:
+                return code
+    return None
+
+
+def _is_recoverable_plan_outcome_error(tool: ToolCall) -> bool:
+    return (
+        tool.tool_name == "record_plan_progress"
+        and _tool_error_code(tool) in _RECOVERABLE_PLAN_OUTCOME_ERROR_CODES
+    )
 
 
 def _deterministic_assessment(bundle: dict[str, Any]) -> tuple[list[str], dict[str, Any] | None]:
@@ -467,7 +502,9 @@ async def review_plan_adherence(
             had_successful_tool = True
             if not is_plan_outcome_tool:
                 had_supporting_successful_tool = True
-        if tool.error or tool.status in {"error", "denied", "expired"}:
+        if (
+            tool.error or tool.status in {"error", "denied", "expired"}
+        ) and not _is_recoverable_plan_outcome_error(tool):
             had_any_error = True
         if _VERIFY_TOOL_RE.search(tool.tool_name):
             had_verification_signal = True

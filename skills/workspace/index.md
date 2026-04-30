@@ -20,6 +20,8 @@ Everything a bot does with files, containers, and knowledge lives under `workspa
 
 - [Files](files.md)
   The `file` tool — read / write / append / edit / replace_section / archive_older_than / batch / grep / glob. The authoritative guide for workspace file operations.
+- [Project Coding Runs](project_coding_runs.md)
+  Project-scoped implementation/review runs, handoff receipts, e2e evidence, and finalization.
 - [Channel Workspaces](channel_workspaces.md)
   How to use a channel's workspace directory: active vs archived files, workspace vs memory, cross-channel search.
 - [Workspace Member](member.md)

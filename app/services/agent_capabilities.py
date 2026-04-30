@@ -57,6 +57,8 @@ PROJECT_CODING_RUN_TOOLS = (
     "exec_command",
     "run_e2e_tests",
     "prepare_project_run_handoff",
+    "get_project_coding_run_review_context",
+    "finalize_project_coding_run_review",
     "publish_project_run_receipt",
 )
 
@@ -100,9 +102,12 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "diagnostics/traces": "Trace diagnostics",
     "workspace": "Workspace operations",
     "workspace/files": "Workspace files",
+    "workspace/project_coding_runs": "Project coding runs",
     "workspace/member": "Workspace member",
     "context_mastery": "Context mastery",
     "history_and_memory/session_history": "Session history",
+    "agent_readiness": "Agent Readiness",
+    "agent_readiness/operator": "Agent Readiness operator",
 }
 
 RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
@@ -143,12 +148,14 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
     "project_coding_run": {
         "coverage_status": "covered",
         "nearest_existing_skill_ids": [
+            "workspace/project_coding_runs",
             "workspace",
             "workspace/files",
             "workspace/member",
+            "e2e_testing",
         ],
-        "why_skill_shaped": "Project work is a repeated procedure around workspace conventions, file tools, command execution, and handoffs.",
-        "small_model_reason": "Smaller models need file-operation and handoff rules before editing a Project root.",
+        "why_skill_shaped": "Project coding runs are ordered implementation/review workflows over Project work surfaces, file tools, e2e evidence, handoff receipts, and finalization tools.",
+        "small_model_reason": "Smaller models need the Project run procedure and review manifest before editing a Project root or finalizing PRs.",
         "suggested_owner": "existing_runtime_skill",
     },
     "context_pressure": {
@@ -162,15 +169,16 @@ RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
         "suggested_owner": "existing_runtime_skill",
     },
     "agent_readiness_operator": {
-        "coverage_status": "partial",
+        "coverage_status": "covered",
         "nearest_existing_skill_ids": [
+            "agent_readiness/operator",
             "configurator",
             "diagnostics",
             "orchestrator/audits",
         ],
         "why_skill_shaped": "Agent Readiness repair review is a repeated approval-gated workflow over manifest findings, preflight, requests, and receipts.",
         "small_model_reason": "Smaller models need a short procedure to avoid mutating stale repair requests or skipping preflight.",
-        "suggested_owner": "future_runtime_skill",
+        "suggested_owner": "existing_runtime_skill",
     },
 }
 
@@ -1652,6 +1660,8 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "fresh_instances": "available",
         "run_receipts": "available" if "publish_project_run_receipt" in _local_tools else "missing",
         "handoff_helper": "available" if "prepare_project_run_handoff" in _local_tools else "missing",
+        "review_context": "available" if "get_project_coding_run_review_context" in _local_tools else "missing",
+        "review_finalizer": "available" if "finalize_project_coding_run_review" in _local_tools else "missing",
         "required_tools": list(PROJECT_CODING_RUN_TOOLS),
         "available_tools": available_tools,
         "missing_tools": missing_tools,
@@ -1663,6 +1673,7 @@ def _coding_run_payload(manifest: dict[str, Any]) -> dict[str, Any]:
             "capture screenshots when UI changes",
             "prepare_project_run_handoff(open_pr)",
             "publish_project_run_receipt",
+            "for review sessions, call get_project_coding_run_review_context before finalize_project_coding_run_review",
         ],
     }
 
@@ -1809,9 +1820,9 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         recommendations.append(_skill_recommendation(
             feature_id="project_coding_run",
             feature_label="Project coding run",
-            skill_ids=["workspace", "workspace/files", "workspace/member"],
-            reason="Project work needs workspace conventions, safe file operations, and handoff discipline.",
-            when_to_load="Before editing files, running project commands, or preparing a coding-run handoff.",
+            skill_ids=["workspace/project_coding_runs", "workspace/files", "workspace/member", "e2e_testing"],
+            reason="Project coding runs and reviews need a repeatable procedure for Project roots, evidence, handoffs, and finalization.",
+            when_to_load="Before starting, continuing, reviewing, merging, or finalizing Project coding runs.",
             enrolled=enrolled,
         ))
 
@@ -1831,17 +1842,13 @@ def _skill_opportunity_payload(manifest: dict[str, Any]) -> dict[str, Any]:
         "empty_tool_working_set",
         "widget_skills_not_enrolled",
     }):
-        candidates.append(_skill_creation_candidate(
+        recommendations.append(_skill_recommendation(
             feature_id="agent_readiness_operator",
             feature_label="Agent Readiness operator",
-            suggested_skill_id="agent_readiness/operator",
+            skill_ids=["agent_readiness/operator"],
             reason="Readiness repair review is a repeated approval-gated workflow that should have a short runtime skill for non-frontier models.",
-            first_outline=[
-                "Read the capability manifest and top Doctor findings.",
-                "Prefer existing skills before adding tools or APIs.",
-                "Use preflight/request/apply receipt paths for repairs.",
-                "Route stale requests to Bot readiness instead of mutating config.",
-            ],
+            when_to_load="Before handling Doctor findings, pending repair requests, missing scopes, empty tool sets, or widget skill enrollment gaps.",
+            enrolled=enrolled,
         ))
 
     return {

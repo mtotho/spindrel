@@ -148,6 +148,7 @@ async def test_pipeline_machine_exec_runs_against_task_granted_target(monkeypatc
         AsyncMock(return_value={"target_label": "Runner"}),
     )
     monkeypatch.setattr(machine_control, "get_provider", lambda _provider_id: provider)
+    monkeypatch.setattr(machine_task_grants, "provider_supports_task_machine_automation", lambda *_args, **_kwargs: True)
 
     status, result, error = await step_executor._run_machine_step(
         task,

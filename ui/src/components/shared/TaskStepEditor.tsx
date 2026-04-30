@@ -11,7 +11,7 @@ import { useCallback } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { useTaskMachineAutomationOptions, type StepDef, type StepState, type StepType } from "@/src/api/hooks/useTasks";
 import { useTools } from "@/src/api/hooks/useTools";
-import { emptyStep, isMachineStepType, stepMeta, visibleStepTypes } from "./task/TaskStepEditorModel";
+import { emptyStep, stepMeta, visibleStepTypes } from "./task/TaskStepEditorModel";
 import { StepCard } from "./task/step-editor/StepCard";
 import { AddStepButton } from "./task/step-editor/AddStepButton";
 
@@ -26,8 +26,8 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
   const { data: allTools } = useTools();
   const { data: machineAutomation } = useTaskMachineAutomationOptions();
   const tools = allTools ?? [];
-  const includeMachineSteps = Boolean(machineAutomation?.providers?.length) || steps.some((step) => isMachineStepType(step.type));
-  const stepTypes = visibleStepTypes(includeMachineSteps);
+  const allowedMachineStepTypes = (machineAutomation?.step_types ?? []).map((stepType) => stepType.type);
+  const stepTypes = visibleStepTypes(allowedMachineStepTypes);
 
   const updateStep = useCallback((index: number, updated: StepDef) => {
     const next = [...steps];
@@ -121,7 +121,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
                     onChange={(updated) => updateStep(i, updated)}
                     onDelete={() => deleteStep(i)}
                     onMove={(dir) => moveStep(i, dir)}
-                    includeMachineSteps={includeMachineSteps}
+                    machineStepTypes={allowedMachineStepTypes}
                   />
                 </div>
               );
@@ -133,7 +133,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
       {/* Add step button */}
       {!readOnly && steps.length > 0 && (
         <div className="mt-3 pl-3 sm:pl-5">
-          <AddStepButton onAdd={addStep} includeMachineSteps={includeMachineSteps} />
+          <AddStepButton onAdd={addStep} machineStepTypes={allowedMachineStepTypes} />
         </div>
       )}
 

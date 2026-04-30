@@ -46,9 +46,46 @@ _FINALIZE_RETURNS = {
         "merge": {"type": "object"},
         "run": {"type": "object"},
         "error": {"type": "string"},
+        "error_code": {"type": "string"},
+        "error_kind": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "details": {"type": "object"},
     },
     "required": ["ok"],
 }
+
+
+_REVIEW_CONTEXT_RETURNS = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "project": {"type": "object"},
+        "review_task": {"type": "object"},
+        "operator_prompt": {"type": "string"},
+        "selected_task_ids": {"type": "array", "items": {"type": "string"}},
+        "selected_runs": {"type": "array", "items": {"type": "object"}},
+        "readiness": {"type": "object"},
+        "finalization": {"type": "object"},
+        "error": {"type": "string"},
+        "error_code": {"type": "string"},
+        "error_kind": {"type": "string"},
+        "retryable": {"type": "boolean"},
+    },
+    "required": ["ok"],
+}
+
+
+def _tool_error(error: str, error_code: str, *, error_kind: str = "validation", retryable: bool = False, **extra: Any) -> str:
+    payload = {
+        "ok": False,
+        "status": "blocked",
+        "error": error,
+        "error_code": error_code,
+        "error_kind": error_kind,
+        "retryable": retryable,
+    }
+    payload.update({key: value for key, value in extra.items() if value is not None})
+    return json.dumps(payload, ensure_ascii=False)
 
 
 @register({
@@ -96,9 +133,9 @@ async def prepare_project_run_handoff(
     bot_id = current_bot_id.get()
     channel_id = current_channel_id.get()
     if not bot_id:
-        return json.dumps({"ok": False, "error": "No bot context available."}, ensure_ascii=False)
+        return _tool_error("No bot context available.", "missing_bot_context")
     if not channel_id:
-        return json.dumps({"ok": False, "error": "No channel context available."}, ensure_ascii=False)
+        return _tool_error("No channel context available.", "missing_channel_context")
 
     try:
         from app.db.engine import async_session
@@ -123,7 +160,62 @@ async def prepare_project_run_handoff(
                 remote=remote or "origin",
             )
     except Exception as exc:
-        return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+        return _tool_error(str(exc), "project_run_handoff_failed", error_kind="execution")
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_project_coding_run_review_context",
+        "description": (
+            "Return the selected runs, evidence, handoff links, runtime/e2e/GitHub readiness, "
+            "and finalization rules for the current Project coding-run review task. "
+            "Call this before finalizing or merging selected Project coding runs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "review_task_id": {
+                    "type": "string",
+                    "description": "Optional Project coding-run review task UUID; inferred from the current task when omitted.",
+                },
+            },
+        },
+    },
+}, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True, returns=_REVIEW_CONTEXT_RETURNS)
+async def get_project_coding_run_review_context(review_task_id: str | None = None) -> str:
+    bot_id = current_bot_id.get()
+    channel_id = current_channel_id.get()
+    resolved_review_task_id = review_task_id or current_task_id.get()
+    if not bot_id:
+        return _tool_error("No bot context available.", "missing_bot_context")
+    if not channel_id:
+        return _tool_error("No channel context available.", "missing_channel_context")
+    if not resolved_review_task_id:
+        return _tool_error("No review task context available.", "missing_review_task_context")
+
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel, Project
+        from app.services.project_coding_runs import get_project_coding_run_review_context as review_context
+
+        async with async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            if channel is None or channel.project_id is None:
+                return _tool_error("Current channel is not Project-bound.", "project_channel_required")
+            project = await db.get(Project, channel.project_id)
+            if project is None:
+                return _tool_error("Project not found.", "project_not_found")
+            payload: dict[str, Any] = await review_context(
+                db,
+                project,
+                uuid.UUID(str(resolved_review_task_id)),
+            )
+    except ValueError as exc:
+        return _tool_error(str(exc), "project_review_invalid_request")
+    except Exception as exc:
+        return _tool_error(str(exc), "project_review_context_failed", error_kind="execution")
     return json.dumps(payload, ensure_ascii=False)
 
 
@@ -162,11 +254,11 @@ async def finalize_project_coding_run_review(
     channel_id = current_channel_id.get()
     review_task_id = current_task_id.get()
     if not bot_id:
-        return json.dumps({"ok": False, "error": "No bot context available."}, ensure_ascii=False)
+        return _tool_error("No bot context available.", "missing_bot_context")
     if not channel_id:
-        return json.dumps({"ok": False, "error": "No channel context available."}, ensure_ascii=False)
+        return _tool_error("No channel context available.", "missing_channel_context")
     if not review_task_id:
-        return json.dumps({"ok": False, "error": "No review task context available."}, ensure_ascii=False)
+        return _tool_error("No review task context available.", "missing_review_task_context")
 
     try:
         from app.db.engine import async_session
@@ -179,10 +271,10 @@ async def finalize_project_coding_run_review(
         async with async_session() as db:
             channel = await db.get(Channel, channel_id)
             if channel is None or channel.project_id is None:
-                return json.dumps({"ok": False, "error": "Current channel is not Project-bound."}, ensure_ascii=False)
+                return _tool_error("Current channel is not Project-bound.", "project_channel_required")
             project = await db.get(Project, channel.project_id)
             if project is None:
-                return json.dumps({"ok": False, "error": "Project not found."}, ensure_ascii=False)
+                return _tool_error("Project not found.", "project_not_found")
             payload: dict[str, Any] = await finalize_review(
                 db,
                 project,
@@ -197,5 +289,5 @@ async def finalize_project_coding_run_review(
                 ),
             )
     except Exception as exc:
-        return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+        return _tool_error(str(exc), "project_review_finalize_failed", error_kind="execution")
     return json.dumps(payload, ensure_ascii=False)

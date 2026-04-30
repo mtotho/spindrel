@@ -214,7 +214,7 @@ The system prompt teaches bots the critical difference:
 
 **Rule of thumb**: If future-you should be able to discover and load it when someone hits a similar problem, make it a skill. If future-you needs to actively look it up, put it in a reference file.
 
-Agent readiness is a separate runtime inspection path. `list_agent_capabilities` and `run_agent_doctor` are baseline injected tools, and the runtime prompt tells bots to use them before broad API/config/integration/widget/Project/harness/readiness work or when blocked. They can recommend existing skills through `skills.recommended_now[*].first_action`, but they do not create bot-authored skills or import repo-local `.agents` skills.
+Agent readiness is a separate runtime inspection path. `list_agent_capabilities` and `run_agent_doctor` are baseline injected tools, and the runtime prompt tells bots to use them before broad API/config/integration/widget/Project/harness/readiness work or when blocked. They can recommend existing skills such as `agent_readiness/operator` through `skills.recommended_now[*].first_action`, but they do not create bot-authored skills or import repo-local `.agents` skills.
 
 ## Merging Skills
 

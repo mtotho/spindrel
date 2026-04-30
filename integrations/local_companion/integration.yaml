@@ -16,3 +16,10 @@ machine_control:
   provider_id: local_companion
   label: Local Companion
   driver: companion
+  task_automation:
+    enabled: true
+    label: Local Companion
+    target_label: Local Companion target
+    description: Run readonly scheduled task inspection steps against a currently connected companion target.
+    capabilities:
+      - inspect

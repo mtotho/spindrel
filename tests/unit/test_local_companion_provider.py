@@ -155,3 +155,9 @@ def test_local_companion_service_exec_start_quotes_arguments():
     ])
 
     assert "'https://spindrel.example.com/base path'" in command
+
+
+def test_local_companion_advertises_inspect_only_task_automation():
+    from app.services.machine_task_automation import get_provider_task_automation_capabilities
+
+    assert get_provider_task_automation_capabilities("local_companion") == ["inspect"]

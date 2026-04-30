@@ -1,5 +1,6 @@
 import inspect
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -137,7 +138,7 @@ def test_skill_opportunities_recommend_existing_widget_and_integration_skills():
     assert payload["creation_candidates"] == []
 
 
-def test_skill_opportunities_create_agent_readiness_candidate_without_runtime_import():
+def test_skill_opportunities_recommend_agent_readiness_runtime_skill():
     manifest = {
         "skills": {"bot_enrolled": [], "channel_enrolled": []},
         "widgets": {"readiness": "ready", "missing_skills": []},
@@ -153,32 +154,101 @@ def test_skill_opportunities_create_agent_readiness_candidate_without_runtime_im
 
     payload = agent_capabilities._skill_opportunity_payload(manifest)
 
-    assert len(payload["creation_candidates"]) == 1
-    candidate = payload["creation_candidates"][0]
-    assert candidate == {
+    assert payload["creation_candidates"] == []
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+    readiness = by_feature["agent_readiness_operator"]
+    assert readiness == {
         "feature_id": "agent_readiness_operator",
         "feature_label": "Agent Readiness operator",
-        "coverage_status": "partial",
+        "skill_ids": ["agent_readiness/operator"],
+        "missing_skill_ids": ["agent_readiness/operator"],
+        "coverage_status": "covered",
         "nearest_existing_skill_ids": [
+            "agent_readiness/operator",
             "configurator",
             "diagnostics",
             "orchestrator/audits",
         ],
         "why_skill_shaped": "Agent Readiness repair review is a repeated approval-gated workflow over manifest findings, preflight, requests, and receipts.",
         "small_model_reason": "Smaller models need a short procedure to avoid mutating stale repair requests or skipping preflight.",
-        "suggested_owner": "future_runtime_skill",
+        "suggested_owner": "existing_runtime_skill",
         "reason": "Readiness repair review is a repeated approval-gated workflow that should have a short runtime skill for non-frontier models.",
-        "suggested_skill_id": "agent_readiness/operator",
-        "first_outline": [
-            "Read the capability manifest and top Doctor findings.",
-            "Prefer existing skills before adding tools or APIs.",
-            "Use preflight/request/apply receipt paths for repairs.",
-            "Route stale requests to Bot readiness instead of mutating config.",
-        ],
+        "when_to_load": "Before handling Doctor findings, pending repair requests, missing scopes, empty tool sets, or widget skill enrollment gaps.",
+        "first_action": 'get_skill("agent_readiness/operator")',
         "model_support": "recommended_for_small_models",
+        "labels": {
+            "agent_readiness/operator": "Agent Readiness operator",
+        },
     }
-    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
     assert by_feature["context_pressure"]["first_action"] == 'get_skill("context_mastery")'
+
+
+def test_agent_readiness_operator_skill_documents_runtime_boundaries():
+    text = (
+        Path(__file__).resolve().parents[2]
+        / "skills"
+        / "agent_readiness"
+        / "operator.md"
+    ).read_text()
+
+    for required in (
+        "list_agent_capabilities",
+        "run_agent_doctor",
+        "preflight_agent_repair",
+        "request_agent_repair",
+        "Do not import repo-local `.agents` skills into runtime skills",
+    ):
+        assert required in text
+
+
+def test_skill_opportunities_recommend_project_coding_run_runtime_skill():
+    manifest = {
+        "skills": {"bot_enrolled": [], "channel_enrolled": []},
+        "widgets": {"readiness": "ready", "missing_skills": []},
+        "integrations": {"summary": {}},
+        "coding_run": {"readiness": "ready"},
+        "project": {"attached": True},
+        "runtime_context": {"recommendation": "continue"},
+        "doctor": {"findings": []},
+    }
+
+    payload = agent_capabilities._skill_opportunity_payload(manifest)
+
+    by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
+    project = by_feature["project_coding_run"]
+    assert project["skill_ids"] == [
+        "workspace/project_coding_runs",
+        "workspace/files",
+        "workspace/member",
+        "e2e_testing",
+    ]
+    assert project["first_action"] == 'get_skill("workspace/project_coding_runs")'
+    assert project["labels"]["workspace/project_coding_runs"] == "Project coding runs"
+    assert project["coverage_status"] == "covered"
+
+
+def test_project_coding_run_payload_includes_review_tools(monkeypatch):
+    monkeypatch.setattr(agent_capabilities, "_local_tools", {
+        "file": {},
+        "exec_command": {},
+        "run_e2e_tests": {},
+        "prepare_project_run_handoff": {},
+        "get_project_coding_run_review_context": {},
+        "finalize_project_coding_run_review": {},
+        "publish_project_run_receipt": {},
+    })
+    manifest = {
+        "project": {"attached": True, "runtime_env": {"ready": True}},
+    }
+
+    payload = agent_capabilities._coding_run_payload(manifest)
+
+    assert payload["readiness"] == "ready"
+    assert payload["review_context"] == "available"
+    assert payload["review_finalizer"] == "available"
+    assert payload["missing_tools"] == []
+    assert "get_project_coding_run_review_context" in payload["required_tools"]
+    assert "finalize_project_coding_run_review" in payload["required_tools"]
 
 
 @pytest.mark.asyncio

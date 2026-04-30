@@ -64,6 +64,7 @@ class TaskDetailOut(BaseModel):
     delegation_session_id: Optional[uuid.UUID] = None
     trigger_config: Optional[dict] = None
     machine_target_grant: Optional[dict] = None
+    machine_automation_diagnostics: list[dict] = []
     steps: Optional[list[dict]] = None
     step_states: Optional[list[dict]] = None
     layout: dict = {}
@@ -121,11 +122,59 @@ class MachineTargetGrantIn(BaseModel):
     expires_at: Optional[str] = None
 
 
+class MachineAutomationDiagnosticOut(BaseModel):
+    severity: str
+    code: str
+    message: str
+
+
+class MachineAutomationTargetOptionOut(BaseModel):
+    provider_id: str
+    provider_label: Optional[str] = None
+    target_id: str
+    driver: Optional[str] = None
+    label: str
+    hostname: Optional[str] = None
+    platform: Optional[str] = None
+    ready: bool
+    status: Optional[str] = None
+    status_label: Optional[str] = None
+    reason: Optional[str] = None
+    checked_at: Optional[str] = None
+    handle_id: Optional[str] = None
+    capabilities: list[str] = []
+
+
+class MachineAutomationProviderOptionOut(BaseModel):
+    provider_id: str
+    provider_label: str
+    driver: str
+    label: str
+    target_label: str
+    description: Optional[str] = None
+    capabilities: list[str]
+    targets: list[MachineAutomationTargetOptionOut]
+    target_count: int
+    ready_target_count: int
+
+
+class MachineAutomationStepTypeOut(BaseModel):
+    type: str
+    label: str
+    capability: str
+
+
+class MachineAutomationOptionsOut(BaseModel):
+    providers: list[MachineAutomationProviderOptionOut]
+    step_types: list[MachineAutomationStepTypeOut]
+
+
 async def _task_detail_out(db: AsyncSession, task: Task) -> TaskDetailOut:
-    from app.services.machine_task_grants import task_machine_grant_payload
+    from app.services.machine_task_grants import task_machine_automation_diagnostics, task_machine_grant_payload
 
     out = TaskDetailOut.model_validate(task)
     out.machine_target_grant = await task_machine_grant_payload(db, task)
+    out.machine_automation_diagnostics = await task_machine_automation_diagnostics(db, task)
     return out
 
 
@@ -562,11 +611,11 @@ async def admin_list_trigger_events(
     return {"sources": sources}
 
 
-@router.get("/tasks/machine-automation-options")
+@router.get("/tasks/machine-automation-options", response_model=MachineAutomationOptionsOut)
 async def admin_task_machine_automation_options(
     _auth=Depends(require_scopes("tasks:read")),
 ):
-    from app.services.machine_control import build_machine_task_automation_options
+    from app.services.machine_task_automation import build_machine_task_automation_options
 
     return build_machine_task_automation_options()
 

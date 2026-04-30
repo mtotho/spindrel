@@ -97,9 +97,9 @@ Prior-step results are auto-exported as env vars: `$STEP_CHECK_RESULT`, `$STEP_C
   working_directory: /srv/app
 ```
 
-These steps require the task definition to have a `machine_target_grant` for an enrolled target from a provider that advertises `machine_control.task_automation`. `machine_inspect` uses the same inspect-command allowlist as `machine_inspect_command`; `machine_exec` allows shell execution. Both perform a fresh provider probe before running. For SSH, that means fresh non-interactive OpenSSH commands, not a persistent PTY.
+These steps require the task definition to have a `machine_target_grant` for an enrolled target from a provider that advertises `machine_control.task_automation`. The task editor only shows machine step types backed by at least one currently available provider capability. `machine_inspect` uses the same inspect-command allowlist as `machine_inspect_command`; `machine_exec` allows shell execution and requires an `exec`-capable provider grant. Both perform a fresh provider probe before running. For SSH, that means fresh non-interactive OpenSSH commands, not a persistent PTY. Local Companion advertises `machine_inspect` only for scheduled automation.
 
-Prompt tasks and `agent` steps can also use the normal `machine_*` tools when the task grant allows LLM machine tools. The runner materializes a short session lease for the resolved channel session before the agent loop starts.
+Prompt tasks and `agent` steps can also use the normal `machine_*` tools when the task grant allows LLM machine tools and includes the required provider capability. The runner materializes a short session lease for the resolved channel session before the agent loop starts.
 
 ### `tool` — Direct Dispatch
 

@@ -781,6 +781,9 @@ Interruption and recovery are first-class execution paths:
 - `record_plan_progress` rejects `step_done` claims that say verification or
   readback succeeded when the same turn has no successful read/check tool result
   for the evidence path
+- if that validation guard fires and the same turn then performs the required
+  read/check and records progress successfully, semantic review treats the
+  guardrail error as recovered evidence hygiene, not as an unsupported step
 
 That means the practical v1 system is:
 

@@ -7,12 +7,13 @@ export const ON_FAILURE_OPTIONS = [
   { value: "continue", label: "Continue on fail" },
 ];
 
-export function StepTypeSelector({ value, onChange, includeMachineSteps = false }: { value: StepType; onChange: (v: StepType) => void; includeMachineSteps?: boolean }) {
+export function StepTypeSelector({ value, onChange, machineStepTypes = [] }: { value: StepType; onChange: (v: StepType) => void; machineStepTypes?: StepType[] }) {
   const meta = stepMeta(value);
   const Icon = meta.icon;
-  const options = visibleStepTypes(includeMachineSteps).some((stepType) => stepType.value === value)
-    ? visibleStepTypes(includeMachineSteps)
-    : [...visibleStepTypes(includeMachineSteps), meta];
+  const visibleTypes = visibleStepTypes(machineStepTypes);
+  const options = visibleTypes.some((stepType) => stepType.value === value)
+    ? visibleTypes
+    : [...visibleTypes, meta];
 
   return (
     <div className="shrink-0">

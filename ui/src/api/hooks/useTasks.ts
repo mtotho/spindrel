@@ -86,17 +86,30 @@ export interface MachineTargetGrant {
   created_at?: string | null;
   provider_label?: string | null;
   target_label?: string | null;
+  diagnostics?: MachineAutomationDiagnostic[] | null;
+}
+
+export interface MachineAutomationDiagnostic {
+  severity: "info" | "warning" | "error" | string;
+  code: string;
+  message: string;
 }
 
 export interface MachineAutomationTargetOption {
   provider_id: string;
   provider_label?: string | null;
   target_id: string;
+  driver?: string | null;
   label: string;
   hostname?: string | null;
+  platform?: string | null;
   ready: boolean;
+  status?: string | null;
   status_label?: string | null;
   reason?: string | null;
+  checked_at?: string | null;
+  handle_id?: string | null;
+  capabilities?: string[] | null;
 }
 
 export interface MachineAutomationProviderOption {
@@ -145,6 +158,7 @@ export interface TaskDetail {
   delegation_session_id?: string | null;
   trigger_config?: Record<string, any> | null;
   machine_target_grant?: MachineTargetGrant | null;
+  machine_automation_diagnostics?: MachineAutomationDiagnostic[];
   steps?: StepDef[] | null;
   step_states?: StepState[] | null;
   model_override?: string | null;

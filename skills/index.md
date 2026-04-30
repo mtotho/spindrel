@@ -20,6 +20,7 @@ The built-in skill library is clustered by theme. Each cluster has its own `inde
 - **[configurator](configurator/index.md)** — bot / channel / integration config changes via `propose_config_change`.
 - **[orchestrator](orchestrator/index.md)** — shared-workspace multi-bot coordination, audits, model efficiency, delegation reference.
 - **[diagnostics](diagnostics/index.md)** — investigate server failures: health summary, recent errors, structured traces, raw container logs. Cheapest-first L1→L5 procedure plus the heartbeat / nightly digest pattern.
+- **[agent_readiness](agent_readiness/index.md)** — capability manifest, Doctor findings, preflighted readiness repairs, and approval-gated repair requests.
 
 ## Standalone core skills
 

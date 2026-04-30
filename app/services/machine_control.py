@@ -31,7 +31,6 @@ _AUTONOMOUS_ORIGINS = frozenset({"heartbeat", "task", "subagent", "hygiene"})
 _PROVIDER_CACHE: dict[str, "MachineControlProvider"] = {}
 DEFAULT_INSPECT_PREFIXES = ("pwd", "ls", "git", "cat", "head", "tail", "find", "rg", "ps", "which")
 _INSPECT_COMPOSITION_RE = re.compile(r"[;&|><`$()]")
-TASK_MACHINE_AUTOMATION_CAPABILITIES = ("inspect", "exec")
 
 
 @runtime_checkable
@@ -253,23 +252,15 @@ def _provider_profile_setup_guide(provider_id: str) -> dict[str, Any] | None:
 
 
 def _provider_task_automation_block(provider_id: str) -> dict[str, Any]:
-    block = _provider_block(provider_id)
-    task_automation = block.get("task_automation")
-    return task_automation if isinstance(task_automation, dict) else {}
+    from app.services.machine_task_automation import provider_task_automation_block
+
+    return provider_task_automation_block(provider_id)
 
 
 def get_provider_task_automation_capabilities(provider_id: str) -> list[str]:
-    task_automation = _provider_task_automation_block(provider_id)
-    if not task_automation.get("enabled"):
-        return []
-    raw = task_automation.get("capabilities")
-    values = raw if isinstance(raw, list) else TASK_MACHINE_AUTOMATION_CAPABILITIES
-    allowed = [
-        str(value).strip()
-        for value in values
-        if str(value).strip() in TASK_MACHINE_AUTOMATION_CAPABILITIES
-    ]
-    return sorted(set(allowed))
+    from app.services.machine_task_automation import get_provider_task_automation_capabilities as _get_capabilities
+
+    return _get_capabilities(provider_id)
 
 
 def provider_supports_task_machine_automation(
@@ -277,12 +268,9 @@ def provider_supports_task_machine_automation(
     *,
     capability: str | None = None,
 ) -> bool:
-    if get_status(provider_id) != "enabled" or not is_configured(provider_id):
-        return False
-    capabilities = get_provider_task_automation_capabilities(provider_id)
-    if capability is not None:
-        return capability in capabilities
-    return bool(capabilities)
+    from app.services.machine_task_automation import provider_supports_task_machine_automation as _supports
+
+    return _supports(provider_id, capability=capability)
 
 
 def _normalize_target_status(
@@ -508,50 +496,9 @@ def build_providers_status() -> list[dict[str, Any]]:
 
 
 def build_machine_task_automation_options() -> dict[str, Any]:
-    providers: list[dict[str, Any]] = []
-    for provider_id in list_provider_ids():
-        capabilities = get_provider_task_automation_capabilities(provider_id)
-        if not capabilities:
-            continue
-        try:
-            provider = get_provider(provider_id)
-        except Exception:
-            logger.exception("Failed to load machine-control provider %s", provider_id)
-            continue
-        summary = _provider_summary(provider_id, provider)
-        if summary["integration_status"] != "enabled" or not summary["config_ready"]:
-            continue
-        targets = build_targets_status(provider_id=provider_id)
-        if not targets:
-            continue
-        task_automation = _provider_task_automation_block(provider_id)
-        providers.append({
-            "provider_id": provider_id,
-            "provider_label": summary["label"],
-            "driver": summary["driver"],
-            "label": str(task_automation.get("label") or summary["label"]),
-            "target_label": str(task_automation.get("target_label") or "Machine target"),
-            "description": str(task_automation.get("description") or "") or None,
-            "capabilities": capabilities,
-            "targets": targets,
-            "target_count": len(targets),
-            "ready_target_count": sum(1 for target in targets if target.get("ready")),
-        })
-    return {
-        "providers": providers,
-        "step_types": [
-            {
-                "type": "machine_inspect",
-                "label": "Machine inspect",
-                "capability": "inspect",
-            },
-            {
-                "type": "machine_exec",
-                "label": "Machine exec",
-                "capability": "exec",
-            },
-        ],
-    }
+    from app.services.machine_task_automation import build_machine_task_automation_options as _build_options
+
+    return _build_options()
 
 
 def get_target_by_id(provider_id: str, target_id: str) -> dict[str, Any] | None:

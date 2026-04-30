@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronUp, ChevronDown, Trash2, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
-import type { StepDef, StepState } from "@/src/api/hooks/useTasks";
+import type { StepDef, StepState, StepType } from "@/src/api/hooks/useTasks";
 import type { ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "../../LlmModelDropdown";
 import { ToolSelector as SharedToolSelector } from "../../ToolSelector";
@@ -14,7 +14,7 @@ import { UserPromptFields } from "./UserPromptFields";
 import { ForeachFields } from "./ForeachFields";
 import { scaffoldArgsFromSchema } from "./toolSchemaHelpers";
 
-export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove, compact, includeMachineSteps }: {
+export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove, compact, machineStepTypes }: {
   step: StepDef;
   stepIndex: number;
   steps: StepDef[];
@@ -25,7 +25,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
   onDelete: () => void;
   onMove: (dir: -1 | 1) => void;
   compact?: boolean;
-  includeMachineSteps?: boolean;
+  machineStepTypes?: StepType[];
 }) {
   const [conditionOpen, setConditionOpen] = useState(!!step.when);
   const meta = stepMeta(step.type);
@@ -71,7 +71,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
             {meta.label}
           </span>
         ) : (
-          <StepTypeSelector value={step.type} onChange={(v) => update({ type: v })} includeMachineSteps={includeMachineSteps} />
+          <StepTypeSelector value={step.type} onChange={(v) => update({ type: v })} machineStepTypes={machineStepTypes} />
         )}
 
         {/* Label */}

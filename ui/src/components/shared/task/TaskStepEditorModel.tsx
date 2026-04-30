@@ -101,8 +101,15 @@ export function isMachineStepType(type: string): boolean {
   return type === "machine_inspect" || type === "machine_exec";
 }
 
-export function visibleStepTypes(includeMachine: boolean): StepTypeMeta[] {
-  return STEP_TYPES.filter((stepType) => includeMachine || !isMachineStepType(stepType.value));
+export function visibleStepTypes(machineStepTypes: boolean | StepType[] = true): StepTypeMeta[] {
+  const includeAllMachine = machineStepTypes === true;
+  const allowedMachineTypes = Array.isArray(machineStepTypes) ? new Set(machineStepTypes) : new Set<StepType>();
+  return STEP_TYPES.filter((stepType) => {
+    if (!isMachineStepType(stepType.value)) {
+      return true;
+    }
+    return includeAllMachine || allowedMachineTypes.has(stepType.value);
+  });
 }
 
 export function nextStepId(): string {

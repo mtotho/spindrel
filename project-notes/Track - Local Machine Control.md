@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-30 (task machine automation adapter)
+updated: 2026-04-30 (task machine automation hardening)
 ---
 # Track — Local Machine Control
 
@@ -125,7 +125,8 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Added `task_machine_grants` as the durable bridge between a scheduled/project task and one explicit provider-owned machine target.
 - Grants carry provider/target identity, granting user, provider-advertised `inspect`/`exec` capabilities, expiry/revocation state, and whether LLM tool calls may use the grant.
 - Task automation is opt-in per machine provider through `machine_control.task_automation` in the integration manifest. Core task UI/API only surface providers that are enabled, configured, loadable, opted in, and have enrolled targets.
-- SSH is the first opted-in provider; Local Companion remains unavailable for scheduled task automation until its manifest and provider contract intentionally opt in.
+- SSH advertises `inspect`/`exec`; Local Companion advertises scheduled `inspect` only and remains unavailable for unattended scheduled `exec`.
+- Task details now surface non-blocking machine automation diagnostics for missing grants, deleted targets, disabled providers, and missing required capabilities.
 - Task runs can resolve the active grant from the task, parent task, or pipeline task id and materialize a normal `machine_target_leases` row for the task session after a fresh provider probe.
 - Pipeline steps now support `machine_inspect` and `machine_exec`; both require an active grant and use the core inspect-command validator / provider execution contract.
 - Machine-control local tools can run from task origin only when the current task/session context resolves to an active grant; otherwise the existing autonomous-origin denial remains visible.
@@ -270,3 +271,10 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Pipeline steps `machine_inspect` and `machine_exec` run deterministic commands directly against the granted provider target after a fresh probe. Prompt tasks and pipeline `agent` steps can materialize a short session lease from the grant so normal `machine_*` tools work in task-origin runs.
 - Preserved the existing chat lease model: live user session leases still use `machine_target_leases`, and non-granted autonomous origins remain fail-closed.
 - Updated canonical docs (`docs/guides/local-machine-control.md`, `docs/guides/pipelines.md`) and admin task UI wiring for dynamic provider-advertised machine automation options.
+
+### Addendum — Task Machine Automation Hardening
+
+- Split scheduled machine automation discovery/diagnostics into a focused service instead of keeping adapter policy inside the larger machine-control service.
+- The task automation options endpoint now returns typed provider/target/step-type payloads and only exposes machine step types backed by currently available provider capabilities.
+- Explicit unsupported grant capabilities now fail validation instead of being silently filtered; existing task details render stale grants with diagnostics instead of failing when a provider or target drifts.
+- Local Companion now opts into scheduled machine automation for readonly `inspect` only; SSH remains the provider for scheduled `exec`.

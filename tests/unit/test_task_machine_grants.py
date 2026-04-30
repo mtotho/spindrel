@@ -6,21 +6,28 @@ import pytest
 
 from app.db.models import Task
 from app.services.machine_task_grants import is_grant_active, normalize_capabilities
-from app.services.machine_control import build_machine_task_automation_options, provider_supports_task_machine_automation
+from app.services.machine_task_automation import (
+    build_machine_task_automation_options,
+    provider_supports_task_machine_automation,
+    task_machine_automation_diagnostics,
+)
 from app.services.step_executor import _run_machine_step
 
 
 def test_normalize_task_machine_grant_capabilities_defaults_to_inspect_exec():
-    assert normalize_capabilities(None) == ["exec", "inspect"]
-    assert normalize_capabilities(["inspect", "unknown", "inspect"]) == ["inspect"]
-    assert normalize_capabilities(["exec", "inspect"], allowed_capabilities=["inspect"]) == ["inspect"]
+    assert normalize_capabilities(None) == ["inspect", "exec"]
+    assert normalize_capabilities(["inspect", "inspect"], allowed_capabilities=["inspect"]) == ["inspect"]
+    with pytest.raises(ValueError, match="does not support"):
+        normalize_capabilities(["exec"], allowed_capabilities=["inspect"])
+    with pytest.raises(ValueError, match="at least one"):
+        normalize_capabilities([], allowed_capabilities=["inspect"])
 
 
 def test_machine_automation_support_requires_manifest_enablement(monkeypatch):
-    monkeypatch.setattr("app.services.machine_control.get_status", lambda _provider_id: "enabled")
-    monkeypatch.setattr("app.services.machine_control.is_configured", lambda _provider_id: True)
+    monkeypatch.setattr("app.services.machine_task_automation.get_status", lambda _provider_id: "enabled")
+    monkeypatch.setattr("app.services.machine_task_automation.is_configured", lambda _provider_id: True)
     monkeypatch.setattr(
-        "app.services.machine_control._provider_task_automation_block",
+        "app.services.machine_task_automation.provider_task_automation_block",
         lambda provider_id: {"enabled": True, "capabilities": ["inspect"]} if provider_id == "adapter" else {},
     )
 
@@ -54,11 +61,11 @@ def test_machine_automation_options_are_provider_advertised(monkeypatch):
     }
 
     monkeypatch.setattr("app.services.machine_control.list_provider_ids", lambda: ["adapter", "plain", "empty"])
-    monkeypatch.setattr("app.services.machine_control.get_status", lambda _provider_id: "enabled")
-    monkeypatch.setattr("app.services.machine_control.is_configured", lambda _provider_id: True)
+    monkeypatch.setattr("app.services.machine_task_automation.get_status", lambda _provider_id: "enabled")
+    monkeypatch.setattr("app.services.machine_task_automation.is_configured", lambda _provider_id: True)
     monkeypatch.setattr("app.services.machine_control.get_provider", lambda provider_id: providers[provider_id])
     monkeypatch.setattr(
-        "app.services.machine_control._provider_task_automation_block",
+        "app.services.machine_task_automation.provider_task_automation_block",
         lambda provider_id: (
             {
                 "enabled": True,
@@ -76,7 +83,17 @@ def test_machine_automation_options_are_provider_advertised(monkeypatch):
     assert [provider["provider_id"] for provider in options["providers"]] == ["adapter"]
     assert options["providers"][0]["capabilities"] == ["inspect"]
     assert options["providers"][0]["targets"][0]["target_id"] == "target-1"
-    assert [step["type"] for step in options["step_types"]] == ["machine_inspect", "machine_exec"]
+    assert [step["type"] for step in options["step_types"]] == ["machine_inspect"]
+
+
+def test_task_machine_automation_diagnostics_warn_for_machine_steps_without_grant():
+    diagnostics = task_machine_automation_diagnostics(None, steps=[{"type": "machine_exec", "command": "make"}])
+
+    assert diagnostics == [{
+        "severity": "warning",
+        "code": "machine_grant_missing",
+        "message": "This pipeline has machine steps but no machine target grant.",
+    }]
 
 
 def test_task_machine_grant_active_requires_not_expired_or_revoked():
@@ -127,7 +144,7 @@ async def test_machine_inspect_step_runs_against_granted_machine_target(monkeypa
     monkeypatch.setattr("app.services.machine_task_grants.probe_granted_target", _probe)
     monkeypatch.setattr("app.services.machine_task_grants.task_machine_grant_payload", _payload)
     monkeypatch.setattr("app.services.machine_control.get_provider", lambda _provider_id: _Provider())
-    monkeypatch.setattr("app.services.machine_control.provider_supports_task_machine_automation", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.services.machine_task_grants.provider_supports_task_machine_automation", lambda *_args, **_kwargs: True)
 
     status, result, error = await _run_machine_step(
         task,

@@ -109,6 +109,14 @@ lineage, and prior evidence context to the new task prompt. Follow-up agents
 should update the same branch/PR, rerun relevant tests or screenshots, and
 publish a new Project run receipt.
 
+Review sessions use the `workspace/project_coding_runs` runtime skill and should
+call `get_project_coding_run_review_context` before finalizing selected runs.
+That read-only manifest returns the selected run list, evidence counts, handoff
+URLs, runtime/e2e/GitHub readiness, merge defaults, and finalization rules from
+fresh server state. `finalize_project_coding_run_review` keeps accepted-only
+reviewed semantics and returns structured error fields when a run was not
+selected or a merge/finalization step is blocked.
+
 Receipts are idempotent by task, handoff URL, git handoff metadata, or an
 explicit `idempotency_key`. Retrying `publish_project_run_receipt` updates the
 same review record instead of creating a stack of duplicate receipts. The

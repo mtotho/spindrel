@@ -3,9 +3,9 @@ import { Plus } from "lucide-react";
 import type { StepType } from "@/src/api/hooks/useTasks";
 import { visibleStepTypes } from "../TaskStepEditorModel";
 
-export function AddStepButton({ onAdd, includeMachineSteps = false }: { onAdd: (type: StepType) => void; includeMachineSteps?: boolean }) {
+export function AddStepButton({ onAdd, machineStepTypes = [] }: { onAdd: (type: StepType) => void; machineStepTypes?: StepType[] }) {
   const [open, setOpen] = useState(false);
-  const stepTypes = visibleStepTypes(includeMachineSteps);
+  const stepTypes = visibleStepTypes(machineStepTypes);
 
   if (!open) {
     return (

@@ -207,7 +207,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
         ? {
             provider_id: machineTargetGrant.provider_id,
             target_id: machineTargetGrant.target_id,
-            capabilities: machineTargetGrant.capabilities?.length ? machineTargetGrant.capabilities : ["inspect", "exec"],
+            capabilities: machineTargetGrant.capabilities?.length ? machineTargetGrant.capabilities : ["inspect"],
             allow_agent_tools: machineTargetGrant.allow_agent_tools ?? true,
             expires_at: machineTargetGrant.expires_at ?? null,
           }

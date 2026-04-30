@@ -56,6 +56,30 @@ class ProjectCodingRunReviewFinalize:
     merge_method: str = "squash"
 
 
+def _review_error_payload(
+    *,
+    error: str,
+    error_code: str,
+    status: str = "blocked",
+    run_task_id: uuid.UUID | None = None,
+    retryable: bool = False,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "status": status,
+        "error": error,
+        "error_code": error_code,
+        "error_kind": "validation",
+        "retryable": retryable,
+    }
+    if run_task_id is not None:
+        payload["run_task_id"] = str(run_task_id)
+    if details:
+        payload["details"] = details
+    return payload
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -837,6 +861,136 @@ def _evidence_summary_for_prompt(review: dict[str, Any], receipt: dict[str, Any]
     )
 
 
+def _review_context_row(row: dict[str, Any]) -> dict[str, Any]:
+    review = row.get("review") or {}
+    receipt = row.get("receipt") or {}
+    task = row.get("task") or {}
+    return {
+        "id": row.get("id"),
+        "task_id": task.get("id"),
+        "title": task.get("title"),
+        "request": row.get("request") or task.get("title"),
+        "status": row.get("status"),
+        "review_status": review.get("status") or row.get("status"),
+        "branch": row.get("branch"),
+        "base_branch": row.get("base_branch"),
+        "repo": row.get("repo") or {},
+        "handoff_url": review.get("handoff_url") or receipt.get("handoff_url"),
+        "review": {
+            "reviewed": bool(review.get("reviewed")),
+            "blocker": review.get("blocker"),
+            "pr": review.get("pr") or {},
+            "steps": review.get("steps") or {},
+            "evidence": review.get("evidence") or {
+                "changed_files_count": len(receipt.get("changed_files") or []),
+                "tests_count": len(receipt.get("tests") or []),
+                "screenshots_count": len(receipt.get("screenshots") or []),
+                "has_tests": bool(receipt.get("tests")),
+                "has_screenshots": bool(receipt.get("screenshots")),
+            },
+            "actions": review.get("actions") or {},
+        },
+        "receipt": {
+            "status": receipt.get("status"),
+            "summary": receipt.get("summary"),
+            "changed_files": receipt.get("changed_files") or [],
+            "tests": receipt.get("tests") or [],
+            "screenshots": receipt.get("screenshots") or [],
+        } if receipt else None,
+    }
+
+
+def _review_context_readiness(
+    *,
+    rows: list[dict[str, Any]],
+    runtime_payload: dict[str, Any],
+    review_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    runtime_target = _safe_runtime_target(runtime_payload)
+    keys = set(runtime_target.get("configured_keys") or [])
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if not rows:
+        blockers.append("No selected coding runs were resolved for this review session.")
+    if not runtime_target.get("ready", True):
+        warnings.append("Project runtime environment has missing, invalid, or reserved variables.")
+    if not any((row.get("review") or {}).get("handoff_url") or (row.get("receipt") or {}).get("handoff_url") for row in rows):
+        warnings.append("No selected run has a recorded handoff URL.")
+    if not any((row.get("review") or {}).get("evidence", {}).get("has_tests") or (row.get("receipt") or {}).get("tests") for row in rows):
+        warnings.append("No selected run has recorded test evidence.")
+    if not any((row.get("review") or {}).get("evidence", {}).get("has_screenshots") or (row.get("receipt") or {}).get("screenshots") for row in rows):
+        warnings.append("No selected run has recorded screenshot evidence.")
+    return {
+        "ready": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+        "merge_method": _normal_merge_method(review_cfg.get("merge_method")),
+        "runtime_env": runtime_target,
+        "e2e": {
+            "configured": bool(keys & {"SPINDREL_E2E_URL", "E2E_BASE_URL", "E2E_HOST", "E2E_PORT", "SPINDREL_UI_URL"}),
+            "configured_keys": [key for key in runtime_target.get("configured_keys") or [] if key.startswith("E2E") or key.startswith("SPINDREL")],
+        },
+        "github": {
+            "token_configured": "GITHUB_TOKEN" in keys,
+            "configured_keys": [key for key in runtime_target.get("configured_keys") or [] if key == "GITHUB_TOKEN"],
+        },
+    }
+
+
+async def get_project_coding_run_review_context(
+    db: AsyncSession,
+    project: Project,
+    review_task_id: uuid.UUID,
+) -> dict[str, Any]:
+    """Return a compact, secret-safe manifest for a Project coding-run review task."""
+    review_task = await _load_project_review_task(db, project, review_task_id)
+    review_cfg = _review_session_config(review_task)
+    selected_ids: list[uuid.UUID] = []
+    for raw in review_cfg.get("selected_task_ids") or []:
+        try:
+            selected_ids.append(uuid.UUID(str(raw)))
+        except ValueError:
+            continue
+
+    selected_tasks = [await _load_project_coding_task(db, project, task_id) for task_id in selected_ids]
+    receipts_by_task = await _latest_run_receipts_by_task(db, project.id, [task.id for task in selected_tasks])
+    rows = [
+        await _coding_run_row(db, project, task, receipts_by_task.get(task.id))
+        for task in selected_tasks
+    ]
+    runtime = await load_project_runtime_environment(db, project)
+    runtime_payload = runtime.safe_payload()
+    repo_path = str(review_cfg.get("repo_path") or "").strip() or None
+    return {
+        "ok": True,
+        "project": {
+            "id": str(project.id),
+            "name": project.name,
+            "root_path": project.root_path,
+            "repo_path": repo_path,
+        },
+        "review_task": {
+            "id": str(review_task.id),
+            "status": review_task.status,
+            "title": review_task.title,
+            "bot_id": review_task.bot_id,
+            "channel_id": str(review_task.channel_id) if review_task.channel_id else None,
+            "session_id": str(review_task.session_id) if review_task.session_id else None,
+        },
+        "operator_prompt": review_cfg.get("operator_prompt") or "",
+        "selected_task_ids": [str(task_id) for task_id in selected_ids],
+        "selected_runs": [_review_context_row(row) for row in rows],
+        "readiness": _review_context_readiness(rows=rows, runtime_payload=runtime_payload, review_cfg=review_cfg),
+        "finalization": {
+            "tool": "finalize_project_coding_run_review",
+            "required_per_run": True,
+            "accepted_marks_reviewed": True,
+            "rejected_or_blocked_stays_open": True,
+            "merge_requires_explicit_operator_request": True,
+        },
+    }
+
+
 async def create_project_coding_run_review_session(
     db: AsyncSession,
     project: Project,
@@ -1006,14 +1160,25 @@ async def finalize_project_coding_run_review(
     *,
     command_runner: CommandRunner | None = None,
 ) -> dict[str, Any]:
-    review_task = await _load_project_review_task(db, project, body.review_task_id)
-    review_cfg = _review_session_config(review_task)
-    selected = {str(value) for value in review_cfg.get("selected_task_ids") or []}
-    if str(body.run_task_id) not in selected:
-        raise ValueError("coding run was not selected for this review session")
-    run_task = await _load_project_coding_task(db, project, body.run_task_id)
-    outcome = _normal_review_outcome(body.outcome)
-    method = _normal_merge_method(body.merge_method or review_cfg.get("merge_method"))
+    try:
+        review_task = await _load_project_review_task(db, project, body.review_task_id)
+        review_cfg = _review_session_config(review_task)
+        selected = {str(value) for value in review_cfg.get("selected_task_ids") or []}
+        if str(body.run_task_id) not in selected:
+            return _review_error_payload(
+                error="coding run was not selected for this review session",
+                error_code="project_review_run_not_selected",
+                run_task_id=body.run_task_id,
+            )
+        run_task = await _load_project_coding_task(db, project, body.run_task_id)
+        outcome = _normal_review_outcome(body.outcome)
+        method = _normal_merge_method(body.merge_method or review_cfg.get("merge_method"))
+    except ValueError as exc:
+        return _review_error_payload(
+            error=str(exc),
+            error_code="project_review_invalid_request",
+            run_task_id=body.run_task_id,
+        )
     details = dict(body.details or {})
     summary = body.summary.strip() or f"Project coding run review {outcome}."
     merge_payload: dict[str, Any] | None = None
@@ -1033,7 +1198,16 @@ async def finalize_project_coding_run_review(
         )
         if not merge_payload.get("ok"):
             await _record_review_result(db, project=project, review_task=review_task, run_task=run_task, outcome="blocked", summary=summary, details=details, merge_payload=merge_payload, merge_method=method)
-            return {"ok": False, "status": "blocked", "run_task_id": str(run_task.id), "merge": merge_payload}
+            return {
+                "ok": False,
+                "status": "blocked",
+                "run_task_id": str(run_task.id),
+                "error": str(merge_payload.get("error") or "Merge failed."),
+                "error_code": str(merge_payload.get("error_code") or "project_review_merge_failed"),
+                "error_kind": str(merge_payload.get("error_kind") or "execution"),
+                "retryable": bool(merge_payload.get("retryable", False)),
+                "merge": merge_payload,
+            }
 
     if outcome == "accepted":
         result = {

@@ -12,6 +12,7 @@ from app.services.project_coding_runs import (
     _review_summary,
     expand_project_review_prompt_template,
     finalize_project_coding_run_review,
+    get_project_coding_run_review_context,
     project_coding_run_defaults,
 )
 from app.services.project_run_handoff import CommandResult
@@ -259,3 +260,202 @@ async def test_finalize_project_coding_run_review_marks_only_accepted_selected_r
         (rejected_task_id, "review.result", "needs_review"),
     ]
     assert receipts[0].result["review_task_id"] == str(review_task_id)
+
+
+@pytest.mark.asyncio
+async def test_project_coding_run_review_context_returns_selected_evidence(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    run_task_id = uuid.uuid4()
+    review_task_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={
+            "blueprint_snapshot": {
+                "env": {"E2E_PORT": "8000"},
+                "required_secrets": ["GITHUB_TOKEN"],
+                "repos": [{"path": "spindrel", "branch": "development"}],
+            }
+        },
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    now = datetime.now(timezone.utc)
+    run_task = Task(
+        id=run_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Project Coding Run",
+        prompt="Do the work",
+        status="complete",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run",
+            "project_coding_run": {
+                "project_id": str(project_id),
+                "branch": "spindrel/demo",
+                "base_branch": "development",
+                "repo": {"path": "spindrel"},
+            },
+        },
+    )
+    review_task = Task(
+        id=review_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Review Runs",
+        prompt="Review",
+        status="running",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run_review",
+            "project_coding_run_review": {
+                "project_id": str(project_id),
+                "selected_task_ids": [str(run_task_id)],
+                "operator_prompt": "Merge accepted work.",
+                "merge_method": "squash",
+                "repo_path": "spindrel",
+            },
+        },
+    )
+    receipt = ProjectRunReceipt(
+        project_id=project_id,
+        task_id=run_task_id,
+        bot_id="agent",
+        status="completed",
+        summary="Ready for review.",
+        handoff_url="https://github.com/mtotho/spindrel/pull/123",
+        changed_files=["app.py"],
+        tests=[{"command": "pytest tests/unit/test_project_coding_runs.py", "status": "passed"}],
+        screenshots=[{"path": "docs/images/project-workspace-runs.png", "status": "captured"}],
+    )
+    db_session.add_all([project, channel, run_task, review_task, receipt])
+    await db_session.commit()
+
+    payload = await get_project_coding_run_review_context(db_session, project, review_task_id)
+
+    assert payload["ok"] is True
+    assert payload["operator_prompt"] == "Merge accepted work."
+    assert payload["readiness"]["ready"] is True
+    assert payload["readiness"]["e2e"]["configured"] is True
+    assert payload["readiness"]["github"]["token_configured"] is False
+    assert payload["readiness"]["runtime_env"]["missing_secrets"] == ["GITHUB_TOKEN"]
+    assert payload["selected_task_ids"] == [str(run_task_id)]
+    selected = payload["selected_runs"][0]
+    assert selected["task_id"] == str(run_task_id)
+    assert selected["handoff_url"] == "https://github.com/mtotho/spindrel/pull/123"
+    assert selected["review"]["evidence"]["tests_count"] == 1
+    assert selected["review"]["evidence"]["screenshots_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_finalize_project_coding_run_review_returns_structured_error_for_unselected_run(db_session):
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    selected_task_id = uuid.uuid4()
+    other_task_id = uuid.uuid4()
+    review_task_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    now = datetime.now(timezone.utc)
+    selected_task = Task(
+        id=selected_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Selected Run",
+        prompt="Do work",
+        status="complete",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run",
+            "project_coding_run": {"project_id": str(project_id), "branch": "spindrel/selected", "repo": {}},
+        },
+    )
+    other_task = Task(
+        id=other_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Other Run",
+        prompt="Do other work",
+        status="complete",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run",
+            "project_coding_run": {"project_id": str(project_id), "branch": "spindrel/other", "repo": {}},
+        },
+    )
+    review_task = Task(
+        id=review_task_id,
+        bot_id="agent",
+        client_id=channel.client_id,
+        channel_id=channel_id,
+        title="Review Runs",
+        prompt="Review",
+        status="running",
+        task_type="agent",
+        created_at=now,
+        execution_config={
+            "run_preset_id": "project_coding_run_review",
+            "project_coding_run_review": {
+                "project_id": str(project_id),
+                "selected_task_ids": [str(selected_task_id)],
+            },
+        },
+    )
+    db_session.add_all([project, channel, selected_task, other_task, review_task])
+    await db_session.commit()
+
+    payload = await finalize_project_coding_run_review(
+        db_session,
+        project,
+        ProjectCodingRunReviewFinalize(
+            review_task_id=review_task_id,
+            run_task_id=other_task_id,
+            outcome="accepted",
+            summary="Should not finalize.",
+        ),
+    )
+
+    assert payload == {
+        "ok": False,
+        "status": "blocked",
+        "error": "coding run was not selected for this review session",
+        "error_code": "project_review_run_not_selected",
+        "error_kind": "validation",
+        "retryable": False,
+        "run_task_id": str(other_task_id),
+    }

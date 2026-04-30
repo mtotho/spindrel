@@ -143,7 +143,7 @@ Each provider implements a machine-control contract that exposes:
 
 This keeps core UI and APIs provider-agnostic while still letting providers add metadata.
 
-Providers that are safe for unattended scheduled task runs opt in through the manifest block `machine_control.task_automation`. Core reads that block to build task-editor grant options and to validate task grants. Implementing `machine_control.py` alone is not enough to make a provider available to scheduled automation.
+Providers that are safe for unattended scheduled task runs opt in through the manifest block `machine_control.task_automation`. Core reads that block to build task-editor grant options, expose only supported machine step types, and validate task grants. Implementing `machine_control.py` alone is not enough to make a provider available to scheduled automation.
 
 ### 3. Session lease state
 
@@ -175,6 +175,7 @@ Load-bearing invariants:
 - leases are always explicit and session-scoped
 - scheduled task grants are definition-scoped and limited to providers that advertise `machine_control.task_automation`
 - a task grant may create a short session lease for an agent run, but it does not create a persistent SSH PTY/session
+- saved task grants surface diagnostics when the provider, target, or required capability drifts
 
 ### 4. Execution policies
 
@@ -209,6 +210,7 @@ Current core APIs:
   - `POST /api/v1/sessions/{id}/machine-target/lease`
   - `DELETE /api/v1/sessions/{id}/machine-target/lease`
 - Task machine grants:
+  - `GET /api/v1/admin/tasks/machine-automation-options`
   - `machine_target_grant` field on `POST /api/v1/admin/tasks`
   - `machine_target_grant` field on `PATCH /api/v1/admin/tasks/{task_id}`
 - Admin machine center:
@@ -317,8 +319,9 @@ SSH profiles live in app-managed provider settings, not ephemeral container file
 
 1. Admin creates or edits a task definition and selects one provider-advertised machine target in the task execution settings.
 2. The API stores a `task_machine_grants` row with provider id, target id, capabilities, and whether LLM machine tools are allowed.
-3. Pipeline `machine_inspect` / `machine_exec` steps validate that row and probe the target immediately before running the provider command.
-4. Prompt tasks and pipeline `agent` steps with machine tools create a short `machine_target_leases` row for the task's resolved session before the agent loop starts.
+3. The task detail payload includes non-blocking diagnostics if the pipeline has machine steps without a grant, the grant target disappears, or the selected provider no longer advertises a required capability.
+4. Pipeline `machine_inspect` / `machine_exec` steps validate that row and probe the target immediately before running the provider command.
+5. Prompt tasks and pipeline `agent` steps with machine tools create a short `machine_target_leases` row for the task's resolved session before the agent loop starts.
 
 ### Execute a machine tool
 
@@ -406,7 +409,7 @@ These origins do not get to use machine-control tools just because they can call
 - bot-key `/api/v1/internal/tools/exec`
 - other non-interactive surfaces without a live user context
 
-They must go through an explicit task machine grant. In the current build only providers that advertise `machine_control.task_automation` are grantable to scheduled automation; SSH is the first shipped provider with that adapter.
+They must go through an explicit task machine grant. In the current build only providers that advertise `machine_control.task_automation` are grantable to scheduled automation. SSH advertises `inspect` and `exec`; Local Companion advertises `inspect` only and must be currently connected when the scheduled inspect step runs.
 
 ### Provider-side guardrails still matter
 

@@ -13,6 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.context import current_session_id, current_task_id
 from app.db.engine import async_session
 from app.db.models import MachineTargetLease, Session, Task, TaskMachineGrant
+from app.services.machine_task_automation import (
+    get_provider_task_automation_capabilities,
+    provider_display_label,
+    provider_supports_task_machine_automation,
+    task_machine_automation_diagnostics as build_task_machine_automation_diagnostics,
+)
 
 DEFAULT_TASK_LEASE_TTL_SECONDS = 900
 DEFAULT_TASK_GRANT_CAPABILITIES = ("inspect", "exec")
@@ -34,9 +40,18 @@ def normalize_capabilities(
     allowed_capabilities: list[str] | tuple[str, ...] | None = None,
 ) -> list[str]:
     allowed = tuple(allowed_capabilities or DEFAULT_TASK_GRANT_CAPABILITIES)
-    caps = [str(value).strip() for value in (values or DEFAULT_TASK_GRANT_CAPABILITIES)]
-    caps = [value for value in caps if value in allowed]
-    return sorted(set(caps)) or list(allowed)
+    if not allowed:
+        raise ValueError("Machine provider does not advertise scheduled task automation capabilities.")
+    if values is None:
+        return list(allowed)
+    requested = [str(value).strip() for value in values if str(value).strip()]
+    unsupported = sorted({value for value in requested if value not in allowed})
+    if unsupported:
+        raise ValueError(f"Machine provider does not support scheduled capabilities: {unsupported}.")
+    normalized = [value for value in allowed if value in set(requested)]
+    if not normalized:
+        raise ValueError("Task machine grant must include at least one supported capability.")
+    return normalized
 
 
 def _expires_at(value: str | datetime | None) -> datetime | None:
@@ -60,11 +75,7 @@ def is_grant_active(grant: TaskMachineGrant | None, *, now: datetime | None = No
 
 
 async def _validate_task_machine_target(provider_id: str, target_id: str) -> tuple[dict[str, Any], list[str]]:
-    from app.services.machine_control import (
-        get_provider,
-        get_provider_task_automation_capabilities,
-        provider_supports_task_machine_automation,
-    )
+    from app.services.machine_control import get_provider
 
     if not provider_supports_task_machine_automation(provider_id):
         raise ValueError("Machine provider does not support scheduled task automation.")
@@ -171,10 +182,18 @@ async def task_machine_grant_payload(
     if active is None:
         return None
     grant = active.grant
-    from app.services.machine_control import get_provider
+    diagnostics = await task_machine_automation_diagnostics(db, task)
+    provider_label = provider_display_label(grant.provider_id)
+    target_label = grant.target_id
+    try:
+        from app.services.machine_control import get_provider
 
-    provider = get_provider(grant.provider_id)
-    target = provider.get_target(grant.target_id) or {}
+        provider = get_provider(grant.provider_id)
+        provider_label = getattr(provider, "label", None) or provider_label
+        target = provider.get_target(grant.target_id) or {}
+        target_label = target.get("label") or grant.target_id
+    except Exception:
+        pass
     return {
         "provider_id": grant.provider_id,
         "target_id": grant.target_id,
@@ -185,13 +204,25 @@ async def task_machine_grant_payload(
         "allow_agent_tools": bool(grant.allow_agent_tools),
         "expires_at": grant.expires_at.isoformat() if grant.expires_at else None,
         "created_at": grant.created_at.isoformat() if grant.created_at else None,
-        "provider_label": getattr(provider, "label", None) or grant.provider_id,
-        "target_label": target.get("label") or grant.target_id,
+        "provider_label": provider_label,
+        "target_label": target_label,
+        "diagnostics": diagnostics,
     }
 
 
+async def task_machine_automation_diagnostics(
+    db: AsyncSession,
+    task: Task,
+) -> list[dict[str, str]]:
+    _ = db
+    active = await get_active_task_machine_grant(db, task)
+    grant = active.grant if active is not None else None
+    steps = task.steps if isinstance(task.steps, list) else []
+    return build_task_machine_automation_diagnostics(grant, steps=steps)
+
+
 async def probe_granted_target(db: AsyncSession, active: ActiveTaskGrant) -> dict[str, Any]:
-    from app.services.machine_control import get_provider, provider_supports_task_machine_automation
+    from app.services.machine_control import get_provider
 
     grant = active.grant
     if not provider_supports_task_machine_automation(grant.provider_id):
@@ -208,8 +239,6 @@ async def probe_granted_target(db: AsyncSession, active: ActiveTaskGrant) -> dic
 
 
 def require_grant_capability(active: ActiveTaskGrant, capability: str) -> None:
-    from app.services.machine_control import provider_supports_task_machine_automation
-
     if not provider_supports_task_machine_automation(active.grant.provider_id, capability=capability):
         raise PermissionError(f"Machine provider does not support scheduled '{capability}' automation.")
     if capability not in set(active.grant.capabilities or []):

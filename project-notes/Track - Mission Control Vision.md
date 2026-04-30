@@ -599,6 +599,10 @@ the system can already inspect" is a shared capability manifest:
   `run_agent_doctor` as baseline self-inspection tools, plus a compact
   context-assembly prompt rule for when to call them. This is prompt-guided
   self-inspection, not an automatic every-turn manifest/Doctor call.
+- Agent Readiness repair review is now covered by a runtime skill:
+  `agent_readiness/operator`. The manifest recommends it through
+  `skills.recommended_now` for Doctor findings and pending repair requests
+  instead of treating Agent Readiness as missing runtime skill coverage.
 - The repo-dev `agentic-readiness` skill is now progressive-disclosed. Its
   always-loaded `SKILL.md` stays focused on context classification and
   skill/tool/API/docs placement, while detailed external AX, internal runtime

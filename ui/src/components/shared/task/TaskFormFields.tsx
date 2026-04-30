@@ -5,8 +5,8 @@
  * Each receives a slice of TaskFormState and renders the appropriate form controls.
  */
 import { useState, useRef } from "react";
-import { ChevronRight, Code2, LayoutList } from "lucide-react";
-import type { StepDef } from "@/src/api/hooks/useTasks";
+import { AlertTriangle, ChevronRight, Code2, LayoutList } from "lucide-react";
+import type { MachineAutomationDiagnostic, StepDef } from "@/src/api/hooks/useTasks";
 import { useTaskMachineAutomationOptions } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
 import { PromptTemplateLink } from "../PromptTemplateLink";
@@ -204,6 +204,7 @@ export function ContentFields({ form, promptRows, hideStepEditor }: { form: Task
 
 export function ExecutionFields({ form, disableChannel }: { form: TaskFormState; disableChannel?: boolean }) {
   const {
+    existingTask,
     botId, setBotId, channelId, setChannelId,
     selectedSkillIds, setSelectedSkillIds,
     selectedToolKeys, setSelectedToolKeys,
@@ -223,6 +224,9 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
   const { data: machineAutomation } = useTaskMachineAutomationOptions();
   const machineProviders = machineAutomation?.providers ?? [];
   const showMachineGrant = machineProviders.some((provider) => (provider.targets ?? []).length > 0) || !!machineTargetGrant;
+  const machineDiagnostics: MachineAutomationDiagnostic[] = machineTargetGrant?.diagnostics
+    ?? existingTask?.machine_automation_diagnostics
+    ?? [];
   const machineTargetOptions = [
     { label: "None", value: "" },
     ...machineProviders.flatMap((provider) =>
@@ -300,7 +304,12 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
                 return;
               }
               const provider = machineProviders.find((item) => item.provider_id === providerId);
-              const capabilities = provider?.capabilities?.length ? provider.capabilities : ["inspect", "exec"];
+              const existingGrantSelected = machineTargetGrant?.provider_id === providerId && machineTargetGrant.target_id === targetId;
+              const capabilities = provider?.capabilities?.length
+                ? provider.capabilities
+                : existingGrantSelected && machineTargetGrant?.capabilities?.length
+                  ? machineTargetGrant.capabilities
+                  : ["inspect"];
               setMachineTargetGrant({
                 provider_id: providerId,
                 target_id: targetId,
@@ -311,6 +320,17 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
             options={machineTargetOptions}
           />
         </FormRow>
+      )}
+
+      {machineDiagnostics.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-md border border-warning/25 bg-warning/5 px-3 py-2">
+          {machineDiagnostics.map((diagnostic) => (
+            <div key={`${diagnostic.code}:${diagnostic.message}`} className="flex items-start gap-2 text-xs text-text-muted">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warning-muted" />
+              <span>{diagnostic.message}</span>
+            </div>
+          ))}
+        </div>
       )}
 
       {showMachineGrant && machineTargetGrant && (

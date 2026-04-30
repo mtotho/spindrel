@@ -290,6 +290,7 @@ async def _record_turn(
     tool_name: str,
     status: str,
     error: str | None = None,
+    error_code: str | None = None,
     arguments: dict | None = None,
 ) -> None:
     db_session.add(Message(
@@ -312,6 +313,7 @@ async def _record_turn(
         else {"cmd": "pytest tests/unit/test_plan_semantic_review.py -q"} if tool_name == "exec_command" else {},
         status=status,
         error=error,
+        error_code=error_code,
         result="" if error else "ok",
         correlation_id=correlation_id,
     ))
@@ -408,6 +410,67 @@ async def test_review_plan_adherence_supports_mutating_step_done_without_mock(db
     assert "step_done_supported_by_mutation" in review["deterministic_flags"]
     assert review["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
     assert review["semantic_status"] == spm.PLAN_SEMANTIC_STATUS_OK
+
+
+@pytest.mark.asyncio
+async def test_review_plan_adherence_allows_recovered_progress_verification_guardrail(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    session = _make_session(tmp_path, monkeypatch, step_label="Create the planned marker file")
+    correlation_id = uuid.uuid4()
+    marker_path = ".spindrel-plan-parity/recovered-adherence-marker.txt"
+    db_session.add(session)
+    await db_session.flush()
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
+        summary=f"Created and read back {marker_path}.",
+        evidence=marker_path,
+        status_note="Readback confirmed exact marker content.",
+        step_id="ship",
+        turn_id="turn-1",
+        correlation_id=str(correlation_id),
+    )
+    await _record_turn(
+        db_session,
+        session,
+        correlation_id=correlation_id,
+        tool_name="file",
+        status="done",
+        arguments={"path": marker_path, "content": "native plan recovered adherence marker"},
+    )
+    await _record_turn(
+        db_session,
+        session,
+        correlation_id=correlation_id,
+        tool_name="record_plan_progress",
+        status="error",
+        error="Read back the evidence path before recording verification.",
+        error_code="plan_progress_verification_missing",
+    )
+    await _record_turn(
+        db_session,
+        session,
+        correlation_id=correlation_id,
+        tool_name="file",
+        status="done",
+        arguments={"path": marker_path, "operation": "read"},
+    )
+    await _record_turn(
+        db_session,
+        session,
+        correlation_id=correlation_id,
+        tool_name="record_plan_progress",
+        status="done",
+    )
+
+    review = await review_plan_adherence(db_session, session, correlation_id=str(correlation_id))
+
+    assert "step_done_supported_by_mutation" in review["deterministic_flags"]
+    assert review["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
+    assert review["evidence_snapshot"]["had_any_error"] is False
 
 
 @pytest.mark.asyncio

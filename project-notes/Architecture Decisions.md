@@ -434,7 +434,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Core exposes `GET /api/v1/admin/tasks/machine-automation-options`, derived from enabled/configured/loadable providers with enrolled targets.
 - Task grants still store `(provider_id, target_id)`, but validation now checks the provider-advertised task automation block and capability list.
 - The task editor uses the options endpoint to decide whether to show machine target grants and machine step types.
-- `ssh` is the first provider to advertise task automation; `local_companion` remains hidden until it explicitly opts in.
+- `ssh` advertises `inspect` and `exec`; `local_companion` advertises scheduled `inspect` only after explicitly opting in.
 
 **Why.**
 - A hard-coded `"ssh"` branch in scheduled automations leaks integration/provider details into core task UX.
@@ -444,7 +444,9 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 **Load-bearing invariants.**
 - Scheduled machine options must be hidden unless a provider is enabled, configured, opted in for task automation, loadable, and has enrolled targets.
 - Core task UI and task APIs must not hard-code provider ids or provider labels for machine automation.
+- Core task UI must expose only machine step types backed by currently available provider-advertised capabilities.
 - Deterministic `machine_inspect` / `machine_exec` steps run only through an active task grant and provider execution contract.
+- Local Companion scheduled automation is readonly inspect-only; unattended companion exec requires a separate consent design.
 - LLM machine tools remain denied for task origin unless the task resolves an active grant and `allow_agent_tools` permits tool use.
 
 ### Machine-control provider profiles are core-owned abstractions; SSH uses them first with no ambient fallback

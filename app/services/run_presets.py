@@ -35,6 +35,7 @@ Safe fixes in propose_and_fix mode are limited to dashboard operations: move/res
 
 PROJECT_CODING_RUN_PROMPT = """Implement the requested Project task in this Project workspace.
 
+Before editing, load the `workspace/project_coding_runs` runtime skill if it is not already loaded.
 Before changing files, inspect the workspace state and get latest from the Project's configured development branch when it is safe to do so. Use the Project root as the working directory for file, exec, harness, and screenshot work. If this run is in a fresh Project instance, keep changes inside that instance.
 
 Expected workflow:
@@ -49,14 +50,16 @@ Expected workflow:
 
 PROJECT_CODING_RUN_REVIEW_PROMPT = """Review the selected Project coding runs and finalize only accepted work.
 
+Before deciding, load the `workspace/project_coding_runs` runtime skill if it is not already loaded and call get_project_coding_run_review_context for the current review task.
 Use the Project root as the working directory. Inspect each selected run's task, receipt, PR, tests, screenshots, and reviewer-visible evidence before making a decision. If the operator asked you to merge accepted PRs, merge only the runs you accept.
 
 Finalization rules:
-1. Call finalize_project_coding_run_review once per selected run you have reviewed.
-2. Use outcome="accepted" only when the PR/work is ready for the operator's requested merge policy.
-3. Use merge=true only when the operator explicitly asked this review session to merge accepted work.
-4. Use outcome="rejected" or outcome="blocked" for runs that need changes, have missing evidence, failing checks, or cannot be merged.
-5. Only accepted finalizations mark Project coding runs reviewed. Rejected and blocked finalizations leave them available for follow-up work."""
+1. Call get_project_coding_run_review_context before finalizing selected runs.
+2. Call finalize_project_coding_run_review once per selected run you have reviewed.
+3. Use outcome="accepted" only when the PR/work is ready for the operator's requested merge policy.
+4. Use merge=true only when the operator explicitly asked this review session to merge accepted work.
+5. Use outcome="rejected" or outcome="blocked" for runs that need changes, have missing evidence, failing checks, or cannot be merged.
+6. Only accepted finalizations mark Project coding runs reviewed. Rejected and blocked finalizations leave them available for follow-up work."""
 
 
 @dataclass(frozen=True)
@@ -150,8 +153,10 @@ PROJECT_CODING_RUN = RunPreset(
         task_type="agent",
         trigger_config={"type": "manual"},
         skills=(
-            "spindrel-visual-feedback-loop",
-            "impeccable",
+            "workspace/project_coding_runs",
+            "workspace/files",
+            "workspace/member",
+            "e2e_testing",
         ),
         tools=(
             "file",
@@ -189,14 +194,17 @@ PROJECT_CODING_RUN_REVIEW = RunPreset(
         task_type="agent",
         trigger_config={"type": "manual"},
         skills=(
-            "spindrel-visual-feedback-loop",
-            "impeccable",
+            "workspace/project_coding_runs",
+            "workspace/files",
+            "workspace/member",
+            "e2e_testing",
         ),
         tools=(
             "file",
             "exec_command",
             "run_e2e_tests",
             "prepare_project_run_handoff",
+            "get_project_coding_run_review_context",
             "finalize_project_coding_run_review",
         ),
         post_final_to_channel=True,
