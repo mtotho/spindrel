@@ -55,7 +55,9 @@ POST /api/v1/system-health/recent-errors/promote
 ```
 
 Use `dedupe_keys` when only a subset should enter Attention. Promotion reuses
-existing open or acknowledged items with the same dedupe key.
+existing open or acknowledged items with the same dedupe key. By default, it
+skips findings already reviewed as `resolved_duplicate`; pass that exact
+`dedupe_key` only when you intentionally want to re-open or re-promote it.
 
 ## Classify Each Promoted Finding
 
@@ -79,13 +81,19 @@ Call:
 ```
 POST /api/v1/workspace/attention/{id}/resolve
 {
-  "resolution": "already_recovered",
-  "note": "No matching finding in the last 2h sweep; keeping related code issue open separately."
+  "resolution": "duplicate",
+  "duplicate_of": "open-root-attention-item-id",
+  "note": "Covered by the root finding; keeping that item open."
 }
 ```
 
 Allowed `resolution` values: `fixed`, `benign`, `duplicate`,
 `not_reproducible`, `external`, `stale`, `already_recovered`, `other`.
+
+`GET /recent-errors?include_attention=true` returns `review_state`. A
+`resolved_duplicate` finding can still be a recent log event; it is simply not
+new work. Keep the root item open and avoid spending review time on the wrapper
+signature unless it reappears without a valid `duplicate_of` target.
 
 ## Convert Code Bugs Into Repo Work
 

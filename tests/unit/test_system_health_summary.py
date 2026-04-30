@@ -196,6 +196,7 @@ async def test_recent_errors_api_includes_matching_attention_state(db_session):
     assert payload["findings"][0]["dedupe_key"] == finding.dedupe_key
     assert payload["findings"][0]["attention"]["id"] == str(item.id)
     assert payload["findings"][0]["attention"]["status"] == "open"
+    assert payload["findings"][0]["review_state"] == "open"
 
 
 @pytest.mark.asyncio
@@ -227,3 +228,93 @@ async def test_recent_errors_promote_defaults_to_error_and_critical(db_session):
         item["attention"]["evidence"]["kind"] == "recent_server_error"
         for item in payload["promoted"]
     )
+
+
+@pytest.mark.asyncio
+async def test_recent_errors_marks_resolved_duplicates_and_promote_skips_by_default(db_session):
+    root = _make_finding(service="agent-server", count=2, severity="error", title="Root")
+    duplicate = _make_finding(service="agent-server", count=2, severity="error", title="Wrapper")
+    duplicate.dedupe_key = "log-agent-server-wrapper"
+    root_item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id=RECENT_ERRORS_SOURCE_ID,
+        channel_id=None,
+        target_kind="system",
+        target_id=RECENT_ERRORS_TARGET_ID,
+        title="Root",
+        severity="error",
+        dedupe_key=root.dedupe_key,
+    )
+    duplicate_item = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id=RECENT_ERRORS_SOURCE_ID,
+        channel_id=None,
+        target_kind="system",
+        target_id=RECENT_ERRORS_TARGET_ID,
+        title="Wrapper",
+        severity="error",
+        dedupe_key=duplicate.dedupe_key,
+    )
+    from app.services.workspace_attention import resolve_attention_item
+
+    await resolve_attention_item(
+        db_session,
+        duplicate_item.id,
+        resolved_by="api_key:ops",
+        resolution="duplicate",
+        duplicate_of=root_item.id,
+        note="Covered by the root finding.",
+    )
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[root, duplicate]),
+    ):
+        payload = await get_recent_errors(
+            since="30m",
+            services=None,
+            limit=10,
+            include_attention=True,
+            auth=None,
+            db=db_session,
+        )
+
+    by_key = {finding["dedupe_key"]: finding for finding in payload["findings"]}
+    assert by_key[root.dedupe_key]["review_state"] == "open"
+    assert by_key[duplicate.dedupe_key]["review_state"] == "resolved_duplicate"
+    assert by_key[duplicate.dedupe_key]["attention"]["duplicate_of"] == str(root_item.id)
+    assert by_key[duplicate.dedupe_key]["attention"]["note"] == "Covered by the root finding."
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[root, duplicate]),
+    ):
+        compact_payload = await get_recent_errors(
+            since="30m",
+            services=None,
+            limit=10,
+            include_attention=False,
+            auth=None,
+            db=db_session,
+        )
+
+    compact_by_key = {finding["dedupe_key"]: finding for finding in compact_payload["findings"]}
+    assert compact_by_key[duplicate.dedupe_key]["review_state"] == "resolved_duplicate"
+    assert compact_by_key[duplicate.dedupe_key]["attention"] is None
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[root, duplicate]),
+    ):
+        promoted = await promote_recent_errors(
+            PromoteRecentErrorsRequest(since="30m", min_severity="error"),
+            auth=None,
+            db=db_session,
+        )
+
+    promoted_keys = {row["finding"]["dedupe_key"] for row in promoted["promoted"]}
+    assert promoted_keys == {root.dedupe_key}
+    assert promoted["skipped"][0]["dedupe_key"] == duplicate.dedupe_key
+    assert promoted["skipped"][0]["reason"] == "resolved_duplicate"

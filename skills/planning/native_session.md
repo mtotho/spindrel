@@ -43,8 +43,9 @@ latest tool results as the source of truth.
 1. Execute only the accepted revision and current step.
 2. After a meaningful turn, call `record_plan_progress` with progress, blocked,
    verification, no_progress, or step_done.
-3. If you claim verification or readback, first perform the matching read/check
-   tool call for the evidence path.
+3. If `step_done` uses a workspace path as evidence, or if you claim
+   verification/readback, first perform the matching read/check tool call for
+   that evidence path.
 4. If the accepted plan is stale, call `request_plan_replan`; do not continue
    with unstated assumptions.
 5. If semantic review marks an outcome unsupported, correct the outcome or

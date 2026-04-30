@@ -34,7 +34,9 @@ POST /api/v1/system-health/recent-errors/promote
 
 The API creates or reuses `WorkspaceAttentionItem` rows keyed by each finding's
 `dedupe_key`. Default promotion includes `error` and `critical`, not warnings.
-Use `dedupe_keys` when you only want specific findings.
+Use `dedupe_keys` when you only want specific findings. Promotion skips findings
+already reviewed as `resolved_duplicate` unless you explicitly pass that
+`dedupe_key` or set `include_resolved=true`.
 
 ## Resolve only with evidence
 
@@ -49,14 +51,20 @@ Resolve an Attention item only when the classification is clear:
 ```
 POST /api/v1/workspace/attention/{id}/resolve
 {
-  "resolution": "benign",
-  "note": "Duplicate of a known recovered startup warning; absent from the last 2h sweep."
+  "resolution": "duplicate",
+  "duplicate_of": "open-root-attention-item-id",
+  "note": "Covered by the root finding; keeping that item open."
 }
 ```
 
 Allowed resolution values are `fixed`, `benign`, `duplicate`,
 `not_reproducible`, `external`, `stale`, `already_recovered`, and `other`.
 Always include a short note for health findings.
+
+`recent-errors?include_attention=true` returns both the raw log finding and the
+review overlay. `review_state=resolved_duplicate` still means the log happened
+recently; it does not mean the event vanished. Treat it as already-triaged work
+unless the duplicate target is missing or the user asks to re-open it.
 
 ## Keep likely bugs open
 

@@ -24,8 +24,11 @@ Always make that distinction explicit in your reasoning and wording.
 2. Confirm whether the session already has a lease and which target it points at.
 3. If no lease exists, let the user grant one through the inline machine-access card or session controls.
 4. Prefer `machine_inspect_command()` for discovery.
-5. Use `machine_exec_command()` only when you actually need mutation or real execution.
-6. If `machine_exec_command()` returns or triggers an approval state, stop and wait for the user to approve or deny it.
+5. For vague network, DNS, port, Docker, or homelab symptoms, fetch
+   [Machine Probes](machine_probes.md) and use `machine_probe_catalog()` /
+   `machine_run_probe()` before raw shell commands.
+6. Use `machine_exec_command()` only when you actually need mutation or real execution.
+7. If `machine_exec_command()` returns or triggers an approval state, stop and wait for the user to approve or deny it.
 
 The lease and the approval are separate gates. A lease says this session may use this target. Tool approval says this specific exec-capable command may run.
 
@@ -57,6 +60,21 @@ Use for readonly discovery:
 - process inspection
 
 Treat it as the default shell tool until you know you need more.
+
+### `machine_probe_catalog` / `machine_run_probe`
+
+Use for bounded progressive discovery on a leased machine target:
+
+- network basics
+- DNS lookup
+- TCP port check
+- HTTP reachability
+- Docker summary
+- Compose summary
+- bounded Docker log tail
+
+These probes are fixed read-only command bundles. They return evidence,
+confidence, blocked state, and suggested `next_probe_ids`.
 
 ### `machine_exec_command`
 

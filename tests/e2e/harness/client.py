@@ -679,6 +679,29 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def get_agent_capabilities(
+        self,
+        *,
+        bot_id: str | None = None,
+        channel_id: str | None = None,
+        session_id: str | None = None,
+        include_endpoints: bool = False,
+        include_schemas: bool = False,
+    ) -> dict:
+        params: dict[str, Any] = {
+            "include_endpoints": include_endpoints,
+            "include_schemas": include_schemas,
+        }
+        if bot_id:
+            params["bot_id"] = bot_id
+        if channel_id:
+            params["channel_id"] = channel_id
+        if session_id:
+            params["session_id"] = session_id
+        resp = await self._client.get("/api/v1/agent-capabilities", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_usage_logs(self, **params: Any) -> dict:
         clean_params = {key: value for key, value in params.items() if value is not None}
         resp = await self._client.get("/api/v1/admin/usage/logs", params=clean_params)

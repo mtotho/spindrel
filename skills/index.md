@@ -16,7 +16,7 @@ The built-in skill library is clustered by theme. Each cluster has its own `inde
 - **[history_and_memory](history_and_memory/index.md)** — chat history, session model, memory hygiene, cross-session search.
 - **[widgets](widgets/index.md)** — all three widget kinds (tool, HTML, native), dashboards, SDK, handlers, styling, manifest.
 - **[pipelines](pipelines/index.md)** — task pipelines (authoring + creation), step types, scheduling.
-- **[automation](automation/index.md)** — standing orders, machine control.
+- **[automation](automation/index.md)** — standing orders, machine control, bounded machine probes.
 - **[configurator](configurator/index.md)** — bot / channel / integration config changes via `propose_config_change`.
 - **[orchestrator](orchestrator/index.md)** — shared-workspace multi-bot coordination, audits, model efficiency, delegation reference.
 - **[diagnostics](diagnostics/index.md)** — investigate server failures: health summary, recent errors, structured traces, raw container logs. Cheapest-first L1→L5 procedure plus the heartbeat / nightly digest pattern.

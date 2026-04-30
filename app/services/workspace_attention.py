@@ -408,6 +408,7 @@ async def resolve_attention_item(
     source_bot_id: str | None = None,
     resolution: str | None = None,
     note: str | None = None,
+    duplicate_of: uuid.UUID | str | None = None,
 ) -> WorkspaceAttentionItem:
     item = await get_attention_item(db, item_id)
     if source_bot_id and not (item.source_type == "bot" and item.source_id == source_bot_id):
@@ -416,13 +417,19 @@ async def resolve_attention_item(
     resolution_value = (resolution or "").strip().lower() or None
     if resolution_value and resolution_value not in VALID_RESOLUTIONS:
         raise ValidationError(f"resolution must be one of {sorted(VALID_RESOLUTIONS)}")
+    duplicate_of_value = str(duplicate_of) if duplicate_of else None
+    if duplicate_of_value and resolution_value != "duplicate":
+        raise ValidationError("duplicate_of can only be set when resolution is duplicate")
+    if duplicate_of_value and duplicate_of_value == str(item.id):
+        raise ValidationError("duplicate_of cannot reference the resolved item")
     note_value = (note or "").strip()[:2000] or None
-    if resolution_value or note_value:
+    if resolution_value or note_value or duplicate_of_value:
         evidence = dict(item.evidence or {})
         history = list(evidence.get("resolution_history") or [])
         resolution_record = {
             "resolution": resolution_value or "other",
             "note": note_value,
+            "duplicate_of": duplicate_of_value,
             "resolved_by": resolved_by or source_bot_id or item.resolved_by,
             "resolved_at": now.isoformat(),
         }

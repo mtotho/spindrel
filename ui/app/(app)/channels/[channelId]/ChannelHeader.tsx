@@ -1191,15 +1191,11 @@ function HarnessStatusPill({
       return;
     }
     const width = Math.min(320, Math.max(0, viewport.width - margin * 2));
-    const anchorRight = rect?.right ?? viewport.left + viewport.width - margin;
-    const left = Math.max(
-      viewport.left + margin,
-      Math.min(anchorRight - width, viewport.left + viewport.width - margin - width),
-    );
     setPanelStyle({
-      left,
+      left: margin,
       top,
       width,
+      maxWidth: `calc(100vw - ${margin * 2}px)`,
       maxHeight: Math.max(160, viewport.height - (top - viewport.top) - margin),
       zIndex: 50002,
     });

@@ -435,6 +435,34 @@ async def test_live_spindrel_plan_mode_start_exit(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_live_spindrel_plan_mode_recommends_native_planning_skill(client: E2EClient) -> None:
+    channel_id, session_id, bot_id = await _fresh_session(client, "skill_recommendation")
+
+    await client.start_session_plan_mode(session_id)
+    caps = await client.get_agent_capabilities(
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        include_endpoints=False,
+    )
+
+    planning_state = caps.get("planning") or {}
+    assert planning_state.get("active") is True
+    assert planning_state.get("mode") == "planning"
+    recommended = (caps.get("skills") or {}).get("recommended_now") or []
+    by_feature = {
+        item.get("feature_id"): item
+        for item in recommended
+        if isinstance(item, dict)
+    }
+    planning = by_feature.get("native_session_planning")
+    assert planning, recommended
+    assert planning.get("first_action") == 'get_skill("planning/native_session")'
+    assert planning.get("suggested_owner") == "existing_runtime_skill"
+    _record_session("skill_recommendation", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
 async def test_live_spindrel_plan_exit_resume_preserves_execution_state(client: E2EClient) -> None:
     _requires_tier("approve")
     channel_id, session_id, bot_id = await _fresh_session(client, "exit_resume")

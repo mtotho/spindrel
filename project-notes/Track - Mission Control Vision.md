@@ -632,6 +632,12 @@ the system can already inspect" is a shared capability manifest:
   `skills/diagnostics/health_triage.md`; repo-dev agents get the separate
   `.agents/skills/spindrel-live-health-triage` workflow for live-instance
   inspection and code-bug conversion.
+- Added a resolution overlay for recent errors. `review_state` distinguishes
+  new/open findings from resolved duplicates, recovered findings, and stale
+  resolved errors that reappeared; duplicate resolution can point at a root
+  Attention item through `duplicate_of`. Promotion skips resolved duplicates by
+  default, but raw log findings remain visible unless callers explicitly filter
+  them.
 
 ## Key Invariants
 

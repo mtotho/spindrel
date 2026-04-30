@@ -214,8 +214,11 @@ Agents and operators can call
 deduped findings, then `POST /api/v1/system-health/recent-errors/promote` to
 turn selected current errors into Attention Items. Clear benign, duplicate,
 external, stale, or recovered findings can be resolved through
-`POST /api/v1/workspace/attention/{id}/resolve` with a `resolution` and `note`;
-likely code bugs should stay open for repo work.
+`POST /api/v1/workspace/attention/{id}/resolve` with a `resolution`, `note`,
+and optional `duplicate_of`; likely code bugs should stay open for repo work.
+Resolved duplicate findings still appear in recent-errors when the raw log line
+is inside the requested window, but `review_state=resolved_duplicate` marks
+them as already-triaged rather than fresh work.
 
 If an Attention Item is assigned with `mode="next_heartbeat"`, the heartbeat
 preamble also receives an `attention assignments` block for that bot and

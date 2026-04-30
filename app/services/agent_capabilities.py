@@ -198,7 +198,7 @@ TOOL_PROFILE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("widgets", ("widget", "dashboard", "pin", "html")),
     ("messaging", ("message", "chat", "channel", "respond", "send")),
     ("planning", ("plan", "question", "replan", "progress")),
-    ("diagnostics", ("health", "log", "trace", "error", "doctor", "inspect")),
+    ("diagnostics", ("health", "log", "trace", "error", "doctor", "inspect", "probe")),
     ("automation", ("task", "pipeline", "cron", "heartbeat", "standing_order")),
 )
 

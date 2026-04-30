@@ -206,6 +206,17 @@ async def test_place_attention_item_dedupes_active_items(db_session):
 
 @pytest.mark.asyncio
 async def test_resolve_attention_item_preserves_optional_resolution_metadata(db_session):
+    root = await place_attention_item(
+        db_session,
+        source_type="system",
+        source_id="system:recent-server-errors",
+        channel_id=None,
+        target_kind="system",
+        target_id="server-health",
+        title="Root server error",
+        severity="error",
+        dedupe_key="root-server-error",
+    )
     item = await place_attention_item(
         db_session,
         source_type="system",
@@ -223,14 +234,16 @@ async def test_resolve_attention_item_preserves_optional_resolution_metadata(db_
         db_session,
         item.id,
         resolved_by="api_key:ops",
-        resolution="already_recovered",
-        note="No matching errors in the latest sweep.",
+        resolution="duplicate",
+        note="Covered by the root finding.",
+        duplicate_of=root.id,
     )
 
     assert resolved.status == "resolved"
     assert resolved.evidence["kind"] == "recent_server_error"
-    assert resolved.evidence["resolution"]["resolution"] == "already_recovered"
-    assert resolved.evidence["resolution"]["note"] == "No matching errors in the latest sweep."
+    assert resolved.evidence["resolution"]["resolution"] == "duplicate"
+    assert resolved.evidence["resolution"]["note"] == "Covered by the root finding."
+    assert resolved.evidence["resolution"]["duplicate_of"] == str(root.id)
     assert resolved.evidence["resolution"]["resolved_by"] == "api_key:ops"
 
 

@@ -33,6 +33,7 @@ def test_tool_profiles_group_agent_first_surfaces():
     assert agent_capabilities._profile_for_tool("emit_html_widget") == "widgets"
     assert agent_capabilities._profile_for_tool("record_plan_progress") == "planning"
     assert agent_capabilities._profile_for_tool("get_recent_server_errors") == "diagnostics"
+    assert agent_capabilities._profile_for_tool("machine_run_probe") == "diagnostics"
 
 
 def test_runtime_context_budget_normalization_and_thresholds():

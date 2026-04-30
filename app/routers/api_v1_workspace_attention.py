@@ -40,6 +40,7 @@ class AttentionStatusRequest(BaseModel):
 class AttentionResolveRequest(BaseModel):
     resolution: str | None = None
     note: str | None = None
+    duplicate_of: uuid.UUID | None = None
 
 
 class AttentionCreateRequest(BaseModel):
@@ -286,6 +287,7 @@ async def resolve_attention(
             resolved_by=actor_label(auth),
             resolution=body.resolution if body else None,
             note=body.note if body else None,
+            duplicate_of=body.duplicate_of if body else None,
         )
     except NotFoundError as e:
         raise HTTPException(404, str(e)) from e

@@ -217,10 +217,14 @@ For on-demand triage, use:
 
 `recent-errors` returns the same deduped `LogFinding` shape as
 `get_recent_server_errors` and can annotate each finding with matching
-Attention item id/status. `promote` creates or reuses system-authored
+Attention item id/status, resolution, note, `duplicate_of`, and a computed
+`review_state` such as `open`, `resolved_duplicate`, or
+`stale_resolved_reappeared`. `promote` creates or reuses system-authored
 Attention items for selected findings; by default it promotes `error` and
-`critical` findings. `resolve` still accepts an empty body, but may also store
-`resolution` and `note` in Attention evidence for audit-friendly health triage.
+`critical` findings while skipping findings already reviewed as
+`resolved_duplicate` unless their `dedupe_key` is explicitly requested.
+`resolve` still accepts an empty body, but may also store `resolution`, `note`,
+and `duplicate_of` in Attention evidence for audit-friendly health triage.
 Runtime agents should use `skills/diagnostics/health_triage.md`; repo-dev
 agents should use `.agents/skills/spindrel-live-health-triage`.
 

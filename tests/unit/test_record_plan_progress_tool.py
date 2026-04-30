@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.tools.local.record_plan_progress import (
     _claims_step_verification,
+    _requires_step_done_readback,
     _tool_call_is_readback,
 )
 
@@ -23,6 +24,27 @@ def test_step_done_verification_claim_requires_readback_guard() -> None:
         outcome="progress",
         summary="Verification still pending",
         status_note=None,
+    )
+
+
+def test_step_done_path_evidence_requires_readback_guard() -> None:
+    assert _requires_step_done_readback(
+        outcome="step_done",
+        summary="Created the planned marker file",
+        status_note=None,
+        evidence=".spindrel-plan-parity/adherence-marker.txt",
+    )
+    assert not _requires_step_done_readback(
+        outcome="step_done",
+        summary="Audit completed",
+        status_note=None,
+        evidence="Audit result captured in the transcript.",
+    )
+    assert not _requires_step_done_readback(
+        outcome="progress",
+        summary="Created the planned marker file",
+        status_note=None,
+        evidence=".spindrel-plan-parity/adherence-marker.txt",
     )
 
 

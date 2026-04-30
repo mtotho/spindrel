@@ -1454,7 +1454,7 @@ async def test_live_harness_bridge_tools_persist_and_renderable(
 
     discovery = await client.chat_session_stream(
         (
-            f"Bridge parity diagnostic. You must call exactly the host-provided "
+            f"@tool:get_tool_info Bridge parity diagnostic. You must call exactly the host-provided "
             f"get_tool_info tool now with JSON arguments "
             f"{discovery_args}. Do not call {tool_name} in this turn. "
             "Do not use shell commands. Do not modify files. Briefly say whether "

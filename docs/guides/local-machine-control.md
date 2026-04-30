@@ -196,10 +196,13 @@ Current core machine tools:
 | Tool | Tier | Execution policy |
 |---|---|---|
 | `machine_status` | `readonly` | `interactive_user` |
+| `machine_probe_catalog` | `readonly` | `interactive_user` |
+| `machine_run_probe` | `readonly` | `live_target_lease` |
 | `machine_inspect_command` | `readonly` | `live_target_lease` |
 | `machine_exec_command` | `exec_capable` | `live_target_lease` |
 
-These are core tools in `app/tools/local/machine_control.py`. They are not owned by `local_companion`.
+These are core tools in `app/tools/local/machine_control.py` and
+`app/tools/local/machine_probes.py`. They are not owned by `local_companion`.
 
 ### 5. Core APIs and UI surfaces
 
@@ -378,8 +381,11 @@ SSH is the best fit for headless machines, LAN boxes, and hosts that already hav
 3. Grant a lease for the target you want to use.
 4. Optionally pin the native `Machine control` widget if you want persistent session-scoped quick controls in the channel workspace.
 5. Use `machine_inspect_command` for discovery first.
-6. Use `machine_exec_command` when you really need execution on that machine.
-7. Revoke the lease or let it expire.
+6. Use `machine_probe_catalog` and `machine_run_probe` for bounded
+   progressive discovery when the symptom is network, DNS, port, Docker,
+   Compose, or service reachability related.
+7. Use `machine_exec_command` when you really need execution on that machine.
+8. Revoke the lease or let it expire.
 
 The UI now offers copyable starter prompts on machine status/access cards and in the machine center. Those prompts are only guidance for the bot. They do not grant access. The actual gates remain:
 
@@ -463,6 +469,7 @@ Use these as the main code anchors for the current architecture:
 - `app/services/machine_control.py`
 - `app/services/machine_task_grants.py`
 - `app/tools/local/machine_control.py`
+- `app/tools/local/machine_probes.py`
 - `app/routers/api_v1_admin/machines.py`
 - `app/routers/sessions.py`
 - `integrations/local_companion/machine_control.py`

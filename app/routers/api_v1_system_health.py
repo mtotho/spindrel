@@ -34,6 +34,7 @@ class PromoteRecentErrorsRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=500)
     min_severity: str = "error"
     dedupe_keys: list[str] | None = None
+    include_resolved: bool = False
 
 
 def _serialize(row: SystemHealthSummary, *, include_findings: bool = True) -> dict:
@@ -81,6 +82,28 @@ def _severity_at_least(severity: str | None, minimum: str) -> bool:
     return SEVERITY_RANK.get(severity or "warning", 1) >= SEVERITY_RANK[minimum]
 
 
+def _resolution_from_item(item: WorkspaceAttentionItem | None) -> dict | None:
+    evidence = item.evidence if item else None
+    resolution = evidence.get("resolution") if isinstance(evidence, dict) else None
+    return resolution if isinstance(resolution, dict) else None
+
+
+def _review_state(finding: LogFinding, attention: WorkspaceAttentionItem | None) -> str:
+    if attention is None:
+        return "new"
+    if attention.status != "resolved":
+        return "open"
+    resolution = _resolution_from_item(attention) or {}
+    resolution_value = str(resolution.get("resolution") or "other")
+    if resolution_value == "duplicate":
+        return "resolved_duplicate"
+    if attention.resolved_at and finding.last_seen > attention.resolved_at:
+        return "stale_resolved_reappeared"
+    if resolution_value == "already_recovered":
+        return "resolved_recovered"
+    return f"resolved_{resolution_value}"
+
+
 async def _attention_by_dedupe_key(
     db: AsyncSession,
     dedupe_keys: list[str],
@@ -108,19 +131,26 @@ async def _serialize_finding_with_attention(
     db: AsyncSession,
     finding: LogFinding,
     attention: WorkspaceAttentionItem | None,
+    *,
+    include_attention_details: bool = True,
 ) -> dict:
     data = _finding_to_dict(finding)
-    if attention is None:
+    if not include_attention_details or attention is None:
         data["attention"] = None
     else:
         serialized = await serialize_attention_item(db, attention)
+        resolution = _resolution_from_item(attention)
         data["attention"] = {
             "id": serialized["id"],
             "status": serialized["status"],
             "severity": serialized["severity"],
             "title": serialized["title"],
             "resolved_at": serialized["resolved_at"],
+            "resolution": resolution.get("resolution") if resolution else None,
+            "note": resolution.get("note") if resolution else None,
+            "duplicate_of": resolution.get("duplicate_of") if resolution else None,
         }
+    data["review_state"] = _review_state(finding, attention)
     return data
 
 
@@ -213,6 +243,8 @@ async def get_recent_errors(
     services: list[str] | None = Query(default=None),
     limit: int = 50,
     include_attention: bool = True,
+    include_resolved: bool = True,
+    hide_resolved_duplicates: bool = False,
     auth=Depends(require_scopes("channels:read")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -223,15 +255,22 @@ async def get_recent_errors(
     )
     total = len(findings)
     findings = findings[:capped]
-    attention: dict[str, WorkspaceAttentionItem] = {}
-    if include_attention:
-        attention = await _attention_by_dedupe_key(db, [f.dedupe_key for f in findings])
+    attention = await _attention_by_dedupe_key(db, [f.dedupe_key for f in findings])
+    if not include_resolved:
+        findings = [f for f in findings if attention.get(f.dedupe_key) is None or attention[f.dedupe_key].status != "resolved"]
+    if hide_resolved_duplicates:
+        findings = [f for f in findings if _review_state(f, attention.get(f.dedupe_key)) != "resolved_duplicate"]
     return {
         "since": since,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "total": total,
         "findings": [
-            await _serialize_finding_with_attention(db, f, attention.get(f.dedupe_key))
+            await _serialize_finding_with_attention(
+                db,
+                f,
+                attention.get(f.dedupe_key),
+                include_attention_details=include_attention,
+            )
             for f in findings
         ],
     }
@@ -251,12 +290,29 @@ async def promote_recent_errors(
         since=body.since,
         services=_normalize_services(body.services),
     )
-    selected = [
-        finding
-        for finding in findings
-        if _severity_at_least(finding.severity, min_severity)
-        and (not wanted_keys or finding.dedupe_key in wanted_keys)
-    ][:body.limit]
+    attention = await _attention_by_dedupe_key(db, [f.dedupe_key for f in findings])
+    selected: list[LogFinding] = []
+    skipped: list[dict] = []
+    for finding in findings:
+        if not _severity_at_least(finding.severity, min_severity):
+            continue
+        if wanted_keys and finding.dedupe_key not in wanted_keys:
+            continue
+        review_state = _review_state(finding, attention.get(finding.dedupe_key))
+        if (
+            not body.include_resolved
+            and finding.dedupe_key not in wanted_keys
+            and review_state == "resolved_duplicate"
+        ):
+            skipped.append({
+                "dedupe_key": finding.dedupe_key,
+                "reason": review_state,
+                "title": finding.title,
+            })
+            continue
+        selected.append(finding)
+        if len(selected) >= body.limit:
+            break
     promoted: list[dict] = []
     for finding in selected:
         try:
@@ -271,5 +327,6 @@ async def promote_recent_errors(
         "since": body.since,
         "min_severity": min_severity,
         "selected": len(selected),
+        "skipped": skipped,
         "promoted": promoted,
     }

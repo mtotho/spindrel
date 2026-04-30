@@ -26,6 +26,7 @@ _VERIFICATION_CLAIM_RE = re.compile(
     re.IGNORECASE,
 )
 _READBACK_OPERATIONS = {"read", "cat", "show"}
+_EVIDENCE_TOKEN_RE = re.compile(r"`([^`]+)`|'([^']+)'|\"([^\"]+)\"|(\S+)")
 
 _SCHEMA = {
     "type": "function",
@@ -60,6 +61,35 @@ def _claims_step_verification(*, outcome: str, summary: str, status_note: str | 
         return False
     text = " ".join(part for part in (summary, status_note or "") if part)
     return bool(_VERIFICATION_CLAIM_RE.search(text))
+
+
+def _evidence_looks_like_workspace_path(evidence: str | None) -> bool:
+    if not evidence:
+        return False
+    for match in _EVIDENCE_TOKEN_RE.findall(str(evidence)):
+        token = next((part for part in match if part), "").strip()
+        token = token.strip(".,;:()[]{}")
+        if not token or token.lower().startswith(("http://", "https://")):
+            continue
+        if "/" in token or token.startswith((".", "~")):
+            return True
+    return False
+
+
+def _requires_step_done_readback(
+    *,
+    outcome: str,
+    summary: str,
+    status_note: str | None,
+    evidence: str | None,
+) -> bool:
+    if outcome != "step_done":
+        return False
+    return _claims_step_verification(
+        outcome=outcome,
+        summary=summary,
+        status_note=status_note,
+    ) or _evidence_looks_like_workspace_path(evidence)
 
 
 def _path_matches_evidence(arguments: dict, evidence: str | None) -> bool:
@@ -143,7 +173,12 @@ async def record_plan_progress(
         session = await db.get(Session, session_id)
         if session is None:
             raise RuntimeError("Session not found.")
-        if _claims_step_verification(outcome=outcome, summary=summary, status_note=status_note):
+        if _requires_step_done_readback(
+            outcome=outcome,
+            summary=summary,
+            status_note=status_note,
+            evidence=evidence,
+        ):
             has_readback = await _turn_has_successful_readback(
                 db,
                 session_id=session_id,

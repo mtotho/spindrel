@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-30 (task machine automation hardening)
+updated: 2026-04-30 (bounded machine probes)
 ---
 # Track — Local Machine Control
 
@@ -40,6 +40,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 10 | Admin machine-center UI refresh against canonical control-surface standards | ✅ shipped 2026-04-24 |
 | 11 | Guided machine-center flow, recoverable companion setup, reconnecting Linux user service | ✅ shipped 2026-04-25 |
 | 12 | Provider-advertised task machine grants for scheduled/project coding runs | ✅ shipped 2026-04-30 |
+| 13 | Bounded read-only machine probes for progressive discovery | ✅ shipped 2026-04-30 |
 
 ## What Shipped
 
@@ -66,6 +67,8 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 
 - Core tools are now:
   - `machine_status`
+  - `machine_probe_catalog`
+  - `machine_run_probe`
   - `machine_inspect_command`
   - `machine_exec_command`
 - Rich transcript/result views are core-owned:
@@ -130,6 +133,19 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Task runs can resolve the active grant from the task, parent task, or pipeline task id and materialize a normal `machine_target_leases` row for the task session after a fresh provider probe.
 - Pipeline steps now support `machine_inspect` and `machine_exec`; both require an active grant and use the core inspect-command validator / provider execution contract.
 - Machine-control local tools can run from task origin only when the current task/session context resolves to an active grant; otherwise the existing autonomous-origin denial remains visible.
+
+### Phase 13 — Bounded read-only machine probes
+
+- Added `machine_probe_catalog` and `machine_run_probe` as lease-gated core
+  machine tools for progressive discovery without a new integration SDK
+  surface.
+- Probes are fixed read-only bundles for network basics, DNS lookup, TCP port
+  checks, HTTP reachability, Docker summary, Compose summary, and bounded Docker
+  log tails. Results return stable status, evidence, confidence, blocked state,
+  and `next_probe_ids`.
+- Added the runtime `automation/machine_probes` skill so agents use cheap
+  evidence-first probes before raw shell commands or integration-specific
+  advice.
 
 ### Phase 8 — Transcript-first machine UX and optional native widget
 
