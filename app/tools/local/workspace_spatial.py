@@ -543,6 +543,9 @@ async def preview_spatial_widget_changes(operations: list[dict[str, Any]]) -> st
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
+    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    if scene_err:
+        return json.dumps({"error": scene_err})
     async with async_session() as db:
         from app.services.workspace_spatial import preview_spatial_widget_changes as preview
         try:
@@ -558,17 +561,76 @@ async def preview_spatial_widget_changes(operations: list[dict[str, Any]]) -> st
         "bot_id": bot_id,
         "channel_id": str(channel_id),
         "previewed": True,
+        "operations": [op for op in operations if isinstance(op, dict)],
         "after": payload.get("after") or {},
     })
     return json.dumps(payload, default=str)
 
 
-def _recent_widget_scene_required(bot_id: str, channel_id: uuid.UUID) -> str | None:
+def _operation_matches_preview(
+    operation: dict[str, Any],
+    *,
+    action: str,
+    target_node_id: str | None = None,
+    widget: str | None = None,
+    expected: dict[str, Any] | None = None,
+) -> bool:
+    if str(operation.get("action") or "").strip() != action:
+        return False
+    if target_node_id is not None and str(operation.get("target_node_id") or "").strip() != target_node_id:
+        return False
+    if action == "pin" and widget is not None:
+        if str(operation.get("widget") or "").strip() != widget:
+            return False
+    if expected:
+        for key, expected_value in expected.items():
+            if expected_value is None:
+                if operation.get(key) is not None:
+                    return False
+                continue
+            actual_value = operation.get(key)
+            if isinstance(expected_value, (int, float)):
+                try:
+                    if abs(float(actual_value) - float(expected_value)) > 0.0001:
+                        return False
+                except (TypeError, ValueError):
+                    return False
+            elif str(actual_value or "").strip() != str(expected_value).strip():
+                return False
+    return True
+
+
+def _recent_widget_scene_required(
+    bot_id: str,
+    channel_id: uuid.UUID,
+    *,
+    action: str | None = None,
+    target_node_id: str | None = None,
+    widget: str | None = None,
+    expected: dict[str, Any] | None = None,
+) -> str | None:
     seen = current_spatial_widget_scene_seen.get()
     if not isinstance(seen, dict):
         return "Inspect the spatial widget scene first with inspect_spatial_widget_scene."
     if seen.get("bot_id") != bot_id or seen.get("channel_id") != str(channel_id):
         return "Inspect this channel's spatial widget scene before changing spatial widgets."
+    if action is None:
+        return None
+    if not seen.get("previewed"):
+        return "Preview spatial widget changes first with preview_spatial_widget_changes."
+    operations = seen.get("operations")
+    if not isinstance(operations, list) or not any(
+        isinstance(operation, dict)
+        and _operation_matches_preview(
+            operation,
+            action=action,
+            target_node_id=target_node_id,
+            widget=widget,
+            expected=expected,
+        )
+        for operation in operations
+    ):
+        return f"Preview this exact spatial widget {action} before applying it."
     return None
 
 
@@ -623,7 +685,19 @@ async def pin_spatial_widget(
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
-    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    scene_err = _recent_widget_scene_required(
+        bot_id,
+        channel_id,
+        action="pin",
+        widget=widget,
+        expected={
+            "world_x": world_x,
+            "world_y": world_y,
+            "world_w": world_w or 360.0,
+            "world_h": world_h or 240.0,
+            **({"display_label": display_label} if display_label is not None else {}),
+        },
+    )
     if scene_err:
         return json.dumps({"error": scene_err})
     async with async_session() as db:
@@ -729,7 +803,13 @@ async def move_spatial_widget(target_node_id: str, dx_steps: int, dy_steps: int,
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
-    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    scene_err = _recent_widget_scene_required(
+        bot_id,
+        channel_id,
+        action="move",
+        target_node_id=target_node_id,
+        expected={"dx_steps": int(dx_steps), "dy_steps": int(dy_steps)},
+    )
     if scene_err:
         return json.dumps({"error": scene_err})
     try:
@@ -760,7 +840,13 @@ async def resize_spatial_widget(target_node_id: str, world_w: float, world_h: fl
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
-    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    scene_err = _recent_widget_scene_required(
+        bot_id,
+        channel_id,
+        action="resize",
+        target_node_id=target_node_id,
+        expected={"world_w": world_w, "world_h": world_h},
+    )
     if scene_err:
         return json.dumps({"error": scene_err})
     try:
@@ -785,7 +871,12 @@ async def remove_spatial_widget(target_node_id: str, reason: str | None = None) 
     if err:
         return json.dumps({"error": err})
     assert bot_id and channel_id
-    scene_err = _recent_widget_scene_required(bot_id, channel_id)
+    scene_err = _recent_widget_scene_required(
+        bot_id,
+        channel_id,
+        action="remove",
+        target_node_id=target_node_id,
+    )
     if scene_err:
         return json.dumps({"error": scene_err})
     try:

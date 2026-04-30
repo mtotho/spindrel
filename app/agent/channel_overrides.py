@@ -28,8 +28,9 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     Injections:
     - memory_scheme="workspace-files" → search_memory, get_memory_file, file, manage_bot_skill
     - tool_retrieval=true → get_tool_info
-    - (unconditional) → get_skill, get_skill_list, list_channels,
-      read_conversation_history, list_sub_sessions, read_sub_session
+    - (unconditional) → get_skill, get_skill_list, list_agent_capabilities,
+      run_agent_doctor, list_channels, read_conversation_history,
+      list_sub_sessions, read_sub_session
     """
     import dataclasses
     from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
@@ -56,6 +57,11 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     # Skills — shared documents, always available
     _inject("get_skill")
     _inject("get_skill_list")
+
+    # Agent self-inspection — every bot can ask what it can do and why it may
+    # be blocked before making humans inspect configuration manually.
+    _inject("list_agent_capabilities")
+    _inject("run_agent_doctor")
 
     # Channel awareness — any bot can inspect channel history and its
     # attached sub-sessions (threads, scratch chats, pipeline/eval runs)

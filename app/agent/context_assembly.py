@@ -55,6 +55,13 @@ _PLAN_MODE_CONTROL_TOOLS = (
     "record_plan_progress",
     "request_plan_replan",
 )
+_AGENT_SELF_INSPECTION_PROMPT = (
+    "Agent self-inspection: use list_agent_capabilities before broad API, config, "
+    "integration, widget, Project, harness, or readiness work. Use run_agent_doctor "
+    "when blocked, missing tools/scopes/skills, or before asking a human to inspect "
+    "settings. If skills.recommended_now is present, follow its first_action before "
+    "procedural work."
+)
 
 
 def _safe_sim(value: float) -> float | None:
@@ -735,6 +742,14 @@ def _inject_api_access_tools(
         ),
     })
     return bot, {"type": "api_access_tools", "scopes": bot.api_permissions}
+
+
+def _inject_agent_self_inspection_prompt(messages: list[dict]) -> None:
+    """Append the compact prompt contract for baseline readiness tools."""
+    messages.append({
+        "role": "system",
+        "content": _AGENT_SELF_INSPECTION_PROMPT,
+    })
 
 
 # ===== Cluster 7b discovery-stage extractions =====
@@ -2480,6 +2495,9 @@ async def assemble_context(
     bot, _api_event = _inject_api_access_tools(messages=messages, bot=bot)
     if _api_event:
         yield _api_event
+
+    # --- baseline agent self-inspection prompt contract ---
+    _inject_agent_self_inspection_prompt(messages)
 
     # --- multi-bot channel awareness + member bot injection ---
     async for _evt in _inject_multi_bot_awareness(

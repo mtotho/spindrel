@@ -29,6 +29,9 @@ Recovery is part of the contract. An unsupported completion review means the
 latest claim is not trusted; the agent must record corrected progress or repeat
 the step before mutating again. A needs-replan review means the accepted revision
 is stale; mutation stays blocked until a revised plan is published and approved.
+For small-model drift, native loop recovery is allowed to convert explicit
+question-card prose into `ask_plan_questions` and retry correctable
+`publish_plan` validation/readiness failures once.
 
 The UI should direct attention to the current decision or next action first. Full
 plan detail stays available below the focus area without turning the transcript

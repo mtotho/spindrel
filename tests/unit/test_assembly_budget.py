@@ -200,6 +200,37 @@ class TestAssemblyBudgetGenerous:
         assert result.budget_utilization < 0.1
 
     @pytest.mark.asyncio
+    async def test_self_inspection_prompt_contract_is_injected(self):
+        """Assembled runtime context tells agents when to inspect readiness."""
+        bot = _minimal_bot()
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        patches = _assembly_patches()
+        for p in patches:
+            p.start()
+        try:
+            await _drain(_call_assembly(messages, bot, "Configure the project", result, budget=budget))
+        finally:
+            for p in patches:
+                p.stop()
+
+        injected = [
+            str(message.get("content") or "")
+            for message in messages
+            if message.get("role") == "system"
+            and "Agent self-inspection:" in str(message.get("content") or "")
+        ]
+        assert len(injected) == 1
+        prompt = injected[0]
+        assert "list_agent_capabilities" in prompt
+        assert "run_agent_doctor" in prompt
+        assert "skills.recommended_now" in prompt
+        assert "first_action" in prompt
+        assert "before broad API, config, integration, widget, Project, harness, or readiness work" in prompt
+
+    @pytest.mark.asyncio
     async def test_no_budget_leaves_result_none(self):
         """When no budget is passed, result.budget_utilization stays None."""
         bot = _minimal_bot()

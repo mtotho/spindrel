@@ -38,9 +38,8 @@ _DB_LOCKS_MUTEX = asyncio.Lock()
 _DENIED_SQLITE_ACTION_NAMES = {
     "SQLITE_ATTACH",
     "SQLITE_DETACH",
-    "SQLITE_LOAD_EXTENSION",
-    "SQLITE_VACUUM",
 }
+_DENIED_SQLITE_FUNCTION_NAMES = {"load_extension"}
 
 
 def _sqlite_action_codes(names: set[str]) -> set[int]:
@@ -67,6 +66,10 @@ def install_widget_sql_authorizer(conn: sqlite3.Connection) -> None:
         del db_name, trigger_name
         if action_code in _DENIED_SQLITE_ACTIONS:
             return sqlite3.SQLITE_DENY
+        if action_code == sqlite3.SQLITE_FUNCTION:
+            function_name = (arg2 or arg1 or "").lower()
+            if function_name in _DENIED_SQLITE_FUNCTION_NAMES:
+                return sqlite3.SQLITE_DENY
         if action_code == sqlite3.SQLITE_PRAGMA:
             pragma_name = (arg1 or "").lower()
             is_write = arg2 is not None

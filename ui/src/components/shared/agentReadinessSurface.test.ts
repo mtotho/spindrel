@@ -35,6 +35,10 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(hook, /interface AgentRepairRequest/);
   assert.match(hook, /interface AgentSkillRecommendation/);
   assert.match(hook, /interface AgentSkillCreationCandidate/);
+  assert.match(hook, /coverage_status\?:/);
+  assert.match(hook, /nearest_existing_skill_ids\?: string\[\]/);
+  assert.match(hook, /why_skill_shaped\?: string \| null/);
+  assert.match(hook, /small_model_reason\?: string \| null/);
   assert.match(hook, /createExecutionReceipt/);
   assert.match(hook, /preflightAgentRepair/);
   assert.match(hook, /requestAgentRepair/);
@@ -67,7 +71,9 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /Recommended skills now/);
   assert.match(panel, /Missing skill coverage/);
   assert.match(panel, /recommendation\.first_action/);
+  assert.match(panel, /recommendation\.why_skill_shaped/);
   assert.match(panel, /candidate\.suggested_skill_id/);
+  assert.match(panel, /candidate\.coverage_status/);
   assert.match(panel, /widgets\.readiness/);
   assert.match(panel, /agent-readiness-integrations/);
   assert.match(panel, /Integration readiness/);

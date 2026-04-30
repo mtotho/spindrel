@@ -61,6 +61,13 @@ Tool availability has two layers:
 Current behavior:
 
 - tools can be persistently available because they are enabled, enrolled, or pinned
+- `list_agent_capabilities` and `run_agent_doctor` are baseline auto-injected
+  self-inspection tools, so runtime agents can ask what they can do and why
+  they are blocked before asking a human to inspect settings
+- context assembly injects a compact prompt rule telling agents when to call
+  those tools: before broad API/config/integration/widget/Project/harness/
+  readiness work, when blocked, and before handing settings inspection back to
+  a human. This is guidance, not an automatic call on every turn.
 - per-turn tool retrieval ranks tools against the current user message
 - `get_tool_info(tool_name="...")` loads the full schema for an available/discovered tool
 - once loaded, that schema is callable in the current loop
@@ -73,7 +80,7 @@ Pinned tools are the strongest availability signal. They are the tools that must
 
 `get_tool_info` is the fallback when the model knows or suspects the right tool but needs the full schema before calling it.
 
-`skills.recommended_now` points at existing runtime skills for procedural work and includes exact first actions such as `get_skill("widgets")`. `skills.creation_candidates` is only a signal that the workflow is skill-shaped but lacks runtime coverage; it does not import `.agents` repo-dev skills, enroll anything, or auto-inject skill bodies.
+`skills.recommended_now` points at existing runtime skills for procedural work and includes exact first actions such as `get_skill("widgets")`. Recommendations now carry an audit-backed `coverage_status`, `nearest_existing_skill_ids`, `why_skill_shaped`, `small_model_reason`, and `suggested_owner` so agents and review surfaces can distinguish covered workflows from real gaps. `skills.creation_candidates` is only a signal that the workflow is skill-shaped but lacks complete runtime coverage; it does not import `.agents` repo-dev skills, enroll anything, create bot-authored skills, or auto-inject skill bodies.
 
 `get_agent_context_snapshot()` is the compact runtime-budget read. It returns the current channel/session budget, source, context profile, percentage full, and recommendation (`continue`, `summarize`, `handoff`, or `unknown`) without requiring the agent to fetch the full manifest.
 

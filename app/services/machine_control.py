@@ -835,9 +835,14 @@ async def validate_current_execution_policy(
 
     origin_kind = current_run_origin.get(None)
     if origin_kind in _AUTONOMOUS_ORIGINS:
+        from app.services.machine_task_grants import validate_current_automation_execution_policy
+
+        automated = await validate_current_automation_execution_policy(execution_policy)
+        if automated.allowed:
+            return automated
         return ExecutionPolicyResolution(
             allowed=False,
-            reason=f"Machine-control tools are disabled for {origin_kind} runs.",
+            reason=automated.reason or f"Machine-control tools are disabled for {origin_kind} runs.",
         )
 
     user_id = current_user_id.get()

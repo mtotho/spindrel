@@ -22,6 +22,7 @@ import { ChannelPicker } from "../ChannelPicker";
 import { SessionTargetPicker } from "../SessionTargetPicker";
 import { ChipPicker, ToolMultiPicker } from "./ChipPicker";
 import type { TaskFormState } from "./useTaskFormState";
+import { useAdminMachines } from "@/src/api/hooks/useMachineTargets";
 
 // ---------------------------------------------------------------------------
 // Content Fields — Title, Prompt/Steps toggle, prompt or pipeline editor
@@ -217,7 +218,28 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
     postFinalToChannel, setPostFinalToChannel,
     historyMode, setHistoryMode,
     historyRecentCount, setHistoryRecentCount,
+    machineTargetGrant, setMachineTargetGrant,
   } = form;
+  const { data: machines } = useAdminMachines();
+  const sshTargets = (machines?.providers ?? [])
+    .filter((provider) => provider.provider_id === "ssh")
+    .flatMap((provider) => provider.targets ?? []);
+  const machineTargetOptions = [
+    { label: "None", value: "" },
+    ...sshTargets.map((target) => ({
+      label: `${target.label || target.target_id}${target.ready ? "" : " (not ready)"}`,
+      value: target.target_id,
+    })),
+  ];
+  if (
+    machineTargetGrant?.target_id
+    && !machineTargetOptions.some((option) => option.value === machineTargetGrant.target_id)
+  ) {
+    machineTargetOptions.push({
+      label: machineTargetGrant.target_label || machineTargetGrant.target_id,
+      value: machineTargetGrant.target_id,
+    });
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -248,6 +270,36 @@ export function ExecutionFields({ form, disableChannel }: { form: TaskFormState;
           disabled={disableChannel}
         />
       </FormRow>
+
+      <FormRow label="SSH machine" description="Grant scheduled runs access to one enrolled SSH target.">
+        <SelectInput
+          value={machineTargetGrant?.target_id ?? ""}
+          onChange={(targetId) => {
+            if (!targetId) {
+              setMachineTargetGrant(null);
+              return;
+            }
+            setMachineTargetGrant({
+              provider_id: "ssh",
+              target_id: targetId,
+              capabilities: ["inspect", "exec"],
+              allow_agent_tools: machineTargetGrant?.allow_agent_tools ?? true,
+            });
+          }}
+          options={machineTargetOptions}
+        />
+      </FormRow>
+
+      {machineTargetGrant && (
+        <div className="flex flex-col gap-2">
+          <Toggle
+            value={machineTargetGrant.allow_agent_tools ?? true}
+            onChange={(allow) => setMachineTargetGrant({ ...machineTargetGrant, allow_agent_tools: allow })}
+            label="Allow LLM machine tools"
+            description="Deterministic SSH pipeline steps keep using the grant either way."
+          />
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">

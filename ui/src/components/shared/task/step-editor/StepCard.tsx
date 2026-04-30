@@ -162,6 +162,28 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
           </>
         )}
 
+        {(step.type === "machine_inspect" || step.type === "machine_exec") && (
+          <>
+            <textarea
+              value={step.command ?? step.prompt ?? ""}
+              onChange={(e) => update({ command: e.target.value, prompt: undefined })}
+              readOnly={readOnly}
+              placeholder={step.type === "machine_inspect" ? "Readonly SSH command..." : "SSH shell command..."}
+              rows={2}
+              className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs font-mono outline-none resize-y focus:border-accent/40 w-full"
+            />
+            {step.type === "machine_exec" && !readOnly && (
+              <input
+                type="text"
+                value={step.working_directory ?? ""}
+                onChange={(e) => update({ working_directory: e.target.value || null })}
+                placeholder="Remote working directory (optional)"
+                className="bg-input border border-surface-border rounded-md px-2.5 py-1.5 text-text text-xs outline-none w-full focus:border-accent/40"
+              />
+            )}
+          </>
+        )}
+
         {step.type === "agent" && (
           <>
             <textarea

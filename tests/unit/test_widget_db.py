@@ -368,6 +368,7 @@ class TestAcquireDb:
 
         db_path = tmp_path / "main.sqlite"
         other_path = tmp_path / "other.sqlite"
+        vacuum_path = tmp_path / "vacuum.sqlite"
         other_path.touch()
 
         conn = _fresh_conn(db_path)
@@ -377,6 +378,8 @@ class TestAcquireDb:
             conn.execute("INSERT INTO items(text) VALUES ('ok')")
             with pytest.raises(sqlite3.DatabaseError):
                 conn.execute("ATTACH DATABASE ? AS other", [str(other_path)])
+            with pytest.raises(sqlite3.DatabaseError):
+                conn.execute(f"VACUUM INTO '{vacuum_path}'")
             rows = conn.execute("SELECT text FROM items").fetchall()
         finally:
             conn.close()

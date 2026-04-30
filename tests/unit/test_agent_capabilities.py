@@ -114,6 +114,14 @@ def test_skill_opportunities_recommend_existing_widget_and_integration_skills():
     by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
 
     assert by_feature["widget_authoring"]["first_action"] == 'get_skill("widgets")'
+    assert by_feature["widget_authoring"]["coverage_status"] == "covered"
+    assert by_feature["widget_authoring"]["suggested_owner"] == "existing_runtime_skill"
+    assert by_feature["widget_authoring"]["nearest_existing_skill_ids"] == [
+        "widgets",
+        "widgets/html",
+        "widgets/channel_dashboards",
+        "widgets/authoring_runs",
+    ]
     assert by_feature["widget_authoring"]["missing_skill_ids"] == [
         "widgets/html",
         "widgets/channel_dashboards",
@@ -125,6 +133,8 @@ def test_skill_opportunities_recommend_existing_widget_and_integration_skills():
         "orchestrator/integration_builder",
         "diagnostics",
     ]
+    assert by_feature["integration_readiness"]["coverage_status"] == "covered"
+    assert payload["creation_candidates"] == []
 
 
 def test_skill_opportunities_create_agent_readiness_candidate_without_runtime_import():
@@ -143,9 +153,20 @@ def test_skill_opportunities_create_agent_readiness_candidate_without_runtime_im
 
     payload = agent_capabilities._skill_opportunity_payload(manifest)
 
-    assert payload["creation_candidates"] == [{
+    assert len(payload["creation_candidates"]) == 1
+    candidate = payload["creation_candidates"][0]
+    assert candidate == {
         "feature_id": "agent_readiness_operator",
         "feature_label": "Agent Readiness operator",
+        "coverage_status": "partial",
+        "nearest_existing_skill_ids": [
+            "configurator",
+            "diagnostics",
+            "orchestrator/audits",
+        ],
+        "why_skill_shaped": "Agent Readiness repair review is a repeated approval-gated workflow over manifest findings, preflight, requests, and receipts.",
+        "small_model_reason": "Smaller models need a short procedure to avoid mutating stale repair requests or skipping preflight.",
+        "suggested_owner": "future_runtime_skill",
         "reason": "Readiness repair review is a repeated approval-gated workflow that should have a short runtime skill for non-frontier models.",
         "suggested_skill_id": "agent_readiness/operator",
         "first_outline": [
@@ -155,7 +176,7 @@ def test_skill_opportunities_create_agent_readiness_candidate_without_runtime_im
             "Route stale requests to Bot readiness instead of mutating config.",
         ],
         "model_support": "recommended_for_small_models",
-    }]
+    }
     by_feature = {entry["feature_id"]: entry for entry in payload["recommended_now"]}
     assert by_feature["context_pressure"]["first_action"] == 'get_skill("context_mastery")'
 

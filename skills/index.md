@@ -41,3 +41,7 @@ A skill's ID is either its filesystem path (default) or a value declared in its 
 ## Starter set
 
 Every bot starts with a curated minimum set defined in `STARTER_SKILL_IDS` (see `app/config.py`). Additional skills are enrolled on demand when a bot calls `get_skill` or `manage_bot_skill`.
+
+Runtime agents can call `list_agent_capabilities` to see `skills.recommended_now`, which points at existing built-in skills to load before procedural work. `skills.creation_candidates` is an operator/developer signal for missing built-in runtime skill coverage; it is not an instruction for the bot to create a personal skill with `manage_bot_skill` unless the user explicitly asks for that.
+
+The runtime prompt includes a compact self-inspection rule for these baseline tools: use `list_agent_capabilities` before broad API/config/integration/widget/Project/harness/readiness work, use `run_agent_doctor` when blocked, and follow `skills.recommended_now[*].first_action` before procedural work. This is prompt guidance, not automatic every-turn tool use.

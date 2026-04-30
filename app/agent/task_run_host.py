@@ -853,15 +853,21 @@ async def run_task(task: Task, *, deps: TaskRunHostDeps) -> None:
         current_issue_reporting_enabled.set(bool(prepared.ecfg.get("allow_issue_reporting")))
         if task.task_type == "heartbeat":
             await deps.mark_heartbeat_task_started(task, correlation_id)
-        if await _run_harness_task_if_needed(prepared, turn_id=_turn_id, deps=deps):
-            return
-        await _run_normal_agent_task(
-            prepared,
-            turn_id=_turn_id,
-            suppress_channel=_suppress_channel,
-            session_scoped_task=_session_scoped_task,
-            deps=deps,
-        )
+        from app.services.machine_task_grants import task_machine_lease_context
+        async with task_machine_lease_context(
+            prepared.task,
+            session_id=prepared.session_id,
+            purpose="agent_run",
+        ):
+            if await _run_harness_task_if_needed(prepared, turn_id=_turn_id, deps=deps):
+                return
+            await _run_normal_agent_task(
+                prepared,
+                turn_id=_turn_id,
+                suppress_channel=_suppress_channel,
+                session_scoped_task=_session_scoped_task,
+                deps=deps,
+            )
 
     except asyncio.TimeoutError:
         logger.error("Task %s timed out after %ds", task.id, _task_timeout)

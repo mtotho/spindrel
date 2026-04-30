@@ -63,6 +63,7 @@ class TaskDetailOut(BaseModel):
     correlation_id: Optional[uuid.UUID] = None
     delegation_session_id: Optional[uuid.UUID] = None
     trigger_config: Optional[dict] = None
+    machine_target_grant: Optional[dict] = None
     steps: Optional[list[dict]] = None
     step_states: Optional[list[dict]] = None
     layout: dict = {}
@@ -112,6 +113,27 @@ class TaskDetailOut(BaseModel):
         return self
 
 
+class MachineTargetGrantIn(BaseModel):
+    provider_id: str = "ssh"
+    target_id: str
+    capabilities: Optional[list[str]] = None
+    allow_agent_tools: bool = True
+    expires_at: Optional[str] = None
+
+
+async def _task_detail_out(db: AsyncSession, task: Task) -> TaskDetailOut:
+    from app.services.machine_task_grants import task_machine_grant_payload
+
+    out = TaskDetailOut.model_validate(task)
+    out.machine_target_grant = await task_machine_grant_payload(db, task)
+    return out
+
+
+def _auth_user_id(auth) -> uuid.UUID | None:
+    user_id = getattr(auth, "id", None)
+    return user_id if isinstance(user_id, uuid.UUID) else None
+
+
 def _validate_recurrence(v: str | None) -> str | None:
     if v is not None:
         from app.agent.tasks import validate_recurrence
@@ -153,6 +175,7 @@ class TaskCreateIn(BaseModel):
     history_mode: Optional[str] = None  # "none" | "recent" | "full"
     history_recent_count: Optional[int] = None
     project_instance: Optional[dict] = None
+    machine_target_grant: Optional[MachineTargetGrantIn] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -211,6 +234,7 @@ class TaskUpdateIn(BaseModel):
     history_recent_count: Optional[int] = None
     project_instance: Optional[dict] = None
     session_target: Optional[dict] = None
+    machine_target_grant: Optional[MachineTargetGrantIn] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -566,6 +590,7 @@ async def admin_get_task(
         )).scalar_one_or_none()
         if del_session:
             out.delegation_session_id = del_session
+    out.machine_target_grant = (await _task_detail_out(db, task)).machine_target_grant
     return out
 
 
@@ -709,9 +734,25 @@ async def admin_create_task(
         layout=body.layout or {},
     )
     db.add(task)
+    await db.flush()
+    if body.machine_target_grant is not None:
+        from app.services.machine_task_grants import upsert_task_machine_grant
+        try:
+            await upsert_task_machine_grant(
+                db,
+                task=task,
+                provider_id=body.machine_target_grant.provider_id,
+                target_id=body.machine_target_grant.target_id,
+                granted_by_user_id=_auth_user_id(_auth),
+                capabilities=body.machine_target_grant.capabilities,
+                allow_agent_tools=body.machine_target_grant.allow_agent_tools,
+                expires_at=body.machine_target_grant.expires_at,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     await db.commit()
     await db.refresh(task)
-    return TaskDetailOut.model_validate(task)
+    return await _task_detail_out(db, task)
 
 
 @router.api_route("/tasks/{task_id}", methods=["PUT", "PATCH"], response_model=TaskDetailOut)
@@ -852,9 +893,29 @@ async def admin_update_task(
         task.execution_config = ec
         sa_attributes.flag_modified(task, "execution_config")
 
+    if "machine_target_grant" in updates:
+        from app.services.machine_task_grants import revoke_task_machine_grant, upsert_task_machine_grant
+        grant_payload = updates["machine_target_grant"]
+        try:
+            if grant_payload is None:
+                await revoke_task_machine_grant(db, task.id)
+            else:
+                await upsert_task_machine_grant(
+                    db,
+                    task=task,
+                    provider_id=grant_payload["provider_id"],
+                    target_id=grant_payload["target_id"],
+                    granted_by_user_id=_auth_user_id(_auth),
+                    capabilities=grant_payload.get("capabilities"),
+                    allow_agent_tools=bool(grant_payload.get("allow_agent_tools", True)),
+                    expires_at=grant_payload.get("expires_at"),
+                )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     await db.commit()
     await db.refresh(task)
-    return TaskDetailOut.model_validate(task)
+    return await _task_detail_out(db, task)
 
 
 @router.get("/cron-jobs")
@@ -924,7 +985,7 @@ async def admin_run_task_now(
         raise HTTPException(status_code=status_code, detail=msg)
     await db.commit()
     await db.refresh(concrete)
-    return TaskDetailOut.model_validate(concrete)
+    return await _task_detail_out(db, concrete)
 
 
 class StepResolveIn(BaseModel):

@@ -3,6 +3,7 @@ import {
   HelpCircle,
   MessageCircleQuestion,
   Repeat,
+  Server,
   Terminal,
   Wrench,
 } from "lucide-react";
@@ -34,6 +35,22 @@ export const STEP_TYPES: StepTypeMeta[] = [
     color: "text-text-muted",
     bgBadge: "bg-surface-overlay text-text-muted",
     node: "bg-surface-overlay text-text-dim",
+  },
+  {
+    value: "machine_inspect",
+    label: "SSH inspect",
+    icon: Server,
+    color: "text-accent",
+    bgBadge: "bg-accent/10 text-accent",
+    node: "bg-accent/10 text-accent",
+  },
+  {
+    value: "machine_exec",
+    label: "SSH exec",
+    icon: Server,
+    color: "text-warning-muted",
+    bgBadge: "bg-warning/10 text-warning-muted",
+    node: "bg-warning/10 text-warning-muted",
   },
   {
     value: "agent",
@@ -94,6 +111,8 @@ export function emptyStep(type: StepType): StepDef {
   };
   if (type === "exec" || type === "agent") {
     base.prompt = "";
+  } else if (type === "machine_inspect" || type === "machine_exec") {
+    base.command = "";
   } else if (type === "user_prompt") {
     base.title = "";
     base.response_schema = { type: "binary" };

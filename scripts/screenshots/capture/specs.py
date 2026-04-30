@@ -3074,6 +3074,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-blueprint-section\"]') "
+            "&& !!document.querySelector('[data-testid=\"project-workspace-basics\"]') "
             "&& !!document.querySelector('[data-testid=\"project-runtime-env-readiness\"]') "
             "&& document.body.innerText.includes('Screenshot Service Blueprint') "
             "&& document.body.innerText.toLowerCase().includes('runtime env available')"
@@ -3082,14 +3083,16 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         color_scheme="dark",
         full_page=True,
         pre_capture_js=(
-            "const runtime = document.querySelector('[data-testid=\"project-runtime-env-readiness\"]');"
-            "if (runtime) runtime.scrollIntoView({ block: 'center' });"
+            "const basics = document.querySelector('[data-testid=\"project-workspace-basics\"]');"
+            "if (basics) basics.scrollIntoView({ block: 'start' });"
             "await new Promise((resolve) => setTimeout(resolve, 250));"
         ),
         assert_js=(
             "const text = document.body.innerText;"
             "const normalized = text.toLowerCase();"
             "return { ok: normalized.includes('secret bindings') "
+            "&& normalized.includes('work surface') "
+            "&& normalized.includes('attached channels') "
             "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
             "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN') "
             "&& normalized.includes('repo declarations') "

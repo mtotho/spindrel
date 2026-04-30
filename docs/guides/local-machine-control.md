@@ -21,7 +21,7 @@ The feature exists to preserve that trust boundary rather than blur it with ordi
 
 ## Current design in one sentence
 
-Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, and core requires a fresh ready check before the selected provider executes work on that target.
+Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, or grants one scheduled task definition a durable SSH target grant. Core requires a fresh ready check before the selected provider executes work on that target.
 
 ## Core mental model
 
@@ -35,6 +35,7 @@ Machine control is a core subsystem with pluggable providers. A live signed-in a
 | `connection` | The provider's current live transport handle for drivers that keep one, such as `local_companion` |
 | `handle_id` | Provider-specific runtime handle such as a companion connection id or `ssh://user@host:port` |
 | `lease` | A session-scoped grant allowing one session to control one target temporarily |
+| `task machine grant` | A durable task-definition grant for one SSH target, used by scheduled pipelines and task-origin agent tools |
 | `execution_policy` | A runtime guard layered on top of normal tool policy |
 
 Important distinctions:
@@ -43,6 +44,7 @@ Important distinctions:
 - readiness is the execution gate; some providers compute it from a live connection, others from a fresh probe
 - a connection is only one possible transport detail, not the cross-provider contract
 - a lease is the user's explicit permission for one session to use that target
+- a task machine grant is explicit permission for scheduled automation to use one SSH target
 
 Spindrel never routes by recency. The target is always explicit.
 
@@ -92,6 +94,19 @@ provider implementation
 target machine
 ```
 
+Scheduled automation has a separate entry path:
+
+```text
+scheduled task or pipeline
+    │
+    ├── deterministic step: machine_inspect / machine_exec
+    │       └── validates task_machine_grants row and probes SSH target
+    │
+    └── agent step / prompt task
+            └── materializes a short session lease from the task grant
+                before machine_* tools can run
+```
+
 ## Current shipped pieces
 
 ### 1. Core service and provider registry
@@ -132,7 +147,8 @@ This keeps core UI and APIs provider-agnostic while still letting providers add 
 
 The active session lease lives in:
 
-- `Session.metadata_["machine_target_lease"]`
+- `machine_target_leases` as the canonical store
+- legacy `Session.metadata_["machine_target_lease"]` payloads as a backward-compatible fallback
 
 Current stored fields:
 
@@ -155,6 +171,8 @@ Load-bearing invariants:
 - one session may lease one target
 - one target may be leased by one session
 - leases are always explicit and session-scoped
+- scheduled task grants are definition-scoped and SSH-only in v1
+- a task grant may create a short session lease for an agent run, but it does not create a persistent SSH PTY/session
 
 ### 4. Execution policies
 
@@ -167,6 +185,8 @@ Current policy values:
 | `normal` | no extra runtime gate |
 | `interactive_user` | requires a live signed-in user with active presence |
 | `live_target_lease` | requires the above plus a valid session lease for a ready target after a fresh provider probe |
+
+For autonomous origins (`task`, `subagent`, `heartbeat`, `hygiene`), machine-control tools remain denied unless the current task resolves to an active `task_machine_grants` row. Agent tasks with such a grant get a short runtime lease for their resolved channel session; deterministic pipeline machine steps use the grant directly and probe before command execution.
 
 Current core machine tools:
 
@@ -186,6 +206,9 @@ Current core APIs:
   - `GET /api/v1/sessions/{id}/machine-target`
   - `POST /api/v1/sessions/{id}/machine-target/lease`
   - `DELETE /api/v1/sessions/{id}/machine-target/lease`
+- Task machine grants:
+  - `machine_target_grant` field on `POST /api/v1/admin/tasks`
+  - `machine_target_grant` field on `PATCH /api/v1/admin/tasks/{task_id}`
 - Admin machine center:
   - `GET /api/v1/admin/machines`
   - `POST /api/v1/admin/machines/providers/{provider_id}/profiles`
@@ -285,8 +308,15 @@ SSH profiles live in app-managed provider settings, not ephemeral container file
 
 1. A live signed-in admin chooses a target for a session.
 2. Core performs a fresh provider probe for that target.
-3. If the target is ready, the session API stores a lease in `Session.metadata_`.
+3. If the target is ready, the session API stores a lease in `machine_target_leases`.
 4. Conflict checks ensure no other session already owns that target.
+
+### Grant a scheduled SSH task
+
+1. Admin creates or edits a task definition and selects one SSH target in the task execution settings.
+2. The API stores a `task_machine_grants` row with provider `ssh`, target id, capabilities, and whether LLM machine tools are allowed.
+3. Pipeline `machine_inspect` / `machine_exec` steps validate that row and probe the target immediately before running a fresh non-interactive OpenSSH command.
+4. Prompt tasks and pipeline `agent` steps with machine tools create a short `machine_target_leases` row for the task's resolved session before the agent loop starts.
 
 ### Execute a machine tool
 
@@ -374,6 +404,8 @@ These origins do not get to use machine-control tools just because they can call
 - bot-key `/api/v1/internal/tools/exec`
 - other non-interactive surfaces without a live user context
 
+They must go through an explicit task machine grant. In the current build this grant is SSH-only and task-definition scoped; no other machine provider is grantable to scheduled automation yet.
+
 ### Provider-side guardrails still matter
 
 Core lease checks are not the only defense.
@@ -409,14 +441,14 @@ For `ssh`, the provider still enforces:
 - `local_companion` bridge state is still in-memory; multi-worker deployments need shared coordination before companion transport becomes horizontally safe.
 - Both shipped providers are shell-first.
 - `browser_live` has not yet been moved onto this same lease model.
-- SSH is non-interactive and key-only in this build. No password auth, TOFU, port forwarding, or persistent SSH session manager yet.
+- SSH is non-interactive and key-only in this build. No password auth, TOFU, port forwarding, or persistent SSH session manager yet. Scheduled task "SSH sessions" are stable target/profile references executed through fresh OpenSSH commands, not reusable remote PTYs.
 
 ## Planned next steps
 
 - Unify other machine-adjacent control surfaces such as `browser_live` onto the same live-user lease model where appropriate.
 - Broaden companion packaging beyond the current Linux/systemd user-service installer.
 - Add macOS and Windows service installers if Local Companion grows beyond the current Linux/systemd-first shape.
-- Expand provider capabilities beyond shell only after the provider/lease contract stays stable.
+- Expand scheduled task grants beyond SSH and add richer grant audit metadata after the provider/lease contract stays stable.
 - Add shared coordination for live provider state where needed for multi-worker deployments.
 
 ## Source map
@@ -424,6 +456,7 @@ For `ssh`, the provider still enforces:
 Use these as the main code anchors for the current architecture:
 
 - `app/services/machine_control.py`
+- `app/services/machine_task_grants.py`
 - `app/tools/local/machine_control.py`
 - `app/routers/api_v1_admin/machines.py`
 - `app/routers/sessions.py`

@@ -156,8 +156,8 @@ docs/images/project-workspace-memory-tool.png
 ```
 
 Inspect all thirteen images before closing out. The bundle checks Project admin
-surfaces, Blueprint management, setup-command readiness/run history, applied
-Blueprint settings, runtime-env readiness, fresh Project instances, coding-run
+surfaces, Blueprint management, setup-command readiness/run history, Project
+Basics readiness, applied Blueprint settings, runtime-env readiness, fresh Project instances, coding-run
 branch/PR progress plus receipts, channel settings, Project-rooted file/terminal behavior, and the
 memory-tool transcript envelope.
 

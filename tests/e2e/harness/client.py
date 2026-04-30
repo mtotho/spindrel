@@ -52,6 +52,24 @@ def replay_lapsed_retry_cursor(
     return replay_lapsed_resume_cursor(payload)
 
 
+def _response_detail(resp: httpx.Response) -> str:
+    try:
+        detail = resp.json().get("detail")
+    except Exception:
+        detail = resp.text
+    return str(detail)
+
+
+def _runtime_surface_error(action: str, resp: httpx.Response) -> RuntimeError:
+    detail = _response_detail(resp).strip() or resp.reason_phrase
+    return RuntimeError(
+        f"deployed server returned {resp.status_code} while {action}; "
+        f"response detail: {detail!r}. This usually means the running server "
+        "image and database schema are out of sync; redeploy/restart the "
+        "current image and verify migrations before running harness parity."
+    )
+
+
 class E2EClient:
     """Async HTTP client for E2E testing against a running agent-server."""
 
@@ -525,6 +543,8 @@ class E2EClient:
     async def list_channels(self) -> list[dict]:
         """GET /api/v1/admin/channels."""
         resp = await self._client.get("/api/v1/admin/channels")
+        if resp.status_code >= 500:
+            raise _runtime_surface_error("listing admin channels", resp)
         resp.raise_for_status()
         data = resp.json()
         return data["channels"] if isinstance(data, dict) and "channels" in data else data
@@ -532,11 +552,30 @@ class E2EClient:
     async def create_channel_session(self, channel_id: str) -> str:
         """POST /api/v1/channels/{channel_id}/sessions and return the new session id."""
         resp = await self._client.post(f"/api/v1/channels/{channel_id}/sessions")
+        if resp.status_code == 404 and _response_detail(resp).lower() == "not found":
+            reset_resp = await self._client.post(f"/api/v1/channels/{channel_id}/reset")
+            if reset_resp.status_code >= 500:
+                raise _runtime_surface_error(
+                    f"creating a harness session for channel {channel_id!r} via reset fallback",
+                    reset_resp,
+                )
+            if reset_resp.status_code != 404:
+                reset_resp.raise_for_status()
+                return str(reset_resp.json()["new_session_id"])
+            reset_detail = _response_detail(reset_resp)
+            if reset_detail.lower() == "channel not found":
+                raise RuntimeError(
+                    f"harness parity channel {channel_id!r} was not found on the "
+                    "target server; update HARNESS_PARITY_*_CHANNEL_ID or the "
+                    "runner defaults before running harness parity"
+                )
+            raise RuntimeError(
+                "deployed server is missing both /api/v1/channels/{channel_id}/sessions "
+                "and /api/v1/channels/{channel_id}/reset; redeploy the build that includes "
+                "channel-session APIs before running harness parity"
+            )
         if resp.status_code == 404:
-            try:
-                detail = resp.json().get("detail")
-            except Exception:
-                detail = resp.text
+            detail = _response_detail(resp)
             if str(detail).lower() == "channel not found":
                 raise RuntimeError(
                     f"harness parity channel {channel_id!r} was not found on the "
@@ -547,6 +586,11 @@ class E2EClient:
                 "deployed server is missing /api/v1/channels/{channel_id}/sessions; "
                 "redeploy the build that includes channel-session APIs before running "
                 "harness parity"
+            )
+        if resp.status_code >= 500:
+            raise _runtime_surface_error(
+                f"creating a harness session for channel {channel_id!r}",
+                resp,
             )
         resp.raise_for_status()
         return str(resp.json()["new_session_id"])

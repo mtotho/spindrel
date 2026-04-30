@@ -125,7 +125,8 @@ setup-command preparation for `https://github.com/mtotho/spindrel.git`, seeds
 a fresh Project instance, starts or shims one Project coding run with linked
 branch/PR progress receipts, a review receipt, and a memory-tool turn. Inspect all thirteen images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
-Project setup commands and run history, Project runtime-env readiness, fresh
+Project setup commands and run history, Project Basics readiness,
+Project runtime-env readiness, fresh
 Project instances, Project coding-run cockpit/receipts, Project settings, and the
 channel transcript.
 

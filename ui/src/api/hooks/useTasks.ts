@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { CronEntry } from "../../types/api";
 
-export type StepType = "exec" | "tool" | "agent" | "user_prompt" | "foreach";
+export type StepType = "exec" | "tool" | "agent" | "user_prompt" | "foreach" | "machine_inspect" | "machine_exec";
 
 export type ResponseSchema =
   | { type: "binary" }
@@ -13,6 +13,7 @@ export interface StepDef {
   type: StepType;
   label?: string;
   prompt?: string;
+  command?: string;
   working_directory?: string | null;
   tool_name?: string | null;
   tool_args?: Record<string, any> | null;
@@ -73,6 +74,20 @@ export type ProjectInstancePolicy =
   | { mode: "shared" }
   | { mode: "fresh" };
 
+export interface MachineTargetGrant {
+  provider_id: "ssh";
+  target_id: string;
+  grant_id?: string | null;
+  grant_source_task_id?: string | null;
+  granted_by_user_id?: string | null;
+  capabilities?: string[] | null;
+  allow_agent_tools?: boolean | null;
+  expires_at?: string | null;
+  created_at?: string | null;
+  provider_label?: string | null;
+  target_label?: string | null;
+}
+
 export interface TaskDetail {
   id: string;
   status: string;
@@ -100,6 +115,7 @@ export interface TaskDetail {
   execution_config?: Record<string, any> | null;
   delegation_session_id?: string | null;
   trigger_config?: Record<string, any> | null;
+  machine_target_grant?: MachineTargetGrant | null;
   steps?: StepDef[] | null;
   step_states?: StepState[] | null;
   model_override?: string | null;
@@ -158,6 +174,7 @@ export interface TaskCreatePayload {
   history_mode?: "none" | "recent" | "full" | null;
   history_recent_count?: number | null;
   project_instance?: ProjectInstancePolicy | null;
+  machine_target_grant?: MachineTargetGrant | null;
 }
 
 export interface TaskUpdatePayload {
@@ -192,6 +209,7 @@ export interface TaskUpdatePayload {
   history_recent_count?: number | null;
   project_instance?: ProjectInstancePolicy | null;
   session_target?: SessionTarget | null;
+  machine_target_grant?: MachineTargetGrant | null;
 }
 
 // ---------------------------------------------------------------------------

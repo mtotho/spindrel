@@ -230,7 +230,7 @@ function SkillRecommendationRow({ recommendation }: { recommendation: AgentSkill
     <SettingsControlRow
       leading={<BookOpen size={14} />}
       title={recommendation.feature_label}
-      description={`${recommendation.first_action || "get_skill"} - ${recommendation.reason}`}
+      description={`${recommendation.first_action || "get_skill"} - ${recommendation.why_skill_shaped || recommendation.reason}`}
       meta={<QuietPill label={missing > 0 ? `${missing} not enrolled` : "ready"} tone={missing > 0 ? "warning" : "info"} />}
       compact
     />
@@ -242,8 +242,8 @@ function SkillCreationCandidateRow({ candidate }: { candidate: AgentSkillCreatio
     <SettingsControlRow
       leading={<Lightbulb size={14} />}
       title={candidate.feature_label}
-      description={`${candidate.suggested_skill_id} - ${candidate.reason}`}
-      meta={<QuietPill label="candidate" tone="neutral" />}
+      description={`${candidate.suggested_skill_id} - ${candidate.why_skill_shaped || candidate.reason}`}
+      meta={<QuietPill label={candidate.coverage_status || "candidate"} tone="neutral" />}
       compact
     />
   );

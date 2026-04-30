@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.agent.context import current_bot_id
+from app.agent.context import current_bot_id, current_run_origin, current_session_id, current_task_id
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Task
@@ -538,6 +538,103 @@ async def _run_exec_step(
         return ("failed", None, str(e)[:2000])
 
 
+def _machine_command_result_text(
+    *,
+    target_label: str,
+    command: str,
+    working_dir: str,
+    result: dict,
+) -> str:
+    parts: list[str] = [
+        f"Command on {target_label}: {command}",
+    ]
+    if working_dir:
+        parts.append(f"Working directory: {working_dir}")
+    parts.append(f"[exit {int(result.get('exit_code') or 0)}, {int(result.get('duration_ms') or 0)}ms]")
+    stdout = str(result.get("stdout") or "")
+    stderr = str(result.get("stderr") or "")
+    if stdout:
+        parts.append(stdout)
+    if stderr:
+        parts.append(f"[stderr]\n{stderr}")
+    if result.get("truncated"):
+        parts.append("[output truncated]")
+    return "\n".join(parts)
+
+
+async def _run_machine_step(
+    task: Task,
+    step_def: dict,
+    step_index: int,
+    steps: list[dict],
+    step_states: list[dict],
+    *,
+    mode: str,
+) -> tuple[str, str | None, str | None]:
+    """Run a command on the task-granted SSH target."""
+    from app.db.engine import async_session
+    from app.services.machine_control import get_provider, validate_inspect_command
+    from app.services.machine_task_grants import (
+        get_active_task_machine_grant,
+        probe_granted_target,
+        require_grant_capability,
+        task_machine_grant_payload,
+    )
+
+    try:
+        raw_command = (step_def.get("command") or step_def.get("prompt") or "").strip()
+        command = render_prompt(raw_command, task_params(task), step_states, steps, shell_escape=False).strip()
+        if not command:
+            return ("failed", None, f"{mode} step requires a command")
+        working_directory = render_prompt(
+            str(step_def.get("working_directory") or ""),
+            task_params(task),
+            step_states,
+            steps,
+            shell_escape=False,
+        ).strip()
+        capability = "inspect" if mode == "machine_inspect" else "exec"
+
+        async with async_session() as db:
+            fresh_task = await db.get(Task, task.id)
+            active = await get_active_task_machine_grant(db, fresh_task)
+            if active is None:
+                return ("failed", None, "Task does not have an active SSH machine grant.")
+            require_grant_capability(active, capability)
+            if mode == "machine_inspect":
+                validate_inspect_command(command)
+            await probe_granted_target(db, active)
+            provider = get_provider(active.grant.provider_id)
+            grant_payload = await task_machine_grant_payload(db, fresh_task) if fresh_task else None
+            target_label = (
+                grant_payload.get("target_label")
+                if isinstance(grant_payload, dict)
+                else active.grant.target_id
+            )
+            target_id = active.grant.target_id
+
+        if mode == "machine_inspect":
+            result = await provider.inspect_command(target_id, command)
+        else:
+            result = await provider.exec_command(target_id, command, working_directory)
+
+        result_text = _machine_command_result_text(
+            target_label=target_label or target_id,
+            command=command,
+            working_dir=working_directory,
+            result=result,
+        )
+        max_chars = step_def.get("result_max_chars", 2000)
+        if len(result_text) > max_chars:
+            result_text = result_text[:max_chars] + "... [truncated]"
+        exit_code = int(result.get("exit_code") or 0)
+        if exit_code != 0:
+            return ("failed", result_text, f"Non-zero exit code: {exit_code}")
+        return ("done", result_text, None)
+    except Exception as e:
+        return ("failed", None, str(e)[:2000])
+
+
 def _render_widget_envelope(
     task: Task,
     step_def: dict,
@@ -1048,6 +1145,9 @@ async def _run_tool_step(
     # `set_agent_context`, so without this the step fails with "No bot context
     # available." Reset the token after the call so we don't leak into peers.
     bot_id_token = current_bot_id.set(task.bot_id)
+    task_id_token = current_task_id.set(task.id)
+    session_id_token = current_session_id.set(task.session_id)
+    origin_token = current_run_origin.set("task")
     try:
         result = await call_local_tool(tool_name, json.dumps(rendered_args))
         max_chars = step_def.get("result_max_chars", 2000)
@@ -1061,6 +1161,9 @@ async def _run_tool_step(
     except Exception as e:
         return ("failed", None, str(e)[:2000])
     finally:
+        current_run_origin.reset(origin_token)
+        current_session_id.reset(session_id_token)
+        current_task_id.reset(task_id_token)
         current_bot_id.reset(bot_id_token)
 
 
@@ -1278,6 +1381,28 @@ async def _advance_pipeline(
             await _persist_step_states(task.id, step_states)
             await emit_step_output_message(task=task, step_def=step_def, step_index=i, state=state)
             logger.info("Pipeline %s step %d tool → %s%s", task.id, i + 1, state["status"], f" error={state['error']}" if state.get("error") else "")
+
+            if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
+                await _finalize_pipeline(task, steps, step_states, failed=True)
+                return
+
+        elif step_type in ("machine_inspect", "machine_exec"):
+            status, result, error = await _run_machine_step(
+                task,
+                step_def,
+                i,
+                steps,
+                step_states,
+                mode=step_type,
+            )
+            state["status"] = status
+            state["result"] = result
+            state["error"] = error
+            state["completed_at"] = datetime.now(timezone.utc).isoformat()
+            _apply_fail_if_to_state(state, step_def, i, steps, step_states, task)
+            await _persist_step_states(task.id, step_states)
+            await emit_step_output_message(task=task, step_def=step_def, step_index=i, state=state)
+            logger.info("Pipeline %s step %d %s -> %s%s", task.id, i + 1, step_type, state["status"], f" error={state['error']}" if state.get("error") else "")
 
             if state["status"] == "failed" and step_def.get("on_failure", "abort") == "abort":
                 await _finalize_pipeline(task, steps, step_states, failed=True)

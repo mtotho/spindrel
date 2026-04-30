@@ -504,12 +504,12 @@ def _check_widget_db_sql_authorizer() -> SecurityCheck:
     expected_denials = {
         "SQLITE_ATTACH",
         "SQLITE_DETACH",
-        "SQLITE_LOAD_EXTENSION",
-        "SQLITE_VACUUM",
     }
+    expected_functions = {"load_extension"}
     try:
         from app.services.widget_db import (
             _DENIED_SQLITE_ACTION_NAMES,
+            _DENIED_SQLITE_FUNCTION_NAMES,
             install_widget_sql_authorizer,
         )
     except Exception as exc:
@@ -524,8 +524,10 @@ def _check_widget_db_sql_authorizer() -> SecurityCheck:
         )
 
     observed = set(_DENIED_SQLITE_ACTION_NAMES)
+    observed_functions = set(_DENIED_SQLITE_FUNCTION_NAMES)
     missing = sorted(expected_denials - observed)
-    if missing or not callable(install_widget_sql_authorizer):
+    missing_functions = sorted(expected_functions - observed_functions)
+    if missing or missing_functions or not callable(install_widget_sql_authorizer):
         return SecurityCheck(
             id="widget_db_sql_authorizer",
             category="widget_actions",
@@ -534,9 +536,16 @@ def _check_widget_db_sql_authorizer() -> SecurityCheck:
             message="Widget DB SQL authorizer is missing required denied operations",
             recommendation=(
                 "Widget DB connections must deny SQLite file-boundary operations "
-                "such as ATTACH/DETACH, extension loading, and VACUUM output."
+                "such as ATTACH/DETACH and extension loading."
             ),
-            details={"required": sorted(expected_denials), "observed": sorted(observed), "missing": missing},
+            details={
+                "required_actions": sorted(expected_denials),
+                "observed_actions": sorted(observed),
+                "missing_actions": missing,
+                "required_functions": sorted(expected_functions),
+                "observed_functions": sorted(observed_functions),
+                "missing_functions": missing_functions,
+            },
         )
     return SecurityCheck(
         id="widget_db_sql_authorizer",
@@ -544,7 +553,7 @@ def _check_widget_db_sql_authorizer() -> SecurityCheck:
         severity=Severity.warning,
         status=Status.passed,
         message="Widget DB SQL authorizer denies SQLite file-boundary operations",
-        details={"denied_actions": sorted(observed)},
+        details={"denied_actions": sorted(observed), "denied_functions": sorted(observed_functions)},
     )
 
 

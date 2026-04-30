@@ -47,7 +47,7 @@ class TestMemorySchemeInjection:
         eff = _eff()
         result = apply_auto_injections(eff, bot)
 
-        for tool in ("search_memory", "get_memory_file", "file", "manage_bot_skill"):
+        for tool in ("search_memory", "get_memory_file", "memory", "manage_bot_skill"):
             assert tool in result.local_tools, f"Missing memory tool: {tool}"
             assert tool in result.pinned_tools, f"Missing from pinned: {tool}"
 
@@ -115,6 +115,20 @@ class TestSkillToolInjection:
         assert "get_skill_list" in result.local_tools
 
 
+class TestAgentReadinessInjection:
+    """Agent self-inspection tools are always injected."""
+
+    def test_injects_capability_manifest_and_doctor_tools(self):
+        bot = _bot(memory_scheme=None, history_mode="standard")
+        eff = _eff()
+        result = apply_auto_injections(eff, bot)
+
+        assert "list_agent_capabilities" in result.local_tools
+        assert "list_agent_capabilities" in result.pinned_tools
+        assert "run_agent_doctor" in result.local_tools
+        assert "run_agent_doctor" in result.pinned_tools
+
+
 class TestChannelAwarenessInjection:
     """Channel history + sub-session tools are always injected."""
 
@@ -168,11 +182,13 @@ class TestCombinedInjections:
             # declared
             "get_current_time",
             # memory scheme
-            "search_memory", "get_memory_file", "file", "manage_bot_skill",
+            "search_memory", "get_memory_file", "memory", "manage_bot_skill",
             # tool retrieval
             "get_tool_info",
             # skills
             "get_skill", "get_skill_list",
+            # agent readiness
+            "list_agent_capabilities", "run_agent_doctor",
             # channel awareness
             "list_channels", "read_conversation_history",
             "list_sub_sessions", "read_sub_session",

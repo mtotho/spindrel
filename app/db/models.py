@@ -406,6 +406,43 @@ class MachineTargetLease(Base):
     )
 
 
+class TaskMachineGrant(Base):
+    __tablename__ = "task_machine_grants"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    grant_id: Mapped[str] = mapped_column(Text, nullable=False)
+    granted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    capabilities: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
+    allow_agent_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    task: Mapped["Task"] = relationship("Task")
+    granted_by_user: Mapped["User | None"] = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("task_id", name="uq_task_machine_grants_task"),
+        UniqueConstraint("grant_id", name="uq_task_machine_grants_grant_id"),
+        Index("ix_task_machine_grants_target", "provider_id", "target_id"),
+        Index("ix_task_machine_grants_expires_at", "expires_at"),
+        Index("ix_task_machine_grants_granted_by_user_id", "granted_by_user_id"),
+    )
+
+
 class Message(Base):
     __tablename__ = "messages"
 

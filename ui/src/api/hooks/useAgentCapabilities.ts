@@ -291,6 +291,11 @@ export interface AgentSkillRecommendation {
   feature_label: string;
   skill_ids: string[];
   missing_skill_ids?: string[];
+  coverage_status?: "covered" | "partial" | "missing" | "unknown" | string;
+  nearest_existing_skill_ids?: string[];
+  why_skill_shaped?: string | null;
+  small_model_reason?: string | null;
+  suggested_owner?: "existing_runtime_skill" | "future_runtime_skill" | string;
   reason: string;
   when_to_load: string;
   first_action?: string | null;
@@ -301,6 +306,11 @@ export interface AgentSkillRecommendation {
 export interface AgentSkillCreationCandidate {
   feature_id: string;
   feature_label: string;
+  coverage_status?: "covered" | "partial" | "missing" | "unknown" | string;
+  nearest_existing_skill_ids?: string[];
+  why_skill_shaped?: string | null;
+  small_model_reason?: string | null;
+  suggested_owner?: "existing_runtime_skill" | "future_runtime_skill" | string;
   reason: string;
   suggested_skill_id: string;
   first_outline?: string[];

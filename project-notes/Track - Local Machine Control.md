@@ -17,7 +17,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Shipped providers are `local_companion` with `driver="companion"` and `ssh` with `driver="ssh"`.
 - Cross-provider readiness is based on a fresh provider probe or live-status check, not a companion-specific connection concept.
 - One session can lease one target at a time. One target can be leased by only one session at a time.
-- Lease-gated tools are denied unless there is a live JWT user, active presence, and a valid session lease for the same user.
+- Lease-gated tools are denied unless there is a live JWT user, active presence, and a valid session lease for the same user, or an autonomous task has an explicit task-scoped machine grant.
 - Lease state lives in the `machine_target_leases` table; legacy session metadata is read only as a migration fallback.
 - Machine admin routes require admin-equivalent auth, not generic integration scopes.
 - Core owns the machine tools, admin APIs, session APIs, transcript/result UX, and admin machine center.
@@ -39,6 +39,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 9 | Generic provider profiles, SSH-first adoption, machine-center profile UI | ✅ shipped 2026-04-24 |
 | 10 | Admin machine-center UI refresh against canonical control-surface standards | ✅ shipped 2026-04-24 |
 | 11 | Guided machine-center flow, recoverable companion setup, reconnecting Linux user service | ✅ shipped 2026-04-25 |
+| 12 | Task-scoped SSH grants for scheduled/project coding runs | ✅ shipped 2026-04-30 |
 
 ## What Shipped
 
@@ -118,6 +119,14 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - cached target metadata refresh for hostname, platform, readiness, and failure reason
 - `Admin > Machines` now renders provider-defined enroll fields generically and exposes per-target `Probe`.
 - SSH settings are stored in app-managed integration settings rather than ephemeral container filesystem state, so container rebuilds do not wipe setup.
+
+### Phase 12 — Task-scoped grants for project factory runs
+
+- Added `task_machine_grants` as the durable bridge between a scheduled/project task and one explicit SSH machine target.
+- Grants carry target identity, granting user, `inspect`/`exec` capabilities, expiry/revocation state, and whether LLM tool calls may use the grant.
+- Task runs can resolve the active grant from the task, parent task, or pipeline task id and materialize a normal `machine_target_leases` row for the task session after a fresh provider probe.
+- Pipeline steps now support `machine_inspect` and `machine_exec`; both require an active grant and use the core inspect-command validator / provider execution contract.
+- Machine-control local tools can run from task origin only when the current task/session context resolves to an active grant; otherwise the existing autonomous-origin denial remains visible.
 
 ### Phase 8 — Transcript-first machine UX and optional native widget
 
@@ -252,3 +261,10 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `cd agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false`
 - `cd agent-server/ui && node --test .chat-test-dist/src/components/chat/toolTranscriptModel.test.js .chat-test-dist/src/components/chat/renderArchitecture.test.js`
 - `pytest tests/unit/test_local_machine_control_phase5a.py -q`
+
+### Addendum — Scheduled SSH Task Grants
+
+- Added `task_machine_grants` as the explicit scheduled-task grant surface for SSH-only v1. A task definition can grant one enrolled SSH target with inspect/exec capabilities and an `allow_agent_tools` flag.
+- Pipeline steps `machine_inspect` and `machine_exec` run deterministic commands directly against the granted SSH target after a fresh probe. Prompt tasks and pipeline `agent` steps can materialize a short session lease from the grant so normal `machine_*` tools work in task-origin runs.
+- Preserved the existing chat lease model: live user session leases still use `machine_target_leases`, and non-granted autonomous origins remain fail-closed.
+- Updated canonical docs (`docs/guides/local-machine-control.md`, `docs/guides/pipelines.md`) and admin task UI wiring for SSH grant selection.

@@ -610,6 +610,15 @@ planning feedback in `plan_runtime.latest_tool_feedback`, so the card can point
 at the exact rejected field and fallback instruction before a valid revision
 exists.
 
+Loop recovery may repair narrow, deterministic planning slips without another
+user turn:
+
+- prose question-card responses are converted to `ask_plan_questions` when the
+  user explicitly asked for a structured card
+- vague-step `publish_plan` failures can retry once with concrete step labels
+- readiness failures caused by stale carried questions can retry once with the
+  recorded plan-question answers treated as explicit assumptions/defaults
+
 ## Revision History And Sync
 
 Revision history is now snapshot-backed, even though the canonical artifact is still one active Markdown file.
@@ -767,6 +776,8 @@ Interruption and recovery are first-class execution paths:
 - a `needs_replan` review is stricter and remains blocking until `request_plan_replan` returns the session to planning
 - after a replan request, the previous accepted revision remains historical context; no mutating execution resumes until the revised draft is approved
 - revised replan drafts may replace the checklist, but approval still rejects blocked/vague/invalid steps
+- if the user asks for readback or verification before `record_plan_progress`,
+  the execution turn should perform that check before recording `step_done`
 
 That means the practical v1 system is:
 

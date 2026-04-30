@@ -105,6 +105,75 @@ SKILL_OPPORTUNITY_SKILL_LABELS: dict[str, str] = {
     "history_and_memory/session_history": "Session history",
 }
 
+RUNTIME_SKILL_COVERAGE_AUDIT: dict[str, dict[str, Any]] = {
+    "widget_authoring": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "widgets",
+            "widgets/html",
+            "widgets/channel_dashboards",
+            "widgets/authoring_runs",
+        ],
+        "why_skill_shaped": "Widget authoring is an ordered workflow over existing widget tools, manifests, previews, checks, pins, and receipts.",
+        "small_model_reason": "Smaller models need the widget procedure before mutating packages or interpreting authoring failures.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "integration_readiness": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "configurator/integration",
+            "orchestrator/integration_builder",
+            "diagnostics",
+        ],
+        "why_skill_shaped": "Integration work mixes setup, bindings, dependencies, process health, and diagnostics before any config change.",
+        "small_model_reason": "Smaller models need a checklist so they inspect setup and bindings before proposing mutation.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "agent_diagnostics": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "diagnostics",
+            "diagnostics/health_summary",
+            "diagnostics/traces",
+        ],
+        "why_skill_shaped": "Agent failure triage is a cheap-to-expensive diagnostic sequence over existing health, trace, and log tools.",
+        "small_model_reason": "Smaller models are likely to jump to raw logs without explicit diagnostic ordering.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "project_coding_run": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "workspace",
+            "workspace/files",
+            "workspace/member",
+        ],
+        "why_skill_shaped": "Project work is a repeated procedure around workspace conventions, file tools, command execution, and handoffs.",
+        "small_model_reason": "Smaller models need file-operation and handoff rules before editing a Project root.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "context_pressure": {
+        "coverage_status": "covered",
+        "nearest_existing_skill_ids": [
+            "context_mastery",
+            "history_and_memory/session_history",
+        ],
+        "why_skill_shaped": "Context pressure is a summarization and handoff workflow, not another broad API surface.",
+        "small_model_reason": "Smaller models need explicit continue/summarize/handoff thresholds to avoid context collapse.",
+        "suggested_owner": "existing_runtime_skill",
+    },
+    "agent_readiness_operator": {
+        "coverage_status": "partial",
+        "nearest_existing_skill_ids": [
+            "configurator",
+            "diagnostics",
+            "orchestrator/audits",
+        ],
+        "why_skill_shaped": "Agent Readiness repair review is a repeated approval-gated workflow over manifest findings, preflight, requests, and receipts.",
+        "small_model_reason": "Smaller models need a short procedure to avoid mutating stale repair requests or skipping preflight.",
+        "suggested_owner": "future_runtime_skill",
+    },
+}
+
 TOOL_PROFILE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("api", ("api", "endpoint", "http")),
     ("project", ("project", "workspace", "file", "exec", "terminal")),
@@ -1609,6 +1678,19 @@ def _enrolled_skill_ids(manifest: dict[str, Any]) -> set[str]:
     }
 
 
+def _skill_coverage_audit(feature_id: str) -> dict[str, Any]:
+    audit = dict(RUNTIME_SKILL_COVERAGE_AUDIT.get(feature_id) or {})
+    if not audit:
+        audit = {
+            "coverage_status": "unknown",
+            "nearest_existing_skill_ids": [],
+            "why_skill_shaped": None,
+            "small_model_reason": None,
+            "suggested_owner": "unknown",
+        }
+    return audit
+
+
 def _skill_recommendation(
     *,
     feature_id: str,
@@ -1622,11 +1704,17 @@ def _skill_recommendation(
     deduped = _deduped(skill_ids)
     missing = [skill_id for skill_id in deduped if skill_id not in enrolled]
     primary = deduped[0] if deduped else ""
+    coverage = _skill_coverage_audit(feature_id)
     return {
         "feature_id": feature_id,
         "feature_label": feature_label,
         "skill_ids": deduped,
         "missing_skill_ids": missing,
+        "coverage_status": coverage["coverage_status"],
+        "nearest_existing_skill_ids": coverage["nearest_existing_skill_ids"] or deduped,
+        "why_skill_shaped": coverage["why_skill_shaped"] or reason,
+        "small_model_reason": coverage["small_model_reason"],
+        "suggested_owner": coverage["suggested_owner"],
         "reason": reason,
         "when_to_load": when_to_load,
         "first_action": f'get_skill("{primary}")' if primary else None,
@@ -1647,9 +1735,15 @@ def _skill_creation_candidate(
     first_outline: list[str],
     model_support: str = "recommended_for_small_models",
 ) -> dict[str, Any]:
+    coverage = _skill_coverage_audit(feature_id)
     return {
         "feature_id": feature_id,
         "feature_label": feature_label,
+        "coverage_status": coverage["coverage_status"],
+        "nearest_existing_skill_ids": coverage["nearest_existing_skill_ids"],
+        "why_skill_shaped": coverage["why_skill_shaped"] or reason,
+        "small_model_reason": coverage["small_model_reason"],
+        "suggested_owner": coverage["suggested_owner"],
         "reason": reason,
         "suggested_skill_id": suggested_skill_id,
         "first_outline": first_outline,

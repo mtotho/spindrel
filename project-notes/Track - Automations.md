@@ -565,3 +565,10 @@ Modified:
 - Backend `?step_status=` filter (client-side still).
 
 **Verification still owed**: browser smoke on the e2e instance — launch Analyze Discovery (BotPicker modal appears), watch the anchor show pulsing amber on the review step, click Approve/Reject inline in chat, verify foreach fires only for approved items. Plan has a 6-step smoke checklist.
+
+## Addendum — SSH Machine Steps For Scheduled Tasks
+
+- Added task-level SSH machine grants for user-authored task definitions. The admin task form can select one enrolled SSH target and choose whether agent/LLM machine tools may use the grant.
+- Added deterministic pipeline step types `machine_inspect` and `machine_exec`. They render normal pipeline templates, validate the task grant, probe the SSH target, then run a fresh non-interactive SSH command. `machine_inspect` keeps the existing inspect-command allowlist.
+- Agent steps spawned from a granted pipeline inherit access through parent-task grant resolution; task-origin agent runs materialize a short session lease before the agent loop starts.
+- Follow-up: add richer launch-time warnings for pipelines that contain machine steps but no `machine_target_grant`.

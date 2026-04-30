@@ -99,6 +99,27 @@ is_local_e2e_host() {
     esac
 }
 
+print_local_deploy_diagnostics() {
+    if ! is_local_e2e_host || ! command -v docker >/dev/null 2>&1; then
+        return 0
+    fi
+    local container="$HARNESS_PARITY_AGENT_CONTAINER"
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "Local container diagnostics:" >&2
+    docker inspect "$container" \
+        --format '  container={{.Name}} image={{.Image}} created={{.Created}} compose_workdir={{index .Config.Labels "com.docker.compose.project.working_dir"}} compose_files={{index .Config.Labels "com.docker.compose.project.config_files"}}' \
+        >&2 || true
+    local image_id
+    image_id="$(docker inspect "$container" --format '{{.Image}}' 2>/dev/null || true)"
+    if [[ -n "$image_id" ]]; then
+        docker image inspect "$image_id" \
+            --format '  image_created={{.Created}} tags={{json .RepoTags}}' \
+            >&2 || true
+    fi
+}
+
 wait_for_server_health() {
     local url="http://${E2E_HOST}:${E2E_PORT}/health"
     local deadline=$((SECONDS + HARNESS_PARITY_HEALTH_WAIT_TIMEOUT))
@@ -173,7 +194,15 @@ tier_order = {
     "replay": 11,
 }
 
-required = ["/api/v1/channels/{channel_id}/sessions"]
+required = []
+if (
+    "/api/v1/channels/{channel_id}/sessions" not in paths
+    and "/api/v1/channels/{channel_id}/reset" not in paths
+):
+    required.append(
+        "/api/v1/channels/{channel_id}/sessions "
+        "(or legacy /api/v1/channels/{channel_id}/reset)"
+    )
 if tier_order.get(tier, 0) >= tier_order["terminal"]:
     required.append("/api/v1/admin/docker-stacks")
 
@@ -190,6 +219,48 @@ PY
         return 1
     fi
     rm -f "$openapi_tmp"
+
+    local channel_status
+    if command -v curl >/dev/null 2>&1; then
+        channel_status="$(curl -sS -o /tmp/spindrel-harness-channels-preflight.txt -w '%{http_code}' \
+            --max-time 10 \
+            -H "Authorization: Bearer ${E2E_API_KEY}" \
+            "$base_url/api/v1/admin/channels?page_size=1" 2>/tmp/spindrel-harness-channels-preflight.err || true)"
+    else
+        channel_status="$("$PYTHON_BIN" - "$base_url" "$E2E_API_KEY" <<'PY' 2>/tmp/spindrel-harness-channels-preflight.err || true
+import sys
+import urllib.request
+
+req = urllib.request.Request(
+    f"{sys.argv[1]}/api/v1/admin/channels?page_size=1",
+    headers={"Authorization": f"Bearer {sys.argv[2]}"},
+)
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        body = resp.read().decode()
+        open("/tmp/spindrel-harness-channels-preflight.txt", "w", encoding="utf-8").write(body)
+        print(resp.status)
+except Exception as exc:
+    open("/tmp/spindrel-harness-channels-preflight.txt", "w", encoding="utf-8").write(str(exc))
+    print(getattr(exc, "code", "000"))
+PY
+)"
+    fi
+
+    if [[ "$channel_status" != "200" ]]; then
+        echo "Harness parity preflight failed: deployed server cannot list admin channels (HTTP ${channel_status})." >&2
+        echo "This usually means the running server image and database schema are out of sync; verify the container was rebuilt from the current repo and migrations are resolvable/applied." >&2
+        print_local_deploy_diagnostics
+        if [[ -s /tmp/spindrel-harness-channels-preflight.txt ]]; then
+            echo "Response body:" >&2
+            sed -n '1,12p' /tmp/spindrel-harness-channels-preflight.txt >&2
+        fi
+        if [[ -s /tmp/spindrel-harness-channels-preflight.err ]]; then
+            echo "Request diagnostics:" >&2
+            sed -n '1,12p' /tmp/spindrel-harness-channels-preflight.err >&2
+        fi
+        return 1
+    fi
 }
 
 if [[ -z "${PLAYWRIGHT_WS_URL:-}" ]] && is_local_e2e_host && command -v docker >/dev/null 2>&1; then

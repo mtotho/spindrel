@@ -430,6 +430,7 @@ class TestWidgetDbSqlAuthorizer:
         assert c.status == Status.passed
         assert "SQLITE_ATTACH" in c.details["denied_actions"]
         assert "SQLITE_DETACH" in c.details["denied_actions"]
+        assert "load_extension" in c.details["denied_functions"]
 
     def test_missing_attach_denial_fails_critical(self, monkeypatch):
         monkeypatch.setattr(
@@ -439,7 +440,7 @@ class TestWidgetDbSqlAuthorizer:
         c = _check_widget_db_sql_authorizer()
         assert c.status == Status.fail
         assert c.severity == Severity.critical
-        assert "SQLITE_ATTACH" in c.details["missing"]
+        assert "SQLITE_ATTACH" in c.details["missing_actions"]
 
 
 class TestWorkSurfaceIsolationStatic:

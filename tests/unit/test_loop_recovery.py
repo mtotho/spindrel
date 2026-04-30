@@ -161,6 +161,39 @@ async def test_plan_mode_structured_question_card_synthesizes_tool_call():
 
 
 @pytest.mark.asyncio
+async def test_plan_mode_question_card_title_includes_synthesizes_tool_call():
+    async def _fail_no_tool(**kwargs):
+        raise AssertionError("plan-mode question-card recovery should continue to tool iteration")
+        yield {}
+
+    state = LoopRunState(messages=[
+        {"role": "system", "content": "Plan mode is active. Use ask_plan_questions for structured questions."},
+        {
+            "role": "user",
+            "content": (
+                "Follow the native plan-mode contract: narrow scope first with a structured question card. "
+                "Use a concise title that includes 'Behavior planning questions'."
+            ),
+        },
+        {"role": "assistant", "content": "Behavior planning questions\n\n1. What is the target?"},
+    ])
+    msg = AccumulatedMessage(content="Behavior planning questions\n\n1. What is the target?")
+
+    outputs, _ = await _collect(
+        accumulated_msg=msg,
+        state=state,
+        tools_param=[{"type": "function", "function": {"name": "ask_plan_questions"}}],
+        handle_no_tool_calls_path_fn=_fail_no_tool,
+    )
+
+    assert outputs == [LoopRecoveryDone(has_tool_calls=True)]
+    assert msg.tool_calls
+    call = msg.tool_calls[0]
+    assert call["function"]["name"] == "ask_plan_questions"
+    assert "Behavior planning questions" in call["function"]["arguments"]
+
+
+@pytest.mark.asyncio
 async def test_plan_mode_structured_question_card_appends_to_existing_tool_call():
     async def _fail_no_tool(**kwargs):
         raise AssertionError("plan-mode question-card recovery should continue to tool iteration")
@@ -383,4 +416,71 @@ async def test_plan_mode_publish_validation_retry_runs_once():
     assert outputs == [
         {"type": "response", "text": "I still cannot publish this."},
         LoopRecoveryDone(has_tool_calls=False, return_loop=True),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_publish_readiness_error_retries_with_recorded_answers_assumption():
+    async def _fail_no_tool(**kwargs):
+        raise AssertionError("publish_plan readiness recovery should continue to tool iteration")
+        yield {}
+
+    prior_args = {
+        "title": "Plan From Answers",
+        "summary": "Use submitted answers.",
+        "scope": "Planning only.",
+        "open_questions": ["What risk should this cover?"],
+        "steps": [{"id": "step-1", "label": "Validate recorded planning answers"}],
+    }
+    state = LoopRunState(
+        messages=[
+            {"role": "system", "content": "Plan mode is active. Use publish_plan for structured drafts."},
+            {"role": "user", "content": "Use the submitted plan-question answers already recorded."},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "tc_publish",
+                    "type": "function",
+                    "function": {
+                        "name": "publish_plan",
+                        "arguments": json.dumps(prior_args),
+                    },
+                }],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "tc_publish",
+                "content": json.dumps({
+                    "success": False,
+                    "error": (
+                        "Ask or resolve key planning questions before publishing a first draft; "
+                        "proceed with explicit assumptions if the user requested that."
+                    ),
+                    "error_code": "publish_plan_readiness_failed",
+                    "error_kind": "validation",
+                    "fallback": "Answer open questions or provide explicit assumptions/defaults, then call publish_plan again.",
+                }),
+            },
+            {"role": "assistant", "content": "I need confirmation before publishing."},
+        ],
+        tool_calls_made=["publish_plan"],
+    )
+    msg = AccumulatedMessage(content="I need confirmation before publishing.")
+
+    outputs, _ = await _collect(
+        accumulated_msg=msg,
+        state=state,
+        tools_param=[{"type": "function", "function": {"name": "publish_plan"}}],
+        handle_no_tool_calls_path_fn=_fail_no_tool,
+    )
+
+    assert outputs == [LoopRecoveryDone(has_tool_calls=True)]
+    assert msg.tool_calls
+    call = msg.tool_calls[0]
+    assert call["function"]["name"] == "publish_plan"
+    repaired_args = json.loads(call["function"]["arguments"])
+    assert repaired_args["open_questions"] == []
+    assert repaired_args["assumptions_and_defaults"] == [
+        "Proceed using the submitted plan-question answers and durable planning-state decisions already recorded for this session."
     ]

@@ -356,10 +356,23 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
   - an unexpired lease for the current session
   - the same leasing user
   - a freshly ready target after provider validation
-- Autonomous origins (`heartbeat`, `task`, `subagent`, hygiene-style runs) are denied even if other context exists.
+- Autonomous origins (`heartbeat`, `task`, `subagent`, hygiene-style runs) are denied unless a task-scoped machine grant explicitly names the SSH target, capabilities, expiry, and agent-tool allowance.
 - API-key/script surfaces do not gain local-machine power by virtue of being able to call tools.
 - Future implementations such as SSH should plug into the same provider contract instead of inventing parallel machine-control stacks.
 - SSH, browser control, file sync, or other desktop automation should reuse the same machine-target + lease abstraction instead of inventing parallel consent paths.
+
+### Task-scoped machine grants are the autonomous exception to session leases
+**Decided 2026-04-30.** Project factory / scheduled coding runs need access to explicit e2e or runner machines without pretending an autonomous task has an active browser user. The exception is a durable task grant, not ambient machine-control access.
+
+**What changed.**
+- `task_machine_grants` binds one task to one SSH target with `inspect`/`exec` capabilities, expiry/revocation, granting user, and an `allow_agent_tools` flag.
+- Task-origin machine-control tools may materialize a normal short-lived `machine_target_leases` row only after resolving the current task/session context, finding an active grant, and passing a fresh provider probe.
+- Pipeline `machine_inspect` and `machine_exec` steps use the same grant and provider contract directly.
+
+**Load-bearing invariants.**
+- No grant means the autonomous-origin deny remains the visible result.
+- Grants are target-specific and capability-specific; there is no fallback to recent target, user lease, or provider default.
+- Inspect commands still pass through the core inspect-command validator before provider dispatch.
 
 ### Machine-control readiness is provider-generic probe state, and provider credentials live in persistent settings
 **Decided 2026-04-24.** The machine-control contract no longer treats "connected companion socket" as the universal runtime truth.

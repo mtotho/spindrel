@@ -35,6 +35,16 @@ WIDGET_TOOLS = [
     "pin_widget",
     "set_dashboard_chrome",
 ]
+SPATIAL_STEWARD_TOOLS = [
+    "get_skill",
+    "view_spatial_canvas",
+    "inspect_spatial_widget_scene",
+    "preview_spatial_widget_changes",
+    "pin_spatial_widget",
+    "move_spatial_widget",
+    "resize_spatial_widget",
+    "remove_spatial_widget",
+]
 
 
 def _dashboard_key(channel_id: str) -> str:
@@ -75,6 +85,20 @@ async def _make_temp_bot(client: E2EClient, *, tools: list[str] | None = None) -
     )
 
 
+async def _make_spatial_steward_bot(client: E2EClient) -> str:
+    return await client.create_temp_bot(
+        client.config.default_model,
+        tools=SPATIAL_STEWARD_TOOLS,
+        system_prompt=(
+            "You are an E2E spatial widget steward. Load the requested skill when asked. "
+            "Before changing spatial widgets, inspect the current spatial widget scene and "
+            "preview the exact operation you intend to apply. Never call a spatial widget "
+            "mutation tool before its matching preview. Use literal coordinates, sizes, "
+            "labels, and widget refs from the user request."
+        ),
+    )
+
+
 async def _make_channel(
     client: E2EClient,
     *,
@@ -96,6 +120,24 @@ async def _make_channel(
         "widget_agency_mode": mode,
     })
     return channel_id, session_id
+
+
+async def _enable_spatial_widget_policy(
+    client: E2EClient,
+    *,
+    channel_id: str,
+    bot_id: str,
+) -> None:
+    resp = await client.patch(
+        f"/api/v1/workspace/spatial/channels/{channel_id}/bots/{bot_id}/policy",
+        json={
+            "enabled": True,
+            "allow_map_view": True,
+            "allow_nearby_inspect": True,
+            "allow_spatial_widget_management": True,
+        },
+    )
+    resp.raise_for_status()
 
 
 async def _seed_duplicate_dashboard(
@@ -212,6 +254,13 @@ def _pin_by_label(pins: list[dict[str, Any]], label: str) -> dict[str, Any]:
 
 def _messages_blob(messages: list[dict[str, Any]]) -> str:
     return json.dumps(messages, sort_keys=True, default=str)
+
+
+def _tool_index(result: Any, tool_name: str) -> int:
+    try:
+        return result.tools_used.index(tool_name)
+    except ValueError as exc:
+        raise AssertionError(f"tool {tool_name!r} not used; saw {result.tools_used}") from exc
 
 
 async def _cleanup(
@@ -388,6 +437,87 @@ async def test_widget_improvement_chat_request_returns_proposals_without_mutatio
             client,
             task_ids=[],
             pin_ids=pin_ids,
+            channel_id=channel_id,
+            bot_id=bot_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_spatial_widget_steward_previews_exact_pin_before_mutating(
+    client: E2EClient,
+) -> None:
+    bot_id: str | None = None
+    channel_id: str | None = None
+    spatial_node_ids: list[str] = []
+    label = f"E2E spatial steward note {uuid.uuid4().hex[:8]}"
+    widget = "core/notes_native"
+    world_x = 640
+    world_y = 160
+    world_w = 360
+    world_h = 240
+    try:
+        bot_id = await _make_spatial_steward_bot(client)
+        channel_id, _session_id = await _make_channel(client, bot_id=bot_id, mode="propose_and_fix")
+        await _enable_spatial_widget_policy(client, channel_id=channel_id, bot_id=bot_id)
+
+        seed_resp = await client.get("/api/v1/workspace/spatial/nodes")
+        seed_resp.raise_for_status()
+
+        result = await client.chat_stream(
+            (
+                "Load get_skill for widgets/spatial_stewardship. Then call "
+                "inspect_spatial_widget_scene for this channel. If a spatial widget "
+                f"named {label!r} does not already exist, call preview_spatial_widget_changes "
+                "with exactly one operation: "
+                f"action='pin', widget={widget!r}, display_label={label!r}, "
+                f"world_x={world_x}, world_y={world_y}, world_w={world_w}, world_h={world_h}. "
+                "If the preview does not report a worse overlap/clipping state, call "
+                "pin_spatial_widget with exactly the same widget, display_label, "
+                "world_x, world_y, world_w, and world_h. Reply with 'spatial steward done'."
+            ),
+            bot_id=bot_id,
+            channel_id=channel_id,
+            timeout=max(180, int(client.config.request_timeout) * 3),
+            approval_decision={"approved": True, "decided_by": "e2e_spatial_steward"},
+        )
+
+        assert_no_error_events(result.events)
+        assert "spatial steward done" in result.response_text.lower()
+        assert _tool_index(result, "inspect_spatial_widget_scene") < _tool_index(
+            result,
+            "preview_spatial_widget_changes",
+        )
+        assert _tool_index(result, "preview_spatial_widget_changes") < _tool_index(
+            result,
+            "pin_spatial_widget",
+        )
+        tool_blob = json.dumps([event.data for event in result.tool_events], sort_keys=True, default=str)
+        assert "Preview spatial widget changes first" not in tool_blob
+        assert "Preview this exact spatial widget" not in tool_blob
+
+        nodes_resp = await client.get("/api/v1/workspace/spatial/nodes")
+        nodes_resp.raise_for_status()
+        nodes = nodes_resp.json()["nodes"]
+        pinned = [
+            node for node in nodes
+            if node.get("widget_pin_id")
+            and node.get("pin", {}).get("source_bot_id") == bot_id
+            and node.get("pin", {}).get("display_label") == label
+        ]
+        assert len(pinned) == 1, pinned
+        spatial_node_ids.append(str(pinned[0]["id"]))
+        assert pinned[0]["pin"]["tool_name"] == widget
+        assert pinned[0]["world_x"] == world_x
+        assert pinned[0]["world_y"] == world_y
+        assert pinned[0]["world_w"] == world_w
+        assert pinned[0]["world_h"] == world_h
+    finally:
+        for node_id in reversed(spatial_node_ids):
+            await client.delete(f"/api/v1/workspace/spatial/nodes/{node_id}")
+        await _cleanup(
+            client,
+            task_ids=[],
+            pin_ids=[],
             channel_id=channel_id,
             bot_id=bot_id,
         )

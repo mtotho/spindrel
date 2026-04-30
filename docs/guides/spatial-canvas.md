@@ -118,7 +118,9 @@ summaries. Bot-owned widget mutation tools should be used only after this scene
 inspection. `preview_spatial_widget_changes` dry-runs proposed
 move/resize/remove/pin edits and reports before/after overlap and visibility
 signals, so a bot can reason about whether the canvas will get clearer before
-it mutates owned widgets.
+it mutates owned widgets. The mutation tools require a matching recent preview
+for the same channel and bot; an inspect-only turn is not enough to pin, move,
+resize, or remove spatial widgets.
 
 ## Connection lines
 

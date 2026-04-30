@@ -31,8 +31,9 @@ easier to understand at a glance.
    - move overlapping widgets into clearer open space
    - remove your own empty/default/duplicate widgets
    - keep useful channel landmarks close enough to the channel orbit to read
-5. Before mutating, call `preview_spatial_widget_changes` with the intended
-   operations.
+5. Before mutating, call `preview_spatial_widget_changes` with the exact
+   intended operations. The mutation tools reject edits that do not match a
+   recent preview for this channel and bot.
 6. Apply only changes that make the previewed scene clearer.
 7. Re-inspect if you made several changes or if the preview still reports
    overlap/clipping.

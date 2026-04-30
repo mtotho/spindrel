@@ -591,6 +591,14 @@ the system can already inspect" is a shared capability manifest:
   the bot should load before procedural work, plus `skills.creation_candidates`
   for missing runtime skill coverage. This is recommendation-only: no import
   from repo-dev `.agents`, no auto-enroll, and no full-body auto-inject.
+- Skill-opportunity signals now include a runtime coverage audit. Recommendations
+  and candidates carry `coverage_status`, nearest existing runtime skills,
+  skill-shaped rationale, small-model rationale, and suggested owner, so covered
+  workflows point back to existing skills before proposing new runtime skill
+  work. Runtime agents also get `list_agent_capabilities` and
+  `run_agent_doctor` as baseline self-inspection tools, plus a compact
+  context-assembly prompt rule for when to call them. This is prompt-guided
+  self-inspection, not an automatic every-turn manifest/Doctor call.
 - The repo-dev `agentic-readiness` skill is now progressive-disclosed. Its
   always-loaded `SKILL.md` stays focused on context classification and
   skill/tool/API/docs placement, while detailed external AX, internal runtime

@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type SessionTarget, type StepDef, type TaskLayout } from "@/src/api/hooks/useTasks";
+import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type MachineTargetGrant, type SessionTarget, type StepDef, type TaskLayout } from "@/src/api/hooks/useTasks";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { localInputToISO, isoToLocalInput } from "@/src/utils/time";
@@ -71,6 +71,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [postFinalToChannel, setPostFinalToChannel] = useState(false);
   const [historyMode, setHistoryMode] = useState<"none" | "recent" | "full">("none");
   const [historyRecentCount, setHistoryRecentCount] = useState(10);
+  const [machineTargetGrant, setMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   const stepsMode = steps !== null;
@@ -115,6 +116,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setPostFinalToChannel(!!existingTask.execution_config?.post_final_to_channel);
       setHistoryMode((existingTask.execution_config?.history_mode as any) ?? "none");
       setHistoryRecentCount(existingTask.execution_config?.history_recent_count ?? 10);
+      setMachineTargetGrant(existingTask.machine_target_grant ?? null);
       setInitialized(true);
       return;
     }
@@ -152,6 +154,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setPostFinalToChannel(!!existingTask.execution_config?.post_final_to_channel);
       setHistoryMode((existingTask.execution_config?.history_mode as any) ?? "none");
       setHistoryRecentCount(existingTask.execution_config?.history_recent_count ?? 10);
+      setMachineTargetGrant(existingTask.machine_target_grant ?? null);
       setInitialized(true);
     }
   }, [existingTask, initialized, isCreate, cloneFromId]);
@@ -200,6 +203,15 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
         history_mode: historyMode,
         history_recent_count: historyMode === "recent" ? historyRecentCount : null,
       };
+      const machineTargetGrantPayload = machineTargetGrant
+        ? {
+            provider_id: "ssh" as const,
+            target_id: machineTargetGrant.target_id,
+            capabilities: machineTargetGrant.capabilities?.length ? machineTargetGrant.capabilities : ["inspect", "exec"],
+            allow_agent_tools: machineTargetGrant.allow_agent_tools ?? true,
+            expires_at: machineTargetGrant.expires_at ?? null,
+          }
+        : null;
 
       if (isCreate) {
         const created = await createMut.mutateAsync({
@@ -229,6 +241,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           tools: toolsPayload,
           steps: effectiveSteps,
           layout: effectiveLayout,
+          machine_target_grant: machineTargetGrantPayload,
           ...channelOutputPayload,
         });
         invalidateExtra();
@@ -263,6 +276,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           tools: toolsPayload,
           steps: effectiveSteps,
           layout: effectiveLayout,
+          machine_target_grant: machineTargetGrantPayload,
           ...channelOutputPayload,
         });
       }
@@ -271,7 +285,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, sessionTarget, freshProjectInstance, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, skipToolApproval, allowIssueReporting, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
+  }, [prompt, title, botId, channelId, sessionTarget, freshProjectInstance, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, harnessEffort, skipToolApproval, allowIssueReporting, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount, machineTargetGrant]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -335,6 +349,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     postFinalToChannel, setPostFinalToChannel,
     historyMode, setHistoryMode,
     historyRecentCount, setHistoryRecentCount,
+    machineTargetGrant, setMachineTargetGrant,
 
     // Actions
     handleSave,
