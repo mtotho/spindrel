@@ -76,6 +76,20 @@ def _evidence_looks_like_workspace_path(evidence: str | None) -> bool:
     return False
 
 
+def _evidence_workspace_paths(evidence: str | None) -> list[str]:
+    if not evidence:
+        return []
+    paths: list[str] = []
+    for match in _EVIDENCE_TOKEN_RE.findall(str(evidence)):
+        token = next((part for part in match if part), "").strip()
+        token = token.strip(".,;:()[]{}")
+        if not token or token.lower().startswith(("http://", "https://")):
+            continue
+        if "/" in token or token.startswith((".", "~")):
+            paths.append(token)
+    return paths
+
+
 def _requires_step_done_readback(
     *,
     outcome: str,
@@ -95,14 +109,21 @@ def _requires_step_done_readback(
 def _path_matches_evidence(arguments: dict, evidence: str | None) -> bool:
     if not evidence:
         return True
-    evidence_text = str(evidence).strip()
-    if not evidence_text:
+    evidence_paths = _evidence_workspace_paths(evidence)
+    if not evidence_paths:
+        evidence_text = str(evidence).strip()
+        evidence_paths = [evidence_text] if evidence_text else []
+    if not evidence_paths:
         return True
     paths = [
         str(arguments.get(key) or "").strip()
         for key in ("path", "target_path", "source_path")
     ]
-    return any(path and (path == evidence_text or path.endswith(evidence_text)) for path in paths)
+    return any(
+        path and (path == evidence_path or path.endswith(evidence_path))
+        for path in paths
+        for evidence_path in evidence_paths
+    )
 
 
 def _tool_call_is_readback(tool: ToolCall, *, evidence: str | None) -> bool:

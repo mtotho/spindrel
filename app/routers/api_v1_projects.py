@@ -17,6 +17,7 @@ from app.services.project_coding_runs import (
     ProjectCodingRunCreate,
     ProjectCodingRunContinue,
     ProjectCodingRunReviewCreate,
+    ProjectMachineTargetGrant,
     cleanup_project_coding_run_instance,
     continue_project_coding_run,
     create_project_coding_run,
@@ -237,9 +238,18 @@ class ProjectRunReceiptWrite(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class ProjectMachineTargetGrantIn(BaseModel):
+    provider_id: str
+    target_id: str
+    capabilities: list[str] | None = None
+    allow_agent_tools: bool = True
+    expires_at: str | None = None
+
+
 class ProjectCodingRunWrite(BaseModel):
     channel_id: uuid.UUID
     request: str = ""
+    machine_target_grant: ProjectMachineTargetGrantIn | None = None
 
 
 class ProjectCodingRunContinueWrite(BaseModel):
@@ -256,6 +266,7 @@ class ProjectCodingRunReviewSessionWrite(BaseModel):
     task_ids: list[uuid.UUID] = Field(default_factory=list)
     prompt: str = ""
     merge_method: str = "squash"
+    machine_target_grant: ProjectMachineTargetGrantIn | None = None
 
 
 class ProjectCodingRunTaskOut(BaseModel):
@@ -272,6 +283,7 @@ class ProjectCodingRunTaskOut(BaseModel):
     run_at: str | None = None
     completed_at: str | None = None
     error: str | None = None
+    machine_target_grant: dict | None = None
 
 
 class ProjectCodingRunOut(BaseModel):
@@ -410,6 +422,23 @@ def _instance_out(instance: ProjectInstance) -> ProjectInstanceOut:
 
 def _run_receipt_out(receipt: ProjectRunReceipt) -> ProjectRunReceiptOut:
     return ProjectRunReceiptOut(**serialize_project_run_receipt(receipt))
+
+
+def _auth_user_id(auth) -> uuid.UUID | None:
+    user_id = getattr(auth, "id", None)
+    return user_id if isinstance(user_id, uuid.UUID) else None
+
+
+def _project_machine_target_grant_in(body: ProjectMachineTargetGrantIn | None) -> ProjectMachineTargetGrant | None:
+    if body is None:
+        return None
+    return ProjectMachineTargetGrant(
+        provider_id=body.provider_id,
+        target_id=body.target_id,
+        capabilities=body.capabilities,
+        allow_agent_tools=body.allow_agent_tools,
+        expires_at=body.expires_at,
+    )
 
 
 def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWrite) -> None:
@@ -899,7 +928,12 @@ async def create_project_coding_run_endpoint(
         task = await create_project_coding_run(
             db,
             project,
-            ProjectCodingRunCreate(channel_id=body.channel_id, request=body.request),
+            ProjectCodingRunCreate(
+                channel_id=body.channel_id,
+                request=body.request,
+                machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
+                granted_by_user_id=_auth_user_id(_auth),
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -949,6 +983,8 @@ async def create_project_coding_run_review_session_endpoint(
                 task_ids=body.task_ids,
                 prompt=body.prompt,
                 merge_method=body.merge_method,
+                machine_target_grant=_project_machine_target_grant_in(body.machine_target_grant),
+                granted_by_user_id=_auth_user_id(_auth),
             ),
         )
     except ValueError as exc:
@@ -956,6 +992,8 @@ async def create_project_coding_run_review_session_endpoint(
         if message == "coding run not found":
             raise HTTPException(status_code=404, detail=message) from exc
         raise HTTPException(status_code=422, detail=message) from exc
+    from app.services.machine_task_grants import task_machine_grant_payload
+
     return ProjectCodingRunTaskOut(**{
         "id": task.id,
         "status": task.status,
@@ -970,6 +1008,7 @@ async def create_project_coding_run_review_session_endpoint(
         "run_at": task.run_at.isoformat() if task.run_at else None,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "error": task.error,
+        "machine_target_grant": await task_machine_grant_payload(db, task),
     })
 
 

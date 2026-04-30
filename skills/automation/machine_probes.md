@@ -28,6 +28,19 @@ symptom and you need evidence before advice.
    - next probe
 5. Follow `next_probe_ids` instead of jumping to a fixed runbook.
 
+## Placeable Widgets
+
+Machine probes render through one generic `machine_run_probe` tool widget.
+Use the preset picker when the user wants a persistent card:
+
+- `TCP Port Check`
+- `DNS Lookup`
+- `HTTP Reachability`
+- `Docker Summary`
+- `Docker Logs Tail`
+
+Each preset pins the same generic result card with different bound tool args.
+
 ## Boundaries
 
 - Do not use probes as proof of UniFi firewall, VLAN, or TrueNAS share

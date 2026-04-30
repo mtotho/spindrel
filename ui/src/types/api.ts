@@ -1522,6 +1522,18 @@ export interface ProjectCodingRunTask {
   run_at?: string | null;
   completed_at?: string | null;
   error?: string | null;
+  machine_target_grant?: {
+    provider_id: string;
+    target_id: string;
+    grant_id?: string | null;
+    grant_source_task_id?: string | null;
+    capabilities?: string[] | null;
+    allow_agent_tools?: boolean | null;
+    expires_at?: string | null;
+    provider_label?: string | null;
+    target_label?: string | null;
+    diagnostics?: Array<{ severity: string; code: string; message: string }> | null;
+  } | null;
 }
 
 export interface ProjectCodingRun {

@@ -217,3 +217,62 @@ def test_harness_emitter_synthesizes_missing_tool_start_for_result_only_events()
             },
         }
     ]
+
+
+def test_harness_emitter_persists_result_only_structured_native_summary():
+    events = []
+
+    with patch("app.services.agent_harnesses.base.publish_typed") as publish:
+        publish.side_effect = lambda _channel_id, event: events.append(event)
+        emitter = ChannelEventEmitter(
+            channel_id=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            bot_id="bot",
+            session_id=uuid.uuid4(),
+        )
+
+        emitter.tool_result(
+            tool_name="Codex subagent",
+            tool_call_id="agent-1",
+            result_summary="Codex subagent spawn agent",
+            summary={
+                "kind": "action",
+                "subject_type": "session",
+                "label": "Codex subagent spawn agent",
+                "target_id": "thread-child",
+                "target_label": "spawn_agent",
+                "preview_text": "Inspect the renderer.",
+            },
+        )
+
+    assert [event.kind.value for event in events] == [
+        "turn_stream_tool_start",
+        "turn_stream_tool_result",
+    ]
+    persisted = emitter.persisted_tool_calls()
+    assert persisted == [
+        {
+            "id": "agent-1",
+            "type": "function",
+            "function": {
+                "name": "Codex subagent",
+                "arguments": {},
+            },
+            "surface": "transcript",
+            "summary": {
+                "kind": "action",
+                "subject_type": "session",
+                "label": "Codex subagent spawn agent",
+                "target_id": "thread-child",
+                "target_label": "spawn_agent",
+                "preview_text": "Inspect the renderer.",
+            },
+        }
+    ]
+    assert emitter.assistant_turn_body(text="Done") == {
+        "version": 1,
+        "items": [
+            {"id": "text:final", "kind": "text", "text": "Done"},
+            {"id": "tool:agent-1", "kind": "tool_call", "toolCallId": "agent-1"},
+        ],
+    }

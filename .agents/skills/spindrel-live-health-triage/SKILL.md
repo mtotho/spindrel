@@ -41,6 +41,18 @@ Read findings by severity, count, freshness, service, signature, and existing
 Attention state. Do not treat a stale daily summary as current truth when the
 recent-errors endpoint is available.
 
+The response should include `review_state` on each finding. If it does not,
+the server is still on the pre-overlay build; do not call `promote` because old
+promotion can re-surface duplicates that were already resolved.
+
+Useful focused views:
+
+```
+GET /api/v1/system-health/recent-errors?since=24h&review_state=open&include_attention=true
+GET /api/v1/system-health/recent-errors?since=24h&review_state=stale_resolved_reappeared&include_attention=true
+GET /api/v1/system-health/recent-errors?since=24h&exclude_review_state=resolved_duplicate&include_attention=true
+```
+
 ## Promote Review-Worthy Errors
 
 Promote only findings that deserve durable review:
@@ -57,7 +69,8 @@ POST /api/v1/system-health/recent-errors/promote
 Use `dedupe_keys` when only a subset should enter Attention. Promotion reuses
 existing open or acknowledged items with the same dedupe key. By default, it
 skips findings already reviewed as `resolved_duplicate`; pass that exact
-`dedupe_key` only when you intentionally want to re-open or re-promote it.
+`dedupe_key` or `include_resolved=true` only when you intentionally want to
+re-open or re-promote it.
 
 ## Classify Each Promoted Finding
 

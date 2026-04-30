@@ -1,0 +1,88 @@
+content_type: application/vnd.spindrel.components+json
+display: inline
+display_label: "{{probe_id | default: Machine probe}}"
+default_config:
+  probe_id: network_basics
+  host: ""
+  port: 80
+  url: ""
+  container: ""
+  tail: 80
+config_schema:
+  type: object
+  properties:
+    probe_id:
+      type: string
+      title: Probe
+    host:
+      type: string
+      title: Host
+    port:
+      type: integer
+      title: Port
+      minimum: 1
+      maximum: 65535
+    url:
+      type: string
+      title: URL
+    container:
+      type: string
+      title: Container
+    tail:
+      type: integer
+      title: Log lines
+      minimum: 1
+      maximum: 500
+state_poll:
+  tool: machine_run_probe
+  args:
+    probe_id: "{{widget_config.probe_id}}"
+    host: "{{widget_config.host}}"
+    port: "{{widget_config.port}}"
+    url: "{{widget_config.url}}"
+    container: "{{widget_config.container}}"
+    tail: "{{widget_config.tail}}"
+  refresh_interval_seconds: 60
+sample_payload:
+  probe_id: tcp_port
+  status: ok
+  status_color: success
+  target: "10.10.20.181:445"
+  evidence:
+    - "stdout: tcp_connect ok host=10.10.20.181 port=445 elapsed_ms=8"
+  blocked_reason: null
+  next_probe_ids: [dns_lookup, http_probe]
+  confidence: high
+template:
+  v: 1
+  components:
+    - type: heading
+      text: "{{probe_id | default: Machine probe}}"
+      level: 3
+    - type: status
+      text: "{{status}} · {{confidence | default: unknown}} confidence"
+      color: "{{status_color | default: muted}}"
+    - type: text
+      when: "{{blocked_reason | not_empty}}"
+      content: "{{blocked_reason}}"
+      style: muted
+    - type: properties
+      layout: inline
+      items:
+        - label: Target
+          value: "{{target | default: —}}"
+        - label: Next
+          value: "{{next_probe_ids | join: · }}"
+          when: "{{next_probe_ids | not_empty}}"
+    - type: section
+      label: Evidence
+      collapsible: true
+      defaultOpen: true
+      when: "{{evidence | not_empty}}"
+      children:
+        - type: table
+          columns: ["Line"]
+          rows:
+            each: "{{evidence}}"
+            template: ["{{_}}"]
+          compact: true

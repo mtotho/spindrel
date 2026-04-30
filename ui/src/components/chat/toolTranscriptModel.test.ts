@@ -220,6 +220,70 @@ test("structured Codex shell args render cwd and display command", () => {
   assert.equal(entries[0]?.isRunning, true);
 });
 
+test("Codex native subagent, web, and image summaries render as transcript rows", () => {
+  const items = buildAssistantTurnBodyItems({
+    renderMode: "terminal",
+    assistantTurnBody: {
+      version: 1,
+      items: [
+        { id: "tool-agent", kind: "tool_call", toolCallId: "agent-1" },
+        { id: "tool-web", kind: "tool_call", toolCallId: "web-1" },
+        { id: "tool-image", kind: "tool_call", toolCallId: "image-1" },
+      ],
+    },
+    toolCalls: [
+      {
+        id: "agent-1",
+        name: "Codex subagent",
+        arguments: "{}",
+        surface: "transcript",
+        summary: {
+          kind: "action",
+          subject_type: "session",
+          label: "Codex subagent spawn agent",
+          target_id: "thread-child",
+          target_label: "spawn_agent",
+          preview_text: "Inspect the renderer.",
+        },
+      },
+      {
+        id: "web-1",
+        name: "Web search",
+        arguments: "{}",
+        surface: "transcript",
+        summary: {
+          kind: "lookup",
+          subject_type: "generic",
+          label: "Web search",
+          preview_text: "Codex app-server",
+        },
+      },
+      {
+        id: "image-1",
+        name: "View image",
+        arguments: "{}",
+        surface: "transcript",
+        summary: {
+          kind: "read",
+          subject_type: "file",
+          label: "Viewed image",
+          path: "docs/screen.png",
+        },
+      },
+    ],
+  });
+
+  const entries = items.flatMap((item) => item.kind === "transcript" ? item.entries : []);
+  assert.deepEqual(
+    entries.map((entry) => [entry.label, entry.metaLabel, entry.previewText, entry.target]),
+    [
+      ["Codex subagent spawn agent", "(spawn_agent)", "Inspect the renderer.", null],
+      ["Web search", null, "Codex app-server", null],
+      ["Viewed image", null, null, "docs/screen.png"],
+    ],
+  );
+});
+
 test("live transcript entries use tool call ids as stable unique row ids", () => {
   const entries = buildLiveToolEntries([
     {

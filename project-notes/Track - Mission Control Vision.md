@@ -638,6 +638,11 @@ the system can already inspect" is a shared capability manifest:
   Attention item through `duplicate_of`. Promotion skips resolved duplicates by
   default, but raw log findings remain visible unless callers explicitly filter
   them.
+- Added `review_state=` and `exclude_review_state=` query filters so agent and
+  UI callers can ask for current open/reappeared work without treating raw log
+  suppression as durable state. Repo-dev health triage now stops before
+  mutation if the live endpoint lacks `review_state`, which indicates a
+  pre-overlay deploy.
 
 ## Key Invariants
 

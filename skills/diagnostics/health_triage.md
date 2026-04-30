@@ -46,6 +46,10 @@ Before resolving, re-check the finding through:
 GET /api/v1/system-health/recent-errors?since=2h&limit=20&include_attention=true
 ```
 
+Use `review_state=open`, `review_state=stale_resolved_reappeared`, or
+`exclude_review_state=resolved_duplicate` when you need a smaller working set
+without hiding raw log history globally.
+
 Resolve an Attention item only when the classification is clear:
 
 ```

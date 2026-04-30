@@ -6,10 +6,13 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.db.models import Channel, ExecutionReceipt, Project, ProjectRunReceipt, Task
+from app.db.models import Channel, ExecutionReceipt, Project, ProjectRunReceipt, Task, TaskMachineGrant
 from app.services.project_coding_runs import (
+    ProjectCodingRunCreate,
     ProjectCodingRunReviewFinalize,
+    ProjectMachineTargetGrant,
     _review_summary,
+    create_project_coding_run,
     expand_project_review_prompt_template,
     finalize_project_coding_run_review,
     get_project_coding_run_review_context,
@@ -65,6 +68,72 @@ def test_project_coding_run_defaults_fall_back_when_no_repo_snapshot():
     assert defaults["branch"] == "spindrel/project-abcdef12-loose-project"
     assert defaults["base_branch"] is None
     assert defaults["repo"] == {"name": None, "path": None, "url": None}
+
+
+@pytest.mark.asyncio
+async def test_create_project_coding_run_attaches_task_scoped_machine_grant(db_session, monkeypatch):
+    async def validate_target(provider_id: str, target_id: str):
+        assert provider_id == "ssh"
+        assert target_id == "e2e-8000"
+        return {"label": "E2E 8000"}, ["inspect", "exec"]
+
+    monkeypatch.setattr("app.services.machine_task_grants._validate_task_machine_target", validate_target)
+    workspace_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    channel_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        workspace_id=workspace_id,
+        name="Spindrel",
+        slug="spindrel",
+        root_path="common/projects/spindrel",
+        metadata_={"blueprint_snapshot": {"repos": [{"path": "spindrel", "branch": "development"}]}},
+    )
+    channel = Channel(
+        id=channel_id,
+        name="Project Agent",
+        bot_id="agent",
+        client_id=f"client-{uuid.uuid4().hex[:8]}",
+        project_id=project_id,
+        workspace_id=workspace_id,
+    )
+    db_session.add_all([project, channel])
+    await db_session.commit()
+
+    task = await create_project_coding_run(
+        db_session,
+        project,
+        ProjectCodingRunCreate(
+            channel_id=channel_id,
+            request="Run the e2e screenshot loop.",
+            machine_target_grant=ProjectMachineTargetGrant(
+                provider_id="ssh",
+                target_id="e2e-8000",
+                capabilities=["inspect", "exec"],
+                allow_agent_tools=True,
+            ),
+            granted_by_user_id=user_id,
+        ),
+    )
+
+    grant = (await db_session.execute(
+        select(TaskMachineGrant).where(TaskMachineGrant.task_id == task.id)
+    )).scalar_one()
+    run_cfg = task.execution_config["project_coding_run"]
+    assert grant.provider_id == "ssh"
+    assert grant.target_id == "e2e-8000"
+    assert grant.capabilities == ["inspect", "exec"]
+    assert grant.granted_by_user_id == user_id
+    assert run_cfg["machine_target_grant"] == {
+        "provider_id": "ssh",
+        "target_id": "e2e-8000",
+        "capabilities": ["inspect", "exec"],
+        "allow_agent_tools": True,
+        "expires_at": None,
+    }
+    assert "Task-scoped grant: ssh/e2e-8000" in task.prompt
+    assert "machine_status, machine_inspect_command, and machine_exec_command" in task.prompt
 
 
 def test_project_coding_run_review_summary_uses_receipt_and_handoff_activity():

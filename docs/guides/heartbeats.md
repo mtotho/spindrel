@@ -218,7 +218,10 @@ external, stale, or recovered findings can be resolved through
 and optional `duplicate_of`; likely code bugs should stay open for repo work.
 Resolved duplicate findings still appear in recent-errors when the raw log line
 is inside the requested window, but `review_state=resolved_duplicate` marks
-them as already-triaged rather than fresh work.
+them as already-triaged rather than fresh work. Use
+`exclude_review_state=resolved_duplicate` for a current work queue and
+`review_state=stale_resolved_reappeared` to find resolutions that may have
+regressed.
 
 If an Attention Item is assigned with `mode="next_heartbeat"`, the heartbeat
 preamble also receives an `attention assignments` block for that bot and

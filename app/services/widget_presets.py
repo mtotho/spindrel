@@ -22,6 +22,117 @@ class WidgetPresetValidationError(ValueError):
     """Raised when an integration declares an invalid widget preset contract."""
 
 
+CORE_WIDGET_PRESETS: dict[str, dict[str, Any]] = {
+    "machine-probe-tcp-port": {
+        "name": "TCP Port Check",
+        "description": "Check TCP reachability from the leased machine target to a host and port.",
+        "icon": "Cable",
+        "tool_name": "machine_run_probe",
+        "layout_hints": {"preferred_zone": "grid", "min_cells": {"w": 4, "h": 3}},
+        "binding_schema": {
+            "type": "object",
+            "required": ["host", "port"],
+            "properties": {
+                "host": {"type": "string", "title": "Host"},
+                "port": {"type": "integer", "title": "Port", "minimum": 1, "maximum": 65535, "default": 80},
+            },
+        },
+        "binding_sources": {},
+        "default_config": {"probe_id": "tcp_port", "host": "", "port": 80},
+        "runtime": {
+            "tool_args": {
+                "probe_id": "tcp_port",
+                "host": "{{binding.host}}",
+                "port": "{{binding.port}}",
+            },
+        },
+    },
+    "machine-probe-dns-lookup": {
+        "name": "DNS Lookup",
+        "description": "Resolve a hostname from the leased machine target.",
+        "icon": "Search",
+        "tool_name": "machine_run_probe",
+        "layout_hints": {"preferred_zone": "grid", "min_cells": {"w": 4, "h": 3}},
+        "binding_schema": {
+            "type": "object",
+            "required": ["host"],
+            "properties": {
+                "host": {"type": "string", "title": "Hostname"},
+            },
+        },
+        "binding_sources": {},
+        "default_config": {"probe_id": "dns_lookup", "host": ""},
+        "runtime": {
+            "tool_args": {
+                "probe_id": "dns_lookup",
+                "host": "{{binding.host}}",
+            },
+        },
+    },
+    "machine-probe-http": {
+        "name": "HTTP Reachability",
+        "description": "Check HTTP or HTTPS reachability from the leased machine target.",
+        "icon": "Globe",
+        "tool_name": "machine_run_probe",
+        "layout_hints": {"preferred_zone": "grid", "min_cells": {"w": 4, "h": 3}},
+        "binding_schema": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "title": "URL", "default": "http://"},
+            },
+        },
+        "binding_sources": {},
+        "default_config": {"probe_id": "http_probe", "url": "http://"},
+        "runtime": {
+            "tool_args": {
+                "probe_id": "http_probe",
+                "url": "{{binding.url}}",
+            },
+        },
+    },
+    "machine-probe-docker-summary": {
+        "name": "Docker Summary",
+        "description": "Show Docker containers, published ports, networks, and Compose projects on the leased machine target.",
+        "icon": "Container",
+        "tool_name": "machine_run_probe",
+        "layout_hints": {"preferred_zone": "grid", "min_cells": {"w": 5, "h": 4}},
+        "binding_schema": {"type": "object", "properties": {}},
+        "binding_sources": {},
+        "default_config": {"probe_id": "docker_summary"},
+        "runtime": {
+            "tool_args": {
+                "probe_id": "docker_summary",
+            },
+        },
+    },
+    "machine-probe-docker-logs": {
+        "name": "Docker Logs Tail",
+        "description": "Show a bounded log tail for one Docker container on the leased machine target.",
+        "icon": "Logs",
+        "tool_name": "machine_run_probe",
+        "layout_hints": {"preferred_zone": "grid", "min_cells": {"w": 5, "h": 4}},
+        "binding_schema": {
+            "type": "object",
+            "required": ["container"],
+            "properties": {
+                "container": {"type": "string", "title": "Container"},
+                "tail": {"type": "integer", "title": "Lines", "minimum": 1, "maximum": 500, "default": 80},
+            },
+        },
+        "binding_sources": {},
+        "default_config": {"probe_id": "docker_logs_tail", "container": "", "tail": 80},
+        "runtime": {
+            "tool_args": {
+                "probe_id": "docker_logs_tail",
+                "container": "{{binding.container}}",
+                "tail": "{{binding.tail}}",
+            },
+        },
+    },
+}
+
+
 def _tool_dependencies_for_preset(preset: dict[str, Any]) -> set[str]:
     deps: set[str] = set()
     tool_name = preset.get("tool_name")
@@ -112,6 +223,13 @@ def _preset_config_schema(preset: dict[str, Any]) -> dict[str, Any] | None:
 
 def _iter_presets() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    for preset_id, raw in CORE_WIDGET_PRESETS.items():
+        validate_widget_preset_dependency_contract("core", {}, preset_id, raw)
+        out.append({
+            "id": raw.get("id") or preset_id,
+            "integration_id": "core",
+            **raw,
+        })
     for integration_id, manifest in get_all_manifests().items():
         presets = manifest.get("widget_presets")
         if not isinstance(presets, dict):

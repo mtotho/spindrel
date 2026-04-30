@@ -75,8 +75,44 @@ def _manifest() -> dict:
 def test_list_widget_presets_reads_manifest(monkeypatch):
     monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())
     presets = list_widget_presets()
-    assert [preset["id"] for preset in presets] == ["homeassistant-light-card"]
-    assert presets[0]["integration_id"] == "homeassistant"
+    ha = [preset for preset in presets if preset["id"] == "homeassistant-light-card"]
+    assert len(ha) == 1
+    assert ha[0]["integration_id"] == "homeassistant"
+
+
+def test_list_widget_presets_includes_core_machine_probe_presets(monkeypatch):
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: {})
+    presets = list_widget_presets()
+    by_id = {preset["id"]: preset for preset in presets}
+
+    assert by_id["machine-probe-tcp-port"]["integration_id"] == "core"
+    assert by_id["machine-probe-tcp-port"]["tool_name"] == "machine_run_probe"
+    assert by_id["machine-probe-tcp-port"]["runtime"]["tool_args"] == {
+        "probe_id": "tcp_port",
+        "host": "{{binding.host}}",
+        "port": "{{binding.port}}",
+    }
+    assert by_id["machine-probe-docker-summary"]["default_config"] == {
+        "probe_id": "docker_summary",
+    }
+
+
+def test_serialize_core_machine_probe_preset_exposes_tool_widget_contract(monkeypatch):
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: {})
+    from app.services.widget_templates import load_widget_templates_from_manifests
+
+    load_widget_templates_from_manifests()
+
+    preset = serialize_widget_preset(
+        next(p for p in list_widget_presets() if p["id"] == "machine-probe-tcp-port")
+    )
+
+    assert preset["integration_id"] == "core"
+    assert preset["config_schema"]["required"] == ["host", "port"]
+    assert preset["widget_contract"]["definition_kind"] == "tool_widget"
+    assert preset["widget_contract"]["instantiation_kind"] == "preset"
+    assert preset["widget_contract"]["refresh_model"] == "state_poll"
+    assert preset["dependency_contract"]["tools"] == ["machine_run_probe"]
 
 
 def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
@@ -114,7 +150,9 @@ def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
             },
         },
     )
-    preset = serialize_widget_preset(list_widget_presets()[0])
+    preset = serialize_widget_preset(
+        next(p for p in list_widget_presets() if p["id"] == "homeassistant-light-card")
+    )
     assert preset["config_schema"]["properties"]["entity_id"]["type"] == "string"
     assert preset["widget_contract"]["definition_kind"] == "tool_widget"
     assert preset["widget_contract"]["instantiation_kind"] == "preset"
@@ -283,7 +321,7 @@ async def test_list_binding_options_resolves_bare_mcp_tool_names(monkeypatch):
 
 def test_resolve_runtime_args_substitutes_config(monkeypatch):
     monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())
-    preset = list_widget_presets()[0]
+    preset = next(p for p in list_widget_presets() if p["id"] == "homeassistant-light-card")
     args = resolve_runtime_args(
         preset=preset,
         config={"entity_id": "light.office_desk_led_strip"},
@@ -309,7 +347,7 @@ def test_resolve_runtime_args_binding_alias_resolves_against_config(monkeypatch)
         "mode": "{{config.preset_variant}}",
     }
     monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: manifest)
-    preset = list_widget_presets()[0]
+    preset = next(p for p in list_widget_presets() if p["id"] == "homeassistant-light-card")
     args = resolve_runtime_args(
         preset=preset,
         config={

@@ -78,5 +78,9 @@ def test_file_readback_matches_evidence_path() -> None:
     )
 
     assert _tool_call_is_readback(read_tool, evidence=".spindrel-plan-parity/adherence-marker.txt")
+    assert _tool_call_is_readback(
+        read_tool,
+        evidence=".spindrel-plan-parity/adherence-marker.txt contains the exact marker content",
+    )
     assert not _tool_call_is_readback(create_tool, evidence=".spindrel-plan-parity/adherence-marker.txt")
     assert not _tool_call_is_readback(other_read_tool, evidence=".spindrel-plan-parity/adherence-marker.txt")

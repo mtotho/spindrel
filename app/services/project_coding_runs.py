@@ -27,9 +27,20 @@ PROJECT_REVIEW_TEMPLATE_MARKER = "\u001fSPINDREL_REVIEW_CMD_"
 
 
 @dataclass(frozen=True)
+class ProjectMachineTargetGrant:
+    provider_id: str
+    target_id: str
+    capabilities: list[str] | None = None
+    allow_agent_tools: bool = True
+    expires_at: str | datetime | None = None
+
+
+@dataclass(frozen=True)
 class ProjectCodingRunCreate:
     channel_id: uuid.UUID
     request: str = ""
+    machine_target_grant: ProjectMachineTargetGrant | None = None
+    granted_by_user_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,8 @@ class ProjectCodingRunReviewCreate:
     task_ids: list[uuid.UUID]
     prompt: str = ""
     merge_method: str = "squash"
+    machine_target_grant: ProjectMachineTargetGrant | None = None
+    granted_by_user_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +161,40 @@ def _safe_runtime_target(runtime_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _machine_target_grant_summary(grant: ProjectMachineTargetGrant | None) -> dict[str, Any] | None:
+    if grant is None:
+        return None
+    return {
+        "provider_id": grant.provider_id,
+        "target_id": grant.target_id,
+        "capabilities": list(grant.capabilities or []),
+        "allow_agent_tools": bool(grant.allow_agent_tools),
+        "expires_at": grant.expires_at.isoformat() if isinstance(grant.expires_at, datetime) else grant.expires_at,
+    }
+
+
+def _machine_access_prompt_block(grant: ProjectMachineTargetGrant | None) -> str:
+    if grant is None:
+        return (
+            "Machine/e2e access:\n"
+            "- No task-scoped machine target grant was attached to this run.\n"
+            "- Use the Project workspace, runtime env, and normal tools only; do not assume host, SSH, browser-live, or e2e target access.\n"
+        )
+    capabilities = ", ".join(grant.capabilities or ["provider default"])
+    tool_line = (
+        "machine_status, machine_inspect_command, and machine_exec_command may be used within this task grant."
+        if grant.allow_agent_tools
+        else "LLM machine tools are disabled; only deterministic machine pipeline steps may consume this grant."
+    )
+    return (
+        "Machine/e2e access:\n"
+        f"- Task-scoped grant: {grant.provider_id}/{grant.target_id}\n"
+        f"- Capabilities: {capabilities}\n"
+        f"- Agent tools: {tool_line}\n"
+        "- Use this target for e2e/browser/server checks when the task requires external execution access, and report any target-readiness blocker in the run receipt.\n"
+    )
+
+
 def _project_coding_run_prompt(
     *,
     base_prompt: str,
@@ -155,6 +202,7 @@ def _project_coding_run_prompt(
     request: str,
     defaults: dict[str, Any],
     runtime_target: dict[str, Any],
+    machine_target_grant: ProjectMachineTargetGrant | None = None,
     continuation: dict[str, Any] | None = None,
 ) -> str:
     base_branch = defaults.get("base_branch") or "the repository default branch"
@@ -196,6 +244,7 @@ def _project_coding_run_prompt(
         f"- Work branch: {branch}\n"
         f"- E2E/runtime configured keys: {configured_keys}\n"
         f"- Missing runtime secret bindings: {missing_secrets}\n\n"
+        f"{_machine_access_prompt_block(machine_target_grant)}\n"
         "Guided handoff requirements:\n"
         "1. Before editing, inspect git status and update from the base branch when safe.\n"
         f"2. Create or switch to the work branch `{branch}` before making changes.\n"
@@ -269,7 +318,15 @@ def _normal_review_outcome(value: str | None) -> str:
     return outcome
 
 
-def _execution_config_from_preset(defaults: Any, *, project_id: uuid.UUID, run_defaults: dict[str, Any], runtime_target: dict[str, Any], request: str) -> dict[str, Any]:
+def _execution_config_from_preset(
+    defaults: Any,
+    *,
+    project_id: uuid.UUID,
+    run_defaults: dict[str, Any],
+    runtime_target: dict[str, Any],
+    request: str,
+    machine_target_grant: ProjectMachineTargetGrant | None = None,
+) -> dict[str, Any]:
     return {
         "run_preset_id": PROJECT_CODING_RUN_PRESET_ID,
         "skills": list(defaults.skills),
@@ -289,9 +346,33 @@ def _execution_config_from_preset(defaults: Any, *, project_id: uuid.UUID, run_d
             "base_branch": run_defaults.get("base_branch"),
             "repo": run_defaults.get("repo") or {},
             "runtime_target": runtime_target,
+            "machine_target_grant": _machine_target_grant_summary(machine_target_grant),
             "continuation_index": 0,
         },
     }
+
+
+async def _attach_task_machine_grant(
+    db: AsyncSession,
+    *,
+    task: Task,
+    grant: ProjectMachineTargetGrant | None,
+    granted_by_user_id: uuid.UUID | None,
+) -> None:
+    if grant is None:
+        return
+    from app.services.machine_task_grants import upsert_task_machine_grant
+
+    await upsert_task_machine_grant(
+        db,
+        task=task,
+        provider_id=grant.provider_id,
+        target_id=grant.target_id,
+        granted_by_user_id=granted_by_user_id,
+        capabilities=grant.capabilities,
+        allow_agent_tools=grant.allow_agent_tools,
+        expires_at=grant.expires_at,
+    )
 
 
 async def create_project_coding_run(
@@ -318,6 +399,7 @@ async def create_project_coding_run(
         request=body.request,
         defaults=run_defaults,
         runtime_target=runtime_target,
+        machine_target_grant=body.machine_target_grant,
     )
     ecfg = _execution_config_from_preset(
         preset.task_defaults,
@@ -325,6 +407,7 @@ async def create_project_coding_run(
         run_defaults=run_defaults,
         runtime_target=runtime_target,
         request=body.request,
+        machine_target_grant=body.machine_target_grant,
     )
     ecfg["project_coding_run"]["root_task_id"] = str(task_id)
     task = Task(
@@ -347,6 +430,13 @@ async def create_project_coding_run(
         created_at=_utcnow(),
     )
     db.add(task)
+    await db.flush()
+    await _attach_task_machine_grant(
+        db,
+        task=task,
+        grant=body.machine_target_grant,
+        granted_by_user_id=body.granted_by_user_id,
+    )
     await db.commit()
     await db.refresh(task)
     return task
@@ -462,6 +552,7 @@ async def continue_project_coding_run(
         request=str(parent_cfg.get("request") or ""),
         defaults=run_defaults,
         runtime_target=runtime_target,
+        machine_target_grant=None,
         continuation=continuation_context,
     )
     ecfg = _execution_config_from_preset(
@@ -470,6 +561,7 @@ async def continue_project_coding_run(
         run_defaults=run_defaults,
         runtime_target=runtime_target,
         request=str(parent_cfg.get("request") or ""),
+        machine_target_grant=None,
     )
     parent_ecfg = parent.execution_config if isinstance(parent.execution_config, dict) else {}
     ecfg["session_target"] = dict(parent_ecfg.get("session_target") or ecfg["session_target"])
@@ -513,8 +605,8 @@ def _task_run_config(task: Task) -> dict[str, Any]:
     return dict(run) if isinstance(run, dict) else {}
 
 
-def _task_summary(task: Task) -> dict[str, Any]:
-    return {
+def _task_summary(task: Task, *, machine_target_grant: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = {
         "id": str(task.id),
         "status": task.status,
         "title": task.title,
@@ -529,6 +621,9 @@ def _task_summary(task: Task) -> dict[str, Any]:
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
         "error": task.error,
     }
+    if machine_target_grant is not None:
+        payload["machine_target_grant"] = machine_target_grant
+    return payload
 
 
 def _receipt_summary(receipt: ProjectRunReceipt | None) -> dict[str, Any] | None:
@@ -763,6 +858,9 @@ async def _coding_run_row(
         limit=20,
     )
     instance = await db.get(ProjectInstance, task.project_instance_id) if task.project_instance_id else None
+    from app.services.machine_task_grants import task_machine_grant_payload
+
+    machine_target_grant = await task_machine_grant_payload(db, task)
     cfg = _task_run_config(task)
     lineage = _lineage_config(task, cfg)
     updated_at = (
@@ -787,7 +885,7 @@ async def _coding_run_row(
         "continuation_index": lineage["continuation_index"],
         "continuation_feedback": lineage["continuation_feedback"],
         "continuations": [],
-        "task": _task_summary(task),
+        "task": _task_summary(task, machine_target_grant=machine_target_grant),
         "receipt": _receipt_summary(receipt),
         "activity": activity,
         "review": _review_summary(task=task, receipt=receipt, activity=activity, instance=instance),
@@ -905,6 +1003,7 @@ def _review_context_readiness(
     rows: list[dict[str, Any]],
     runtime_payload: dict[str, Any],
     review_cfg: dict[str, Any],
+    machine_target_grant: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runtime_target = _safe_runtime_target(runtime_payload)
     keys = set(runtime_target.get("configured_keys") or [])
@@ -934,6 +1033,13 @@ def _review_context_readiness(
             "token_configured": "GITHUB_TOKEN" in keys,
             "configured_keys": [key for key in runtime_target.get("configured_keys") or [] if key == "GITHUB_TOKEN"],
         },
+        "machine_target": {
+            "granted": machine_target_grant is not None,
+            "provider_id": machine_target_grant.get("provider_id") if machine_target_grant else None,
+            "target_id": machine_target_grant.get("target_id") if machine_target_grant else None,
+            "capabilities": list(machine_target_grant.get("capabilities") or []) if machine_target_grant else [],
+            "allow_agent_tools": bool(machine_target_grant.get("allow_agent_tools")) if machine_target_grant else False,
+        },
     }
 
 
@@ -961,6 +1067,9 @@ async def get_project_coding_run_review_context(
     runtime = await load_project_runtime_environment(db, project)
     runtime_payload = runtime.safe_payload()
     repo_path = str(review_cfg.get("repo_path") or "").strip() or None
+    from app.services.machine_task_grants import task_machine_grant_payload
+
+    machine_target_grant = await task_machine_grant_payload(db, review_task)
     return {
         "ok": True,
         "project": {
@@ -980,7 +1089,12 @@ async def get_project_coding_run_review_context(
         "operator_prompt": review_cfg.get("operator_prompt") or "",
         "selected_task_ids": [str(task_id) for task_id in selected_ids],
         "selected_runs": [_review_context_row(row) for row in rows],
-        "readiness": _review_context_readiness(rows=rows, runtime_payload=runtime_payload, review_cfg=review_cfg),
+        "readiness": _review_context_readiness(
+            rows=rows,
+            runtime_payload=runtime_payload,
+            review_cfg=review_cfg,
+            machine_target_grant=machine_target_grant,
+        ),
         "finalization": {
             "tool": "finalize_project_coding_run_review",
             "required_per_run": True,
@@ -1040,6 +1154,7 @@ async def create_project_coding_run_review_session(
         f"- Root: /{project.root_path}\n"
         f"- Repository path: {repo_path or 'Project root'}\n"
         f"- Merge method default: {_normal_merge_method(body.merge_method)}\n\n"
+        f"{_machine_access_prompt_block(body.machine_target_grant)}\n"
         "Selected coding runs:\n{{selected_runs}}\n\n"
         "Project workspace snapshot:\n"
         "! `git status --short || true`\n"
@@ -1087,6 +1202,7 @@ async def create_project_coding_run_review_session(
                 "operator_prompt": operator_prompt,
                 "merge_method": _normal_merge_method(body.merge_method),
                 "repo_path": repo_path,
+                "machine_target_grant": _machine_target_grant_summary(body.machine_target_grant),
             },
         },
         recurrence=None,
@@ -1095,6 +1211,13 @@ async def create_project_coding_run_review_session(
         created_at=_utcnow(),
     )
     db.add(task)
+    await db.flush()
+    await _attach_task_machine_grant(
+        db,
+        task=task,
+        grant=body.machine_target_grant,
+        granted_by_user_id=body.granted_by_user_id,
+    )
     await db.commit()
     await db.refresh(task)
     return task

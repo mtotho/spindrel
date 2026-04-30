@@ -2832,6 +2832,44 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
     }
     if (raw && method === "GET") {
       const url = new URL(raw, window.location.origin);
+      if (url.pathname === "/api/v1/admin/tasks/machine-automation-options") {
+        return new Response(JSON.stringify({
+          providers: [{
+            provider_id: "ssh",
+            provider_label: "E2E Codex Target",
+            driver: "ssh",
+            label: "E2E Codex Target",
+            target_label: "SSH target",
+            description: "Task-scoped access to the deployed e2e and main-server test surfaces.",
+            capabilities: ["inspect", "exec"],
+            target_count: 1,
+            ready_target_count: 1,
+            targets: [{
+              provider_id: "ssh",
+              provider_label: "E2E Codex Target",
+              target_id: "e2e-8000",
+              driver: "ssh",
+              label: "spindrel-bot :8000 / :18000",
+              hostname: "10.10.30.208",
+              platform: "linux",
+              ready: true,
+              status: "ready",
+              status_label: "Ready",
+              reason: null,
+              checked_at: "2026-04-30T15:28:00Z",
+              handle_id: "screenshot-e2e-8000",
+              capabilities: ["inspect", "exec"]
+            }]
+          }],
+          step_types: [
+            { type: "machine_inspect", label: "Machine inspect", capability: "inspect" },
+            { type: "machine_exec", label: "Machine exec", capability: "exec" }
+          ]
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
       const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
       if (match) {
         const response = await originalFetch(input, init);
@@ -2931,7 +2969,7 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
         if (response.ok) {
           try {
             const rows = await response.clone().json();
-            if (Array.isArray(rows)) {
+            if (Array.isArray(rows) && rows.length > 0) {
               return new Response(JSON.stringify(rows.map((run) => enrichRun(run, match[1]))), {
                 status: response.status,
                 headers: { "Content-Type": "application/json" }
@@ -2985,7 +3023,21 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             scheduled_at: null,
             run_at: null,
             completed_at: new Date().toISOString(),
-            error: null
+            error: null,
+            machine_target_grant: {
+              provider_id: "ssh",
+              target_id: "e2e-8000",
+              grant_id: "screenshot-machine-grant",
+              grant_source_task_id: "screenshot-project-coding-run-task",
+              granted_by_user_id: null,
+              capabilities: ["inspect", "exec"],
+              allow_agent_tools: true,
+              expires_at: null,
+              created_at: "2026-04-30T15:28:00Z",
+              provider_label: "E2E Codex Target",
+              target_label: "spindrel-bot :8000 / :18000",
+              diagnostics: []
+            }
           },
           receipt: {
             id: "screenshot-project-coding-run-receipt",
@@ -3262,8 +3314,9 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         full_page=True,
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
-            "const boxes = [...document.querySelectorAll('[data-testid=\"project-workspace-runs\"] input[type=\"checkbox\"]')];"
-            "if (boxes[1] && !boxes[1].checked) boxes[1].click();"
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const box = [...root.querySelectorAll('input[type=\"checkbox\"]')].find((input) => input.getAttribute('aria-label'));"
+            "if (box && !box.checked) box.click();"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
         assert_js=(
@@ -3290,6 +3343,39 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-execution-access",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-run-execution-access\"]') "
+            "&& document.body.innerText.includes('Task-scoped existing target grant')"
+        ),
+        output="project-workspace-execution-access.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-run-execution-access\"]');"
+            "const trigger = root && root.querySelector('button[aria-haspopup=\"listbox\"]');"
+            "if (trigger) trigger.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /spindrel-bot/.test(item.textContent || ''));"
+            "if (option) option.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 160));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Execution access') "
+            "&& text.includes('spindrel-bot :8000 / :18000') "
+            "&& text.includes('inspect') "
+            "&& text.includes('exec') "
+            "&& text.includes('Agent tools') "
+            "&& text.includes('Grant is attached only to the task being launched.'), "
+            "detail: 'Project coding-run launch did not expose task-scoped e2e machine access' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-review-launched",
         route="/admin/projects/{project_workspace_project}#Runs",
         viewport={"width": 1440, "height": 1000},
@@ -3305,8 +3391,8 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
         pre_capture_js=(
             "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
-            "const boxes = [...root.querySelectorAll('input[type=\"checkbox\"]')];"
-            "if (boxes[1] && !boxes[1].checked) boxes[1].click();"
+            "const box = [...root.querySelectorAll('input[type=\"checkbox\"]')].find((input) => input.getAttribute('aria-label'));"
+            "if (box && !box.checked) box.click();"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
             "const start = [...root.querySelectorAll('button')].find((button) => /Start review/.test(button.textContent || ''));"
             "if (start) start.click();"
@@ -3321,6 +3407,43 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "&& text.includes('Start review') "
             "&& text.includes('Mark reviewed'), "
             "detail: 'Project Runs tab did not show a launched review session after Start review' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-review-execution-access",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-review-execution-access\"]') "
+            "&& document.body.innerText.includes('Review session prompt')"
+        ),
+        output="project-workspace-review-execution-access.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const box = [...root.querySelectorAll('input[type=\"checkbox\"]')].find((input) => input.getAttribute('aria-label'));"
+            "if (box && !box.checked) box.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const access = document.querySelector('[data-testid=\"project-review-execution-access\"]');"
+            "const trigger = access && access.querySelector('button[aria-haspopup=\"listbox\"]');"
+            "if (trigger) trigger.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /spindrel-bot/.test(item.textContent || ''));"
+            "if (option) option.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 160));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('1 selected') "
+            "&& text.includes('Review session prompt') "
+            "&& text.includes('Execution access') "
+            "&& text.includes('spindrel-bot :8000 / :18000') "
+            "&& text.includes('Task-scoped existing target grant') "
+            "&& text.includes('Start review'), "
+            "detail: 'Project review launch did not expose task-scoped e2e machine access' };"
         ),
     ),
     ScreenshotSpec(

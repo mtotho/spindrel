@@ -63,6 +63,7 @@ async def test_machine_run_probe_uses_fixed_provider_exec(monkeypatch) -> None:
     payload = json.loads(await machine_probes.machine_run_probe("tcp_port", host="nas.local", port=445))
 
     assert payload["status"] == "ok"
+    assert payload["status_color"] == "success"
     assert payload["target"] == "nas.local:445"
     assert payload["confidence"] == "high"
     assert payload["next_probe_ids"] == ["dns_lookup", "http_probe"]
@@ -81,5 +82,6 @@ async def test_machine_run_probe_reports_missing_lease(monkeypatch) -> None:
     payload = json.loads(await machine_probes.machine_run_probe("network_basics"))
 
     assert payload["status"] == "blocked"
+    assert payload["status_color"] == "danger"
     assert payload["blocked_reason"] == "grant a machine target"
     assert payload["error"]["code"] == "local_control_required"

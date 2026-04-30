@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ExternalLink, FileText, GitBranch, GitMerge, MessageSquarePlus, Play, RefreshCcw, ServerCog, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -12,6 +12,7 @@ import {
   useProjectCodingRuns,
   useRefreshProjectCodingRun,
 } from "@/src/api/hooks/useProjects";
+import { useTaskMachineAutomationOptions, type MachineTargetGrant } from "@/src/api/hooks/useTasks";
 import { FormRow, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import { ActionButton, EmptyState, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -156,6 +157,151 @@ function lineageLine(run: ProjectCodingRun) {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+function executionAccessLine(grant?: ProjectCodingRun["task"]["machine_target_grant"]) {
+  if (!grant) return null;
+  const target = grant.target_label || grant.target_id;
+  const provider = grant.provider_label || grant.provider_id;
+  const capabilities = grant.capabilities?.length ? grant.capabilities.join(", ") : "target";
+  return `${provider}: ${target} · ${capabilities}${grant.allow_agent_tools === false ? " · tools off" : ""}`;
+}
+
+function ExecutionAccessControl({
+  value,
+  onChange,
+  testId,
+}: {
+  value: MachineTargetGrant | null;
+  onChange: (next: MachineTargetGrant | null) => void;
+  testId: string;
+}) {
+  const { data: machineAutomation } = useTaskMachineAutomationOptions();
+  const providers = machineAutomation?.providers ?? [];
+  const targetOptions = [
+    { label: "No machine target", value: "" },
+    ...providers.flatMap((provider) =>
+      (provider.targets ?? []).map((target) => ({
+        label: `${provider.provider_label || provider.label}: ${target.label || target.target_id}${target.ready ? "" : " (not ready)"}`,
+        value: JSON.stringify([provider.provider_id, target.target_id]),
+      })),
+    ),
+  ];
+  if (
+    value?.target_id
+    && !targetOptions.some((option) => {
+      try {
+        const [providerId, targetId] = JSON.parse(option.value);
+        return providerId === value.provider_id && targetId === value.target_id;
+      } catch {
+        return false;
+      }
+    })
+  ) {
+    targetOptions.push({
+      label: `${value.provider_label || value.provider_id}: ${value.target_label || value.target_id}`,
+      value: JSON.stringify([value.provider_id, value.target_id]),
+    });
+  }
+  const selectedValue = value ? JSON.stringify([value.provider_id, value.target_id]) : "";
+  const selectedProvider = providers.find((provider) => provider.provider_id === value?.provider_id);
+  const selectedTarget = selectedProvider?.targets?.find((target) => target.target_id === value?.target_id);
+  const allowedCapabilities = selectedTarget?.capabilities?.length
+    ? selectedTarget.capabilities
+    : selectedProvider?.capabilities?.length
+      ? selectedProvider.capabilities
+      : value?.capabilities?.length
+        ? value.capabilities
+        : ["inspect"];
+  const selectedCapabilities = new Set(value?.capabilities?.length ? value.capabilities : allowedCapabilities);
+  const showControl = targetOptions.length > 1 || !!value;
+  if (!showControl) return null;
+
+  const updateCapability = (capability: string, checked: boolean) => {
+    if (!value) return;
+    const next = new Set(selectedCapabilities);
+    if (checked) next.add(capability);
+    else next.delete(capability);
+    const capabilities = allowedCapabilities.filter((item) => next.has(item));
+    onChange({
+      ...value,
+      capabilities: capabilities.length > 0 ? capabilities : [allowedCapabilities[0] || "inspect"],
+    });
+  };
+
+  return (
+    <div data-testid={testId} className="rounded-md bg-surface-raised/30 px-3 py-3">
+      <div className="mb-3 flex items-start gap-2">
+        <ServerCog size={14} className="mt-0.5 shrink-0 text-text-dim" />
+        <div className="min-w-0">
+          <div className="text-[12px] font-semibold text-text">Execution access</div>
+          <div className="text-[12px] text-text-muted">Task-scoped existing target grant for e2e, screenshots, and server checks.</div>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.1fr)]">
+        <FormRow label="Target">
+          <SelectInput
+            value={selectedValue}
+            onChange={(encodedTarget) => {
+              if (!encodedTarget) {
+                onChange(null);
+                return;
+              }
+              try {
+                const [providerId, targetId] = JSON.parse(encodedTarget);
+                const provider = providers.find((item) => item.provider_id === providerId);
+                const target = provider?.targets?.find((item) => item.target_id === targetId);
+                const capabilities = target?.capabilities?.length
+                  ? target.capabilities
+                  : provider?.capabilities?.length
+                    ? provider.capabilities
+                    : ["inspect"];
+                onChange({
+                  provider_id: providerId,
+                  target_id: targetId,
+                  capabilities,
+                  allow_agent_tools: value?.allow_agent_tools ?? true,
+                });
+              } catch {
+                onChange(null);
+              }
+            }}
+            options={targetOptions}
+          />
+        </FormRow>
+        <div className="flex flex-col gap-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Capabilities</div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-text-muted">
+            {allowedCapabilities.map((capability) => (
+              <label key={capability} className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input-border bg-input"
+                  checked={selectedCapabilities.has(capability)}
+                  disabled={!value}
+                  onChange={(event) => updateCapability(capability, event.target.checked)}
+                />
+                {capability}
+              </label>
+            ))}
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-input-border bg-input"
+                checked={value?.allow_agent_tools ?? true}
+                disabled={!value}
+                onChange={(event) => value && onChange({ ...value, allow_agent_tools: event.target.checked })}
+              />
+              Agent tools
+            </label>
+          </div>
+          <div className="text-[11px] text-text-dim">
+            {value ? "Grant is attached only to the task being launched." : "No machine access is granted unless a target is selected."}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RunActionLinks({ run }: { run: ProjectCodingRun }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
@@ -240,10 +386,12 @@ export function ProjectRunsSection({
   const [selectedChannelId, setSelectedChannelId] = useState("");
   const [request, setRequest] = useState("");
   const [createdRunId, setCreatedRunId] = useState<string | null>(null);
+  const [runMachineTargetGrant, setRunMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [changeRunId, setChangeRunId] = useState<string | null>(null);
   const [changeFeedback, setChangeFeedback] = useState("");
   const [selectedRunIds, setSelectedRunIds] = useState<string[]>([]);
   const [reviewPrompt, setReviewPrompt] = useState("Review the selected PRs. Merge only accepted work to development, then mark those runs reviewed with links and blockers.");
+  const [reviewMachineTargetGrant, setReviewMachineTargetGrant] = useState<MachineTargetGrant | null>(null);
   const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const visibleReceipts = useMemo(() => collapseProjectRunReceiptsForReview(receipts), [receipts]);
 
@@ -269,7 +417,11 @@ export function ProjectRunsSection({
   const startRun = () => {
     if (!selectedChannel || createRun.isPending) return;
     createRun.mutate(
-      { channel_id: selectedChannel.id, request: request.trim() },
+      {
+        channel_id: selectedChannel.id,
+        request: request.trim(),
+        machine_target_grant: runMachineTargetGrant,
+      },
       {
         onSuccess: (run) => {
           setCreatedRunId(run.id);
@@ -305,6 +457,7 @@ export function ProjectRunsSection({
         task_ids: selectedTaskIds,
         prompt: reviewPrompt.trim(),
         merge_method: "squash",
+        machine_target_grant: reviewMachineTargetGrant,
       },
       {
         onSuccess: (task) => {
@@ -363,6 +516,13 @@ export function ProjectRunsSection({
             />
           </FormRow>
         </div>
+        <div className="mt-3">
+          <ExecutionAccessControl
+            value={runMachineTargetGrant}
+            onChange={setRunMachineTargetGrant}
+            testId="project-run-execution-access"
+          />
+        </div>
         {createdRun && (
           <div className="mt-3">
             <SettingsControlRow
@@ -372,6 +532,9 @@ export function ProjectRunsSection({
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="truncate font-mono text-[11px] text-text-dim">{createdRun.branch}</span>
                   <span>{createdRun.base_branch ? `Base ${createdRun.base_branch}` : "Base repository default"}</span>
+                  {executionAccessLine(createdRun.task.machine_target_grant) && (
+                    <span>{executionAccessLine(createdRun.task.machine_target_grant)}</span>
+                  )}
                 </span>
               }
               meta={<StatusBadge label={createdRun.status} variant={statusTone(createdRun.status)} />}
@@ -414,6 +577,11 @@ export function ProjectRunsSection({
                 rows={3}
                 fieldType="task_prompt"
                 generateContext={`Project: ${project.name}. Selected runs: ${selectedRunIds.length}`}
+              />
+              <ExecutionAccessControl
+                value={reviewMachineTargetGrant}
+                onChange={setReviewMachineTargetGrant}
+                testId="project-review-execution-access"
               />
               {reviewTaskId && (
                 <span className="text-[12px] text-text-muted">
@@ -476,6 +644,9 @@ export function ProjectRunsSection({
                       )}
                       {reviewLine(run) && (
                         <span className="truncate text-[11px] text-text-dim">{reviewLine(run)}</span>
+                      )}
+                      {executionAccessLine(run.task.machine_target_grant) && (
+                        <span className="truncate text-[11px] text-text-dim">Execution access: {executionAccessLine(run.task.machine_target_grant)}</span>
                       )}
                       <span className="truncate text-[11px] text-text-dim">
                         {handoffProgressSummary(run) ? `Progress: ${handoffProgressSummary(run)}` : `Activity: ${activitySummary(run)}`}

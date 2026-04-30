@@ -26,6 +26,19 @@ RECENT_ERRORS_SOURCE_ID = "system:recent-server-errors"
 RECENT_ERRORS_TARGET_ID = "server-health"
 SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
 VALID_PROMOTE_SEVERITIES = set(SEVERITY_RANK)
+KNOWN_REVIEW_STATES = {
+    "new",
+    "open",
+    "resolved_benign",
+    "resolved_duplicate",
+    "resolved_external",
+    "resolved_fixed",
+    "resolved_not_reproducible",
+    "resolved_other",
+    "resolved_recovered",
+    "resolved_stale",
+    "stale_resolved_reappeared",
+}
 
 
 class PromoteRecentErrorsRequest(BaseModel):
@@ -69,13 +82,36 @@ def _finding_to_dict(finding: LogFinding) -> dict:
     }
 
 
-def _normalize_services(values: list[str] | None) -> list[str] | None:
-    if not values:
+def _normalize_csv_values(values, *, lower: bool = False) -> list[str] | None:
+    if values is None:
+        return None
+    if isinstance(values, str):
+        raw_values = [values]
+    elif isinstance(values, (list, tuple, set)):
+        raw_values = values
+    else:
         return None
     services: list[str] = []
-    for value in values:
-        services.extend(part.strip() for part in str(value).split(",") if part.strip())
+    for value in raw_values:
+        parts = [part.strip() for part in str(value).split(",") if part.strip()]
+        services.extend(part.lower() if lower else part for part in parts)
     return services or None
+
+
+def _normalize_services(values: list[str] | None) -> list[str] | None:
+    return _normalize_csv_values(values)
+
+
+def _normalize_review_states(values) -> set[str]:
+    states = set(_normalize_csv_values(values, lower=True) or [])
+    unknown = states - KNOWN_REVIEW_STATES
+    if unknown:
+        raise HTTPException(
+            400,
+            f"unknown review_state value(s): {sorted(unknown)}; "
+            f"expected one of {sorted(KNOWN_REVIEW_STATES)}",
+        )
+    return states
 
 
 def _severity_at_least(severity: str | None, minimum: str) -> bool:
@@ -245,6 +281,8 @@ async def get_recent_errors(
     include_attention: bool = True,
     include_resolved: bool = True,
     hide_resolved_duplicates: bool = False,
+    review_state: list[str] | None = Query(default=None),
+    exclude_review_state: list[str] | None = Query(default=None),
     auth=Depends(require_scopes("channels:read")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -257,9 +295,30 @@ async def get_recent_errors(
     findings = findings[:capped]
     attention = await _attention_by_dedupe_key(db, [f.dedupe_key for f in findings])
     if not include_resolved:
-        findings = [f for f in findings if attention.get(f.dedupe_key) is None or attention[f.dedupe_key].status != "resolved"]
+        findings = [
+            f
+            for f in findings
+            if attention.get(f.dedupe_key) is None
+            or attention[f.dedupe_key].status != "resolved"
+        ]
     if hide_resolved_duplicates:
-        findings = [f for f in findings if _review_state(f, attention.get(f.dedupe_key)) != "resolved_duplicate"]
+        findings = [
+            f
+            for f in findings
+            if _review_state(f, attention.get(f.dedupe_key)) != "resolved_duplicate"
+        ]
+    wanted_review_states = _normalize_review_states(review_state)
+    excluded_review_states = _normalize_review_states(exclude_review_state)
+    if wanted_review_states or excluded_review_states:
+        findings = [
+            f
+            for f in findings
+            if (
+                not wanted_review_states
+                or _review_state(f, attention.get(f.dedupe_key)) in wanted_review_states
+            )
+            and _review_state(f, attention.get(f.dedupe_key)) not in excluded_review_states
+        ]
     return {
         "since": since,
         "generated_at": datetime.now(timezone.utc).isoformat(),

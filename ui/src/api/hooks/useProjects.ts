@@ -15,6 +15,7 @@ import type {
   ProjectSetupRun,
   ProjectWrite,
 } from "../../types/api";
+import type { MachineTargetGrant } from "./useTasks";
 
 export function useProjects() {
   return useQuery({
@@ -82,7 +83,7 @@ export function useProjectCodingRuns(projectId: string | undefined) {
 export function useCreateProjectCodingRun(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; request?: string }) =>
+    mutationFn: (data: { channel_id: string; request?: string; machine_target_grant?: MachineTargetGrant | null }) =>
       apiFetch<ProjectCodingRun>(`/api/v1/projects/${projectId}/coding-runs`, {
         method: "POST",
         body: JSON.stringify(data),
@@ -150,7 +151,7 @@ export function useMarkProjectCodingRunsReviewed(projectId: string | undefined) 
 export function useCreateProjectCodingRunReviewSession(projectId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { channel_id: string; task_ids: string[]; prompt?: string; merge_method?: "squash" | "merge" | "rebase" }) =>
+    mutationFn: (data: { channel_id: string; task_ids: string[]; prompt?: string; merge_method?: "squash" | "merge" | "rebase"; machine_target_grant?: MachineTargetGrant | null }) =>
       apiFetch<ProjectCodingRunTask>(`/api/v1/projects/${projectId}/coding-runs/review-sessions`, {
         method: "POST",
         body: JSON.stringify(data),

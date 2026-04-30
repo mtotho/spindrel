@@ -91,9 +91,18 @@ The service validates that the selected channel belongs to the Project, creates
 a normal background task from the `project_coding_run` preset, and records a
 secret-safe handoff config in `execution_config.project_coding_run`: request,
 repo, base branch, generated work branch, runtime target key names, new-session
-policy, and fresh-instance policy. The prompt tells the agent to update from the
-base branch, switch to the generated branch, use Project runtime env, run e2e
-checks when relevant, and publish `publish_project_run_receipt` evidence.
+policy, fresh-instance policy, and any task-scoped machine target grant. The
+prompt tells the agent to update from the base branch, switch to the generated
+branch, use Project runtime env, use the granted e2e/machine target only when
+attached to the task, run e2e checks when relevant, and publish
+`publish_project_run_receipt` evidence.
+
+![Project coding run execution access](../images/project-workspace-execution-access.png)
+
+Execution access deliberately uses the same task machine-grant primitive as
+normal scheduled tasks. The Project does not gain ambient machine power; the
+operator grants one existing target to the run being launched, with explicit
+inspect/exec capabilities and an optional LLM-tool toggle.
 
 The Runs tab reads `/api/v1/projects/{id}/coding-runs` as the review cockpit. It
 shows the launch form, recent API-launched runs, branch/base/repo state, recent
@@ -126,7 +135,10 @@ selected or a merge/finalization step is blocked.
 Launching a review session creates a normal task from the
 `project_coding_run_review` preset and links it back to the selected runs. The
 review task receives the selected task ids, Project/repo context, review prompt,
-and merge method default in `execution_config.project_coding_run_review`.
+merge method default, and optional task-scoped machine grant in
+`execution_config.project_coding_run_review`.
+
+![Project review execution access](../images/project-workspace-review-execution-access.png)
 
 ![Project coding run after accepted review and merge](../images/project-workspace-review-finalized.png)
 
@@ -150,7 +162,9 @@ artifacts, not ad hoc local captures:
 | Artifact | What it proves |
 |---|---|
 | [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
+| [Coding-run execution access](../images/project-workspace-execution-access.png) | Launching a coding run can grant one existing e2e/machine target with explicit inspect/exec and agent-tool controls. |
 | [Review session launched](../images/project-workspace-review-launched.png) | Clicking Start review on a selected run returns a review task and surfaces the task link in the cockpit. |
+| [Review execution access](../images/project-workspace-review-execution-access.png) | Launching a review session can carry the same task-scoped e2e/machine grant for tests, screenshots, and merge verification. |
 | [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
 | [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
 | [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |

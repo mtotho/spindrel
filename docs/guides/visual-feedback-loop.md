@@ -112,7 +112,9 @@ project-workspace-setup-ready.png
 project-workspace-setup-run-history.png
 project-workspace-instances.png
 project-workspace-runs.png
+project-workspace-execution-access.png
 project-workspace-review-launched.png
+project-workspace-review-execution-access.png
 project-workspace-review-finalized.png
 project-workspace-terminal.png
 project-workspace-channels.png
@@ -126,11 +128,12 @@ API, seeds a Blueprint-created Project with secret bindings, runs repo plus
 setup-command preparation for `https://github.com/mtotho/spindrel.git`, seeds
 a fresh Project instance, starts or shims one Project coding run with linked
 branch/PR progress receipts, review receipt, selected-run review controls, and
-a memory-tool turn. Inspect all thirteen images before closing out: the
+a memory-tool turn. Inspect all seventeen images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project Basics readiness,
 Project runtime-env readiness, fresh
-Project instances, Project coding-run cockpit/receipts/review launcher, launched
+Project instances, Project coding-run cockpit/receipts/review launcher,
+task-scoped execution access for coding and review launches, launched
 review-session confirmation, finalized review/merge provenance, Project
 settings, and the channel transcript.
 

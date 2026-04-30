@@ -384,8 +384,11 @@ SSH is the best fit for headless machines, LAN boxes, and hosts that already hav
 6. Use `machine_probe_catalog` and `machine_run_probe` for bounded
    progressive discovery when the symptom is network, DNS, port, Docker,
    Compose, or service reachability related.
-7. Use `machine_exec_command` when you really need execution on that machine.
-8. Revoke the lease or let it expire.
+7. Pin a Machine Probe preset when you want the same check to refresh on a
+   dashboard. Current presets cover TCP port checks, DNS lookup, HTTP
+   reachability, Docker summary, and Docker log tail.
+8. Use `machine_exec_command` when you really need execution on that machine.
+9. Revoke the lease or let it expire.
 
 The UI now offers copyable starter prompts on machine status/access cards and in the machine center. Those prompts are only guidance for the bot. They do not grant access. The actual gates remain:
 

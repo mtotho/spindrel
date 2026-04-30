@@ -103,6 +103,7 @@ def _failure(
     return {
         "probe_id": probe_id,
         "status": status,
+        "status_color": _status_color(status),
         "target": "",
         "evidence": [message],
         "blocked_reason": message if status == "blocked" else None,
@@ -287,6 +288,16 @@ def _confidence_for(status: str, result: dict[str, Any]) -> str:
     return "low"
 
 
+def _status_color(status: str) -> str:
+    if status == "ok":
+        return "success"
+    if status == "warning":
+        return "warning"
+    if status in {"failed", "blocked"}:
+        return "danger"
+    return "muted"
+
+
 _CATALOG_RETURNS = {
     "type": "object",
     "properties": {
@@ -302,6 +313,7 @@ _RUN_RETURNS = {
     "properties": {
         "probe_id": {"type": ["string", "null"]},
         "status": {"type": "string", "enum": list(_STATUS_VALUES)},
+        "status_color": {"type": "string"},
         "target": {"type": "string"},
         "evidence": {"type": "array", "items": {"type": "string"}},
         "blocked_reason": {"type": ["string", "null"]},
@@ -439,6 +451,7 @@ async def machine_run_probe(
     payload = {
         "probe_id": probe["probe_id"],
         "status": status,
+        "status_color": _status_color(status),
         "target": target,
         "evidence": _evidence_from_result(result),
         "blocked_reason": None,

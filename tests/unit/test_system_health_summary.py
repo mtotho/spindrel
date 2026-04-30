@@ -308,6 +308,40 @@ async def test_recent_errors_marks_resolved_duplicates_and_promote_skips_by_defa
         "app.routers.api_v1_system_health.collect_findings",
         new=AsyncMock(return_value=[root, duplicate]),
     ):
+        duplicate_only = await get_recent_errors(
+            since="30m",
+            services=None,
+            limit=10,
+            include_attention=True,
+            review_state=["resolved_duplicate"],
+            auth=None,
+            db=db_session,
+        )
+    assert [finding["dedupe_key"] for finding in duplicate_only["findings"]] == [
+        duplicate.dedupe_key
+    ]
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[root, duplicate]),
+    ):
+        without_duplicates = await get_recent_errors(
+            since="30m",
+            services=None,
+            limit=10,
+            include_attention=True,
+            exclude_review_state=["resolved_duplicate"],
+            auth=None,
+            db=db_session,
+        )
+    assert [finding["dedupe_key"] for finding in without_duplicates["findings"]] == [
+        root.dedupe_key
+    ]
+
+    with patch(
+        "app.routers.api_v1_system_health.collect_findings",
+        new=AsyncMock(return_value=[root, duplicate]),
+    ):
         promoted = await promote_recent_errors(
             PromoteRecentErrorsRequest(since="30m", min_severity="error"),
             auth=None,

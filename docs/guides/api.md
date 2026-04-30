@@ -219,7 +219,9 @@ For on-demand triage, use:
 `get_recent_server_errors` and can annotate each finding with matching
 Attention item id/status, resolution, note, `duplicate_of`, and a computed
 `review_state` such as `open`, `resolved_duplicate`, or
-`stale_resolved_reappeared`. `promote` creates or reuses system-authored
+`stale_resolved_reappeared`. Callers can focus the working set with
+`review_state=open`, `review_state=stale_resolved_reappeared`, or
+`exclude_review_state=resolved_duplicate`. `promote` creates or reuses system-authored
 Attention items for selected findings; by default it promotes `error` and
 `critical` findings while skipping findings already reviewed as
 `resolved_duplicate` unless their `dedupe_key` is explicitly requested.

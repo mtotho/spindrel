@@ -141,8 +141,11 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   surface.
 - Probes are fixed read-only bundles for network basics, DNS lookup, TCP port
   checks, HTTP reachability, Docker summary, Compose summary, and bounded Docker
-  log tails. Results return stable status, evidence, confidence, blocked state,
-  and `next_probe_ids`.
+  log tails. Results return stable status, status color, evidence, confidence,
+  blocked state, and `next_probe_ids`.
+- Added a core `machine_run_probe` component tool-widget template plus built-in
+  widget presets for TCP port checks, DNS lookup, HTTP reachability, Docker
+  summary, and Docker log tails.
 - Added the runtime `automation/machine_probes` skill so agents use cheap
   evidence-first probes before raw shell commands or integration-specific
   advice.
