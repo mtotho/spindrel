@@ -585,6 +585,7 @@ def test_spindrel_plan_live_builds_expected_specs():
         replan_session_id="replan-1",
         pending_session_id="pending-1",
         adherence_negative_session_id="adherence-negative-1",
+        adherence_retry_session_id="adherence-retry-1",
     )
 
     assert [spec.name for spec in specs] == [
@@ -602,6 +603,8 @@ def test_spindrel_plan_live_builds_expected_specs():
         "spindrel-plan-pending-outcome-terminal-dark",
         "spindrel-plan-adherence-unsupported-default-dark",
         "spindrel-plan-adherence-unsupported-terminal-dark",
+        "spindrel-plan-adherence-retry-default-dark",
+        "spindrel-plan-adherence-retry-terminal-dark",
     ]
     assert specs[0].route == "http://ui/channels/channel-1/session/question-1"
     assert specs[1].route == "http://ui/channels/channel-1/session/plan-1"
@@ -619,11 +622,15 @@ def test_spindrel_plan_live_builds_expected_specs():
     assert specs[12].route == "http://ui/channels/channel-1/session/adherence-negative-1"
     assert specs[12].scroll_plan_text == "Unsupported outcome"
     assert specs[13].chat_mode == "terminal"
+    assert specs[14].route == "http://ui/channels/channel-1/session/adherence-retry-1"
+    assert specs[15].chat_mode == "terminal"
     assert specs[1].scroll_text == "Native Spindrel Plan Parity"
     assert all("harness sdk" in spec.not_contains for spec in specs)
     assert [spec.chat_mode for spec in specs] == [
         "default",
         "default",
+        "default",
+        "terminal",
         "default",
         "terminal",
         "default",

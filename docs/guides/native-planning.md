@@ -23,6 +23,11 @@ Use the visual feedback guide for the live screenshot capture workflow:
 6. Request a replan when the accepted revision is stale.
 7. Review adherence so claimed completion is checked against actual turn evidence.
 
+Recovery is part of the contract. An unsupported completion review means the
+latest claim is not trusted; the agent must record corrected progress or repeat
+the step before mutating again. A needs-replan review means the accepted revision
+is stale; mutation stays blocked until a revised plan is published and approved.
+
 The UI should direct attention to the current decision or next action first. Full
 plan detail stays available below the focus area without turning the transcript
 into a wall of text.

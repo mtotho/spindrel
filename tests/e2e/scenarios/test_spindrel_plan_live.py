@@ -1696,3 +1696,318 @@ async def test_live_spindrel_adherence_wrong_step_request_stays_nonmutating(clie
     replan = runtime.get("replan") or {}
     assert latest_outcome.get("outcome") in {"no_progress", "blocked"} or replan.get("reason"), runtime
     _record_session("adherence_wrong_step", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_retry")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex
+    planned_path = f".spindrel-plan-parity/retry-planned-{marker}.txt"
+    wrong_path = f".spindrel-plan-parity/retry-wrong-{marker}.txt"
+    for rel_path in (planned_path, wrong_path):
+        await _delete_native_plan_file(
+            client,
+            channel_id=channel_id,
+            workspace_id=workspace_id,
+            bot_id=bot_id,
+            path=rel_path,
+        )
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": f"Native Spindrel Unsupported Retry {int(time.time())}",
+            "summary": "Verify an unsupported completion can be corrected by retrying the same step.",
+            "scope": f"Live E2E diagnostics only; the accepted step may create only {planned_path!r}.",
+            "key_changes": ["Recover the current step after unsupported execution evidence."],
+            "interfaces": ["No public API changes; plan adherence and workspace artifact state only."],
+            "assumptions_and_defaults": ["Unsupported completion should restart the failed step, not skip forward."],
+            "test_plan": ["Create wrong evidence, review unsupported, record retry progress, then create planned evidence."],
+            "risks": ["The plan may remain advanced to the next step after an unsupported completion claim."],
+            "acceptance_criteria": [f"Retry creates {planned_path} after unsupported review recovery."],
+            "steps": [
+                {"id": "create-marker", "label": "Create the planned retry marker file"},
+                {"id": "verify-marker", "label": "Verify the retry marker file"},
+            ],
+        },
+    )
+    assert created["revision"] == 1
+    await client.approve_session_plan(session_id, revision=1)
+
+    wrong = await client.chat_session_stream(
+        (
+            "Native unsupported retry diagnostic. Intentionally create the wrong evidence first. "
+            f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} with text 'wrong retry artifact'. "
+            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
+            f"summary 'Created wrong retry evidence', and evidence {wrong_path!r}. Do not create the planned file."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(wrong)
+    assert "file" in wrong.tools_used
+    assert "record_plan_progress" in wrong.tools_used
+
+    reviewed = await client.post(f"/sessions/{session_id}/plan/review-adherence", json={})
+    assert reviewed.status_code == 200, reviewed.text
+    review = ((reviewed.json().get("adherence") or {}).get("latest_semantic_review") or {})
+    assert review.get("verdict") == "unsupported", review
+
+    retry = await client.chat_session_stream(
+        (
+            "Native unsupported retry diagnostic. Do not create files yet. "
+            "Use @tool:record_plan_progress with outcome 'progress', step_id 'create-marker', "
+            "summary 'Retrying the unsupported marker step with corrected evidence', "
+            "and evidence 'unsupported review acknowledged; retrying current step'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(retry)
+    assert "record_plan_progress" in retry.tools_used
+
+    plan = await client.get_session_plan(session_id)
+    steps = {step["id"]: step for step in plan.get("steps") or []}
+    assert steps["create-marker"]["status"] == "in_progress"
+    assert steps["verify-marker"]["status"] == "pending"
+
+    corrected = await client.chat_session_stream(
+        (
+            "Native unsupported retry diagnostic. Now retry the current approved step only. "
+            f"Use @tool:file with operation 'create' to write relative file {planned_path!r} with text 'correct retry artifact'. "
+            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
+            f"summary 'Created corrected retry evidence', and evidence {planned_path!r}."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(corrected)
+    assert "file" in corrected.tools_used
+    assert "record_plan_progress" in corrected.tools_used
+    assert await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=planned_path,
+    )
+    _record_session("adherence_retry", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_replan_revision_approval_reenables_mutation(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_replan_recovery")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker = uuid.uuid4().hex
+    stale_path = f".spindrel-plan-parity/replan-stale-{marker}.txt"
+    revised_path = f".spindrel-plan-parity/replan-revised-{marker}.txt"
+    for rel_path in (stale_path, revised_path):
+        await _delete_native_plan_file(
+            client,
+            channel_id=channel_id,
+            workspace_id=workspace_id,
+            bot_id=bot_id,
+            path=rel_path,
+        )
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": f"Native Spindrel Replan Recovery {int(time.time())}",
+            "summary": "Verify replan drafts stay non-mutating until a revised revision is approved.",
+            "scope": f"Live E2E diagnostics only; initial scope allows only {stale_path!r}.",
+            "key_changes": ["Request replan when user scope changes mid-step."],
+            "interfaces": ["No public API changes; plan revision state only."],
+            "assumptions_and_defaults": ["A revised draft must be approved before mutation resumes."],
+            "test_plan": ["Request replan, verify mutation block, revise and approve, then create revised artifact."],
+            "risks": ["Mutation may resume while the revised plan is still a draft."],
+            "acceptance_criteria": [f"Only approved revised execution creates {revised_path}."],
+            "steps": [{"id": "create-marker", "label": "Create the initial scoped marker"}],
+        },
+    )
+    assert created["revision"] == 1
+    await client.approve_session_plan(session_id, revision=1)
+
+    replan = await client.chat_session_stream(
+        (
+            "Native replan recovery diagnostic. The user has changed scope mid-step: "
+            f"the accepted marker path {stale_path!r} is stale and the new path is {revised_path!r}. "
+            "Do not create either file. Use @tool:request_plan_replan with reason "
+            "'Scope changed to the revised marker path', affected_step_ids ['create-marker'], "
+            "and evidence 'user changed marker path mid-step'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(replan)
+    assert "request_plan_replan" in replan.tools_used
+
+    blocked = await client.chat_session_stream(
+        (
+            "Native replan recovery diagnostic. Before any revised plan is approved, try to create "
+            f"{revised_path!r} with text 'must remain blocked before revised approval'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(blocked)
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=revised_path,
+    )
+
+    revised = await client.update_session_plan(
+        session_id,
+        {
+            "revision": 2,
+            "summary": "Execute the revised marker path after mid-step scope change.",
+            "scope": f"Live E2E diagnostics only; create only {revised_path!r}; exclude {stale_path!r}.",
+            "key_changes": [f"Replace stale marker path with {revised_path}."],
+            "interfaces": ["No public API changes; plan revision state only."],
+            "assumptions_and_defaults": ["The revised marker path is the accepted execution target."],
+            "test_plan": ["Create the revised marker and record step completion."],
+            "acceptance_criteria": [f"Workspace contains {revised_path} and not {stale_path}."],
+            "open_questions": [],
+            "steps": [{"id": "create-revised-marker", "label": "Create the revised marker file"}],
+        },
+    )
+    assert revised["revision"] == 3
+    approved = await client.approve_session_plan(session_id, revision=3)
+    assert approved["mode"] == "executing"
+
+    executed = await client.chat_session_stream(
+        (
+            "Native replan recovery diagnostic. Execute the current approved revised step only. "
+            f"Use @tool:file with operation 'create' to write relative file {revised_path!r} with text 'revised marker'. "
+            "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-revised-marker', "
+            f"summary 'Created the revised marker file', and evidence {revised_path!r}."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(executed)
+    assert "file" in executed.tools_used
+    assert "record_plan_progress" in executed.tools_used
+    assert await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=revised_path,
+    )
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=stale_path,
+    )
+    _record_session("adherence_replan_recovery", channel_id=channel_id, session_id=session_id, bot_id=bot_id)
+
+
+@pytest.mark.asyncio
+async def test_live_spindrel_adherence_blocked_outcome_keeps_replan_escape_hatch(client: E2EClient) -> None:
+    _requires_tier("adherence")
+    channel_id, session_id, bot_id = await _fresh_session(client, "adherence_blocked_replan")
+    workspace_id = await _shared_workspace_id_for_bot(client, bot_id)
+    marker_path = f".spindrel-plan-parity/blocked-replan-{uuid.uuid4().hex}.txt"
+    await _delete_native_plan_file(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=marker_path,
+    )
+
+    await client.start_session_plan_mode(session_id)
+    created = await client.create_session_plan(
+        session_id,
+        {
+            "title": f"Native Spindrel Blocked Replan {int(time.time())}",
+            "summary": "Verify blocked plan execution permits replan but blocks mutation.",
+            "scope": f"Live E2E diagnostics only; marker path {marker_path!r} must not be created while blocked.",
+            "key_changes": ["Use blocked outcome as an execution stop signal."],
+            "interfaces": ["No public API changes; plan runtime state only."],
+            "assumptions_and_defaults": ["Blocked execution should keep request_plan_replan available."],
+            "test_plan": ["Record blocked outcome, verify mutation blocked, request replan."],
+            "risks": ["Blocked state may trap the agent without a replan escape hatch."],
+            "acceptance_criteria": ["Blocked execution can return to planning through request_plan_replan."],
+            "steps": [{"id": "blocked-marker", "label": "Attempt the blocked marker step"}],
+        },
+    )
+    assert created["revision"] == 1
+    await client.approve_session_plan(session_id, revision=1)
+
+    blocked_outcome = await client.chat_session_stream(
+        (
+            "Native blocked recovery diagnostic. Do not create files. "
+            "Use @tool:record_plan_progress with outcome 'blocked', step_id 'blocked-marker', "
+            "summary 'External blocker prevents marker creation', evidence 'missing prerequisite', "
+            "and status_note 'Waiting on prerequisite'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(blocked_outcome)
+    assert "record_plan_progress" in blocked_outcome.tools_used
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "blocked"
+
+    mutation = await client.chat_session_stream(
+        (
+            "Native blocked recovery diagnostic. While still blocked, try to create "
+            f"{marker_path!r} with text 'must not write while blocked'."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(mutation)
+    assert not await _native_plan_file_exists(
+        client,
+        channel_id=channel_id,
+        workspace_id=workspace_id,
+        bot_id=bot_id,
+        path=marker_path,
+    )
+
+    replan = await client.chat_session_stream(
+        (
+            "Native blocked recovery diagnostic. Use @tool:request_plan_replan with reason "
+            "'Blocked marker step needs a revised path', affected_step_ids ['blocked-marker'], "
+            "and evidence 'blocked outcome recorded'. Do not create files."
+        ),
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        timeout=_timeout(),
+    )
+    _assert_clean_turn(replan)
+    assert "request_plan_replan" in replan.tools_used
+    state = await client.get_session_plan_state(session_id)
+    assert state["mode"] == "planning"
+    assert _plan_runtime(state).get("replan"), state
+    _record_session("adherence_blocked_replan", channel_id=channel_id, session_id=session_id, bot_id=bot_id)

@@ -746,6 +746,16 @@ Current session router behavior also includes step-level updates and auto-advanc
 
 If the plan is stale, the correct transition is `request_plan_replan(...)`, not manual status hacking or continuing with unstated assumptions.
 
+### Recovery rules
+
+Interruption and recovery are first-class execution paths:
+
+- an `unsupported` semantic review blocks further mutation only while it applies to the latest recorded outcome
+- the agent may use `record_plan_progress` to acknowledge/correct an unsupported outcome; doing so restarts that step as `in_progress` and lets the next turn repeat it
+- a `needs_replan` review is stricter and remains blocking until `request_plan_replan` returns the session to planning
+- after a replan request, the previous accepted revision remains historical context; no mutating execution resumes until the revised draft is approved
+- revised replan drafts may replace the checklist, but approval still rejects blocked/vague/invalid steps
+
 That means the practical v1 system is:
 
 - artifact-backed
@@ -839,6 +849,7 @@ What v1 does well:
 - deterministic approval validation
 - professional-plan quality gates for key changes, interfaces, assumptions/defaults, concrete steps, and test plan
 - explicit replan transition back to planning
+- interruption recovery for unsupported outcomes and replan approval
 - turn-end supervisor for missing execution outcomes
 - explicit progress outcome tool that can clear supervisor warnings and advance steps
 

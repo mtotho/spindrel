@@ -121,6 +121,10 @@ def _resolve_session_ids(args: argparse.Namespace) -> dict[str, str]:
             args.adherence_negative_session_id
             or artifact.get("adherence_negative_session_id", "")
         ),
+        "adherence_retry_session_id": (
+            args.adherence_retry_session_id
+            or artifact.get("adherence_retry_session_id", "")
+        ),
     }
 
 
@@ -139,6 +143,7 @@ def _build_specs(
     adherence_review_session_id: str = "",
     adherence_auto_session_id: str = "",
     adherence_negative_session_id: str = "",
+    adherence_retry_session_id: str = "",
 ) -> list[CaptureSpec]:
     specs: list[CaptureSpec] = []
     if question_session_id:
@@ -437,6 +442,32 @@ def _build_specs(
             channel_id=channel_id,
             chat_mode="terminal",
         ))
+    if adherence_retry_session_id:
+        route = f"{browser_url}/channels/{channel_id}/session/{adherence_retry_session_id}"
+        wait = (
+            "document.querySelector('[data-plan-focus]') !== null "
+            "&& document.body.innerText.toLowerCase().includes('native spindrel unsupported retry') "
+            "&& (document.body.innerText.toLowerCase().includes('supported') "
+            "|| document.body.innerText.toLowerCase().includes('retry'))"
+        )
+        specs.append(CaptureSpec(
+            name="spindrel-plan-adherence-retry-default-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Unsupported Retry",),
+            scroll_plan_text="Native Spindrel Unsupported Retry",
+            channel_id=channel_id,
+            chat_mode="default",
+        ))
+        specs.append(CaptureSpec(
+            name="spindrel-plan-adherence-retry-terminal-dark",
+            route=route,
+            wait_js=wait,
+            contains=("Native Spindrel Unsupported Retry",),
+            scroll_plan_text="Native Spindrel Unsupported Retry",
+            channel_id=channel_id,
+            chat_mode="terminal",
+        ))
     return specs
 
 
@@ -460,6 +491,7 @@ async def _assert_sessions_exist(
     adherence_review_session_id: str,
     adherence_auto_session_id: str,
     adherence_negative_session_id: str,
+    adherence_retry_session_id: str,
 ) -> None:
     for session_id in (
         question_session_id,
@@ -473,6 +505,7 @@ async def _assert_sessions_exist(
         adherence_review_session_id,
         adherence_auto_session_id,
         adherence_negative_session_id,
+        adherence_retry_session_id,
     ):
         if session_id:
             await _api(client, "GET", f"/sessions/{session_id}/plan-state")
@@ -537,6 +570,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
         adherence_review_session_id=resolved["adherence_review_session_id"],
         adherence_auto_session_id=resolved["adherence_auto_session_id"],
         adherence_negative_session_id=resolved["adherence_negative_session_id"],
+        adherence_retry_session_id=resolved["adherence_retry_session_id"],
     )
     if not specs:
         raise SystemExit(
@@ -565,6 +599,7 @@ async def capture(args: argparse.Namespace) -> list[Path]:
             adherence_review_session_id=resolved["adherence_review_session_id"],
             adherence_auto_session_id=resolved["adherence_auto_session_id"],
             adherence_negative_session_id=resolved["adherence_negative_session_id"],
+            adherence_retry_session_id=resolved["adherence_retry_session_id"],
         )
 
         paths: list[Path] = []
@@ -626,6 +661,7 @@ def _parse(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--adherence-review-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_REVIEW_SESSION_ID"))
     parser.add_argument("--adherence-auto-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_AUTO_SESSION_ID"))
     parser.add_argument("--adherence-negative-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_NEGATIVE_SESSION_ID"))
+    parser.add_argument("--adherence-retry-session-id", default=_env("SPINDREL_PLAN_ADHERENCE_RETRY_SESSION_ID"))
     args = parser.parse_args(list(argv) if argv is not None else None)
     if not args.api_key:
         args.api_key = _require_env("SPINDREL_API_KEY")
