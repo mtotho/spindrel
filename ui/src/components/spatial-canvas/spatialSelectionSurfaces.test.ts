@@ -296,6 +296,8 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
   assert.match(channelHeaderSource, /attentionDeckHref\(\{ channelId, mode: "inbox" \}\)/);
   assert.match(deckSource, /Mission Control Review/);
   assert.match(deckSource, /attention-command-deck-what-now/);
+  assert.match(deckSource, /attention-brief-summary/);
+  assert.match(deckSource, /Copy fix prompt/);
   assert.match(deckSource, /Next decision/);
   assert.match(deckSource, /Current finding/);
   assert.doesNotMatch(deckSource, /Reviewing now/);

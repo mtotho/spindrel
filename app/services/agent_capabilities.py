@@ -38,6 +38,7 @@ CORE_AGENT_TOOLS = (
     "get_agent_context_snapshot",
     "get_agent_work_snapshot",
     "get_agent_activity_log",
+    "get_agent_status_snapshot",
     "get_tool_info",
     "get_skill",
     "list_api_endpoints",
@@ -483,6 +484,24 @@ async def activity_log_payload(
     )
 
 
+async def agent_status_payload(
+    db: AsyncSession,
+    *,
+    bot_id: str | None,
+    channel_id: str | uuid.UUID | None = None,
+    session_id: str | uuid.UUID | None = None,
+) -> dict[str, Any]:
+    from app.services.agent_status import build_agent_status_snapshot
+
+    return await build_agent_status_snapshot(
+        db,
+        bot_id=bot_id,
+        channel_id=channel_id,
+        session_id=session_id,
+        limit=10,
+    )
+
+
 def _integration_href(integration_id: str) -> str:
     return f"/admin/integrations/{integration_id}"
 
@@ -744,6 +763,45 @@ def _doctor_findings(manifest: dict[str, Any]) -> list[dict[str, str]]:
             "message": f"Runtime context is {percent_text}; hand off or compact before continuing substantial work.",
             "next_action": "Produce a handoff summary or compact the session before more tool-heavy work.",
         })
+    agent_status = manifest.get("agent_status") or {}
+    current_status = agent_status.get("current") or {}
+    heartbeat_status = agent_status.get("heartbeat") or {}
+    recent_runs = agent_status.get("recent_runs") or []
+    latest_run = recent_runs[0] if recent_runs else {}
+    if current_status.get("stale"):
+        findings.append({
+            "severity": "error",
+            "code": "agent_status_stale_run",
+            "message": "The current agent run appears stale and may need operator review.",
+            "next_action": "Open the run trace or heartbeat/task history and decide whether to cancel, retry, or investigate.",
+        })
+    if latest_run.get("status") in {"failed", "error"}:
+        findings.append({
+            "severity": "warning",
+            "code": "agent_last_run_failed",
+            "message": "The latest autonomous agent run failed.",
+            "next_action": "Review the latest run error and retry only after the blocker is understood.",
+        })
+    if latest_run.get("repetition_detected") or heartbeat_status.get("repetition_detected"):
+        findings.append({
+            "severity": "warning",
+            "code": "heartbeat_repetition_detected",
+            "message": "The latest heartbeat was flagged as repetitive.",
+            "next_action": "Review the heartbeat prompt, prior result context, and assigned tools before the next run.",
+        })
+    if (
+        agent_status.get("available")
+        and manifest.get("context", {}).get("channel_id")
+        and not heartbeat_status.get("configured")
+        and not current_status
+        and agent_status.get("state") == "idle"
+    ):
+        findings.append({
+            "severity": "info",
+            "code": "heartbeat_not_configured",
+            "message": "This channel has no heartbeat configured for autonomous status check-ins.",
+            "next_action": "Open channel automation settings if this agent should report on a schedule.",
+        })
     integrations = manifest.get("integrations") or {}
     for entry in integrations.get("global") or []:
         if entry.get("lifecycle_status") != "enabled":
@@ -977,6 +1035,21 @@ def _doctor_proposed_actions(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "apply": {"type": "navigate", "href": activation_href},
             })
 
+    if "heartbeat_not_configured" in finding_codes:
+        href = _channel_settings_href(manifest, "automation")
+        if href:
+            actions.append({
+                "id": f"{context.get('channel_id')}:heartbeat_not_configured:automation",
+                "finding_code": "heartbeat_not_configured",
+                "kind": "agent_status",
+                "title": "Open heartbeat settings",
+                "description": "Configure a channel heartbeat if this bot should check in autonomously.",
+                "impact": "Navigation only. Heartbeat settings are not changed automatically.",
+                "required_actor_scopes": ["channels.heartbeat:write"],
+                "grants_scopes": [],
+                "apply": {"type": "navigate", "href": href},
+            })
+
     return actions
 
 
@@ -1124,6 +1197,12 @@ async def build_agent_capability_manifest(
         session_id=manifest["context"].get("session_id"),
     )
     manifest["work_state"] = await work_state_payload(
+        db,
+        bot_id=manifest["context"].get("bot_id"),
+        channel_id=manifest["context"].get("channel_id"),
+        session_id=manifest["context"].get("session_id"),
+    )
+    manifest["agent_status"] = await agent_status_payload(
         db,
         bot_id=manifest["context"].get("bot_id"),
         channel_id=manifest["context"].get("channel_id"),

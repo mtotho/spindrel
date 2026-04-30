@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Sparkles, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, LockKeyhole, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Sparkles, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -264,6 +264,7 @@ export default function WidgetsDashboardPage() {
    *  grid tile, cleared after ~1.4s. Set via `highlightPin` from Add sheet. */
   const [highlightPinId, setHighlightPinId] = useState<string | null>(null);
   const [pendingNewPinId, setPendingNewPinId] = useState<string | null>(null);
+  const [dashboardViewLockToken, setDashboardViewLockToken] = useState(0);
   // Track viewport width for mobile-only behavior — drag/resize on touch is
   // unusable, so the grid is read-only below the `sm` breakpoint even when
   // edit mode is toggled on (e.g. user hopped from desktop to phone).
@@ -549,6 +550,17 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
+      {useChannelFreeformCanvas && (
+        <button
+          type="button"
+          onClick={() => setDashboardViewLockToken((value) => value + 1)}
+          className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+          aria-label="Lock dashboard view"
+          title="Lock dashboard view"
+        >
+          <LockKeyhole size={14} />
+        </button>
+      )}
       {pins.length > 0 && isChannelScoped && channelScopedId && !isMobile && (
         <WidgetUsefulnessToolbarButton
           channelId={channelScopedId}
@@ -682,10 +694,10 @@ export default function WidgetsDashboardPage() {
 
       <div
         className={
-          "relative flex-1 p-2 sm:p-4 md:p-3 "
+          "relative flex-1 "
           // Panel mode should keep overflow on the dashboard surface so
           // tall rail columns page-scroll with the rest of the view.
-          + (useChannelFreeformCanvas ? "overflow-hidden " : "overflow-auto ")
+          + (useChannelFreeformCanvas ? "overflow-hidden p-0 " : "overflow-auto p-2 sm:p-4 md:p-3 ")
           + (layoutEditable && !inPanelMode && !useChannelFreeformCanvas ? "pb-[40vh]" : "")
         }
       >
@@ -749,6 +761,7 @@ export default function WidgetsDashboardPage() {
             gridConfig={currentDashboard?.grid_config ?? null}
             highlightPinId={highlightPinId}
             pendingNewPinId={pendingNewPinId}
+            lockViewToken={dashboardViewLockToken}
             onPendingNewPinHandled={(pinId) => {
               setPendingNewPinId((current) => (current === pinId ? null : current));
             }}

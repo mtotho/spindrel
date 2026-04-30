@@ -151,9 +151,10 @@ Skills are also the right place to preserve repeated tool workflows. If a bot re
 
 The companion agent-first introspection tools are:
 
-- `list_agent_capabilities` — shows the bot's API grants, endpoint catalog, tool working set, skill working set, Project context, runtime context budget, assigned Mission Control work, harness status, widget tools, and readiness findings.
+- `list_agent_capabilities` — shows the bot's API grants, endpoint catalog, tool working set, skill working set, Project context, runtime context budget, assigned Mission Control work, agent status, harness status, widget tools, and readiness findings.
 - `get_agent_context_snapshot` — returns only runtime context pressure and the `continue` / `summarize` / `handoff` recommendation.
 - `get_agent_work_snapshot` — returns only missions and Attention Items assigned to the current bot, with the next recommended work action.
+- `get_agent_status_snapshot` — returns only current task/heartbeat status, stale-run detection, latest failure evidence, and heartbeat schedule state.
 - `run_agent_doctor` — returns only the readiness findings and concrete next actions.
 
 ### 1. Correction-Driven Learning

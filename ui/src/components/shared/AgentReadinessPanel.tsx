@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle2, CircleAlert, ExternalLink, Gauge, History, Plug, Sparkles, Wrench } from "lucide-react";
 
 import { useAgentCapabilities, type AgentCapabilityAction, type AgentCapabilityManifest, type AgentDoctorFinding } from "@/src/api/hooks/useAgentCapabilities";
 import { useUpdateBot } from "@/src/api/hooks/useBots";
@@ -224,6 +224,46 @@ function ActivityLogSummary({ manifest }: { manifest: AgentCapabilityManifest })
   );
 }
 
+function statusTone(state?: string): "danger" | "warning" | "info" | "success" | "neutral" {
+  if (state === "error") return "danger";
+  if (state === "blocked") return "warning";
+  if (state === "working" || state === "scheduled") return "info";
+  if (state === "idle") return "success";
+  return "neutral";
+}
+
+function AgentStatusSummary({ manifest }: { manifest: AgentCapabilityManifest }) {
+  const status = manifest.agent_status;
+  if (!status?.available) return null;
+  const state = status.state || "unknown";
+  const latestRun = status.recent_runs?.[0];
+  let description = "No autonomous status signal yet";
+  if (status.current?.stale) {
+    description = status.current.summary || "Current run appears stale";
+  } else if (status.current) {
+    description = status.current.summary || `${status.current.type || "Agent"} is running`;
+  } else if (latestRun?.status === "failed" || latestRun?.status === "error") {
+    description = latestRun.error?.message || latestRun.summary || "Latest run failed";
+  } else if (status.heartbeat?.next_run_at) {
+    description = `Next heartbeat ${new Date(status.heartbeat.next_run_at).toLocaleString()}`;
+  } else if (status.heartbeat?.configured === false) {
+    description = "No channel heartbeat configured";
+  } else if (latestRun?.summary) {
+    description = latestRun.summary;
+  }
+  return (
+    <div data-testid="agent-readiness-agent-status">
+      <SettingsControlRow
+        leading={<Activity size={14} />}
+        title="Agent status"
+        description={description}
+        meta={<QuietPill label={state.replaceAll("_", " ")} tone={statusTone(state)} />}
+        compact
+      />
+    </div>
+  );
+}
+
 export function AgentReadinessPanel({
   botId,
   channelId,
@@ -328,6 +368,7 @@ export function AgentReadinessPanel({
       </div>
       <CapabilityStats manifest={data} />
       <SurfaceSummary manifest={data} />
+      <AgentStatusSummary manifest={data} />
       <ActivityLogSummary manifest={data} />
       <WidgetAuthoringSummary manifest={data} />
       <IntegrationReadinessSummary manifest={data} />

@@ -71,6 +71,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [Visual Feedback Loop](visual-feedback-loop.md) | Browser screenshots as UI feedback and docs artifacts |
 | [Webhooks](webhooks.md) | Lifecycle webhook forwarding |
 | [Widget Dashboards](widget-dashboards.md) | Channel dashboards + OmniPanel |
+| [WorkSurface Isolation](worksurface-isolation.md) | File/search/context/exec/harness/widget resource boundaries |
 
 ## Where else to look
 

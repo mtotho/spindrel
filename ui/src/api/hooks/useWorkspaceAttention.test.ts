@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  WORKSPACE_ATTENTION_BRIEF_KEY,
   getToolErrorReviewSignal,
   reconcileAttentionItems,
   type WorkspaceAttentionItem,
@@ -48,6 +49,10 @@ test("reconcileAttentionItems removes acknowledged items from active cached list
   const acknowledged = item({ status: "acknowledged" });
 
   assert.deepEqual(reconcileAttentionItems([original], acknowledged), []);
+});
+
+test("workspace attention brief has a stable cache key", () => {
+  assert.deepEqual(WORKSPACE_ATTENTION_BRIEF_KEY, ["workspace-attention-brief"]);
 });
 
 test("getToolErrorReviewSignal labels retryable tool-call evidence", () => {

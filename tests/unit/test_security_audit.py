@@ -34,6 +34,7 @@ from app.services.security_audit import (
     _check_tool_tier_distribution,
     _check_tools_missing_tier,
     _check_widget_action_api_allowlist,
+    _check_worksurface_isolation_static,
     _compute_score,
     _compute_summary,
     run_security_audit,
@@ -396,6 +397,20 @@ class TestWidgetActionApiAllowlist:
         assert c.severity == Severity.critical
 
 
+class TestWorkSurfaceIsolationStatic:
+    def test_static_findings_surface_in_security_audit(self):
+        c = _check_worksurface_isolation_static()
+
+        assert c.id == "worksurface_isolation_static"
+        assert c.category == "agentic_boundaries"
+        assert c.status == Status.fail
+        assert c.severity == Severity.critical
+        assert c.details is not None
+        finding_ids = {f["id"] for f in c.details["findings"]}
+        assert "shared_workspace_unscoped_secret_injection" in finding_ids
+        assert "legacy_cross_workspace_access_flag" in finding_ids
+
+
 # ---------------------------------------------------------------------------
 # DB checks
 # ---------------------------------------------------------------------------
@@ -589,7 +604,7 @@ class TestSummary:
 
 class TestRunSecurityAudit:
     @pytest.mark.asyncio
-    async def test_returns_21_checks(self, db, monkeypatch):
+    async def test_returns_22_checks(self, db, monkeypatch):
         # Patch config settings
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_ENABLED", True)
         monkeypatch.setattr("app.services.security_audit.settings.TOOL_POLICY_DEFAULT_ACTION", "deny")
@@ -608,7 +623,7 @@ class TestRunSecurityAudit:
              patch("app.services.security_audit.get_configured_server_count", return_value=0):
             result = await run_security_audit(db)
 
-        assert len(result.checks) == 21
+        assert len(result.checks) == 22
         assert result.score >= 0
         assert result.score <= 100
         assert "pass" in result.summary
@@ -616,3 +631,4 @@ class TestRunSecurityAudit:
         # Verify all check IDs are unique
         ids = [c.id for c in result.checks]
         assert len(ids) == len(set(ids))
+        assert "worksurface_isolation_static" in ids

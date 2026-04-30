@@ -13,6 +13,7 @@ from app.services.workspace_attention import (
     acknowledge_attention_item,
     acknowledge_attention_items_bulk,
     assign_attention_item,
+    build_attention_brief_from_serialized,
     build_attention_assignment_block,
     create_attention_triage_run,
     create_user_attention_item,
@@ -52,6 +53,85 @@ def test_operator_triage_sweep_candidate_only_includes_untriaged_or_failed_visib
 def test_operator_triage_suggested_action_hides_internal_route_terms():
     assert _normalize_triage_suggested_action("Route to developer channel.") == "Open a code fix."
     assert _normalize_triage_suggested_action("Route to development after review.") == "Open a code fix after review."
+
+
+def test_attention_brief_groups_fix_packs_and_owner_decisions():
+    items = [
+        {
+            "id": "item-code-1",
+            "title": "view_spatial_canvas failed",
+            "message": "Invalid focus_token.",
+            "severity": "critical",
+            "target_kind": "channel",
+            "target_id": "channel-a",
+            "channel_name": "Gardening With Sprout",
+            "occurrence_count": 7,
+            "evidence": {
+                "operator_triage": {
+                    "state": "ready_for_review",
+                    "classification": "likely_spindrel_code_issue",
+                    "route": "developer_channel",
+                    "summary": "Repeated focus token failures point to stale token handling.",
+                    "suggested_action": "Open a code fix for token lifecycle.",
+                },
+            },
+        },
+        {
+            "id": "item-code-2",
+            "title": "view_spatial_canvas failed",
+            "message": "AttributeError: display_name",
+            "severity": "critical",
+            "target_kind": "channel",
+            "target_id": "channel-b",
+            "channel_name": "Quality Assurance",
+            "occurrence_count": 3,
+            "evidence": {
+                "operator_triage": {
+                    "state": "ready_for_review",
+                    "classification": "likely_spindrel_code_issue",
+                    "route": "developer_channel",
+                    "summary": "Display name access needs a safe fallback.",
+                },
+            },
+        },
+        {
+            "id": "item-decision",
+            "title": "pin_spatial_widget failed",
+            "message": "Bot has no API permissions.",
+            "severity": "critical",
+            "target_kind": "bot",
+            "target_id": "sprout",
+            "occurrence_count": 1,
+            "evidence": {
+                "operator_triage": {
+                    "state": "ready_for_review",
+                    "classification": "user_decision",
+                    "route": "owner_channel",
+                    "summary": "Sprout needs a permission decision before pinning widgets.",
+                },
+            },
+        },
+        {
+            "id": "item-quiet",
+            "title": "read_file failed",
+            "message": "No such file.",
+            "severity": "warning",
+            "target_kind": "channel",
+            "target_id": "channel-c",
+            "occurrence_count": 1,
+            "evidence": {"classification": "repeated_benign_contract"},
+        },
+    ]
+
+    brief = build_attention_brief_from_serialized(items)
+
+    assert brief["summary"]["fix_packs"] == 1
+    assert brief["summary"]["decisions"] == 1
+    assert brief["summary"]["quiet"] == 1
+    assert brief["next_action"]["kind"] == "decision"
+    assert brief["fix_packs"][0]["count"] == 2
+    assert brief["fix_packs"][0]["item_ids"] == ["item-code-1", "item-code-2"]
+    assert "Start with a regression test" in brief["fix_packs"][0]["prompt"]
 
 
 @pytest.mark.asyncio

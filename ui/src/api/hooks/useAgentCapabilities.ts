@@ -214,6 +214,67 @@ export interface AgentActivityLogSummary {
   recent?: AgentActivityItem[];
 }
 
+export interface AgentStatusSnapshot {
+  schema_version?: string;
+  available?: boolean;
+  state?: "idle" | "scheduled" | "working" | "blocked" | "error" | "unknown" | string;
+  recommendation?: "continue" | "wait_for_run" | "review_failure" | "review_stale_run" | "enable_heartbeat" | "unknown" | string;
+  reason?: string | null;
+  current?: {
+    type?: "task" | "heartbeat" | string;
+    id?: string;
+    task_id?: string | null;
+    heartbeat_id?: string | null;
+    task_type?: string | null;
+    channel_id?: string | null;
+    session_id?: string | null;
+    status?: string;
+    started_at?: string | null;
+    elapsed_seconds?: number | null;
+    max_run_seconds?: number | null;
+    stale?: boolean;
+    summary?: string | null;
+    trace?: { correlation_id?: string | null };
+  } | null;
+  heartbeat?: {
+    configured?: boolean;
+    configured_count?: number;
+    enabled?: boolean;
+    heartbeat_id?: string | null;
+    channel_id?: string | null;
+    interval_minutes?: number | null;
+    next_run_at?: string | null;
+    last_run_at?: string | null;
+    last_status?: string | null;
+    last_error?: string | null;
+    repetition_detected?: boolean | null;
+    run_count?: number | null;
+    max_run_seconds?: number | null;
+  };
+  recent_runs?: Array<{
+    type?: "task" | "heartbeat" | string;
+    id?: string;
+    task_id?: string | null;
+    heartbeat_id?: string | null;
+    task_type?: string | null;
+    channel_id?: string | null;
+    session_id?: string | null;
+    status?: string;
+    started_at?: string | null;
+    completed_at?: string | null;
+    duration_ms?: number | null;
+    summary?: string | null;
+    trace?: { correlation_id?: string | null };
+    error?: {
+      message?: string | null;
+      error_code?: string | null;
+      error_kind?: string | null;
+      retryable?: boolean | null;
+    };
+    repetition_detected?: boolean | null;
+  }>;
+}
+
 export interface AgentToolErrorContract {
   version?: string;
   fields?: string[];
@@ -269,6 +330,7 @@ export interface AgentCapabilityManifest {
   };
   runtime_context?: AgentRuntimeContext;
   work_state?: AgentWorkState;
+  agent_status?: AgentStatusSnapshot;
   activity_log?: AgentActivityLogSummary;
   widgets: {
     authoring_tools?: string[];

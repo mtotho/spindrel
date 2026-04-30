@@ -115,6 +115,13 @@ Secret values are injected as environment variables into:
 
 Inside a supported execution environment, a bot's tool can use `$GITHUB_TOKEN` in a script without the LLM ever seeing the token value.
 
+The target security model is explicit binding only: a subprocess should receive
+Project runtime bindings, per-bot allowed secrets, or integration-scoped
+credentials, never the full Secret Values vault just because it is executing in
+a workspace. See [WorkSurface Isolation](worksurface-isolation.md). Some legacy
+workspace execution paths still need cleanup and are reported by the security
+audit as WorkSurface isolation findings.
+
 ## User Input Secret Detection
 
 When a user types a message in the chat UI, a pre-flight check runs before sending:

@@ -64,7 +64,7 @@ Current behavior:
 - per-turn tool retrieval ranks tools against the current user message
 - `get_tool_info(tool_name="...")` loads the full schema for an available/discovered tool
 - once loaded, that schema is callable in the current loop
-- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, Project context, runtime context budget, assigned Mission Control work, recent agent activity, harness state, widget authoring surface, integration readiness, readiness findings, and any staged repair actions
+- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, Project context, runtime context budget, assigned Mission Control work, agent status, recent agent activity, harness state, widget authoring surface, integration readiness, readiness findings, and any staged repair actions
 - the manifest includes `tool_error_contract`, the shared shape for agent-facing failures: `error_code`, `error_kind`, `retryable`, `retry_after_seconds`, and `fallback`
 
 Pinned tools are the strongest availability signal. They are the tools that must be available every turn.
@@ -74,6 +74,8 @@ Pinned tools are the strongest availability signal. They are the tools that must
 `get_agent_context_snapshot()` is the compact runtime-budget read. It returns the current channel/session budget, source, context profile, percentage full, and recommendation (`continue`, `summarize`, `handoff`, or `unknown`) without requiring the agent to fetch the full manifest.
 
 `get_agent_work_snapshot()` is the compact assigned-work read. It returns active missions assigned to the current bot, Attention Items assigned to investigate, recent mission updates, and a recommended next action (`idle`, `advance_mission`, or `review_attention`) without requiring the agent to scrape Mission Control UI/API output.
+
+`get_agent_status_snapshot()` is the compact liveness/status read. It derives whether the agent is `idle`, `scheduled`, `working`, `blocked`, `error`, or `unknown` from existing Tasks, HeartbeatRuns, ChannelHeartbeat config, and structured tool-call errors. Use it before waiting on autonomous work, debugging a stale run, or deciding whether heartbeat setup belongs in Channel Automation settings.
 
 `get_agent_activity_log()` is the compact replay read. It normalizes evidence already stored by Spindrel into one ordered stream across tool calls, Attention Items, Mission updates, Project run receipts, and widget agency receipts. Use it when the agent needs to answer "what happened recently?", correlate a failure by `correlation_id`, or distinguish a benign setup/input warning from a retryable outage or platform bug without scraping review screens.
 

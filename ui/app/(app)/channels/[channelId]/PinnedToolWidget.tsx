@@ -798,7 +798,7 @@ export function PinnedToolWidget({
   const overlayChrome =
     ((isDashboard || railMode) && editMode && !showGenericTitle) && !showPanelTitle;
   const showHostHeader = !runtimeRail && !suppressHostHeaderForTitlelessHeader;
-  const showHeaderDragLane = showHostHeader && (!isDashboard || editMode || railMode) && !!handleListeners;
+  const showHeaderDragLane = showHostHeader && (!isDashboard || editMode || railMode) && !!handleListeners && !showCanvasDragHandle;
   if (bodyOnly) {
     return (
       <div

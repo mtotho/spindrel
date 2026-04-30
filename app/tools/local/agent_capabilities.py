@@ -16,7 +16,7 @@ from app.tools.registry import register
         "description": (
             "Return the machine-readable manifest for what this agent can do now: "
             "API scopes/endpoints, tool working set, skill working set, Project "
-            "context, runtime context budget, assigned work, harness status, widget authoring tools, and readiness findings. "
+            "context, runtime context budget, assigned work, agent status, harness status, widget authoring tools, and readiness findings. "
             "Use this before broad configuration, API, Project, widget, or harness work."
         ),
         "parameters": {
@@ -51,6 +51,7 @@ from app.tools.registry import register
             "project": {"type": "object"},
             "runtime_context": {"type": "object"},
             "work_state": {"type": "object"},
+            "agent_status": {"type": "object"},
             "activity_log": {"type": "object"},
             "coding_run": {"type": "object"},
             "harness": {"type": "object"},
@@ -254,6 +255,64 @@ async def get_agent_activity_log(
             },
             "supported_kinds": list(AGENT_ACTIVITY_KINDS),
             "items": items,
+        },
+        ensure_ascii=False,
+    )
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_agent_status_snapshot",
+        "description": (
+            "Return this agent's current runtime status: idle, scheduled, working, stale/blocked, or failed. "
+            "Use this before waiting on autonomous work, diagnosing a stuck run, or deciding whether a heartbeat needs review."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "max_runs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Maximum recent task/heartbeat runs to return. Defaults 10.",
+                },
+            },
+        },
+    },
+}, safety_tier="readonly", requires_bot_context=True, returns={
+    "type": "object",
+    "properties": {
+        "context": {"type": "object"},
+        "agent_status": {"type": "object"},
+        "error": {"type": "string"},
+    },
+    "required": ["context", "agent_status"],
+})
+async def get_agent_status_snapshot(max_runs: int = 10) -> str:
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
+    channel_id = current_channel_id.get()
+    session_id = current_session_id.get()
+    async with async_session() as db:
+        from app.services.agent_status import build_agent_status_snapshot
+
+        agent_status = await build_agent_status_snapshot(
+            db,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            session_id=session_id,
+            limit=max(1, min(int(max_runs or 10), 50)),
+        )
+    return json.dumps(
+        {
+            "context": {
+                "bot_id": bot_id,
+                "channel_id": str(channel_id) if channel_id else None,
+                "session_id": str(session_id) if session_id else None,
+            },
+            "agent_status": agent_status,
         },
         ensure_ascii=False,
     )

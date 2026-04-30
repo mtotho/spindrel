@@ -509,6 +509,13 @@ the system can already inspect" is a shared capability manifest:
   current bot with recent updates and `idle` / `advance_mission` /
   `review_attention`, while existing mission/attention tools remain the only
   write path.
+- Runtime agents now have a compact liveness/status surface:
+  `agent_status` on the capability manifest, `GET /api/v1/agent-status`, and
+  `get_agent_status_snapshot`. It derives `idle`, `scheduled`, `working`,
+  `blocked`, `error`, or `unknown` from existing Tasks, HeartbeatRuns,
+  ChannelHeartbeat config, sessions, and structured tool-call errors, and
+  Doctor can flag stale runs, latest failures, repetitive heartbeats, or
+  missing channel heartbeat setup.
 - Runtime tool failures now have a shared agent-facing error contract. The
   manifest publishes `tool_error_contract`, dispatch/API-tool failures preserve
   the legacy `error` string while adding `error_code`, `error_kind`,
@@ -520,10 +527,22 @@ the system can already inspect" is a shared capability manifest:
   repeated benign failures become low-priority findings, retryable outages stay
   visible with backoff/fallback context, and internal/platform failures remain
   high-priority.
+- Runtime agents now have a normalized activity replay surface:
+  `activity_log` on the capability manifest, `GET /api/v1/agent-activity`, and
+  `get_agent_activity_log`. It reads existing evidence from tool calls,
+  Attention Items, Mission updates, Project run receipts, and widget agency
+  receipts, then returns one ordered stream with normalized actor, target,
+  status, summary, trace/correlation, and structured error fields.
 - This remains approval-first capability repair, not a spatial destination.
   Spatial/Mission Control surfaces may consume the actions later as "Fix bot
   access" or "Open setup", but Agent Readiness should not become a competing
   map mode.
+- Added the first brief-first review slice. `GET /workspace/attention/brief`
+  derives blockers, fix packs, owner decisions, quiet digest counts, and one
+  next action from existing Attention Items. The Mission Control Review deck now
+  consumes that brief above the queue, exposes copyable code-fix prompts, and
+  makes "kept" Operator findings visibly acknowledged without pretending that
+  the raw Attention queue is the product workflow.
 
 ## Key Invariants
 
@@ -566,6 +585,9 @@ the system can already inspect" is a shared capability manifest:
 - Operator route labels are internal taxonomy. User-facing copy should say
   "Code fix", "Owner follow-up", or another concrete next action rather than
   "developer channel" or "route to development".
+- Mission Control Review should open with a brief, not a mailbox. The queue is
+  evidence and drilldown; the primary surface should summarize fix packs,
+  owner decisions, blockers, quiet/noise, and the single next action.
 
 ## References
 

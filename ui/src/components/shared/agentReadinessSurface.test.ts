@@ -28,9 +28,11 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /useAgentCapabilities/);
   assert.match(hook, /interface AgentCapabilityAction/);
   assert.match(hook, /interface AgentIntegrationReadiness/);
+  assert.match(hook, /interface AgentStatusSnapshot/);
   assert.match(hook, /interface AgentActivityLogSummary/);
   assert.match(hook, /proposed_actions\?: AgentCapabilityAction\[\]/);
   assert.match(hook, /integrations\?: AgentIntegrationReadiness/);
+  assert.match(hook, /agent_status\?: AgentStatusSnapshot/);
   assert.match(hook, /activity_log\?: AgentActivityLogSummary/);
   assert.match(panel, /StatusBadge label=\{label\}/);
   assert.match(panel, /SettingsStatGrid/);
@@ -40,10 +42,13 @@ test("readiness panel renders doctor status, capability counts, surfaces, and fi
   assert.match(panel, /SurfaceSummary/);
   assert.match(panel, /WidgetAuthoringSummary/);
   assert.match(panel, /IntegrationReadinessSummary/);
+  assert.match(panel, /AgentStatusSummary/);
   assert.match(panel, /ActivityLogSummary/);
   assert.match(panel, /widgets\.readiness/);
   assert.match(panel, /agent-readiness-integrations/);
   assert.match(panel, /Integration readiness/);
+  assert.match(panel, /agent-readiness-agent-status/);
+  assert.match(panel, /Agent status/);
   assert.match(panel, /agent-readiness-activity-log/);
   assert.match(panel, /Recent agent activity/);
   assert.match(panel, /HTML full check/);

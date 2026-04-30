@@ -64,6 +64,57 @@ def _question_set_label(title: str) -> str:
     return f"{first_word} planning questions"
 
 
+def _coerce_questions(raw_questions: list[dict] | str) -> list[dict]:
+    parsed: object = raw_questions
+    if isinstance(raw_questions, str):
+        try:
+            parsed = json.loads(raw_questions)
+        except json.JSONDecodeError as exc:
+            raise ValueError("questions must be an array of question objects or a JSON-encoded array.") from exc
+
+    if isinstance(parsed, dict) and isinstance(parsed.get("questions"), list):
+        parsed = parsed["questions"]
+    if not isinstance(parsed, list):
+        raise ValueError("questions must be an array of question objects.")
+
+    questions: list[dict] = []
+    for index, item in enumerate(parsed[:3]):
+        if not isinstance(item, dict):
+            raise ValueError("each question must be an object.")
+        question_id = str(item.get("id") or f"question_{index + 1}").strip() or f"question_{index + 1}"
+        label = str(item.get("label") or item.get("question") or question_id).strip()
+        question_type = str(item.get("type") or "text").strip().lower()
+        if question_type not in {"text", "textarea", "select"}:
+            question_type = "text"
+        choices_raw = item.get("choices")
+        if isinstance(choices_raw, str):
+            choices = [choice.strip() for choice in choices_raw.split("|") if choice.strip()]
+        elif isinstance(choices_raw, list):
+            choices = [str(choice).strip() for choice in choices_raw if str(choice).strip()]
+        else:
+            choices = []
+        question: dict = {
+            "id": question_id,
+            "label": label or question_id,
+            "type": question_type,
+        }
+        for key in ("help", "placeholder"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                question[key] = value
+        if "required" in item:
+            question["required"] = bool(item.get("required"))
+        if choices:
+            question["choices"] = choices
+            if question_type == "text":
+                question["type"] = "select"
+        questions.append(question)
+
+    if not questions:
+        raise ValueError("questions must include at least one question.")
+    return questions
+
+
 @register(
     _SCHEMA,
     safety_tier="readonly",
@@ -81,13 +132,14 @@ def _question_set_label(title: str) -> str:
 )
 async def ask_plan_questions(
     title: str,
-    questions: list[dict],
+    questions: list[dict] | str,
     intro: str = "",
     submit_label: str = "Submit Answers",
 ) -> str:
     from app.agent.tool_dispatch import ToolResultEnvelope
     from app.services.session_plan_mode import publish_session_plan_event, update_planning_state
 
+    normalized_questions = _coerce_questions(questions)
     question_set_label = _question_set_label(title)
     payload = {
         "widget_ref": "core/plan_questions",
@@ -98,7 +150,7 @@ async def ask_plan_questions(
             "attention_label": question_set_label,
             "intro": intro.strip(),
             "submit_label": submit_label.strip() or "Submit Answers",
-            "questions": questions,
+            "questions": normalized_questions,
         },
     }
     envelope = ToolResultEnvelope(
@@ -121,7 +173,7 @@ async def ask_plan_questions(
                             "question_id": question.get("id"),
                             "source": "ask_plan_questions",
                         }
-                        for question in questions
+                        for question in normalized_questions
                         if str(question.get("label") or question.get("id") or "").strip()
                     ],
                     evidence=[f"Asked structured plan questions: {title.strip() or 'Plan questions'}"],

@@ -10,6 +10,18 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### WorkSurface is the security boundary for files, context, search, and execution
+**Decided 2026-04-30.** Spindrel's isolation model is not "bot workspace" or "channel folder" by itself. Every turn/tool should resolve to one `WorkSurface`: channel-only for casual channels, Project for shared Project work, or Project instance for isolated fresh runs. Project-bound channels intentionally share Project files/search/context. Fresh Project instances are the isolation mechanism when a run must not mutate shared Project state.
+
+**Load-bearing invariants.**
+- File tools, search/index roots, context admission, exec cwd, harness cwd, and widget paths that depend on channel/Project provenance must route through `app.services.projects.WorkSurface` or a small wrapper around it.
+- Bot-private state stays separate from the WorkSurface: memory files, credentials/API keys, auth/session state, and bot-authored skills remain private unless explicitly published/shared.
+- Execution receives only explicit secret bindings: Project runtime env, per-bot allowed secrets, or integration-scoped credentials. The global Secret Values vault is not ambient subprocess env.
+- Legacy `cross_workspace_access` is vestigial operator power. It should become an explicit operator/orchestrator capability with named boundary grants and durable audit, not a generic boolean path resolver escape hatch.
+- `harness_workdir` is operator-target config when it bypasses a resolved WorkSurface; ordinary harness turns should prefer the channel/Project/instance WorkSurface.
+
+**Why.** The evolved workspace model now has bot roots, shared roots, channel folders, Projects, Project instances, harness dirs, widgets, and local-machine surfaces. Treating each resolver as local policy creates side doors. A single WorkSurface boundary gives security review, tests, and future cleanup one contract.
+
 ### Voice input mode is global; native audio uses the active chat model
 **Decided 2026-04-29.** The web microphone path is controlled by global `VOICE_INPUT_MODE`, with per-request `audio_native` as an API override. Bot editor fields do not own microphone routing.
 

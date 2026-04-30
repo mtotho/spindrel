@@ -1,0 +1,468 @@
+id: unifi
+name: UniFi Network
+icon: Network
+description: Read-only UniFi Network health, clients, devices, VLANs, WiFi, and troubleshooting diagnostics.
+version: "1.0"
+
+settings:
+  - key: UNIFI_URL
+    type: string
+    label: "UniFi console URL"
+    required: true
+    description: "Local UniFi console/controller URL, for example https://192.168.1.1"
+  - key: UNIFI_API_KEY
+    type: string
+    label: "API key"
+    secret: true
+    required: true
+    description: "Read-only UniFi Network API key from Network > Settings > Control Plane > Integrations."
+  - key: UNIFI_SITE_ID
+    type: string
+    label: "Site ID"
+    description: "Optional. Leave empty to use the first site returned by the API."
+  - key: UNIFI_VERIFY_SSL
+    type: string
+    label: "Verify TLS certificates"
+    default: "true"
+    description: "Set false only for self-signed local UniFi certificates."
+  - key: UNIFI_API_BASE_PATH
+    type: string
+    label: "API base path"
+    default: "/proxy/network/integration/v1"
+    description: "Default local Network API path. The client also tries /integration/v1 and /v1."
+  - key: UNIFI_CONNECT_TIMEOUT_S
+    type: string
+    label: "Connect timeout seconds"
+    default: "10"
+  - key: UNIFI_REQUEST_TIMEOUT_S
+    type: string
+    label: "Request timeout seconds"
+    default: "30"
+
+activation:
+  requires_workspace: false
+  description: "Read-only UniFi Network troubleshooting and dashboard tools."
+
+provides:
+  - router
+  - tools
+  - skills
+
+debug_actions:
+  - id: diagnose
+    label: Run Diagnostics
+    description: "Test UniFi API key authentication, endpoint selection, and site discovery."
+    endpoint: diagnose
+    method: GET
+
+tool_families:
+  unifi:
+    label: UniFi Network
+    tools:
+      - unifi_test_connection
+      - unifi_sites
+      - unifi_network_snapshot
+      - unifi_devices
+      - unifi_clients
+      - unifi_networks
+      - unifi_wifi
+      - unifi_firewall_zones
+      - unifi_vlan_advisor
+      - unifi_site_options
+
+widget_presets:
+  unifi-connection-diagnostics:
+    name: Connection Diagnostics
+    description: Test UniFi endpoint selection, API key auth, and site discovery.
+    icon: PlugZap
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: unifi_test_connection
+    tool_family: unifi
+    tool_dependencies: [unifi_test_connection]
+    binding_schema:
+      type: object
+      properties: {}
+    binding_sources: {}
+    default_config: {}
+    runtime:
+      tool_args: {}
+
+  unifi-network-health:
+    name: Network Health Overview
+    description: Auto-refreshing UniFi health summary with devices, clients, networks, WiFi, and zones.
+    icon: Activity
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 5, h: 4}
+    tool_name: unifi_network_snapshot
+    tool_family: unifi
+    tool_dependencies: [unifi_network_snapshot]
+    binding_schema:
+      type: object
+      properties:
+        client_limit:
+          type: integer
+          title: Client limit
+          default: 100
+          minimum: 1
+          maximum: 1000
+        device_limit:
+          type: integer
+          title: Device limit
+          default: 200
+          minimum: 1
+          maximum: 1000
+    binding_sources: {}
+    default_config:
+      client_limit: 100
+      device_limit: 200
+    runtime:
+      tool_args:
+        client_limit: "{{binding.client_limit}}"
+        device_limit: "{{binding.device_limit}}"
+
+  unifi-vlan-map:
+    name: VLAN / SSID Map
+    description: Networks and VLANs with associated WiFi/SSID hints.
+    icon: Network
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 5, h: 4}
+    tool_name: unifi_networks
+    tool_family: unifi
+    tool_dependencies: [unifi_networks]
+    binding_schema:
+      type: object
+      properties: {}
+    binding_sources: {}
+    default_config: {}
+    runtime:
+      tool_args: {}
+
+  unifi-devices-card:
+    name: Devices
+    description: Gateways, switches, and AP status tiles.
+    icon: Router
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: unifi_devices
+    tool_family: unifi
+    tool_dependencies: [unifi_devices]
+    binding_schema:
+      type: object
+      properties:
+        limit:
+          type: integer
+          title: Device limit
+          default: 200
+          minimum: 1
+          maximum: 1000
+    binding_sources: {}
+    default_config:
+      limit: 200
+    runtime:
+      tool_args:
+        limit: "{{binding.limit}}"
+
+  unifi-clients-card:
+    name: Clients
+    description: Client status, IP, and network tiles with optional filtering.
+    icon: Users
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 3}
+    tool_name: unifi_clients
+    tool_family: unifi
+    tool_dependencies: [unifi_clients]
+    binding_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          title: Client search
+          description: Optional client name, MAC, IP, or network text.
+        limit:
+          type: integer
+          title: Client limit
+          default: 200
+          minimum: 1
+          maximum: 1000
+    binding_sources: {}
+    default_config:
+      query: ""
+      limit: 200
+    runtime:
+      tool_args:
+        query: "{{binding.query}}"
+        limit: "{{binding.limit}}"
+
+tool_widgets:
+  unifi_test_connection:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "UniFi diagnostics"
+    state_poll:
+      tool: unifi_test_connection
+      args: {}
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      status_color: success
+      message: "Connected to UniFi Network site Default."
+      site_id: default
+      count: 1
+      connection:
+        base_url: "https://192.168.1.1"
+        api_base_path: "/proxy/network/integration/v1"
+        verify_ssl: false
+        attempted_endpoints:
+          - {base_url: "https://192.168.1.1", api_base_path: "/proxy/network/integration/v1", status: connected}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "UniFi diagnostics"
+          level: 2
+        - type: status
+          text: "{{status}}"
+          color: "{{status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
+        - type: properties
+          variant: metadata
+          items:
+            - label: Site
+              value: "{{site_id | default: unknown}}"
+            - label: Sites
+              value: "{{count | default: 0}}"
+            - label: Endpoint
+              value: "{{connection.base_url}}{{connection.api_base_path}}"
+            - label: Attempts
+              value: "{{connection.attempted_endpoints | count}}"
+
+  unifi_network_snapshot:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "UniFi health"
+    default_config:
+      client_limit: 100
+      device_limit: 200
+    config_schema:
+      type: object
+      properties:
+        client_limit:
+          type: integer
+          title: Client limit
+          default: 100
+          minimum: 1
+          maximum: 1000
+        device_limit:
+          type: integer
+          title: Device limit
+          default: 200
+          minimum: 1
+          maximum: 1000
+    state_poll:
+      tool: unifi_network_snapshot
+      args:
+        client_limit: "{{widget_config.client_limit}}"
+        device_limit: "{{widget_config.device_limit}}"
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      status_color: success
+      site_id: default
+      summary: ["devices=4", "clients=37", "networks=5", "wifi=3"]
+      tiles:
+        - {label: Devices, value: "4", caption: UniFi, status: success}
+        - {label: Clients, value: "37", caption: active/recent, status: info}
+        - {label: Networks, value: "5", caption: VLANs, status: info}
+      device_tiles: []
+      client_tiles: []
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "UniFi {{site.name | default: Network}}"
+          level: 2
+        - type: status
+          text: "{{status}}"
+          color: "{{status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
+        - type: tiles
+          min_width: 140
+          items: "{{tiles}}"
+        - type: text
+          when: "{{errors | not_empty}}"
+          content: "Some sections could not be refreshed."
+          style: muted
+        - type: tiles
+          when: "{{device_tiles | not_empty}}"
+          min_width: 180
+          items: "{{device_tiles}}"
+
+  unifi_networks:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "UniFi VLANs"
+    state_poll:
+      tool: unifi_networks
+      args: {}
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      count: 3
+      vlan_tiles:
+        - {label: Default, value: untagged, caption: "192.168.1.0/24", status: info}
+        - {label: IoT, value: "30", caption: "IoT WiFi", status: info}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "UniFi VLANs"
+          level: 2
+        - type: status
+          text: "{{count}} networks"
+          color: "{{status | status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
+        - type: tiles
+          min_width: 180
+          items: "{{vlan_tiles}}"
+
+  unifi_devices:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "UniFi devices"
+    default_config:
+      limit: 200
+    config_schema:
+      type: object
+      properties:
+        limit:
+          type: integer
+          title: Device limit
+          default: 200
+          minimum: 1
+          maximum: 1000
+    state_poll:
+      tool: unifi_devices
+      args:
+        limit: "{{widget_config.limit}}"
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      count: 2
+      device_tiles:
+        - {label: UDM Pro, value: online, caption: gateway, status: success}
+        - {label: Office AP, value: online, caption: ap, status: success}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "UniFi devices"
+          level: 2
+        - type: status
+          text: "{{count}} devices"
+          color: "{{status | status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
+        - type: tiles
+          min_width: 180
+          items: "{{device_tiles}}"
+
+  unifi_clients:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "UniFi clients"
+    default_config:
+      query: ""
+      limit: 200
+    config_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          title: Client search
+        limit:
+          type: integer
+          title: Client limit
+          default: 200
+          minimum: 1
+          maximum: 1000
+    state_poll:
+      tool: unifi_clients
+      args:
+        query: "{{widget_config.query}}"
+        limit: "{{widget_config.limit}}"
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      count: 2
+      client_tiles:
+        - {label: laptop, value: online, caption: Default, status: success}
+        - {label: printer, value: dhcp_failed, caption: IoT, status: danger}
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "UniFi clients"
+          level: 2
+        - type: status
+          text: "{{count}} clients"
+          color: "{{status | status_color}}"
+        - type: text
+          when: "{{message}}"
+          content: "{{message}}"
+          style: muted
+        - type: tiles
+          min_width: 180
+          items: "{{client_tiles}}"
+
+  unifi_vlan_advisor:
+    content_type: application/vnd.spindrel.components+json
+    display: inline
+    display_label: "UniFi VLAN advisor"
+    state_poll:
+      tool: unifi_vlan_advisor
+      args: {}
+      refresh_interval_seconds: 300
+    sample_payload:
+      status: ok
+      status_color: success
+      likely_causes: ["The client appears connected but is not receiving DHCP on the expected VLAN."]
+      evidence_from_tools: ["Client printer is dhcp_failed on IoT with IP 169.254.1.3"]
+      safe_next_steps: ["Inspect the SSID/network VLAN and every switch/AP uplink in UniFi VLAN Viewer."]
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "UniFi VLAN advisor"
+          level: 2
+        - type: status
+          text: "{{status}}"
+          color: "{{status | status_color}}"
+        - type: text
+          when: "{{likely_causes | not_empty}}"
+          content: "Likely causes: {{likely_causes | join: ; }}"
+          style: muted
+        - type: text
+          when: "{{evidence_from_tools | not_empty}}"
+          content: "Evidence: {{evidence_from_tools | join: ; }}"
+          style: muted
+        - type: text
+          when: "{{safe_next_steps | not_empty}}"
+          content: "Next checks: {{safe_next_steps | join: ; }}"
+          style: muted

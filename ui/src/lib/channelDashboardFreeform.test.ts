@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   DASHBOARD_CAMERA_MAX_SCALE,
@@ -11,6 +12,7 @@ import {
   findOpenGridPlacement,
   freeformOriginForPreset,
   gridLayoutToWorldRect,
+  homeFrameCamera,
   isFreeformGridConfig,
   migrateLayoutsToFreeform,
   placeDashboardNeighborGhosts,
@@ -86,6 +88,14 @@ test("dashboard camera never zooms past current dashboard scale", () => {
   assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
 });
 
+test("home dashboard camera keeps the native dashboard scale", () => {
+  const frame = dashboardFrame(preset, freeformOriginForPreset(preset), 720, 900);
+  const camera = homeFrameCamera(frame, { w: 1280, h: 760 });
+
+  assert.equal(camera.scale, DASHBOARD_CAMERA_MAX_SCALE);
+  assert.equal(camera.y, 24 - frame.headerRect.y);
+});
+
 test("dashboard camera supports deep zoom-out before spatial handoff CTA", () => {
   const camera = clampDashboardCamera({ x: 1, y: 2, scale: 0.01 });
 
@@ -105,4 +115,17 @@ test("neighbor ghosts stay outside the guided dashboard frame", () => {
     const insideY = ghost.y >= frame.headerRect.y && ghost.y <= frame.centerRect.y + frame.centerRect.h;
     assert.equal(insideX && insideY, false);
   }
+});
+
+test("freeform dashboard canvas has one lock reset outside the canvas controls", () => {
+  const source = readFileSync(new URL("../../app/(app)/widgets/ChannelDashboardFreeformCanvas.tsx", import.meta.url), "utf8");
+  const routeSource = readFileSync(new URL("../../app/(app)/widgets/index.tsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /useDraggable/);
+  assert.doesNotMatch(source, /CanvasControls/);
+  assert.doesNotMatch(source, /Fit dashboard/);
+  assert.match(source, /cursor: isPanning \? "grabbing" : "grab"/);
+  assert.match(routeSource, /lockViewToken=\{dashboardViewLockToken\}/);
+  assert.match(routeSource, /Lock dashboard view/);
+  assert.match(routeSource, /overflow-hidden p-0/);
 });

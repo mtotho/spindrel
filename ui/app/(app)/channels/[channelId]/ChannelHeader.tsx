@@ -862,11 +862,53 @@ function HarnessStatusPill({
 }) {
   const { data } = useSessionHarnessStatus(sessionId);
   const [open, setOpen] = React.useState(false);
+  const buttonRef = React.useRef<HTMLButtonElement | null>(null);
+  const [panelStyle, setPanelStyle] = React.useState<React.CSSProperties>({});
+  const updatePanelPosition = React.useCallback(() => {
+    if (compact || typeof window === "undefined") {
+      setPanelStyle({});
+      return;
+    }
+    const margin = 8;
+    const rect = buttonRef.current?.getBoundingClientRect();
+    const width = Math.min(320, Math.max(0, window.innerWidth - margin * 2));
+    const anchorRight = rect?.right ?? window.innerWidth - margin;
+    const left = Math.max(
+      margin,
+      Math.min(anchorRight - width, window.innerWidth - margin - width),
+    );
+    const top = Math.max(margin, (rect?.bottom ?? 48) + margin);
+    setPanelStyle({
+      left,
+      top,
+      width,
+      maxHeight: Math.max(160, window.innerHeight - top - margin),
+      zIndex: 50002,
+    });
+  }, [compact]);
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    updatePanelPosition();
+    if (compact || typeof window === "undefined") return;
+    window.addEventListener("resize", updatePanelPosition);
+    window.addEventListener("scroll", updatePanelPosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePanelPosition);
+      window.removeEventListener("scroll", updatePanelPosition, true);
+    };
+  }, [compact, open, updatePanelPosition]);
+  const panelClassName = compact
+    ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
+    : "fixed overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border";
+  const mergedPanelStyle = compact
+    ? { fontFamily: "system-ui, sans-serif" }
+    : { fontFamily: "system-ui, sans-serif", ...panelStyle };
   if (!data) {
     const loadingLabel = compact ? "ctx" : "ctx loading";
     return (
       <span className="relative inline-flex shrink-0">
         <button
+          ref={buttonRef}
           type="button"
           data-testid={compact ? "harness-context-chip-mobile" : "harness-context-chip"}
           onClick={() => setOpen((v) => !v)}
@@ -883,12 +925,8 @@ function HarnessStatusPill({
         {open && (
           <div
             data-testid={compact ? "harness-context-panel-mobile" : "harness-context-panel"}
-            className={
-              compact
-                ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
-                : "absolute right-0 top-full z-[1000] mt-2 w-80 rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border max-[600px]:fixed max-[600px]:left-2 max-[600px]:right-2 max-[600px]:top-14 max-[600px]:z-[50002] max-[600px]:mt-0 max-[600px]:max-h-[calc(100dvh-72px)] max-[600px]:w-auto max-[600px]:overflow-auto"
-            }
-            style={{ fontFamily: "system-ui, sans-serif" }}
+            className={panelClassName}
+            style={mergedPanelStyle}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="font-medium text-text">Harness context</div>
@@ -952,6 +990,7 @@ function HarnessStatusPill({
   return (
     <span className="relative inline-flex shrink-0">
       <button
+        ref={buttonRef}
         type="button"
         data-testid={compact ? "harness-context-chip-mobile" : "harness-context-chip"}
         onClick={() => setOpen((v) => !v)}
@@ -979,12 +1018,8 @@ function HarnessStatusPill({
       {open && (
         <div
           data-testid={compact ? "harness-context-panel-mobile" : "harness-context-panel"}
-          className={
-            compact
-              ? "fixed left-2 right-2 top-14 z-[50002] max-h-[calc(100dvh-72px)] overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border"
-              : "absolute right-0 top-full z-[1000] mt-2 max-h-[min(78vh,680px)] w-80 overflow-auto rounded-md bg-surface-raised p-3 text-xs text-text-muted shadow-xl ring-1 ring-surface-border max-[600px]:fixed max-[600px]:left-2 max-[600px]:right-2 max-[600px]:top-14 max-[600px]:z-[50002] max-[600px]:mt-0 max-[600px]:max-h-[calc(100dvh-72px)] max-[600px]:w-auto"
-          }
-          style={{ fontFamily: "system-ui, sans-serif" }}
+          className={panelClassName}
+          style={mergedPanelStyle}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="font-medium text-text">Harness context</div>

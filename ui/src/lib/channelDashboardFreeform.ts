@@ -334,6 +334,17 @@ export function fitFrameCamera(
   });
 }
 
+export function homeFrameCamera(
+  frame: Pick<DashboardFrame, "centerRect" | "headerRect">,
+  viewport: { w: number; h: number },
+): DashboardCamera {
+  return clampDashboardCamera({
+    scale: DASHBOARD_CAMERA_MAX_SCALE,
+    x: Math.max(24, (viewport.w - frame.centerRect.w) / 2) - frame.centerRect.x,
+    y: 24 - frame.headerRect.y,
+  });
+}
+
 export function placeDashboardNeighborGhosts(
   frame: Pick<DashboardFrame, "railRect" | "dockRect" | "headerRect" | "centerRect">,
   neighbors: Array<{ id: string; channelId: string; dx: number; dy: number }>,

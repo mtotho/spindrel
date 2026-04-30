@@ -555,6 +555,8 @@ async def test_live_spindrel_plan_question_answers_feed_publish(client: E2EClien
     )
     _assert_clean_turn(questions)
     assert "ask_plan_questions" in questions.tools_used
+    messages = _assistant_messages(await client.get_session_messages(session_id, limit=30))
+    assert _has_plan_questions_envelope(messages, title=question_title)
 
     answered_state = await client.submit_plan_question_answers(
         session_id,

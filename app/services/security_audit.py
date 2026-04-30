@@ -399,6 +399,54 @@ def _check_widget_action_api_allowlist() -> SecurityCheck:
     )
 
 
+def _check_worksurface_isolation_static() -> SecurityCheck:
+    from app.services.worksurface_isolation_audit import (
+        POLICY_TARGET,
+        audit_worksurface_isolation,
+        summarize_worksurface_isolation,
+    )
+
+    findings = audit_worksurface_isolation()
+    summary = summarize_worksurface_isolation(findings)
+    failing = [finding for finding in findings if finding.status == "fail"]
+    warnings = [finding for finding in findings if finding.status == "warning"]
+    critical = [finding for finding in findings if finding.severity == "critical" and finding.status != "pass"]
+
+    if not failing and not warnings:
+        return SecurityCheck(
+            id="worksurface_isolation_static",
+            category="agentic_boundaries",
+            severity=Severity.info,
+            status=Status.passed,
+            message="WorkSurface isolation static audit has no active findings",
+            details={
+                "summary": summary,
+                "policy": POLICY_TARGET,
+            },
+        )
+
+    severity = Severity.critical if critical else Severity.warning
+    return SecurityCheck(
+        id="worksurface_isolation_static",
+        category="agentic_boundaries",
+        severity=severity,
+        status=Status.fail if failing else Status.warning,
+        message=(
+            f"WorkSurface isolation audit found {len(failing)} failing and "
+            f"{len(warnings)} warning finding(s)"
+        ),
+        recommendation=(
+            "Use WorkSurface as the canonical boundary for file/search/context/exec/harness/widget paths; "
+            "replace vestigial cross-workspace access with explicit operator grants; make secret injection binding-scoped."
+        ),
+        details={
+            "summary": summary,
+            "findings": [finding.payload() for finding in findings],
+            "policy": POLICY_TARGET,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # DB-dependent checks
 # ---------------------------------------------------------------------------
@@ -606,6 +654,7 @@ async def run_security_audit(db: AsyncSession) -> SecurityAuditResponse:
     checks.append(_check_bots_with_cross_workspace_access())
     checks.append(_check_bots_with_high_risk_api_scopes())
     checks.append(_check_widget_action_api_allowlist())
+    checks.append(_check_worksurface_isolation_static())
 
     # DB-dependent checks
     checks.append(await _check_exec_tools_without_rules(db))

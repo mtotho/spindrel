@@ -23,6 +23,9 @@ import {
   useResolveAttentionItem,
   useStartAttentionTriageRun,
   useSubmitAttentionTriageFeedback,
+  useWorkspaceAttentionBrief,
+  type AttentionBriefResponse,
+  type AttentionFixPack,
   type AttentionAssignmentMode,
   type AttentionTriageRunResponse,
   type WorkspaceAttentionItem,
@@ -167,6 +170,7 @@ export function AttentionCommandDeck({
   const sweepable = useMemo(() => sweepCandidateItems(items), [items]);
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const { data: runs = [] } = useAttentionTriageRuns({ limit: 16, refetchInterval: mode === "runs" ? 5_000 : 15_000 });
+  const { data: brief } = useWorkspaceAttentionBrief({ channelId, refetchInterval: 15_000 });
   const startTriage = useStartAttentionTriageRun();
   const hasActiveRun = runs.some((run) => {
     const status = runStatusLabel(run);
@@ -258,6 +262,24 @@ export function AttentionCommandDeck({
     focusDetail();
   };
 
+  const selectBriefItem = (itemId?: string | null) => {
+    if (!itemId) return;
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (!item) return;
+    setDeckMode(getAttentionWorkflowState(item) === "operator_review" ? "review" : "inbox");
+    onSelect(item);
+    focusDetail();
+  };
+
+  const copyFixPrompt = async (pack: AttentionFixPack) => {
+    try {
+      await navigator.clipboard.writeText(pack.prompt);
+      setNotice(`Copied fix prompt for ${pack.title}.`);
+    } catch {
+      setNotice("Could not copy the fix prompt from this browser.");
+    }
+  };
+
   const whatNow = (() => {
     const viewingFirstReview = Boolean(firstReview && mode === "review" && displayItem?.id === firstReview.id);
     if (sweepBusy) {
@@ -268,6 +290,21 @@ export function AttentionCommandDeck({
         action: "View run log",
         icon: <Loader2 size={15} className="animate-spin" />,
         onClick: () => setDeckMode("runs"),
+      };
+    }
+    if (brief && brief.next_action.kind !== "empty") {
+      const itemId = brief.next_action.item_id;
+      const alreadyViewing = Boolean(itemId && displayItem?.id === itemId);
+      return {
+        eyebrow: "Mission brief",
+        title: brief.next_action.title,
+        detail: brief.next_action.description,
+        action: alreadyViewing ? null : brief.next_action.action_label || "Open",
+        icon: <Sparkles size={15} />,
+        onClick: () => {
+          if (brief.next_action.kind === "sweep") startSweep();
+          else selectBriefItem(itemId);
+        },
       };
     }
     if (counts.review > 0) {
@@ -360,6 +397,13 @@ export function AttentionCommandDeck({
             ) : null}
           </div>
         </div>
+        {brief && (
+          <BriefSummary
+            brief={brief}
+            onOpenItem={selectBriefItem}
+            onCopyFixPrompt={copyFixPrompt}
+          />
+        )}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
@@ -472,6 +516,113 @@ function ModeButton({ active, icon, label, count, onClick }: { active: boolean; 
   );
 }
 
+function BriefSummary({
+  brief,
+  onOpenItem,
+  onCopyFixPrompt,
+}: {
+  brief: AttentionBriefResponse;
+  onOpenItem: (itemId?: string | null) => void;
+  onCopyFixPrompt: (pack: AttentionFixPack) => void;
+}) {
+  const primaryFixPack = brief.fix_packs[0] ?? null;
+  const primaryDecision = brief.decisions[0] ?? null;
+  const primaryBlocker = brief.blockers[0] ?? null;
+  const hasBriefWork = Boolean(primaryFixPack || primaryDecision || primaryBlocker || brief.quiet_digest.count);
+
+  if (!hasBriefWork) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 space-y-2" data-testid="attention-brief-summary">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <BriefMetric label="Fix packs" value={brief.summary.fix_packs} tone={brief.summary.fix_packs ? "accent" : "muted"} />
+        <BriefMetric label="Decisions" value={brief.summary.decisions} tone={brief.summary.decisions ? "warning" : "muted"} />
+        <BriefMetric label="Blockers" value={brief.summary.blockers} tone={brief.summary.blockers ? "danger" : "muted"} />
+        <BriefMetric label="Quiet" value={brief.summary.quiet} tone="muted" />
+      </div>
+      <div className="grid gap-2 lg:grid-cols-3">
+        {primaryFixPack && (
+          <BriefTile
+            eyebrow={`${primaryFixPack.count} item${primaryFixPack.count === 1 ? "" : "s"} grouped`}
+            title={primaryFixPack.title}
+            body={primaryFixPack.summary}
+            actionLabel="Open evidence"
+            secondaryLabel="Copy fix prompt"
+            onAction={() => onOpenItem(primaryFixPack.item_ids[0])}
+            onSecondary={() => onCopyFixPrompt(primaryFixPack)}
+          />
+        )}
+        {primaryDecision && (
+          <BriefTile
+            eyebrow="Decision"
+            title={primaryDecision.title}
+            body={primaryDecision.summary}
+            actionLabel={primaryDecision.action_label || "Make decision"}
+            onAction={() => onOpenItem(primaryDecision.item_ids[0] ?? primaryDecision.id)}
+          />
+        )}
+        {primaryBlocker && (
+          <BriefTile
+            eyebrow="Blocker"
+            title={primaryBlocker.title}
+            body={primaryBlocker.summary}
+            actionLabel={primaryBlocker.action_label || "Inspect blocker"}
+            onAction={() => onOpenItem(primaryBlocker.item_ids[0] ?? primaryBlocker.id)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BriefMetric({ label, value, tone }: { label: string; value: number; tone: "accent" | "warning" | "danger" | "muted" }) {
+  const toneClass = tone === "accent" ? "text-accent" : tone === "warning" ? "text-warning" : tone === "danger" ? "text-danger" : "text-text-muted";
+  return (
+    <div className="rounded-md bg-surface-overlay/30 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">{label}</div>
+      <div className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function BriefTile({
+  eyebrow,
+  title,
+  body,
+  actionLabel,
+  secondaryLabel,
+  onAction,
+  onSecondary,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  actionLabel: string;
+  secondaryLabel?: string;
+  onAction: () => void;
+  onSecondary?: () => void;
+}) {
+  return (
+    <section className="min-w-0 rounded-md bg-surface-overlay/30 px-3 py-3">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/75">{eyebrow}</div>
+      <div className="mt-1 truncate text-sm font-medium text-text">{title}</div>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted">{body}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" className="rounded-md px-2 py-1.5 text-xs font-medium text-accent hover:bg-accent/[0.08]" onClick={onAction}>
+          {actionLabel}
+        </button>
+        {secondaryLabel && onSecondary && (
+          <button type="button" className="rounded-md px-2 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-overlay/60 hover:text-text" onClick={onSecondary}>
+            {secondaryLabel}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onReply?: (item: WorkspaceAttentionItem) => void }) {
   const acknowledge = useAcknowledgeAttentionItem();
   const resolve = useResolveAttentionItem();
@@ -483,6 +634,7 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
   const readonly = workflowState === "processed" || workflowState === "closed";
   const suggestedAction = humanizeSuggestedAction(triage?.suggested_action);
   const toolSignal = getToolErrorReviewSignal(item);
+  const reviewVerdict = triage?.review?.verdict;
 
   return (
     <article className="mx-auto max-w-3xl">
@@ -597,9 +749,13 @@ function DeckItemDetail({ item, onReply }: { item: WorkspaceAttentionItem; onRep
           )}
           {!readonly && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button type="button" className="rounded-md px-2.5 py-1.5 text-sm text-accent hover:bg-accent/[0.08]" onClick={() => triageFeedback.mutate({ itemId: item.id, verdict: "confirmed" })}>
-                Accept finding
-              </button>
+              {reviewVerdict === "confirmed" ? (
+                <span className="rounded-md bg-accent/[0.08] px-2.5 py-1.5 text-sm text-accent">Finding kept</span>
+              ) : (
+                <button type="button" className="rounded-md px-2.5 py-1.5 text-sm text-accent hover:bg-accent/[0.08]" onClick={() => triageFeedback.mutate({ itemId: item.id, verdict: "confirmed" })}>
+                  Keep finding
+                </button>
+              )}
               <button
                 type="button"
                 className="rounded-md px-2.5 py-1.5 text-sm text-text-muted hover:bg-surface-overlay/60 hover:text-text"

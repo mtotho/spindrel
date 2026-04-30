@@ -79,6 +79,67 @@ interface AttentionItemResponse {
   item: WorkspaceAttentionItem;
 }
 
+export interface AttentionBriefAction {
+  type?: "open_item" | "copy_prompt" | string;
+  item_id?: string | null;
+  prompt?: string | null;
+}
+
+export interface AttentionBriefCard {
+  id: string;
+  kind?: string;
+  title: string;
+  summary: string;
+  severity?: AttentionSeverity | string | null;
+  target_label?: string | null;
+  item_ids: string[];
+  action_label?: string | null;
+  action?: AttentionBriefAction | null;
+}
+
+export interface AttentionFixPack {
+  id: string;
+  title: string;
+  summary: string;
+  count: number;
+  severity?: AttentionSeverity | string | null;
+  target_summary?: string | null;
+  item_ids: string[];
+  prompt: string;
+  action_label?: string | null;
+  action?: AttentionBriefAction | null;
+}
+
+export interface AttentionBriefResponse {
+  generated_at: string;
+  summary: {
+    blockers: number;
+    fix_packs: number;
+    decisions: number;
+    quiet: number;
+    running: number;
+    cleared: number;
+    total: number;
+  };
+  next_action: {
+    kind: string;
+    title: string;
+    description: string;
+    action_label?: string | null;
+    item_id?: string | null;
+    fix_pack_id?: string | null;
+  };
+  blockers: AttentionBriefCard[];
+  fix_packs: AttentionFixPack[];
+  decisions: AttentionBriefCard[];
+  quiet_digest: {
+    count: number;
+    groups: Array<{ label: string; count: number }>;
+  };
+  running: Array<Record<string, unknown>>;
+  cleared: Array<Record<string, unknown>>;
+}
+
 export interface CreateAttentionInput {
   channel_id?: string | null;
   target_kind: AttentionTargetKind;
@@ -148,6 +209,7 @@ interface BulkAcknowledgeAttentionResponse {
 }
 
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
+export const WORKSPACE_ATTENTION_BRIEF_KEY = ["workspace-attention-brief"] as const;
 export const ATTENTION_TRIAGE_RUNS_KEY = ["workspace-attention-triage-runs"] as const;
 
 export function isActiveAttentionItem(item: WorkspaceAttentionItem): boolean {
@@ -260,6 +322,26 @@ export function useWorkspaceAttention(
   });
 }
 
+export function useWorkspaceAttentionBrief(
+  options: { enabled?: boolean; channelId?: string | null; refetchInterval?: number | false } = {},
+) {
+  const enabled = options.enabled ?? true;
+  const channelId = options.channelId ?? null;
+  return useQuery({
+    queryKey: channelId ? [...WORKSPACE_ATTENTION_BRIEF_KEY, channelId] : WORKSPACE_ATTENTION_BRIEF_KEY,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (channelId) params.set("channel_id", channelId);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      return apiFetch<AttentionBriefResponse>(`/api/v1/workspace/attention/brief${suffix}`);
+    },
+    enabled,
+    refetchInterval: enabled ? options.refetchInterval ?? 15_000 : false,
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 function useAttentionAction(path: (id: string) => string) {
   const qc = useQueryClient();
   return useMutation({
@@ -275,6 +357,7 @@ function useAttentionAction(path: (id: string) => string) {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
@@ -304,6 +387,7 @@ export function useBulkAcknowledgeAttentionItems() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
@@ -336,6 +420,7 @@ export function useCreateAttentionItem() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
@@ -360,6 +445,7 @@ export function useAssignAttentionItem() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
@@ -382,6 +468,7 @@ export function useStartAttentionTriageRun() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
       qc.invalidateQueries({ queryKey: ATTENTION_TRIAGE_RUNS_KEY });
     },
   });
@@ -424,6 +511,7 @@ export function useSubmitAttentionTriageFeedback() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_BRIEF_KEY });
     },
   });
 }
