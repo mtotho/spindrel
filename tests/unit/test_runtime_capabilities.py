@@ -316,6 +316,39 @@ async def test_codex_native_apps_hooks_and_fs_route_to_current_app_server_method
     ]
 
 
+@pytest.mark.asyncio
+async def test_codex_native_apps_forbidden_returns_terminal_handoff(monkeypatch):
+    from integrations.codex import harness as codex_harness
+    from integrations.codex.app_server import CodexAppServerError
+    from integrations.codex.harness import CodexRuntime
+
+    class _FakeClient:
+        async def initialize(self):
+            return {}
+
+        async def request(self, method, params, *, timeout=60.0):
+            raise CodexAppServerError(
+                -32603,
+                "failed to list apps: Request failed with status 403 Forbidden",
+            )
+
+    @asynccontextmanager
+    async def _fake_spawn(*, extra_env=None):
+        yield _FakeClient()
+
+    monkeypatch.setattr(codex_harness.CodexAppServer, "spawn", _fake_spawn)
+
+    result = await CodexRuntime().execute_native_command(
+        command_id="apps",
+        args=(),
+        ctx=SimpleNamespace(env={}, workdir="/tmp/project"),
+    )
+
+    assert result.status == "terminal_handoff"
+    assert result.payload["method"] == "app/list"
+    assert result.payload["suggested_command"] == "codex app"
+
+
 def test_codex_native_mutating_args_require_approval():
     from integrations.codex.harness import CodexRuntime
 

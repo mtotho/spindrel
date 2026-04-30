@@ -122,7 +122,7 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `activation` | Per-channel tool/skill/MCP injection manifest. When a channel activates an integration, these surface. | `app/agent/channel_overrides.py` | active |
 | `events` | Event types the integration can emit (used by task-trigger UI). | `app.services.integration_catalog` | active |
 | `mcp_servers` | MCP servers this integration contributes. URL or container image. | `app/services/mcp_servers.py::seed_from_integrations` | active |
-| `dependencies` | Python / npm / system dependencies. Admin UI surfaces install commands. | `app/routers/api_v1_admin/integrations.py` | active |
+| `dependencies` | Python / npm / system dependencies. Admin UI surfaces install commands. NPM dependencies may declare `minimum_version` and `version_command` so persisted CLIs are upgraded when their binary exists but is too old. | `app/routers/api_v1_admin/integrations.py` | active |
 | `docker_compose` | Sidecar stack file + project name template + allowed bind mounts. | `app/services/docker_stacks.py` | active |
 | `runtime_services` | Shared sidecar capability contract. Providers declare endpoints they own; consumers declare required capabilities and optional external override settings. | `app/services/runtime_services.py` | active |
 | `web_ui` | Static build directory + dev port for an integration-owned web UI. | `app.services.integration_catalog` | active |

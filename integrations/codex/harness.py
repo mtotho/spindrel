@@ -581,12 +581,12 @@ class CodexRuntime:
         except CodexAppServerError as exc:
             logger.exception("codex native command failed: %s", command_id)
             suggested_command = _codex_native_terminal_command(command_id, args)
-            if _codex_app_server_error_is_unknown_method(exc):
+            if _codex_app_server_error_is_unknown_method(exc) or _codex_app_server_error_should_handoff(method, exc):
                 return HarnessRuntimeCommandResult(
                     command_id=command_id,
                     title="Open terminal for Codex command",
                     detail=(
-                        f"Codex app-server does not expose {method}. "
+                        f"Codex app-server cannot complete {method}. "
                         "Use the native CLI flow in the in-app terminal."
                     ),
                     status="terminal_handoff",
@@ -854,6 +854,22 @@ def _codex_native_resolve_read_path(workdir: str, raw_path: str) -> str:
 def _codex_app_server_error_is_unknown_method(exc: CodexAppServerError) -> bool:
     message = (getattr(exc, "message", "") or str(exc)).lower()
     return "unknown variant" in message or "method not found" in message
+
+
+def _codex_app_server_error_should_handoff(method: str, exc: CodexAppServerError) -> bool:
+    """Treat runtime/account-denied management reads as native CLI handoffs.
+
+    Some app-server methods are present in the schema but still depend on a
+    server-side entitlement or remote endpoint. In that case the method is not
+    emulatable in chat, and an error card looks like a broken harness rather
+    than an unavailable native management surface.
+    """
+    message = (getattr(exc, "message", "") or str(exc)).lower()
+    if method == schema.METHOD_APPS_LIST and (
+        "403 forbidden" in message or "status 403" in message
+    ):
+        return True
+    return False
 
 
 def _parse_codex_config_value(raw: str) -> Any:

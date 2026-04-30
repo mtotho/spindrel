@@ -33,6 +33,7 @@ export interface NpmDependency {
   package: string;
   binary_name: string;
   installed: boolean;
+  minimum_version?: string | null;
 }
 
 export interface SystemDependency {

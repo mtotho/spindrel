@@ -112,6 +112,112 @@ async def test_runs_npm_when_check_path_missing(tmp_path):
         assert "npm" in call_args
 
 
+@pytest.mark.asyncio
+async def test_runs_npm_when_binary_below_minimum_version(tmp_path, monkeypatch):
+    """An existing old CLI is not treated as installed forever."""
+    from app.services import integration_deps
+
+    old_binary = tmp_path / "codex"
+    old_binary.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(integration_deps.shutil, "which", lambda _binary: str(old_binary))
+
+    deps = [{
+        "package": "@openai/codex",
+        "binary_name": "codex",
+        "minimum_version": "0.128.0",
+        "version_command": "codex --version",
+    }]
+
+    calls: list[tuple[str, ...]] = []
+
+    def _make_proc(stdout=b"", returncode=0):
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.communicate = AsyncMock(return_value=(stdout, b""))
+        return proc
+
+    def _router(*args, **kwargs):
+        calls.append(tuple(str(arg) for arg in args))
+        if args[0] == str(old_binary):
+            return _make_proc(stdout=b"codex-cli 0.125.0\n")
+        return _make_proc()
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_router):
+        await _check_npm_deps("codex", deps, tmp_path)
+
+    assert calls[0] == (str(old_binary), "--version")
+    assert calls[1][:3] == ("npm", "install", "-g")
+    assert "@openai/codex" in calls[1]
+
+
+@pytest.mark.asyncio
+async def test_skips_npm_when_binary_meets_minimum_version(tmp_path, monkeypatch):
+    from app.services import integration_deps
+
+    current_binary = tmp_path / "codex"
+    current_binary.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(integration_deps.shutil, "which", lambda _binary: str(current_binary))
+
+    deps = [{
+        "package": "@openai/codex",
+        "binary_name": "codex",
+        "minimum_version": "0.128.0",
+        "version_command": "codex --version",
+    }]
+
+    calls: list[tuple[str, ...]] = []
+
+    def _make_proc(stdout=b"", returncode=0):
+        proc = MagicMock()
+        proc.returncode = returncode
+        proc.communicate = AsyncMock(return_value=(stdout, b""))
+        return proc
+
+    def _router(*args, **kwargs):
+        calls.append(tuple(str(arg) for arg in args))
+        return _make_proc(stdout=b"codex-cli 0.128.0\n")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=_router):
+        await _check_npm_deps("codex", deps, tmp_path)
+
+    assert calls == [(str(current_binary), "--version")]
+
+
+def test_integration_catalog_marks_stale_npm_binary_uninstalled(tmp_path, monkeypatch):
+    from app.services import integration_catalog
+
+    old_binary = tmp_path / "codex"
+    old_binary.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(integration_catalog.shutil, "which", lambda _binary: str(old_binary))
+
+    class _Proc:
+        returncode = 0
+        stdout = "codex-cli 0.125.0\n"
+        stderr = ""
+
+    monkeypatch.setattr(integration_catalog.subprocess, "run", lambda *args, **kwargs: _Proc())
+
+    entry: dict = {}
+    setup = {
+        "npm_dependencies": [{
+            "package": "@openai/codex",
+            "binary_name": "codex",
+            "minimum_version": "0.128.0",
+            "version_command": "codex --version",
+        }]
+    }
+
+    integration_catalog._apply_npm_dependencies(entry, tmp_path, setup)
+
+    assert entry["npm_deps_installed"] is False
+    assert entry["npm_dependencies"] == [{
+        "package": "@openai/codex",
+        "binary_name": "codex",
+        "installed": False,
+        "minimum_version": "0.128.0",
+    }]
+
+
 # ---------------------------------------------------------------------------
 # System deps
 # ---------------------------------------------------------------------------

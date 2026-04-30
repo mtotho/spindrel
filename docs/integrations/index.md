@@ -806,6 +806,12 @@ dashboard_modules:
 All keys are optional except `id`. See `integrations/github/integration.yaml` and
 `integrations/slack/integration.yaml` for real-world examples.
 
+NPM dependencies support an optional version floor for persisted global CLIs:
+set `minimum_version` plus `version_command` when a binary may already exist but
+older versions are not compatible with the integration's runtime surface. Startup
+and enable-time dependency checks treat binaries below the floor as missing and
+run the normal npm install path.
+
 ---
 
 ## Sidecar Docker Stacks

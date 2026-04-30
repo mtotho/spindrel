@@ -38,12 +38,14 @@ import importlib
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_SEMVER_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
 # Persistent file tracking apt-installed system packages.
 # Lives on the workspace volume so it survives Docker rebuilds.
@@ -207,7 +209,12 @@ async def _check_npm_deps(
                 continue
         else:
             binary = dep.get("binary_name", dep["package"])
-            if shutil.which(binary) or os.path.isfile(os.path.join(npm_bin, binary)):
+            binary_path = shutil.which(binary) or (
+                os.path.join(npm_bin, binary)
+                if os.path.isfile(os.path.join(npm_bin, binary))
+                else None
+            )
+            if binary_path and await _npm_binary_satisfies_version(dep, binary_path):
                 continue
 
         # Missing — install
@@ -259,6 +266,53 @@ async def _check_npm_deps(
             logger.error("npm install timed out for '%s'", integration_id)
         except Exception:
             logger.exception("Failed to auto-install npm deps for '%s'", integration_id)
+
+
+async def _npm_binary_satisfies_version(dep: dict, binary_path: str) -> bool:
+    minimum_version = dep.get("minimum_version")
+    if not minimum_version:
+        return True
+
+    version_command = dep.get("version_command")
+    cmd = (
+        [part for part in str(version_command).split() if part]
+        if version_command
+        else [binary_path, "--version"]
+    )
+    if cmd and cmd[0] == dep.get("binary_name"):
+        cmd[0] = binary_path
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+    except Exception:
+        logger.warning("Could not probe npm dependency version for %s", dep.get("package"), exc_info=True)
+        return False
+
+    if proc.returncode != 0:
+        return False
+    output = (stdout or b"").decode(errors="replace") or (stderr or b"").decode(errors="replace")
+    current = _parse_semver(output)
+    required = _parse_semver(str(minimum_version))
+    if current is None or required is None:
+        logger.warning(
+            "Could not parse npm dependency version for %s from %r",
+            dep.get("package"),
+            output.strip(),
+        )
+        return False
+    return current >= required
+
+
+def _parse_semver(value: str) -> tuple[int, int, int] | None:
+    match = _SEMVER_RE.search(value)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
 
 
 def _is_system_dep_available(dep: dict) -> bool:

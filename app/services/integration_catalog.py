@@ -4,8 +4,12 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import re
+import shutil
+import subprocess
 
 logger = logging.getLogger(__name__)
+_SEMVER_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
 
 def discover_setup_status(base_url: str = "") -> list[dict]:
@@ -223,8 +227,6 @@ def _apply_npm_dependencies(entry: dict, candidate, setup: dict) -> None:
     npm_deps = setup.get("npm_dependencies", [])
     if not npm_deps:
         return
-    import shutil
-
     npm_bin = os.path.expanduser("~/.local/bin")
     npm_status = []
     all_npm_installed = True
@@ -236,16 +238,54 @@ def _apply_npm_dependencies(entry: dict, candidate, setup: dict) -> None:
             installed = os.path.exists(check_path)
         else:
             binary = dep.get("binary_name", dep["package"])
-            installed = shutil.which(binary) is not None or os.path.isfile(os.path.join(npm_bin, binary))
+            binary_path = shutil.which(binary) or (
+                os.path.join(npm_bin, binary)
+                if os.path.isfile(os.path.join(npm_bin, binary))
+                else None
+            )
+            installed = binary_path is not None and _npm_binary_satisfies_version(dep, binary_path)
         npm_status.append({
             "package": dep["package"],
             "binary_name": dep.get("binary_name", dep["package"]),
             "installed": installed,
+            "minimum_version": dep.get("minimum_version"),
         })
         if not installed:
             all_npm_installed = False
     entry["npm_dependencies"] = npm_status
     entry["npm_deps_installed"] = all_npm_installed
+
+
+def _npm_binary_satisfies_version(dep: dict, binary_path: str) -> bool:
+    minimum_version = dep.get("minimum_version")
+    if not minimum_version:
+        return True
+
+    version_command = dep.get("version_command")
+    cmd = (
+        [part for part in str(version_command).split() if part]
+        if version_command
+        else [binary_path, "--version"]
+    )
+    if cmd and cmd[0] == dep.get("binary_name"):
+        cmd[0] = binary_path
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=5)
+    except Exception:
+        logger.debug("Could not probe npm dependency version for %s", dep.get("package"), exc_info=True)
+        return False
+    if proc.returncode != 0:
+        return False
+    current = _parse_semver(proc.stdout or proc.stderr or "")
+    required = _parse_semver(str(minimum_version))
+    return current is not None and required is not None and current >= required
+
+
+def _parse_semver(value: str) -> tuple[int, int, int] | None:
+    match = _SEMVER_RE.search(value)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
 
 
 def _apply_system_dependencies(entry: dict, setup: dict) -> None:

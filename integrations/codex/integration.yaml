@@ -11,6 +11,8 @@ dependencies:
   npm:
     - package: "@openai/codex"
       binary_name: codex
+      minimum_version: "0.128.0"
+      version_command: "codex --version"
 
 provides:
   - harness
