@@ -136,7 +136,9 @@ function reviewLine(run: ProjectCodingRun) {
   const pieces = [
     review.pr?.state ? `PR ${String(review.pr.state).toLowerCase()}` : review.handoff_url ? "PR linked" : null,
     review.pr?.checks_status ? `checks ${review.pr.checks_status}` : null,
+    review.merge_method ? `merge ${review.merge_method}` : null,
     review.merged_at ? `merged ${formatRunTime(review.merged_at)}` : null,
+    review.merge_commit_sha ? `commit ${String(review.merge_commit_sha).slice(0, 7)}` : null,
     review.review_task_id ? `review task ${String(review.review_task_id).slice(0, 8)}` : null,
     review.instance?.status ? `workspace ${review.instance.status}` : null,
   ].filter(Boolean);
@@ -264,10 +266,6 @@ export function ProjectRunsSection({
         : [...current, runId]
     ));
   };
-  const clearMissingSelection = () => {
-    const liveIds = new Set(runs.map((run) => run.id));
-    setSelectedRunIds((current) => current.filter((id) => liveIds.has(id)));
-  };
   const startRun = () => {
     if (!selectedChannel || createRun.isPending) return;
     createRun.mutate(
@@ -317,7 +315,11 @@ export function ProjectRunsSection({
   };
 
   useEffect(() => {
-    clearMissingSelection();
+    const liveIds = new Set(runs.map((run) => run.id));
+    setSelectedRunIds((current) => {
+      const next = current.filter((id) => liveIds.has(id));
+      return next.length === current.length ? current : next;
+    });
   }, [runs]);
 
   return (

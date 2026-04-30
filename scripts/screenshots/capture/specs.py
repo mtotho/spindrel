@@ -2806,11 +2806,36 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
   window.fetch = async (input, init) => {
     const raw = typeof input === "string" ? input : input?.url;
     const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
+    if (raw && method === "POST") {
+      const url = new URL(raw, window.location.origin);
+      const reviewMatch = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs\\/review-sessions$/);
+      if (reviewMatch) {
+        return new Response(JSON.stringify({
+          id: "screenshot-review-task",
+          status: "pending",
+          title: "Review Project coding runs",
+          bot_id: "screenshot-projects",
+          channel_id: null,
+          session_id: "screenshot-review-session",
+          project_instance_id: null,
+          correlation_id: null,
+          created_at: "2026-04-30T15:28:00Z",
+          scheduled_at: null,
+          run_at: null,
+          completed_at: null,
+          error: null
+        }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
     if (raw && method === "GET") {
       const url = new URL(raw, window.location.origin);
       const match = url.pathname.match(/\\/api\\/v1\\/projects\\/([^/]+)\\/coding-runs$/);
       if (match) {
         const response = await originalFetch(input, init);
+        const finalizedReview = window.__PROJECT_REVIEW_FINALIZED__ === true;
         const enrichRun = (run, projectId) => ({
           ...run,
           root_task_id: run.root_task_id || run.task?.id || run.id,
@@ -2834,7 +2859,40 @@ _PROJECT_CODING_RUN_ENDPOINT_INIT = """
             continuation_index: 1,
             feedback: "Tighten the receipt copy and recapture the Project Runs screenshot."
           }],
-          review: run.review ? {
+          review: finalizedReview ? {
+            status: "reviewed",
+            blocker: null,
+            reviewed: true,
+            reviewed_at: "2026-04-30T15:30:00Z",
+            reviewed_by: "agent",
+            review_task_id: "screenshot-review-task",
+            review_session_id: "screenshot-review-session",
+            review_summary: "Accepted after review context preflight and merged to development.",
+            review_details: { outcome: "accepted", checks: "passed", screenshots: "reviewed" },
+            merge_method: "squash",
+            merged_at: "2026-04-30T15:32:00Z",
+            merge_commit_sha: "abc1234def5678",
+            handoff_url: run.receipt?.handoff_url || "https://example.invalid/spindrel/project-run",
+            pr: { url: run.receipt?.handoff_url || "https://example.invalid/spindrel/project-run", state: "MERGED", draft: false, checks_status: "passed" },
+            steps: {
+              branch: { status: "succeeded", summary: "Screenshot Project run branch ready." },
+              push: { status: "succeeded", summary: "Changes pushed for review." },
+              pr: { status: "succeeded", summary: "Pull request ready." },
+              status: { status: "succeeded", summary: "Project run repository state inspected." },
+              merge: { status: "succeeded", summary: "Merged with squash." },
+              review: { status: "succeeded", summary: "Finalized accepted review." },
+              cleanup: { status: "missing", summary: null }
+            },
+            evidence: {
+              changed_files_count: run.receipt?.changed_files?.length || 2,
+              tests_count: run.receipt?.tests?.length || 2,
+              screenshots_count: run.receipt?.screenshots?.length || 1,
+              has_tests: true,
+              has_screenshots: true
+            },
+            instance: { id: "screenshot-project-instance", status: "ready", root_path: "common/project-instances/screenshot/project-run" },
+            actions: { can_refresh: true, can_mark_reviewed: false, can_cleanup_instance: true, can_request_changes: false }
+          } : run.review ? {
             ...run.review,
             status: "ready_for_review",
             blocker: null,
@@ -3232,6 +3290,70 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         ),
     ),
     ScreenshotSpec(
+        name="project-workspace-review-launched",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
+            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt') "
+            "&& document.body.innerText.includes('Start review')"
+        ),
+        output="project-workspace-review-launched.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[_PROJECT_CODING_RUN_ENDPOINT_INIT],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const boxes = [...root.querySelectorAll('input[type=\"checkbox\"]')];"
+            "if (boxes[1] && !boxes[1].checked) boxes[1].click();"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const start = [...root.querySelectorAll('button')].find((button) => /Start review/.test(button.textContent || ''));"
+            "if (start) start.click();"
+            "await new Promise((resolve) => setTimeout(resolve, 350));"
+        ),
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('1 selected') "
+            "&& text.includes('Review session prompt') "
+            "&& text.includes('Review session started') "
+            "&& text.includes('screenshot') "
+            "&& text.includes('Start review') "
+            "&& text.includes('Mark reviewed'), "
+            "detail: 'Project Runs tab did not show a launched review session after Start review' };"
+        ),
+    ),
+    ScreenshotSpec(
+        name="project-workspace-review-finalized",
+        route="/admin/projects/{project_workspace_project}#Runs",
+        viewport={"width": 1440, "height": 1000},
+        wait_kind="function",
+        wait_arg=(
+            "!!document.querySelector('[data-testid=\"project-workspace-runs\"]') "
+            "&& document.body.innerText.includes('Prepare the Project workspace screenshot receipt') "
+            "&& document.body.innerText.includes('PR merged')"
+        ),
+        output="project-workspace-review-finalized.png",
+        color_scheme="dark",
+        full_page=True,
+        extra_init_scripts=[
+            "window.__PROJECT_REVIEW_FINALIZED__ = true;",
+            _PROJECT_CODING_RUN_ENDPOINT_INIT,
+        ],
+        assert_js=(
+            "const text = document.body.innerText;"
+            "return { ok: text.includes('Review: reviewed') "
+            "&& text.includes('PR merged') "
+            "&& text.includes('checks passed') "
+            "&& text.includes('merge squash') "
+            "&& text.includes('commit abc1234') "
+            "&& text.includes('review task screensh') "
+            "&& text.includes('Progress: PR: ready') "
+            "&& text.includes('Handoff'), "
+            "detail: 'Project Runs tab did not expose finalized review and merge provenance' };"
+        ),
+    ),
+    ScreenshotSpec(
         name="project-workspace-terminal",
         route="/admin/projects/{project_workspace_project}#Terminal",
         viewport={"width": 1440, "height": 900},
@@ -3278,7 +3400,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            "!!document.querySelector('[data-testid=\"project-workspace-channel-summary\"]') "
+            "document.body.innerText.includes('Primary Project') "
             "&& document.body.innerText.includes('/common/projects/spindrel-screenshot')"
         ),
         output="project-workspace-channel-settings.png",

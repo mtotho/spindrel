@@ -121,12 +121,50 @@ fresh server state. `finalize_project_coding_run_review` keeps accepted-only
 reviewed semantics and returns structured error fields when a run was not
 selected or a merge/finalization step is blocked.
 
+![Project review session launched from selected coding runs](../images/project-workspace-review-launched.png)
+
+Launching a review session creates a normal task from the
+`project_coding_run_review` preset and links it back to the selected runs. The
+review task receives the selected task ids, Project/repo context, review prompt,
+and merge method default in `execution_config.project_coding_run_review`.
+
+![Project coding run after accepted review and merge](../images/project-workspace-review-finalized.png)
+
+After the review agent accepts and merges a run, the run row shows the durable
+provenance the human needs to audit: reviewed status, PR merged state, check
+status, merge method, merge commit, review task link, handoff link, and the
+evidence receipt that was reviewed.
+
 Receipts are idempotent by task, handoff URL, git handoff metadata, or an
 explicit `idempotency_key`. Retrying `publish_project_run_receipt` updates the
 same review record instead of creating a stack of duplicate receipts. The
 `run_e2e_tests` tool resolves the same `E2E_*` target used by the test harness,
 so agents running on the main server can probe or execute tests against the
 configured e2e-testing server before adding screenshot evidence.
+
+### Review-Agent Evidence
+
+The current Project factory path is covered by source-controlled screenshot
+artifacts, not ad hoc local captures:
+
+| Artifact | What it proves |
+|---|---|
+| [Project Runs cockpit](../images/project-workspace-runs.png) | Coding-run launch, selected-run review prompt, batch mark-reviewed/review-session controls, branch/PR progress, continuation action, handoff links, and receipt evidence. |
+| [Review session launched](../images/project-workspace-review-launched.png) | Clicking Start review on a selected run returns a review task and surfaces the task link in the cockpit. |
+| [Review finalized and merged](../images/project-workspace-review-finalized.png) | Accepted review provenance after merge: reviewed status, merged PR, check status, merge method, merge commit, review task, and handoff. |
+| [Project memory-tool transcript](../images/project-workspace-memory-tool.png) | Project-bound channels still render the memory tool result envelope with the expected `path` and completion message. |
+| [Project terminal](../images/project-workspace-terminal.png) | Project-rooted terminal cwd resolves through the Project work surface. |
+| [Project channel settings](../images/project-workspace-channel-settings.png) | Non-harness channel settings bind to the Project primitive instead of a path-only workspace override. |
+| [Project instances](../images/project-workspace-instances.png) | Fresh Project instance readiness and file handoff are visible from the Project work surface. |
+| [Codex project terminal](../images/harness-codex-project-terminal.png) | A live Codex project-build e2e run on the main server created and verified files under the Project cwd. |
+| [Codex mobile context](../images/harness-codex-mobile-context.png) | The same live Codex session exposes Project cwd, context, and bridge inventory in the mobile inspector. |
+| [Codex plan-mode switcher](../images/harness-codex-plan-mode-switcher.png) | The live Codex session preserves the Spindrel plan/implement mode control while using Project cwd. |
+
+`get_project_coding_run_review_context` is a runtime tool contract rather than a
+visual surface. Its source-controlled evidence is the focused unit coverage for
+selected-run manifests, readiness fields, and structured finalizer errors, plus
+the Runs cockpit screenshot that shows the selected-review workflow that invokes
+it.
 
 ## Channels And Memory
 

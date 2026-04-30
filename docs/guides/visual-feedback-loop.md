@@ -112,6 +112,8 @@ project-workspace-setup-ready.png
 project-workspace-setup-run-history.png
 project-workspace-instances.png
 project-workspace-runs.png
+project-workspace-review-launched.png
+project-workspace-review-finalized.png
 project-workspace-terminal.png
 project-workspace-channels.png
 project-workspace-channel-settings.png
@@ -128,7 +130,8 @@ a memory-tool turn. Inspect all thirteen images before closing out: the
 bundle intentionally checks Project admin surfaces, Blueprint management,
 Project setup commands and run history, Project Basics readiness,
 Project runtime-env readiness, fresh
-Project instances, Project coding-run cockpit/receipts/review launcher, Project
+Project instances, Project coding-run cockpit/receipts/review launcher, launched
+review-session confirmation, finalized review/merge provenance, Project
 settings, and the channel transcript.
 
 ## Channel Quick Automations Run
