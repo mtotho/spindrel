@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Project, ProjectSecretBinding, ProjectSetupRun
+from app.services.github_git_auth import github_git_env
 from app.services.projects import normalize_project_path, project_directory_from_project
 from app.services.project_runtime import (
     build_project_runtime_environment,
@@ -333,38 +334,39 @@ async def execute_project_setup_plan(
     """Execute the Project setup plan."""
     if not plan.get("ready"):
         return {"status": RUN_STATUS_FAILED, "repos": [], "logs": ["Setup plan is not ready."]}
-    env = {**{str(k): str(v) for k, v in (plan.get("env") or {}).items()}, **secret_env}
+    base_env = {**os.environ, **{str(k): str(v) for k, v in (plan.get("env") or {}).items()}, **secret_env}
     repo_results: list[dict[str, Any]] = []
     command_results: list[dict[str, Any]] = []
     logs: list[str] = []
-    for repo in plan.get("repos") or []:
-        target = _safe_repo_target(project_root, str(repo.get("path") or ""))
-        result = await _run_git_clone(repo, target=target, env=env, secret_env=secret_env)
-        repo_results.append(result)
-        logs.append(_redact_with_values(f"{result['status']}: {repo.get('path')} {result.get('message', '')}".strip(), secret_env))
-    if any(repo.get("status") == "failed" for repo in repo_results):
-        for command in plan.get("commands") or []:
-            command_results.append({**command, "status": "skipped", "message": "Skipped because repository setup failed."})
-        return {"status": RUN_STATUS_FAILED, "repos": repo_results, "commands": command_results, "logs": logs}
-
-    for command in plan.get("commands") or []:
-        cwd = _safe_command_cwd(project_root, str(command.get("cwd") or ""))
-        if command.get("cwd") and not cwd.exists():
-            result = {
-                **command,
-                "status": "failed",
-                "message": "Command cwd does not exist.",
-                "returncode": None,
-            }
-        else:
-            cwd.mkdir(parents=True, exist_ok=True)
-            result = await _run_setup_command(command, cwd=cwd, env=env, secret_env=secret_env)
-        command_results.append(result)
-        logs.append(_redact_with_values(f"{result['status']}: {command.get('name')} {result.get('message', '')}".strip(), secret_env))
-        if result.get("status") == "failed":
-            for skipped in (plan.get("commands") or [])[len(command_results):]:
-                command_results.append({**skipped, "status": "skipped", "message": "Skipped because an earlier command failed."})
+    with github_git_env(base_env) as env:
+        for repo in plan.get("repos") or []:
+            target = _safe_repo_target(project_root, str(repo.get("path") or ""))
+            result = await _run_git_clone(repo, target=target, env=env, secret_env=secret_env)
+            repo_results.append(result)
+            logs.append(_redact_with_values(f"{result['status']}: {repo.get('path')} {result.get('message', '')}".strip(), secret_env))
+        if any(repo.get("status") == "failed" for repo in repo_results):
+            for command in plan.get("commands") or []:
+                command_results.append({**command, "status": "skipped", "message": "Skipped because repository setup failed."})
             return {"status": RUN_STATUS_FAILED, "repos": repo_results, "commands": command_results, "logs": logs}
+
+        for command in plan.get("commands") or []:
+            cwd = _safe_command_cwd(project_root, str(command.get("cwd") or ""))
+            if command.get("cwd") and not cwd.exists():
+                result = {
+                    **command,
+                    "status": "failed",
+                    "message": "Command cwd does not exist.",
+                    "returncode": None,
+                }
+            else:
+                cwd.mkdir(parents=True, exist_ok=True)
+                result = await _run_setup_command(command, cwd=cwd, env=env, secret_env=secret_env)
+            command_results.append(result)
+            logs.append(_redact_with_values(f"{result['status']}: {command.get('name')} {result.get('message', '')}".strip(), secret_env))
+            if result.get("status") == "failed":
+                for skipped in (plan.get("commands") or [])[len(command_results):]:
+                    command_results.append({**skipped, "status": "skipped", "message": "Skipped because an earlier command failed."})
+                return {"status": RUN_STATUS_FAILED, "repos": repo_results, "commands": command_results, "logs": logs}
 
     return {"status": RUN_STATUS_SUCCEEDED, "repos": repo_results, "commands": command_results, "logs": logs}
 

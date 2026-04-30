@@ -540,6 +540,46 @@ class E2EClient:
         data = resp.json()
         return data["bots"] if isinstance(data, dict) and "bots" in data else data
 
+    async def create_bot(self, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/admin/bots."""
+        resp = await self._client.post("/api/v1/admin/bots", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def set_integration_status(self, integration_id: str, status: str) -> dict:
+        """PUT /api/v1/admin/integrations/{id}/status."""
+        resp = await self._client.put(
+            f"/api/v1/admin/integrations/{integration_id}/status",
+            json={"status": status},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_harnesses(self) -> list[dict]:
+        """GET /api/v1/admin/harnesses."""
+        resp = await self._client.get("/api/v1/admin/harnesses")
+        resp.raise_for_status()
+        return resp.json().get("runtimes") or []
+
+    async def get_runtime_capabilities(self, runtime: str) -> dict:
+        """GET /api/v1/runtimes/{runtime}/capabilities."""
+        resp = await self._client.get(f"/api/v1/runtimes/{runtime}/capabilities")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_secret_values(self) -> list[dict]:
+        """GET /api/v1/admin/secret-values/."""
+        resp = await self._client.get("/api/v1/admin/secret-values/")
+        resp.raise_for_status()
+        data = resp.json()
+        return data["items"] if isinstance(data, dict) and "items" in data else data
+
+    async def create_project_blueprint(self, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/projects/blueprints."""
+        resp = await self._client.post("/api/v1/projects/blueprints", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
     async def list_channels(self) -> list[dict]:
         """GET /api/v1/admin/channels."""
         resp = await self._client.get("/api/v1/admin/channels")
@@ -552,6 +592,24 @@ class E2EClient:
     async def create_project(self, project_data: dict[str, Any]) -> dict:
         """POST /api/v1/projects — create a Project."""
         resp = await self._client.post("/api/v1/projects", json=project_data)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_project_from_blueprint(self, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/projects/from-blueprint."""
+        resp = await self._client.post("/api/v1/projects/from-blueprint", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_project_setup(self, project_id: str) -> dict:
+        """GET /api/v1/projects/{id}/setup."""
+        resp = await self._client.get(f"/api/v1/projects/{project_id}/setup")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def run_project_setup(self, project_id: str) -> dict:
+        """POST /api/v1/projects/{id}/setup/runs."""
+        resp = await self._client.post(f"/api/v1/projects/{project_id}/setup/runs")
         resp.raise_for_status()
         return resp.json()
 
@@ -592,6 +650,12 @@ class E2EClient:
     async def list_project_coding_runs(self, project_id: str) -> list[dict]:
         """GET /api/v1/projects/{id}/coding-runs."""
         resp = await self._client.get(f"/api/v1/projects/{project_id}/coding-runs")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def create_project_coding_run(self, project_id: str, payload: dict[str, Any]) -> dict:
+        """POST /api/v1/projects/{id}/coding-runs."""
+        resp = await self._client.post(f"/api/v1/projects/{project_id}/coding-runs", json=payload)
         resp.raise_for_status()
         return resp.json()
 

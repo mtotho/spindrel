@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import get_bot
 from app.db.models import Channel, Project, Task
 from app.services.execution_receipts import create_execution_receipt, serialize_execution_receipt
+from app.services.github_git_auth import prepare_github_git_env
 from app.services.project_runtime import load_project_runtime_environment_for_id
 from app.services.projects import (
     normalize_project_path,
@@ -293,6 +294,7 @@ async def prepare_project_run_handoff(
     env = os.environ.copy()
     if runtime is not None:
         env.update({str(key): str(value) for key, value in runtime.env.items()})
+    env = prepare_github_git_env(env)
 
     runner = command_runner or _default_command_runner
     repo_root_result = await _run(runner, commands, cwd, ("git", "rev-parse", "--show-toplevel"), env)

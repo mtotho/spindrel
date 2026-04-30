@@ -78,6 +78,20 @@ def test_write_auth_override_mounts_existing_auth_dirs(monkeypatch, tmp_path):
     assert f"{claude_home}:/home/spindrel/.claude:rw" in body
 
 
+def test_merged_env_uses_auth_override_when_present(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    override = tmp_path / "compose.auth.override.yml"
+    env_path.write_text("E2E_API_KEY=test-key\n")
+    override.write_text("services: {}\n")
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "AUTH_OVERRIDE", override)
+    monkeypatch.delenv("E2E_COMPOSE_OVERRIDES", raising=False)
+
+    env = agent_e2e_dev._merged_env()
+
+    assert env["E2E_COMPOSE_OVERRIDES"] == str(override)
+
+
 def test_write_env_subscription_mode_uses_placeholder_until_oauth(monkeypatch, tmp_path, capsys):
     env_path = tmp_path / ".env.agent-e2e"
     monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
@@ -163,6 +177,7 @@ def test_commands_prints_subscription_handoff_when_configured(monkeypatch, tmp_p
     assert "python scripts/agent_e2e_dev.py prepare" in out
     assert "subscription handoff:" in out
     assert "bootstrap-subscription" in out
+    assert "prepare-project-factory-smoke" in out
 
 
 def test_prepare_builds_recreates_stack_and_waits_for_health(monkeypatch, tmp_path):
@@ -211,6 +226,62 @@ def test_prepare_builds_recreates_stack_and_waits_for_health(monkeypatch, tmp_pa
     assert calls[2][-3:] == ["-d", "--no-deps", "spindrel"]
     assert "-p" in calls[1]
     assert "spindrel-local-e2e" in calls[1]
+
+
+def test_prepare_project_factory_smoke_enables_runtime_installs_gh_and_seeds_secret(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env.agent-e2e"
+    override = tmp_path / "compose.auth.override.yml"
+    env_path.write_text("E2E_API_KEY=test-key\nE2E_LLM_BASE_URL=https://example.invalid/v1\n")
+    monkeypatch.setattr(agent_e2e_dev, "LOCAL_ENV", env_path)
+    monkeypatch.setattr(agent_e2e_dev, "AUTH_OVERRIDE", override)
+    (tmp_path / ".codex").mkdir()
+    monkeypatch.setattr(agent_e2e_dev.Path, "home", lambda: tmp_path)
+    calls: list[tuple[str, str, dict | None]] = []
+
+    def fake_request(method: str, url: str, *, api_key: str = "", body: dict | None = None, timeout: int = 20):
+        calls.append((method, url, body))
+        if url.endswith("/api/v1/admin/secret-values/") and method == "GET":
+            return []
+        if url.endswith("/api/v1/admin/harnesses"):
+            return {"runtimes": [{"name": "codex", "ok": True, "detail": "Logged in"}]}
+        return {}
+
+    monkeypatch.setattr(agent_e2e_dev, "_prepare_stack", lambda **kwargs: calls.append(("PREPARE", kwargs["api_url"], None)))
+    monkeypatch.setattr(agent_e2e_dev, "_request_json", fake_request)
+    monkeypatch.setattr(agent_e2e_dev, "_host_command_output", lambda args: "ghp_test_token")
+
+    assert agent_e2e_dev.cmd_prepare_project_factory_smoke(
+        argparse.Namespace(
+            api_url="http://localhost:18000",
+            api_key="",
+            runtime="codex",
+            github_repo="mtotho/vault",
+            base_branch="master",
+            github_secret_name="PROJECT_FACTORY_SMOKE_GITHUB_TOKEN",
+            seed_github_token_from_gh=True,
+            skip_setup=False,
+            no_build=True,
+            startup_timeout=1,
+            allow_production=False,
+        )
+    ) == 0
+
+    assert override.exists()
+    assert ("PUT", "http://localhost:18000/api/v1/admin/integrations/codex/status", {"status": "enabled"}) in calls
+    assert (
+        "POST",
+        "http://localhost:18000/api/v1/admin/integrations/codex/install-system-deps",
+        {"apt_package": "gh"},
+    ) in calls
+    assert (
+        "POST",
+        "http://localhost:18000/api/v1/admin/secret-values/",
+        {
+            "name": "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN",
+            "value": "ghp_test_token",
+            "description": "Local e2e Project Factory smoke GitHub token seeded from host gh auth.",
+        },
+    ) in calls
 
 
 def test_doctor_reports_connected_subscription(monkeypatch, tmp_path, capsys):

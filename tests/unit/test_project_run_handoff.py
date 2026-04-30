@@ -23,6 +23,7 @@ class FakeGitRunner:
 
     async def __call__(self, cwd: str, args: tuple[str, ...], env: dict[str, str], timeout: int) -> CommandResult:
         self.calls.append(args)
+        self.last_env = dict(env)
         if args == ("git", "rev-parse", "--show-toplevel"):
             return CommandResult(args=args, cwd=cwd, exit_code=0, stdout=cwd)
         if args == ("git", "status", "--short"):
@@ -127,6 +128,33 @@ async def test_prepare_project_run_handoff_creates_branch_and_progress_receipt(d
     ]
     assert receipts[0].target["project_id"] == str(project.id)
     assert receipts[0].task_id == task.id
+
+
+async def test_prepare_project_run_handoff_maps_github_token_for_git_and_gh(db_session, monkeypatch, tmp_path):
+    _project, channel, task, _repo_dir = await _seed_project_run(db_session, monkeypatch, tmp_path)
+
+    async def _runtime(_db, _project_id):
+        return SimpleNamespace(env={"GITHUB_TOKEN": "ghp_project_token"})
+
+    monkeypatch.setattr(
+        "app.services.project_run_handoff.load_project_runtime_environment_for_id",
+        _runtime,
+    )
+    runner = FakeGitRunner(current_branch="development")
+
+    payload = await prepare_project_run_handoff(
+        db_session,
+        task_id=task.id,
+        channel_id=channel.id,
+        bot_id="agent",
+        command_runner=runner,
+    )
+
+    assert payload["ok"] is True
+    assert runner.last_env["GITHUB_TOKEN"] == "ghp_project_token"
+    assert runner.last_env["GH_TOKEN"] == "ghp_project_token"
+    assert runner.last_env["GIT_TERMINAL_PROMPT"] == "0"
+    assert runner.last_env["GIT_ASKPASS"].endswith("spindrel-github-askpass.sh")
 
 
 async def test_prepare_project_run_handoff_blocks_branch_switch_when_dirty(db_session, monkeypatch, tmp_path):

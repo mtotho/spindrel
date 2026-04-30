@@ -29,6 +29,7 @@ COMPOSE_PROJECT = "spindrel-local-e2e"
 COMPOSE_FILE = REPO_ROOT / "tests" / "e2e" / "docker-compose.e2e.yml"
 SUBSCRIPTION_DUMMY_BASE_URL = "http://127.0.0.1:9/v1"
 SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.4-mini"
+PROJECT_FACTORY_SECRET_NAME = "PROJECT_FACTORY_SMOKE_GITHUB_TOKEN"
 
 
 PRODUCTION_PORTS = {8000}
@@ -110,6 +111,8 @@ def _read_env_file(path: Path) -> dict[str, str]:
 def _merged_env() -> dict[str, str]:
     env = dict(os.environ)
     env.update({k: v for k, v in _read_env_file(LOCAL_ENV).items() if k not in env})
+    if "E2E_COMPOSE_OVERRIDES" not in env and AUTH_OVERRIDE.exists():
+        env["E2E_COMPOSE_OVERRIDES"] = str(AUTH_OVERRIDE)
     return env
 
 
@@ -152,12 +155,34 @@ def _request_json(
     return json.loads(raw) if raw else {}
 
 
+def _request_json_or_none(
+    method: str,
+    url: str,
+    *,
+    api_key: str = "",
+    body: dict | None = None,
+    timeout: int = 20,
+) -> dict | None:
+    try:
+        return _request_json(method, url, api_key=api_key, body=body, timeout=timeout)
+    except Exception:
+        return None
+
+
 def _check_url(url: str, api_key: str) -> tuple[bool, str]:
     try:
         data = _request_json("GET", f"{url.rstrip('/')}/health", api_key=api_key, timeout=5)
         return True, json.dumps(data, sort_keys=True)[:180]
     except Exception as exc:
         return False, str(exc)
+
+
+def _host_command_output(args: list[str], *, timeout: int = 20) -> str:
+    proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise SystemExit(f"{' '.join(args)} failed: {detail}")
+    return proc.stdout.strip()
 
 
 def _is_local_url(url: str) -> bool:
@@ -338,6 +363,26 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"  compose override: {'present' if AUTH_OVERRIDE.exists() else 'missing'}")
     ok, detail = _check_url(url, key)
     print(f"  health: {'ok' if ok else 'failed'} {detail}")
+    if ok:
+        harnesses = _request_json_or_none("GET", f"{url}/api/v1/admin/harnesses", api_key=key)
+        if isinstance(harnesses, dict):
+            runtimes = harnesses.get("runtimes") or []
+            labels = [
+                f"{item.get('name')}:{'ok' if item.get('ok') else 'blocked'}"
+                for item in runtimes
+                if isinstance(item, dict)
+            ]
+            print(f"  harness runtimes: {', '.join(labels) if labels else 'none registered'}")
+        for runtime in ("codex", "claude-code"):
+            caps = _request_json_or_none("GET", f"{url}/api/v1/runtimes/{runtime}/capabilities", api_key=key)
+            print(f"  runtime {runtime}: {'registered' if caps else 'missing'}")
+        secrets = _request_json_or_none("GET", f"{url}/api/v1/admin/secret-values/", api_key=key)
+        secret_rows = secrets if isinstance(secrets, list) else secrets.get("items") if isinstance(secrets, dict) else []
+        has_smoke_secret = any(
+            isinstance(row, dict) and row.get("name") == PROJECT_FACTORY_SECRET_NAME
+            for row in (secret_rows or [])
+        )
+        print(f"  project factory GitHub secret: {'present' if has_smoke_secret else 'missing'}")
     provider = env.get("SPINDREL_AGENT_E2E_PROVIDER", "")
     if provider == "subscription":
         print("  provider mode: subscription")
@@ -360,6 +405,107 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("  provider mode: unspecified")
         print("  provider key: missing or not needed")
     return 0 if ok else 1
+
+
+def _ensure_auth_override() -> None:
+    if AUTH_OVERRIDE.exists():
+        return
+    mounts: list[str] = []
+    for name in (".codex", ".claude"):
+        path = Path.home() / name
+        if path.exists():
+            mounts.append(f"      - {path}:/home/spindrel/{name}:rw")
+    if not mounts:
+        raise SystemExit("no Codex or Claude auth/config directory exists to mount")
+    content = "\n".join(["services:", "  spindrel:", "    volumes:", *mounts, ""])
+    _write_text(AUTH_OVERRIDE, content, force=False)
+
+
+def _set_integration_enabled(api_url: str, api_key: str, integration_id: str) -> None:
+    _request_json(
+        "PUT",
+        f"{api_url}/api/v1/admin/integrations/{integration_id}/status",
+        api_key=api_key,
+        body={"status": "enabled"},
+        timeout=120,
+    )
+    print(f"enabled integration {integration_id!r}")
+
+
+def _install_system_dependency(api_url: str, api_key: str, integration_id: str, apt_package: str) -> None:
+    _request_json(
+        "POST",
+        f"{api_url}/api/v1/admin/integrations/{integration_id}/install-system-deps",
+        api_key=api_key,
+        body={"apt_package": apt_package},
+        timeout=180,
+    )
+    print(f"ensured system package {apt_package!r} for integration {integration_id!r}")
+
+
+def _seed_github_secret(api_url: str, api_key: str, *, secret_name: str) -> None:
+    token = _host_command_output(["gh", "auth", "token"])
+    if not token:
+        raise SystemExit("host gh auth token was empty")
+    rows = _request_json("GET", f"{api_url}/api/v1/admin/secret-values/", api_key=api_key)
+    existing = None
+    for row in rows if isinstance(rows, list) else rows.get("items", []):
+        if isinstance(row, dict) and row.get("name") == secret_name:
+            existing = row
+            break
+    body = {
+        "name": secret_name,
+        "value": token,
+        "description": "Local e2e Project Factory smoke GitHub token seeded from host gh auth.",
+    }
+    if existing:
+        _request_json(
+            "PUT",
+            f"{api_url}/api/v1/admin/secret-values/{existing['id']}",
+            api_key=api_key,
+            body=body,
+        )
+        print(f"updated local e2e secret {secret_name!r}")
+    else:
+        _request_json("POST", f"{api_url}/api/v1/admin/secret-values/", api_key=api_key, body=body)
+        print(f"created local e2e secret {secret_name!r}")
+
+
+def cmd_prepare_project_factory_smoke(args: argparse.Namespace) -> int:
+    env = _merged_env()
+    api_url = (args.api_url or _base_url(env)).rstrip("/")
+    _require_non_production(api_url, allow_production=args.allow_production)
+    api_key = args.api_key or _api_key(env)
+    if args.runtime != "codex":
+        raise SystemExit("only --runtime codex is supported for the Project Factory smoke")
+    _ensure_auth_override()
+    env = _merged_env()
+    if not args.skip_setup:
+        _prepare_stack(
+            api_url=api_url,
+            api_key=api_key,
+            env=env,
+            build=not args.no_build,
+            startup_timeout=args.startup_timeout,
+        )
+    _set_integration_enabled(api_url, api_key, "codex")
+    _install_system_dependency(api_url, api_key, "codex", "gh")
+    if args.seed_github_token_from_gh:
+        _seed_github_secret(api_url, api_key, secret_name=args.github_secret_name)
+    harnesses = _request_json("GET", f"{api_url}/api/v1/admin/harnesses", api_key=api_key, timeout=60)
+    runtimes = harnesses.get("runtimes") or []
+    codex = next((item for item in runtimes if isinstance(item, dict) and item.get("name") == "codex"), None)
+    if not codex:
+        raise SystemExit("codex harness runtime is not registered on the local e2e server")
+    if not codex.get("ok"):
+        raise SystemExit(f"codex harness runtime is registered but not ready: {codex.get('detail')}")
+    print("Project Factory local e2e smoke readiness: ok")
+    print(f"  target: {api_url}")
+    print(f"  runtime: {args.runtime}")
+    print(f"  github repo: {args.github_repo}")
+    print(f"  base branch: {args.base_branch}")
+    print(f"  github secret: {args.github_secret_name}")
+    return 0
 
 
 def cmd_write_env(args: argparse.Namespace) -> int:
@@ -596,6 +742,12 @@ def cmd_commands(args: argparse.Namespace) -> int:
     print("  python -m scripts.screenshots check")
     print("external target status from a Spindrel bot:")
     print('  run_e2e_tests(action="status")')
+    print("project factory local PR smoke:")
+    print(
+        "  python scripts/agent_e2e_dev.py prepare-project-factory-smoke "
+        "--runtime codex --github-repo mtotho/vault --base-branch master --seed-github-token-from-gh"
+    )
+    print("  PROJECT_FACTORY_LIVE_PR=1 E2E_KEEP_RUNNING=1 pytest tests/e2e/scenarios/test_project_factory_live_pr_smoke.py -v -s")
     return 0
 
 
@@ -669,6 +821,20 @@ def build_parser() -> argparse.ArgumentParser:
     oauth.add_argument("--startup-timeout", type=int, default=180)
     oauth.add_argument("--allow-production", action="store_true")
     oauth.set_defaults(func=cmd_bootstrap_subscription)
+
+    factory = sub.add_parser("prepare-project-factory-smoke")
+    factory.add_argument("--api-url", default="")
+    factory.add_argument("--api-key", default="")
+    factory.add_argument("--runtime", choices=["codex"], default="codex")
+    factory.add_argument("--github-repo", default="mtotho/vault")
+    factory.add_argument("--base-branch", default="master")
+    factory.add_argument("--github-secret-name", default=PROJECT_FACTORY_SECRET_NAME)
+    factory.add_argument("--seed-github-token-from-gh", action="store_true")
+    factory.add_argument("--skip-setup", action="store_true")
+    factory.add_argument("--no-build", action="store_true")
+    factory.add_argument("--startup-timeout", type=int, default=180)
+    factory.add_argument("--allow-production", action="store_true")
+    factory.set_defaults(func=cmd_prepare_project_factory_smoke)
 
     commands = sub.add_parser("commands")
     commands.add_argument("--env-file", default=".env.agent-e2e")

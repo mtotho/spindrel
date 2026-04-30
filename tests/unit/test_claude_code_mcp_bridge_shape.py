@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 from app.db.engine import async_session
 from app.services.agent_harnesses.base import HarnessToolSpec, TurnContext
+from app.services.agent_harnesses.interactions import HarnessQuestionResult
 from integrations.sdk import HarnessSpindrelToolResult
 
 
@@ -194,3 +195,83 @@ def test_claude_mcp_bridge_caches_rich_spindrel_tool_result(monkeypatch):
     assert result == {"content": [{"type": "text", "text": "channels"}]}
     assert "list_channels:{}" in bridge_results
     assert bridge_results["list_channels:{}"][0].summary["label"] == "Channels"
+
+
+def test_claude_ask_user_question_routes_through_harness_question(monkeypatch):
+    class FakeAllow:
+        def __init__(self, updated_input=None):
+            self.updated_input = updated_input
+
+    class FakeDeny:
+        def __init__(self, message="", interrupt=False):
+            self.message = message
+            self.interrupt = interrupt
+
+    fake_sdk = types.SimpleNamespace(
+        PermissionResultAllow=FakeAllow,
+        PermissionResultDeny=FakeDeny,
+    )
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake_sdk)
+    sys.modules.pop("integrations.claude_code.harness", None)
+    harness = importlib.import_module("integrations.claude_code.harness")
+
+    captured: dict[str, object] = {}
+
+    async def fake_request_harness_question(*, ctx, runtime_name, tool_input):
+        captured["ctx"] = ctx
+        captured["runtime_name"] = runtime_name
+        captured["tool_input"] = tool_input
+        return HarnessQuestionResult(
+            interaction_id="question-1",
+            questions=[
+                {
+                    "id": "scope",
+                    "question": "Which scope?",
+                    "options": [{"label": "Focused"}],
+                }
+            ],
+            answers=[
+                {
+                    "question_id": "scope",
+                    "answer": "Only inspect the harness adapter.",
+                    "selected_options": ["Focused"],
+                }
+            ],
+            notes="No file writes.",
+        )
+
+    monkeypatch.setattr(harness, "request_harness_question", fake_request_harness_question)
+    runtime = harness.ClaudeCodeRuntime()
+    ctx = _ctx()
+    callback = harness._make_can_use_tool(ctx, runtime=runtime)
+
+    result = asyncio.run(callback(
+        "AskUserQuestion",
+        {
+            "prompt": "Need scope",
+            "questions": [{"id": "scope", "question": "Which scope?"}],
+        },
+        types.SimpleNamespace(),
+    ))
+
+    assert isinstance(result, FakeAllow)
+    assert captured == {
+        "ctx": ctx,
+        "runtime_name": "claude-code",
+        "tool_input": {
+            "prompt": "Need scope",
+            "questions": [{"id": "scope", "question": "Which scope?"}],
+        },
+    }
+    assert result.updated_input["answers"] == {
+        "Which scope?": "Focused; Only inspect the harness adapter.",
+        "Additional notes": "No file writes.",
+    }
+    assert result.updated_input["spindrel_answers"] == [
+        {
+            "question_id": "scope",
+            "question": "Which scope?",
+            "answer": "Focused; Only inspect the harness adapter.",
+            "selected_options": ["Focused"],
+        }
+    ]

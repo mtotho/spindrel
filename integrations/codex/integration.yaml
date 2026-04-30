@@ -13,6 +13,10 @@ dependencies:
       binary_name: codex
       minimum_version: "0.128.0"
       version_command: "codex --version"
+  system:
+    - binary: gh
+      apt_package: gh
+      install_hint: "Install GitHub CLI for Project coding-run PR handoff."
 
 provides:
   - harness

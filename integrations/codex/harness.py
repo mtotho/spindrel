@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import time
 from typing import Any
 
@@ -637,16 +638,7 @@ class CodexRuntime:
         cached = _AUTH_STATUS_CACHE.get(self.name)
         if cached and (time.monotonic() - cached[0]) < _AUTH_STATUS_TTL:
             return cached[1]
-        try:
-            status = asyncio.run(_check_auth_status())
-        except RuntimeError:
-            # Already inside a running loop — fall back to the optimistic
-            # "needs login" hint rather than block the event loop.
-            status = AuthStatus(
-                ok=False,
-                detail="Auth check skipped (running inside an event loop).",
-                suggested_command="codex login --device-auth",
-            )
+        status = _run_auth_status_check_sync()
         _AUTH_STATUS_CACHE[self.name] = (time.monotonic(), status)
         return status
 
@@ -1252,6 +1244,41 @@ def _server_supports_dynamic_tools(client: CodexAppServer) -> bool:
         if explicit is True:
             return True
     return True
+
+
+def _run_auth_status_check_sync() -> AuthStatus:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_check_auth_status())
+
+    box: dict[str, AuthStatus | BaseException] = {}
+
+    def _worker() -> None:
+        try:
+            box["result"] = asyncio.run(_check_auth_status())
+        except BaseException as exc:  # pragma: no cover - defensive relay
+            box["error"] = exc
+
+    thread = threading.Thread(target=_worker, name="codex-auth-status", daemon=True)
+    thread.start()
+    thread.join(timeout=20)
+    if thread.is_alive():
+        return AuthStatus(
+            ok=False,
+            detail="Codex auth check timed out.",
+            suggested_command="codex login --device-auth",
+        )
+    if isinstance(box.get("error"), BaseException):
+        raise box["error"]  # type: ignore[misc]
+    result = box.get("result")
+    if isinstance(result, AuthStatus):
+        return result
+    return AuthStatus(
+        ok=False,
+        detail="Codex auth check did not return a status.",
+        suggested_command="codex login --device-auth",
+    )
 
 
 async def _check_auth_status() -> AuthStatus:

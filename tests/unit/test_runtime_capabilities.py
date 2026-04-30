@@ -399,3 +399,19 @@ async def test_codex_auth_status_includes_supported_cli_version(monkeypatch):
 
     assert status.ok is True
     assert status.detail == "Logged in as codex@example.test (codex-cli 0.128.0)"
+
+
+@pytest.mark.asyncio
+async def test_codex_sync_auth_status_runs_from_existing_event_loop(monkeypatch):
+    from integrations.codex import harness as codex_harness
+    from app.services.agent_harnesses.base import AuthStatus
+
+    async def _fake_check():
+        return AuthStatus(ok=True, detail="threaded auth ok")
+
+    monkeypatch.setattr(codex_harness, "_check_auth_status", _fake_check)
+
+    status = codex_harness._run_auth_status_check_sync()
+
+    assert status.ok is True
+    assert status.detail == "threaded auth ok"
