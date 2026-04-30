@@ -166,7 +166,34 @@ function formatSkillRef(skillId: string): string {
 }
 
 function shortToolName(name: string): string {
-  return name.includes("-") ? name.slice(name.lastIndexOf("-") + 1) : name;
+  const clean = name.trim();
+  const mcp = clean.match(/^mcp__[^_]+__(.+)$/i);
+  const short = mcp?.[1] || clean;
+  return short.includes("-") ? short.slice(short.lastIndexOf("-") + 1) : short;
+}
+
+function normalizeToolLabel(toolName: string, label: string): string {
+  const cleanLabel = label.trim();
+  const cleanName = toolName.trim();
+  if (!cleanLabel || !/^mcp__/i.test(cleanName)) return cleanLabel;
+
+  const normalized = (value: string) => value
+    .replace(/__/g, " ")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const short = shortToolName(cleanName).replace(/_/g, " ");
+  const normalizedShort = normalized(short);
+  const normalizedLabel = normalized(cleanLabel);
+  const normalizedName = normalized(cleanName);
+  if (
+    normalizedLabel === normalizedName
+    || (normalizedLabel.startsWith("mcp ") && normalizedLabel.endsWith(normalizedShort))
+  ) {
+    return short;
+  }
+  return cleanLabel;
 }
 
 function parsedArgsObject(args: string | undefined): Record<string, unknown> | null {
@@ -546,8 +573,9 @@ function summarizeGenericTool(toolName: string, args?: string): string {
     return labelByOperation[operation] ?? "Updated file";
   }
   const path = (parsed?.path || parsed?.file_path || parsed?.target_path || parsed?.source_path) as string | undefined;
-  if (path) return `${toolName.replace(/_/g, " ")} ${path}`;
-  return toolName.replace(/_/g, " ");
+  const displayName = shortToolName(toolName).replace(/_/g, " ");
+  if (path) return `${displayName} ${path}`;
+  return displayName;
 }
 
 function extractFileToolTarget(toolName: string, args?: string): string | null {
@@ -600,6 +628,7 @@ function buildEntryFromSummary(
   args?: string,
   rawCall?: ToolCall,
 ): SharedToolTranscriptEntry {
+  const summaryLabel = normalizeToolLabel(toolName, summary.label);
   const shell = shellCallSummary(toolName, args, summary.label);
   if (shell) {
     const previewText = resolvePreviewText(summary, result, shell.label);
@@ -622,12 +651,12 @@ function buildEntryFromSummary(
   }
   const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
   const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
-  const previewText = resolvePreviewText(summary, result, summary.label);
+  const previewText = resolvePreviewText(summary, result, summaryLabel);
   if (summary.kind === "diff" && summary.subject_type === "file") {
     return {
-      id: `${toolName}:${summary.label}`,
+      id: `${toolName}:${summaryLabel}`,
       kind: "file",
-      label: summary.label,
+      label: summaryLabel,
       metaLabel: summarizeDiffMeta(summary),
       previewText: null,
       target: summaryFileTarget(summary) || (summary.target_label ? null : target),
@@ -642,9 +671,9 @@ function buildEntryFromSummary(
   }
   if (summary.kind === "read" && summary.subject_type === "file") {
     return {
-      id: `${toolName}:${summary.label}`,
+      id: `${toolName}:${summaryLabel}`,
       kind: "file",
-      label: summary.label,
+      label: summaryLabel,
       metaLabel: null,
       previewText,
       target: summaryFileTarget(summary) || (summary.target_label ? null : target),
@@ -659,9 +688,9 @@ function buildEntryFromSummary(
   }
   if (summary.kind === "write" && summary.subject_type === "file") {
     return {
-      id: `${toolName}:${summary.label}`,
+      id: `${toolName}:${summaryLabel}`,
       kind: "file",
-      label: summary.label,
+      label: summaryLabel,
       metaLabel: null,
       previewText,
       target: summaryFileTarget(summary),
@@ -675,9 +704,9 @@ function buildEntryFromSummary(
     };
   }
   return {
-    id: `${toolName}:${summary.label}`,
+    id: `${toolName}:${summaryLabel}`,
     kind: "activity",
-    label: summary.label,
+    label: summaryLabel,
     metaLabel: summarizeDiffMeta(summary) || toolInfoRef,
     previewText,
     target: summary.target_label ? null : target,

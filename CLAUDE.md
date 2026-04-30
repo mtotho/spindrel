@@ -54,3 +54,4 @@ alembic upgrade head                    # migrations (auto on startup)
 - Bot YAML seeds DB, then UI edits — YAML is not user-facing config
 - `memory_scheme: "workspace-files"` and `history_mode: "file"` are the only active options
 
+Use port 5173 if already running locally rather than running npm run dev again

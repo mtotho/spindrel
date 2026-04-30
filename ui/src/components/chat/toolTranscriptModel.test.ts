@@ -220,6 +220,57 @@ test("structured Codex shell args render cwd and display command", () => {
   assert.equal(entries[0]?.isRunning, true);
 });
 
+test("Claude MCP bridge names render with clean Spindrel tool labels", () => {
+  const items = buildAssistantTurnBodyItems({
+    renderMode: "default",
+    assistantTurnBody: {
+      version: 1,
+      items: [{ id: "tool-mcp", kind: "tool_call", toolCallId: "toolu-mcp" }],
+    },
+    toolCalls: [
+      {
+        id: "toolu-mcp",
+        name: "mcp__spindrel__list_channels",
+        arguments: "{}",
+        surface: "transcript",
+      },
+    ],
+  });
+
+  const entries = items.flatMap((item) => item.kind === "transcript" ? item.entries : []);
+  assert.equal(entries[0]?.label, "list channels");
+  assert.notEqual(entries[0]?.label, "mcp  spindrel  list channels");
+});
+
+test("persisted Claude MCP bridge summaries keep clean Spindrel tool labels", () => {
+  const items = buildAssistantTurnBodyItems({
+    renderMode: "default",
+    assistantTurnBody: {
+      version: 1,
+      items: [{ id: "tool-mcp", kind: "tool_call", toolCallId: "toolu-mcp" }],
+    },
+    toolCalls: [
+      {
+        id: "toolu-mcp",
+        name: "mcp__spindrel__get_tool_info",
+        arguments: JSON.stringify({ tool_name: "list_channels" }),
+        surface: "transcript",
+        summary: {
+          kind: "result",
+          subject_type: "generic",
+          label: "MCP SPINDREL GET TOOL INFO",
+          preview_text: "returned a callable schema",
+        },
+      },
+    ],
+  });
+
+  const entries = items.flatMap((item) => item.kind === "transcript" ? item.entries : []);
+  assert.equal(entries[0]?.label, "get tool info");
+  assert.equal(entries[0]?.metaLabel, "(list_channels)");
+  assert.notEqual(entries[0]?.label, "MCP SPINDREL GET TOOL INFO");
+});
+
 test("Codex native subagent, web, and image summaries render as transcript rows", () => {
   const items = buildAssistantTurnBodyItems({
     renderMode: "terminal",

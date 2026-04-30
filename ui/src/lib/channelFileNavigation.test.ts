@@ -8,6 +8,7 @@ import {
   readChannelFileIntent,
   resolveChannelLinkedFilePath,
   resolveChannelFileViewerScope,
+  resolveToolTargetFilePath,
 } from "./channelFileNavigation.js";
 
 test("buildChannelFileHref keeps channel routes on the main chat when no session is provided", () => {
@@ -126,4 +127,14 @@ test("resolveChannelLinkedFilePath rejects external and app navigation links", (
   assert.equal(resolveChannelLinkedFilePath("/channels/channel-1?open_file=README.md"), null);
   assert.equal(resolveChannelLinkedFilePath("#local-heading"), null);
   assert.equal(resolveChannelLinkedFilePath("plain-word"), null);
+});
+
+test("resolveToolTargetFilePath accepts relative tool file targets only", () => {
+  assert.equal(resolveToolTargetFilePath("docs/images/harness.png"), "docs/images/harness.png");
+  assert.equal(resolveToolTargetFilePath("./AGENTS.md"), "AGENTS.md");
+  assert.equal(resolveToolTargetFilePath(".spindrel-harness-parity/run.txt"), ".spindrel-harness-parity/run.txt");
+  assert.equal(resolveToolTargetFilePath("/workspace-data/shared/project/AGENTS.md"), null);
+  assert.equal(resolveToolTargetFilePath("~/project/AGENTS.md"), null);
+  assert.equal(resolveToolTargetFilePath("C:\\Users\\me\\AGENTS.md"), null);
+  assert.equal(resolveToolTargetFilePath("pytest -q tests/unit/test_uploads.py"), null);
 });

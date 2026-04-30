@@ -3318,6 +3318,9 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const box = [...root.querySelectorAll('input[type=\"checkbox\"]')].find((input) => input.getAttribute('aria-label'));"
             "if (box && !box.checked) box.click();"
             "await new Promise((resolve) => setTimeout(resolve, 120));"
+            "const runRow = [...root.querySelectorAll('*')].reverse().find((el) => /Prepare the Project workspace screenshot receipt/.test(el.textContent || '') && /Request changes/.test(el.textContent || ''));"
+            "if (runRow) runRow.scrollIntoView({ block: 'center' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
         assert_js=(
             "const text = document.body.innerText;"
@@ -3397,6 +3400,9 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const start = [...root.querySelectorAll('button')].find((button) => /Start review/.test(button.textContent || ''));"
             "if (start) start.click();"
             "await new Promise((resolve) => setTimeout(resolve, 350));"
+            "const launched = [...root.querySelectorAll('*')].find((el) => /Review session started/.test(el.textContent || ''));"
+            "if (launched) launched.scrollIntoView({ block: 'center' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
         ),
         assert_js=(
             "const text = document.body.innerText;"
@@ -3433,6 +3439,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "await new Promise((resolve) => setTimeout(resolve, 120));"
             "const option = [...document.querySelectorAll('[role=\"option\"]')].find((item) => /spindrel-bot/.test(item.textContent || ''));"
             "if (option) option.click();"
+            "if (access) access.scrollIntoView({ block: 'center' });"
             "await new Promise((resolve) => setTimeout(resolve, 160));"
         ),
         assert_js=(
@@ -3463,6 +3470,12 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "window.__PROJECT_REVIEW_FINALIZED__ = true;",
             _PROJECT_CODING_RUN_ENDPOINT_INIT,
         ],
+        pre_capture_js=(
+            "const root = document.querySelector('[data-testid=\"project-workspace-runs\"]');"
+            "const runRow = root && [...root.querySelectorAll('*')].reverse().find((el) => /Prepare the Project workspace screenshot receipt/.test(el.textContent || '') && /PR merged/.test(el.textContent || ''));"
+            "if (runRow) runRow.scrollIntoView({ block: 'center' });"
+            "await new Promise((resolve) => setTimeout(resolve, 120));"
+        ),
         assert_js=(
             "const text = document.body.innerText;"
             "return { ok: text.includes('Review: reviewed') "

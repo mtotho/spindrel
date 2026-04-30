@@ -141,11 +141,13 @@ test("terminal tool transcript uses CLI-style sequential rows instead of compact
 
   assert.match(toolBadges, /const isTerminalMode = chatMode === "terminal"/);
   assert.match(toolTranscriptRows, /<TerminalToolTranscript/);
+  assert.match(toolTranscriptRows, /ChannelFileTargetLink/);
   assert.match(terminalToolTranscript, /data-testid="terminal-tool-transcript"/);
   assert.match(terminalToolTranscript, /data-testid="tool-transcript-row"/);
   assert.match(terminalToolTranscript, /data-testid="terminal-tool-label"/);
   assert.match(terminalToolTranscript, /data-testid="terminal-tool-meta"/);
   assert.match(terminalToolTranscript, /data-testid="terminal-tool-output"/);
+  assert.match(terminalToolTranscript, /ChannelFileTargetLink/);
   assert.match(codePreviewRenderer, /data-testid=\{testId\}/);
   assert.match(terminalToolTranscript, /data-testid="terminal-diff-output"/);
   assert.match(terminalToolTranscript, /DiffRenderer/);

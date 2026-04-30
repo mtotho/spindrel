@@ -430,7 +430,7 @@ def _build_specs(
             route=route,
             wait_js=wait,
             contains=("Native Spindrel Negative Adherence Review", "unsupported"),
-            scroll_plan_text="Unsupported outcome",
+            scroll_plan_text="Native Spindrel Negative Adherence Review",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -439,7 +439,7 @@ def _build_specs(
             route=route,
             wait_js=wait,
             contains=("Native Spindrel Negative Adherence Review", "unsupported"),
-            scroll_plan_text="Unsupported outcome",
+            scroll_plan_text="Native Spindrel Negative Adherence Review",
             channel_id=channel_id,
             chat_mode="terminal",
         ))

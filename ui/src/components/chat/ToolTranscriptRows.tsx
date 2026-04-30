@@ -15,6 +15,7 @@ import { HarnessAwareApprovalRow } from "./HarnessApprovalPreview";
 import { TerminalToolTranscript } from "./TerminalToolTranscript";
 import { CODE_FONT_STACK, TERMINAL_FONT_STACK } from "./CodePreviewRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
+import { ChannelFileTargetLink } from "./ChannelFileTargetLink";
 
 const TRACE_STRIP_THRESHOLD = 4;
 
@@ -197,7 +198,16 @@ export function DefaultToolRows({
               {entry.target && (
                 <span className="inline-flex min-w-0 max-w-full items-baseline gap-1 text-[10px] font-mono normal-case" style={{ color: t.textMuted, opacity: 0.85, flex: "1 1 12rem" }}>
                   <span style={{ flexShrink: 0 }}>{"->"}</span>
-                  <EndTruncatedPath value={entry.target} color={t.textMuted} />
+                  <ChannelFileTargetLink
+                    channelId={entry.kind === "file" ? channelId : null}
+                    sessionId={entry.kind === "file" ? sessionId : null}
+                    target={entry.target}
+                    className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap underline-offset-2 hover:underline"
+                    style={{ color: t.linkColor, textDecorationColor: `${t.linkColor}66` }}
+                    testId="tool-file-target-link"
+                  >
+                    <EndTruncatedPath value={entry.target} color="currentColor" />
+                  </ChannelFileTargetLink>
                 </span>
               )}
               {!isExpanded && entry.detailKind === "expandable" && (entry.previewText || entry.env) && (

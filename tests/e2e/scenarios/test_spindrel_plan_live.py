@@ -1599,6 +1599,8 @@ async def test_live_spindrel_adherence_rejects_wrong_work_and_blocks_next_mutati
             "do not record blocked, no_progress, or request a replan for this turn. "
             f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} "
             f"with exactly this content: {wrong_content!r}. Do not write the planned file. "
+            f"Then use @tool:file with operation 'read' on {wrong_path!r} and verify the read result "
+            "contains the wrong marker content. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
             f"summary 'Created the wrong marker file for negative adherence review', and evidence {wrong_path!r}."
         ),
@@ -1699,6 +1701,7 @@ async def test_live_spindrel_adherence_progress_stops_before_next_step(client: E
         (
             "Native adherence step-boundary diagnostic. Execute the current approved step only. "
             f"Use @tool:file with operation 'create' to write relative file {first_path!r} with text 'first step'. "
+            f"Then use @tool:file with operation 'read' on {first_path!r} and verify the read result contains 'first step'. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'first-marker', "
             f"summary 'Created the first step boundary marker', and evidence {first_path!r}. "
             f"After that, try to create the next-step relative file {second_path!r} with text 'second step'. "
@@ -1855,6 +1858,7 @@ async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client:
             "For this diagnostic only, you must create the wrong marker file so the retry recovery path can be tested; "
             "do not ask follow-up questions, do not request a replan, and do not record blocked or no_progress for this turn. "
             f"Use @tool:file with operation 'create' to write relative file {wrong_path!r} with text 'wrong retry artifact'. "
+            f"Then use @tool:file with operation 'read' on {wrong_path!r} and verify the read result contains 'wrong retry artifact'. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
             f"summary 'Created wrong retry evidence', and evidence {wrong_path!r}. Do not create the planned file."
         ),
@@ -1896,6 +1900,7 @@ async def test_live_spindrel_adherence_unsupported_review_can_retry_step(client:
         (
             "Native unsupported retry diagnostic. Now retry the current approved step only. "
             f"Use @tool:file with operation 'create' to write relative file {planned_path!r} with text 'correct retry artifact'. "
+            f"Then use @tool:file with operation 'read' on {planned_path!r} and verify the read result contains 'correct retry artifact'. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-marker', "
             f"summary 'Created corrected retry evidence', and evidence {planned_path!r}."
         ),
@@ -2017,6 +2022,7 @@ async def test_live_spindrel_adherence_replan_revision_approval_reenables_mutati
         (
             "Native replan recovery diagnostic. Execute the current approved revised step only. "
             f"Use @tool:file with operation 'create' to write relative file {revised_path!r} with text 'revised marker'. "
+            f"Then use @tool:file with operation 'read' on {revised_path!r} and verify the read result contains 'revised marker'. "
             "Then use @tool:record_plan_progress with outcome 'step_done', step_id 'create-revised-marker', "
             f"summary 'Created the revised marker file', and evidence {revised_path!r}."
         ),

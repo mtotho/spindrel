@@ -643,6 +643,10 @@ the system can already inspect" is a shared capability manifest:
   suppression as durable state. Repo-dev health triage now stops before
   mutation if the live endpoint lacks `review_state`, which indicates a
   pre-overlay deploy.
+- Live dogfood verified the overlay end to end after rebuilding the local
+  backend image: promotion skipped resolved duplicates, focused review-state
+  filters returned the expected working sets, and older duplicate resolutions
+  were backfilled with explicit `duplicate_of` links.
 
 ## Key Invariants
 

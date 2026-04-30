@@ -14,6 +14,7 @@ import {
 } from "./CodePreviewRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { HarnessAwareApprovalRow } from "./HarnessApprovalPreview";
+import { ChannelFileTargetLink } from "./ChannelFileTargetLink";
 
 const TERMINAL_INLINE_OUTPUT_CHARS = 1800;
 const TERMINAL_INLINE_OUTPUT_LINES = 18;
@@ -214,9 +215,16 @@ export function TerminalToolTranscript({
                   </span>
                 )}
                 {target && (
-                  <span data-testid="terminal-tool-target" className="min-w-0 break-words" title={target} style={{ maxWidth: "100%", overflowWrap: "anywhere" }}>
-                    {target}
-                  </span>
+                  <ChannelFileTargetLink
+                    channelId={entry.kind === "file" ? channelId : null}
+                    sessionId={entry.kind === "file" ? sessionId : null}
+                    target={entry.target ?? target}
+                    className="min-w-0 break-words underline-offset-2 hover:underline"
+                    style={{ color: entry.kind === "file" ? t.linkColor : undefined, maxWidth: "100%", overflowWrap: "anywhere" }}
+                    testId="terminal-tool-target"
+                  >
+                    <span title={target}>{target}</span>
+                  </ChannelFileTargetLink>
                 )}
                 {!output && entry.previewText && (
                   <span className="min-w-0 break-words" style={{ color: toneColor(entry.isError, t), maxWidth: "100%", overflowWrap: "anywhere" }}>
