@@ -407,6 +407,46 @@ def _check_worksurface_isolation_static() -> SecurityCheck:
         summarize_worksurface_isolation,
     )
 
+    findings = audit_worksurface_isolation()
+    summary = summarize_worksurface_isolation(findings)
+    failing = [finding for finding in findings if finding.status == "fail"]
+    warnings = [finding for finding in findings if finding.status == "warning"]
+    critical = [finding for finding in findings if finding.severity == "critical" and finding.status != "pass"]
+
+    if not failing and not warnings:
+        return SecurityCheck(
+            id="worksurface_isolation_static",
+            category="agentic_boundaries",
+            severity=Severity.info,
+            status=Status.passed,
+            message="WorkSurface isolation static audit has no active findings",
+            details={
+                "summary": summary,
+                "policy": POLICY_TARGET,
+            },
+        )
+
+    severity = Severity.critical if critical else Severity.warning
+    return SecurityCheck(
+        id="worksurface_isolation_static",
+        category="agentic_boundaries",
+        severity=severity,
+        status=Status.fail if failing else Status.warning,
+        message=(
+            f"WorkSurface isolation audit found {len(failing)} failing and "
+            f"{len(warnings)} warning finding(s)"
+        ),
+        recommendation=(
+            "Use WorkSurface as the canonical boundary for file/search/context/exec/harness/widget paths; "
+            "replace vestigial cross-workspace access with explicit operator grants; make secret injection binding-scoped."
+        ),
+        details={
+            "summary": summary,
+            "findings": [finding.payload() for finding in findings],
+            "policy": POLICY_TARGET,
+        },
+    )
+
 
 def _webhook_auth_recommendation() -> str:
     return (
@@ -539,46 +579,6 @@ def _check_inbound_callback_security() -> SecurityCheck:
         status=Status.passed,
         message=f"{len(callbacks)} inbound callback integration(s) declare auth and durable replay contracts",
         details={"callbacks": callbacks},
-    )
-
-    findings = audit_worksurface_isolation()
-    summary = summarize_worksurface_isolation(findings)
-    failing = [finding for finding in findings if finding.status == "fail"]
-    warnings = [finding for finding in findings if finding.status == "warning"]
-    critical = [finding for finding in findings if finding.severity == "critical" and finding.status != "pass"]
-
-    if not failing and not warnings:
-        return SecurityCheck(
-            id="worksurface_isolation_static",
-            category="agentic_boundaries",
-            severity=Severity.info,
-            status=Status.passed,
-            message="WorkSurface isolation static audit has no active findings",
-            details={
-                "summary": summary,
-                "policy": POLICY_TARGET,
-            },
-        )
-
-    severity = Severity.critical if critical else Severity.warning
-    return SecurityCheck(
-        id="worksurface_isolation_static",
-        category="agentic_boundaries",
-        severity=severity,
-        status=Status.fail if failing else Status.warning,
-        message=(
-            f"WorkSurface isolation audit found {len(failing)} failing and "
-            f"{len(warnings)} warning finding(s)"
-        ),
-        recommendation=(
-            "Use WorkSurface as the canonical boundary for file/search/context/exec/harness/widget paths; "
-            "replace vestigial cross-workspace access with explicit operator grants; make secret injection binding-scoped."
-        ),
-        details={
-            "summary": summary,
-            "findings": [finding.payload() for finding in findings],
-            "policy": POLICY_TARGET,
-        },
     )
 
 

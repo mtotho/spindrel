@@ -59,6 +59,25 @@ def _make_binding(channel_id, client_id="frigate:events", dispatch_config=None):
     return b
 
 
+@pytest.fixture(autouse=True)
+def _close_background_event_emissions():
+    """Keep fire-and-forget integration events from leaking into router tests."""
+
+    def _close_task(coro):
+        if hasattr(coro, "close"):
+            coro.close()
+
+    with patch("integrations.sdk.safe_create_task", side_effect=_close_task):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _allow_durable_replay_by_default():
+    """Most router tests exercise fan-out, not the durable replay helper."""
+    with patch("integrations.frigate.router.record_inbound_webhook_delivery", new_callable=AsyncMock, return_value=True):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # parse_event tests
 # ---------------------------------------------------------------------------
