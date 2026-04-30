@@ -97,9 +97,42 @@ class TestWorkspaceEndpointsCoverage:
         assert ("GET", "/api/v1/workspaces/{workspace_id}/files/index-status") in catalog_paths
 
     def test_workspace_pull_and_cron(self, catalog_paths):
-        assert ("POST", "/api/v1/workspaces/{workspace_id}/pull") in catalog_paths
         assert ("GET", "/api/v1/workspaces/{workspace_id}/cron-jobs") in catalog_paths
+        assert ("POST", "/api/v1/admin/operations/pull") in catalog_paths
 
     def test_workspace_indexing_config(self, catalog_paths):
         assert ("GET", "/api/v1/workspaces/{workspace_id}/indexing") in catalog_paths
         assert ("PUT", "/api/v1/workspaces/{workspace_id}/bots/{bot_id}/indexing") in catalog_paths
+
+
+class TestAgentFirstCatalogDetails:
+    """Agents need request/response hints, not just method/path labels."""
+
+    def test_agent_capability_manifest_endpoint_exists(self, catalog):
+        entry = next(
+            e for e in catalog
+            if e["method"] == "GET" and e["path"] == "/api/v1/agent-capabilities"
+        )
+
+        assert entry["scope"] == "tools:read"
+        assert "params" in entry
+        assert "bot_id" in entry["params"]
+        assert "include_schemas" in entry["params"]
+
+    def test_request_body_shapes_are_included(self, catalog):
+        entry = next(
+            e for e in catalog
+            if e["method"] == "POST" and e["path"] == "/api/v1/channels"
+        )
+
+        assert "body" in entry
+        assert "schema" in entry["body"]
+
+    def test_response_shapes_are_included_when_openapi_exposes_them(self, catalog):
+        entry = next(
+            e for e in catalog
+            if e["method"] == "GET" and e["path"] == "/api/v1/agent-capabilities"
+        )
+
+        assert "response" in entry
+        assert entry["response"]["status"] == "200"

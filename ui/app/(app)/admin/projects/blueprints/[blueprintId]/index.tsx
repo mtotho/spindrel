@@ -1,4 +1,4 @@
-import { FileText, FolderOpen, GitBranch, Hash, KeyRound, Layers, Plus, Save, Trash2 } from "lucide-react";
+import { FileText, FolderOpen, GitBranch, Hash, KeyRound, Layers, Plus, Save, Terminal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -22,6 +22,7 @@ import { Spinner } from "@/src/components/shared/Spinner";
 
 type KeyValueRow = { id: string; key: string; value: string };
 type RepoRow = { id: string; name: string; url: string; path: string; branch: string };
+type SetupCommandRow = { id: string; name: string; command: string; cwd: string; timeoutSeconds: string };
 
 function uid() {
   return Math.random().toString(36).slice(2);
@@ -67,6 +68,30 @@ function rowsToRepos(rows: RepoRow[]): Array<Record<string, string>> {
     };
     if (!repo.name && !repo.url && !repo.path && !repo.branch) return [];
     return [Object.fromEntries(Object.entries(repo).filter(([, value]) => value))];
+  });
+}
+
+function setupCommandsToRows(commands: Array<Record<string, any>> | undefined): SetupCommandRow[] {
+  return (commands ?? []).map((command, index) => ({
+    id: uid(),
+    name: String(command.name ?? `Command ${index + 1}`),
+    command: String(command.command ?? command.cmd ?? ""),
+    cwd: String(command.cwd ?? command.workdir ?? ""),
+    timeoutSeconds: command.timeout_seconds != null ? String(command.timeout_seconds) : "",
+  }));
+}
+
+function rowsToSetupCommands(rows: SetupCommandRow[]): Array<Record<string, string | number>> {
+  return rows.flatMap((row) => {
+    const timeoutText = row.timeoutSeconds.trim();
+    const command = {
+      name: row.name.trim(),
+      command: row.command.trim(),
+      cwd: row.cwd.trim(),
+      timeout_seconds: /^\d+$/.test(timeoutText) ? Number(timeoutText) : timeoutText,
+    };
+    if (!command.name && !command.command && !command.cwd && !timeoutText) return [];
+    return [Object.fromEntries(Object.entries(command).filter(([, value]) => value !== ""))];
   });
 }
 
@@ -180,6 +205,7 @@ export default function ProjectBlueprintDetail() {
   const [knowledgeFiles, setKnowledgeFiles] = useState<KeyValueRow[]>([]);
   const [envRows, setEnvRows] = useState<KeyValueRow[]>([]);
   const [repos, setRepos] = useState<RepoRow[]>([]);
+  const [setupCommands, setSetupCommands] = useState<SetupCommandRow[]>([]);
 
   useEffect(() => {
     if (!blueprint) return;
@@ -195,6 +221,7 @@ export default function ProjectBlueprintDetail() {
     setKnowledgeFiles(recordToRows(blueprint.knowledge_files));
     setEnvRows(recordToRows(blueprint.env));
     setRepos(reposToRows(blueprint.repos));
+    setSetupCommands(setupCommandsToRows(blueprint.setup_commands));
   }, [blueprint]);
 
   const payload = useMemo(() => ({
@@ -209,8 +236,9 @@ export default function ProjectBlueprintDetail() {
     knowledge_files: rowsToRecord(knowledgeFiles),
     env: rowsToRecord(envRows),
     repos: rowsToRepos(repos),
+    setup_commands: rowsToSetupCommands(setupCommands),
     required_secrets: textToList(requiredSecretsText),
-  }), [description, envRows, files, foldersText, knowledgeFiles, name, prompt, promptFilePath, repos, requiredSecretsText, rootPattern, slug]);
+  }), [description, envRows, files, foldersText, knowledgeFiles, name, prompt, promptFilePath, repos, requiredSecretsText, rootPattern, setupCommands, slug]);
 
   const savedPayload = useMemo(() => {
     if (!blueprint) return null;
@@ -226,6 +254,7 @@ export default function ProjectBlueprintDetail() {
       knowledge_files: blueprint.knowledge_files ?? {},
       env: blueprint.env ?? {},
       repos: blueprint.repos ?? [],
+      setup_commands: blueprint.setup_commands ?? [],
       required_secrets: blueprint.required_secrets ?? [],
     };
   }, [blueprint]);
@@ -355,7 +384,7 @@ export default function ProjectBlueprintDetail() {
 
           <Section
             title="Repo Declarations"
-            description="Recorded for the Project snapshot. Cloning and setup execution are intentionally deferred."
+            description="Recorded for the Project snapshot. Setup clones missing targets before running commands."
           >
             <div className="flex flex-col gap-2">
               <SettingsGroupLabel
@@ -386,6 +415,63 @@ export default function ProjectBlueprintDetail() {
           </Section>
 
           <Section
+            title="Setup Commands"
+            description="Shell commands run in order after repository setup. They receive Project runtime env and redacted logs."
+          >
+            <div data-testid="project-blueprint-setup-commands" className="flex flex-col gap-2">
+              <SettingsGroupLabel
+                label="Commands"
+                count={setupCommands.length}
+                icon={<Terminal size={13} className="text-text-dim" />}
+                action={
+                  <ActionButton
+                    label="Add"
+                    icon={<Plus size={13} />}
+                    size="small"
+                    onPress={() => setSetupCommands([...setupCommands, { id: uid(), name: "", command: "", cwd: "", timeoutSeconds: "" }])}
+                  />
+                }
+              />
+              {setupCommands.length === 0 ? (
+                <EmptyState message="No setup commands declared." />
+              ) : setupCommands.map((command) => (
+                <div key={command.id} className="grid gap-2 rounded-md bg-surface-raised/40 px-3 py-2.5 md:grid-cols-[minmax(0,0.45fr)_minmax(0,0.45fr)_minmax(120px,0.2fr)_auto]">
+                  <TextInput
+                    value={command.name}
+                    onChangeText={(value) => setSetupCommands(setupCommands.map((item) => item.id === command.id ? { ...item, name: value } : item))}
+                    placeholder="Install dependencies"
+                  />
+                  <TextInput
+                    value={command.cwd}
+                    onChangeText={(value) => setSetupCommands(setupCommands.map((item) => item.id === command.id ? { ...item, cwd: value } : item))}
+                    placeholder="spindrel"
+                  />
+                  <TextInput
+                    value={command.timeoutSeconds}
+                    onChangeText={(value) => setSetupCommands(setupCommands.map((item) => item.id === command.id ? { ...item, timeoutSeconds: value } : item))}
+                    placeholder="600"
+                  />
+                  <ActionButton
+                    label="Remove"
+                    icon={<Trash2 size={13} />}
+                    size="small"
+                    variant="secondary"
+                    onPress={() => setSetupCommands(setupCommands.filter((item) => item.id !== command.id))}
+                  />
+                  <div className="md:col-span-4">
+                    <TextArea
+                      value={command.command}
+                      onChangeText={(value) => setSetupCommands(setupCommands.map((item) => item.id === command.id ? { ...item, command: value } : item))}
+                      placeholder="npm install"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section
             title="Env And Secrets"
             description="Env defaults are copied as declarations. Required secrets create binding slots on new Projects."
           >
@@ -409,9 +495,10 @@ export default function ProjectBlueprintDetail() {
           </Section>
 
           <Section title="Blueprint Summary">
-            <div className="grid gap-2 md:grid-cols-4">
+            <div className="grid gap-2 md:grid-cols-5">
               <SettingsControlRow compact leading={<FolderOpen size={14} />} title="Folders" description={`${payload.folders.length}`} />
               <SettingsControlRow compact leading={<FileText size={14} />} title="Starter files" description={`${Object.keys(payload.files).length}`} />
+              <SettingsControlRow compact leading={<Terminal size={14} />} title="Commands" description={`${payload.setup_commands.length}`} />
               <SettingsControlRow compact leading={<Hash size={14} />} title="Env keys" description={`${Object.keys(payload.env).length}`} />
               <SettingsControlRow compact leading={<KeyRound size={14} />} title="Secrets" description={`${payload.required_secrets.length}`} />
             </div>

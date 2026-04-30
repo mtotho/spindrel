@@ -145,6 +145,7 @@ class TestProjectsApi:
                 "workspace_id": str(workspace.id),
                 "name": "Setup Blueprint API",
                 "repos": [{"name": "spindrel", "url": "https://github.com/mtotho/spindrel.git", "path": "spindrel"}],
+                "setup_commands": [{"name": "Install", "command": "npm install", "cwd": "spindrel", "timeout_seconds": 60}],
                 "env": {"NODE_ENV": "development"},
                 "required_secrets": [secret.name, "NPM_TOKEN"],
             },
@@ -172,6 +173,8 @@ class TestProjectsApi:
         assert body["plan"]["ready"] is False
         assert body["plan"]["missing_secrets"] == ["NPM_TOKEN"]
         assert body["plan"]["repos"][0]["url"] == "https://github.com/mtotho/spindrel.git"
+        assert body["plan"]["commands"][0]["name"] == "Install"
+        assert body["plan"]["commands"][0]["command"] == "npm install"
         assert "ghp_super_secret_setup_token" not in str(body)
 
         runtime = await client.get(f"/api/v1/projects/{project_id}/runtime-env", headers=AUTH_HEADERS)

@@ -2533,9 +2533,10 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const combined = `${text}\\n${fieldValues}`;"
             "return { ok: combined.includes('README.md') "
             "&& combined.includes('overview.md') "
+            "&& combined.includes('Verify Blueprint runtime') "
             "&& combined.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
             "&& combined.includes('spindrel'), "
-            "detail: 'Project Blueprint editor did not expose files, knowledge, repos, and secrets' };"
+            "detail: 'Project Blueprint editor did not expose files, knowledge, repos, setup commands, and secrets' };"
         ),
     ),
     ScreenshotSpec(
@@ -2572,7 +2573,7 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         wait_kind="function",
         wait_arg=(
             "!!document.querySelector('[data-testid=\"project-workspace-setup-ready\"]') "
-            "&& document.body.innerText.includes('Ready to clone') "
+            "&& document.body.innerText.includes('Ready to run setup') "
             "&& document.body.innerText.includes('https://github.com/mtotho/spindrel.git')"
         ),
         output="project-workspace-setup-ready.png",
@@ -2580,11 +2581,12 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
         full_page=True,
         assert_js=(
             "const text = document.body.innerText;"
-            "return { ok: text.includes('Ready to clone') "
+            "return { ok: text.includes('Ready to run setup') "
             "&& text.includes('spindrel') "
+            "&& text.includes('Verify Blueprint runtime') "
             "&& text.includes('SCREENSHOT_PROJECT_GITHUB_TOKEN') "
             "&& text.includes('SCREENSHOT_PROJECT_NPM_TOKEN'), "
-            "detail: 'Project Setup tab did not show ready clone plan and bound secret slots' };"
+            "detail: 'Project Setup tab did not show ready setup plan, command plan, and bound secret slots' };"
         ),
     ),
     ScreenshotSpec(
@@ -2610,8 +2612,9 @@ PROJECT_WORKSPACE_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText;"
             "return { ok: text.includes('Run History') "
             "&& (text.includes('cloned') || text.includes('already_present')) "
+            "&& text.includes('Verify Blueprint runtime') "
             "&& !text.includes('screenshot-token'), "
-            "detail: 'Project setup run history did not show a redacted clone result' };"
+            "detail: 'Project setup run history did not show redacted clone and command results' };"
         ),
     ),
     ScreenshotSpec(

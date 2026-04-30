@@ -133,6 +133,95 @@ def _get_description(route: APIRoute) -> str:
     return name.replace("_", " ").strip().capitalize()
 
 
+def _compact_openapi_schema(schema: Any) -> Any:
+    """Keep catalog schemas useful without copying the full OpenAPI document."""
+    if not isinstance(schema, dict):
+        return schema
+    allowed = {
+        "type",
+        "format",
+        "title",
+        "description",
+        "enum",
+        "items",
+        "properties",
+        "required",
+        "additionalProperties",
+        "$ref",
+        "anyOf",
+        "oneOf",
+        "allOf",
+    }
+    compact: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key not in allowed:
+            continue
+        if key == "properties" and isinstance(value, dict):
+            compact[key] = {
+                prop_name: _compact_openapi_schema(prop_schema)
+                for prop_name, prop_schema in value.items()
+            }
+        elif key in {"items", "additionalProperties"}:
+            compact[key] = _compact_openapi_schema(value)
+        elif key in {"anyOf", "oneOf", "allOf"} and isinstance(value, list):
+            compact[key] = [_compact_openapi_schema(item) for item in value]
+        else:
+            compact[key] = value
+    return compact
+
+
+def _extract_openapi_shapes(openapi_operation: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract params/body/response hints from one OpenAPI operation."""
+    if not openapi_operation:
+        return {}
+
+    shapes: dict[str, Any] = {}
+    params: dict[str, Any] = {}
+    for param in openapi_operation.get("parameters") or []:
+        if not isinstance(param, dict):
+            continue
+        name = param.get("name")
+        if not name:
+            continue
+        params[str(name)] = {
+            "in": param.get("in"),
+            "required": bool(param.get("required")),
+            "schema": _compact_openapi_schema(param.get("schema") or {}),
+        }
+        if param.get("description"):
+            params[str(name)]["description"] = param["description"]
+    if params:
+        shapes["params"] = params
+
+    request_body = openapi_operation.get("requestBody") or {}
+    content = request_body.get("content") if isinstance(request_body, dict) else None
+    if isinstance(content, dict):
+        media = content.get("application/json") or next(iter(content.values()), None)
+        if isinstance(media, dict) and media.get("schema"):
+            shapes["body"] = {
+                "required": bool(request_body.get("required")),
+                "schema": _compact_openapi_schema(media["schema"]),
+            }
+
+    responses = openapi_operation.get("responses") or {}
+    for status in ("200", "201", "202", "204", "default"):
+        response = responses.get(status)
+        if not isinstance(response, dict):
+            continue
+        response_payload: dict[str, Any] = {"status": status}
+        if response.get("description"):
+            response_payload["description"] = response["description"]
+        content = response.get("content")
+        if isinstance(content, dict):
+            media = content.get("application/json") or next(iter(content.values()), None)
+            if isinstance(media, dict) and media.get("schema"):
+                response_payload["schema"] = _compact_openapi_schema(media["schema"])
+        shapes["response"] = response_payload
+        break
+
+    return shapes
+
+
 def build_endpoint_catalog(app: FastAPI) -> list[dict]:
     """Build the endpoint catalog by introspecting all registered routes.
 
@@ -141,6 +230,12 @@ def build_endpoint_catalog(app: FastAPI) -> list[dict]:
     """
     catalog: list[dict] = []
     seen: set[tuple[str, str, str | None]] = set()  # (method, path, scope)
+
+    try:
+        openapi_paths = (app.openapi() or {}).get("paths", {})
+    except Exception:
+        logger.debug("Unable to build OpenAPI shapes for endpoint catalog", exc_info=True)
+        openapi_paths = {}
 
     for route in app.routes:
         if not isinstance(route, APIRoute):
@@ -169,6 +264,8 @@ def build_endpoint_catalog(app: FastAPI) -> list[dict]:
                 "path": path,
                 "description": description,
             }
+            openapi_operation = (openapi_paths.get(path) or {}).get(method.lower())
+            entry.update(_extract_openapi_shapes(openapi_operation))
 
             # Add manual notes if available
             notes = ENDPOINT_NOTES.get((method, path))

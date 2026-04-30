@@ -249,6 +249,7 @@ async def run_turn(
             bot=bot,
             req=req,
             user_message=user_message,
+            att_payload=att_payload,
         ):
             return
 
@@ -362,7 +363,6 @@ async def _pre_persist_user_message(
         metadata=metadata,
         pre_allocated_id=uuid.UUID(pre_id_str) if pre_id_str else None,
         suppress_outbox=scope.suppress_outbox,
-        harness_attachments=tuple(att_payload or ()),
     )
 
 
@@ -437,6 +437,7 @@ async def _run_harness_branch_if_needed(
     bot: BotConfig,
     req: ChatRequest,
     user_message: str,
+    att_payload: list[dict] | None,
 ) -> bool:
     if not bot.harness_runtime:
         return False
@@ -452,6 +453,7 @@ async def _run_harness_branch_if_needed(
         msg_metadata=req.msg_metadata,
         pre_user_msg_id=state.pre_user_msg_id,
         suppress_outbox=scope.suppress_outbox,
+        harness_attachments=tuple(att_payload or ()),
     )
     state.persisted_turn = (
         state.error_text is None or state.error_text == "persist_turn failed"

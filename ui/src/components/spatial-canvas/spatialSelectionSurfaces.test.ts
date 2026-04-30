@@ -313,4 +313,6 @@ test("Starboard is an object inspector and Mission Control Review owns decisions
   assert.match(deckSource, /<details/);
   assert.match(deckSource, /Bot-reported issue/);
   assert.match(deckSource, /decisionLabel/);
+  assert.match(deckSource, /sortDeckItems/);
+  assert.match(deckSource, /including \$\{counts\.botReports\} bot-reported issue/);
 });

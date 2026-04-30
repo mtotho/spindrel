@@ -130,6 +130,7 @@ def project_blueprint_snapshot(blueprint: Any) -> dict[str, Any]:
         "files": dict(blueprint.files or {}),
         "knowledge_files": dict(blueprint.knowledge_files or {}),
         "repos": list(blueprint.repos or []),
+        "setup_commands": list(getattr(blueprint, "setup_commands", None) or []),
         "env": dict(blueprint.env or {}),
         "required_secrets": list(blueprint.required_secrets or []),
         "metadata": dict(getattr(blueprint, "metadata_", None) or {}),

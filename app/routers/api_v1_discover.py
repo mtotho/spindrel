@@ -6,7 +6,8 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from app.dependencies import ApiKeyAuth, verify_auth_or_user
-from app.services.api_keys import ENDPOINT_CATALOG, has_scope, generate_api_docs
+from app.services import api_keys as _api_keys_mod
+from app.services.api_keys import has_scope, generate_api_docs
 
 router = APIRouter(tags=["Discovery"])
 
@@ -44,7 +45,7 @@ async def discover(
     if isinstance(auth, ApiKeyAuth):
         # Scoped key: filter by scopes
         endpoints = []
-        for ep in ENDPOINT_CATALOG:
+        for ep in _api_keys_mod.ENDPOINT_CATALOG:
             scope = ep.get("scope")
             if scope is None or has_scope(auth.scopes, scope):
                 endpoints.append(EndpointInfo(
@@ -68,6 +69,6 @@ async def discover(
                 description=ep["description"],
                 scope=ep.get("scope"),
             )
-            for ep in ENDPOINT_CATALOG
+            for ep in _api_keys_mod.ENDPOINT_CATALOG
         ],
     )

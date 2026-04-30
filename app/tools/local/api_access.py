@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 from app.agent.context import current_bot_id
 from app.tools.registry import register
@@ -122,8 +123,11 @@ async def list_api_endpoints(scope: str = "") -> str:
                     "description": "API path starting with /api/ (e.g. '/api/v1/channels').",
                 },
                 "body": {
-                    "type": "string",
-                    "description": "Optional JSON request body as a string.",
+                    "type": ["object", "array", "string", "null"],
+                    "description": (
+                        "Optional JSON request body. Prefer a structured object/array. "
+                        "A JSON string is still accepted for backward compatibility."
+                    ),
                 },
             },
             "required": ["method", "path"],
@@ -137,7 +141,7 @@ async def list_api_endpoints(scope: str = "") -> str:
         "error": {"type": "string"},
     },
 })
-async def call_api(method: str, path: str, body: str = "") -> str:
+async def call_api(method: str, path: str, body: Any = "") -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
         return json.dumps({"error": "No bot context available."}, ensure_ascii=False)
@@ -157,11 +161,19 @@ async def call_api(method: str, path: str, body: str = "") -> str:
 
     # Parse body if provided
     request_body = None
-    if body:
-        try:
-            request_body = json.loads(body)
-        except json.JSONDecodeError:
-            return json.dumps({"error": f"Invalid JSON body: {body[:200]}"}, ensure_ascii=False)
+    if body not in ("", None):
+        if isinstance(body, str):
+            try:
+                request_body = json.loads(body)
+            except json.JSONDecodeError:
+                return json.dumps({"error": f"Invalid JSON body: {body[:200]}"}, ensure_ascii=False)
+        elif isinstance(body, (dict, list)):
+            request_body = body
+        else:
+            return json.dumps(
+                {"error": f"Body must be a JSON object, array, string, or null; got {type(body).__name__}."},
+                ensure_ascii=False,
+            )
 
     # Make in-process request via ASGI transport
     try:

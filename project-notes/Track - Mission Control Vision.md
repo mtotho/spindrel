@@ -239,6 +239,11 @@ remains the durable review workbench, with unreviewed/finding/cleared/run-log
 language and the old "raw signal" framing treated as legacy. Screenshot specs
 now cover object-inspector Starboard and the canvas View popover.
 
+Same-day deck clarity follow-up: Mission Control Review now treats bot-reported
+issues as first-class findings, removes the misleading "Reviewing now" passive
+state, switches medium-width layouts to queue + detail instead of stacked
+sections, and uses sweep-history/receipt language for Operator runs.
+
 ### Spatial Canvas Work Map
 
 The canvas should answer, at a glance:
@@ -450,6 +455,24 @@ Acceptance:
 - mobile users can triage workspace state in one screen;
 - full Mission Control route is usable on mobile;
 - no desktop-only Starboard dependency for critical operations.
+
+### Agent-First Capability Surface - 2026-04-29
+
+The first implementation slice for "agents do not make humans configure what
+the system can already inspect" is a shared capability manifest:
+
+- `/api/v1/agent-capabilities` returns the bot/channel/session surface in one
+  machine-readable payload: API grants/endpoints, tool profiles, enrolled and
+  pinned tools, enrolled skills, Project/runtime readiness, harness state,
+  widget authoring tools, and doctor findings.
+- `list_agent_capabilities` exposes the same manifest to bots inside normal
+  turns; `run_agent_doctor` is the compact readiness-only view.
+- The endpoint catalog now includes OpenAPI-derived params/body/response hints
+  when available, and `call_api` accepts structured JSON bodies so agents do
+  not have to hand-escape request payloads.
+- This is inspection-only. Follow-up Mission Control work should stage fixes
+  from these findings through existing approval/change mechanisms rather than
+  adding a separate mutation path.
 
 ## Key Invariants
 

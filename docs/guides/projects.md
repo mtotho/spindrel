@@ -29,13 +29,15 @@ preparation, **Settings** for instructions and Blueprint metadata, and
 
 Project Blueprints are reusable recipes for creating Projects. A Blueprint can
 declare a default root pattern, Project prompt, starter folders/files, knowledge
-files, repo declarations, env defaults, and required secret binding slots.
+files, repo declarations, setup commands, env defaults, and required secret
+binding slots.
 
 ![Project Blueprint editor with starter files and declarations](../images/project-workspace-blueprint-editor.png)
 
 Blueprint materializes files and records declarations. Project Setup turns the
-applied snapshot into a clone-only setup plan: it validates repo targets, checks
-Project-scoped secret slots, clones missing repos, skips existing paths, and
+applied snapshot into a manual setup plan: it validates repo targets and
+Project-relative command cwd values, checks Project-scoped secret slots, clones
+missing repos, skips existing repo paths, runs ordered shell setup commands, and
 records redacted run history. Secret values stay in the secret vault; Projects
 only store bindings to those vault entries.
 

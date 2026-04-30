@@ -13,6 +13,7 @@ import pytest
 
 from app.agent.bots import BotConfig, MemoryConfig
 from app.domain.channel_events import ChannelEventKind
+from app.services import turn_worker
 from app.services.turn_context import BotContext
 from app.schemas.chat import ChatRequest
 from app.services import session_locks
@@ -92,11 +93,18 @@ def _mock_db_and_persist():
         yield
 
 
-async def _drive_turn(events_to_yield: list[dict]) -> TurnHandle:
+async def _drive_turn(
+    events_to_yield: list[dict],
+    *,
+    att_payload: list[dict] | None = None,
+    stream_kwargs: dict | None = None,
+) -> TurnHandle:
     handle = _handle()
     session_locks.acquire(handle.session_id)
 
     async def _fake_stream(*args, **kwargs):
+        if stream_kwargs is not None:
+            stream_kwargs.update(kwargs)
         for ev in events_to_yield:
             yield ev
 
@@ -112,7 +120,7 @@ async def _drive_turn(events_to_yield: list[dict]) -> TurnHandle:
             user=None,
             audio_data=None,
             audio_format=None,
-            att_payload=None,
+            att_payload=att_payload,
         )
     return handle
 
@@ -125,6 +133,59 @@ class TestTurnWorker:
         kinds = _bus_kinds_for(handle.channel_id)
         assert kinds[0] == ChannelEventKind.TURN_STARTED.value
         assert kinds[-1] == ChannelEventKind.TURN_ENDED.value
+
+    async def test_attachment_turn_reaches_run_stream_without_pre_persist_crash(self):
+        attachment = {"id": "att-1", "filename": "plan.txt"}
+        stream_kwargs: dict = {}
+
+        handle = await _drive_turn(
+            [{"type": "response", "text": "done"}],
+            att_payload=[attachment],
+            stream_kwargs=stream_kwargs,
+        )
+
+        assert stream_kwargs["attachments"] == [attachment]
+        ended_events = [
+            ev for ev in _replay_buffer.get(handle.channel_id, [])
+            if ev.kind is ChannelEventKind.TURN_ENDED
+        ]
+        assert len(ended_events) == 1
+        assert ended_events[0].payload.error is None
+
+    async def test_harness_branch_forwards_attachments_to_runtime_host(self):
+        attachment = {"id": "att-1", "filename": "plan.txt"}
+        captured: dict = {}
+
+        async def _fake_harness_turn(**kwargs):
+            captured.update(kwargs)
+            return "done", None
+
+        bot = _bot()
+        bot.harness_runtime = "claude-code"
+        scope = turn_worker._TurnScope(
+            session_id=uuid.uuid4(),
+            channel_id=uuid.uuid4(),
+            bus_key=uuid.uuid4(),
+            turn_id=uuid.uuid4(),
+            session_scoped=False,
+            correlation_id=uuid.uuid4(),
+        )
+        state = turn_worker._TurnRunState()
+
+        with patch("app.services.turn_worker._run_harness_turn", side_effect=_fake_harness_turn):
+            handled = await turn_worker._run_harness_branch_if_needed(
+                scope,
+                state,
+                bot=bot,
+                req=ChatRequest(message="hi", bot_id=bot.id),
+                user_message="hi",
+                att_payload=[attachment],
+            )
+
+        assert handled is True
+        assert captured["harness_attachments"] == (attachment,)
+        assert state.response_text == "done"
+        assert state.error_text is None
 
     async def test_text_delta_maps_to_turn_stream_token(self):
         handle = await _drive_turn([

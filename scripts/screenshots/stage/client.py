@@ -276,6 +276,7 @@ class SpindrelClient:
         files: dict[str, str] | None = None,
         knowledge_files: dict[str, str] | None = None,
         repos: list[dict] | None = None,
+        setup_commands: list[dict] | None = None,
         env: dict[str, str] | None = None,
         required_secrets: list[str] | None = None,
     ) -> dict:
@@ -290,6 +291,7 @@ class SpindrelClient:
             "files": files or {},
             "knowledge_files": knowledge_files or {},
             "repos": repos or [],
+            "setup_commands": setup_commands or [],
             "env": env or {},
             "required_secrets": required_secrets or [],
         }

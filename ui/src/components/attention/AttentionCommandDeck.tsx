@@ -114,7 +114,7 @@ function getBotReport(item: WorkspaceAttentionItem): any | null {
 }
 
 function decisionLabel(item: WorkspaceAttentionItem): string {
-  if (getBotReport(item)) return "Bot report";
+  if (getBotReport(item)) return "Bot-reported issue";
   if (getAttentionWorkflowState(item) === "operator_review") return "Operator finding";
   return "Needs review";
 }
@@ -130,6 +130,12 @@ function modeItems(mode: DeckMode, buckets: AttentionBuckets): WorkspaceAttentio
   if (mode === "inbox") return [...buckets.untriaged, ...buckets.assigned];
   if (mode === "cleared") return [...buckets.processed, ...buckets.closed];
   return [...buckets.triage, ...buckets.review];
+}
+
+function sortDeckItems(mode: DeckMode, items: WorkspaceAttentionItem[]): WorkspaceAttentionItem[] {
+  const sorted = sortAttention(items);
+  if (mode !== "review") return sorted;
+  return sorted.sort((a, b) => Number(Boolean(getBotReport(b))) - Number(Boolean(getBotReport(a))));
 }
 
 export function AttentionCommandDeck({
@@ -166,7 +172,7 @@ export function AttentionCommandDeck({
     cleared: buckets.processed.length,
     closed: buckets.closed.length,
   };
-  const activeList = useMemo(() => sortAttention(modeItems(mode, buckets)), [buckets, mode]);
+  const activeList = useMemo(() => sortDeckItems(mode, modeItems(mode, buckets)), [buckets, mode]);
   const firstReview = useMemo(() => sortAttention(buckets.review)[0] ?? null, [buckets.review]);
   const displayItem = selected ?? activeList[0] ?? null;
 
@@ -260,8 +266,8 @@ export function AttentionCommandDeck({
         eyebrow: viewingFirstReview ? "Current finding" : "Next decision",
         title: viewingFirstReview ? "Decide on this finding" : "Open the first finding",
         detail: viewingFirstReview
-          ? `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting. Accept it, clear it, or mark it wrong.`
-          : `${counts.review} finding${counts.review === 1 ? "" : "s"} waiting for a decision.`,
+          ? `${counts.review} finding${counts.review === 1 ? "" : "s"}${counts.botReports ? `, including ${counts.botReports} bot-reported issue${counts.botReports === 1 ? "" : "s"}` : ""}. Accept it, clear it, or mark it wrong.`
+          : `${counts.review} finding${counts.review === 1 ? "" : "s"}${counts.botReports ? `, including ${counts.botReports} bot-reported issue${counts.botReports === 1 ? "" : "s"}` : ""}, waiting for a decision.`,
         action: viewingFirstReview ? null : "Review first finding",
         icon: <Sparkles size={15} />,
         onClick: () => focusReviewFinding(),

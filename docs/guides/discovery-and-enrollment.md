@@ -64,10 +64,13 @@ Current behavior:
 - per-turn tool retrieval ranks tools against the current user message
 - `get_tool_info(tool_name="...")` loads the full schema for an available/discovered tool
 - once loaded, that schema is callable in the current loop
+- `list_agent_capabilities()` summarizes the bot's current API grants, tool working set, tool profiles, skill working set, Project context, harness state, widget authoring surface, and readiness findings
 
 Pinned tools are the strongest availability signal. They are the tools that must be available every turn.
 
 `get_tool_info` is the fallback when the model knows or suspects the right tool but needs the full schema before calling it.
+
+`run_agent_doctor()` is the compact read-only readiness check. It is for "why can't I do this myself?" moments: missing API grants, empty working sets, Project runtime readiness gaps, and harness workdir problems.
 
 ---
 

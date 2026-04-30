@@ -1,28 +1,31 @@
 # Self-Improving Agents: Bot-Authored Skills
 
-Bots on Spindrel can author their own skills — structured knowledge documents that enter the semantic RAG pipeline and are automatically surfaced in future sessions when relevant.
+Bots on Spindrel can author their own skills — structured knowledge documents that enter the skill catalog, semantic index, and the bot's persistent working set.
 
 ## What Are Bot-Authored Skills?
 
-Bot-authored skills are markdown documents created by bots at runtime using the `manage_bot_skill` tool. Unlike memory files (which are bot-scoped and searched via `search_memory`), skills enter the main RAG pipeline:
+Bot-authored skills are markdown documents created by bots at runtime using the `manage_bot_skill` tool. Unlike memory files (which are bot-scoped and searched via `search_memory`), skills become reusable playbooks:
 
 - **Chunked and embedded** into vector storage for semantic retrieval
-- **Surfaced automatically** when a user message is semantically similar to the skill content
+- **Discoverable** when a user message is semantically similar to the skill content
+- **Loadable on demand** through `get_skill()` when the agent needs the full body
 - **Persisted across sessions** — available to the bot forever, not just the current conversation
+
+Current default behavior is prompt-first: enrolled skills are ranked and shown in the skill index, but full skill bodies are not auto-injected by default. The agent calls `get_skill()` to make a skill resident in the current prompt.
 
 ### Skills vs Memory Files
 
 | Feature | Memory files | Bot-authored skills |
 |---------|-------------|-------------------|
 | Storage | Filesystem (`memory/reference/`) | Database (`skills` table) |
-| Retrieval | `search_memory()` keyword+vector search | Main RAG pipeline (automatic) |
-| Injection | Must be explicitly fetched | Auto-injected when relevant (RAG mode) |
+| Retrieval | `search_memory()` keyword+vector search | Skill catalog + semantic discovery |
+| Injection | Must be explicitly fetched | Full body loaded with `get_skill()` by default |
 | Scope | Bot-scoped | Bot-scoped (via ID prefix) |
-| Context cost | Only when fetched | Up to 5 chunks per request (RAG_TOP_K) |
+| Context cost | Only when fetched | Index entry by default; full body only when fetched |
 
 **Use memory files** for: personal notes, user preferences, session-specific context, daily logs.
 
-**Use skills** for: reusable solution patterns, domain procedures, troubleshooting guides — anything that should surface automatically when relevant.
+**Use skills** for: reusable solution patterns, domain procedures, troubleshooting guides — anything future turns should be able to discover and load without rediscovering the same process.
 
 ## How It Works
 
@@ -71,13 +74,14 @@ Skills automatically get YAML frontmatter with `name`, `triggers`, and `category
 
 ## Context Budget Impact
 
-Bot-authored skills use RAG mode, which has hard per-request limits:
+Bot-authored skills use the same indexed storage as other skills, but full bodies are not resident by default:
 
-- **`RAG_TOP_K=5`**: Maximum 5 skill chunks injected per request
-- **Priority P3**: RAG skills are trimmed before system prompt or history if context is tight
-- **Chunk size**: Max 1500 chars each, so worst case ~7.5KB per request
+- Enrolled skills appear in the skill index with relevance hints.
+- `get_skill(skill_id="...")` loads the full body and promotes it into the working set.
+- `refresh=true` reloads a skill already resident in context.
+- Auto-injection support still exists, but the default max is `0`; do not assume a skill body appears without a `get_skill()` call.
 
-A bot with 50+ skills generates ~100 chunks in the database. Vector search scans all chunks but only returns the 5 most relevant. No context bloat.
+A bot with 50+ skills generates many indexed chunks, but the prompt normally carries only the compact index plus whichever skill bodies the agent explicitly loads.
 
 ### Soft Limit Warning
 
@@ -145,6 +149,11 @@ The system teaches bots when and how to create skills through three complementar
 
 Skills are also the right place to preserve repeated tool workflows. If a bot repeats the same executable procedure more than once, it should capture the durable decision rules in a bot-authored skill and, when useful, pair that skill with a stored script or `run_script` pattern so future runs do not rediscover the same loop through serial tool calls.
 
+The companion agent-first introspection tools are:
+
+- `list_agent_capabilities` — shows the bot's API grants, endpoint catalog, tool working set, skill working set, Project context, harness status, widget tools, and readiness findings.
+- `run_agent_doctor` — returns only the readiness findings and concrete next actions.
+
 ### 1. Correction-Driven Learning
 
 **Trigger**: User message matches correction patterns (e.g., "No, that's wrong", "Actually, you should...", "Incorrect", "Not quite")
@@ -157,9 +166,9 @@ This is the highest-quality learning signal — the user has explicitly identifi
 
 **Trigger**: Bot searches for the same topic 3+ times across distinct agent runs within 14 days
 
-The system monitors search tool calls (`search_memory`, `search_channel_workspace`, `search_channel_archive`) across agent runs. When a pattern is detected, it injects a nudge listing the repeated topics and suggesting the bot create skills for each. The prompt explains: *"These recurring lookups are a signal that the information should be a SKILL so it auto-surfaces without you having to search for it."*
+The system monitors search tool calls (`search_memory`, `search_channel_workspace`, `search_channel_archive`) across agent runs. When a pattern is detected, it injects a nudge listing the repeated topics and suggesting the bot create skills for each. The prompt tells the bot to turn recurring lookups into skills so future turns can discover and load the procedure directly.
 
-This catches the highest-signal learning gap: information the bot needs regularly but hasn't codified. Once a skill is created, the RAG pipeline surfaces it automatically — eliminating the repeated manual searches.
+This catches the highest-signal learning gap: information the bot needs regularly but hasn't codified. Once a skill is created, semantic discovery can recommend it and `get_skill()` can load the full playbook.
 
 Disable with `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED=false`.
 
@@ -196,9 +205,9 @@ Validation applies to create, update (when content is provided), and **patch** (
 The system prompt teaches bots the critical difference:
 
 - **Memory files** (`memory/MEMORY.md`, `memory/reference/`, daily logs) = the bot's private notes. The bot must search for them or know they exist. Reference files are good for detailed personal context (system configs, user environment, project-specific notes).
-- **Skills** (`manage_bot_skill`) = the bot's published playbook. Skills enter the RAG pipeline and **auto-surface** when a user's message is semantically similar — the bot doesn't need to remember they exist. Good for reusable patterns, procedures, troubleshooting guides, and domain knowledge.
+- **Skills** (`manage_bot_skill`) = the bot's published playbook. Skills enter the catalog and semantic discovery layer; the bot can load them with `get_skill()` when the skill index says they are relevant. Good for reusable patterns, procedures, troubleshooting guides, and domain knowledge.
 
-**Rule of thumb**: If future-you should see this automatically when someone hits a similar problem, make it a skill. If future-you needs to actively look it up, put it in a reference file.
+**Rule of thumb**: If future-you should be able to discover and load it when someone hits a similar problem, make it a skill. If future-you needs to actively look it up, put it in a reference file.
 
 ## Merging Skills
 
@@ -229,7 +238,7 @@ If the target `name` matches one of the source skills, it's treated as a rename-
 
 The system monitors search tool calls (`search_memory`, `search_channel_workspace`, `search_channel_archive`) across agent runs. When a bot repeatedly searches for the same topic (3+ distinct agent runs within 14 days), a one-shot nudge is injected at the start of the next run suggesting the bot create a skill for that topic.
 
-This catches the highest-signal learning gap: information the bot needs but hasn't codified. Skills auto-surface via RAG, eliminating the need for repeated manual searches.
+This catches the highest-signal learning gap: information the bot needs but hasn't codified. Skills make the pattern discoverable and loadable instead of forcing repeated manual searches.
 
 Disable with `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED=false`.
 
@@ -273,7 +282,7 @@ The pre-compaction memory flush prompt also nudges bots to consider creating ski
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `RAG_TOP_K` | 5 | Max chunks injected per request |
+| `SKILL_ENROLLED_AUTO_INJECT_MAX` | 0 | Default full-body auto-injection cap for enrolled skills |
 | `SKILL_NUDGE_AFTER_ITERATIONS` | 8 | Inject learning nudge after N tool iterations (0 = disabled) |
 | `SKILL_CORRECTION_NUDGE_ENABLED` | true | Inject learning nudge when user corrects the bot |
 | `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED` | true | Inject nudge when bot repeatedly searches same topics |
@@ -304,7 +313,7 @@ Bot-authored skills are discovered via a DB query during context assembly. To av
 
 ## Ephemeral Skill Injection (Pipelines, Tasks, and `@`-tags)
 
-Beyond the auto-surfaced RAG pipeline, skills can be **injected ephemerally** for a single run without enrolling them on the bot. Two mechanisms:
+Beyond normal enrolled-skill discovery, skills can be **injected ephemerally** for a single run without enrolling them on the bot. Two mechanisms:
 
 ### `@`-tags — user-directed, one turn
 
@@ -341,6 +350,6 @@ This matters for multi-step pipelines: every step in the pipeline's sub-session 
 | Mechanism | Scope | Who drives it | Use when |
 |---|---|---|---|
 | Enrolled bot skill | Forever on this bot | Bot (via `manage_bot_skill`) or admin | The skill is part of the bot's identity |
-| RAG auto-surface | Per-request, top-K | Similarity score | The skill should be available *when relevant* |
+| Enrolled skill index | Persistent working set | Bot/channel enrollment + relevance ranking | The skill should be easy to load when relevant |
 | `@`-tag | One turn | User typing `@name` | User knows exactly which skill applies right now |
 | `execution_config.skills` | One task run / sub-session | Pipeline / task config | A scheduled job or pipeline needs a specialist toolkit without persistent enrollment |

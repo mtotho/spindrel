@@ -257,7 +257,7 @@ function formatRunTime(value?: string | null) {
 function setupTone(status: string): "success" | "warning" | "danger" | "neutral" {
   if (status === "succeeded" || status === "cloned" || status === "already_present") return "success";
   if (status === "failed" || status === "invalid") return "danger";
-  if (status === "running") return "warning";
+  if (status === "running" || status === "skipped") return "warning";
   return "neutral";
 }
 
@@ -269,6 +269,7 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
 
   const plan = setup?.plan;
   const repos = Array.isArray(plan?.repos) ? plan.repos : [];
+  const commands = Array.isArray(plan?.commands) ? plan.commands : [];
   const secretSlots = Array.isArray(plan?.secret_slots) ? plan.secret_slots : [];
   const runs = setup?.runs ?? [];
   const latestRun = runs[0];
@@ -294,8 +295,15 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
   const bindingsDirty = JSON.stringify(bindingsDraft) !== JSON.stringify(currentBindings);
   const missingSecrets = plan?.missing_secrets ?? [];
   const invalidRepos = repos.filter((repo) => repo.status === "invalid");
-  const readyLabel = plan?.ready ? "Ready to clone" : repos.length === 0 ? "No repos declared" : missingSecrets.length > 0 ? "Missing secrets" : "Needs review";
-  const readyTone = plan?.ready ? "success" : repos.length === 0 || invalidRepos.length > 0 ? "danger" : "warning";
+  const invalidCommands = commands.filter((command) => command.status === "invalid");
+  const readyLabel = plan?.ready
+    ? commands.length > 0 ? "Ready to run setup" : "Ready to clone"
+    : repos.length === 0 && commands.length === 0
+      ? "No setup work declared"
+      : missingSecrets.length > 0
+        ? "Missing secrets"
+        : "Needs review";
+  const readyTone = plan?.ready ? "success" : (repos.length === 0 && commands.length === 0) || invalidRepos.length > 0 || invalidCommands.length > 0 ? "danger" : "warning";
 
   const saveBindings = () => {
     const payload = Object.fromEntries(
@@ -308,7 +316,7 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
     <div data-testid="project-workspace-setup" className="mx-auto flex w-full max-w-[1120px] flex-col gap-7 px-5 py-5 md:px-6">
       <Section
         title="Setup"
-        description="Clone the repos declared by this Project's applied Blueprint snapshot."
+        description="Clone repos and run setup commands declared by this Project's applied Blueprint snapshot."
         action={
           <ActionButton
             label={runSetup.isPending ? "Running" : "Run Setup"}
@@ -324,12 +332,14 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
             title={readyLabel}
             description={
               plan?.ready
-                ? "Setup can clone declared repositories into this Project root."
+                ? "Setup can prepare this Project root with declared repos and commands."
                 : missingSecrets.length > 0
                   ? missingSecrets.join(", ")
                   : invalidRepos.length > 0
                     ? "One or more repo declarations need a safe path or supported URL."
-                    : "Add repo declarations to the Blueprint before running setup."
+                    : invalidCommands.length > 0
+                      ? "One or more setup commands need a command, safe cwd, or valid timeout."
+                      : "Add repo declarations or setup commands to the Blueprint before running setup."
             }
             meta={<StatusBadge label={readyLabel} variant={readyTone} />}
           />
@@ -340,6 +350,33 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
               description={runSetup.error instanceof Error ? runSetup.error.message : "The setup request failed."}
               meta={<StatusBadge label="failed" variant="danger" />}
             />
+          )}
+        </div>
+      </Section>
+
+      <Section title="Command Plan" description="Commands run in order after repository setup. Cwd values are Project-relative.">
+        <div className="flex flex-col gap-2">
+          <SettingsGroupLabel label="Commands" count={commands.length} icon={<Terminal size={13} className="text-text-dim" />} />
+          {commands.length === 0 ? (
+            <EmptyState message="This Project snapshot does not declare setup commands yet." />
+          ) : (
+            commands.map((command, index) => (
+              <SettingsControlRow
+                key={`${command.name ?? index}-command`}
+                leading={<Terminal size={14} />}
+                title={String(command.name || `Command ${index + 1}`)}
+                description={
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate font-mono text-xs">{String(command.command || "missing command")}</span>
+                    <span className="truncate font-mono text-[11px] text-text-dim">/{project.root_path}{command.cwd ? `/${String(command.cwd)}` : ""} · {String(command.timeout_seconds || 600)}s</span>
+                    {Array.isArray(command.errors) && command.errors.length > 0 && (
+                      <span className="text-xs text-danger-muted">{command.errors.join(", ")}</span>
+                    )}
+                  </span>
+                }
+                meta={<StatusBadge label={String(command.status || "pending")} variant={setupTone(String(command.status || "pending"))} />}
+              />
+            ))
           )}
         </div>
       </Section>
@@ -426,6 +463,15 @@ function ProjectSetupSection({ project, setup }: { project: Project; setup?: Pro
                   title={String(repo.path || repo.name || "repo")}
                   description={String(repo.message || "No output recorded.")}
                   meta={<StatusBadge label={String(repo.status || "unknown")} variant={setupTone(String(repo.status || "unknown"))} />}
+                />
+              ))}
+              {(latestRun.result?.commands ?? []).map((command: Record<string, any>, index: number) => (
+                <SettingsControlRow
+                  key={`${command.name ?? index}-command-result`}
+                  leading={<Terminal size={14} />}
+                  title={String(command.name || `Command ${index + 1}`)}
+                  description={String(command.message || "No output recorded.")}
+                  meta={<StatusBadge label={String(command.status || "unknown")} variant={setupTone(String(command.status || "unknown"))} />}
                 />
               ))}
               {(latestRun.logs ?? []).length > 0 && (

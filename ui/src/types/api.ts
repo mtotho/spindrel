@@ -1408,6 +1408,7 @@ export interface ProjectBlueprint extends ProjectBlueprintSummary {
   files?: Record<string, string>;
   knowledge_files?: Record<string, string>;
   repos?: Array<Record<string, any>>;
+  setup_commands?: Array<Record<string, any>>;
   env?: Record<string, string>;
   required_secrets?: string[];
   metadata_?: Record<string, any>;
@@ -1462,6 +1463,7 @@ export interface ProjectSetup {
     ready: boolean;
     reasons?: string[];
     repos?: Array<Record<string, any>>;
+    commands?: Array<Record<string, any>>;
     env?: Record<string, string>;
     secret_slots?: Array<Record<string, any>>;
     missing_secrets?: string[];
@@ -1502,6 +1504,7 @@ export interface ProjectBlueprintWrite {
   files?: Record<string, string> | null;
   knowledge_files?: Record<string, string> | null;
   repos?: Array<Record<string, any>> | null;
+  setup_commands?: Array<Record<string, any>> | null;
   env?: Record<string, string> | null;
   required_secrets?: string[] | null;
   metadata_?: Record<string, any> | null;

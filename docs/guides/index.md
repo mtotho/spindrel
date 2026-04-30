@@ -12,7 +12,7 @@ Read the matching guide before touching these areas.
 |---|---|---|
 | [Development Process](development-process.md) | Review finding triage, Agent Briefs, contract/red-line review, out-of-scope decisions | repo maintenance |
 | [Context Management](context-management.md) | Context admission, history profiles, temporal context, compaction | `app/agent/context_assembly.py` |
-| [Discovery and Enrollment](discovery-and-enrollment.md) | Tool / skill / MCP residency, per-channel enrollment, activation | `app/agent/channel_overrides.py`, `app/services/skill_store.py` |
+| [Discovery and Enrollment](discovery-and-enrollment.md) | Tool / skill / MCP residency, per-channel enrollment, activation, agent capability manifests | `app/agent/channel_overrides.py`, `app/services/skill_enrollment.py`, `app/services/tool_enrollment.py`, `app/services/agent_capabilities.py` |
 | [Widget System](widget-system.md) | Widget contracts, origins, presentation, host policy | `app/services/widget_*.py` |
 | [UI Design](ui-design.md) | UI archetypes, design tokens, active-row pill, anti-patterns | `ui/` |
 | [UI Components](ui-components.md) | Shared dropdowns, prompt editors, settings rows/actions, component usage catalog | `ui/src/components/shared/` |

@@ -1,7 +1,9 @@
 import uuid
 from types import SimpleNamespace
 
-from app.services.turn_worker import _parse_harness_explicit_tags
+import pytest
+
+from app.services.turn_worker import _parse_harness_explicit_tags, _run_harness_branch_if_needed
 from app.services.agent_harnesses.turn_host import _build_harness_input_manifest
 
 
@@ -81,3 +83,42 @@ def test_harness_input_manifest_keeps_inline_and_workspace_images(monkeypatch, t
     assert manifest.attachments[1].source == "channel_workspace"
     assert manifest.attachments[1].path == str(upload)
     assert "AAA" not in str(manifest.metadata())
+
+
+@pytest.mark.asyncio
+async def test_harness_branch_forwards_attachment_payload_to_harness_turn(monkeypatch):
+    captured = {}
+
+    async def fake_run_harness_turn(**kwargs):
+        captured.update(kwargs)
+        return "ok", None
+
+    monkeypatch.setattr(
+        "app.services.turn_worker._run_harness_turn",
+        fake_run_harness_turn,
+    )
+    scope = SimpleNamespace(
+        channel_id=uuid.uuid4(),
+        bus_key=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        turn_id=uuid.uuid4(),
+        correlation_id=uuid.uuid4(),
+        suppress_outbox=True,
+    )
+    state = SimpleNamespace(pre_user_msg_id=uuid.uuid4())
+    req = SimpleNamespace(msg_metadata={"source": "test"})
+    attachments = [{"type": "image", "content": "AAA", "mime_type": "image/png"}]
+
+    handled = await _run_harness_branch_if_needed(
+        scope,
+        state,
+        bot=SimpleNamespace(id="harness-bot", harness_runtime="claude-code"),
+        req=req,
+        user_message="/fixture-skill",
+        att_payload=attachments,
+    )
+
+    assert handled is True
+    assert captured["harness_attachments"] == tuple(attachments)
+    assert state.response_text == "ok"
+    assert state.error_text is None

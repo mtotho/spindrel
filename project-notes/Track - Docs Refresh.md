@@ -17,6 +17,19 @@ updated: 2026-04-26 (public-release docs audit + harness positioning)
 - Feature and integration status pages bumped to 2026-04-26 and now include Spatial Canvas, Memory Observatory, external harnesses, Admin Terminal, Local Machine Control, Claude Code harness, and Local Companion.
 - Remaining release-doc blockers: screenshot hero gate still needs fresh images/allow-listing, workflow deprecation still has visible legacy product surfaces, and docs build needs to be run in an environment with MkDocs installed.
 
+## 2026-04-29 agent-first docs truth pass
+
+- `docs/guides/api.md` now points at the live scope source instead of stale
+  fixed counts, removes deprecated `knowledge:*` / `mission_control:*` scope
+  claims, documents `/api/v1/agent-capabilities`, and shows structured
+  `call_api` bodies.
+- `docs/guides/bot-skills.md` now matches the canonical prompt-first skill
+  model: enrolled skills appear in the index, full bodies load through
+  `get_skill()`, and auto-injection is not assumed by default.
+- `docs/guides/discovery-and-enrollment.md` names `list_agent_capabilities`
+  and `run_agent_doctor` as the agent-facing readiness layer over existing
+  discovery/enrollment primitives.
+
 ## 2026-04-25 setup refresh
 - `docs/setup.md` now matches the current single-container Docker UI: production users open `http://localhost:8000`; `8081` is no longer presented as the Docker quickstart UI.
 - Setup docs now include the wizard's ChatGPT Subscription option and console device-code behavior: setup prints verification URL + user code when Docker starts immediately; headless/deferred installs connect later in Admin > Providers.

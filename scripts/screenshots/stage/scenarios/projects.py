@@ -104,6 +104,12 @@ def stage_project_workspace(
             "path": "spindrel",
             "branch": "development",
         }],
+        setup_commands=[{
+            "name": "Verify Blueprint runtime",
+            "command": "printf 'Project kind: %s\\n' \"$PROJECT_KIND\"",
+            "cwd": "",
+            "timeout_seconds": 30,
+        }],
         env={"NODE_ENV": "development", "PROJECT_KIND": "screenshot"},
         required_secrets=[BOUND_SECRET_NAME, SECOND_BOUND_SECRET_NAME],
     )
@@ -132,6 +138,7 @@ def stage_project_workspace(
                 "files": blueprint.get("files") or {},
                 "knowledge_files": blueprint.get("knowledge_files") or {},
                 "repos": blueprint.get("repos") or [],
+                "setup_commands": blueprint.get("setup_commands") or [],
                 "env": blueprint.get("env") or {},
                 "required_secrets": blueprint.get("required_secrets") or [],
             },

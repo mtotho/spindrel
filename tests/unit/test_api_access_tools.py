@@ -151,6 +151,37 @@ class TestCallApi:
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer ask_test123"
 
     @pytest.mark.asyncio
+    async def test_structured_body_is_sent_without_string_encoding(self):
+        """Agents can pass JSON objects directly instead of hand-escaped strings."""
+        from app.tools.local.api_access import call_api
+
+        mock_db = AsyncMock()
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {"id": "ch-1"}
+
+        mock_client = AsyncMock()
+        mock_client.request = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        body = {"name": "Agent-first", "bot_id": "default"}
+        with patch("app.tools.local.api_access.current_bot_id") as mock_ctx:
+            mock_ctx.get.return_value = "test-bot"
+            with patch("app.db.engine.async_session", return_value=mock_session_ctx):
+                with patch("app.services.api_keys.get_bot_api_key_value", new_callable=AsyncMock, return_value="ask_test123"):
+                    with patch("httpx.AsyncClient", return_value=mock_client):
+                        result = json.loads(await call_api(method="POST", path="/api/v1/channels", body=body))
+
+        assert result["status"] == 201
+        call_kwargs = mock_client.request.call_args
+        assert call_kwargs.kwargs["json"] == body
+
+    @pytest.mark.asyncio
     async def test_returns_structured_result(self):
         """Verify status + body structure."""
         from app.tools.local.api_access import call_api

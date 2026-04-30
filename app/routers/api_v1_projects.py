@@ -77,6 +77,7 @@ class ProjectBlueprintOut(ProjectBlueprintSummaryOut):
     files: dict = Field(default_factory=dict)
     knowledge_files: dict = Field(default_factory=dict)
     repos: list = Field(default_factory=list)
+    setup_commands: list = Field(default_factory=list)
     env: dict = Field(default_factory=dict)
     required_secrets: list[str] = Field(default_factory=list)
     metadata_: dict = Field(default_factory=dict)
@@ -96,6 +97,7 @@ class ProjectBlueprintWrite(BaseModel):
     files: dict[str, str] | None = None
     knowledge_files: dict[str, str] | None = None
     repos: list[dict] | None = None
+    setup_commands: list[dict] | None = None
     env: dict[str, str] | None = None
     required_secrets: list[str] | None = None
     metadata_: dict | None = None
@@ -281,6 +283,8 @@ def _apply_blueprint_write(blueprint: ProjectBlueprint, body: ProjectBlueprintWr
         blueprint.knowledge_files = body.knowledge_files or {}
     if "repos" in fields:
         blueprint.repos = body.repos or []
+    if "setup_commands" in fields:
+        blueprint.setup_commands = body.setup_commands or []
     if "env" in fields:
         blueprint.env = body.env or {}
     if "required_secrets" in fields:
@@ -320,6 +324,7 @@ async def create_project_blueprint(
         files=body.files or {},
         knowledge_files=body.knowledge_files or {},
         repos=body.repos or [],
+        setup_commands=body.setup_commands or [],
         env=body.env or {},
         required_secrets=body.required_secrets or [],
         metadata_=body.metadata_ or {},

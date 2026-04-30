@@ -45,7 +45,7 @@ The response includes the key (shown once) and its scopes.
 
 #### Scope Reference
 
-Spindrel defines **51 scopes** across **22 groups**:
+Scopes are defined in `app/services/api_keys.py` and exposed through the API-key admin endpoints. The current public groups are:
 
 | Group | Scopes | Description |
 |-------|--------|-------------|
@@ -58,7 +58,6 @@ Spindrel defines **51 scopes** across **22 groups**:
 | **Tasks** | `tasks:read`, `tasks:write` | Scheduled/deferred task management |
 | **Workspaces** | `workspaces:read/write`, `workspaces.files:read/write` | Workspace management and file operations |
 | **Documents** | `documents:read`, `documents:write` | Ingested document search and management |
-| **Knowledge** | `knowledge:read`, `knowledge:write` | Bot knowledge entries (deprecated — prefer workspace files) |
 | **Todos** | `todos:read`, `todos:write` | Persistent work items |
 | **Attachments** | `attachments:read`, `attachments:write` | File attachment management |
 | **Logs** | `logs:read`, `logs:write` | Agent turns, tool calls, traces, server logs |
@@ -67,10 +66,23 @@ Spindrel defines **51 scopes** across **22 groups**:
 | **Users** | `users:read`, `users:write` | User management |
 | **Settings** | `settings:read`, `settings:write` | Server-wide settings |
 | **Operations** | `operations:read`, `operations:write` | Backups, git pull, restart |
-| **Usage** | `usage:read` | Cost analytics and usage limits |
+| **Usage** | `usage:read`, `usage:write` | Cost analytics and usage limits |
 | **Workflows** | `workflows:read`, `workflows:write` | Deprecated workflow routes (see [Pipelines](pipelines.md)). Scope retained for historical API compatibility. |
 | **LLM** | `llm:completions` | Direct LLM calls through the server's provider system |
-| **Legacy dashboards** | `mission_control:read`, `mission_control:write` | Legacy dashboard data scopes retained for compatibility |
+| **API Keys** | `api_keys:read`, `api_keys:write` | Scoped API-key management |
+| **Integrations** | `integrations:read`, `integrations:write` | Integration setup, settings, process control, and dependencies |
+| **MCP Servers** | `mcp_servers:read`, `mcp_servers:write` | Model Context Protocol server configuration |
+| **Skills** | `skills:read`, `skills:write` | Skill definitions and metadata |
+| **Secrets** | `secrets:read`, `secrets:write` | Secret-value metadata and writes |
+| **Webhooks** | `webhooks:read`, `webhooks:write` | Webhook configuration and delivery history |
+| **Docker Stacks** | `docker_stacks:read`, `docker_stacks:write` | Docker stack configuration and control |
+| **Alerts** | `alerts:read`, `alerts:write` | Spike alert configuration |
+| **Notifications** | `notifications:read`, `notifications:write`, `notifications:send` | Notification targets and test sends |
+| **Approvals** | `approvals:read`, `approvals:write` | Tool approval queue |
+| **Tool Policies** | `tool_policies:read`, `tool_policies:write` | Tool-level permission policies |
+| **Bot Hooks** | `bot_hooks:read`, `bot_hooks:write` | Bot lifecycle hooks |
+| **Storage** | `storage:read`, `storage:write` | Storage usage and cleanup |
+| **Push** | `push:send` | Web Push notification sends |
 
 !!! note "Pipelines use `tasks:*` scopes"
     Task pipelines are stored as `Task` rows, so pipeline CRUD and run management are authorized by `tasks:read` / `tasks:write`. The `workflows:*` scope guards the legacy workflows router only.
@@ -87,7 +99,8 @@ The admin UI offers one-click presets for common use cases:
 | **Chat Client** | Custom chat frontends | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write` |
 | **Container Bot** | Bots in their container environment | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `tools:read/execute` |
 | **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `sessions:read`, `tasks:read`, `todos:read`, `attachments:read`, `logs:read` |
-| **Legacy dashboard** | Older dashboard clients | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write` |
+| **Admin User** | Full admin access for admin users | `admin` |
+| **Member User** | Standard user API access | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write`, `todos:read/write`, `approvals:read` |
 
 ### JWT (User Authentication)
 
@@ -115,7 +128,28 @@ curl -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8000/api/v1/discover?detail=true"
 ```
 
-The basic response includes method, path, description, and required scope for each endpoint.
+The basic response includes method, path, description, and required scope for each endpoint. The bot-facing `list_api_endpoints` tool returns the same filtered catalog plus request parameters, request-body schema, response schema, and endpoint notes when those are available from OpenAPI.
+
+### Agent Capability Manifest
+
+Agents can inspect their full working surface through one manifest:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8000/api/v1/agent-capabilities?bot_id=default&include_schemas=true"
+```
+
+The response includes scoped API endpoints, tool profiles and working-set state, enrolled skills, Project/runtime readiness, harness status, widget authoring tools, and `doctor.findings` with concrete next actions. Bots normally call the same contract through `list_agent_capabilities`; `run_agent_doctor` returns only the readiness findings.
+
+`call_api` accepts either a JSON string or a structured JSON body. Prefer structured bodies so agents do not have to hand-escape JSON:
+
+```json
+{
+  "method": "POST",
+  "path": "/api/v1/channels",
+  "body": {"name": "ops", "bot_id": "default"}
+}
+```
 
 ## Chat API
 
