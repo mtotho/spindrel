@@ -26,6 +26,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | Guide | About |
 |---|---|
 | [Admin Terminal](admin-terminal.md) | Browser-based shell into the Spindrel container — admin-only |
+| [Agent E2E Development](agent-e2e-development.md) | Local/harness/runtime agent workflow for fresh e2e stacks, provider auth, and screenshot evidence |
 | [Agent Harnesses](agent-harnesses.md) | Remote Claude Code sessions in the Spindrel UI; Codex-compatible runtime boundary |
 | [Attention Beacons](attention-beacons.md) | Shared attention/work-intake items rendered as Spatial Canvas beacons |
 | [API](api.md) | Public REST API for external callers |

@@ -91,8 +91,10 @@ class E2EEnvironment:
         cmd = [
             "docker", "compose",
             "-f", str(self.config.compose_file),
-            "-p", COMPOSE_PROJECT,
         ]
+        for override in self.config.compose_overrides:
+            cmd.extend(["-f", str(override)])
+        cmd.extend(["-p", COMPOSE_PROJECT])
         cmd.extend(args)
         return cmd
 

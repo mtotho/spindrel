@@ -5,6 +5,10 @@ Starboard, Map Brief, mobile hub, and other visual surfaces, a typecheck plus
 DOM assertions is not enough. The run should create documentation images,
 exercise browser behavior, and leave a visible artifact an engineer can inspect.
 
+For local fresh e2e setup, screenshot env generation, and the difference
+between local agents, harness agents, and runtime bots, read
+[Agent E2E Development](agent-e2e-development.md).
+
 ## Canonical Spatial Canvas Run
 
 Run from the repo root. The screenshot tool reads

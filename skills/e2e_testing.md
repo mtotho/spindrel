@@ -9,6 +9,12 @@ category: development
 
 The `run_e2e_tests` tool runs end-to-end tests against a real Spindrel server instance. Unlike unit tests (which mock the LLM), these exercise the full pipeline: user message → context assembly → real LLM call → tool selection → tool execution → response.
 
+This runtime skill is for normal Spindrel bots. Codex/Claude harness agents
+doing Project coding work use their native tools for code edits, but should use
+task-granted Spindrel tools for e2e, screenshots, server/machine actions, and
+receipts. Do not assume a harness agent can or should control Docker directly
+from its native shell.
+
 ## Actions
 
 | Action | Purpose |
@@ -106,6 +112,18 @@ scenarios:
 ```bash
 E2E_LLM_BASE_URL=https://... E2E_LLM_API_KEY=sk-... E2E_DEFAULT_MODEL=model-name
 ```
+
+## Project Task Evidence
+
+For Project coding or review tasks:
+
+- call `run_e2e_tests(action="status")` before running checks;
+- use only the configured e2e target shown by the tool result;
+- if screenshots, Docker/compose, or server commands are needed, use the
+  task-granted Spindrel tools made available to this run;
+- if the needed grant is missing, report that blocker instead of using ambient
+  machine access;
+- include tests and screenshot artifact paths in the Project run receipt.
 
 ## Delegation Caveats
 

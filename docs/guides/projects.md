@@ -97,6 +97,12 @@ branch, use Project runtime env, use the granted e2e/machine target only when
 attached to the task, run e2e checks when relevant, and publish
 `publish_project_run_receipt` evidence.
 
+Project coding agents that use Codex or Claude Code are harness agents: native
+tools own file edits and repo-local commands inside the Project root, but
+e2e-testing, screenshots, server/machine actions, and Docker/compose control
+must go through task-scoped Spindrel grants. See
+[Agent E2E Development](agent-e2e-development.md) for the full boundary.
+
 ![Project coding run execution access](../images/project-workspace-execution-access.png)
 
 Execution access deliberately uses the same task machine-grant primitive as

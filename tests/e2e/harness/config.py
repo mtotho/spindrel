@@ -50,6 +50,7 @@ class E2EConfig:
 
     # Paths
     compose_file: Path = field(default_factory=lambda: Path(__file__).parent.parent / "docker-compose.e2e.yml")
+    compose_overrides: list[Path] = field(default_factory=list)
     bot_config_file: Path = field(default_factory=lambda: Path(__file__).parent.parent / "bot.e2e.yaml")
     project_root: Path = field(default_factory=lambda: Path(__file__).parent.parent.parent.parent)
 
@@ -69,6 +70,11 @@ class E2EConfig:
     @classmethod
     def from_env(cls) -> E2EConfig:
         """Load configuration from E2E_* environment variables."""
+        compose_overrides = [
+            Path(p).expanduser()
+            for p in os.environ.get("E2E_COMPOSE_OVERRIDES", "").split(":")
+            if p.strip()
+        ]
         return cls(
             mode=os.environ.get("E2E_MODE", "compose"),
             image_name=os.environ.get("E2E_IMAGE", "agent-server:e2e"),
@@ -84,4 +90,5 @@ class E2EConfig:
             request_timeout=int(os.environ.get("E2E_REQUEST_TIMEOUT", "60")),
             bot_id=os.environ.get("E2E_BOT_ID", "e2e"),
             keep_running=os.environ.get("E2E_KEEP_RUNNING", "") == "1",
+            compose_overrides=compose_overrides,
         )

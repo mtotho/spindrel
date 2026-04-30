@@ -2,6 +2,9 @@
 
 End-to-end tests exercise the full Spindrel server pipeline against a real instance: user message → context assembly → LLM call → tool selection → tool execution → streamed response. Unlike unit tests (which mock the LLM), these validate that the whole system works together.
 
+For agent development workflows, local fresh-stack setup, provider auth, and
+harness-vs-runtime boundaries, read [Agent E2E Development](agent-e2e-development.md).
+
 ## Quick Start
 
 ### Run from the command line

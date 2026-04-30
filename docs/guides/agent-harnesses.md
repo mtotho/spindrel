@@ -8,6 +8,11 @@ An **external agent harness** lets you run a coding-agent session from Spindrel'
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
 
+For Project task agents that need e2e, screenshots, or server/machine access,
+use the boundary in [Agent E2E Development](agent-e2e-development.md): native
+Codex/Claude tools own repo-local code work, while Docker/e2e/server control
+goes through task-granted Spindrel tools.
+
 There is no Spindrel agent middleman in the turn. Internally the runtime is selected on a bot record so it can reuse channels, workspaces, and message persistence, but once a harness runtime is set, the normal Spindrel prompt, skills, memory, and KB injection are bypassed for that turn. Harness model/effort controls are runtime-owned and stored per session under `Session.metadata["harness_settings"]`. A narrow host bridge can add one-shot context hints and selected Spindrel tools back into the harness without turning it into a normal Spindrel loop.
 
 ## Quick start

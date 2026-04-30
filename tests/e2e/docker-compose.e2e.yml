@@ -22,7 +22,7 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080/
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 3s
       timeout: 3s
       retries: 10
