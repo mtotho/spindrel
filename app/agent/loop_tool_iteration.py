@@ -15,6 +15,9 @@ from app.agent.message_utils import _event_with_compaction_tag, _extract_transcr
 
 logger = logging.getLogger(__name__)
 
+PLAN_PROGRESS_TOOL_NAME = "record_plan_progress"
+PLAN_REPLAN_TOOL_NAME = "request_plan_replan"
+
 
 @dataclass(frozen=True)
 class LoopToolIterationDone:
@@ -70,7 +73,13 @@ async def stream_loop_tool_iteration(
             ctx.compaction,
         )
 
-    tool_calls = accumulated_msg.tool_calls or []
+    tool_calls = _terminal_plan_tool_calls(accumulated_msg.tool_calls or [])
+    if tool_calls != (accumulated_msg.tool_calls or []):
+        _replace_current_turn_tool_calls(
+            messages,
+            turn_start=ctx.turn_start,
+            tool_calls=tool_calls,
+        )
     logger.info("LLM requested %d tool call(s)", len(tool_calls))
     async for dispatch_event in dispatch_iteration_tool_calls_fn(
         accumulated_tool_calls=tool_calls,
@@ -90,8 +99,8 @@ async def stream_loop_tool_iteration(
         if dispatch_event.get("type") == "cancelled":
             yield LoopToolIterationDone(cancelled=True)
             return
-        if _plan_progress_result_ends_turn(dispatch_event):
-            text = "Plan progress recorded."
+        if _terminal_plan_result_ends_turn(dispatch_event):
+            text = _terminal_plan_final_text(dispatch_event.get("tool"))
             _append_transcript_text_entry(state.transcript_entries, text)
             state.messages.append(_plan_progress_final_assistant_message(text, state))
             _collapse_final_assistant_tool_turn(state.messages, turn_start=ctx.turn_start)
@@ -156,13 +165,39 @@ async def stream_loop_tool_iteration(
     yield LoopToolIterationDone()
 
 
-def _plan_progress_result_ends_turn(event: dict[str, Any]) -> bool:
-    """`record_plan_progress` is an end-of-turn marker, not an invitation to keep executing."""
+def _terminal_plan_tool_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """When replanning is requested, treat it as the strongest terminal plan transition."""
+    for tool_call in tool_calls:
+        if tool_call.get("function", {}).get("name") == PLAN_REPLAN_TOOL_NAME:
+            return [tool_call]
+    return tool_calls
+
+
+def _replace_current_turn_tool_calls(
+    messages: list[dict[str, Any]],
+    *,
+    turn_start: int,
+    tool_calls: list[dict[str, Any]],
+) -> None:
+    for msg in reversed(messages[turn_start:]):
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            msg["tool_calls"] = tool_calls
+            return
+
+
+def _terminal_plan_result_ends_turn(event: dict[str, Any]) -> bool:
+    """Plan outcome tools are end-of-turn markers, not invitations to continue executing."""
     return (
         event.get("type") == "tool_result"
-        and event.get("tool") == "record_plan_progress"
+        and event.get("tool") in {PLAN_PROGRESS_TOOL_NAME, PLAN_REPLAN_TOOL_NAME}
         and not event.get("error")
     )
+
+
+def _terminal_plan_final_text(tool_name: Any) -> str:
+    if tool_name == PLAN_REPLAN_TOOL_NAME:
+        return "Plan replan requested."
+    return "Plan progress recorded."
 
 
 def _plan_progress_final_assistant_message(text: str, state: LoopRunState) -> dict[str, Any]:

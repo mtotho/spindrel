@@ -386,7 +386,7 @@ SSH is the best fit for headless machines, LAN boxes, and hosts that already hav
    Compose, or service reachability related.
 7. Pin a Machine Probe preset when you want the same check to refresh on a
    dashboard. Current presets cover TCP port checks, DNS lookup, HTTP
-   reachability, Docker summary, and Docker log tail.
+   reachability, Docker App Map, Docker summary, and Docker log tail.
 8. Use `machine_exec_command` when you really need execution on that machine.
 9. Revoke the lease or let it expire.
 

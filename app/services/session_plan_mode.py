@@ -2799,7 +2799,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             "If the user asks for work outside the current step, do not mutate; record no_progress/blocked with record_plan_progress or use request_plan_replan when the accepted plan needs to change."
         )
         lines.append(
-            "If execution reveals the accepted plan is stale, stop and use request_plan_replan with the reason/evidence instead of continuing or silently editing around the plan."
+            "If execution reveals the accepted plan is stale, stop and use request_plan_replan as the only plan outcome for the turn, with the reason/evidence, instead of calling record_plan_progress first or silently editing around the plan."
         )
         lines.append(
             "Before ending an execution turn, use record_plan_progress to record progress, verification, step_done, blocked, or no_progress. "

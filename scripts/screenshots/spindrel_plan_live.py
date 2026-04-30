@@ -454,16 +454,16 @@ def _build_specs(
         route = f"{browser_url}/channels/{channel_id}/session/{adherence_retry_session_id}"
         wait = (
             "document.querySelector('[data-plan-focus]') !== null "
-            "&& document.body.innerText.toLowerCase().includes('native spindrel unsupported retry') "
-            "&& (document.body.innerText.toLowerCase().includes('supported') "
-            "|| document.body.innerText.toLowerCase().includes('retry'))"
+            "&& (document.body.innerText.toLowerCase().includes('native spindrel unsupported retry') "
+            "|| document.body.innerText.toLowerCase().includes('native spindrel unsupported fixture')) "
+            "&& document.body.innerText.toLowerCase().includes('supported')"
         )
         specs.append(CaptureSpec(
             name="spindrel-plan-adherence-retry-default-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Unsupported Retry",),
-            scroll_plan_text="Native Spindrel Unsupported Retry",
+            contains=("Native Spindrel", "supported"),
+            scroll_plan_text="Supported",
             channel_id=channel_id,
             chat_mode="default",
         ))
@@ -471,8 +471,8 @@ def _build_specs(
             name="spindrel-plan-adherence-retry-terminal-dark",
             route=route,
             wait_js=wait,
-            contains=("Native Spindrel Unsupported Retry",),
-            scroll_plan_text="Native Spindrel Unsupported Retry",
+            contains=("Native Spindrel", "supported"),
+            scroll_plan_text="Supported",
             channel_id=channel_id,
             chat_mode="terminal",
         ))

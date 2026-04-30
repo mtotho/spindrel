@@ -11,6 +11,7 @@ import {
 interface ProjectOrbitLayerProps {
   nodes: SpatialNode[];
   channelsById: Map<string, Channel>;
+  zoom?: number;
   viewportBbox?: WorldBbox;
   connectionsEnabled?: boolean;
 }
@@ -22,7 +23,10 @@ interface OrbitShape {
   cy: number;
   rx: number;
   ry: number;
+  outerRx: number;
+  outerRy: number;
   hue: number;
+  tilt: number;
 }
 
 interface Tether {
@@ -42,15 +46,16 @@ function stableHue(key: string): number {
 }
 
 function lineBbox(line: Tether): WorldBbox {
+  const pad = Math.max(80, Math.hypot(line.toX - line.fromX, line.toY - line.fromY) * 0.18);
   return {
-    minX: Math.min(line.fromX, line.toX),
-    minY: Math.min(line.fromY, line.toY),
-    maxX: Math.max(line.fromX, line.toX),
-    maxY: Math.max(line.fromY, line.toY),
+    minX: Math.min(line.fromX, line.toX) - pad,
+    minY: Math.min(line.fromY, line.toY) - pad,
+    maxX: Math.max(line.fromX, line.toX) + pad,
+    maxY: Math.max(line.fromY, line.toY) + pad,
   };
 }
 
-export function ProjectOrbitLayer({ nodes, channelsById, viewportBbox, connectionsEnabled = true }: ProjectOrbitLayerProps) {
+export function ProjectOrbitLayer({ nodes, channelsById, zoom = 1, viewportBbox, connectionsEnabled = true }: ProjectOrbitLayerProps) {
   const { orbits, tethers } = useMemo(() => {
     const channelNodes = nodes.filter((node) => node.channel_id);
     const shapes: OrbitShape[] = [];
@@ -68,16 +73,15 @@ export function ProjectOrbitLayer({ nodes, channelsById, viewportBbox, connectio
       const cx = projectNode.world_x + projectNode.world_w / 2;
       const cy = projectNode.world_y + projectNode.world_h / 2;
       const hue = stableHue(projectId);
-      const far = members.reduce((max, node) => {
-        const nx = node.world_x + node.world_w / 2;
-        const ny = node.world_y + node.world_h / 2;
-        return Math.max(max, Math.hypot(nx - cx, ny - cy));
-      }, Math.max(projectNode.world_w, projectNode.world_h) * 0.45);
-      const rx = Math.max(projectNode.world_w * 0.78, far + 90);
-      const ry = Math.max(projectNode.world_h * 0.72, far * 0.56 + 72);
-      shapes.push({ id: `project-orbit:${projectId}`, projectId, cx, cy, rx, ry, hue });
+      const base = Math.max(projectNode.world_w, projectNode.world_h);
+      const rx = Math.max(210, Math.min(320, base * 0.58 + members.length * 14));
+      const ry = Math.max(118, Math.min(190, projectNode.world_h * 0.44 + members.length * 9));
+      const outerRx = rx + 38;
+      const outerRy = ry + 22;
+      const tilt = -10 + (hue % 20);
+      shapes.push({ id: `project-orbit:${projectId}`, projectId, cx, cy, rx, ry, outerRx, outerRy, hue, tilt });
 
-      if (connectionsEnabled) {
+      if (connectionsEnabled && zoom >= 0.42) {
         for (const member of members) {
           lines.push({
             id: `project-tether:${projectId}:${member.id}`,
@@ -92,7 +96,7 @@ export function ProjectOrbitLayer({ nodes, channelsById, viewportBbox, connectio
       }
     }
     return { orbits: shapes, tethers: lines };
-  }, [channelsById, connectionsEnabled, nodes]);
+  }, [channelsById, connectionsEnabled, nodes, zoom]);
 
   const visibleOrbits = orbits.filter((orbit) => {
     if (!viewportBbox) return true;
@@ -110,10 +114,10 @@ export function ProjectOrbitLayer({ nodes, channelsById, viewportBbox, connectio
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const orbit of visibleOrbits) {
-    minX = Math.min(minX, orbit.cx - orbit.rx);
-    minY = Math.min(minY, orbit.cy - orbit.ry);
-    maxX = Math.max(maxX, orbit.cx + orbit.rx);
-    maxY = Math.max(maxY, orbit.cy + orbit.ry);
+    minX = Math.min(minX, orbit.cx - orbit.outerRx);
+    minY = Math.min(minY, orbit.cy - orbit.outerRy);
+    maxX = Math.max(maxX, orbit.cx + orbit.outerRx);
+    maxY = Math.max(maxY, orbit.cy + orbit.outerRy);
   }
   for (const line of visibleTethers) {
     minX = Math.min(minX, line.fromX, line.toX);
@@ -135,36 +139,61 @@ export function ProjectOrbitLayer({ nodes, channelsById, viewportBbox, connectio
     >
       <svg width={width} height={height} viewBox={`${draw.minX} ${draw.minY} ${width} ${height}`} style={{ overflow: "visible" }}>
         {visibleOrbits.map((orbit) => (
-          <ellipse
-            key={orbit.id}
-            data-testid="project-orbit"
-            cx={orbit.cx}
-            cy={orbit.cy}
-            rx={orbit.rx}
-            ry={orbit.ry}
-            fill="none"
-            stroke={`hsl(${orbit.hue}, 66%, 68%)`}
-            strokeOpacity={0.2}
-            strokeWidth={2}
-            strokeDasharray="10 14"
-          />
+          <g key={orbit.id} data-testid="project-orbit">
+            <ellipse
+              cx={orbit.cx}
+              cy={orbit.cy}
+              rx={orbit.outerRx}
+              ry={orbit.outerRy}
+              fill={`hsla(${orbit.hue}, 72%, 66%, 0.025)`}
+              stroke={`hsl(${orbit.hue}, 62%, 66%)`}
+              strokeOpacity={0.09}
+              strokeWidth={1.4}
+              strokeDasharray="6 16"
+              transform={`rotate(${orbit.tilt.toFixed(1)} ${orbit.cx} ${orbit.cy})`}
+            />
+            <ellipse
+              cx={orbit.cx}
+              cy={orbit.cy}
+              rx={orbit.rx}
+              ry={orbit.ry}
+              fill="none"
+              stroke={`hsl(${orbit.hue}, 66%, 70%)`}
+              strokeOpacity={0.16}
+              strokeWidth={1.8}
+              strokeDasharray="2 10"
+              strokeLinecap="round"
+              transform={`rotate(${(orbit.tilt - 7).toFixed(1)} ${orbit.cx} ${orbit.cy})`}
+            />
+          </g>
         ))}
         {visibleTethers.map((line) => (
-          <line
+          <path
             key={line.id}
             data-testid="project-orbit-tether"
-            x1={line.fromX}
-            y1={line.fromY}
-            x2={line.toX}
-            y2={line.toY}
+            d={curvedTetherPath(line)}
             stroke={`hsl(${line.hue}, 70%, 70%)`}
-            strokeOpacity={0.18}
+            strokeOpacity={0.13}
             strokeWidth={1.25}
-            strokeDasharray="5 10"
+            strokeDasharray="3 11"
             strokeLinecap="round"
+            fill="none"
           />
         ))}
       </svg>
     </div>
   );
+}
+
+function curvedTetherPath(line: Tether): string {
+  const dx = line.toX - line.fromX;
+  const dy = line.toY - line.fromY;
+  const bend = Math.min(130, Math.max(46, Math.hypot(dx, dy) * 0.14));
+  const nx = -dy / Math.max(1, Math.hypot(dx, dy));
+  const ny = dx / Math.max(1, Math.hypot(dx, dy));
+  const c1x = line.fromX + dx * 0.34 + nx * bend;
+  const c1y = line.fromY + dy * 0.34 + ny * bend;
+  const c2x = line.fromX + dx * 0.72 + nx * bend * 0.56;
+  const c2y = line.fromY + dy * 0.72 + ny * bend * 0.56;
+  return `M ${line.fromX.toFixed(2)} ${line.fromY.toFixed(2)} C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${line.toX.toFixed(2)} ${line.toY.toFixed(2)}`;
 }

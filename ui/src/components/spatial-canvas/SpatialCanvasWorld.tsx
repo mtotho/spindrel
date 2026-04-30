@@ -221,6 +221,7 @@ export function SpatialCanvasWorld(props: SpatialCanvasWorldProps) {
         <ProjectOrbitLayer
           nodes={nodes ?? []}
           channelsById={channelsById}
+          zoom={interactiveZoom}
           viewportBbox={viewportBbox}
           connectionsEnabled={connectionsEnabled}
         />

@@ -106,6 +106,21 @@ CORE_WIDGET_PRESETS: dict[str, dict[str, Any]] = {
             },
         },
     },
+    "machine-probe-docker-app-map": {
+        "name": "Docker App Map",
+        "description": "Map Docker containers, published ports, networks, and Compose projects on the leased machine target.",
+        "icon": "Network",
+        "tool_name": "machine_run_probe",
+        "layout_hints": {"preferred_zone": "grid", "min_cells": {"w": 6, "h": 5}},
+        "binding_schema": {"type": "object", "properties": {}},
+        "binding_sources": {},
+        "default_config": {"probe_id": "docker_app_map"},
+        "runtime": {
+            "tool_args": {
+                "probe_id": "docker_app_map",
+            },
+        },
+    },
     "machine-probe-docker-logs": {
         "name": "Docker Logs Tail",
         "description": "Show a bounded log tail for one Docker container on the leased machine target.",

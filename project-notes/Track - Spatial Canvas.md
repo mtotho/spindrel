@@ -231,6 +231,12 @@ red markers that look clickable and do nothing. The separate object cue marker
 layer now also uses real buttons that select the target object instead of
 decorative warning icons.
 
+Same-day Project planet visual cleanup: Project nodes no longer render as a
+flat CSS disk. They now use a deterministic SVG project system with a lit core,
+local shell rings, channel moons, and zoom-tiered labels. Project orbit chrome
+is local to the project at overview zoom; long member tethers only appear once
+the map is zoomed in enough to inspect relationships.
+
 | Phase | Status | Description |
 |---|---|---|
 | P0 — Prototypes | ✅ shipped 2026-04-24 | `scratch/alt-ui-prototypes/spatial-canvas.html` + `gossamer-web.html`. Validated semantic zoom + pan/zoom feel. Gossamer parked as future HUD variant. |

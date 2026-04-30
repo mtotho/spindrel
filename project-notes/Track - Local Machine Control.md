@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-30 (bounded machine probes)
+updated: 2026-04-30 (Docker App Map probe)
 ---
 # Track — Local Machine Control
 
@@ -40,7 +40,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 10 | Admin machine-center UI refresh against canonical control-surface standards | ✅ shipped 2026-04-24 |
 | 11 | Guided machine-center flow, recoverable companion setup, reconnecting Linux user service | ✅ shipped 2026-04-25 |
 | 12 | Provider-advertised task machine grants for scheduled/project coding runs | ✅ shipped 2026-04-30 |
-| 13 | Bounded read-only machine probes for progressive discovery | ✅ shipped 2026-04-30 |
+| 13 | Bounded read-only machine probes for progressive discovery | ✅ shipped 2026-04-30; expanded with Docker App Map |
 
 ## What Shipped
 
@@ -140,12 +140,16 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   machine tools for progressive discovery without a new integration SDK
   surface.
 - Probes are fixed read-only bundles for network basics, DNS lookup, TCP port
-  checks, HTTP reachability, Docker summary, Compose summary, and bounded Docker
-  log tails. Results return stable status, status color, evidence, confidence,
-  blocked state, and `next_probe_ids`.
+  checks, HTTP reachability, Docker summary, Docker App Map, Compose summary,
+  and bounded Docker log tails. Results return stable status, status color,
+  evidence, confidence, blocked state, and `next_probe_ids`.
 - Added a core `machine_run_probe` component tool-widget template plus built-in
   widget presets for TCP port checks, DNS lookup, HTTP reachability, Docker
-  summary, and Docker log tails.
+  App Map, Docker summary, and Docker log tails.
+- Docker App Map targets the currently leased machine, keeps to Docker
+  formatter output instead of `inspect`, and exposes containers, published
+  ports, networks, Compose projects, and suggested follow-up reachability
+  probes without env/mount/log leakage.
 - Added the runtime `automation/machine_probes` skill so agents use cheap
   evidence-first probes before raw shell commands or integration-specific
   advice.

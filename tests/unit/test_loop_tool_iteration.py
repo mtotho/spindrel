@@ -144,6 +144,70 @@ async def test_record_plan_progress_result_finishes_turn_without_more_llm_iterat
 
 
 @pytest.mark.asyncio
+async def test_request_plan_replan_result_finishes_turn():
+    async def _dispatch_replan(**kwargs):
+        kwargs["state"].tool_calls_made.append("request_plan_replan")
+        yield {"type": "tool_result", "tool": "request_plan_replan"}
+
+    outputs, state = await _collect(dispatch_iteration_tool_calls_fn=_dispatch_replan)
+
+    assert outputs == [
+        {"type": "tool_result", "tool": "request_plan_replan"},
+        {
+            "type": "response",
+            "text": "Plan replan requested.",
+            "client_actions": [],
+        },
+        LoopToolIterationDone(finished=True),
+    ]
+    assert state.messages[-1]["content"] == "Plan replan requested."
+    assert state.messages[-1]["_tools_used"] == ["request_plan_replan"]
+
+
+@pytest.mark.asyncio
+async def test_request_plan_replan_wins_over_progress_when_both_are_requested():
+    accumulated = AccumulatedMessage(
+        content=None,
+        tool_calls=[
+            {
+                "id": "call_progress",
+                "type": "function",
+                "function": {"name": "record_plan_progress", "arguments": "{}"},
+            },
+            {
+                "id": "call_replan",
+                "type": "function",
+                "function": {"name": "request_plan_replan", "arguments": "{}"},
+            },
+        ],
+    )
+    state = LoopRunState(messages=[
+        {"role": "user", "content": "hi"},
+        accumulated.to_msg_dict(),
+    ])
+    dispatched_names: list[str] = []
+
+    async def _dispatch_selected(**kwargs):
+        selected = kwargs["accumulated_tool_calls"]
+        dispatched_names.extend(tc["function"]["name"] for tc in selected)
+        kwargs["state"].tool_calls_made.append("request_plan_replan")
+        yield {"type": "tool_result", "tool": "request_plan_replan"}
+
+    _, state = await _collect(
+        accumulated_msg=accumulated,
+        state=state,
+        dispatch_iteration_tool_calls_fn=_dispatch_selected,
+    )
+
+    assert dispatched_names == ["request_plan_replan"]
+    assert state.messages[1]["_hidden"] is True
+    final = state.messages[-1]
+    assert final["content"] == "Plan replan requested."
+    assert final["tool_calls"] == [accumulated.tool_calls[1]]
+    assert final["_tools_used"] == ["request_plan_replan"]
+
+
+@pytest.mark.asyncio
 async def test_record_plan_progress_final_turn_preserves_tool_envelopes():
     plan_envelope = {
         "content_type": "application/vnd.spindrel.plan+json",

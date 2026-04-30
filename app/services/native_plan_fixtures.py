@@ -315,9 +315,14 @@ async def seed_native_plan_unsupported_adherence_fixture(
     ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
 
     enter_session_plan_mode(session)
+    title = (
+        f"Native Spindrel Unsupported Retry Fixture {marker}"
+        if variant == "retry_recovered"
+        else f"Native Spindrel Unsupported Fixture {marker}"
+    )
     plan = create_session_plan(
         session,
-        title=f"Native Spindrel Unsupported Fixture {marker}",
+        title=title,
         summary="Verify deterministic unsupported adherence review and retry recovery.",
         scope=f"Live E2E diagnostics only; create only {paths['planned']!r}; do not create alternate marker paths.",
         key_changes=[f"Create the planned marker file {paths['planned']}, not any alternate path."],

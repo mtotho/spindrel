@@ -95,6 +95,14 @@ def test_list_widget_presets_includes_core_machine_probe_presets(monkeypatch):
     assert by_id["machine-probe-docker-summary"]["default_config"] == {
         "probe_id": "docker_summary",
     }
+    assert by_id["machine-probe-docker-app-map"]["name"] == "Docker App Map"
+    assert by_id["machine-probe-docker-app-map"]["default_config"] == {
+        "probe_id": "docker_app_map",
+    }
+    assert by_id["machine-probe-docker-app-map"]["binding_schema"] == {
+        "type": "object",
+        "properties": {},
+    }
 
 
 def test_serialize_core_machine_probe_preset_exposes_tool_widget_contract(monkeypatch):

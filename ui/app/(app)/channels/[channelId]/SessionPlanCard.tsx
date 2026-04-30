@@ -520,17 +520,6 @@ export function SessionPlanCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-1">
-        {plan.mode === "planning" && !historical && (
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={busy || approvalBlocked}
-            className={actionClass("accent", terminal, !!busy || approvalBlocked)}
-            title={approvalBlocked ? "Resolve plan validation issues before approval." : undefined}
-          >
-            Approve & Execute
-          </button>
-        )}
         {(plan.mode === "executing" || plan.mode === "blocked") && !historical && onReplan ? (
           <button
             type="button"
@@ -742,6 +731,20 @@ export function SessionPlanCard({
       <ListSection title="Test Plan" items={plan.test_plan} terminal={terminal} />
       <ListSection title="Acceptance Criteria" items={plan.acceptance_criteria} terminal={terminal} />
       <ListSection title="Risks" items={plan.risks} terminal={terminal} />
+
+      {plan.mode === "planning" && !historical ? (
+        <div data-plan-approval-actions className={terminal ? "flex justify-end border-t border-border-subtle/70 pt-2" : "flex justify-end border-t border-border-subtle/70 pt-3"}>
+          <button
+            type="button"
+            onClick={onApprove}
+            disabled={busy || approvalBlocked}
+            className={actionClass("accent", terminal, !!busy || approvalBlocked)}
+            title={approvalBlocked ? "Resolve plan validation issues before approval." : undefined}
+          >
+            Approve & Execute
+          </button>
+        </div>
+      ) : null}
 
       {revisionEntries.length > 1 ? (
         <Section title="Revision History" terminal={terminal} quiet>

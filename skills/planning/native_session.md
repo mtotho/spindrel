@@ -46,8 +46,9 @@ latest tool results as the source of truth.
 3. If `step_done` uses a workspace path as evidence, or if you claim
    verification/readback, first perform the matching read/check tool call for
    that evidence path.
-4. If the accepted plan is stale, call `request_plan_replan`; do not continue
-   with unstated assumptions.
+4. If the accepted plan is stale, call `request_plan_replan` as the only plan
+   outcome for the turn; do not call `record_plan_progress` first and do not
+   continue with unstated assumptions.
 5. If semantic review marks an outcome unsupported, correct the outcome or
    repeat the step before mutating again.
 

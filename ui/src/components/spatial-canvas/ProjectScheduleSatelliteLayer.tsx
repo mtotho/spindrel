@@ -50,10 +50,10 @@ function pointInViewport(x: number, y: number, viewportBbox?: WorldBbox): boolea
 }
 
 function satelliteToneClass(state: ProjectScheduleSatellite["state"]): string {
-  if (state === "due") return "bg-danger/[0.12] text-danger ring-danger/40";
-  if (state === "imminent") return "bg-warning/[0.13] text-warning ring-warning/40";
-  if (state === "soon") return "bg-accent/[0.12] text-accent ring-accent/35";
-  return "bg-surface-raised/92 text-text-muted ring-surface-border/75";
+  if (state === "due") return "bg-danger/[0.16] text-danger ring-danger/45";
+  if (state === "imminent") return "bg-warning/[0.15] text-warning ring-warning/45";
+  if (state === "soon") return "bg-accent/[0.13] text-accent ring-accent/40";
+  return "bg-surface/88 text-text-muted ring-surface-border/70";
 }
 
 function satelliteLens(
@@ -103,9 +103,17 @@ function ProjectSatelliteButton({
       data-schedule-state={sat.state}
       title={[sat.item.title, time, projectName].filter(Boolean).join(" · ")}
     >
+      <div
+        className="absolute left-[54px] top-1/2 h-px w-8 -translate-y-1/2 rounded-full opacity-70"
+        style={{
+          background: `linear-gradient(90deg, transparent, ${color})`,
+          transform: "translateY(-50%) rotate(-8deg)",
+          transformOrigin: "right center",
+        }}
+      />
       <button
         type="button"
-        className={`flex items-center justify-center rounded-full ring-1 transition-colors duration-150 hover:bg-surface-overlay focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 ${satelliteToneClass(sat.state)}`}
+        className={`relative flex items-center justify-center rounded-full ring-1 transition-colors duration-150 hover:bg-surface-overlay focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 ${satelliteToneClass(sat.state)}`}
         style={{
           width: size,
           height: size,
@@ -118,11 +126,15 @@ function ProjectSatelliteButton({
           if (href) navigate(href, { state: canvasBackState });
         }}
       >
+        <span
+          className="absolute inset-[6px] rounded-full opacity-35"
+          style={{ background: `radial-gradient(circle at 34% 30%, ${color}, transparent 62%)` }}
+        />
         <Clock size={isClose ? 18 : 16} strokeWidth={2} />
       </button>
       {isClose && (
         <div className="max-w-[142px] rounded-full bg-surface-raised/92 px-2 py-0.5 text-center text-[10px] font-medium text-text-muted ring-1 ring-surface-border/65">
-          <span className="truncate">project run</span>
+          <span className="truncate">run probe</span>
           {time && <span className="ml-1 text-text-dim">{time}</span>}
         </div>
       )}
@@ -223,18 +235,16 @@ export function ProjectScheduleSatelliteLayer(props: ProjectScheduleSatelliteLay
         >
           <svg width={tetherBounds.w} height={tetherBounds.h} viewBox={`${tetherBounds.x} ${tetherBounds.y} ${tetherBounds.w} ${tetherBounds.h}`} style={{ overflow: "visible" }}>
             {tetherLines.map((line) => (
-              <line
+              <path
                 key={line.key}
                 data-testid="project-schedule-tether"
-                x1={line.fromX}
-                y1={line.fromY}
-                x2={line.toX}
-                y2={line.toY}
+                d={projectScheduleTetherPath(line)}
                 stroke={line.state === "due" || line.state === "imminent" ? "rgb(var(--color-warning))" : "rgb(var(--color-accent))"}
-                strokeOpacity={line.state === "due" || line.state === "imminent" ? 0.34 : 0.18}
+                strokeOpacity={line.state === "due" || line.state === "imminent" ? 0.28 : 0.14}
                 strokeWidth={1.3}
-                strokeDasharray="5 9"
+                strokeDasharray="2 10"
                 strokeLinecap="round"
+                fill="none"
               />
             ))}
           </svg>
@@ -260,4 +270,16 @@ export function ProjectScheduleSatelliteLayer(props: ProjectScheduleSatelliteLay
       ))}
     </>
   );
+}
+
+function projectScheduleTetherPath(line: TetherLine): string {
+  const dx = line.toX - line.fromX;
+  const dy = line.toY - line.fromY;
+  const dist = Math.max(1, Math.hypot(dx, dy));
+  const bend = Math.min(76, Math.max(28, dist * 0.16));
+  const nx = -dy / dist;
+  const ny = dx / dist;
+  const cx = line.fromX + dx * 0.52 + nx * bend;
+  const cy = line.fromY + dy * 0.52 + ny * bend;
+  return `M ${line.fromX.toFixed(2)} ${line.fromY.toFixed(2)} Q ${cx.toFixed(2)} ${cy.toFixed(2)} ${line.toX.toFixed(2)} ${line.toY.toFixed(2)}`;
 }

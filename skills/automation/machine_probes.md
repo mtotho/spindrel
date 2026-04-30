@@ -20,7 +20,9 @@ symptom and you need evidence before advice.
    - `network_basics` for unknown network state.
    - `dns_lookup` when a name may be wrong.
    - `tcp_port` when reachability to a service matters.
-   - `docker_summary` when containers, apps, or stacks are involved.
+   - `docker_app_map` when containers, apps, Compose stacks, published ports,
+     or "what is running on this box?" are involved.
+   - `docker_summary` when you only need a compact Docker text summary.
 4. Report only what the probe proves. Separate:
    - evidence
    - likely cause
@@ -36,6 +38,7 @@ Use the preset picker when the user wants a persistent card:
 - `TCP Port Check`
 - `DNS Lookup`
 - `HTTP Reachability`
+- `Docker App Map`
 - `Docker Summary`
 - `Docker Logs Tail`
 
@@ -45,6 +48,9 @@ Each preset pins the same generic result card with different bound tool args.
 
 - Do not use probes as proof of UniFi firewall, VLAN, or TrueNAS share
   configuration. Use the relevant integration tools when that state matters.
+- Do not treat `docker_app_map` as a network scan. It only maps Docker runtime
+  state on the leased target and suggests follow-up reachability probes for
+  published host ports.
 - Do not call `machine_exec_command()` just because a probe is available. Use
   probes first; use raw exec only when the user asks for a command outside the
   bounded probe set.

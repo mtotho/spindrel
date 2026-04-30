@@ -44,15 +44,54 @@ state_poll:
     tail: "{{widget_config.tail}}"
   refresh_interval_seconds: 60
 sample_payload:
-  probe_id: tcp_port
+  probe_id: docker_app_map
   status: ok
   status_color: success
-  target: "10.10.20.181:445"
+  target: docker
   evidence:
-    - "stdout: tcp_connect ok host=10.10.20.181 port=445 elapsed_ms=8"
+    - "Docker app map: 2 containers, 2 published ports, 3 networks, 1 compose projects."
   blocked_reason: null
-  next_probe_ids: [dns_lookup, http_probe]
+  next_probe_ids: [tcp_port, http_probe, docker_logs_tail]
   confidence: high
+  app_map:
+    summary:
+      containers: 2
+      published_ports: 2
+      networks: 3
+      compose_projects: 1
+    containers:
+      - name: plex
+        image: lscr.io/linuxserver/plex:latest
+        status: Up 2 hours
+        ports: "0.0.0.0:32400->32400/tcp"
+        networks: [media]
+        compose_project: media
+        compose_service: plex
+      - name: tautulli
+        image: ghcr.io/tautulli/tautulli:latest
+        status: Up 2 hours
+        ports: "127.0.0.1:8181->8181/tcp"
+        networks: [media]
+        compose_project: media
+        compose_service: tautulli
+    published_ports:
+      - container: plex
+        host_ip: 0.0.0.0
+        host_port: "32400"
+        container_port: "32400"
+        protocol: tcp
+      - container: tautulli
+        host_ip: 127.0.0.1
+        host_port: "8181"
+        container_port: "8181"
+        protocol: tcp
+    networks:
+      - name: media
+        driver: bridge
+        scope: local
+    compose_projects:
+      - name: media
+        status: running(2)
 template:
   v: 1
   components:
@@ -74,10 +113,82 @@ template:
         - label: Next
           value: "{{next_probe_ids | join: · }}"
           when: "{{next_probe_ids | not_empty}}"
+    - type: properties
+      layout: inline
+      when: "{{app_map.summary | not_empty}}"
+      items:
+        - label: Containers
+          value: "{{app_map.summary.containers | default: 0}}"
+        - label: Ports
+          value: "{{app_map.summary.published_ports | default: 0}}"
+        - label: Networks
+          value: "{{app_map.summary.networks | default: 0}}"
+        - label: Compose
+          value: "{{app_map.summary.compose_projects | default: 0}}"
+    - type: section
+      label: Published ports
+      collapsible: true
+      defaultOpen: true
+      when: "{{app_map.published_ports | not_empty}}"
+      children:
+        - type: table
+          columns: ["Container", "Host", "Container port"]
+          rows:
+            each: "{{app_map.published_ports}}"
+            template:
+              - "{{container}}"
+              - "{{host_ip | default: *}}:{{host_port}}"
+              - "{{container_port}}/{{protocol}}"
+          compact: true
+    - type: section
+      label: Containers
+      collapsible: true
+      defaultOpen: true
+      when: "{{app_map.containers | not_empty}}"
+      children:
+        - type: table
+          columns: ["Name", "Status", "Networks", "Compose"]
+          rows:
+            each: "{{app_map.containers}}"
+            template:
+              - "{{name}}"
+              - "{{status}}"
+              - "{{networks | join: , }}"
+              - "{{compose_project}}/{{compose_service}}"
+          compact: true
+    - type: section
+      label: Networks
+      collapsible: true
+      defaultOpen: false
+      when: "{{app_map.networks | not_empty}}"
+      children:
+        - type: table
+          columns: ["Name", "Driver", "Scope"]
+          rows:
+            each: "{{app_map.networks}}"
+            template:
+              - "{{name}}"
+              - "{{driver}}"
+              - "{{scope}}"
+          compact: true
+    - type: section
+      label: Compose projects
+      collapsible: true
+      defaultOpen: false
+      when: "{{app_map.compose_projects | not_empty}}"
+      children:
+        - type: table
+          columns: ["Name", "Status"]
+          rows:
+            each: "{{app_map.compose_projects}}"
+            template:
+              - "{{name}}"
+              - "{{status}}"
+          compact: true
     - type: section
       label: Evidence
       collapsible: true
-      defaultOpen: true
+      defaultOpen: false
       when: "{{evidence | not_empty}}"
       children:
         - type: table

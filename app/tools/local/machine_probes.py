@@ -14,6 +14,7 @@ _CONFIDENCE_VALUES = ("low", "medium", "high")
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,252}$")
 _MAX_EVIDENCE_LINES = 8
+_DOCKER_APP_MAP_SECTION_RE = re.compile(r"^## app_map_(containers|networks|compose)$")
 
 
 def _probe_catalog() -> list[dict[str, Any]]:
@@ -61,7 +62,16 @@ def _probe_catalog() -> list[dict[str, Any]]:
             "required_args": [],
             "optional_args": [],
             "requires_machine_lease": True,
-            "next_probe_ids": ["docker_logs_tail", "tcp_port", "compose_summary"],
+            "next_probe_ids": ["docker_app_map", "docker_logs_tail", "tcp_port", "compose_summary"],
+        },
+        {
+            "probe_id": "docker_app_map",
+            "label": "Docker app map",
+            "description": "Map Docker containers, published ports, networks, and Compose projects on the leased machine.",
+            "required_args": [],
+            "optional_args": [],
+            "requires_machine_lease": True,
+            "next_probe_ids": ["tcp_port", "http_probe", "docker_logs_tail", "compose_summary"],
         },
         {
             "probe_id": "compose_summary",
@@ -238,6 +248,27 @@ def _build_probe_command(
                 "echo '## compose_projects'; docker compose ls 2>/dev/null || docker-compose ls 2>/dev/null || true",
             ]),
         )
+    if probe_id == "docker_app_map":
+        return (
+            "docker",
+            "\n".join([
+                "if ! command -v docker >/dev/null 2>&1; then echo 'docker_not_found'; exit 3; fi",
+                "echo '## app_map_containers'",
+                (
+                    "app_map_containers=$(docker ps --format "
+                    "'{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}\t{{.Networks}}\t"
+                    "{{.Label \"com.docker.compose.project\"}}\t"
+                    "{{.Label \"com.docker.compose.service\"}}' 2>&1); "
+                    "app_map_rc=$?; "
+                    "if [ $app_map_rc -ne 0 ]; then printf '%s\n' \"$app_map_containers\"; exit $app_map_rc; fi; "
+                    "printf '%s\n' \"$app_map_containers\""
+                ),
+                "echo '## app_map_networks'",
+                "docker network ls --format '{{.Name}}\t{{.Driver}}\t{{.Scope}}' 2>/dev/null || true",
+                "echo '## app_map_compose'",
+                "docker compose ls --format '{{.Name}}\t{{.Status}}' 2>/dev/null || docker-compose ls 2>/dev/null || true",
+            ]),
+        )
     if probe_id == "compose_summary":
         return ("docker compose", "docker compose ls 2>/dev/null || docker-compose ls 2>/dev/null")
     if probe_id == "docker_logs_tail":
@@ -264,6 +295,131 @@ def _evidence_from_result(result: dict[str, Any]) -> list[str]:
     if not lines:
         lines.append("Command returned no output.")
     return lines
+
+
+def _parse_published_ports(container_name: str, ports_text: str) -> list[dict[str, Any]]:
+    ports: list[dict[str, Any]] = []
+    for raw_part in str(ports_text or "").split(","):
+        part = raw_part.strip()
+        if not part or "->" not in part:
+            continue
+        host_side, container_side = part.split("->", 1)
+        host_side = host_side.strip()
+        container_side = container_side.strip()
+        protocol = ""
+        if "/" in container_side:
+            container_port, protocol = container_side.rsplit("/", 1)
+        else:
+            container_port = container_side
+
+        host_ip = ""
+        host_port = host_side
+        if host_side.startswith("[") and "]:" in host_side:
+            host_ip, host_port = host_side[1:].split("]:", 1)
+        elif ":" in host_side:
+            host_ip, host_port = host_side.rsplit(":", 1)
+
+        suggested_probe = None
+        if host_port.isdigit():
+            suggested_probe = {
+                "probe_id": "tcp_port",
+                "host": "127.0.0.1" if host_ip in {"", "0.0.0.0", "::"} else host_ip,
+                "port": int(host_port),
+            }
+
+        ports.append({
+            "container": container_name,
+            "host_ip": host_ip,
+            "host_port": host_port,
+            "container_port": container_port,
+            "protocol": protocol,
+            "suggested_probe": suggested_probe,
+        })
+    return ports
+
+
+def _parse_docker_app_map(stdout: str) -> dict[str, Any]:
+    sections: dict[str, list[str]] = {"containers": [], "networks": [], "compose": []}
+    current: str | None = None
+    for raw_line in str(stdout or "").splitlines():
+        line = raw_line.rstrip("\n")
+        marker = _DOCKER_APP_MAP_SECTION_RE.match(line.strip())
+        if marker:
+            current = marker.group(1)
+            continue
+        if current and line.strip():
+            sections[current].append(line)
+
+    containers: list[dict[str, Any]] = []
+    published_ports: list[dict[str, Any]] = []
+    for line in sections["containers"]:
+        parts = line.split("\t")
+        while len(parts) < 7:
+            parts.append("")
+        name, image, status, ports_text, networks_text, compose_project, compose_service = parts[:7]
+        networks = [item.strip() for item in networks_text.split(",") if item.strip()]
+        ports = _parse_published_ports(name, ports_text)
+        published_ports.extend(ports)
+        containers.append({
+            "name": name,
+            "image": image,
+            "status": status,
+            "ports": ports_text,
+            "networks": networks,
+            "compose_project": compose_project,
+            "compose_service": compose_service,
+        })
+
+    networks: list[dict[str, str]] = []
+    for line in sections["networks"]:
+        parts = line.split("\t")
+        while len(parts) < 3:
+            parts.append("")
+        name, driver, scope = parts[:3]
+        networks.append({"name": name, "driver": driver, "scope": scope})
+
+    compose_projects: list[dict[str, str]] = []
+    for line in sections["compose"]:
+        if line.lower().startswith("name") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            compose_projects.append({"name": parts[0], "status": parts[1]})
+        elif parts:
+            compose_projects.append({"name": parts[0], "status": ""})
+
+    return {
+        "summary": {
+            "containers": len(containers),
+            "published_ports": len(published_ports),
+            "networks": len(networks),
+            "compose_projects": len(compose_projects),
+        },
+        "containers": containers,
+        "published_ports": published_ports,
+        "networks": networks,
+        "compose_projects": compose_projects,
+    }
+
+
+def _app_map_evidence(app_map: dict[str, Any]) -> list[str]:
+    summary = app_map.get("summary") or {}
+    lines = [
+        (
+            "Docker app map: "
+            f"{summary.get('containers', 0)} containers, "
+            f"{summary.get('published_ports', 0)} published ports, "
+            f"{summary.get('networks', 0)} networks, "
+            f"{summary.get('compose_projects', 0)} compose projects."
+        )
+    ]
+    for port in (app_map.get("published_ports") or [])[:5]:
+        host_ip = port.get("host_ip") or "*"
+        lines.append(
+            f"{port.get('container')}: {host_ip}:{port.get('host_port')} -> "
+            f"{port.get('container_port')}/{port.get('protocol')}"
+        )
+    return lines[:_MAX_EVIDENCE_LINES]
 
 
 def _status_from_result(result: dict[str, Any]) -> str:
@@ -320,6 +476,7 @@ _RUN_RETURNS = {
         "next_probe_ids": {"type": "array", "items": {"type": "string"}},
         "confidence": {"type": "string", "enum": list(_CONFIDENCE_VALUES)},
         "result": {"type": "object"},
+        "app_map": {"type": "object"},
         "error": {"type": "object"},
     },
     "required": ["probe_id", "status", "evidence", "next_probe_ids", "confidence"],
@@ -465,4 +622,8 @@ async def machine_run_probe(
             "truncated": bool(result.get("truncated")),
         },
     }
+    if probe["probe_id"] == "docker_app_map" and status in {"ok", "warning"}:
+        app_map = _parse_docker_app_map(str(result.get("stdout") or ""))
+        payload["app_map"] = app_map
+        payload["evidence"] = _app_map_evidence(app_map)
     return _json(payload)

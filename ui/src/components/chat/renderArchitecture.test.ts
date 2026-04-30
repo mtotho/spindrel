@@ -87,6 +87,7 @@ test("native plan replay hydrates out-of-line envelopes before rendering plan ca
   assert.match(terminalToolTranscript, /rendererVariant="terminal-chat"/);
   assert.match(sessionPlanCard, /data-plan-card-mode=\{chatMode\}/);
   assert.match(sessionPlanCard, /data-plan-focus/);
+  assert.match(sessionPlanCard, /data-plan-approval-actions/);
   assert.match(sessionPlanCard, /derivePlanFocus/);
   assert.match(sessionPlanCard, /latest_tool_feedback/);
   assert.match(sessionPlanCard, /Revise plan/);
@@ -96,6 +97,11 @@ test("native plan replay hydrates out-of-line envelopes before rendering plan ca
   assert.match(sessionPlanCard, /maxItems = 4/);
   assert.match(sessionPlanCard, /TERMINAL_FONT_STACK/);
   assert.doesNotMatch(sessionPlanCard, /useThemeTokens/);
+
+  const acceptanceCriteriaIndex = sessionPlanCard.indexOf('<ListSection title="Acceptance Criteria"');
+  const approvalActionIndex = sessionPlanCard.indexOf("Approve & Execute");
+  assert.ok(acceptanceCriteriaIndex >= 0);
+  assert.ok(approvalActionIndex > acceptanceCriteriaIndex);
 
   assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/plan\/question-answers/);
   assert.match(planQuestions, /\/sessions\/\$\{sessionId\}\/messages/);
