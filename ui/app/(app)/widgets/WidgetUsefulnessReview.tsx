@@ -87,7 +87,27 @@ function topFinding(assessment?: WidgetUsefulnessAssessment | null) {
 }
 
 function actionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    authoring_created: "created",
+    authoring_updated: "updated",
+    authoring_debugged: "debugged",
+    authoring_checked: "checked",
+    authoring_improved: "improved",
+  };
+  if (labels[action]) return labels[action];
   return action.replace(/_/g, " ");
+}
+
+function receiptKindLabel(receipt: WidgetAgencyReceipt): string {
+  return receipt.kind === "authoring" || receipt.action.startsWith("authoring_")
+    ? "widget authoring"
+    : "bot widget change";
+}
+
+function receiptKindClass(receipt: WidgetAgencyReceipt): string {
+  return receipt.kind === "authoring" || receipt.action.startsWith("authoring_")
+    ? "bg-success/10 text-success"
+    : "bg-accent/10 text-accent";
 }
 
 function formatReceiptTime(value?: string | null): string {
@@ -113,6 +133,20 @@ function receiptPinLabel(receipt: WidgetAgencyReceipt): string | null {
   return labels.slice(0, 2).join(", ") + (labels.length > 2 ? ` +${labels.length - 2}` : "");
 }
 
+function receiptEvidenceChips(receipt: WidgetAgencyReceipt): string[] {
+  const chips: string[] = [];
+  const metadata = receipt.metadata || {};
+  const healthStatus = metadata.health_status;
+  const libraryRef = metadata.library_ref;
+  const touchedFiles = metadata.touched_files;
+  const checkPhases = metadata.check_phases;
+  if (typeof healthStatus === "string" && healthStatus.trim()) chips.push(`health:${healthStatus.trim()}`);
+  if (typeof libraryRef === "string" && libraryRef.trim()) chips.push(libraryRef.trim());
+  if (Array.isArray(touchedFiles) && touchedFiles.length) chips.push(`${touchedFiles.length} files`);
+  if (Array.isArray(checkPhases) && checkPhases.length) chips.push(`${checkPhases.length} checks`);
+  return chips.slice(0, 4);
+}
+
 function BotWidgetChangeList({
   receipts,
   loading,
@@ -125,18 +159,20 @@ function BotWidgetChangeList({
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-text">
           <Bot size={13} />
-          Recent bot widget changes
+          Recent bot widget activity
         </div>
         {loading && <Spinner />}
       </div>
       {!loading && receipts.length === 0 && (
-        <div className="text-[12px] leading-relaxed text-text-dim">No bot-applied widget changes recorded.</div>
+        <div className="text-[12px] leading-relaxed text-text-dim">No bot widget activity recorded.</div>
       )}
       {receipts.slice(0, 6).map((receipt) => (
         <div key={receipt.id} className="rounded-md bg-surface-overlay/30 px-2.5 py-2" data-testid="widget-agency-receipt-row">
           <div className="flex flex-wrap items-center gap-1.5">
+            <Pill className={receiptKindClass(receipt)}>{receiptKindLabel(receipt)}</Pill>
             <Pill className="bg-accent/10 text-accent">{actionLabel(receipt.action)}</Pill>
             {receiptPinLabel(receipt) && <Pill>{receiptPinLabel(receipt)}</Pill>}
+            {receiptEvidenceChips(receipt).map((chip) => <Pill key={chip}>{chip}</Pill>)}
             <span className="inline-flex items-center gap-1 text-[11px] text-text-dim">
               <Clock3 size={11} />
               {formatReceiptTime(receipt.created_at)}
@@ -252,8 +288,9 @@ export function WidgetUsefulnessSettingsSummary({ channelId }: { channelId: stri
       {latestReceipt && (
         <div className="rounded-md bg-surface-overlay/30 px-2.5 py-2" data-testid="widget-agency-latest-receipt">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Pill className="bg-accent/10 text-accent">bot widget change</Pill>
+            <Pill className={receiptKindClass(latestReceipt)}>{receiptKindLabel(latestReceipt)}</Pill>
             <Pill>{actionLabel(latestReceipt.action)}</Pill>
+            {receiptEvidenceChips(latestReceipt).slice(0, 2).map((chip) => <Pill key={chip}>{chip}</Pill>)}
             <span className="text-[11px] text-text-dim">{formatReceiptTime(latestReceipt.created_at)}</span>
           </div>
           <div className="mt-1 text-[12px] leading-relaxed text-text-muted">{latestReceipt.summary}</div>
@@ -310,7 +347,7 @@ function WidgetUsefulnessDrawer({
             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">Widget proposals</div>
             <h2 className="mt-1 truncate text-[16px] font-semibold text-text">{assessment?.channel_name ?? "Channel dashboard"}</h2>
             <p className="mt-1 max-w-[62ch] text-[12px] leading-relaxed text-text-dim">
-              Usefulness, visibility, prompt context, and health signals. Bot edits follow this channel's widget agency setting.
+              Usefulness, visibility, prompt context, health signals, and recent bot authoring evidence.
             </p>
           </div>
           <button
@@ -413,7 +450,7 @@ function WidgetUsefulnessDrawer({
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-border px-5 py-3">
           <p className="max-w-[48ch] text-[11px] leading-relaxed text-text-dim">
-            In Propose mode, bots publish widget proposals only. In Propose + fix mode, approved bot tasks can apply safe dashboard changes and record bot widget change receipts.
+            In Propose mode, bots publish widget proposals only. In Propose + fix mode, approved bot tasks can apply safe dashboard changes. Authoring receipts record widget checks, files, and runtime evidence.
           </p>
           <div className="flex items-center gap-1.5">
             {onCheckHealth && (

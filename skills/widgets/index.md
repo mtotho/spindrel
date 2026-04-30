@@ -52,6 +52,7 @@ Bot control rule:
 - Interact with pinned widgets through `invoke_widget_action`.
 - Assess whether they are useful with `assess_widget_usefulness(...)`; start there for recurring widget improvement proposals. Read `widget_agency_mode` before changing channel dashboard widgets. In `propose_and_fix` mode, pass a concise `reason` to mutating dashboard tools so the channel records a bot widget change receipt.
 - Check whether they work with `check_widget(pin_id=...)` or `check_dashboard_widgets(...)`; `describe_dashboard` includes the latest persisted `widget_health` summary for each checked pin.
+- When you create, update, debug, check, or improve a widget, publish durable authoring evidence with `publish_widget_authoring_receipt(...)` after the full check loop. Read `widgets/authoring_runs` for the exact sequence.
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
 - For presets, also inspect `dependency_contract`. A Home Assistant preset on the official HA MCP lane should stay on `GetLiveContext` / `Hass*` tools, not community `ha_get_state`.
 - For component/YAML widgets, follow the low-chrome component design language in `docs/widget-templates.md`: labels name the object, metadata is not default content, cards resize across compact/standard/expanded sizes, and chips are explicit chip variants.
@@ -103,6 +104,9 @@ Start: what do you want to render?
 │
 ├─ Need server-side Python handlers
 │     → widgets/manifest + widgets/handlers
+│
+├─ Need to create, debug, improve, or validate a widget as a bot
+│     → widgets/authoring_runs
 │
 ├─ Want bots to read or mutate this widget's state in chat
 │     → Use `invoke_widget_action`; for HTML handler authoring also read widgets/bot-callable-handlers
@@ -203,8 +207,9 @@ When the user says *"build me a dashboard for X"*:
 7. **Full-check before emit/pin** — for standalone HTML/library/path widgets, call `check_html_widget_authoring(...)` with the same source args you plan to emit or pin (`library_ref`, `html`, or `path`) and `include_runtime=true`. For draft tool-widget YAML, call `check_widget_authoring(yaml_template=..., python_code=..., sample_payload=..., tool_name=..., include_runtime=true)` before saving or pinning. `preview_widget(...)` remains the cheap dry-run, but the full check is the default before the next user-visible step.
 8. **Emit or pin** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. The library resolves bot → workspace → core for unscoped refs; prefix with `bot/` or `workspace/` to disambiguate. User pins it to the dashboard.
 9. **Post-pin evidence** — after `pin_widget`, run `check_widget(pin_id=...)`. Use `inspect_widget_pin(pin_id=...)` only when health fails/warns or when you need the raw trace response shape for a widget action/tool call.
-10. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
-11. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
+10. **Publish the authoring receipt** — call `publish_widget_authoring_receipt(...)` with the library ref, touched files, health status/summary, check phases, pin ids, and screenshot data URL if the full check returned one.
+11. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+12. **Record durable knowledge** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` when the widget should be remembered across sessions. See `widgets/dashboards.md#remember-what-you-built`.
 
 ## Plan mode for widget work
 

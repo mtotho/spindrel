@@ -307,6 +307,7 @@ def test_widget_payload_lists_full_authoring_loop(monkeypatch):
                 {"id": "widgets/styling"},
                 {"id": "widgets/errors"},
                 {"id": "widgets/channel_dashboards"},
+                {"id": "widgets/authoring_runs"},
             ],
             "channel_enrolled": [],
         }
@@ -318,6 +319,11 @@ def test_widget_payload_lists_full_authoring_loop(monkeypatch):
     assert widgets["missing_authoring_tools"] == []
     assert "prepare_widget_authoring" in widgets["authoring_tools"]
     assert "check_html_widget_authoring" in widgets["authoring_tools"]
+    assert "publish_widget_authoring_receipt" in widgets["authoring_tools"]
+    assert widgets["authoring_flow"][-2:] == [
+        "publish_widget_authoring_receipt",
+        "inspect_widget_pin_if_health_fails",
+    ]
     assert widgets["missing_skills"] == []
 
 

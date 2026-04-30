@@ -2175,7 +2175,7 @@ _ASSERT_WIDGET_USEFULNESS_DRAWER_JS = (
     "if (!drawer) throw new Error('review drawer missing');"
     "const text = drawer.textContent || '';"
     "if (!/Widget proposals/.test(text)) throw new Error('drawer title missing');"
-    "if (!/Recent bot widget changes|bot widget change receipt/i.test(text)) throw new Error('bot widget change receipts missing');"
+    "if (!/Recent bot widget activity|widget authoring/i.test(text)) throw new Error('bot widget activity receipts missing');"
     "if (!/policy decision|Focus pin|Edit layout/.test(text)) throw new Error('actionable proposal controls missing');"
     "if (document.querySelectorAll('[data-testid=\"widget-usefulness-finding\"]').length < 1) throw new Error('proposals missing');"
 )
@@ -2235,7 +2235,33 @@ _WIDGET_USEFULNESS_ENDPOINT_INIT = """
   const receipts = {
     receipts: [
       {
+        id: "receipt-authoring-1",
+        kind: "authoring",
+        channel_id: "screenshot-channel",
+        dashboard_key: "channel:screenshot-channel",
+        action: "authoring_checked",
+        summary: "Checked the project status widget in the runtime host and kept the existing pin.",
+        reason: "The widget was recently edited, so the bot verified it before relying on the dashboard.",
+        bot_id: "widget-health-bot",
+        session_id: null,
+        correlation_id: "00000000-0000-4000-8000-000000000002",
+        task_id: null,
+        affected_pin_ids: ["screenshot-pin-notes"],
+        before_state: {},
+        after_state: {},
+        metadata: {
+          kind: "authoring",
+          library_ref: "workspace/project_status",
+          touched_files: ["widget://workspace/project_status/index.html"],
+          health_status: "healthy",
+          health_summary: "Runtime smoke check rendered the widget with no browser errors.",
+          check_phases: [{ name: "runtime", ok: true }]
+        },
+        created_at: "2026-04-29T17:44:00Z"
+      },
+      {
         id: "receipt-1",
+        kind: "agency",
         channel_id: "screenshot-channel",
         dashboard_key: "channel:screenshot-channel",
         action: "move_pins",
@@ -2300,19 +2326,22 @@ _AGENT_WIDGET_AUTHORING_ENDPOINT_INIT = """
     tools: {
       catalog_count: 96,
       working_set_count: 18,
-      configured: ["prepare_widget_authoring", "check_html_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      configured: ["prepare_widget_authoring", "file", "check_html_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget", "publish_widget_authoring_receipt"],
       pinned: [],
       enrolled: [],
       profiles: {},
       safety_tiers: {},
-      recommended_core: ["prepare_widget_authoring", "check_html_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      recommended_core: ["prepare_widget_authoring", "file", "check_html_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget", "publish_widget_authoring_receipt"],
       details: [],
       details_truncated: false
     },
     skills: {
       working_set_count: 3,
       bot_enrolled: [{ id: "widgets", name: "Widgets", source: "file", scope: "bot" }],
-      channel_enrolled: [{ id: "widgets/html", name: "HTML widgets", source: "file", scope: "channel" }]
+      channel_enrolled: [
+        { id: "widgets/html", name: "HTML widgets", source: "file", scope: "channel" },
+        { id: "widgets/authoring_runs", name: "Widget Authoring Runs", source: "file", scope: "channel" }
+      ]
     },
     project: {
       attached: true,
@@ -2323,16 +2352,16 @@ _AGENT_WIDGET_AUTHORING_ENDPOINT_INIT = """
     },
     harness: { runtime: "codex", workdir: "/workspace/widgets", bridge_status: "connected" },
     widgets: {
-      authoring_tools: ["prepare_widget_authoring", "check_html_widget_authoring", "check_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
-      required_authoring_tools: ["prepare_widget_authoring", "check_html_widget_authoring", "check_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget"],
+      authoring_tools: ["prepare_widget_authoring", "file", "check_html_widget_authoring", "check_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget", "publish_widget_authoring_receipt"],
+      required_authoring_tools: ["prepare_widget_authoring", "file", "check_html_widget_authoring", "check_widget_authoring", "preview_widget", "emit_html_widget", "pin_widget", "check_widget", "publish_widget_authoring_receipt"],
       missing_authoring_tools: [],
-      recommended_skills: ["widgets", "widgets/html", "widgets/sdk"],
-      available_skills: ["widgets", "widgets/html", "widgets/sdk"],
+      recommended_skills: ["widgets", "widgets/html", "widgets/sdk", "widgets/authoring_runs"],
+      available_skills: ["widgets", "widgets/html", "widgets/sdk", "widgets/authoring_runs"],
       missing_skills: [],
       health_loop: "available",
       html_authoring_check: "available",
       tool_widget_authoring_check: "available",
-      authoring_flow: ["prepare_widget_authoring", "preview_widget", "check_html_widget_authoring", "emit_html_widget", "pin_widget", "check_widget"],
+      authoring_flow: ["prepare_widget_authoring", "preview_widget", "check_html_widget_authoring", "emit_html_widget", "pin_widget", "check_widget", "publish_widget_authoring_receipt"],
       readiness: "ready",
       findings: []
     },
@@ -2401,7 +2430,7 @@ CHANNEL_WIDGET_USEFULNESS_SPECS: list[ScreenshotSpec] = [
             "const text = document.body.innerText || summary.textContent || '';"
             "if (!/Widget usefulness/.test(text)) throw new Error('settings usefulness title missing');"
             "if (!/pins|widget proposals|layout|propose \\+ fix/.test(text)) throw new Error('settings usefulness metrics missing');"
-            "if (!/bot widget change|Moved 2 widget pins/.test(text)) throw new Error('settings receipt summary missing');"
+            "if (!/widget authoring|Checked the project status widget/.test(text)) throw new Error('settings receipt summary missing');"
         ),
     ),
     ScreenshotSpec(

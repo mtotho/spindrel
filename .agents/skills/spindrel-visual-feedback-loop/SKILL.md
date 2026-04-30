@@ -77,7 +77,7 @@ drawer only; it must not create a scheduled task during capture.
 ## Channel Widget Usefulness Loop
 
 Use this target when changing the channel dashboard widget proposal affordance,
-usefulness drawer, recent bot widget change receipts, Channel Settings ->
+usefulness drawer, recent bot widget activity receipts, Channel Settings ->
 Dashboard usefulness summary, Bot widget agency control, or Agent readiness
 widget-authoring status.
 
@@ -96,8 +96,9 @@ docs/images/channel-widget-usefulness-settings.png
 docs/images/channel-widget-authoring-readiness.png
 ```
 
-Inspect the toolbar affordance, drawer, recent bot widget change receipts, and
-settings summary, plus the Agent readiness widget-authoring row and HTML
+Inspect the toolbar affordance, drawer, recent bot widget activity receipts
+including authoring evidence, and settings summary, plus the Agent readiness
+widget-authoring row and HTML
 full-check badge. The staged dashboard should show real duplicate/visibility
 pin state. Capture uses a narrow browser shim for the assessment/receipt/
 capability endpoints when the shared e2e API lags the UI branch; capture must

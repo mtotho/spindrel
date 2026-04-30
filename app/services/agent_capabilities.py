@@ -42,6 +42,7 @@ CORE_AGENT_TOOLS = (
 
 WIDGET_AUTHORING_TOOLS = (
     "prepare_widget_authoring",
+    "file",
     "widget_library_list",
     "preview_widget",
     "check_html_widget_authoring",
@@ -49,6 +50,7 @@ WIDGET_AUTHORING_TOOLS = (
     "emit_html_widget",
     "pin_widget",
     "check_widget",
+    "publish_widget_authoring_receipt",
     "check_dashboard_widgets",
     "inspect_widget_pin",
     "describe_dashboard",
@@ -63,6 +65,7 @@ WIDGET_AUTHORING_SKILLS = (
     "widgets/styling",
     "widgets/errors",
     "widgets/channel_dashboards",
+    "widgets/authoring_runs",
 )
 
 TOOL_PROFILE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -842,6 +845,7 @@ def _widget_payload(manifest: dict[str, Any]) -> dict[str, Any]:
             "check_html_widget_authoring",
             "emit_html_widget_or_pin_widget",
             "check_widget",
+            "publish_widget_authoring_receipt",
             "inspect_widget_pin_if_health_fails",
         ],
         "readiness": readiness,

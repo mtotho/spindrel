@@ -3,12 +3,23 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from typing import Any
 
-from app.agent.context import current_bot_id, current_channel_id, current_session_id
+from app.agent.context import (
+    current_bot_id,
+    current_channel_id,
+    current_correlation_id,
+    current_session_id,
+    current_task_id,
+)
 from app.db.engine import async_session
 from app.services.agent_capabilities import build_agent_capability_manifest
 from app.services.html_widget_authoring_check import run_html_widget_authoring_check
+from app.services.widget_agency_receipts import (
+    create_widget_authoring_receipt,
+    serialize_widget_agency_receipt,
+)
 from app.services.widget_authoring_check import run_widget_authoring_check
 from app.tools.registry import register
 from app.tools.registry import _tools as _local_tools
@@ -64,6 +75,22 @@ _RETURNS = {
 }
 
 
+_RECEIPT_RETURNS = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "receipt_id": {"type": ["string", "null"]},
+        "summary": {"type": "string"},
+        "dashboard_key": {"type": ["string", "null"]},
+        "affected_pin_ids": {"type": "array", "items": {"type": "string"}},
+        "metadata": {"type": "object"},
+        "warning": {"type": ["string", "null"]},
+        "error": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+
+
 _AUTHORING_TOOLS = (
     "get_skill",
     "widget_library_list",
@@ -74,6 +101,7 @@ _AUTHORING_TOOLS = (
     "emit_html_widget",
     "pin_widget",
     "check_widget",
+    "publish_widget_authoring_receipt",
     "inspect_widget_pin",
     "describe_dashboard",
     "list_api_endpoints",
@@ -87,6 +115,7 @@ _AUTHORING_SKILLS = (
     "widgets/styling",
     "widgets/errors",
     "widgets/channel_dashboards",
+    "widgets/authoring_runs",
 )
 
 
@@ -249,6 +278,7 @@ async def prepare_widget_authoring(
             {"tool": "check_widget_authoring", "args": {"include_runtime": True, "include_screenshot": True}, "why": "Validate YAML/Python, render a draft envelope, and smoke-test the real host."},
             {"tool": "pin_widget", "args": {"source_kind": "library"}, "why": "Pin only after full check passes, if this should live on a dashboard."},
             {"tool": "check_widget", "why": "Verify the created pin and use inspect_widget_pin only if health reports issues."},
+            {"tool": "publish_widget_authoring_receipt", "args": {"action": "checked"}, "why": "Record the work and validation evidence where widget owners can see it."},
         ]
     else:
         validation_sequence = [
@@ -259,6 +289,7 @@ async def prepare_widget_authoring(
             {"tool": "check_html_widget_authoring", "args": {"library_ref": bundle["library_ref"], "include_runtime": True, "include_screenshot": True}, "why": "Validate preview, static health, and runtime host behavior before emit/pin."},
             {"tool": "emit_html_widget" if target_surface == "chat" else "pin_widget", "args": {"library_ref": bundle["library_ref"]} if target_surface == "chat" else {"widget": bundle["library_ref"], "source_kind": "library"}, "why": "Place the checked widget on the requested surface."},
             {"tool": "check_widget", "why": "Verify the created pin and use inspect_widget_pin only if health reports issues."},
+            {"tool": "publish_widget_authoring_receipt", "args": {"library_ref": bundle["library_ref"], "action": "checked"}, "why": "Record the work and validation evidence where widget owners can see it."},
         ]
 
     payload = {
@@ -316,6 +347,68 @@ _HTML_SCHEMA = {
         },
     },
 }
+
+
+_PUBLISH_RECEIPT_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "publish_widget_authoring_receipt",
+        "description": (
+            "Publish a durable in-context receipt after creating, updating, "
+            "debugging, checking, or improving a widget. This records what "
+            "the bot touched and what evidence it collected; it does not edit "
+            "files, pins, or dashboards. Use this after the authoring/check "
+            "loop so users can see bot widget activity where the widget lives."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "dashboard_key": {
+                    "type": "string",
+                    "description": "Dashboard key that owns the work, e.g. channel:<uuid>. Defaults from channel context when omitted.",
+                },
+                "channel_id": {
+                    "type": "string",
+                    "description": "Channel UUID for channel-dashboard receipts. Defaults to current channel context.",
+                },
+                "pin_id": {"type": "string", "description": "Primary widget dashboard pin id affected by this work."},
+                "affected_pin_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional affected pin ids.",
+                },
+                "library_ref": {"type": "string", "description": "Library ref or widget:// bundle ref that was authored or checked."},
+                "action": {
+                    "type": "string",
+                    "enum": ["created", "updated", "debugged", "checked", "improved"],
+                    "description": "Kind of authoring activity. Stored as authoring_<action>.",
+                },
+                "summary": {"type": "string", "description": "One-sentence user-facing summary of the widget work."},
+                "reason": {"type": "string", "description": "Why this work was done."},
+                "touched_files": {"type": "array", "items": {"type": "string"}},
+                "health_status": {"type": "string"},
+                "health_summary": {"type": "string"},
+                "check_phases": {"type": "array", "items": {"type": "object"}},
+                "screenshot_data_url": {
+                    "type": "string",
+                    "description": "Optional PNG data URL from check_html_widget_authoring/check_widget_authoring include_screenshot.",
+                },
+                "next_actions": {"type": "array", "items": {"type": "object"}},
+                "metadata": {"type": "object", "description": "Small extra structured evidence."},
+            },
+            "required": ["action", "summary"],
+        },
+    },
+}
+
+
+def _uuid_or_none(value: object) -> uuid.UUID | None:
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 @register(_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=False, returns=_RETURNS)
@@ -377,3 +470,82 @@ async def check_html_widget_authoring(
         include_screenshot=include_screenshot,
     )
     return json.dumps(result, ensure_ascii=False, default=str)
+
+
+@register(
+    _PUBLISH_RECEIPT_SCHEMA,
+    safety_tier="mutating",
+    requires_bot_context=True,
+    requires_channel_context=False,
+    returns=_RECEIPT_RETURNS,
+)
+async def publish_widget_authoring_receipt(
+    action: str,
+    summary: str,
+    dashboard_key: str | None = None,
+    channel_id: str | None = None,
+    pin_id: str | None = None,
+    affected_pin_ids: list[str] | None = None,
+    library_ref: str | None = None,
+    reason: str | None = None,
+    touched_files: list[str] | None = None,
+    health_status: str | None = None,
+    health_summary: str | None = None,
+    check_phases: list[dict[str, Any]] | None = None,
+    screenshot_data_url: str | None = None,
+    next_actions: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """Record widget authoring evidence after the bot has checked or changed a widget."""
+
+    cid = _uuid_or_none(channel_id) or current_channel_id.get()
+    normalized_dashboard_key = (dashboard_key or "").strip()
+    if not normalized_dashboard_key and cid:
+        normalized_dashboard_key = f"channel:{cid}"
+    if not normalized_dashboard_key:
+        return json.dumps({
+            "ok": False,
+            "receipt_id": None,
+            "summary": summary,
+            "dashboard_key": None,
+            "affected_pin_ids": [],
+            "metadata": {},
+            "warning": None,
+            "error": "dashboard_key is required when no channel context is active.",
+        }, ensure_ascii=False)
+
+    async with async_session() as db:
+        receipt, warning = await create_widget_authoring_receipt(
+            db,
+            channel_id=cid,
+            dashboard_key=normalized_dashboard_key,
+            action=action,
+            summary=summary,
+            reason=reason,
+            bot_id=current_bot_id.get(),
+            session_id=current_session_id.get(),
+            correlation_id=current_correlation_id.get(),
+            task_id=current_task_id.get(),
+            pin_id=pin_id,
+            affected_pin_ids=affected_pin_ids,
+            library_ref=library_ref,
+            touched_files=touched_files,
+            health_status=health_status,
+            health_summary=health_summary,
+            check_phases=check_phases,
+            screenshot_data_url=screenshot_data_url,
+            next_actions=next_actions,
+            metadata=metadata,
+        )
+        serialized = serialize_widget_agency_receipt(receipt)
+
+    return json.dumps({
+        "ok": True,
+        "receipt_id": serialized["id"],
+        "summary": serialized["summary"],
+        "dashboard_key": serialized["dashboard_key"],
+        "affected_pin_ids": serialized["affected_pin_ids"],
+        "metadata": serialized["metadata"],
+        "warning": warning,
+        "receipt": serialized,
+    }, ensure_ascii=False, default=str)

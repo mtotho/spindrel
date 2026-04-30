@@ -1,4 +1,4 @@
-"""Durable receipts for bot-applied channel-dashboard widget changes."""
+"""Durable receipts for bot-applied channel-dashboard widget activity."""
 from __future__ import annotations
 
 import uuid
@@ -8,6 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Task, WidgetAgencyReceipt
+
+
+AUTHORING_ACTION_PREFIX = "authoring_"
+MAX_SCREENSHOT_DATA_URL_CHARS = 320_000
 
 
 def _clip_text(value: object, limit: int = 220) -> str | None:
@@ -91,7 +95,7 @@ async def _infer_task_id(
 async def create_widget_agency_receipt(
     db: AsyncSession,
     *,
-    channel_id: uuid.UUID,
+    channel_id: uuid.UUID | None,
     dashboard_key: str,
     action: str,
     summary: str,
@@ -128,9 +132,122 @@ async def create_widget_agency_receipt(
     return receipt
 
 
+def _receipt_kind(action: str) -> str:
+    return "authoring" if str(action or "").startswith(AUTHORING_ACTION_PREFIX) else "agency"
+
+
+def _compact_string_list(values: list[str] | None, *, item_limit: int = 40, char_limit: int = 220) -> list[str]:
+    out: list[str] = []
+    for value in values or []:
+        clipped = _clip_text(value, char_limit)
+        if clipped:
+            out.append(clipped)
+        if len(out) >= item_limit:
+            break
+    return out
+
+
+def build_widget_authoring_metadata(
+    *,
+    library_ref: str | None = None,
+    touched_files: list[str] | None = None,
+    health_status: str | None = None,
+    health_summary: str | None = None,
+    check_phases: list[dict[str, Any]] | None = None,
+    screenshot_data_url: str | None = None,
+    next_actions: list[dict[str, Any]] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    metadata: dict[str, Any] = {"kind": "authoring"}
+    warning: str | None = None
+    if library_ref:
+        metadata["library_ref"] = _clip_text(library_ref, 220)
+    files = _compact_string_list(touched_files)
+    if files:
+        metadata["touched_files"] = files
+    if health_status:
+        metadata["health_status"] = _clip_text(health_status, 80)
+    if health_summary:
+        metadata["health_summary"] = _clip_text(health_summary, 500)
+    if check_phases:
+        metadata["check_phases"] = check_phases[:12]
+    if next_actions:
+        metadata["next_actions"] = next_actions[:8]
+    if screenshot_data_url:
+        if len(screenshot_data_url) <= MAX_SCREENSHOT_DATA_URL_CHARS:
+            metadata["screenshot"] = {
+                "mime_type": "image/png",
+                "data_url": screenshot_data_url,
+            }
+        else:
+            metadata["screenshot_omitted"] = {
+                "reason": "too_large",
+                "max_chars": MAX_SCREENSHOT_DATA_URL_CHARS,
+                "actual_chars": len(screenshot_data_url),
+            }
+            warning = "Runtime screenshot was too large to persist in the widget activity receipt."
+    if extra:
+        metadata["extra"] = extra
+    return metadata, warning
+
+
+async def create_widget_authoring_receipt(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID | None,
+    dashboard_key: str,
+    action: str,
+    summary: str,
+    reason: str | None = None,
+    bot_id: str | None = None,
+    session_id: uuid.UUID | None = None,
+    correlation_id: uuid.UUID | None = None,
+    task_id: uuid.UUID | None = None,
+    pin_id: str | None = None,
+    affected_pin_ids: list[str] | None = None,
+    library_ref: str | None = None,
+    touched_files: list[str] | None = None,
+    health_status: str | None = None,
+    health_summary: str | None = None,
+    check_phases: list[dict[str, Any]] | None = None,
+    screenshot_data_url: str | None = None,
+    next_actions: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[WidgetAgencyReceipt, str | None]:
+    if not action.startswith(AUTHORING_ACTION_PREFIX):
+        action = f"{AUTHORING_ACTION_PREFIX}{action}"
+    base_metadata, warning = build_widget_authoring_metadata(
+        library_ref=library_ref,
+        touched_files=touched_files,
+        health_status=health_status,
+        health_summary=health_summary,
+        check_phases=check_phases,
+        screenshot_data_url=screenshot_data_url,
+        next_actions=next_actions,
+        extra=metadata,
+    )
+    pin_ids = [pin_id, *(affected_pin_ids or [])]
+    receipt = await create_widget_agency_receipt(
+        db,
+        channel_id=channel_id,
+        dashboard_key=dashboard_key,
+        action=action,
+        summary=summary,
+        reason=reason,
+        bot_id=bot_id,
+        session_id=session_id,
+        correlation_id=correlation_id,
+        task_id=task_id,
+        affected_pin_ids=[value for value in pin_ids if value],
+        metadata=base_metadata,
+    )
+    return receipt, warning
+
+
 def serialize_widget_agency_receipt(row: WidgetAgencyReceipt) -> dict[str, Any]:
     return {
         "id": str(row.id),
+        "kind": _receipt_kind(row.action),
         "channel_id": str(row.channel_id) if row.channel_id else None,
         "dashboard_key": row.dashboard_key,
         "action": row.action,

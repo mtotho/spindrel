@@ -740,6 +740,7 @@ export interface WidgetUsefulnessAssessment {
 
 export interface WidgetAgencyReceipt {
   id: string;
+  kind?: "agency" | "authoring" | string;
   channel_id?: string | null;
   dashboard_key: string;
   action: string;

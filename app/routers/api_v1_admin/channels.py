@@ -421,6 +421,7 @@ class TaskListOut(BaseModel):
 
 class WidgetAgencyReceiptOut(BaseModel):
     id: str
+    kind: str = "agency"
     channel_id: str | None = None
     dashboard_key: str
     action: str

@@ -147,7 +147,7 @@ checks the in-settings preset surface plus desktop and mobile drawer framing.
 ## Channel Widget Usefulness Run
 
 Use this bundle when changing the channel dashboard widget proposal affordance,
-usefulness drawer, recent bot widget change receipts, Channel Settings ->
+usefulness drawer, recent bot widget activity receipts, Channel Settings ->
 Dashboard usefulness summary, Bot widget agency control, or Agent readiness
 widget-authoring status:
 
@@ -172,8 +172,9 @@ shim for the assessment, receipt, and agent-capability endpoints so artifacts
 stay deterministic when the shared e2e API lags the UI branch; the dashboard
 pins themselves are real. Inspect all four images before closeout: the bundle
 checks the dashboard toolbar affordance, the widget proposal drawer, recent bot
-widget change receipts, the compact settings summary, and the Agent readiness
-widget-authoring row with the HTML full-check badge.
+widget activity receipts including authoring evidence, the compact settings
+summary, and the Agent readiness widget-authoring row with the HTML full-check
+badge.
 
 ## Dashboard Pin Config Editor Run
 
